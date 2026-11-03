@@ -1,5 +1,7 @@
 package com.exponential.app.domain
 
+import at.exponential.ui.json.JsonValue
+import java.net.URLEncoder
 import java.text.Normalizer
 
 // VAPP-110: Exponential apps, the Android mirror of the pure reference
@@ -421,5 +423,44 @@ object Apps {
             src.substring(base.length)
         }
         return ATTACHMENT_PATH_RE.matches(path)
+    }
+
+    /** VAPP-221 (eApps R7): the app hosts' FileUpload uploads (fixture
+     *  `appFiles`, `AppsTest` locks it): every picked file POSTs to
+     *  [UPLOAD_PATH] as one part [PART_NAME]; the answer's `url` lands in the
+     *  FileUpload's bound list. */
+    object AppFiles {
+        const val UPLOAD_PATH = "/api/apps/{appId}/files"
+        const val PART_NAME = "file"
+        const val FAILED_VERB = "upload"
+        const val FAILED_THING = "the file"
+    }
+
+    /** The upload path of an app ([AppFiles.UPLOAD_PATH] with its id). */
+    fun appUploadPath(appId: String): String =
+        AppFiles.UPLOAD_PATH.replace("{appId}", URLEncoder.encode(appId, "UTF-8").replace("+", "%20"))
+
+    /** The absolute `files` path of the FIRST FileUpload (component order)
+     *  named [name] (its `name`, else its id); null when it has no absolute
+     *  `{path}` binding (`targetCases`). */
+    fun appUploadTarget(components: List<JsonValue>, name: String): String? {
+        val upload = components.firstOrNull { c ->
+            c["component"]?.string == "FileUpload" && (c["name"]?.let { it as? JsonValue.Str }?.v ?: c["id"]?.string) == name
+        } ?: return null
+        val path = (upload["files"] as? JsonValue.Obj)?.v?.get("path")?.string ?: return null
+        return path.takeIf { it.startsWith("/") }
+    }
+
+    /** [list] with [url] on every object entry named [fileName]; null =
+     *  nothing to write (no list, no such entry) (`urlCases`). */
+    fun withUploadedUrl(list: JsonValue?, fileName: String, url: String): JsonValue? {
+        val items = (list as? JsonValue.Arr)?.v ?: return null
+        var hit = false
+        val next = items.map { entry ->
+            if (entry !is JsonValue.Obj || entry.v["name"]?.string != fileName) return@map entry
+            hit = true
+            JsonValue.Obj(LinkedHashMap(entry.v).apply { put("url", JsonValue.Str(url)) })
+        }
+        return if (hit) JsonValue.Arr(next) else null
     }
 }

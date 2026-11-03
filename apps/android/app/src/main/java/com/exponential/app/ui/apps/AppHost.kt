@@ -1,6 +1,10 @@
 package com.exponential.app.ui.apps
 
 import android.content.Context
+import android.net.Uri
+import android.webkit.MimeTypeMap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +45,7 @@ import at.exponential.ui.extension.ExtensionContext
 import at.exponential.ui.extension.ExtensionLeaf
 import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.host.ExponentialHost
+import at.exponential.ui.host.FilePickRequest
 import at.exponential.ui.host.FunctionCallInfo
 import at.exponential.ui.host.FunctionPolicy
 import at.exponential.ui.host.HostExtension
@@ -49,6 +55,7 @@ import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.HostPolicy
 import at.exponential.ui.host.MediaOptions
 import at.exponential.ui.host.MediaRule
+import at.exponential.ui.host.PickedFile
 import at.exponential.ui.host.RecordRow
 import at.exponential.ui.host.RecordMigrations
 import at.exponential.ui.host.RecordsQuery
@@ -69,6 +76,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.images.resolveAccountForUrl
 import com.exponential.app.data.api.AppsApi
+import com.exponential.app.data.api.buildImageUploadBody
 import com.exponential.app.data.db.AppEntity
 import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.UserEntity
@@ -86,6 +94,7 @@ import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.CodeBlock
 import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -94,11 +103,14 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CompletableDeferred
@@ -115,6 +127,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * VAPP-110: the Android app as an Exponential UI HOST, the twin of the web
@@ -158,7 +171,13 @@ import kotlinx.coroutines.launch
  *    [AppConsentCard]); a typed action the hosting app's synced
  *    `granted_tools` names runs without the card;
  *    urls and media resolve against the instance (attachments with the
- *    account's bearer), every href through the URL policy.
+ *    account's bearer), every href through the URL policy;
+ *  - VAPP-221 files: a FileUpload's `pickFiles` opens the system document
+ *    picker; each picked file then POSTs (one at a time, in picked order) to
+ *    `/api/apps/{appId}/files` as the viewer and its `url` lands in the
+ *    FileUpload's bound list ([Apps.appUploadTarget] + [Apps.withUploadedUrl]);
+ *    a failure = the failed-action toast `upload` `the file`; at app access
+ *    `read` nothing uploads (Android has no Run as).
  */
 
 @EntryPoint
@@ -361,13 +380,67 @@ fun AppHostBanner(
 }
 
 /** The icon registry the painter reads: a concept (`nav-devices`) or a
- *  registry name (`monitor`), drawn in the current content colour. */
-private object AppHostIcons : HostPlugin {
+ *  registry name (`monitor`), drawn in the current content colour.
+ *  VAPP-221: a FileUpload's pick goes to [picks] (the system picker). */
+private class AppHostPlugin(private val picks: AppFilePicks) : HostPlugin {
     override fun icon(name: String, size: Float): (@Composable () -> Unit)? {
         val glyph = ExpIcons.byConcept(name) ?: ExpIcons.byName(name) ?: return null
         return { Icon(glyph, contentDescription = null, modifier = Modifier.size(size.dp)) }
     }
+
+    override fun pickFiles(request: FilePickRequest) = picks.ask(request)
 }
+
+/** VAPP-221: the FileUpload pick waiting on the system picker (one at a
+ *  time: a new ask replaces it), answered with the picked uris. */
+private class AppFilePicks {
+    private var pending: FilePickRequest? = null
+
+    /** Opens the system picker for a request (set by the composable). */
+    var launch: ((FilePickRequest) -> Unit)? = null
+
+    /** The current host's handler of a pick (set as the host is built). */
+    var onPicked: ((FilePickRequest, List<Uri>) -> Unit)? = null
+
+    fun ask(request: FilePickRequest) {
+        val open = launch ?: return
+        pending = request
+        runCatching { open(request) }.onFailure { pending = null }
+    }
+
+    fun picked(uris: List<Uri>) {
+        val request = pending ?: return
+        pending = null
+        if (uris.isNotEmpty()) onPicked?.invoke(request, uris)
+    }
+}
+
+/** A FileUpload's `accept` (MIME types and `.ext` extensions, comma
+ *  separated) → the document picker's MIME types (`*` + `/` + `*` = anything). */
+private fun acceptMimeTypes(accept: String?): Array<String> {
+    val types = accept.orEmpty().split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.mapNotNull { entry ->
+        if ('/' in entry) entry else MimeTypeMap.getSingleton().getMimeTypeFromExtension(entry.removePrefix("."))
+    }.distinct()
+    return if (types.isEmpty()) arrayOf("*/*") else types.toTypedArray()
+}
+
+/** The value at a JSON pointer (`/a/0/b`; "" = the root), null when absent. */
+private fun pointerValue(root: JsonValue, path: String): JsonValue? {
+    if (path.isEmpty()) return root
+    var current: JsonValue = root
+    for (raw in path.removePrefix("/").split('/')) {
+        val key = raw.replace("~1", "/").replace("~0", "~")
+        current = when (val at = current) {
+            is JsonValue.Obj -> at.v[key]
+            is JsonValue.Arr -> key.toIntOrNull()?.let { at.v.getOrNull(it) }
+            else -> null
+        } ?: return null
+    }
+    return current
+}
+
+/** One picked file: what the surface hears + where its bytes are read. */
+private class AppPickedUpload(val uri: Uri, val name: String, val type: String, val size: Long)
 
 /** The disc tone → the theme colour key (the web's `DISC_TONE`). */
 private fun discColorKey(tone: String?): String = when (tone) {
@@ -462,6 +535,17 @@ fun rememberAppHost(
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
     val links = rememberAppLinkHandler()
+    // VAPP-221: a FileUpload's pick = the system document picker (several
+    // when the FileUpload is `multiple`).
+    val picks = remember { AppFilePicks() }
+    val pickMany = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> -> picks.picked(uris) }
+    val pickOne = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> picks.picked(listOfNotNull(uri)) }
+    SideEffect {
+        picks.launch = { request ->
+            val types = acceptMimeTypes(request.accept)
+            if (request.multiple) pickMany.launch(types) else pickOne.launch(types)
+        }
+    }
     val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly, upstreams, migrateFrom) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
@@ -740,6 +824,62 @@ fun rememberAppHost(
             }
             fn
         }
+        // VAPP-221: every surface's components as authored (the FileUpload's
+        // `files` binding, which the painted nodes carry resolved).
+        val authored = HashMap<String, LinkedHashMap<String, JsonValue>>()
+        val onOp: (JsonValue) -> Unit = { op ->
+            val sid = op["surfaceId"]?.string.orEmpty()
+            when (op["op"]?.string) {
+                "create" -> authored[sid] = LinkedHashMap()
+                "components" -> {
+                    val byId = authored.getOrPut(sid) { LinkedHashMap() }
+                    for (c in op["components"]?.array.orEmpty()) c["id"]?.string?.let { byId[it] = c }
+                }
+            }
+        }
+        lateinit var built: ExponentialHost
+        // VAPP-221: the picked files reach the FileUpload (`upload {files}`),
+        // then upload one at a time in picked order; each answer's `url`
+        // lands in the FileUpload's bound list. At app access `read` (or
+        // without an app) nothing uploads.
+        picks.onPicked = { request, uris ->
+            scope.launch {
+                val app = context.applicationContext
+                val files = withContext(Dispatchers.IO) {
+                    uris.map { uri ->
+                        AppPickedUpload(
+                            uri = uri,
+                            name = MarkdownMediaUtils.guessFilename(app, uri),
+                            type = MarkdownMediaUtils.guessMimeType(app, uri, fallback = "application/octet-stream"),
+                            size = MarkdownMediaUtils.querySize(app, uri) ?: MarkdownMediaUtils.readBytes(app, uri)?.size?.toLong() ?: 0L,
+                        )
+                    }
+                }
+                request.done(files.map { PickedFile(it.name, it.size, it.type) })
+                val hostingApp = appId
+                if (readOnly || hostingApp == null) return@launch
+                val targets = authored.filter { (sid, byId) ->
+                    built.surfaces.containsKey(sid) && byId[request.componentId]?.get("component")?.string == "FileUpload"
+                }
+                for (file in files) {
+                    try {
+                        val bytes = withContext(Dispatchers.IO) { MarkdownMediaUtils.readBytes(app, file.uri) } ?: error("That file could not be read")
+                        val url = uploadAppFile(deps.httpClient(), origin, token, hostingApp, bytes, file.name, file.type)
+                        for ((sid, byId) in targets) {
+                            val upload = byId[request.componentId] ?: continue
+                            val name = (upload["name"] as? JsonValue.Str)?.v ?: request.componentId
+                            val path = Apps.appUploadTarget(byId.values.toList(), name) ?: continue
+                            val model = built.surfaces[sid] ?: continue
+                            val next = Apps.withUploadedUrl(pointerValue(model.data, path), file.name, url) ?: continue
+                            model.setData(path, next)
+                        }
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        toaster.failedAction(Apps.AppFiles.FAILED_VERB, Apps.AppFiles.FAILED_THING, e.message)
+                    }
+                }
+            }
+        }
         val functions = actions + mapOf(
             "records.upsert" to recordsUpsert,
             "records.delete" to recordsDelete,
@@ -750,7 +890,7 @@ fun rememberAppHost(
             "harness.mcp" to mcp,
         )
 
-        ExponentialHost(
+        built = ExponentialHost(
             HostOptions(
                 functions = functions,
                 sources = mapOf("exp" to exp, "records" to records, AppUpstream.SCHEME to upstream),
@@ -792,7 +932,8 @@ fun rememberAppHost(
                 mode = Mode.Dark,
                 // VAPP-200: at app access `read` every surface is read-only.
                 settings = SurfaceSettings(readOnly = readOnly),
-                plugin = AppHostIcons,
+                plugin = AppHostPlugin(picks),
+                onOp = onOp,
                 // VAPP-194: a package action runs as the viewer; one that
                 // landed nothing = the failed-action toast. VAPP-201: in the
                 // team zone, else the device's.
@@ -802,9 +943,43 @@ fun rememberAppHost(
             ),
             scope,
         )
+        built
     }
     DisposableEffect(host) { onDispose { host.dispose() } }
     return host
+}
+
+/**
+ * VAPP-221: one picked file's bytes as the ONE multipart part `file` on
+ * `/api/apps/{appId}/files` as the signed-in account (the same quoted part
+ * the issue and session uploads send); the answer's `url`. Throws with the
+ * server's message on a refusal (caps, storage budget, read access).
+ */
+private suspend fun uploadAppFile(
+    client: HttpClient,
+    origin: String?,
+    token: String?,
+    appId: String,
+    bytes: ByteArray,
+    filename: String,
+    contentType: String,
+): String {
+    requireNotNull(origin) { "No instance" }
+    val (body, boundary) = buildImageUploadBody(bytes, filename, contentType)
+    val response = client.post("$origin${Apps.appUploadPath(appId)}") {
+        // A large file on a slow uplink needs the file route's budget.
+        timeout { requestTimeoutMillis = 300_000 }
+        if (token != null) header("Authorization", "Bearer $token")
+        setBody(ByteArrayContent(bytes = body, contentType = ContentType.MultiPart.FormData.withParameter("boundary", boundary)))
+    }
+    val text = response.bodyAsText()
+    val answer = runCatching { JsonValue.parse(text) }.getOrNull()
+    if (!response.status.isSuccess()) {
+        // 412 = the storage cap: its body carries billing copy (EXP-216).
+        if (response.status == HttpStatusCode.PreconditionFailed) error("Team storage is full.")
+        error(answer?.get("error")?.string ?: answer?.get("message")?.string ?: "HTTP ${response.status.value}")
+    }
+    return answer?.get("url")?.string ?: error("The upload answered no url")
 }
 
 private var mcpRequestId = 0

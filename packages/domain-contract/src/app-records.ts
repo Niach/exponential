@@ -111,8 +111,18 @@ export const APP_DATA_COPY = fixture.dataTab.copy
 export interface DataField {
   type: `string` | `number` | `integer` | `boolean` | `array`
   enum?: string[]
-  items?: { type: `string` | `number` | `integer` | `boolean` }
-  format?: `date` | `date-time` | `time`
+  items?: { type: `string` | `number` | `integer` | `boolean`; format?: string }
+  format?: `date` | `date-time` | `time` | `attachment`
+}
+
+/** VAPP-221: an attachment ref (eUI `RECORD_ATTACHMENT_REF`). */
+const ATTACHMENT_REF = /^\/api\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const isAttachmentRef = (value: unknown): boolean => typeof value === `string` && ATTACHMENT_REF.test(value)
+
+/** VAPP-221: a field holding files (`format: "attachment"` on a string or
+ *  a list's string items): no form field, the app's FileUpload writes it. */
+export function isAttachmentField(field: DataField): boolean {
+  return field.type === `array` ? field.items?.type === `string` && field.items.format === `attachment` : field.type === `string` && field.format === `attachment`
 }
 
 export interface DataSchema {
@@ -149,11 +159,19 @@ export function dataRows<T extends { id: string; kind: string; updatedAt: string
 
 /** One cell's text (`cellCases`). */
 export function cellText(value: unknown): string {
+  // VAPP-221: files read as a count (a ref, or a list of refs only).
+  if (isAttachmentRef(value)) return APP_DATA_COPY.file
+  if (Array.isArray(value) && value.length > 0 && value.every(isAttachmentRef)) return value.length === 1 ? APP_DATA_COPY.file : APP_DATA_COPY.files.replace(`{n}`, String(value.length))
+  return plainText(value)
+}
+
+/** A value as written (a form input's text; a cell without files). */
+function plainText(value: unknown): string {
   if (value === null || value === undefined) return ``
   if (typeof value === `boolean`) return value ? APP_DATA_COPY.yes : APP_DATA_COPY.no
   if (typeof value === `number`) return String(value)
   if (typeof value === `string`) return value
-  if (Array.isArray(value)) return value.map(cellText).join(`, `)
+  if (Array.isArray(value)) return value.map(plainText).join(`, `)
   return JSON.stringify(value)
 }
 
@@ -171,7 +189,7 @@ export interface DataFormField {
 /** The form's fields, in column order (`formCases`). */
 export function formFields(schema: DataSchema): DataFormField[] {
   const required = schema.required ?? []
-  return dataColumns(schema).map((name) => {
+  return dataColumns(schema).filter((name) => !isAttachmentField(schema.properties[name]!)).map((name) => {
     const field = schema.properties[name]!
     const base = { name, required: required.includes(name) }
     if (field.type === `boolean`) return { ...base, control: `switch` }
@@ -188,7 +206,7 @@ export function formFields(schema: DataSchema): DataFormField[] {
 export function formInput(control: DataControl, value: unknown): string | boolean {
   if (control === `switch`) return value === true
   if (value === null || value === undefined) return ``
-  if (control === `list` && Array.isArray(value)) return value.map((item) => cellText(item)).join(`, `)
+  if (control === `list` && Array.isArray(value)) return value.map((item) => plainText(item)).join(`, `)
   return typeof value === `string` ? value : String(value)
 }
 

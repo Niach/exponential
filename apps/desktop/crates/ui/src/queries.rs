@@ -398,6 +398,12 @@ pub fn trpc_client(cx: &App) -> Option<api::TrpcClient> {
 pub(crate) fn attachment_transport(
     cx: &App,
 ) -> Option<Arc<dyn crate::markdown::AttachmentTransport>> {
+    http_attachment_transport(cx).map(|t| t as Arc<dyn crate::markdown::AttachmentTransport>)
+}
+
+/// [`attachment_transport`] as its concrete type (VAPP-221: the app
+/// hosts' `upload_app_file`).
+pub(crate) fn http_attachment_transport(cx: &App) -> Option<Arc<crate::markdown::HttpAttachmentTransport>> {
     let auth = cx.try_global::<AuthContext>()?;
     let account = active_account(cx)?;
     let provider: Arc<dyn api::TokenProvider> = auth.auth.token_provider(&account.id);

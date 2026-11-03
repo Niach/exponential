@@ -315,6 +315,10 @@ pub struct DataTabCopy {
     pub author: String,
     /// VAPP-188: `{writer} for {author}`.
     pub by_for: String,
+    /// VAPP-221: one attachment ref.
+    pub file: String,
+    /// VAPP-221: `{n} files`.
+    pub files: String,
 }
 
 /// The wide table's fixed columns (px).
@@ -369,6 +373,9 @@ pub static DATA_TAB: LazyLock<DataTabSpec> = LazyLock::new(|| {
 pub struct DataItems {
     #[serde(rename = "type", default)]
     pub ty: String,
+    /// VAPP-221: `attachment` on a list of files.
+    #[serde(default)]
+    pub format: Option<String>,
 }
 
 /// A kind's schema field (the SDK's JSON Schema subset, host/records.ts).
@@ -480,14 +487,52 @@ fn number_text(n: &serde_json::Number) -> String {
     }
 }
 
-/// One cell's text (`cellCases`); `None` = missing.
+/// VAPP-221: an attachment ref (eUI `RECORD_ATTACHMENT_REF`):
+/// `/api/attachments/<lowercase uuid>`.
+fn is_attachment_ref(value: &Value) -> bool {
+    let Some(id) = value.as_str().and_then(|s| s.strip_prefix("/api/attachments/")) else { return false };
+    let b = id.as_bytes();
+    b.len() == 36
+        && b.iter().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => *c == b'-',
+            _ => c.is_ascii_digit() || (b'a'..=b'f').contains(c),
+        })
+}
+
+/// VAPP-221: a field holding files (`format: "attachment"` on a string or
+/// a list's string items): no form field, the app's FileUpload writes it.
+pub fn is_attachment_field(field: &DataField) -> bool {
+    if field.ty == "array" {
+        field.items.as_ref().is_some_and(|i| i.ty == "string" && i.format.as_deref() == Some("attachment"))
+    } else {
+        field.ty == "string" && field.format.as_deref() == Some("attachment")
+    }
+}
+
+/// One cell's text (`cellCases`); `None` = missing. VAPP-221: files read
+/// as a count (a ref, or a non-empty list of refs only).
 pub fn cell_text(value: Option<&Value>) -> String {
+    match value {
+        Some(v) if is_attachment_ref(v) => DATA_TAB.copy.file.clone(),
+        Some(Value::Array(items)) if !items.is_empty() && items.iter().all(is_attachment_ref) => {
+            if items.len() == 1 {
+                DATA_TAB.copy.file.clone()
+            } else {
+                DATA_TAB.copy.files.replace("{n}", &items.len().to_string())
+            }
+        }
+        _ => plain_text(value),
+    }
+}
+
+/// A value as written (a form input's text; a cell without files).
+fn plain_text(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => String::new(),
         Some(Value::Bool(b)) => if *b { DATA_TAB.copy.yes.clone() } else { DATA_TAB.copy.no.clone() },
         Some(Value::Number(n)) => number_text(n),
         Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(items)) => items.iter().map(|v| cell_text(Some(v))).collect::<Vec<_>>().join(", "),
+        Some(Value::Array(items)) => items.iter().map(|v| plain_text(Some(v))).collect::<Vec<_>>().join(", "),
         Some(other) => serde_json::to_string(other).unwrap_or_default(),
     }
 }
@@ -539,6 +584,7 @@ pub struct DataFormField {
 pub fn form_fields(schema: &DataSchema) -> Vec<DataFormField> {
     data_columns(schema)
         .into_iter()
+        .filter(|name| !is_attachment_field(&schema.properties[name]))
         .map(|name| {
             let field = &schema.properties[&name];
             let mut out = DataFormField {
@@ -586,7 +632,7 @@ pub fn form_input(control: DataControl, value: Option<&Value>) -> FormInput {
     FormInput::Text(match value {
         None | Some(Value::Null) => String::new(),
         Some(Value::Array(items)) if control == DataControl::List => {
-            items.iter().map(|v| cell_text(Some(v))).collect::<Vec<_>>().join(", ")
+            items.iter().map(|v| plain_text(Some(v))).collect::<Vec<_>>().join(", ")
         }
         Some(Value::String(s)) => s.clone(),
         Some(Value::Number(n)) => number_text(n),
@@ -1910,6 +1956,8 @@ mod tests {
         let copy: Value = tab["copy"].clone();
         assert_eq!(copy["addRecord"], DATA_TAB.copy.add_record.as_str());
         assert_eq!(copy["listHint"], DATA_TAB.copy.list_hint.as_str());
+        assert_eq!(copy["file"], DATA_TAB.copy.file.as_str());
+        assert_eq!(copy["files"], DATA_TAB.copy.files.as_str());
         let columns = &tab["columns"];
         assert_eq!(columns["byWidth"].as_f64().unwrap() as f32, DATA_TAB.columns.by_width);
         assert_eq!(columns["updatedWidth"].as_f64().unwrap() as f32, DATA_TAB.columns.updated_width);
@@ -1995,6 +2043,11 @@ mod tests {
         for case in data_cases("cellCases") {
             assert_eq!(cell_text(case.get("value")), case["text"].as_str().unwrap(), "{case}");
         }
+        // VAPP-221: the new file cases are in the fixture.
+        assert!(data_cases("cellCases").iter().any(|c| c["text"] == "2 files"));
+        // A list INPUT never counts files: the plain list.
+        let ref_ = json!(["/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60"]);
+        assert_eq!(form_input(DataControl::List, Some(&ref_)), FormInput::Text("/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60".into()));
         // A whole float (a host's JSON layer) still reads `3`.
         assert_eq!(cell_text(Some(&json!(3.0))), "3");
     }

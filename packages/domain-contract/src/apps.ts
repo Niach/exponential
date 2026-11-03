@@ -272,3 +272,35 @@ export function webhookRow(
   const action: WebhookAction | null = isOwner ? (row.hasSecret ? `rotate` : `mint`) : null
   return { status, label: copy[status], action, actionLabel: action ? copy[action] : null }
 }
+
+/** VAPP-221 (eApps R7): the app hosts' FileUpload uploads (fixture
+ *  `appFiles`): every picked file POSTs to `uploadPath` as one part
+ *  `partName`; the answer's `url` lands in the FileUpload's bound list. */
+export const APP_FILES = fixture.appFiles
+
+/** The upload url of an app (`uploadPath` with its id). */
+export function appUploadPath(appId: string): string {
+  return APP_FILES.uploadPath.replace(`{appId}`, encodeURIComponent(appId))
+}
+
+/** The absolute `files` path of the FIRST FileUpload (component order)
+ *  named `name` (its `name`, else its id); null when it has no absolute
+ *  `{path}` binding (`targetCases`). */
+export function appUploadTarget(components: readonly Record<string, unknown>[], name: string): string | null {
+  const upload = components.find((c) => c.component === `FileUpload` && (typeof c.name === `string` ? c.name : c.id) === name)
+  const files = upload?.files as { path?: unknown } | undefined
+  return files && typeof files === `object` && !Array.isArray(files) && typeof files.path === `string` && files.path.startsWith(`/`) ? files.path : null
+}
+
+/** `list` with `url` on every object entry named `fileName`; null = nothing
+ *  to write (no list, no such entry) (`urlCases`). */
+export function withUploadedUrl(list: unknown, fileName: string, url: string): unknown[] | null {
+  if (!Array.isArray(list)) return null
+  let hit = false
+  const next = list.map((entry) => {
+    if (!entry || typeof entry !== `object` || Array.isArray(entry) || (entry as { name?: unknown }).name !== fileName) return entry
+    hit = true
+    return { ...(entry as Record<string, unknown>), url }
+  })
+  return hit ? next : null
+}

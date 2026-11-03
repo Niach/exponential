@@ -1318,6 +1318,12 @@ impl Surface {
         &self.data
     }
 
+    /// The flat component list as set (empty for a nested surface); a host
+    /// reads its components' raw props (a `{path}` binding) from it.
+    pub fn components(&self) -> &[FlatComponent] {
+        &self.components
+    }
+
     pub fn root(&mut self) -> Option<&UiNode> {
         self.ensure_reduced();
         self.root.as_ref()

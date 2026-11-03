@@ -27,7 +27,7 @@
 import { toastRecordUndo } from "@/lib/apps/record-undo"
 import { useState, useSyncExternalStore } from "react"
 import { eq } from "@tanstack/react-db"
-import { ExponentialHost, isPrivateHost } from "@exponential_app/eui"
+import { ExponentialHost, isPrivateHost, readPointer } from "@exponential_app/eui"
 import type { FunctionCallInfo, HostFunction, HostOptions, MediaRequest, ParsedSource, SourceEmit, Transport } from "@exponential_app/eui"
 import { useHostStatus } from "@exponential_app/eui-react"
 import { Button, conceptIcon, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, toast } from "@exp/ui"
@@ -49,7 +49,7 @@ import {
 import { RECORDS_SCHEME, kindComputed, kindRefs, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
-import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
+import { APP_FILES, APPS_COPY, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl } from "@exp/domain-contract/apps"
 import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
 import { kindTransitions, migrateRecord, packageMigrations, readableRows, type AppAccessLevel, type RecordMigration } from "@exponential_app/eui/host"
 import { grantableTools } from "@/lib/app-grants"
@@ -589,6 +589,9 @@ export class AppHost extends ExponentialHost {
   readonly upstreams: UpstreamAnswers
   /** The team's slug (the banner's Settings › MCP link). */
   teamSlug: () => string | null = () => null
+  /** VAPP-221: a FileUpload's picked files (the renderer plugin's
+   *  `onUpload`): see `createAppHost`. */
+  upload: (files: File[], target: { name: string }) => Promise<void> = async () => {}
   constructor(options: HostOptions, origin: string, upstreams: UpstreamAnswers = new UpstreamAnswers()) {
     super(options)
     this.appOrigin = origin
@@ -735,6 +738,35 @@ export function createAppHost(options: AppHostOptions): AppHost {
     },
   }, origin, upstreamAnswers)
   host.teamSlug = () => teamCollection.toArray.find((t) => t.id === scope.teamId)?.slug ?? null
+  // VAPP-221 (apps.json `appFiles`): each picked file goes to the app's
+  // upload route, one at a time; its `url` lands in the FileUpload's bound
+  // list. A refusal = the failed-action toast; nothing uploads under Run as
+  // (a read-only viewer's FileUpload is disabled and never picks).
+  host.upload = async (files, target) => {
+    if (runAs || !scope.appId) return
+    for (const file of files) {
+      let url: string
+      try {
+        const body = new FormData()
+        body.append(APP_FILES.partName, file, file.name)
+        const response = await fetch(appUploadPath(scope.appId), { method: `POST`, body, credentials: `same-origin` })
+        const answer = (await response.json().catch(() => null)) as { url?: unknown; message?: unknown; error?: unknown } | null
+        if (!response.ok || typeof answer?.url !== `string`) throw new Error(typeof answer?.message === `string` ? answer.message : typeof answer?.error === `string` ? answer.error : `HTTP ${response.status}`)
+        url = answer.url
+      } catch (error) {
+        failedAction(APP_FILES.failedVerb, APP_FILES.failedThing, error)
+        continue
+      }
+      for (const surfaceId of host.surfaceIds()) {
+        const store = host.surface(surfaceId)
+        const path = store ? appUploadTarget(store.components as unknown as Record<string, unknown>[], target.name) : null
+        if (!store || !path) continue
+        const next = withUploadedUrl(readPointer(store.data, path), file.name, url)
+        if (next) store.setData(path, next)
+        break
+      }
+    }
+  }
   return host
 }
 

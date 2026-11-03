@@ -318,7 +318,7 @@ impl LightboxPicture {
             alt: SharedString::from(alt.to_string()),
             theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
             mode: eui_core::theme::Mode::Dark,
-            host: Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new() }),
+            host: Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new(), uploads: None }),
             reduced_motion: theme::motion::reduce_motion(),
             ..ZoomableImageOptions::default()
         };

@@ -31,7 +31,8 @@ function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools
     () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me, grantedTools: () => grants.current, runAs, migrateFrom }),
     [consent, router, pkg, appId, teamId, me, runAs, migrateFrom]
   )
-  const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
+  // VAPP-221: a FileUpload's bytes go to the app host (apps.json `appFiles`).
+  const plugin = useMemo(() => ({ icons: exponentialUiIcons, onUpload: (files: File[], target: { name: string }) => host.upload(files, target) }), [host])
   useEffect(() => {
     if (templateId) {
       host.receive({
