@@ -24,6 +24,8 @@ export const APP_RECORD_COLUMNS = [
   // VAPP-187: whose record it is + the last writer (ownership).
   `author_id`,
   `updated_by`,
+  // VAPP-229: the app whose tool created it ("via <app>", via-app.json).
+  `via_app_id`,
   `created_at`,
   `updated_at`,
 ]

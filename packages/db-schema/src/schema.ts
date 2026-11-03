@@ -519,6 +519,12 @@ export const issues = pgTable(
       (): AnyPgColumn => agents.id,
       { onDelete: `set null` }
     ),
+    // VAPP-229 (via-app.json): the app whose exposed tool or automation
+    // created it (the apps broker's server-side context, never input);
+    // reads "via <app>" ×4. NULL = a person's or agent's own write. SYNCED.
+    viaAppId: uuid(`via_app_id`).references((): AnyPgColumn => apps.id, {
+      onDelete: `set null`,
+    }),
     dueDate: date(`due_date`),
     // EXP-630: story points. A plain non-negative integer (Linear's
     // fibonacci/linear/t-shirt scales all import as their point value);
@@ -2052,6 +2058,12 @@ export const sessions = pgTable(
     appId: uuid(`app_id`).references((): AnyPgColumn => apps.id, {
       onDelete: `cascade`,
     }),
+    // VAPP-229 (via-app.json): the app whose exposed tool or automation
+    // created it (NOT `app_id`, the editor session's app; the apps broker's server-side context, never input);
+    // reads "via <app>" ×4. NULL = a person's or agent's own write. SYNCED.
+    viaAppId: uuid(`via_app_id`).references((): AnyPgColumn => apps.id, {
+      onDelete: `set null`,
+    }),
     // ── runner ──
     // The STARTER (the real person; a teammate's start on a shared server
     // device stays theirs). Visibility keys on it.
@@ -2485,6 +2497,12 @@ export const appRecords = pgTable(
     // a team owner may update/delete.
     authorId: text(`author_id`).references(() => users.id, { onDelete: `set null` }),
     updatedBy: text(`updated_by`).references(() => users.id, { onDelete: `set null` }),
+    // VAPP-229 (via-app.json): the app whose exposed tool or automation
+    // created it (on create only; an app writing its OWN records through its UI = none) (the apps broker's server-side context, never input);
+    // reads "via <app>" ×4. NULL = a person's or agent's own write. SYNCED.
+    viaAppId: uuid(`via_app_id`).references((): AnyPgColumn => apps.id, {
+      onDelete: `set null`,
+    }),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     // Mirror of the app's deleted_at (trigger-maintained): the shape's static
     // trash predicate. Server-only, shape-excluded.

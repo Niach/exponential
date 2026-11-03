@@ -1,4 +1,6 @@
 import type { ReactNode } from "react"
+import { viaAppCaption } from "@exp/domain-contract/via-app"
+import { useAppName } from "@/hooks/use-apps"
 import { Link } from "@tanstack/react-router"
 import {
   Button,
@@ -63,6 +65,18 @@ export function SessionOrigin({
         agent={origin.agentId ? xrefAgent(origin.agentId) : null}
         onOpen={onOpen}
       />
+    </div>
+  )
+}
+
+/** VAPP-229 (via-app.json): a session an app's tool started reads one
+ *  muted line `via <app>` in its view's header (none without one). */
+export function SessionViaApp({ viaAppId, className }: { viaAppId: string | null | undefined; className?: string }) {
+  const caption = viaAppCaption(useAppName(viaAppId))
+  if (!caption) return null
+  return (
+    <div className={cn(CHAT_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 truncate pt-1 text-xs text-muted-foreground`, className)} data-testid="session-via-app">
+      {caption}
     </div>
   )
 }
@@ -137,6 +151,14 @@ export function InPlaceSession({
       <>
         {header}
         <SessionOrigin origin={origin} onOpen={onOpenXref} />
+      </>
+    )
+  }
+  if (row.viaAppId) {
+    header = (
+      <>
+        {header}
+        <SessionViaApp viaAppId={row.viaAppId} />
       </>
     )
   }
@@ -235,6 +257,7 @@ export function SessionScreen({
         </h1>
       </div>
       {view?.origin ? <SessionOrigin origin={view.origin} onOpen={nav.open} className="px-0" /> : null}
+      <SessionViaApp viaAppId={row.viaAppId} className="px-0" />
     </div>
   )
 

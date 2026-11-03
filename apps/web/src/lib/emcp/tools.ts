@@ -2523,6 +2523,9 @@ export function registerExponentialTools(
           // An agent's own key: its message into another session is THAT
           // session's agent-authored input (never over tRPC).
           viaMcp: true,
+          // VAPP-229: an app's tool (the broker's tagged request) starts
+          // sessions that read "via <app>".
+          ...(viaAppOf(request) ? { viaAppId: viaAppOf(request) } : {}),
         })
         return ok(result)
       } catch (e) {

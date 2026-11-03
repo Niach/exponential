@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { boards, devices, messages, teamMembers, teams } from "@/db/schema"
+import { apps, boards, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 
@@ -123,6 +123,27 @@ describe.skipIf(!ready.ok)(`F21 sessions.send clientMessageId`, () => {
     const me = caller(w.owner)
     const { sessionId } = await me.send({ teamId: w.teamId, deviceId: w.deviceId, text: `start` })
     await expect(me.send({ sessionId, text: `x`, clientMessageId: `k`.repeat(65) })).rejects.toThrow()
+  })
+})
+
+// VAPP-229: a send an app's tool drives (the broker's ctx.viaAppId, never
+// input) stamps every session it starts; a person's own send none.
+describe.skipIf(!ready.ok)(`VAPP-229 sessions.send via an app`, () => {
+  it(`stamps the started root, never a plain start`, async () => {
+    const w = await world()
+    const [app] = await db.insert(apps).values({ teamId: w.teamId, slug: `filer-${id8()}`, name: `Filer`, createdBy: w.owner }).returning({ id: apps.id })
+    const viaApp = sessionsRouter.createCaller({
+      session: { user: { id: w.owner } },
+      db,
+      request: new Request(`http://x.test`),
+      viaMcp: true,
+      viaAppId: app!.id,
+    } as never)
+    const started = await viaApp.send({ teamId: w.teamId, deviceId: w.deviceId, text: `from the app` })
+    const plain = await caller(w.owner).send({ teamId: w.teamId, deviceId: w.deviceId, text: `mine` })
+    const via = async (id: string) => (await db.select({ viaAppId: sessions.viaAppId }).from(sessions).where(eq(sessions.id, id)))[0]!.viaAppId
+    expect(await via(started.sessionId)).toBe(app!.id)
+    expect(await via(plain.sessionId)).toBeNull()
   })
 })
 

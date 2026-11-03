@@ -46,6 +46,8 @@ export const ISSUE_COLUMNS = [
   // whose session created it. Appended = one benign rotation.
   `assignee_agent_id`,
   `creator_agent_id`,
+  // VAPP-229: the app that created it ("via <app>", via-app.json).
+  `via_app_id`,
   `created_at`,
   `updated_at`,
 ]

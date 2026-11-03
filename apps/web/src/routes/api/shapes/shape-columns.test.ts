@@ -141,6 +141,9 @@ describe(`sessions allowlist`, () => {
     expect(ISSUE_EVENT_COLUMNS).toContain(`actor_agent_id`)
     expect(ISSUE_EVENT_COLUMNS).not.toContain(`via_mcp`)
   })
+  it(`syncs the VAPP-229 "via <app>" column on every row an app causes`, () => {
+    for (const columns of [ISSUE_COLUMNS, SESSION_COLUMNS, APP_RECORD_COLUMNS, COMMENT_COLUMNS]) expect(columns).toContain(`via_app_id`)
+  })
   it(`syncs the EXP-1458 tree key and sealed title`, () => {
     expect(SESSION_COLUMNS).toEqual(expect.arrayContaining([`seal_public_key`, `seal_epoch`, `sealed_title`, `seal_rotate_epoch`]))
   })

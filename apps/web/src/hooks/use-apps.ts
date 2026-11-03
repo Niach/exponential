@@ -114,3 +114,10 @@ export function useAppName(appId: string | null | undefined): string | null {
   )
   return ((data ?? []) as App[])[0]?.name ?? null
 }
+
+/** VAPP-229: every synced, non-trashed app's name by id (a table of rows
+ *  reading "via <app>" resolves them in one query). */
+export function useAppNames(): ReadonlyMap<string, string> {
+  const { data } = useLiveQuery((query) => query.from({ a: appCollection }).where(({ a }) => isNull(a.deletedAt)), [])
+  return useMemo(() => new Map(((data ?? []) as App[]).map((a) => [a.id, a.name])), [data])
+}

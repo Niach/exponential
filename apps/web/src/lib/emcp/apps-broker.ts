@@ -348,6 +348,8 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
       kind: run.kind,
       data: resolved.data as Record<string, unknown>,
       recordId: resolved.id as string | undefined,
+      // VAPP-229: the app's own exposed tool created it = "via <app>".
+      viaAppId: tool.app.id,
     })
     return answer(tool, { id: out.id, created: out.created })
   } catch (e) {

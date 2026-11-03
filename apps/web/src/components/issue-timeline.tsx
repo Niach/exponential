@@ -1,3 +1,5 @@
+import { useAppName } from "@/hooks/use-apps"
+import { withViaApp } from "@exp/domain-contract/via-app"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useSearch } from "@tanstack/react-router"
@@ -361,6 +363,8 @@ export function IssueTimeline({
             issue.creatorId
           )
   const createdTime = relativeTime(issue.createdAt)
+  // VAPP-229 (via-app.json): an app's tool filed it = `· via <app>`.
+  const viaAppName = useAppName(issue.viaAppId)
 
   // EXP-422 reverses EXP-327: the rule is bounded by the reading column, so
   // the border and the centered body are ONE element (the detail view mounts
@@ -406,7 +410,7 @@ export function IssueTimeline({
         <div className="flex min-h-5 items-center text-xs text-muted-foreground">
           <span className="truncate">
             <span className="font-medium text-foreground">{createdWho}</span>
-            {` `}created the issue{createdTime ? ` · ${createdTime}` : ``}
+            {` `}{withViaApp(`created the issue${createdTime ? ` · ${createdTime}` : ``}`, viaAppName)}
           </span>
         </div>
       </TimelineRow>

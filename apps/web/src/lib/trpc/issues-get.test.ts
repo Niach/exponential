@@ -113,6 +113,7 @@ const SHAPE_COLUMNS = [
   `draftId`,
   `assigneeAgentId`,
   `creatorAgentId`,
+  `viaAppId`,
   `createdAt`,
   `updatedAt`,
 ]

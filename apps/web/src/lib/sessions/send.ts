@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
@@ -722,8 +723,15 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
   }
 }
 
+/** VAPP-229: the app this send runs for (the apps broker's server-side
+ *  context, `sendSession({viaAppId})`), scoped to that one call: every
+ *  session row it inserts (a root, a child, an agent's fresh thread) reads
+ *  "via <app>" (via-app.json). */
+const sendViaApp = new AsyncLocalStorage<string | undefined>()
+
 async function insertSession(tx: Tx, values: SessionInsert & { id: string }): Promise<Session> {
-  const [row] = await tx.insert(sessions).values(values).returning()
+  const viaAppId = sendViaApp.getStore()
+  const [row] = await tx.insert(sessions).values(viaAppId ? { ...values, viaAppId } : values).returning()
   return row!
 }
 
@@ -807,7 +815,14 @@ export async function sendSession(args: {
    *  on a message into a session, agent or app and a child's first one; a
    *  new root's start carries no key. */
   clientMessageId?: string
+  /** VAPP-229: an app's exposed tool drives this call (tRPC ctx.viaAppId,
+   *  never input): the sessions it starts read "via <app>". */
+  viaAppId?: string
 }): Promise<SessionsSendResult & { txid: number }> {
+  return sendViaApp.run(args.viaAppId, () => sendSessionInner(args))
+}
+
+async function sendSessionInner(args: Parameters<typeof sendSession>[0]): Promise<SessionsSendResult & { txid: number }> {
   const caller = await loadCallerSession(args.userId, args.callerSessionId)
   const starter = effectiveStarter(args.userId, caller)
   const uploaderIds = [...new Set([args.userId, starter])]

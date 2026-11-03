@@ -46,6 +46,7 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     assigneeId: null,
     assigneeAgentId: null,
     creatorAgentId: null,
+    viaAppId: null,
     completedAt: null,
     createdAt: new Date(`2026-03-06T10:00:00.000Z`),
     creatorId: `user-1`,
