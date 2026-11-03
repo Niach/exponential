@@ -67,6 +67,8 @@ export async function conversationInTx(
       cli: agent.cli,
       account: agent.account,
       model: agent.model,
+      // #EXP-1656: the agent's skills (its triggers fire into this row too).
+      skillIds: agent.skillIds.length > 0 ? agent.skillIds : null,
       repositoryId: null,
       status: `queued`,
       shared: device.shared,

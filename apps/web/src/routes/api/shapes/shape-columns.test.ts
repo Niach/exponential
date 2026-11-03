@@ -14,6 +14,7 @@ import {
   messages,
   pins,
   prompts,
+  skills,
   pullRequestChecks,
   pullRequestIssues,
   pullRequests,
@@ -34,6 +35,7 @@ import { PULL_REQUEST_CHECK_COLUMNS } from "./pull-request-checks"
 import { AGENT_COLUMNS } from "./agents"
 import { EVENT_COLUMNS } from "./events"
 import { PROMPT_COLUMNS } from "./prompts"
+import { SKILL_COLUMNS } from "./skills"
 import { CONVERSATION_COLUMNS } from "./conversations"
 import { APP_COLUMNS } from "./apps"
 import { APP_VERSION_COLUMNS } from "./app-versions"
@@ -63,6 +65,8 @@ const lists = {
   agents: [AGENT_COLUMNS, agents],
   events: [EVENT_COLUMNS, events],
   prompts: [PROMPT_COLUMNS, prompts],
+  // #EXP-1656
+  skills: [SKILL_COLUMNS, skills],
   // NEW-3
   conversations: [CONVERSATION_COLUMNS, conversations],
   // VAPP-110
@@ -88,6 +92,7 @@ describe(`sessions allowlist`, () => {
   it(`keeps the bus columns server-only`, () => {
     expect(SESSION_COLUMNS).not.toContain(`wake_on`)
     expect(SESSION_COLUMNS).not.toContain(`mcp_server_ids`)
+    expect(SESSION_COLUMNS).not.toContain(`skill_ids`)
     expect(SESSION_COLUMNS).toContain(`agent_id`)
   })
   it(`the NEW-8 legacy columns are gone from the tables`, () => {
@@ -119,6 +124,12 @@ describe(`sessions allowlist`, () => {
     expect(AGENT_COLUMNS).not.toContain(`instructions`)
     expect(AGENT_COLUMNS).not.toContain(`trigger_state`)
     expect(PROMPT_COLUMNS).not.toContain(`body`)
+  })
+  it(`#EXP-1656: a skill's body stays server-only, an agent's pick syncs`, () => {
+    expect(SKILL_COLUMNS).not.toContain(`body`)
+    expect(SKILL_COLUMNS).toContain(`description`)
+    expect(SKILL_COLUMNS).toContain(`enabled_by_default`)
+    expect(AGENT_COLUMNS).toContain(`skill_ids`)
   })
   it(`syncs the #EXP-1383 agent columns, never the instructions text`, () => {
     expect(AGENT_COLUMNS).toContain(`instructions_updated_at`)

@@ -4,6 +4,7 @@ import type { SessionsConfigureInput } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { mcpServers, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { assertCanSteer, loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 import { assertRunnerVocabulary, effectiveCli, liftWallInTx, runnerPicks } from "@/lib/sessions/send"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -40,6 +41,9 @@ export async function configureSession(
   })
   const mcpServerIds =
     input.mcpServerIds === undefined ? undefined : await assertMcpServers(target.teamId, input.mcpServerIds)
+  // #EXP-1656: the skill pick, server-only like the MCP pick (the device
+  // reads it back through `sessions.skillPicks` / `skills.resolveForLaunch`).
+  const skillIds = input.skillIds === undefined ? undefined : await assertSkillsInTeam(db, target.teamId, input.skillIds)
 
   const picks = runnerPicks(input)
   const result = await db.transaction(async (tx) => {
@@ -50,6 +54,7 @@ export async function configureSession(
     await liftWallInTx(tx, target.id, { switching: false, model: picks.model })
     const set: Partial<typeof sessions.$inferInsert> = picks
     if (mcpServerIds !== undefined) set.mcpServerIds = mcpServerIds
+    if (skillIds !== undefined) set.skillIds = skillIds
     await tx
       .update(sessions)
       .set({ ...set, updatedAt: new Date() })
@@ -82,4 +87,9 @@ async function assertMcpServers(teamId: string, ids: string[]): Promise<string[]
  *  `[]` = none), compared against what its run launched with. */
 export function mcpPicks(session: { mcpServerIds: string[] | null }): string[] {
   return [...new Set(session.mcpServerIds ?? [])].sort()
+}
+
+/** #EXP-1656: the session's server-only skill pick, read back the same way. */
+export function skillPicks(session: { skillIds: string[] | null }): string[] {
+  return [...new Set(session.skillIds ?? [])].sort()
 }

@@ -44,7 +44,7 @@ import {
   type SessionMoveState,
 } from "@/lib/sessions/move"
 import { markConsumedLinesRead } from "@/lib/sessions/reads"
-import { configureSession, mcpPicks } from "@/lib/sessions/configure"
+import { configureSession, mcpPicks, skillPicks } from "@/lib/sessions/configure"
 import {
   cardAnswerInput,
   loadCardForAnswer,
@@ -601,6 +601,17 @@ export const sessionsRouter = router({
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       await assertCanSteer(ctx.session.user.id, session)
       return { mcpServerIds: mcpPicks(session) }
+    }),
+
+  /** #EXP-1656: the session's server-only skill pick (sorted ids), for
+   *  whoever may steer it (the composer's + menu; the host device compares
+   *  it with what its run launched with between turns). */
+  skillPicks: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .query(async ({ ctx, input }): Promise<{ skillIds: string[] }> => {
+      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
+      await assertCanSteer(ctx.session.user.id, session)
+      return { skillIds: skillPicks(session) }
     }),
 
   /** queued → running: the device took it (idempotent for its own device). */

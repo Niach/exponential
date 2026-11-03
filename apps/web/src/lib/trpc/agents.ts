@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
+  SKILLS_PER_SESSION_MAX,
   agentFacetsSchema,
   agentTriggersSchema,
   boardIconSchema,
@@ -11,6 +12,7 @@ import {
   type agentTriggersSchema as AgentTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
+import { assertSkillsInTeam } from "@/lib/skills-guard"
 import {
   agents,
   attachments,
@@ -37,6 +39,7 @@ import { assertAssistantTriggers, ensureAssistant, syncVoiceMirror } from "@/lib
 // (`lib/agents/triggers.ts`). Message one with `sessions.send({agentId})`.
 
 const uuid = z.string().uuid()
+const agentSkillIdsSchema = z.array(uuid).max(SKILLS_PER_SESSION_MAX)
 
 /** Agent triggers as stored: every trigger carries an id (minted here). */
 export function withTriggerIds(triggers: z.infer<typeof AgentTriggersSchema>): AgentTrigger[] {
@@ -148,7 +151,7 @@ export const agentsRouter = router({
   }),
 
   create: authedProcedure
-    .input(agentFacetsSchema.extend({ teamId: uuid }))
+    .input(agentFacetsSchema.extend({ teamId: uuid, skillIds: agentSkillIdsSchema.optional() }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       await assertTeamOwner(userId, input.teamId)
@@ -159,6 +162,7 @@ export const agentsRouter = router({
         // The agent runs on the owner's device (own, or shared with the
         // team), read under the machine's share lock (#EXP-1259).
         await resolveSessionDeviceInTx(tx, userId, input.teamId, input.deviceId)
+        const skillIds = (await assertSkillsInTeam(tx, input.teamId, input.skillIds)) ?? []
         const [agent] = await tx
           .insert(agents)
           .values({
@@ -174,6 +178,7 @@ export const agentsRouter = router({
             cli: input.cli ?? null,
             account: input.account ?? null,
             model,
+            skillIds,
             ownerId: userId,
           })
           .returning()
@@ -197,6 +202,8 @@ export const agentsRouter = router({
         account: z.string().min(1).max(64).nullable().optional(),
         model: z.string().max(64).nullable().optional(),
         sortOrder: z.number().finite().optional(),
+        // #EXP-1656: the skills every run of the agent starts with.
+        skillIds: agentSkillIdsSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -244,6 +251,8 @@ export const agentsRouter = router({
         // rename / toggle / reorder never undoes a device-reported rotation
         // of a conversation's account (EXP-849).
         const accountWrite = input.account !== undefined || account !== agent.account ? { account } : {}
+        const skillIds =
+          input.skillIds === undefined ? undefined : ((await assertSkillsInTeam(tx, agent.teamId, input.skillIds)) ?? [])
         const [updated] = await tx
           .update(agents)
           .set({
@@ -259,6 +268,7 @@ export const agentsRouter = router({
             ...(input.cli !== undefined ? { cli: input.cli } : {}),
             ...accountWrite,
             ...(model !== undefined ? { model } : {}),
+            ...(skillIds !== undefined ? { skillIds } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(moved ? { deviceId: input.deviceId } : {}),
             updatedAt: now,
@@ -275,6 +285,8 @@ export const agentsRouter = router({
               ...(input.cli !== undefined ? { cli: input.cli } : {}),
               ...accountWrite,
               ...(model !== undefined ? { model } : {}),
+              // #EXP-1656: and the skills its next launch installs.
+              ...(skillIds !== undefined ? { skillIds: skillIds.length > 0 ? skillIds : null } : {}),
               ...(moved
                 ? { deviceId: input.deviceId, shared: moved.shared, status: `queued` as const, busy: false, background: false }
                 : {}),

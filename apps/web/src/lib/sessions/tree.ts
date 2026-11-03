@@ -19,14 +19,14 @@ import { messageSessionId } from "@/lib/sessions/messages"
 // EXP-1291/NEW-1/NEW-2: the session tree as one read (MCP `sessions_get`)
 // and the thread list (MCP `sessions_list`: thread roots; an agent's
 // conversation sessions are listed through `agents_list`). Same visibility
-// rule as the shapes; the server-only facets (`mcp_server_ids`, `wake_on`)
+// rule as the shapes; the server-only facets (`mcp_server_ids`, `skill_ids`, `wake_on`)
 // never leave here. A root's issues = the UNION over its tree's rows (each
 // row names the session holding it).
 
-export type PublicSession = Omit<Session, `mcpServerIds` | `wakeOn`>
+export type PublicSession = Omit<Session, `mcpServerIds` | `skillIds` | `wakeOn`>
 
 export function publicSession(session: Session): PublicSession {
-  const { mcpServerIds: _mcp, wakeOn: _wake, ...rest } = session
+  const { mcpServerIds: _mcp, skillIds: _skills, wakeOn: _wake, ...rest } = session
   return rest
 }
 
