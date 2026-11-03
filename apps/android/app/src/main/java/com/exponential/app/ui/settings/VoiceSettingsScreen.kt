@@ -536,6 +536,8 @@ internal fun VoiceSettingsForm(
                 onSelect = { onChange(Voice.Change(voiceDeviceId = Voice.Pick(it))) },
                 testTag = Voice.TestIds.VOICE_DEVICE,
                 items = deviceItems,
+                // #NEW-125: a stored device not (yet) among the options reads empty.
+                unknownLabel = "",
             )
             GroupDivider()
             OptionPickerRow(
@@ -792,8 +794,15 @@ private fun OptionPickerRow(
     items: List<PickerItem<String>> = remember(options) { options.map { PickerItem(value = it.id ?: NONE, label = it.label) } },
     /** #FEED-163: Stop after is disabled while the device or the agent is None. */
     enabled: Boolean = true,
+    /** The value while [selected] is not among [options] (voice.json #NEW-125:
+     *  the Voice device row reads empty then, never `…`). */
+    unknownLabel: String = noneLabel,
 ) {
-    val value = options.firstOrNull { it.id == selected }?.label ?: noneLabel
+    val value = if (selected == null) {
+        noneLabel
+    } else {
+        options.firstOrNull { it.id == selected }?.label ?: unknownLabel
+    }
     Picker(
         items = items,
         mode = PickerMode.Single,

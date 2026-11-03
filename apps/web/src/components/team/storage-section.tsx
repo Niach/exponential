@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { deleteFilePrompt, promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
-import { Eraser, Trash2 } from "lucide-react"
+import { Trash2 } from "lucide-react"
 import type { Issue, Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -28,8 +28,11 @@ import {
   SETTINGS_LIST_CLASS,
   Prompt,
   SkeletonRows,
+  conceptIcon,
   toast,
 } from "@exp/ui"
+
+const CleanIcon = conceptIcon(`ui-clean`)
 
 type StorageList = Awaited<
   ReturnType<typeof trpc.attachments.listForTeam.query>
@@ -171,7 +174,7 @@ export function TeamStorageSection({
               disabled={sweepCandidateCount === 0 || sweeping}
               onClick={() => setSweepConfirmOpen(true)}
             >
-              <Eraser />
+              <CleanIcon />
               Sweep unreferenced images
               {sweepCandidateCount > 0 ? ` (${sweepCandidateCount})` : ``}
             </Pill>

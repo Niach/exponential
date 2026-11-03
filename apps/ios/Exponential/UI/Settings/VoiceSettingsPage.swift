@@ -399,7 +399,10 @@ struct VoiceSettingsBlock: View {
                     options: model.deviceOptions.map(\.id),
                     label: { id in
                         guard let id else { return Voice.Copy.voiceDeviceNone }
-                        return model.deviceOptions.first { $0.id == id }?.label ?? model.deviceName(id)
+                        // #NEW-125 (voice.json): the picked option's label;
+                        // EMPTY while the stored device is not (yet) among
+                        // the options, never `…`.
+                        return model.deviceOptions.first { $0.id == id }?.label ?? ""
                     },
                     // THE device picker: each desktop wears its glyph in the sheet
                     // (None none); the row's value is the name alone (web, Android).

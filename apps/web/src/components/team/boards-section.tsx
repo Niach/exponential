@@ -410,7 +410,7 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
               <span className="min-w-0 flex-1 truncate text-sm font-medium">
                 {board.name}
               </span>
-              <Pill className="hidden shrink-0 font-mono sm:inline-flex">
+              <Pill className="shrink-0 font-mono">
                 {board.prefix}
               </Pill>
               <span className="shrink-0 text-xs text-muted-foreground">
@@ -503,7 +503,7 @@ function PendingDeletionCard({ teamId }: { teamId: string }) {
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {board.name}
             </span>
-            <Pill className="hidden shrink-0 font-mono sm:inline-flex">
+            <Pill className="shrink-0 font-mono">
               {board.prefix}
             </Pill>
             <span className="shrink-0 text-xs text-muted-foreground">

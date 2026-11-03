@@ -14,6 +14,30 @@ struct TeamBoardsSection: View {
     @State private var repoTarget: BoardEntity?
     @State private var showCreate = false
 
+    /// EXP-525: THE board order ×4 (web `compareBoards`, desktop
+    /// `collections.rs`): `sortOrder` ascending (missing = last), then
+    /// `createdAt` ascending (missing = first; both wire forms, `T` or a
+    /// space, compare as UTC timestamps), then `id` byte-wise.
+    static func canonicalOrder(_ boards: [BoardEntity]) -> [BoardEntity] {
+        func created(_ board: BoardEntity) -> String? {
+            let raw = board.createdAt
+            return raw.isEmpty ? nil : raw.replacingOccurrences(of: "T", with: " ")
+        }
+        return boards.sorted { left, right in
+            let leftOrder = left.sortOrder ?? .infinity
+            let rightOrder = right.sortOrder ?? .infinity
+            if leftOrder != rightOrder { return leftOrder < rightOrder }
+            let leftCreated = created(left)
+            let rightCreated = created(right)
+            if leftCreated != rightCreated {
+                guard let leftCreated else { return true }
+                guard let rightCreated else { return false }
+                return leftCreated < rightCreated
+            }
+            return Array(left.id.utf8).lexicographicallyPrecedes(Array(right.id.utf8))
+        }
+    }
+
     var body: some View {
         // EXP-818: the filled group band over flat rows (Labels/Members
         // parity) — the boards read as a table, not as a stack of cards.
@@ -34,7 +58,7 @@ struct TeamBoardsSection: View {
             if boards.isEmpty {
                 EmptyState(.teamBoards)
             } else {
-                ForEach(boards, id: \.id) { board in
+                ForEach(Self.canonicalOrder(boards), id: \.id) { board in
                     HStack(spacing: 10) {
                         // Board glyph tinted with the board color — same idiom
                         // as the board switcher sheet (EXP-449).

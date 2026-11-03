@@ -37,6 +37,26 @@ data class InviteCapacityResult(val remaining: Int? = null)
 @Serializable
 private object EmptyInput
 
+/** `teams.update` (owner-only): only the fields set are written. */
+@Serializable
+data class UpdateTeamInput(
+    val teamId: String,
+    val name: String? = null,
+    val yoloMode: Boolean? = null,
+    val agentPrompt: String? = null,
+)
+
+@Serializable
+private data class TeamIdInput(val teamId: String)
+
+/** EXP-1025: the team prompt (server-only, member-readable). */
+@Serializable
+data class TeamAgentPrompt(
+    val agentPrompt: String = "",
+    val agentPromptUpdatedAt: String? = null,
+    val maxBytes: Int? = null,
+)
+
 @Singleton
 class TeamsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -70,6 +90,25 @@ class TeamsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = InviteCapacityInput.serializer(),
             outputSerializer = InviteCapacityResult.serializer(),
         ).remaining
+
+    /** Owner-only: name, yolo mode, the team prompt (`teams.update`). */
+    suspend fun update(accountId: String, input: UpdateTeamInput) {
+        trpc.mutationUnit(
+            accountId,
+            path = "teams.update",
+            input = input,
+            inputSerializer = UpdateTeamInput.serializer(),
+        )
+    }
+
+    suspend fun getAgentPrompt(accountId: String, teamId: String): TeamAgentPrompt =
+        trpc.query(
+            accountId,
+            path = "teams.getAgentPrompt",
+            input = TeamIdInput(teamId),
+            inputSerializer = TeamIdInput.serializer(),
+            outputSerializer = TeamAgentPrompt.serializer(),
+        )
 
     suspend fun delete(accountId: String, teamId: String) {
         trpc.mutationUnit(

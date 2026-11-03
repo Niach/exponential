@@ -197,11 +197,20 @@ describe(`Settings → Voice (NEW-67)`, () => {
     expect(detailOf()).toBe(VOICE_COPY.wakeWord)
   })
 
+  it(`#NEW-125: the device row reads None while none is picked, empty while unsynced`, () => {
+    const { unmount } = renderCard()
+    expect(trigger(VOICE_COPY.voiceDevice).textContent).toBe(`${VOICE_COPY.voiceDevice}${VOICE_COPY.voiceDeviceNone}`)
+    unmount()
+    renderCard({ voiceDeviceId: `d-unsynced` })
+    expect(trigger(VOICE_COPY.voiceDevice).textContent).toBe(VOICE_COPY.voiceDevice)
+    expect(trigger(VOICE_COPY.voiceDevice).textContent).not.toContain(VOICE_COPY.ellipsis)
+  })
+
   it(`the device picker lists desktops only, None first; a pick sends voiceDeviceId`, async () => {
     renderCard({ agentId: AGENT })
     fireEvent.click(trigger(VOICE_COPY.voiceDevice))
     expect(await screen.findByTestId(VOICE_TEST_IDS.voiceDevice)).toBeTruthy()
-    expect(await screen.findByText(VOICE_COPY.voiceDeviceNone)).toBeTruthy()
+    expect(await within(screen.getByTestId(VOICE_TEST_IDS.voiceDevice)).findByText(VOICE_COPY.voiceDeviceNone)).toBeTruthy()
     expect(screen.queryByText(`iPhone`)).toBeNull()
     fireEvent.click(await screen.findByText(`mint`))
     await flush()

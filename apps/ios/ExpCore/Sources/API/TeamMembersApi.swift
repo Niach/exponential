@@ -18,6 +18,26 @@ public struct RemoveMemberInput: Encodable, Sendable {
     }
 }
 
+public struct AddPlaceholderInput: Encodable, Sendable {
+    public let teamId: String
+    public let email: String
+    public var name: String?
+
+    public init(teamId: String, email: String, name: String? = nil) {
+        self.teamId = teamId
+        self.email = email
+        self.name = name
+    }
+}
+
+public struct AddPlaceholderResult: Decodable, Sendable {
+    public struct Member: Decodable, Sendable {
+        public let name: String
+    }
+
+    public let member: Member
+}
+
 public final class TeamMembersApi: Sendable {
     private let trpc: TrpcClient
 
@@ -34,5 +54,16 @@ public final class TeamMembersApi: Sendable {
 
     public func remove(accountId: String, memberId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "teamMembers.remove", input: RemoveMemberInput(memberId: memberId))
+    }
+
+    /// FEED-108: "Add without inviting" — the placeholder member with no
+    /// link (no mail, no seat). Returns the member's display name.
+    public func addPlaceholder(accountId: String, teamId: String, email: String, name: String?) async throws -> String {
+        let result: AddPlaceholderResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "teamMembers.addPlaceholder",
+            input: AddPlaceholderInput(teamId: teamId, email: email, name: name)
+        )
+        return result.member.name
     }
 }

@@ -131,8 +131,8 @@ struct TeamTabView: View {
     /// disambiguates with several servers).
     private var teamsSection: some View {
         let groups = teamLoader?.groups ?? []
+        // No band over the switcher (web-mobile's Team page).
         return VStack(alignment: .leading, spacing: 4) {
-            GlassSectionBand(Chats.Copy.Team.switch)
             VStack(spacing: 0) {
                 ForEach(groups) { group in
                     ForEach(group.teams, id: \.id) { team in
@@ -188,8 +188,8 @@ struct TeamTabView: View {
 
     /// #EXP-1381 (settings-nav.json): the team's settings rows, rendered
     /// FROM `SettingsNav.visiblePhoneRows` (order, label, icon concept,
-    /// count, visibility); each opens that category's OWN page. Apps are not a row
-    /// (the Apps tab).
+    /// count, visibility); each opens that category's OWN page (#EXP-1632:
+    /// Apps too, the Settings › Apps page).
     @ViewBuilder
     private var teamSettingsSection: some View {
         if let teamId = teamState.activeTeamId {

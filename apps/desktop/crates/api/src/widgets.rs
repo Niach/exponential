@@ -117,10 +117,10 @@ struct ListInput<'a> {
 /// One `widgets.list` row, decoded down to what its two consumers render: the
 /// getting-started checklist only asks "does the team have a widget?" (web
 /// parity: `widgets.list` non-empty), and the EXP-771 settings pane draws one
-/// READ-ONLY row per config. Everything past the id is optional — the wire row
-/// is the full drizzle select, and a new column must never fail the decode.
-/// The public key, the domain allowlist and the form config stay OUT on
-/// purpose: the desktop pane hands authoring off to the web.
+/// row per config (web `TeamWidgetSection`'s list: name, board, domains, the
+/// switch, the embed snippet). Everything past the id is optional — the wire
+/// row is the full drizzle select, and a new column must never fail the
+/// decode. The form config stays OUT: the editor is the web's.
 #[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WidgetConfigSummary {
@@ -131,6 +131,37 @@ pub struct WidgetConfigSummary {
     pub enabled: Option<bool>,
     /// `count(widget_submissions.id)` for this config.
     pub submission_count: Option<i64>,
+    /// The board its submissions file into (the row's pill).
+    pub board_name: Option<String>,
+    /// The allowlist the row's domain pills draw; empty = blocked.
+    pub allowed_domains: Vec<String>,
+    /// The embed snippet's key.
+    pub public_key: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetEnabledInput<'a> {
+    widget_config_id: &'a str,
+    enabled: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigIdInput<'a> {
+    widget_config_id: &'a str,
+}
+
+/// `widgets.update({widgetConfigId, enabled})` — the row's switch (owner-only).
+pub fn set_enabled(client: &TrpcClient, widget_config_id: &str, enabled: bool) -> Result<(), ApiError> {
+    let _: serde_json::Value = client.mutation("widgets.update", &SetEnabledInput { widget_config_id, enabled })?;
+    Ok(())
+}
+
+/// `widgets.delete({widgetConfigId})` — the row's ⋯ Delete (owner-only).
+pub fn delete(client: &TrpcClient, widget_config_id: &str) -> Result<(), ApiError> {
+    let _: serde_json::Value = client.mutation("widgets.delete", &ConfigIdInput { widget_config_id })?;
+    Ok(())
 }
 
 /// `widgets.list` — OWNER-only on the server (it exposes public keys and
@@ -148,9 +179,8 @@ mod list_tests {
     use crate::StaticToken;
     use std::sync::Arc;
 
-    /// EXP-771: the settings pane reads `enabled` + `submissionCount` off the
-    /// list, and the columns it does NOT model (publicKey, allowedDomains,
-    /// formConfig, boardName) must not break the decode.
+    /// The settings pane reads its row off the list, and the columns it
+    /// does NOT model (formConfig, createdAt) must not break the decode.
     #[test]
     fn decodes_the_pane_fields_and_ignores_the_rest() {
         let (base, _captured) = one_shot_server(
@@ -169,6 +199,9 @@ mod list_tests {
         assert_eq!(rows[0].name.as_deref(), Some("Docs site"));
         assert_eq!(rows[0].enabled, Some(false));
         assert_eq!(rows[0].submission_count, Some(12));
+        assert_eq!(rows[0].board_name.as_deref(), Some("Bugs"));
+        assert_eq!(rows[0].allowed_domains, ["example.com"]);
+        assert_eq!(rows[0].public_key.as_deref(), Some("expw_abc"));
         // A row with nothing but an id decodes, and reads as enabled.
         assert_eq!(rows[1].enabled, None);
         assert_eq!(rows[1].submission_count, None);

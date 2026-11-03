@@ -153,7 +153,7 @@ struct SignInMethodsSection: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         } trailing: {
             if methods.emailOtpEnabled {
-                GlassPill("Change", mode: .action { showChangeEmail = true })
+                GlassPill("Change", size: .md, mode: .action { showChangeEmail = true })
                     .accessibilityIdentifier("sign-in-methods-change-email")
             }
         }
@@ -165,20 +165,26 @@ struct SignInMethodsSection: View {
             providerMark(provider)
         } trailing: {
             if provider.linked {
+                // Web's outline button: the red label stays while blocked,
+                // the whole button dims (`disabled:opacity-50`).
                 GlassPill(
                     busyId == provider.id ? "Removing…" : (provider.isPassword ? "Remove" : "Unlink"),
+                    size: .md,
                     mode: .action {
                         confirm = .unlink(provider)
                     },
-                    tint: blocked ? nil : .red,
-                    enabled: !blocked && busyId == nil
+                    tint: .red
                 )
+                .disabled(blocked || busyId != nil)
+                .opacity(blocked || busyId != nil ? 0.5 : 1)
             } else if provider.available {
                 GlassPill(
                     pendingLink == provider.id ? "Redirecting…" : "Link",
-                    mode: .action { Task { await link(provider) } },
-                    enabled: pendingLink == nil
+                    size: .md,
+                    mode: .action { Task { await link(provider) } }
                 )
+                .disabled(pendingLink != nil)
+                .opacity(pendingLink != nil && pendingLink != provider.id ? 0.5 : 1)
             }
         }
     }
@@ -191,12 +197,14 @@ struct SignInMethodsSection: View {
         } trailing: {
             GlassPill(
                 busyId == passkey.id ? "Removing…" : "Remove",
+                size: .md,
                 mode: .action {
                     confirm = .removePasskey(passkey)
                 },
-                tint: blocked ? nil : .red,
-                enabled: !blocked && busyId == nil
+                tint: .red
             )
+            .disabled(blocked || busyId != nil)
+            .opacity(blocked || busyId != nil ? 0.5 : 1)
         }
     }
 

@@ -678,13 +678,14 @@ impl CreateBoardDialogView {
             .px_0()
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
-            .icon(registry::UI_GITHUB)
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
             .child(match label {
                 Some(label) => crate::surface::picker_value_label(label).into_any_element(),
                 None => crate::feedback::skeleton_value("create-board-repo-placeholder", 120., cx),
             })
+            // A grouped picker row ends in chevron-right ×4.
+            .child(crate::surface::picker_row_chevron(cx))
             .pointer_menu(move |menu, _window, _cx| {
                 let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
                 {

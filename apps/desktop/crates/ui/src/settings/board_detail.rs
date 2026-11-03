@@ -418,7 +418,6 @@ impl BoardDetailPane {
             .px_0()
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
-            .icon(registry::UI_GITHUB)
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
             .child(match label {
@@ -681,7 +680,8 @@ impl Render for BoardDetailPane {
             );
 
         // The prefix is read-only for life, so it is a row that STATES it
-        // (the hint is the row's description, never a caption above it).
+        // (the hint is the row's description, never a caption above it); web
+        // parity: the value is the mono readonly pill.
         let prefix_row = crate::surface::glass_row_shell()
             .child(
                 div()
@@ -691,32 +691,40 @@ impl Render for BoardDetailPane {
                     .child("Prefix"),
             )
             .child(
-                div()
-                    .flex_shrink_0()
-                    .text_sm()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(cx.theme().muted_foreground)
-                    .child(prefix),
+                crate::surface::glass_pill(
+                    row_id("board-detail-prefix", &board.id),
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Readonly,
+                    cx,
+                )
+                .flex_shrink_0()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(prefix),
             );
 
-        let mut rows = vec![
-            identity_row,
-            prefix_row,
-            crate::surface::glass_picker_row(
-                "Repository",
-                None,
-                self.repo_picker(&board, cx),
-                cx,
-            ),
-        ];
+        // Web parity (`board-detail.tsx` + `board-repo-field.tsx`): no band;
+        // the identity group, then the Repository + Branch group with the
+        // note under it.
+        let mut repo_rows = vec![crate::surface::glass_picker_row(
+            "Repository",
+            None,
+            self.repo_picker(&board, cx),
+            cx,
+        )];
         if let Some(branch) = self.branch_picker(&board, cx) {
-            rows.push(crate::surface::glass_picker_row("Branch", None, branch, cx));
+            repo_rows.push(crate::surface::glass_picker_row("Branch", None, branch, cx));
         }
 
-        let mut body = section(cx)
-            .child(crate::surface::glass_section_header("Board settings", None, cx))
-            .child(crate::surface::glass_group_rows(rows))
-            .child(crate::board_form::board_repo_note(cx));
+        let mut body = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_4()
+            .child(crate::surface::glass_group_rows(vec![identity_row, prefix_row]))
+            .child(
+                section(cx)
+                    .child(crate::surface::glass_group_rows(repo_rows))
+                    .child(crate::board_form::board_repo_note(cx)),
+            );
 
         // Archive + trash (owner-only pane already; both dialogs confirm
         // before they fire). Archive is deliberately NOT a danger button — it

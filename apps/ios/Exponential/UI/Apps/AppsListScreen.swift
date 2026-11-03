@@ -25,45 +25,63 @@ struct AppsListScreen: View {
     @State private var deleting: AppListEntry?
     @State private var exporting: AppListEntry?
 
-    private var teamId: String? { teamState.activeTeamId ?? teamState.teams.first?.id }
+    /// #EXP-1632: Settings › Apps (settings-nav.json `apps`) shows THIS
+    /// list for its team inside the settings page chrome; nil = the Apps tab.
+    var settingsTeamId: String? = nil
+
+    private var teamId: String? { settingsTeamId ?? teamState.activeTeamId ?? teamState.teams.first?.id }
 
     var body: some View {
-        ZStack {
-            AppBackground()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    GlassSectionBand(Apps.Copy.title) {
-                        HStack(spacing: 8) {
-                            GlassPill(Apps.Copy.import, mode: .action {
-                                UIApplication.endEditing()
-                                importing = true
-                            })
-                            .accessibilityIdentifier(Apps.TestIds.importApp)
-                            GlassPill(Apps.Copy.newApp, icon: AppIcons.uiAdd, mode: .action {
-                                createDraft()
-                            }, enabled: !creatingDraft && teamId != nil)
-                            .accessibilityIdentifier(Apps.TestIds.newApp)
-                        }
-                    }
-                    ForEach(model.apps) { app in
-                        row(app)
-                    }
-                    if model.loaded, model.apps.isEmpty {
-                        EmptyState(title: Apps.Copy.empty, icon: AppIcons.navApps, size: .list)
-                            .padding(.vertical, 8)
-                    }
+        if settingsTeamId != nil {
+            host(TeamSettingsPageChrome(section: .apps) { list })
+        } else {
+            host(ZStack {
+                AppBackground()
+                ScrollView {
+                    list
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(Apps.TestIds.list)
+                .scrollContentBackground(.hidden)
+                .tabBarBottomInset()
             }
-            .scrollContentBackground(.hidden)
-            .tabBarBottomInset()
+            // #EXP-1384: the Apps TAB's root wears the page header.
+            .pageHeader(Chats.Copy.Headers.apps))
         }
-        // #EXP-1384: the Apps TAB's root wears the page header.
-        .pageHeader(Chats.Copy.Headers.apps)
+    }
+
+    /// The band with Import… + New app over one row per app.
+    private var list: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(Apps.Copy.title) {
+                HStack(spacing: 8) {
+                    GlassPill(Apps.Copy.import, mode: .action {
+                        UIApplication.endEditing()
+                        importing = true
+                    })
+                    .accessibilityIdentifier(Apps.TestIds.importApp)
+                    GlassPill(Apps.Copy.newApp, icon: AppIcons.uiAdd, mode: .action {
+                        createDraft()
+                    }, enabled: !creatingDraft && teamId != nil)
+                    .accessibilityIdentifier(Apps.TestIds.newApp)
+                }
+            }
+            ForEach(model.apps) { app in
+                row(app)
+            }
+            if model.loaded, model.apps.isEmpty {
+                EmptyState(title: Apps.Copy.empty, icon: AppIcons.navApps, size: .list)
+                    .padding(.vertical, 8)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Apps.TestIds.list)
+    }
+
+    /// The sheets, the delete confirm and the observation both hosts share.
+    private func host<Content: View>(_ content: Content) -> some View {
+        content
         .sheet(isPresented: $importing) {
             if let teamId {
                 AppImportStep(teamId: teamId) { imported in
