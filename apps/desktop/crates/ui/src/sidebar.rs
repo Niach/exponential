@@ -3929,8 +3929,8 @@ mod tests {
         );
         // EXP-1294: nor does the Threads page — its rows open full width.
         assert_eq!(row_origin_for(ListMode::Screen, None, Some(&Screen::Threads)), None);
-        // EXP-1650: nor the Apps page.
-        assert_eq!(row_origin_for(ListMode::Screen, None, Some(&Screen::Apps)), None);
+        // VAPP-242: nor an app's run view.
+        assert_eq!(row_origin_for(ListMode::Screen, None, Some(&Screen::AppRun { app: "a".into() })), None);
         // A screen that is no list pins nothing (the panel is only mounted
         // for the board list, so this is the defensive arm).
         assert_eq!(row_origin_for(ListMode::Screen, None, Some(&issue)), None);
