@@ -81,7 +81,7 @@
         {"id": "team", "label": "Team", "count": 13},
         {"id": "agents", "label": "Agents", "count": 15},
         {"id": "sessions", "label": "Sessions", "count": 10},
-        {"id": "apps", "label": "Apps", "count": 8},
+        {"id": "apps", "label": "Apps", "count": 9},
         {"id": "activity", "label": "Activity", "count": 4}
       ]
     },

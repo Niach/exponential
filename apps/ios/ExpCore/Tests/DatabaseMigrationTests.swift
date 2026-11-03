@@ -3316,7 +3316,8 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, [])
+            // eApps V1 (v93): the apps shape refetches for published_version + draft_package.
+            XCTAssertEqual(reset, ["apps"])
         }
         // A synced row round-trips, its jsonb `data` as text.
         let wire = Data(#"""
