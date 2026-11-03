@@ -68,7 +68,7 @@ const SECTIONS: DocsSectionType[] = [
 ]
 
 const PACKAGE = `{
-  "formatVersion": 2,
+  "formatVersion": 3,
   "id": "acme.stunden",
   "name": "Stunden",
   "version": "1.0.0",
@@ -272,7 +272,7 @@ export function AppsDocsPage() {
                 <strong>Manifest</strong>: <code>id</code>, <code>name</code>,{` `}
                 <code>version</code>, the eUI <code>catalogId</code> it targets,{` `}
                 <code>icon</code>, <code>description</code>,{` `}
-                <code>formatVersion</code> (required, <code>2</code>: a client
+                <code>formatVersion</code> (required, <code>3</code>: a client
                 refuses any other version instead of showing a broken screen).
               </li>
               <li>

@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking** eApps R3: `PACKAGE_FORMAT_VERSION` 3 and per-kind record policies: `host::record_policy` (`record_policy`, `record_refusal`, `record_allowed`, `readable_rows`, `validate_record_policy`, `RecordOp`, `RecordViewer`), `apply_record_batch_as` (judged writes; created rows carry `authorId`), package tests take `role`. Fixture `record-policy.json`.
+- `cel`: `dateAdd` with a huge `n` and any day outside 0000..9999 is `date out of range` (it overflowed); the CEL differential fuzz corpus `fixtures/cel-fuzz.json` is replayed in `tests/cel_fuzz.rs`.
+
 ## 0.6.0 (2026-11-02)
 
 - **Breaking** (hence the minor): eApps packages need `formatVersion: 2` and read records only through `records:<kind>`; an expression is pure (writes and host calls only in `actions`); every `{call: expr}` binding needs a `default`, and an unguarded optional (`T?`) value is an install issue.

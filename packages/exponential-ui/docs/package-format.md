@@ -17,11 +17,12 @@ extension compatibility, canonical JSON, signatures).
 ## Versions
 
 A package MUST carry `formatVersion`. This document is format version
-**2** (`catalog/host.json` `package.formatVersion`), and a host reads exactly
-its own version: eApps keeps no backwards compatibility. A missing one is
-`/formatVersion: formatVersion is required (2)`, an older one `format version
-1 is no longer read: write 2`, a newer one `format version 3 is newer than
-this host (2)`; a host never guesses at keys it does not know. The catalog a package
+**3** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
+`policy`), and a host reads exactly its own version: eApps keeps no
+backwards compatibility. A missing one is
+`/formatVersion: formatVersion is required (3)`, an older one `format version
+2 is no longer read: write 3`, a newer one `format version 4 is newer than
+this host (3)`; a host never guesses at keys it does not know. The catalog a package
 renders against keeps its own version in its id (`catalogId`,
 `…/catalogs/core/v1`) and is negotiated as before (`supportedCatalogIds`).
 
@@ -29,7 +30,7 @@ renders against keeps its own version in its id (`catalogId`,
 
 ```jsonc
 {
-  "formatVersion": 2,                  // required: the current format
+  "formatVersion": 3,                  // required: the current format
   "id": "acme.hours", "name": "Working hours", "version": "1.2.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "templates": { "<id>": { "components": [/* flat, one root */], "data": {}, "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }] } },
@@ -52,10 +53,30 @@ Required: `formatVersion`, `id`, `name`, `version`, `catalogId`,
 
 ## Records
 
-An app's own data. `records: {<kind>: {schema, title?, description?}}`
+An app's own data. `records: {<kind>: {schema, title?, description?, policy?}}`
 declares every kind (VAPP-122: the kind pattern, the JSON Schema subset and
 the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
+
+**Policy** (eApps R3, `fixtures/record-policy.json`): who may read, create,
+update and delete a kind's records, one level per op:
+
+```jsonc
+"policy": { "read": "author", "create": "member", "update": "author", "delete": "owners" }
+```
+
+`member` = any member of the app's team; `author` = the record's author
+(`authorId ?? createdBy`) or a team owner; `owners` = team owners only (not
+even the author). `create` is `member` or `owners` (a new record has no
+author yet). An op left out keeps the default `member/member/author/author`.
+Over it sits the member's access level for the app, set by an owner:
+`none` (the app is hidden and syncs nothing), `read` (reads only, inputs
+disabled) or `write` (the default); it binds owners too. The host enforces
+it (Exponential: the server, and a `read` other than `member` filters the
+synced rows, so a private kind never reaches another member's device);
+`recordRefusal(policy, op, viewer, row?)` / `readableRows` are the rule,
+the refusal texts are the fixture's `copy`. Field-level privacy is out: use
+a separate kind with `read: owners`.
 
 **Read** = the binding source `records:<kind>[?query]`. The value is
 `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`
@@ -340,8 +361,11 @@ At most 50. Each test runs on its OWN in-memory store seeded with
 `records` (`{<kind>: [rows]}`: the kind's data, checked against its schema,
 plus an optional `id`, default `<kind>-<n>`, and `author`, default the
 test's member), at `now` (an ISO instant, UTC; default
-`2026-01-01T00:00:00.000Z`) as the member `as` (default `member`). It runs
-exactly one of:
+`2026-01-01T00:00:00.000Z`) as the member `as` (default `member`) with the
+team role `role` (`member` or `owner`, default `member`). It reads only the
+rows that member may read under each kind's `policy`, and an action's writes
+are judged by it (a refusal is `{error: "write <i>: <why>"}`; a row the
+member may not read is not found). It runs exactly one of:
 
 - `expr: {expr, vars?}`: the CEL value (or `{error}`); a var
   `{source: "records:<kind>?…"}` is that binding's value over the store.

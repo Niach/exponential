@@ -12,7 +12,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::actions::{apply_record_batch, run_action, ActionContext};
+use super::actions::{apply_record_batch_as, run_action, ActionContext};
+use super::record_policy::{readable_rows, RecordViewer};
 use super::package::PackageIssue;
 use super::query::{expand_query_source, parse_records_source, records_value_owned, RecordRow, RecordsContext, RECORDS_SCHEME};
 use super::records::validate_record;
@@ -29,6 +30,9 @@ pub const PACKAGE_TEST_LIMIT_GOT_MAX: usize = 300;
 pub const PACKAGE_TEST_DEFAULT_NOW: &str = "2026-01-01T00:00:00.000Z";
 /// The member a test runs as when it names none.
 pub const PACKAGE_TEST_DEFAULT_AS: &str = "member";
+/// eApps R3: the team role a test runs as when it names none, and the roles it may name.
+pub const PACKAGE_TEST_DEFAULT_ROLE: &str = "member";
+pub const PACKAGE_TEST_ROLES: &[&str] = &["member", "owner"];
 /// What a test runs: exactly one of these keys.
 pub const PACKAGE_TEST_KINDS: &[&str] = &["expr", "query", "action"];
 
@@ -105,6 +109,11 @@ pub fn validate_package_tests(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
         if let Some(r#as) = t.get("as") {
             if !r#as.as_str().is_some_and(|s| !s.is_empty()) {
                 issues.push(issue(format!("{at}/as"), "as is a member id"));
+            }
+        }
+        if let Some(role) = t.get("role") {
+            if !role.as_str().is_some_and(|r| PACKAGE_TEST_ROLES.contains(&r)) {
+                issues.push(issue(format!("{at}/role"), "role is member or owner"));
             }
         }
         if let Some(seed) = t.get("records") {
@@ -216,7 +225,14 @@ fn run_test(pkg: &Map<String, Value>, t: &Map<String, Value>) -> Value {
     let now = t.get("now").and_then(Value::as_str).unwrap_or(PACKAGE_TEST_DEFAULT_NOW);
     let now_ms = parse_timestamp(now);
     let me = t.get("as").and_then(Value::as_str).unwrap_or(PACKAGE_TEST_DEFAULT_AS);
-    let rows = seed_rows(t.get("records"), me, now);
+    let role = t.get("role").and_then(Value::as_str).unwrap_or(PACKAGE_TEST_DEFAULT_ROLE);
+    let kinds = pkg.get("records").filter(|r| r.is_object());
+    let viewer = RecordViewer { id: Some(me), role: Some(role), access: None };
+    // eApps R3: the test reads what its member may read, and writes under the policy.
+    let stored = seed_rows(t.get("records"), me, now);
+    let stored_values: Vec<Value> = stored.iter().map(|r| serde_json::to_value(r).unwrap_or(Value::Null)).collect();
+    let visible: Vec<bool> = stored_values.iter().map(|v| readable_rows(std::slice::from_ref(v), kinds, &viewer).len() == 1).collect();
+    let rows: Vec<RecordRow> = stored.iter().zip(&visible).filter(|(_, v)| **v).map(|(r, _)| r.clone()).collect();
     if let Some(expr) = t.get("expr").and_then(Value::as_object) {
         let mut vars = Map::new();
         if let Some(given) = expr.get("vars").and_then(Value::as_object) {
@@ -254,14 +270,13 @@ fn run_test(pkg: &Map<String, Value>, t: &Map<String, Value>) -> Value {
         Ok(plan) => plan,
         Err(e) => return error(e),
     };
-    let start: Vec<Value> = rows.iter().map(|r| serde_json::to_value(r).unwrap_or(Value::Null)).collect();
     let writes = plan.get("writes").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    let (after, _) = match apply_record_batch(&start, writes, pkg.get("records").filter(|r| r.is_object()), Some(me), now, |i| format!("new-{}", i + 1)) {
+    let (after, _) = match apply_record_batch_as(&stored_values, writes, kinds, Some(me), Some(role), None, now, |i| format!("new-{}", i + 1)) {
         Ok(out) => out,
         Err(e) => return error(e),
     };
     let mut records: Map<String, Value> = Map::new();
-    for row in &after {
+    for row in readable_rows(&after, kinds, &viewer) {
         let mut out = row.get("data").and_then(Value::as_object).cloned().unwrap_or_default();
         out.insert("id".into(), row.get("id").cloned().unwrap_or(Value::Null));
         let author = row.get("authorId").filter(|v| !v.is_null()).or_else(|| row.get("createdBy")).cloned().unwrap_or(Value::Null);

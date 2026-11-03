@@ -8,6 +8,7 @@ import type { ServerMessage } from "./contract"
 import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
 import { RECORD_KIND_PATTERN, validateRecordSchema } from "./records"
+import { validateRecordPolicy } from "./record-policy"
 import type { RecordKind } from "./records"
 import { RECORDS_SCHEME, parseRecordsJson } from "./query"
 import { validateTools } from "./tools"
@@ -22,7 +23,7 @@ import { packageTestIssues, validatePackageTests } from "./tests"
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
  *  A package names it, and it is exactly this one: no older format is
  *  read (eApps keeps no backwards compatibility). */
-export const PACKAGE_FORMAT_VERSION = 2
+export const PACKAGE_FORMAT_VERSION = 3
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
  *  extension id in order, de-duplicated. */
@@ -192,8 +193,12 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
         const def = (pkg.records as Record<string, unknown>)[kind]
         const at = `/records/${kind}`
         if (!RECORD_KIND_PATTERN.test(kind)) issues.push({ path: at, message: `a kind is lowercase letters, digits and underscores` })
-        if (!isObject(def)) issues.push({ path: at, message: `a kind is {schema, title?}` })
-        else issues.push(...validateRecordSchema(def.schema, `${at}/schema`))
+        if (!isObject(def)) issues.push({ path: at, message: `a kind is {schema, title?, policy?}` })
+        else {
+          issues.push(...validateRecordSchema(def.schema, `${at}/schema`))
+          // eApps R3: who may read, create, update and delete (record-policy.json).
+          if (def.policy !== undefined) issues.push(...validateRecordPolicy(def.policy, `${at}/policy`))
+        }
       }
   }
   if (pkg.sources !== undefined && (!Array.isArray(pkg.sources) || pkg.sources.some((f) => typeof f !== `string` || !f)))

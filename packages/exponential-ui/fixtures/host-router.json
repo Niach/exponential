@@ -2,7 +2,7 @@
   "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object.",
   "packages": {
     "acme.devices": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.devices",
       "name": "Devices",
       "version": "1.0.0",
@@ -42,7 +42,7 @@
       ]
     },
     "broken": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "broken",
       "name": "",
       "version": "1",
@@ -80,7 +80,7 @@
       ]
     },
     "acme.scoped": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.scoped",
       "name": "Scoped",
       "version": "1.0.0",
@@ -113,7 +113,7 @@
       ]
     },
     "acme.leaky": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.leaky",
       "name": "Leaky",
       "version": "1.0.0",
@@ -143,7 +143,7 @@
       ]
     },
     "acme.hours": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.hours",
       "name": "Working hours",
       "version": "1.0.0",
@@ -250,7 +250,7 @@
       }
     },
     "acme.badrecords": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.badrecords",
       "name": "Bad records",
       "version": "1.0.0",
@@ -311,7 +311,7 @@
       }
     },
     "acme.v2": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.v2",
       "name": "Hours v2",
       "version": "2.0.0",
@@ -499,7 +499,7 @@
       ]
     },
     "acme.future": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.future",
       "name": "Future",
       "version": "1.0.0",
@@ -538,7 +538,7 @@
       ]
     },
     "acme.charts": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.charts",
       "name": "Charts",
       "version": "1.0.0",
@@ -565,7 +565,7 @@
       ]
     },
     "acme.exposes": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.exposes",
       "name": "Hours with tools",
       "version": "1.0.0",
@@ -715,7 +715,7 @@
       ]
     },
     "acme.badexposes": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.badexposes",
       "name": "Bad tools",
       "version": "1.0.0",
@@ -964,7 +964,7 @@
       ]
     },
     "acme.exposeslist": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.exposeslist",
       "name": "Tools not a list",
       "version": "1.0.0",
@@ -988,7 +988,7 @@
       }
     },
     "acme.queries": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.queries",
       "name": "Hours with queries",
       "version": "1.0.0",
@@ -1090,7 +1090,7 @@
       }
     },
     "acme.badqueries": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.badqueries",
       "name": "Bad queries",
       "version": "1.0.0",
@@ -1164,7 +1164,7 @@
       }
     },
     "acme.querieslist": {
-      "formatVersion": 2,
+      "formatVersion": 3,
       "id": "acme.querieslist",
       "name": "Queries list",
       "version": "1.0.0",
@@ -2257,13 +2257,13 @@
         "acme.future": [
           {
             "path": "/formatVersion",
-            "message": "format version 3 is newer than this host (2)"
+            "message": "format version 4 is newer than this host (3)"
           }
         ],
         "acme.v1": [
           {
             "path": "/formatVersion",
-            "message": "format version 1 is no longer read: write 2"
+            "message": "format version 1 is no longer read: write 3"
           }
         ]
       },
@@ -2509,7 +2509,7 @@
         },
         {
           "path": "/records/list",
-          "message": "a kind is {schema, title?}"
+          "message": "a kind is {schema, title?, policy?}"
         },
         {
           "path": "/records/ok_kind/schema",
@@ -2619,7 +2619,7 @@
       "expected": [
         {
           "path": "/formatVersion",
-          "message": "format version 3 is newer than this host (2)"
+          "message": "format version 4 is newer than this host (3)"
         }
       ]
     },
@@ -2628,7 +2628,7 @@
       "expected": [
         {
           "path": "/formatVersion",
-          "message": "format version 1 is no longer read: write 2"
+          "message": "format version 1 is no longer read: write 3"
         }
       ]
     },

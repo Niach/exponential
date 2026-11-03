@@ -762,7 +762,7 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.6
             <code>bind</code> action, so the same package runs in every host.
           </p>
           <p>
-            Every package names its format, <code>formatVersion: 2</code> (required; a host reads no other), and
+            Every package names its format, <code>formatVersion: 3</code> (required; a host reads no other), and
             may carry three more optional blocks: <code>tools</code> (MCP servers or scripts, run
             only after the host showed the <code>toolConsent</code> card), <code>extensions</code> (custom component
             catalogs with a minimum version, checked against the host&apos;s) and a signed package file (an{` `}

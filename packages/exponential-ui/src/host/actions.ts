@@ -25,6 +25,7 @@ import { literalType, rowOf, schemaType } from "./expressions"
 import { validateRecord, validateRecordSchema } from "./records"
 import type { RecordSchema } from "./records"
 import type { RecordRow } from "./query"
+import { recordPolicy, recordRefusal, type AppAccessLevel } from "./record-policy"
 
 /** Caps: actions per package, steps per action, and the evaluation steps
  *  ONE run may spend over all of its expressions (each expression keeps
@@ -380,8 +381,14 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
 export interface BatchOptions {
   /** The package's kinds (each write is checked against its schema). */
   records: Record<string, unknown> | undefined
-  /** The writer (a create's `createdBy`). */
+  /** The writer (a create's `createdBy` and author). */
   me?: string | null
+  /** eApps R3: the writer's team role; set = every write is judged by its
+   *  kind's policy and `access` (record-policy.json), unset = not judged
+   *  (the server judges). */
+  role?: string | null
+  /** The writer's app access (absent = write). */
+  access?: AppAccessLevel
   /** The instant every row of the batch is stamped with. */
   now: string
   /** A new row's id (the `i`-th create of the batch). */
@@ -397,8 +404,15 @@ export function applyRecordBatch(rows: readonly RecordRow[], writes: readonly Ac
   let creates = 0
   for (const [i, w] of writes.entries()) {
     const where = `write ${i}`
+    const viewer = { id: options.me ?? null, role: options.role ?? null, access: options.access }
+    const judge = (kind: string, op: `create` | `update` | `delete`, row?: RecordRow) => (options.role === undefined ? null : recordRefusal(recordPolicy(options.records?.[kind]), op, viewer, row))
+    // A row the writer may not read is not there for them (no leak by refusal text).
+    const find = (id: string) => out.find((r) => r.id === id && (options.role === undefined || recordRefusal(recordPolicy(options.records?.[r.kind]), `read`, viewer, r) === null))
     if (w.op === `delete`) {
-      if (!out.some((r) => r.id === w.id)) return { error: `${where}: record ${w.id} not found` }
+      const row = find(w.id)
+      if (!row) return { error: `${where}: record ${w.id} not found` }
+      const refusal = judge(row.kind, `delete`, row)
+      if (refusal) return { error: `${where}: ${refusal}` }
       out = out.filter((r) => r.id !== w.id)
       ids.push(w.id)
       continue
@@ -407,9 +421,11 @@ export function applyRecordBatch(rows: readonly RecordRow[], writes: readonly Ac
     if (!def || !isObject(def.schema)) return { error: `${where}: records: no kind ${w.kind}` }
     const schema = def.schema as unknown as RecordSchema
     if (w.id !== undefined) {
-      const base = out.find((r) => r.id === w.id)
+      const base = find(w.id)
       if (!base) return { error: `${where}: record ${w.id} not found` }
       if (base.kind !== w.kind) return { error: `${where}: record ${w.id} is not of kind ${w.kind}` }
+      const refusal = judge(w.kind, `update`, base)
+      if (refusal) return { error: `${where}: ${refusal}` }
       const data = { ...base.data, ...w.data }
       const issues = validateRecord(schema, data)
       if (issues.length) return { error: `${where}: records: ${issueText(issues)}` }
@@ -417,10 +433,12 @@ export function applyRecordBatch(rows: readonly RecordRow[], writes: readonly Ac
       ids.push(w.id)
       continue
     }
+    const refusal = judge(w.kind, `create`)
+    if (refusal) return { error: `${where}: ${refusal}` }
     const issues = validateRecord(schema, w.data)
     if (issues.length) return { error: `${where}: records: ${issueText(issues)}` }
     const id = options.newId(creates++)
-    out.push({ id, kind: w.kind, data: { ...w.data }, createdBy: options.me ?? null, createdAt: options.now, updatedAt: options.now })
+    out.push({ id, kind: w.kind, data: { ...w.data }, createdBy: options.me ?? null, authorId: options.me ?? null, createdAt: options.now, updatedAt: options.now })
     ids.push(id)
   }
   return { rows: out, ids }

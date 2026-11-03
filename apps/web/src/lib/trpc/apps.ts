@@ -13,13 +13,14 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { appVersions, apps, mcpServers, sessions, type App } from "@/db/schema"
+import { appAccess, appVersions, apps, mcpServers, sessions, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
-import { commitRecordBatch, deleteRecord, importRecords, listRecords, loadApp, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
+import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecords, loadApp, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
+import { RECORD_POLICY_COPY } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_ON_BEHALF, importAuthor } from "@exp/domain-contract/app-records"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
@@ -220,6 +221,14 @@ async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {
   return rows.map((r) => r.slug)
 }
 
+/** eApps R3 (§9.2): the member's app access. `none` hides the app (NOT_FOUND,
+ *  as if it did not exist); `read` refuses a package write (FORBIDDEN). */
+async function assertAppAccess(db: Pick<typeof import("@/db/connection").db, `select`>, app: { id: string }, userId: string, need: `read` | `write`) {
+  const level = await appAccessLevel(db, app.id, userId)
+  if (level === `none`) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+  if (need === `write` && level === `read`) throw new TRPCError({ code: `FORBIDDEN`, message: RECORD_POLICY_COPY.readOnly })
+}
+
 export const appsRouter = router({
   list: authedProcedure
     .input(z.object({ teamId: uuid }))
@@ -242,7 +251,16 @@ export const appsRouter = router({
         .from(apps)
         .where(and(eq(apps.teamId, input.teamId), isNull(apps.deletedAt)))
         .orderBy(asc(apps.name))
-      return { apps: rows }
+      // eApps R3: an app at access none is hidden.
+      const hidden = new Set(
+        (
+          await ctx.db
+            .select({ appId: appAccess.appId })
+            .from(appAccess)
+            .where(and(eq(appAccess.teamId, input.teamId), eq(appAccess.userId, ctx.session.user.id), eq(appAccess.level, `none`)))
+        ).map((r) => r.appId)
+      )
+      return { apps: rows.filter((r) => !hidden.has(r.id)) }
     }),
 
   /** One app with its head package, or a named version's. */
@@ -251,6 +269,7 @@ export const appsRouter = router({
     .query(async ({ ctx, input }) => {
       const app = await loadApp(ctx.db, input)
       await assertTeamMember(ctx.session.user.id, app.teamId)
+      await assertAppAccess(ctx.db, app, ctx.session.user.id, `read`)
       if (input.version === undefined || input.version === app.headVersion) return { app, version: app.headVersion, package: app.package }
       const [row] = await ctx.db
         .select({ package: appVersions.package, number: appVersions.number })
@@ -267,6 +286,7 @@ export const appsRouter = router({
     .query(async ({ ctx, input }) => {
       const app = await loadApp(ctx.db, { id: input.id })
       await assertTeamMember(ctx.session.user.id, app.teamId)
+      await assertAppAccess(ctx.db, app, ctx.session.user.id, `read`)
       const rows = await ctx.db
         .select({
           id: appVersions.id,
@@ -366,7 +386,7 @@ export const appsRouter = router({
           .returning()
         const { number } = await writeVersionInTx(tx, app!, file.package, { note: APP_EXPORT_COPY.importNote, sessionId: null, createdBy: userId, byOwner: false })
         // #VAPP-193: last in the transaction (it switches to role eapps).
-        await importRecords(tx, app!, userId, file.records)
+        await importRecords(tx, { ...app!, package: file.package as App[`package`] }, userId, member.role, file.records)
         return { txid: txId, app: { ...app!, headVersion: number }, records: file.records.length }
       })
       // VAPP-154: two same-name imports at once derive the same slug; the
@@ -436,6 +456,7 @@ export const appsRouter = router({
       const userId = ctx.session.user.id
       const app = await loadApp(ctx.db, input)
       const { member } = await resolveTeamAccess(userId, app.teamId)
+      await assertAppAccess(ctx.db, app, userId, `write`)
       const pkg = validateAppPackage(input.package)
       await assertTeamUpstreams(ctx.db, app.teamId, pkg)
       // Release train 2026-10-23: the version always names its author; the
@@ -470,6 +491,7 @@ export const appsRouter = router({
       const userId = ctx.session.user.id
       const app = await loadApp(ctx.db, { id: input.id })
       const { member } = await resolveTeamAccess(userId, app.teamId)
+      await assertAppAccess(ctx.db, app, userId, `write`)
       const [row] = await ctx.db
         .select({ package: appVersions.package })
         .from(appVersions)

@@ -827,6 +827,18 @@ BEGIN
       team_id = NULLIF(current_setting('eapps.team', true), '')::uuid
       AND app_id = ANY (string_to_array(NULLIF(current_setting('eapps.apps', true), ''), ',')::uuid[])
     );
+  -- eApps R3: a write needs `eapps.write = on`, which the service sets only
+  -- for a member with write access to the app (app_access; a read-only or a
+  -- hidden app's member never writes, whatever the query). RESTRICTIVE: it
+  -- narrows eapps_scope; reads are unaffected (SELECT … FOR UPDATE is a
+  -- write path and needs it too).
+  DROP POLICY IF EXISTS eapps_write_insert ON app_records;
+  CREATE POLICY eapps_write_insert ON app_records AS RESTRICTIVE FOR INSERT TO eapps
+    WITH CHECK (current_setting('eapps.write', true) = 'on');
+  DROP POLICY IF EXISTS eapps_write_update ON app_records;
+  CREATE POLICY eapps_write_update ON app_records AS RESTRICTIVE FOR UPDATE TO eapps
+    USING (current_setting('eapps.write', true) = 'on')
+    WITH CHECK (current_setting('eapps.write', true) = 'on');
 EXCEPTION WHEN insufficient_privilege THEN
   RAISE WARNING 'eapps: cannot create or grant role eapps (needs CREATEROLE); app records stay unavailable until it exists';
 END $$;

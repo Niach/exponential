@@ -48,7 +48,7 @@ describe(`exposes (VAPP-180)`, () => {
   })
 
   test(`a package without exposes stays valid; with them, issues are package issues`, () => {
-    const pkg = { formatVersion: 2, id: `a`, name: `A`, version: `1.0.0`, catalogId: `https://ui.exponential.at/catalogs/core/v1`, templates: { t: { components: [{ id: `root`, component: `Text` }] } } }
+    const pkg = { formatVersion: 3, id: `a`, name: `A`, version: `1.0.0`, catalogId: `https://ui.exponential.at/catalogs/core/v1`, templates: { t: { components: [{ id: `root`, component: `Text` }] } } }
     expect(validatePackage(pkg)).toEqual([])
     expect(validatePackage({ ...pkg, upstreams: [`m5`], exposes: [{ ...emcp.validateCases[0]!.exposes[2] }] })).toEqual([])
     expect(validatePackage({ ...pkg, exposes: [{ ...emcp.validateCases[0]!.exposes[2] }] })).toEqual([{ path: `/exposes/0/run/upstream`, message: `upstream names none of the package's upstreams` }])

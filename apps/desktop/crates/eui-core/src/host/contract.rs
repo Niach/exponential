@@ -107,7 +107,8 @@ pub fn host_contract() -> Value {
             },
             "tests": {
                 "limits": {"tests": pt::PACKAGE_TEST_LIMIT_TESTS, "gotMax": pt::PACKAGE_TEST_LIMIT_GOT_MAX},
-                "defaults": {"now": pt::PACKAGE_TEST_DEFAULT_NOW, "as": pt::PACKAGE_TEST_DEFAULT_AS},
+                "defaults": {"now": pt::PACKAGE_TEST_DEFAULT_NOW, "as": pt::PACKAGE_TEST_DEFAULT_AS, "role": pt::PACKAGE_TEST_DEFAULT_ROLE},
+                "roles": pt::PACKAGE_TEST_ROLES,
                 "kinds": pt::PACKAGE_TEST_KINDS,
             },
             "tools": {"idPattern": tools::TOOL_ID_PATTERN, "kinds": tools::TOOL_KINDS, "transports": tools::TOOL_TRANSPORTS, "functionPrefix": tools::TOOL_FUNCTION_PREFIX},

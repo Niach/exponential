@@ -9,6 +9,7 @@ import { getTeamMember } from "@/lib/auth/membership"
 import { upstreamState, type ConsentUpstream } from "@/lib/emcp/apps-consent"
 import { connectionFor } from "@/lib/emcp/upstream/credentials"
 import { authedProcedure, router } from "@/lib/trpc"
+import { invalidateAppShapeRules } from "@/lib/apps/records-shape"
 
 // #VAPP-183: who may use which app's MCP tools (@exp/emcp access.json).
 // The member × app POLICY (Settings › MCP Access): owners set a level per
@@ -98,6 +99,8 @@ export const appAccessRouter = router({
           .values({ appId: input.appId, teamId: app.teamId, userId: input.userId, level: input.level })
           .onConflictDoUpdate({ target: [appAccess.appId, appAccess.userId], set: { level: input.level, updatedAt: new Date() } })
       }
+      // eApps R3: the app shapes follow the level at the member's next renewal.
+      invalidateAppShapeRules()
       return { ok: true as const }
     }),
 

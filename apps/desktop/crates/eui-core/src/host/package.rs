@@ -20,7 +20,7 @@ use crate::types::ExtensionDef;
 /// (catalog/host.json `package.formatVersion`; docs/package-format.md). A
 /// package names it, and it is exactly this one: no older format is read
 /// (eApps keeps no backwards compatibility).
-pub const PACKAGE_FORMAT_VERSION: u32 = 2;
+pub const PACKAGE_FORMAT_VERSION: u32 = 3;
 /// `package.extensions.versionPattern`.
 pub const EXTENSION_VERSION_PATTERN: &str = "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$";
 
@@ -218,8 +218,14 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
                         issues.push(issue(&at, "a kind is lowercase letters, digits and underscores"));
                     }
                     match def.as_object() {
-                        None => issues.push(issue(&at, "a kind is {schema, title?}")),
-                        Some(def) => issues.extend(validate_record_schema(def.get("schema").unwrap_or(&Value::Null), &format!("{at}/schema"))),
+                        None => issues.push(issue(&at, "a kind is {schema, title?, policy?}")),
+                        Some(def) => {
+                            issues.extend(validate_record_schema(def.get("schema").unwrap_or(&Value::Null), &format!("{at}/schema")));
+                            // eApps R3: who may read, create, update and delete.
+                            if let Some(policy) = def.get("policy") {
+                                issues.extend(super::record_policy::validate_record_policy(policy, &format!("{at}/policy")));
+                            }
+                        }
                     }
                 }
             }

@@ -28,7 +28,7 @@ fn case_package(base: &Value, with: &Value) -> Value {
 fn package_tests_fixture() {
     let f = fixture("package-tests.json");
     let limits = json!({"tests": host::PACKAGE_TEST_LIMIT_TESTS, "gotMax": host::PACKAGE_TEST_LIMIT_GOT_MAX});
-    let defaults = json!({"now": host::PACKAGE_TEST_DEFAULT_NOW, "as": host::PACKAGE_TEST_DEFAULT_AS});
+    let defaults = json!({"now": host::PACKAGE_TEST_DEFAULT_NOW, "as": host::PACKAGE_TEST_DEFAULT_AS, "role": host::PACKAGE_TEST_DEFAULT_ROLE});
     assert_eq!(f["limits"], limits);
     assert_eq!(f["defaults"], defaults);
     let contract = read("catalog/host.json");
