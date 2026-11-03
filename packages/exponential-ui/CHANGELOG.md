@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1653 / EXP-1644 look parity: a Form's injected `disabled` no longer matches part recipes keyed on the author's `disabled` prop (the Switch track, the Checkbox box, the FileUpload dropzone dimmed twice inside a disabled Form; web never matched them). The gpui painter hands a transparent container's opacity down to its children instead of fading its element, so a dimmed Button inside a dimmed Form flattens with the total dim (its label stayed translucent over its own fill). The web Textarea draws no resize grip (no native has one). Specimens: the open Toast is sticky (`duration: 0`, a shot never catches it dismissed) and the Sidebar shows `collapseBelow: never` (a phone frame showed only the pane).
+
 ## 0.7.0 (2026-11-03)
 
 - **Breaking** (hence the minor): eApps packages are `formatVersion: 3`, and a record kind may carry a per-kind `policy` (`read`/`create`/`update`/`delete`: `member | author | owners`); a version-2 package is migrated to 3 on the server, and hosts refuse newer formats.
