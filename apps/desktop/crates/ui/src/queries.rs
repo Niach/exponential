@@ -554,6 +554,19 @@ pub fn team_prompts(cx: &App, team_id: &str) -> (Vec<api::prompts::Prompt>, bool
     (out, collection.is_ready())
 }
 
+/// #EXP-1660: a team's skills off the synced `skills` shape (body-less),
+/// by name (`domain::skills::sort_skills`), plus whether the shape is ready.
+pub fn team_skills(cx: &App, team_id: &str) -> (Vec<domain::rows::SkillRow>, bool) {
+    let collections = Store::global(cx).collections();
+    let collection = collections.skills.read(cx);
+    let rows: Vec<domain::rows::SkillRow> = collection
+        .iter()
+        .filter(|row| row.team_id.as_deref() == Some(team_id))
+        .cloned()
+        .collect();
+    (domain::skills::sort_skills(&rows), collection.is_ready())
+}
+
 /// EXP-314: a team's `issue_statuses` rows in the canonical order (category
 /// display order, then `sort_order`, `created_at`, `id`). The ONE read every
 /// status surface goes through — pass the result straight to

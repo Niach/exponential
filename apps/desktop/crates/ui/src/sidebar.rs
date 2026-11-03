@@ -308,6 +308,8 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         // NEW-6: Settings → Prompts, and its create page.
         "prompts" => Some(S::Prompts),
         "new-prompt" => Some(S::NewPrompt),
+        "skills" => Some(S::Skills),
+        "new-skill" => Some(S::NewSkill),
         "local-repos" => Some(S::LocalRepos),
         "sessions" => Some(S::Sessions),
         "account" => Some(S::Account),
@@ -324,7 +326,8 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
             .strip_prefix("board:")
             .map(|id| S::Board(id.to_string()))
             .or_else(|| spec.strip_prefix("agent:").map(|id| S::Agent(id.to_string())))
-            .or_else(|| spec.strip_prefix("prompt:").map(|id| S::Prompt(id.to_string()))),
+            .or_else(|| spec.strip_prefix("prompt:").map(|id| S::Prompt(id.to_string())))
+            .or_else(|| spec.strip_prefix("skill:").map(|id| S::Skill(id.to_string()))),
     }
 }
 

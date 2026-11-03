@@ -32,6 +32,23 @@ pub const DELETE_CONFIRM_BODY: &str = "Sessions that picked it run without it fr
 pub const DELETE_CONFIRM: &str = "Delete";
 pub const DELETE_CANCEL: &str = "Cancel";
 
+/// The Delete confirm (`page.deleteConfirm`) as THE Prompt: Cancel + a
+/// destructive Delete, Return on Cancel.
+pub fn delete_confirm() -> crate::prompts::Prompt {
+    use crate::prompts::{Action, Role};
+    const ACTIONS: &[Action] = &[
+        Action { id: "cancel", label: DELETE_CANCEL, role: Role::Cancel },
+        Action { id: "delete", label: DELETE_CONFIRM, role: Role::Destructive },
+    ];
+    crate::prompts::Prompt {
+        id: "delete-skill",
+        title: DELETE_CONFIRM_TITLE.to_string(),
+        body: Some(DELETE_CONFIRM_BODY.to_string()),
+        actions: ACTIONS,
+        focus: "cancel",
+    }
+}
+
 /// `page.errors`.
 pub const ERR_NAME_REQUIRED: &str = "Name is required";
 pub const ERR_NAME_TOO_LONG: &str = "Name is too long";
