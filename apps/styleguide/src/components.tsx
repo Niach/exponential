@@ -1711,7 +1711,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ),
       android: ok(
         `LiveDot`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/issue/AgentPrCard.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/issue/SessionDots.kt`,
         `PulsingDot / StaticDot sit in the same file; the status glyph is StatusIcon (ui/components/IssueVisuals.kt)`
       ),
     },
@@ -2368,7 +2368,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-916: THE GitHub control of every diff surface — the PR page in a new tab — as one component in two shapes, so the words (the contract's) and the behaviour are written once. \`ghost\` is the work header's action slot beside Merge; \`circle\` is a phone work-bar slot, for a session with no issue header to hang it on, and takes its chrome whole from the bar's circle recipe (EXP-1154: the Reviews header's \`glass\` shape went with that page). Each shape keeps the \`data-testid\` its surface had before they were merged.`,
     status: {
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
-      desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
+      desktop: na(`EXP-1647: it rode the issue page's PR row, gone with it (web EXP-1293)`),
       ios: ok(
         `ThreadScreen toolbar`,
         `apps/ios/Exponential/UI/Thread/ThreadScreen.swift`,
