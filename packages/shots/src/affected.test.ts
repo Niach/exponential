@@ -136,7 +136,8 @@ describe(`desktop attribution`, () => {
     // over-capture; EXP-1388 added `chat-selection` (the list's bulk bar).
     // EXP-1557: `search-list`'s desktop shot drives the `chat` screen (the
     // composer's `#` list), so the composer claims it too; EXP-1558 adds
-    // `composer-slash-menu` (its `/` menu) the same way.
+    // `composer-slash-menu` (its `/` menu) the same way, and EXP-1659
+    // `composer-skills-menu` (its + menu's Skills submenu).
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
@@ -147,6 +148,7 @@ describe(`desktop attribution`, () => {
       `chat-selection`,
       `chat-transcript`,
       `composer-menu`,
+      `composer-skills-menu`,
       `composer-slash-menu`,
       `search-list`,
     ])
