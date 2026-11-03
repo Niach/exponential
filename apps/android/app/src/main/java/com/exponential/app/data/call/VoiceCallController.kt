@@ -85,6 +85,8 @@ class VoiceCallController @Inject constructor(
         val toast: String? = null,
         /** When the host answered (elapsedRealtime ms): the call's timer; null while ringing. */
         val answeredAt: Long? = null,
+        /** EXP-1681: the call screen is minimized into the floating pill. */
+        val minimized: Boolean = false,
     ) {
         val view: VoiceCall.View? get() = VoiceCall.callView(state, VoiceCall.Platform.Phone)
     }
@@ -161,7 +163,8 @@ class VoiceCallController @Inject constructor(
         agentColor: String? = null,
     ) {
         if (current != null || _ui.value.state.phase != VoiceCall.Phase.Hidden) return
-        _ui.update { it.copy(agent = agentName, agentIcon = agentIcon, agentColor = agentColor, toast = null, answeredAt = null) }
+        // A new call always opens full screen.
+        _ui.update { it.copy(agent = agentName, agentIcon = agentIcon, agentColor = agentColor, toast = null, answeredAt = null, minimized = false) }
         step(VoiceCall.Event.Start(device, language))
         if (!hasMicPermission()) return step(VoiceCall.Event.Failed("not_granted"))
         // No Opus encoder below API 29 (MediaCodec), or no microphone at all.
@@ -193,6 +196,17 @@ class VoiceCallController @Inject constructor(
         run.session?.outgoing?.trySend(Frame.Text(controlFrame("call_end")))
         step(VoiceCall.Event.End)
         finish(run)
+    }
+
+    /** EXP-1681: Minimize (the chevron, back): the screen goes, the floating pill shows, the call goes on. */
+    fun minimize() {
+        if (_ui.value.state.phase == VoiceCall.Phase.Hidden) return
+        _ui.update { it.copy(minimized = true) }
+    }
+
+    /** A tap on the pill: the call screen again. */
+    fun expand() {
+        _ui.update { it.copy(minimized = false) }
     }
 
     /** Mute / unmute: the uplink carries silence (the relay's idle keep-alive), replies still play. */

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.VoiceCall
+import com.exponential.app.ui.call.VoiceCallPill
 import com.exponential.app.ui.components.CallButton
 import com.exponential.app.ui.components.CallButtonTone
 import com.exponential.app.ui.components.CallControls
@@ -31,9 +32,8 @@ import com.exponential.app.ui.theme.DesignTokens
 // styleguide entry `call-controls` — web's gallery (`CallControlsSpecimen`)
 // with its captions: THE round call buttons in every tone (neutral, pressed,
 // speaker, speaker off, destructive, ringing with Cancel under the red end),
-// then the rows (phones in call; web + desktop in call, muted; ringing). The
-// compact row (the desktop's floating pill) is desktop-only and has no phone
-// view (as on iOS). Capture-only (shot `sg_call-controls`,
+// then the rows (phones in call; web + desktop in call, muted; ringing), then
+// the compact row (EXP-1681: the floating call pill, `call-pill`). Capture-only (shot `sg_call-controls`,
 // StyleguideScreenshotsTest#captureOnlyScreens).
 
 const val CallControlsSpecimenTestId = "call-controls-specimen"
@@ -72,6 +72,21 @@ fun CallControlsSpecimenScreen() {
                     }
                     Labelled("ringing") {
                         CallControls(view(VoiceCall.Activity.Ringing, false, listOf(VoiceCall.Button.End), C.CANCEL), onMute = {}, onSpeaker = {}, onEnd = {})
+                    }
+                }
+                val inCall = VoiceCall.surfaceSpecimens.first { it.name == "in call, speaking" }
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    Labelled("compact row: the floating call pill") {
+                        VoiceCallPill(
+                            agent = inCall.agent,
+                            view = inCall.view,
+                            timer = inCall.timer,
+                            level = inCall.level.toFloat(),
+                            bands = inCall.bands,
+                            onMute = {},
+                            onEnd = {},
+                            still = true,
+                        )
                     }
                 }
             }
