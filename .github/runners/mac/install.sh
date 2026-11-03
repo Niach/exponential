@@ -34,6 +34,8 @@ SCCACHE_CACHE_SIZE=40G
 CARGO_INCREMENTAL=0
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 ENV
+# EXP-1396: the disk guard also drops the dev box's shared cargo incremental dirs.
+[ -n "${CARGO_TARGET_DIR:-}" ] && echo "DISK_GUARD_CARGO_TARGETS=$CARGO_TARGET_DIR" >> .env
 
 ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist >/dev/null 2>&1 || ./svc.sh install
 PLIST="$(ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist | head -1)"
