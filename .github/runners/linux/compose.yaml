@@ -1,4 +1,5 @@
-# EXP-1364: four exp-linux runners on the Mint (.github/runners/README.md).
+# EXP-1364: one exp-linux runner on the Mint (.github/runners/README.md). One on
+# purpose: the Mint is Danny's desktop, more runners made it lag (was four).
 # `docker compose up -d --build` from this directory; RUNNER_TOKEN only on the
 # first start (the registration lives on in the runner-config volumes).
 x-runner: &runner
@@ -45,75 +46,13 @@ services:
       - bun-1:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-1:/runner/config
-  runner-2:
-    <<: *runner
-    environment:
-      <<: *env
-      RUNNER_NAME: mint-2
-      RUNNER_WORKDIR: /tmp/runner-2/work
-    volumes:
-      - sccache:/home/runner/.cache/sccache
-      - cargo-2:/home/runner/.cargo
-      - rustup-2:/home/runner/.rustup
-      - gradle-2:/home/runner/.gradle
-      - gradle:/home/runner/.gradle-ro:ro
-      - bun-2:/home/runner/.bun
-      - toolcache:/opt/hostedtoolcache
-      - config-2:/runner/config
-
-  runner-3:
-    <<: *runner
-    environment:
-      <<: *env
-      RUNNER_NAME: mint-3
-      RUNNER_WORKDIR: /tmp/runner-3/work
-    volumes:
-      - sccache:/home/runner/.cache/sccache
-      - cargo-3:/home/runner/.cargo
-      - rustup-3:/home/runner/.rustup
-      - gradle-3:/home/runner/.gradle
-      - gradle:/home/runner/.gradle-ro:ro
-      - bun-3:/home/runner/.bun
-      - toolcache:/opt/hostedtoolcache
-      - config-3:/runner/config
-
-  runner-4:
-    <<: *runner
-    environment:
-      <<: *env
-      RUNNER_NAME: mint-4
-      RUNNER_WORKDIR: /tmp/runner-4/work
-    volumes:
-      - sccache:/home/runner/.cache/sccache
-      - cargo-4:/home/runner/.cargo
-      - rustup-4:/home/runner/.rustup
-      - gradle-4:/home/runner/.gradle
-      - gradle:/home/runner/.gradle-ro:ro
-      - bun-4:/home/runner/.bun
-      - toolcache:/opt/hostedtoolcache
-      - config-4:/runner/config
 
 volumes:
   sccache:
   cargo-1:
-  cargo-2:
-  cargo-3:
-  cargo-4:
   rustup-1:
-  rustup-2:
-  rustup-3:
-  rustup-4:
   gradle:
   gradle-1:
-  gradle-2:
-  gradle-3:
-  gradle-4:
   bun-1:
-  bun-2:
-  bun-3:
-  bun-4:
   toolcache:
   config-1:
-  config-2:
-  config-3:
-  config-4:
