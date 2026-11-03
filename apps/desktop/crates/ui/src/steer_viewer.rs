@@ -7641,8 +7641,8 @@ impl SteerSessionView {
         );
         let paste = cx.listener(Self::on_paste);
         // EXP-1294: THE session composer box — the same card the thread
-        // reply and the agent channel paint. EXP-724: the `/` menu sits
-        // INSIDE the card, above the field.
+        // reply and the agent channel paint. EXP-1649: the `/` menu is the
+        // web's popover above the card.
         let slash = self.slash.as_ref().map(|menu| {
             crate::composer::session_slash_menu(
                 "steer-slash-menu",
@@ -7676,7 +7676,7 @@ impl SteerSessionView {
             crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
                 // EXP-1211: the quick replies sit DIRECTLY above the box.
                 .replies(replies)
-                .above_field(slash)
+                .above_card(slash)
                 .field_hook(move |field| {
                     field
                         .key_context("SteerComposer")

@@ -253,14 +253,14 @@ struct ThreadRows: Sendable {
         return parents
     }
 
-    /// The composer's placeholder: `Message <name>` on an agent channel
-    /// (web `agents/$agentId`, Android `ThreadUiCopy.messageAgent`), else the
-    /// thread's own.
+    /// The composer's placeholder: the thread's own (`Type / for commands`),
+    /// an agent channel's conversation included — web's thread screen reads
+    /// `view.composer.placeholder` there too (EXP-1649); `Message <name>`
+    /// stays the EMPTY channel's (no conversation yet).
     func composerPlaceholder(_ view: SessionThreadView) -> String {
         // VAPP-110: an app's editor chat (`copy.composerPlaceholder`).
         if root.appId != nil { return Apps.Copy.composerPlaceholder }
-        guard isAgent, !agentName.isEmpty else { return view.composer.placeholder }
-        return "Message \(agentName)"
+        return view.composer.placeholder
     }
 
     /// EXP-1306: the stack rail's names — per PR id of the Guide PR's open

@@ -25,3 +25,16 @@ describe(`ScheduleFields`, () => {
     expect(screen.getByText(COPY.rows.timeZone)).toBeTruthy()
   })
 })
+
+// EXP-1649: the Time row is ONE disclosure row (`Time  09:00 ›`), its hour
+// and its minute each a picker opened from their own digits.
+describe(`ScheduleTimeRow`, () => {
+  it(`draws HH:mm as one row with the row chevron, not two selects`, () => {
+    render(<ScheduleFields value={scheduleDraftFromCron(`5 9 * * *`, `UTC`)} onChange={() => {}} />)
+    const row = screen.getByTestId(IDS.time)
+    expect(row.textContent).toBe(`${COPY.rows.time}09:05`)
+    expect(screen.getByRole(`button`, { name: `Hour 09` })).toBeTruthy()
+    expect(screen.getByRole(`button`, { name: `Minute 05` })).toBeTruthy()
+    expect(row.querySelectorAll(`[data-slot="combobox-inline-trigger"]`).length).toBe(0)
+  })
+})

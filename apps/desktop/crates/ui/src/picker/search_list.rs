@@ -784,6 +784,7 @@ impl IssueTypeahead {
 pub(crate) fn typeahead_popover(
     typeahead: &Entity<IssueTypeahead>,
     anchor: CaretAnchor,
+    host_origin: Option<gpui::Point<Pixels>>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -904,15 +905,28 @@ pub(crate) fn typeahead_popover(
             point(anchor.left, anchor.top - px(TYPEAHEAD_GAP)),
         ),
     };
-    deferred(
-        anchored()
-            .anchor(corner)
-            .position(position)
-            .snap_to_window_with_margin(px(8.))
-            .child(panel),
-    )
-    .with_priority(200)
-    .into_any_element()
+    // EXP-1649: a host that measured the caret off its own origin keeps
+    // the popover on the caret through a layout shift after the open (the
+    // centred Home composer moving as its shapes land): the position is
+    // LOCAL to the host, re-resolved every frame from where it is now.
+    let popover = anchored()
+        .anchor(corner)
+        .snap_to_window_with_margin(px(8.));
+    match host_origin {
+        Some(origin) => deferred(
+            div().absolute().top_0().left_0().child(
+                popover
+                    .position_mode(gpui::AnchoredPositionMode::Local)
+                    .position(position - origin)
+                    .child(panel),
+            ),
+        )
+        .with_priority(200)
+        .into_any_element(),
+        None => deferred(popover.position(position).child(panel))
+            .with_priority(200)
+            .into_any_element(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1241,10 +1255,14 @@ const TYPEAHEAD_GAP: f32 = 4.;
 /// The caret line of a plain textarea (the comment composer, the run
 /// composer, the classic block editor) in window coordinates: the field's
 /// `origin` plus the shaped width of the caret's line up to the caret, one
-/// line height per row down, inside the field's 8px padding.
+/// line height per row down, inside the field's 8px padding. EXP-1649: the
+/// left edge is the TOKEN's `#` (`token_start`, on the caret's line), web's
+/// `textareaCaretAnchor(field, text, issueRef.start)`, not the caret after
+/// it.
 pub(crate) fn textarea_caret_anchor(
     state: &gpui_component::input::TextareaState,
     origin: gpui::Point<Pixels>,
+    token_start: usize,
     window: &Window,
 ) -> CaretAnchor {
     let value = state.value().to_string();
@@ -1253,7 +1271,12 @@ pub(crate) fn textarea_caret_anchor(
     let line_height = state.line_height().unwrap_or(px(20.));
     let scroll = state.scroll_offset();
     let line_start = value[..cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_text = value[line_start..cursor].to_string();
+    let at = if (line_start..=cursor).contains(&token_start) && value.is_char_boundary(token_start) {
+        token_start
+    } else {
+        cursor
+    };
+    let line_text = value[line_start..at].to_string();
     let text_style = window.text_style();
     let font_size = text_style.font_size.to_pixels(window.rem_size());
     let caret_x = if line_text.is_empty() {
@@ -1286,6 +1309,8 @@ pub(crate) fn textarea_caret_anchor(
 pub(crate) struct OpenIssueTypeahead {
     pub(crate) entity: Entity<IssueTypeahead>,
     pub(crate) anchor: CaretAnchor,
+    /// The host's origin `anchor` was measured off ([`Self::relative_to`]).
+    host_origin: Option<gpui::Point<Pixels>>,
     _subscription: Subscription,
 }
 
@@ -1309,13 +1334,22 @@ impl OpenIssueTypeahead {
         Self {
             entity,
             anchor,
+            host_origin: None,
             _subscription: subscription,
         }
     }
 
+    /// EXP-1649: `anchor` was measured off `origin`, the window origin of
+    /// the element whose child [`Self::render`] is (a `relative` host): the
+    /// popover then follows that host when the layout moves it.
+    pub(crate) fn relative_to(mut self, origin: gpui::Point<Pixels>) -> Self {
+        self.host_origin = Some(origin);
+        self
+    }
+
     /// The popover, for the editor's render.
     pub(crate) fn render(&self, window: &mut Window, cx: &mut App) -> AnyElement {
-        typeahead_popover(&self.entity, self.anchor, window, cx)
+        typeahead_popover(&self.entity, self.anchor, self.host_origin, window, cx)
     }
 
     /// EXP-1558 (DEV-ONLY, `EXP_DEV_TYPEAHEAD_QUERY`): `query` typed into the

@@ -1040,6 +1040,23 @@ pub(crate) fn take_dev_composer_text() -> Option<String> {
     (!TAKEN.swap(true, Ordering::SeqCst)).then_some(text)
 }
 
+/// EXP-1649 — `EXP_DEV_COMPOSER_ISSUES=<issue-uuid>[,…]` seeds Home's
+/// composer INLINE with these issues once (the first page composer with a
+/// team and synced shapes): web's `/agent?issues=` deep link, the
+/// `chat-issues` capture (a ▶ seed opens the DIALOG instead, EXP-1037).
+pub(crate) fn take_dev_composer_issues() -> Option<Vec<String>> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    let ids: Vec<String> = std::env::var("EXP_DEV_COMPOSER_ISSUES")
+        .ok()?
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect();
+    (!ids.is_empty() && !TAKEN.swap(true, Ordering::SeqCst)).then_some(ids)
+}
+
 /// EXP-1558 — `EXP_DEV_TYPEAHEAD_QUERY=<text>` types `<text>` into the
 /// first `#` search list's own input once it opens: with
 /// `EXP_DEV_COMPOSER_TEXT=Explain #` the composer keeps `Explain #` and the

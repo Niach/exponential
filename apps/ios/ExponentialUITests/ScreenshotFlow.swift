@@ -625,7 +625,12 @@ extension XCTestCase {
             .firstMatch
         if backButton.waitForExistence(timeout: 1) {
             backButton.tap()
+            return
         }
+        // EXP-1649: a page without a navigation bar (Search) draws its own
+        // `BackButton` in the content.
+        let contentBack = app.buttons.matching(identifier: "BackButton").firstMatch
+        if contentBack.exists { contentBack.tap() }
     }
 
     /// Give in-flight animations (and Electric row inserts) a moment to settle

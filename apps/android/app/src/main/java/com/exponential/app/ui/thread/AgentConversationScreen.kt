@@ -313,7 +313,9 @@ fun AgentConversationScreen(
 
     val row = agent
     val name = row?.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS
-    val placeholder = ThreadUiCopy.messageAgent(name)
+    // EXP-1649: THE session composer's placeholder ×4 (session-thread.json
+    // copy.placeholder), never `Message <agent>`: web's agent channel reads it.
+    val placeholder = SessionTree.ThreadCopy.PLACEHOLDER
     CompositionLocalProvider(LocalDetailHaze provides rememberHazeState()) {
         Scaffold(
             containerColor = Color.Transparent,

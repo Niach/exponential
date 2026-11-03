@@ -150,8 +150,13 @@ fun GlassSheet(
         modifier = if (full) Modifier.statusBarsPadding() else Modifier,
         shape = RoundedCornerShape(topStart = GlassSheetDefaults.CornerRadius, topEnd = GlassSheetDefaults.CornerRadius),
         containerColor = containerColor,
+        // EXP-1649: THE overlay scrim ×4 (web Sheet overlay `bg-black/60
+        // backdrop-blur-sm`, the alert's): dimmed AND blurred, never M3's
+        // light 32% wash.
+        scrimColor = ScrimColor,
         dragHandle = { BottomSheetDefaults.DragHandle(color = GlassSheetDefaults.DragHandleColor) },
     ) {
+        OverlayWindowBlur()
         // The sheet's own back, the same hide-then-dismiss the swipe takes.
         // Declared BEFORE the content so a handler the caller nests inside it
         // (the sub-shell's open page) is the more recent one and goes first.

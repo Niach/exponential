@@ -477,6 +477,10 @@ struct AgentComposerHeadline: View {
             identifier: option.identifier,
             title: option.title,
             status: IssueStatus.from(option.status),
+            // EXP-1649: web's chip type outside prose — a 12pt mono
+            // identifier, a 13pt medium title.
+            bodySize: 12,
+            titleSize: 13,
             onRemove: { model.toggleIssue(option.id) }
         )
         .accessibilityIdentifier(id)

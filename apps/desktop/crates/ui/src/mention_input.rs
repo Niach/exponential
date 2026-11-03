@@ -263,8 +263,10 @@ impl MentionInput {
         let Some((team_id, prefill)) = self.pending_typeahead.take() else {
             return;
         };
-        let anchor =
-            search_list::textarea_caret_anchor(self.input.read(cx), self.bounds.get().origin, window);
+        let origin = self.bounds.get().origin;
+        let anchor = search_list::textarea_caret_anchor(self.input.read(cx), origin, prefill.start, window);
+        // EXP-1649: the popover is this view's (relative) root's child, so it
+        // rides the root's CURRENT position, not the one it opened at.
         let typeahead = OpenIssueTypeahead::open(
             team_id,
             prefill,
@@ -272,7 +274,8 @@ impl MentionInput {
             window,
             cx,
             |this: &mut Self, event, token, window, cx| this.on_typeahead_event(event, token, window, cx),
-        );
+        )
+        .relative_to(origin);
         // EXP-1558 (DEV-ONLY, `EXP_DEV_TYPEAHEAD_QUERY`): type the query into
         // the list's own focused input, as web's `typeIssueRef` does after
         // `Explain #` (the `search-list` capture).
