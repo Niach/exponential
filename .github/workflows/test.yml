@@ -297,6 +297,10 @@ jobs:
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
+      # Astro needs Node >= 22.23.4; the runner image ships 22.23.3.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun --filter @exp/site test
