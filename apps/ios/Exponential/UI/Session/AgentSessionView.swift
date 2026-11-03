@@ -1314,9 +1314,7 @@ struct AgentSessionView: View {
 
     /// A lone question card: a plan approval or a single-question ask.
     @ViewBuilder
-    private func questionCard(_ raw: AgentQuestion, chromeless: Bool = false) -> some View {
-        // EXP-1316: every question card offers the free-text answer.
-        let question = raw.withFreeTextRow()
+    private func questionCard(_ question: AgentQuestion, chromeless: Bool = false) -> some View {
         QuestionCard(
             question: question,
             localAnswer: model?.localAnswerSummary(question.lockKey),
@@ -1364,11 +1362,10 @@ struct AgentSessionView: View {
             : nil
         let answered = Array(group.questions.prefix(index))
         let editingStep: AgentQuestion? = editable
-            ? editingSteps[group.askId].flatMap { id in answered.first { $0.wireId == id } }?.withFreeTextRow()
+            ? editingSteps[group.askId].flatMap { id in answered.first { $0.wireId == id } }
             : nil
         if group.questions.indices.contains(index) {
-            // EXP-1316: every step offers the free-text answer.
-            let current = group.questions[index].withFreeTextRow()
+            let current = group.questions[index]
             if let editingStep {
                 // The OTHER answered steps stay listed (each still tappable, so
                 // the steerer can hop between them); the edited one is the

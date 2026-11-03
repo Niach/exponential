@@ -31,7 +31,8 @@ export function AppExportDialog({ app, onOpenChange }: { app: AppListEntry | nul
     [app?.id]
   )
   const count = records?.length ?? 0
-  const pkg = (app?.row?.package ?? null) as Record<string, unknown> | null
+  // eApps V1: the export carries the head (the draft, else the published package).
+  const pkg = (app?.row?.draftPackage ?? app?.row?.package ?? null) as Record<string, unknown> | null
 
   const exportFile = () => {
     if (!app || !pkg) return

@@ -21,6 +21,9 @@
 import { EXPRESSION_LIMITS, isOptional, optionalType, checkExpression, evaluateCounted, effectWords, functionEffect, parseExpression, typeDisplay, typeName } from "../cel"
 import type { ExprNode, ExprType, ExpressionEnv } from "../cel"
 import type { PackageIssue } from "./package"
+import { sourceAllowed } from "./package"
+import { parseSource } from "./sources"
+import { RECORDS_SCHEME } from "./query"
 import { literalType, rowOf, schemaType } from "./expressions"
 import { validateRecord, validateRecordSchema } from "./records"
 import type { RecordSchema } from "./records"
@@ -259,11 +262,60 @@ export function validatePackageEffects(pkg: Record<string, unknown>): PackageIss
             const call = typeof hv.call === `string` ? hv.call : ``
             const action = actionCallName(call)
             if (action !== null && !own(actions, action)) issues.push({ path: `${hat}/functionCall/call`, message: `action ${action} names no package action` })
+            // VAPP-204: a press's args are the action's params; a bind's source is one the package may follow.
+            if (action !== null && own(actions, action) && isObject(actions[action])) issues.push(...pressArgIssues(action, actions[action] as Record<string, unknown>, hv.args, `${hat}/functionCall/args`))
+            if (call === `bind`) issues.push(...bindSourceIssues(pkg, hv.args, `${hat}/functionCall/args`))
             for (const [fk, fv] of Object.entries(hv)) if (fk !== `call`) pure(fv, `${hat}/functionCall/${escape(fk)}`)
           }
         }
       }
     })
+  }
+  return issues
+}
+
+/** VAPP-204: a press's `actions.<name>` args against the action's params:
+ *  every key a param (unless the schema allows additional properties),
+ *  every required param given, a literal scalar of the param's type (a
+ *  dynamic value is checked when it runs). */
+function pressArgIssues(name: string, action: Record<string, unknown>, args: unknown, at: string): PackageIssue[] {
+  if (args !== undefined && !isObject(args)) return [{ path: at, message: `args is an object of action ${name}'s params` }]
+  const issues: PackageIssue[] = []
+  const schema = isObject(action.params) ? action.params : {}
+  const props = isObject(schema.properties) ? schema.properties : {}
+  const required = Array.isArray(schema.required) ? schema.required.filter((f): f is string => typeof f === `string`) : []
+  const given = isObject(args) ? args : {}
+  for (const key of Object.keys(given).sort()) {
+    const here = `${at}/${escape(key)}`
+    if (!own(props, key)) {
+      if (schema.additionalProperties !== true) issues.push({ path: here, message: `${key} is not a param of action ${name}` })
+      continue
+    }
+    const v = given[key]
+    if (typeof v !== `string` && typeof v !== `number` && typeof v !== `boolean`) continue
+    const want = required.includes(key) ? schemaType(props[key]) : optionalType(schemaType(props[key]))
+    const t = literalType(v)
+    if (!fits(want, t)) issues.push({ path: here, message: `${key} is ${typeDisplay(want)}, got ${typeDisplay(t)}` })
+  }
+  for (const field of required) if (!own(given, field)) issues.push({ path: at, message: `${field} is required by action ${name}` })
+  return issues
+}
+
+/** VAPP-204: a `bind` press's literal source, checked like a template
+ *  binding: a scheme:name URI, in the package's `sources`, a declared kind
+ *  and a package query. */
+function bindSourceIssues(pkg: Record<string, unknown>, args: unknown, at: string): PackageIssue[] {
+  if (!isObject(args) || typeof args.source !== `string`) return []
+  const source = args.source
+  const here = `${at}/source`
+  const parsed = parseSource(source)
+  if (!parsed) return [{ path: here, message: `source is a scheme:name URI` }]
+  const issues: PackageIssue[] = []
+  if (Array.isArray(pkg.sources) && pkg.sources.every((x) => typeof x === `string`) && !sourceAllowed(pkg.sources as string[], source)) issues.push({ path: here, message: `source ${source} is not in the package's sources` })
+  if (parsed.scheme === RECORDS_SCHEME) {
+    if (!isObject(pkg.records) || !own(pkg.records, parsed.name)) issues.push({ path: here, message: `records:${parsed.name} names no declared kind` })
+    const query = parsed.params.query
+    if (query !== undefined && (!isObject(pkg.queries) || !own(pkg.queries, query))) issues.push({ path: here, message: `query ${query} names no package query` })
   }
   return issues
 }

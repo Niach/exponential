@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs (each timing from the worse one). Counts and bytes gate on every machine. `machineTimings` sets a machine's timings to `warn`: `mint` (the four self-hosted Linux runners share one 32-core box, 16 cores each, and run jobs concurrently; gpui swings up to 2× between runs) reports a worse timing as a warning, never a failure, until the runners get CPU isolation. `rendererTimings` does the same per renderer on every machine: `compose-android` runs on an emulator with swiftshader software rendering on a shared VM, so its timings swing over 2× between runs (real Android timings come from a real-device run); its timing budgets stay as warning thresholds, its counts and bytes gate. Every other timing on the GitHub-hosted labels and `macbook` (one job at a time) gates. `machineHeadroom` (optional) overrides `headroom` per machine. A machine with no entry is reported, never gated.",
+  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact; several runs of one renderer on one machine write one budget from the WORST timing of them and the last run's counts). CI budgets come from two green runs (each timing from the worse one). Counts and bytes gate on every machine. `machineTimings` sets a machine's timings to `warn`: `mint` (the four self-hosted Linux runners share one 32-core box, 16 cores each, and run jobs concurrently; gpui swings up to 2× between runs) reports a worse timing as a warning, never a failure, until the runners get CPU isolation. `rendererTimings` does the same per renderer on every machine: `compose-android` runs on an emulator with swiftshader software rendering on a shared VM, so its timings swing over 2× between runs (real Android timings come from a real-device run); its timing budgets stay as warning thresholds, its counts and bytes gate. Every other timing on the GitHub-hosted labels and `macbook` (one job at a time) gates. `machineHeadroom` (optional) overrides `headroom` per machine. A machine with no entry is reported, never gated. VAPP-202: `records-25k`'s core timings on `mint` are the eApps §15 line, not a measurement: p95 ≤ 16 ms on a mid phone ≈ 5 ms on a desktop CPU 3× faster (each p50 and p95 at 5 ms, warnings on `mint` like every timing there); its `matched` count gates everywhere. The web runner's timings are recorded from its first CI run (`ratchet --write`).",
   "floor": 0.5,
   "headroom": 1.5,
   "machineTimings": {
@@ -674,6 +674,9 @@
           "scrollStepMs": 6.2,
           "renderedRows": 36,
           "sortMs": 8.4
+        },
+        "records-25k": {
+          "matched": 66987
         }
       },
       "solid-chromium": {
@@ -902,6 +905,19 @@
           "renderedRows": 30,
           "scrollStepMs": 3.3,
           "sortMs": 3.6
+        },
+        "records-25k": {
+          "monthViewP50Ms": 5,
+          "monthViewP95Ms": 5,
+          "filterSortP50Ms": 5,
+          "filterSortP95Ms": 5,
+          "groupBucketP50Ms": 5,
+          "groupBucketP95Ms": 5,
+          "groupRunningP50Ms": 5,
+          "groupRunningP95Ms": 5,
+          "betweenInP50Ms": 5,
+          "betweenInP95Ms": 5,
+          "matched": 66987
         }
       },
       "gpui": {

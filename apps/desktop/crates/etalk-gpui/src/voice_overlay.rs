@@ -455,6 +455,9 @@ pub fn call_pill(id: impl Into<ElementId>, face: &CallFace, actions: &CallAction
         .items_center()
         .justify_center()
         .bg(theme.secondary)
+        // Listening: the avatar's green ring (web `CallAvatar` sm, ring-2).
+        .when(face.view.activity == "listening", |d| d.border_2().border_color(theme.success.opacity(0.8)))
+        .when(face.view.activity == "thinking", |d| d.opacity(0.6))
         .child(mark);
     let wave = div().flex_none().when(matches!(activity, Activity::Idle | Activity::Muted), |d| d.opacity(0.35)).child(voice_wave(
         (id.clone(), "wave"),
@@ -486,8 +489,8 @@ pub fn call_pill(id: impl Into<ElementId>, face: &CallFace, actions: &CallAction
                 .child(div().truncate().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(theme.foreground).child(face.agent.clone()))
                 .child(div().truncate().text_xs().text_color(theme.muted_foreground).child(face.status())),
         )
-        // Ringing has no wave yet (the microphone is not open).
-        .when(face.view.activity != "ringing", |pill| pill.child(wave))
+        // Ringing draws the wave idle (web `VoiceCallPill`).
+        .child(wave)
         .child(call_buttons((id, "buttons"), &face.view, CallSize::Sm, actions, cx).items_center())
 }
 

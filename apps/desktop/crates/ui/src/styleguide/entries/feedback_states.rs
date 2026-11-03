@@ -23,6 +23,9 @@ pub(crate) const OWNER: &str = "EXP-1275";
 
 /// The web specimen's four frozen phases of the mark's loop.
 const MARK_PHASES: [f64; 4] = [0.08, 0.2, 0.32, 0.5];
+/// The starting row's mark, frozen like the web specimen's (`phase={0.3}`).
+const STARTING_PHASE: f64 = 0.3;
+// 5 · Blocking draws the static logo (web `BlockingSurface still`).
 /// feedback-states.json `errors.cases[4].message` (the invalid email).
 const INVALID_EMAIL: &str = "Enter a full email address";
 
@@ -117,11 +120,12 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 .border_color(cx.theme().border)
                 .px_3()
                 .py(px(10.))
-                .child(feedback::starting_row(
+                .child(feedback::starting_row_frozen(
                     feedback::TEST_ID_STARTING,
                     "macbook",
                     Instant::now() - Duration::from_millis(1400),
                     ground,
+                    Some(STARTING_PHASE),
                     cx,
                 )),
         );
@@ -134,7 +138,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .border_1()
         .border_color(cx.theme().border)
         .overflow_hidden()
-        .child(feedback::blocking_overlay(feedback::blocking_switch_team("Personal"), cx));
+        .child(feedback::blocking_overlay_face(feedback::blocking_switch_team("Personal"), true, cx));
     // 6. Errors: a failed action is a toast with Retry; invalid input stays
     // inline under its field (FEED-79).
     let failed = Toast::error("Couldn't save the team prompt")

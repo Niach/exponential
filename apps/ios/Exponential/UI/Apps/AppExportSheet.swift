@@ -41,7 +41,7 @@ struct AppExportSheet: View {
                 .padding(.bottom, records.isEmpty ? 0 : 8)
             },
             primaryAction: {
-                GlassSubmitButton(AppExport.Copy.export, enabled: app.package != nil) {
+                GlassSubmitButton(AppExport.Copy.export, enabled: app.headPackage != nil) {
                     exportFile()
                 }
                 .accessibilityIdentifier(AppExport.TestIds.confirm)
@@ -70,7 +70,8 @@ struct AppExportSheet: View {
 
     private func exportFile() {
         do {
-            guard let text = app.package, let package = CardJSON(any: try JSONSerialization.jsonObject(with: Data(text.utf8)))
+            // eApps V1: the export carries the head (the draft, else the published package).
+            guard let text = app.headPackage, let package = CardJSON(any: try JSONSerialization.jsonObject(with: Data(text.utf8)))
             else { throw AppExportError.noPackage }
             let file = AppExport.build(
                 name: app.name,

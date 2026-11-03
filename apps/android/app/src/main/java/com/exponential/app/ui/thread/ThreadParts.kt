@@ -106,7 +106,6 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.QuestionOption
-import com.exponential.app.domain.withFreeTextRow
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.Stories

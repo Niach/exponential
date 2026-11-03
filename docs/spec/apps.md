@@ -719,7 +719,7 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 | Record | 16 KB | ✅ |
 | Records per team | 1,000 / 25,000 / unlimited | ✅ |
 | Rows per binding result | 500 (cursor for more) | ✅ (no cursor) |
-| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the eUI bench | 🟡 measured 2026-11-03: 1–16 ms p95 on a desktop CPU (eui-core release, `examples/records_query_25k.rs`), so a phone misses it on grouped/sorted queries; not yet gated (#VAPP-202) |
+| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the eUI bench | 🟡 #VAPP-202: measured 2026-11-03 at 1–16 ms p95 on a desktop CPU (eui-core release, `examples/records_query_25k.rs`), so a phone missed it on grouped/sorted queries. Now each row's sort keys are read once (numbers kept, texts ranked), field values are borrowed instead of stringified, filter bounds parse once per query, and group keys are computed once per row (eui-core and the TS twin; Swift and Compose call eui-core over the FFI). Results are byte-identical and `records-query.json` is green ×4. Gated in the eUI bench as `records-25k` (core + web, the `matched` count gates; core timings are budgeted at 5 ms p95 = the phone line ÷ 3). The CI bench numbers and a mid-Android run are still owed |
 | Server query (web on-demand, broker) | ≤ 200 ms p95, `statement_timeout` 2 s | ✅ measured: 15–27 ms p95 over 25k rows (records service on Postgres 17); the 2 s timeout is the RLS scope's |
 | Exposed tools per app | 32 | ✅ |
 | Upstream read cache | 60 s per (member, tool, args) | 🆕 |
@@ -842,10 +842,10 @@ Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI 
 **Verdict: ready for real team apps on web and desktop, for teams that build with the editor and accept that an edit is live at once.** Records, policies, queries, actions and tests are trustworthy and enforced by the server. It is **not yet general-availability**. Before calling it that:
 
 1. **V1 draft vs published** (§2.3): every editor (or agent) upsert is live for every member immediately; one bad edit breaks the app for the team. This is the biggest gap for real teams.
-2. **#VAPP-203**: install does not validate components/props, so an agent can publish a surface that renders broken. Small, and it pairs with V1.
-3. **#VAPP-204**: the checker trusts several values that may be missing (they fall to `default` at runtime instead of failing install).
+2. ✅ **#VAPP-203**: install reduces every template as the renderer will (unknown components, missing/mistyped props, child ids naming nothing), issues at `/templates/<id>/components/<i>…` (TS + Rust twins, `host-router.json` `acme.badcomponents`). It found two real bugs: the built-in Devices template bound non-bindable `IconDisc`/`LiveDot` props (now bindable) and a desktop test package's `chevron: "always"`.
+3. ✅ **#VAPP-204**: the checker no longer trusts values that may be missing. A records value's `sum`/`month`/`groups`/`totals`/`before` follow the binding's query (left out = `T?`), every list index is `T?` and reads null past the end at run time, a map's field is `dyn?`, a row template's relative paths are typed by the list's records rows (a typo like `hourz` fails install at the var's path), `has(x)` hints `x != null`, and a press's `actions.<name>` args and a `bind`'s literal source are checked at install (TS + Rust twins; `expressions.json`, `actions.json`). The three sample apps still install unchanged.
 4. **#VAPP-201**: the team time zone (members in different zones bucket dates differently).
 5. **#VAPP-200**: an app's own inputs are not disabled at access `read`.
 
-Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (natives write online only), **#VAPP-202** (the local query over 25k rows on phones), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
+Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (natives write online only), **#VAPP-202** (the local query over 25k rows on phones: optimised and in the eUI bench as `records-25k`; CI and mid-Android numbers owed), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
 

@@ -175,7 +175,7 @@ private fun AudioEditTile(label: String, durationMs: Long?) {
         Spacer(Modifier.width(10.dp))
         Text(
             formatDuration(durationMs),
-            style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.8f),
+            style = MdStyle.body.copy(fontSize = MdStyle.mediaTextSize * 0.8f),
             color = MdStyle.Dim,
         )
         // Room for the delete affordance drawn over the row's end.

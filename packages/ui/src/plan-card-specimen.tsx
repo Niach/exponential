@@ -11,7 +11,8 @@ import { ThreadConversation } from "./session-thread-view"
 // NEW-6: stepped, so it shows "Question 1 of 2" and Next),
 // the answered multi-pick question (closed) and the approved plan with its
 // feedback. The styleguide entry and the app's `?dev=plan-card` capture
-// render it; the natives' specimens draw the same rows.
+// render it; the natives' specimens draw the same rows. Every plan card
+// wears its header `Open plan` (plan-page.json WAYS IN), as in the chat.
 
 const RICH_CASE = `EXP-1280: a rich plan card`
 /** #EXP-1561: session-thread.json's dismissed question + plan. */
@@ -108,13 +109,14 @@ export function PlanCardSpecimen() {
           onAnswer={noop}
           onDecide={noop}
           onDismiss={noop}
+          onOpenPlan={noop}
         />
       </Case>
       <Case label={PLAN_CARD_COPY.specimen.answered}>
         <ThreadConversation rows={row(`n2`)} renderText={text} attachmentSrc={planCardStandIn} />
       </Case>
       <Case label={PLAN_CARD_COPY.specimen.approved}>
-        <ThreadConversation rows={row(`n3`)} renderText={text} attachmentSrc={planCardStandIn} />
+        <ThreadConversation rows={row(`n3`)} renderText={text} attachmentSrc={planCardStandIn} onOpenPlan={noop} />
       </Case>
       {/* #EXP-1561 (waiting-cards.json): a dismissed question and plan. */}
       <Case label={PLAN_CARD_COPY.specimen.dismissed}>

@@ -96,8 +96,24 @@ const STATE: DockSource[] = [
   },
 ]
 
+/** Inline code as the chat draws it (`.agent-feed` tint: code text over the
+ *  code fill under its hairline), every platform's plan sheet alike. */
+const inline = (line: string) =>
+  line.split(/(`[^`]+`)/).map((part, index) =>
+    part.startsWith("`") && part.endsWith("`") && part.length > 1 ? (
+      <code
+        key={index}
+        className="rounded-[4px] bg-code-fill px-[0.35rem] py-[0.1rem] font-mono text-[0.8rem] text-code-text shadow-[inset_0_0_0_1px_var(--code-stroke)]"
+      >
+        {part.slice(1, -1)}
+      </code>
+    ) : (
+      part
+    )
+  )
+
 /** A specimen-sized stand-in for the app's GFM renderer: a heading line
- *  reads medium, code ticks drop, everything else is a line of its own. */
+ *  reads medium, inline code is tinted, everything else is a line of its own. */
 const text = (body: string) => (
   <div className="flex flex-col gap-0.5">
     {body.split(`\n`).map((line, index) =>
@@ -106,7 +122,7 @@ const text = (body: string) => (
           {line.replace(/^#+\s*/, ``)}
         </p>
       ) : (
-        <p key={index}>{line.replaceAll("`", ``)}</p>
+        <p key={index}>{inline(line)}</p>
       )
     )}
   </div>
@@ -146,7 +162,7 @@ export function AskDockSpecimen() {
         <PileCase expanded />
       </Case>
       <Case label="The plan's sheet">
-        <DockSheetSpecimenFrame row={single[0]!} height={420}>
+        <DockSheetSpecimenFrame row={single[0]!} height={420} onOpenFull={noop}>
           <ThreadPlanSheet row={RICH_PLAN as never} renderText={text} attachmentSrc={(id) => id} busy={false} onDecide={noop} />
         </DockSheetSpecimenFrame>
       </Case>

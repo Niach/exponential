@@ -849,6 +849,8 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "description",
             "package",
             "head_version",
+            "published_version",
+            "draft_package",
             "created_by",
             "granted_tools",
             "deleted_at",
@@ -1079,7 +1081,7 @@ mod tests {
     fn the_apps_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("apps").unwrap().columns,
-            &["id", "team_id", "slug", "name", "icon", "color", "description", "package", "head_version", "created_by", "granted_tools", "deleted_at", "created_at", "updated_at"]
+            &["id", "team_id", "slug", "name", "icon", "color", "description", "package", "head_version", "published_version", "draft_package", "created_by", "granted_tools", "deleted_at", "created_at", "updated_at"]
         );
         let versions = shape_by_name("app_versions").unwrap();
         assert_eq!(

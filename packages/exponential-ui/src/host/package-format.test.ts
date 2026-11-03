@@ -122,10 +122,12 @@ describe(`records on a host (VAPP-161)`, () => {
   test(`a host refuses a package that needs an extension it lacks, at its version`, () => {
     const charts = (router.packages as Record<string, unknown>)[`acme.charts`] as AppPackage
     const ext = { id: `https://acme.example/catalogs/charts/v1`, name: `Charts`, extends: supportedCatalogIds()[0]!, components: {} }
+    // VAPP-203: with the extension's definition, its components are checked too.
     expect(new ExponentialHost({ extensions: [{ ...ext, version: `1.5.0` }] }).installPackage(charts)).toEqual([
+      { path: `/templates/t/components/2`, message: `unknown component Gantt` },
       { path: `/extensions/0/components/0`, message: `extension ${ext.id} has no component Gantt` },
     ])
-    expect(new ExponentialHost({ extensions: [{ ...ext, version: `1.3.0`, components: { Gantt: { description: `` } as never } }] }).installPackage(charts)).toEqual([
+    expect(new ExponentialHost({ extensions: [{ ...ext, version: `1.3.0`, components: { Gantt: { description: ``, props: { rows: { type: `array`, bindable: true } } } as never } }] }).installPackage(charts)).toEqual([
       { path: `/extensions/0/version`, message: `extension ${ext.id} 1.3.0 does not satisfy ^1.4.0` },
     ])
     expect(new ExponentialHost().installPackage(charts)[0]!.message).toContain(`is not available on this host`)

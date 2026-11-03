@@ -58,7 +58,8 @@ use std::collections::HashMap;
 use sync::Store;
 
 use domain::apps::{
-    editor_tab, is_draft, preview_template, preview_templates, version_label, viewing_label, EditorTab, PreviewFrame,
+    editor_tab, is_draft, preview_template, preview_templates, version_label, version_row, viewing_label, EditorTab, PreviewFrame,
+    VersionRowKind,
     APPS,
 };
 use domain::rows::AppVersionRow;
@@ -200,6 +201,8 @@ pub struct AppScreenView {
     viewing: Option<i64>,
     viewing_package: Option<Value>,
     restoring: bool,
+    /// eApps V1 (#VAPP-210): the version a Publish is running for.
+    publishing: Option<i64>,
     /// The live editor root this screen saw last (ended on leave).
     live_root: Option<String>,
     preview_scroll: ScrollHandle,
@@ -265,6 +268,7 @@ impl AppScreenView {
             preview: None,
             viewing: None,
             viewing_package: None,
+            publishing: None,
             restoring: false,
             live_root: None,
             preview_scroll: ScrollHandle::new(),
@@ -425,8 +429,8 @@ impl AppScreenView {
                 self.live_root = Some(root.id);
             }
         }
-        // The head moved past the version being viewed: it is the head now.
-        if self.viewing.is_some() && self.viewing == self.app.as_ref().map(|app| app.head_version) {
+        // The version being viewed became the preview's default: drop the pick.
+        if self.viewing.is_some() && self.viewing == Some(self.default_shown(cx)) {
             self.viewing = None;
             self.viewing_package = None;
         }
@@ -434,27 +438,61 @@ impl AppScreenView {
         cx.notify();
     }
 
-    /// The package the preview shows: the picked version's, else the head's.
-    fn shown_package(&self) -> Option<Value> {
-        if self.viewing.is_some() {
-            return self.viewing_package.clone();
-        }
+    /// eApps V1: my editor session for this app is live (not ended).
+    fn editing(&self, cx: &App) -> bool {
+        self.app
+            .as_ref()
+            .and_then(|app| crate::session_data::my_editor_session(&app.id, cx))
+            .is_some_and(|root| root.status.as_deref() != Some(domain::contract::SESSION_STATUS_ENDED))
+    }
+
+    /// eApps V1 (`shownVersion`): the version the preview shows unpicked.
+    fn default_shown(&self, cx: &App) -> i64 {
+        self.app.as_ref().map_or(0, |app| domain::apps::shown_version(app.versions(), self.editing(cx), None))
+    }
+
+    /// eApps V1: the viewer may write the app (access `write`): Publish.
+    fn can_write(&self, cx: &App) -> bool {
+        self.data.as_ref().is_none_or(|data| data.read(cx).access().is_none_or(|level| level == "write"))
+    }
+
+    /// The package the preview shows (`shownVersion`): a picked version's,
+    /// else the head's (the draft) or the published one's, off the row.
+    fn shown_package(&self, cx: &App) -> Option<Value> {
         let app = self.app.as_ref()?;
-        app.row.as_ref()?.package.clone().filter(Value::is_object)
+        let shown = domain::apps::shown_version(app.versions(), self.editing(cx), self.viewing);
+        if shown == 0 {
+            return None;
+        }
+        if shown == app.head_version {
+            return app.head_package();
+        }
+        if shown == app.published_version {
+            return app.row.as_ref()?.package.clone().filter(Value::is_object);
+        }
+        self.viewing_package.clone()
+    }
+
+    /// eApps V1: the shown version is the one the grants were made on.
+    fn shows_grant_version(&self, cx: &App) -> bool {
+        self.app.as_ref().is_some_and(|app| {
+            domain::apps::shown_version(app.versions(), self.editing(cx), self.viewing) == domain::apps::grant_version(app.versions())
+        })
     }
 
     /// A new package = a fresh host (the web keys its `PackageSurface` on
     /// the package), so every synced upsert repaints.
     fn sync_preview(&mut self, cx: &mut gpui::Context<Self>) {
-        let pkg = self.shown_package();
-        // The key carries the viewing flag: the head's host reads the grants,
-        // an older version's never does (a grant is about the HEAD package).
+        let pkg = self.shown_package(cx);
+        let grants = self.shows_grant_version(cx);
+        // The key carries the grants flag: only the version the grants were
+        // made on reads them (`grantVersion`).
         // VAPP-179: and the template shown (a pick = a fresh host).
         let template = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
         let run_as = pkg.as_ref().and_then(|pkg| self.run_as(pkg, cx));
         let key = format!(
             "{}:{template}:{:?}:{}",
-            self.viewing.is_some(),
+            grants,
             run_as,
             pkg.as_ref().map(Value::to_string).unwrap_or_default()
         );
@@ -471,7 +509,7 @@ impl AppScreenView {
         let scope = self.app.as_ref().map(|app| crate::exponential_ui_host::HostScope {
             app_id: app.id.clone(),
             team_id: app.row.as_ref().and_then(|row| row.team_id.clone()),
-            grants: self.viewing.is_none(),
+            grants,
             run_as: run_as.clone(),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
@@ -509,11 +547,11 @@ impl AppScreenView {
         self.end_live_session(cx);
     }
 
-    /// Preview version `number` (the head clears it); its package loads on
-    /// demand.
+    /// Preview version `number` (the preview's default clears it); its
+    /// package loads on demand unless it rides on the row.
     fn pick_version(&mut self, number: i64, cx: &mut gpui::Context<Self>) {
         let Some(app) = self.app.clone() else { return };
-        if number == app.head_version {
+        if number == self.default_shown(cx) {
             self.viewing = None;
             self.viewing_package = None;
             self.sync_preview(cx);
@@ -524,6 +562,9 @@ impl AppScreenView {
         self.viewing_package = None;
         self.sync_preview(cx);
         cx.notify();
+        if number == app.head_version || number == app.published_version {
+            return;
+        }
         let Some(trpc) = crate::queries::trpc_client(cx) else { return };
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -588,7 +629,46 @@ impl AppScreenView {
         .detach();
     }
 
+    /// eApps V1 (#VAPP-210): PUBLISH version `number` (the header's button
+    /// = the head, a Versions row's, the viewing banner's); the preview back
+    /// on its default.
+    fn publish(&mut self, number: i64, cx: &mut gpui::Context<Self>) {
+        let Some(app) = self.app.clone() else { return };
+        if self.publishing.is_some() {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("publish", "the version", None, cx);
+            return;
+        };
+        self.publishing = Some(number);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::apps::publish(&trpc, &app.id, number) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.publishing = None;
+                match result {
+                    Ok(output) => {
+                        crate::toast::show_in_active_window(
+                            crate::toast::Toast::info(domain::apps::published_label(output.published)),
+                            cx,
+                        );
+                        this.clear_viewing(cx);
+                    }
+                    Err(err) => crate::action_error::failed_action_err("publish", "the version", &err, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn render_header(&self, app: &AppEntry, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let show_publish = self.can_write(cx) && domain::apps::can_publish(app.versions());
+        let head = app.head_version;
         let theme = cx.theme();
         let tabs = EditorTab::wide();
         let segments: Vec<_> = tabs
@@ -620,6 +700,18 @@ impl AppScreenView {
             )
             .child(version_pill("app-editor-version", app, cx))
             .child(div().flex_1())
+            .when(show_publish, |row| {
+                row.child(
+                    Button::new(SharedString::from(APPS.test_ids.publish.clone()))
+                        .primary()
+                        .web_sm()
+                        .cursor_pointer()
+                        .label(APPS.copy.publish.clone())
+                        .loading(self.publishing == Some(head))
+                        .disabled(self.publishing.is_some())
+                        .on_click(cx.listener(move |this, _, _, cx| this.publish(head, cx))),
+                )
+            })
             .child(
                 crate::controls::segmented(cx)
                     .id(SharedString::from(APPS.test_ids.tabs.clone()))
@@ -654,7 +746,7 @@ impl AppScreenView {
                     .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| this.set_frame(frame, cx)))
             })
             .collect();
-        let pkg = self.shown_package();
+        let pkg = self.shown_package(cx);
         let templates = preview_templates(pkg.as_ref());
         let picker = (templates.len() > 1).then(|| {
             let current = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
@@ -732,6 +824,8 @@ impl AppScreenView {
 
     fn render_preview(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        let can_write = self.can_write(cx);
+        let (head, published) = self.app.as_ref().map_or((0, 0), |app| (app.head_version, app.published_version));
         let banner = self.viewing.map(|number| {
             h_flex()
                 .id(SharedString::from(APPS.test_ids.viewing.clone()))
@@ -744,15 +838,29 @@ impl AppScreenView {
                 .py_2()
                 .text_sm()
                 .child(div().flex_1().font_weight(FontWeight::MEDIUM).child(viewing_label(number)))
-                .child(
-                    Button::new("app-restore")
-                        .primary()
-                        .web_sm()
-                        .cursor_pointer()
-                        .label(APPS.copy.restore.clone())
-                        .loading(self.restoring)
-                        .on_click(cx.listener(move |this, _, _, cx| this.restore(number, cx))),
-                )
+                .when(can_write && number != published, |row| {
+                    row.child(
+                        Button::new("app-viewing-publish")
+                            .primary()
+                            .web_sm()
+                            .cursor_pointer()
+                            .label(APPS.copy.publish.clone())
+                            .loading(self.publishing == Some(number))
+                            .disabled(self.publishing.is_some())
+                            .on_click(cx.listener(move |this, _, _, cx| this.publish(number, cx))),
+                    )
+                })
+                .when(can_write && number != head, |row| {
+                    row.child(
+                        Button::new("app-restore")
+                            .outline()
+                            .web_sm()
+                            .cursor_pointer()
+                            .label(APPS.copy.restore.clone())
+                            .loading(self.restoring)
+                            .on_click(cx.listener(move |this, _, _, cx| this.restore(number, cx))),
+                    )
+                })
                 .child(
                     Button::new("app-viewing-head")
                         .ghost()
@@ -851,7 +959,8 @@ impl AppScreenView {
     /// (outline). None yet = the list-size EmptyState.
     fn render_versions(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let copy = &APPS.copy;
-        let head = self.app.as_ref().map_or(0, |app| app.head_version);
+        let pointers = self.app.as_ref().map(AppEntry::versions).unwrap_or(domain::apps::AppVersions { head: 0, published: 0 });
+        let can_write = self.can_write(cx);
         let body = if self.versions.is_empty() {
             crate::controls::empty_state_list(Icon::new(registry::UI_HISTORY), copy.versions_empty.clone(), cx)
                 .into_any_element()
@@ -879,40 +988,59 @@ impl AppScreenView {
                         .unwrap_or_default();
                     let caption = if when.is_empty() { who } else { format!("{who} · {when}") };
                     let note = version.note.as_deref().map(str::trim).filter(|note| !note.is_empty());
-                    let trailing = if number == head {
+                    // eApps V1 (`versionRow`): Published | Current + Publish | Preview + Publish.
+                    let kind = version_row(pointers, number);
+                    let trailing = if kind == VersionRowKind::Published {
                         crate::surface::glass_pill(
-                            ("app-version-head", number as usize),
+                            ("app-version-published", number as usize),
                             crate::surface::PillSize::Sm,
                             crate::surface::PillMode::Readonly,
                             cx,
                         )
-                        .child(copy.head.clone())
+                        .child(copy.published.clone())
                         .into_any_element()
                     } else {
                         h_flex()
                             .flex_shrink_0()
                             .items_center()
                             .gap_2()
-                            .child(
-                                Button::new(SharedString::from(format!("{}-{number}", APPS.test_ids.version_preview)))
-                                    .ghost()
-                                    .web_sm()
-                                    .cursor_pointer()
-                                    .label(copy.preview.clone())
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.pick_version(number, cx);
-                                        this.set_tab(EditorTab::Preview, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!("{}-{number}", APPS.test_ids.version_restore)))
-                                    .outline()
-                                    .web_sm()
-                                    .cursor_pointer()
-                                    .label(copy.restore.clone())
-                                    .disabled(self.restoring)
-                                    .on_click(cx.listener(move |this, _, _, cx| this.restore(number, cx))),
-                            )
+                            .map(|row| {
+                                if kind == VersionRowKind::Head {
+                                    row.child(
+                                        crate::surface::glass_pill(
+                                            ("app-version-head", number as usize),
+                                            crate::surface::PillSize::Sm,
+                                            crate::surface::PillMode::Readonly,
+                                            cx,
+                                        )
+                                        .child(copy.head.clone()),
+                                    )
+                                } else {
+                                    row.child(
+                                        Button::new(SharedString::from(format!("{}-{number}", APPS.test_ids.version_preview)))
+                                            .ghost()
+                                            .web_sm()
+                                            .cursor_pointer()
+                                            .label(copy.preview.clone())
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.pick_version(number, cx);
+                                                this.set_tab(EditorTab::Preview, cx);
+                                            })),
+                                    )
+                                }
+                            })
+                            .when(can_write, |row| {
+                                row.child(
+                                    Button::new(SharedString::from(format!("{}-{number}", APPS.test_ids.version_publish)))
+                                        .outline()
+                                        .web_sm()
+                                        .cursor_pointer()
+                                        .label(copy.publish.clone())
+                                        .loading(self.publishing == Some(number))
+                                        .disabled(self.publishing.is_some())
+                                        .on_click(cx.listener(move |this, _, _, cx| this.publish(number, cx))),
+                                )
+                            })
                             .into_any_element()
                     };
                     crate::surface::glass_row_shell().child(

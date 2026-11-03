@@ -706,6 +706,10 @@ pub(crate) fn session_slash_menu<V: 'static>(
                 gpui::MouseButton::Left,
                 cx.listener(move |view, _, window, cx| on_pick(view, index, window, cx)),
             );
+        // Web `CommandCandidateRow` / `PromptCandidateRow`: `/name` (mono
+        // xs), the description (sm, muted, truncating), the `<hint>` at the
+        // row's end (mono xs, muted 70%); a prompt = its icon (16, muted)
+        // and name (sm).
         let row = match item {
             SlashItem::Command(command) => row
                 .child(
@@ -715,30 +719,29 @@ pub(crate) fn session_slash_menu<V: 'static>(
                         .font_family(theme::terminal::FONT_FAMILY)
                         .child(SharedString::from(format!("/{}", command.name))),
                 )
-                .when(!command.arg_hint.is_empty(), |row| {
-                    row.child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(command.arg_hint.to_string())),
-                    )
-                })
                 .child(
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_xs()
+                        .text_sm()
                         .text_color(muted)
                         .child(SharedString::from(command.description.to_string())),
-                ),
-            // NEW-2 (web `PromptCandidateRow`): the prompt's icon, muted,
-            // and its name.
+                )
+                .when(!command.arg_hint.is_empty(), |row| {
+                    row.child(
+                        div()
+                            .ml_auto()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted.opacity(0.7))
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(format!("<{}>", command.arg_hint))),
+                    )
+                }),
             SlashItem::Prompt(prompt) => row
                 .child(
                     crate::icons::action_icon(prompt.icon.as_deref())
-                        .small()
+                        .with_size(px(16.))
                         .flex_shrink_0()
                         .text_color(muted),
                 )
@@ -746,7 +749,7 @@ pub(crate) fn session_slash_menu<V: 'static>(
                     div()
                         .min_w_0()
                         .truncate()
-                        .text_xs()
+                        .text_sm()
                         .child(SharedString::from(prompt.name.clone())),
                 ),
         };

@@ -39,7 +39,10 @@ final class AppsTests: XCTestCase {
             "version": Apps.Copy.version, "noVersion": Apps.Copy.noVersion,
             "versions": Apps.Copy.versions, "head": Apps.Copy.head, "noNote": Apps.Copy.noNote,
             "byAgent": Apps.Copy.byAgent, "viewing": Apps.Copy.viewing, "restore": Apps.Copy.restore,
-            "restored": Apps.Copy.restored, "restoredNote": Apps.Copy.restoredNote, "empty": Apps.Copy.empty,
+            "restored": Apps.Copy.restored, "restoredNote": Apps.Copy.restoredNote,
+            "publish": Apps.Copy.publish, "published": Apps.Copy.published,
+            "publishedToast": Apps.Copy.publishedToast, "publishNothing": Apps.Copy.publishNothing,
+            "empty": Apps.Copy.empty,
             "chatEmpty": Apps.Copy.chatEmpty, "previewEmpty": Apps.Copy.previewEmpty,
             "versionsEmpty": Apps.Copy.versionsEmpty, "draftPlaceholder": Apps.Copy.draftPlaceholder,
             "starterTitle": Apps.Copy.starterTitle,
@@ -66,6 +69,7 @@ final class AppsTests: XCTestCase {
         ])
         XCTAssertEqual(Apps.Copy.viewing(2), "Viewing v2")
         XCTAssertEqual(Apps.Copy.restored(1, as: 4), "Restored v1 as v4")
+        XCTAssertEqual(Apps.Copy.publishedToast(3), "Published v3")
         XCTAssertEqual(Apps.Copy.deleteTitle("Team dashboard"), "Delete Team dashboard?")
     }
 
@@ -92,6 +96,7 @@ final class AppsTests: XCTestCase {
             "importApp": Apps.TestIds.importApp, "starter": Apps.TestIds.starter,
             "menu": Apps.TestIds.menu, "settings": Apps.TestIds.settings,
             "versionPreview": Apps.TestIds.versionPreview, "versionRestore": Apps.TestIds.versionRestore,
+            "publish": Apps.TestIds.publish, "versionPublish": Apps.TestIds.versionPublish,
             "data": Apps.TestIds.data,
             "previewToolbar": Apps.TestIds.previewToolbar, "previewFrame": Apps.TestIds.previewFrame,
             "previewTemplate": Apps.TestIds.previewTemplate, "previewRunAs": Apps.TestIds.previewRunAs,
@@ -140,6 +145,33 @@ final class AppsTests: XCTestCase {
         }
     }
 
+    // eApps V1 (#VAPP-210): `shownVersion`, `canPublish`, `grantVersion`,
+    // `listPill` and `versionRow` replay `publishCases`.
+    func testPublishCases() throws {
+        let block = try XCTUnwrap(try fixture()["publishCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let name = item["name"] as? String ?? ""
+            let raw = try XCTUnwrap(item["app"] as? [String: Any])
+            let app = Apps.Versions(
+                headVersion: try XCTUnwrap(raw["headVersion"] as? Int),
+                publishedVersion: try XCTUnwrap(raw["publishedVersion"] as? Int)
+            )
+            let editing = try XCTUnwrap(item["editing"] as? Bool)
+            let viewing = item["viewing"] as? Int
+            XCTAssertEqual(Apps.shownVersion(app, editing: editing, viewing: viewing), item["shown"] as? Int, name)
+            XCTAssertEqual(Apps.canPublish(app), item["canPublish"] as? Bool, name)
+            XCTAssertEqual(Apps.grantVersion(app), item["grant"] as? Int, name)
+            XCTAssertEqual(Apps.listPill(app), item["pill"] as? String, name)
+            let rows = try XCTUnwrap(item["rows"] as? [[Any]])
+            for row in rows {
+                let number = try XCTUnwrap(row[0] as? Int)
+                XCTAssertEqual(Apps.versionRow(app, number: number).rawValue, row[1] as? String, "\(name) v\(number)")
+            }
+        }
+    }
+
     func testEditorTabsMatchTheFixture() throws {
         let tabs = try XCTUnwrap(try fixture()["editorTabs"] as? [String: Any])
         XCTAssertEqual(tabs["wide"] as? [String], Apps.EditorTabs.wide)
@@ -185,7 +217,9 @@ final class AppsTests: XCTestCase {
         XCTAssertTrue(brief.hasPrefix(
             "You are the editor session of the Exponential app \"Team dashboard\" (slug `team-dashboard`, v3). It is for: Feedback at a glance\n"
         ))
-        XCTAssertTrue(brief.contains("exponential_apps {op: \"upsert\", slug: \"team-dashboard\", package, note}"))
+        XCTAssertTrue(brief.contains("exponential_apps {op: \"upsert\", slug: \"team-dashboard\", package, note} (members keep running the published version)"))
+        XCTAssertTrue(brief.contains("publish with exponential_apps {op: \"publish\", slug: \"team-dashboard\"} only when the person asks"))
+        XCTAssertTrue(brief.hasSuffix("keep replies to one or two lines and save drafts early."))
         XCTAssertFalse(brief.contains("DRAFT"))
         let draft = Apps.editorBrief(name: Apps.Copy.untitled, slug: "untitled-app", headVersion: 0, description: nil)
         XCTAssertTrue(draft.contains("(slug `untitled-app`, Draft).\nIt is a new DRAFT with a placeholder name"))

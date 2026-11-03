@@ -9,6 +9,7 @@ import { reduceNested, reduceSurface, MAX_DEPTH, MAX_TEMPLATE_ITEMS } from "@exp
 import type { FlatComponent, NestedNode } from "@exponential_app/eui"
 import { generateItems, renderScenarios, SCENARIOS, type GeneratedData } from "./scenarios"
 import { resultsIndexSource } from "./results-index"
+import { addDays, recordRows, runRecordsQueries, type RecordsSpec, type RecordsSteps } from "./records"
 
 const root = join(import.meta.dir, `..`)
 
@@ -25,6 +26,7 @@ describe(`scenario fixtures (VAPP-105)`, () => {
 
   it(`every surface reduces without issues`, () => {
     for (const s of SCENARIOS) {
+      if (!s.surface) continue
       const r = `nested` in s.surface ? reduceNested(s.surface.nested as NestedNode, { catalogId: `https://ui.exponential.at/catalogs/core/v1` }) : reduceSurface(s.surface.components as FlatComponent[], { catalogId: `https://ui.exponential.at/catalogs/core/v1` })
       expect(r.issues.map((i) => `${i.id}: ${i.message}`), s.id).toEqual([])
       expect(r.root, s.id).not.toBeNull()
@@ -54,6 +56,21 @@ describe(`scenario fixtures (VAPP-105)`, () => {
     const deep = SCENARIOS.find((s) => s.id === `deep-nesting`)!
     const depthOf = (n: NestedNode): number => 1 + Math.max(0, ...(n.children ?? []).map(depthOf))
     expect(depthOf((deep.surface as { nested: NestedNode }).nested)).toBe(MAX_DEPTH)
+  })
+
+  it(`records-25k: a host scenario for the core and one web runner, its rows as the core builds them (VAPP-202)`, () => {
+    const s = SCENARIOS.find((s) => s.id === `records-25k`)!
+    expect(s.surface).toBeUndefined()
+    expect(s.renderers).toEqual([`core`, `react-chromium`])
+    const spec = (s.data as { records: RecordsSpec }).records
+    const rows = recordRows(spec)
+    expect(rows.length).toBe(25_000)
+    expect(rows[4]).toEqual({ id: `r4`, kind: `entry`, data: { date: `2026-01-05`, hours: 4.5, project: `p4`, note: `n4` }, createdBy: `u5`, authorId: `u5`, createdAt: spec.createdAt, updatedAt: spec.createdAt })
+    expect(addDays(`2026-01-01`, 329)).toBe(`2026-11-26`)
+    expect(addDays(`2028-02-28`, 1)).toBe(`2028-02-29`)
+    const once = runRecordsQueries(rows, spec.kind, { ...(s.steps as unknown as RecordsSteps), warmup: 0, runs: 1 }, () => 0)
+    expect(once.matched).toBeGreaterThan(0)
+    expect(Object.keys(once).sort()).toEqual(s.metrics.map((m) => m.id).sort())
   })
 
   it(`the stream holds 200 messages, alternating kinds, and ends with 100 cards`, () => {

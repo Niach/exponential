@@ -126,9 +126,13 @@ struct MarkCanvas: View {
 /// root (`blockingOverlayHost`), driven by `BlockingFeedback`.
 public struct BlockingOverlay: View {
     let line: String
+    /// False = the mark still (the static logo): the styleguide specimen
+    /// (web `BlockingSurface still`).
+    var animated: Bool
 
-    public init(_ line: String) {
+    public init(_ line: String, animated: Bool = true) {
         self.line = line
+        self.animated = animated
     }
 
     public var body: some View {
@@ -137,7 +141,7 @@ public struct BlockingOverlay: View {
                 .opacity(FeedbackStates.Blocking.backdropOpacity)
                 .ignoresSafeArea()
             VStack(spacing: CGFloat(FeedbackStates.Blocking.gap)) {
-                FeedbackMark(size: CGFloat(FeedbackStates.Blocking.markSize))
+                FeedbackMark(size: CGFloat(FeedbackStates.Blocking.markSize), animated: animated)
                 Text(line)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))

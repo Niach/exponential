@@ -5,7 +5,7 @@ import Foundation
 /// `domain/Apps.kt`). An app = a team-scoped declarative Exponential UI
 /// package rendered through the client's app host. The render rules live in
 /// the fixture's `$comment`; `AppsTests` replays `slugifyCases`,
-/// `versionLabelCases` and `sortAppsCases` and pins the constants below to
+/// `versionLabelCases`, `sortAppsCases` and `publishCases` and pins the constants below to
 /// the fixture and `contract.json` `apps`.
 public enum Apps {
     // MARK: - Fixture constants
@@ -28,6 +28,12 @@ public enum Apps {
         public static let restore = "Restore"
         public static let restored = "Restored v{n} as v{m}"
         public static let restoredNote = "Restored v{n}"
+        /// eApps V1 (#VAPP-210): Publish, the published row's badge, its toast
+        /// and the server's refusal while nothing exists.
+        public static let publish = "Publish"
+        public static let published = "Published"
+        public static let publishedToast = "Published v{n}"
+        public static let publishNothing = "Nothing to publish yet"
         public static let empty = "No apps yet"
         public static let chatEmpty = "Describe the app you want. The editor session builds it and the preview follows."
         public static let previewEmpty = "No version yet"
@@ -84,6 +90,10 @@ public enum Apps {
                 .replacingOccurrences(of: "{m}", with: String(version))
         }
 
+        public static func publishedToast(_ number: Int) -> String {
+            publishedToast.replacingOccurrences(of: "{n}", with: String(number))
+        }
+
         public static func deleteTitle(_ name: String) -> String {
             deleteTitle.replacingOccurrences(of: "{name}", with: name)
         }
@@ -123,6 +133,9 @@ public enum Apps {
         public static let settings = "app-editor-settings"
         public static let versionPreview = "app-version-preview"
         public static let versionRestore = "app-version-restore"
+        // eApps V1: the editor's Publish, a Versions row's Publish.
+        public static let publish = "app-editor-publish"
+        public static let versionPublish = "app-version-publish"
         // VAPP-178: the Data tab's body.
         public static let data = "app-editor-data"
         // VAPP-179: the Preview toolbar (web ≥ md + desktop only; phones
@@ -265,6 +278,56 @@ public enum Apps {
             : Copy.noVersion
     }
 
+    // MARK: - eApps V1 draft vs published (#VAPP-210, fixture `publishCases`)
+
+    /// An app's two pointers.
+    public struct Versions: Equatable, Sendable {
+        public let headVersion: Int
+        public let publishedVersion: Int
+
+        public init(headVersion: Int, publishedVersion: Int) {
+            self.headVersion = headVersion
+            self.publishedVersion = publishedVersion
+        }
+    }
+
+    /// A Versions row's trailing (TS `versionRow`).
+    public enum VersionRowKind: String, Equatable, Sendable {
+        case published, head, version
+    }
+
+    /// The version the editor's preview shows: an explicitly viewed one, else
+    /// nothing (no version), else the HEAD (the draft) while the viewer's own
+    /// editor session is live or nothing is published, else the PUBLISHED one.
+    public static func shownVersion(_ app: Versions, editing: Bool, viewing: Int?) -> Int {
+        if let viewing { return viewing }
+        if app.headVersion == 0 { return 0 }
+        return editing || app.publishedVersion == 0 ? app.headVersion : app.publishedVersion
+    }
+
+    /// Publish is offered while the head is not the published version.
+    public static func canPublish(_ app: Versions) -> Bool {
+        app.headVersion > 0 && app.headVersion != app.publishedVersion
+    }
+
+    /// The list's and the header's version pill: the PUBLISHED version.
+    public static func listPill(_ app: Versions) -> String {
+        versionLabel(app.publishedVersion)
+    }
+
+    /// The version a grant is made on and checked against (`apps.update
+    /// {headVersion}` carries it): the published one, else the head.
+    public static func grantVersion(_ app: Versions) -> Int {
+        app.publishedVersion > 0 ? app.publishedVersion : app.headVersion
+    }
+
+    /// A Versions row's trailing: the published badge, the head badge +
+    /// Publish, or Preview + Publish.
+    public static func versionRow(_ app: Versions, number: Int) -> VersionRowKind {
+        if number == app.publishedVersion { return .published }
+        return number == app.headVersion ? .head : .version
+    }
+
     /// A name → its slug: lowercase ASCII letters, digits and single dashes,
     /// diacritics stripped, cut at the cap, `app` when nothing is left; a
     /// taken slug gets `-2`, `-3`, … (TS `slugify`).
@@ -324,7 +387,7 @@ public enum Apps {
         ] + (isDraft(headVersion: headVersion) ? [
             "It is a new DRAFT with a placeholder name: on your FIRST exponential_apps {op: \"upsert\"} also pass name, icon, color and description that fit what the person asks for. The slug follows the new name; use the slug the upsert returns from then on.",
         ] : []) + [
-            "An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: \"get\", slug: \"\(slug)\"}; learn the components, bindings and functions with exponential_apps {op: \"catalog\"}; publish every change as a new version with exponential_apps {op: \"upsert\", slug: \"\(slug)\", package, note}. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.",
+            "An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: \"get\", slug: \"\(slug)\"}; learn the components, bindings, host functions and records with exponential_apps {op: \"catalog\"}; save every change as a new draft version with exponential_apps {op: \"upsert\", slug: \"\(slug)\", package, note} (members keep running the published version); publish with exponential_apps {op: \"publish\", slug: \"\(slug)\"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: \"records_upsert\" | \"records_list\", slug: \"\(slug)\", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format. The person sees the live preview beside this chat, so keep replies to one or two lines and save drafts early.",
         ]
         return lines.joined(separator: "\n")
     }

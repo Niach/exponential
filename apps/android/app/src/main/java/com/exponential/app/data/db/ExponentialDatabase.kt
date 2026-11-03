@@ -60,7 +60,9 @@ import androidx.room.TypeConverters
     //      shape refetches.
     // v110 (#EXP-1661): the `skills` table + agents.skill_ids, explicit
     //      [MIGRATION_109_110]; only the agents shape refetches.
-    version = 110,
+    // v111 (eApps V1, #VAPP-210): apps.published_version + draft_package,
+    //      explicit [MIGRATION_110_111]; only the apps shape refetches.
+    version = 111,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

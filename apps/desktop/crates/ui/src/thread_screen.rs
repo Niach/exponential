@@ -526,12 +526,11 @@ fn event_row(
     match action.session_id {
         Some(target) if action.chevron => muted_line_button(
             SharedString::from(format!("{}-{id}", domain::thread_row_action::test_ids().event)),
-            registry::EVENT_STATUS_CHANGED,
             line.to_string(),
             move |window, cx| open_session_card(&target, window, cx),
             cx,
         ),
-        _ => muted_line(registry::EVENT_STATUS_CHANGED, line.to_string(), cx),
+        _ => event_line(line.to_string(), cx),
     }
 }
 
@@ -1204,23 +1203,10 @@ pub(crate) fn chat_agent_bubble(body: MarkdownView, time: String, cx: &App) -> A
         .into_any_element()
 }
 
-/// The agent's prose: its mark beside the markdown.
-pub(crate) fn agent_prose(body: MarkdownView, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    h_flex()
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .items_start()
-        .child(
-            div().mt(px(4.)).flex_shrink_0().child(
-                Icon::new(registry::CODING_ASSISTANT)
-                    .xsmall()
-                    .text_color(muted.opacity(0.6)),
-            ),
-        )
-        .child(body_text(div()).flex_1().min_w_0().child(body))
-        .into_any_element()
+/// The agent's prose: plain markdown, no mark (web `chat-transcript.tsx` /
+/// the thread's agent text).
+pub(crate) fn agent_prose(body: MarkdownView, _cx: &App) -> AnyElement {
+    body_text(div()).w_full().min_w_0().child(body).into_any_element()
 }
 
 /// A muted one-liner (an event, a system message, a subagent).
@@ -1238,34 +1224,47 @@ pub(crate) fn muted_line(glyph: crate::icons::ExpIcon, text: String, cx: &App) -
         .into_any_element()
 }
 
-/// #EXP-1464: [`muted_line`] as a button (thread-row-action.json): the
-/// trailing chevron, hover = foreground, press = the pressed wash.
+/// An event line (web `session-thread-view` `thread-event`): the muted
+/// text alone, no glyph.
+pub(crate) fn event_line(text: String, cx: &App) -> AnyElement {
+    div()
+        .w_full()
+        .min_w_0()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(SharedString::from(text))
+        .into_any_element()
+}
+
+/// #EXP-1464: [`event_line`] as a button (thread-row-action.json): the
+/// trailing chevron, hover = foreground, press = the pressed wash; it hugs
+/// its text (web `thread-event`, `self-start`).
 pub(crate) fn muted_line_button(
     id: SharedString,
-    glyph: crate::icons::ExpIcon,
     text: String,
     on_click: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let foreground = cx.theme().foreground;
-    h_flex()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .items_center()
-        .text_xs()
-        .text_color(muted)
-        .cursor_pointer()
-        .rounded(px(theme::tokens::radius::SM))
-        .hover(move |style| style.text_color(foreground))
-        .active(|style| style.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-        .child(Icon::from(glyph).xsmall().flex_shrink_0().text_color(muted.opacity(0.7)))
-        .child(div().min_w_0().truncate().child(SharedString::from(text)))
-        .child(Icon::new(registry::UI_CHEVRON_RIGHT).xsmall().flex_shrink_0())
-        .on_click(move |_, window, cx| on_click(window, cx))
-        .into_any_element()
+    h_flex().w_full().min_w_0().child(
+        h_flex()
+            .id(id)
+            .max_w_full()
+            .min_w_0()
+            .gap_1()
+            .items_center()
+            .text_xs()
+            .text_color(muted)
+            .cursor_pointer()
+            .rounded(px(theme::tokens::radius::SM))
+            .hover(move |style| style.text_color(foreground))
+            .active(|style| style.opacity(0.7))
+            .child(div().min_w_0().truncate().child(SharedString::from(text)))
+            .child(Icon::new(registry::UI_CHEVRON_RIGHT).with_size(px(14.)).flex_shrink_0())
+            .on_click(move |_, window, cx| on_click(window, cx)),
+    )
+    .into_any_element()
 }
 
 /// `plan-card.json` `copy.answering` while the card's answer is on its way.

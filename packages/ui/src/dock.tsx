@@ -21,6 +21,7 @@ import {
   type DockTint,
 } from "@exp/domain-contract/dock"
 import type { IconConcept } from "@exp/icons"
+import { PLAN_PAGE_COPY } from "@exp/domain-contract/plan-page"
 import { Button } from "./button"
 import { cn } from "./cn"
 import {
@@ -48,6 +49,7 @@ import { CHAT_COLUMN_CLASS } from "./work-header"
 // (`onHeight`): the host pads the transcript by it and lifts the jump button
 // over it.
 
+const FullscreenIcon = conceptIcon(`ui-fullscreen`)
 const CloseIcon = conceptIcon(DOCK_ICONS.close as IconConcept)
 
 const TINT_CLASS: Record<DockTint, string> = DOCK_CARD_CLASSES.tint
@@ -334,11 +336,15 @@ export function DockSheetFooter({ children, className }: { children: ReactNode; 
 export function DockSheetChrome({
   row,
   onClose,
+  onOpenFull,
   title,
   children,
 }: {
   row: Pick<DockRow, `icon` | `tint` | `label` | `caption`>
   onClose?: () => void
+  /** A plan's way into THE plan page (plan-page.json WAYS IN: the Dock
+   *  sheet header glyph `ui-fullscreen`, `copy.openFull`); absent = none. */
+  onOpenFull?: () => void
   /** The accessible title node (the live sheet's Radix title). */
   title?: ReactNode
   children: ReactNode
@@ -353,6 +359,18 @@ export function DockSheetChrome({
         {row.caption && <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">{row.caption}</span>}
         <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           {meta}
+          {onOpenFull && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={PLAN_PAGE_COPY.openFull}
+              title={PLAN_PAGE_COPY.openFull}
+              data-testid="dock-sheet-open-full"
+              onClick={onOpenFull}
+            >
+              <FullscreenIcon />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -431,10 +449,12 @@ export function DockSheet({
 export function DockSheetSpecimenFrame({
   row,
   height = 360,
+  onOpenFull,
   children,
 }: {
   row: Pick<DockRow, `icon` | `tint` | `label` | `caption`>
   height?: number
+  onOpenFull?: () => void
   children: ReactNode
 }) {
   return (
@@ -442,7 +462,9 @@ export function DockSheetSpecimenFrame({
       className="flex flex-col overflow-hidden border border-glass-stroke-card bg-glass-card-opaque"
       style={{ height, borderTopLeftRadius: DOCK_SHEET.radius, borderTopRightRadius: DOCK_SHEET.radius }}
     >
-      <DockSheetChrome row={row}>{children}</DockSheetChrome>
+      <DockSheetChrome row={row} onOpenFull={onOpenFull}>
+        {children}
+      </DockSheetChrome>
     </div>
   )
 }

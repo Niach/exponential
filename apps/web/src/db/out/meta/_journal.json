@@ -1667,6 +1667,13 @@
       "when": 1793673334257,
       "tag": "0237_eapps_r3_format_v3",
       "breakpoints": true
+    },
+    {
+      "idx": 238,
+      "version": "7",
+      "when": 1793687755522,
+      "tag": "0238_eapps_v1_published",
+      "breakpoints": true
     }
   ]
 }

@@ -54,6 +54,12 @@ pub struct AppsCopy {
     /// `Restored v{n} as v{m}`.
     pub restored: String,
     pub restored_note: String,
+    /// eApps V1 (#VAPP-210): Publish, the published badge, its toast.
+    pub publish: String,
+    pub published: String,
+    /// `Published v{n}`.
+    pub published_toast: String,
+    pub publish_nothing: String,
     pub empty: String,
     pub chat_empty: String,
     pub preview_empty: String,
@@ -262,6 +268,9 @@ pub struct AppsTestIds {
     pub settings: String,
     pub version_preview: String,
     pub version_restore: String,
+    /// eApps V1: the header's (phones: the menu's) Publish, a row's Publish.
+    pub publish: String,
+    pub version_publish: String,
     /// VAPP-178: the Data tab.
     pub data: String,
     /// VAPP-179: the preview toolbar, its frame control and template picker.
@@ -416,6 +425,82 @@ pub fn viewing_label(number: i64) -> String {
 }
 
 /// `Restored v{n} as v{m}` (the restore toast).
+/// eApps V1 (#VAPP-210, fixture `publishCases`): an app's two pointers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppVersions {
+    pub head: i64,
+    pub published: i64,
+}
+
+/// The version the editor's preview shows (web `shownVersion`): an
+/// explicitly viewed one, else nothing (0), else the HEAD while the viewer's
+/// own editor session is live or nothing is published, else the PUBLISHED.
+pub fn shown_version(app: AppVersions, editing: bool, viewing: Option<i64>) -> i64 {
+    if let Some(viewing) = viewing {
+        return viewing;
+    }
+    if app.head == 0 {
+        return 0;
+    }
+    if editing || app.published == 0 {
+        app.head
+    } else {
+        app.published
+    }
+}
+
+/// Publish is offered while the head is not the published version.
+pub fn can_publish(app: AppVersions) -> bool {
+    app.head > 0 && app.head != app.published
+}
+
+/// The list's and the header's version pill: the PUBLISHED version.
+pub fn list_pill(app: AppVersions) -> String {
+    version_label(app.published)
+}
+
+/// The version a grant is made on (`apps.update {headVersion}` carries it).
+pub fn grant_version(app: AppVersions) -> i64 {
+    if app.published > 0 {
+        app.published
+    } else {
+        app.head
+    }
+}
+
+/// A Versions row's trailing (web `versionRow`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionRowKind {
+    Published,
+    Head,
+    Version,
+}
+
+impl VersionRowKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Published => "published",
+            Self::Head => "head",
+            Self::Version => "version",
+        }
+    }
+}
+
+pub fn version_row(app: AppVersions, number: i64) -> VersionRowKind {
+    if number == app.published {
+        VersionRowKind::Published
+    } else if number == app.head {
+        VersionRowKind::Head
+    } else {
+        VersionRowKind::Version
+    }
+}
+
+/// `Published v{n}`.
+pub fn published_label(number: i64) -> String {
+    APPS.copy.published_toast.replace("{n}", &number.to_string())
+}
+
 pub fn restored_label(restored: i64, version: i64) -> String {
     APPS.copy
         .restored
@@ -682,6 +767,27 @@ mod tests {
                 .unwrap_or_default();
             let name = case["name"].as_str().unwrap();
             assert_eq!(slugify(name, &taken), case["slug"].as_str().unwrap(), "{name}");
+        }
+    }
+
+    #[test]
+    fn publish_replays_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        for case in fixture["publishCases"]["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let app = AppVersions {
+                head: case["app"]["headVersion"].as_i64().unwrap(),
+                published: case["app"]["publishedVersion"].as_i64().unwrap(),
+            };
+            let editing = case["editing"].as_bool().unwrap();
+            assert_eq!(shown_version(app, editing, case["viewing"].as_i64()), case["shown"].as_i64().unwrap(), "{name}");
+            assert_eq!(can_publish(app), case["canPublish"].as_bool().unwrap(), "{name}");
+            assert_eq!(list_pill(app), case["pill"].as_str().unwrap(), "{name}");
+            assert_eq!(grant_version(app), case["grant"].as_i64().unwrap(), "{name}");
+            for row in case["rows"].as_array().unwrap() {
+                let number = row[0].as_i64().unwrap();
+                assert_eq!(version_row(app, number).as_str(), row[1].as_str().unwrap(), "{name} v{number}");
+            }
         }
     }
 

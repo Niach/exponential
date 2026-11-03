@@ -11,6 +11,7 @@
 //! Kotlin painters reach this module through `exponential-ui-ffi`.
 
 pub mod actions;
+pub mod components;
 pub mod contract;
 pub mod decoders;
 pub mod exposes;
@@ -31,12 +32,13 @@ pub use actions::{
     action_call_name, action_var_types, apply_record_batch, apply_record_batch_as, function_effect, is_action_name, run_action, validate_package_actions, validate_package_effects, ActionContext, ACTION_CALL_PREFIX, ACTION_LIMIT_ACTIONS, ACTION_LIMIT_MAX_STEPS, ACTION_LIMIT_STEPS, ACTION_NAME_PATTERN,
     ACTION_STEP_KINDS, RECORDS_BATCH_FUNCTION,
 };
+pub use components::validate_package_components;
 pub use contract::*;
 pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions};
 pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, expose_template_paths, validate_package_exposes, validate_upstreams, ExposeIssue};
 pub use decoders::{decode_jsonl, mcp_action_call, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
 pub use package::{
-    available_extensions, client_capabilities, merge_data, package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, validate_package_with, version_satisfies, AvailableExtension, PackageIssue,
+    available_extensions, client_capabilities, merge_data, package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, validate_package_in, validate_package_with, version_satisfies, AvailableExtension, PackageIssue,
     PACKAGE_FORMAT_VERSION,
 };
 pub use policy::{
@@ -72,7 +74,13 @@ pub(crate) fn js_trim(s: &str) -> &str {
 
 /// JavaScript's default string order (`sort()`, `<`): by UTF-16 code units,
 /// which differs from Rust's byte order above U+FFFF.
+/// VAPP-202: when either side is ASCII the first difference is an ASCII
+/// byte against a byte of the same or a later char, where byte order and
+/// UTF-16 order agree, so the bytes compare directly.
 pub(crate) fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    if a.is_ascii() || b.is_ascii() {
+        return a.as_bytes().cmp(b.as_bytes());
+    }
     a.encode_utf16().cmp(b.encode_utf16())
 }
 

@@ -140,7 +140,7 @@ fun AskDockSpecimenScreen() {
                     DockPile(rows = pile, expanded = true, onExpandedChange = {}, onOpen = {})
                 }
                 SpecimenCase("The plan's sheet") {
-                    DockSheetSpecimenFrame(row = single[0], height = 420.dp) { scope ->
+                    DockSheetSpecimenFrame(row = single[0], height = 420.dp, onOpenFull = {}) { scope ->
                         PlanAskCard(RICH_PLAN, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> }, sheet = scope)
                     }
                 }

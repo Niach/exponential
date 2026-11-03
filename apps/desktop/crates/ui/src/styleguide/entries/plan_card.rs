@@ -130,8 +130,22 @@ fn demo(label: &str, rows: &[SessionThreadRow], images: &Entity<ImageCache>, win
     // #EXP-1561: a waiting card carries its × (the web specimen's
     // `onDismiss`); its decision stays in THE Dock.
     let text = ThreadText::default().dismissing(true);
-    let cards: Vec<_> =
-        rows.iter().filter_map(|row| crate::thread_screen::ask_row_card(row, &text, images, window, cx)).collect();
+    // plan-page.json WAYS IN: every plan card wears its header `Open plan`,
+    // as in the chat (web specimen `onOpenPlan`); a dismissed one is a line.
+    let cards: Vec<_> = rows
+        .iter()
+        .filter_map(|row| {
+            let open = match row {
+                SessionThreadRow::Plan { id, session_id, decision, .. }
+                    if !matches!(decision.as_deref(), Some("superseded" | "dismissed")) =>
+                {
+                    Some(crate::thread_screen::open_plan_button(session_id, id, cx))
+                }
+                _ => None,
+            };
+            crate::thread_screen::ask_row_card_with(row, &text, images, open, window, cx)
+        })
+        .collect();
     v_flex().w_full().gap_2().child(caption(label, cx)).child(v_flex().w_full().gap_3().children(cards))
 }
 

@@ -696,7 +696,7 @@ private struct PlanSheetSpecimen: View {
     let card: ThreadPlanRow
 
     var body: some View {
-        DockSheetSpecimenFrame(row: row, height: 420) {
+        DockSheetSpecimenFrame(row: row, height: 420, onOpenFull: {}) {
             AgentMarkdownText(
                 text: PlanCard.renderableMarkdown(card.plan),
                 context: nil,
@@ -898,67 +898,109 @@ private struct PlanCardSpecimens: View {
 }
 
 /// S-3: the `voice-call` entry (voice-call.json `surfaceSpecimens`): THE
-/// phone-call surface the live call screen draws (`VoiceCallSurface`), once
-/// per row as a scaled phone frame, static (rings at their rest phase).
+/// phone-call surface the live call screen draws (`VoiceCallSurface`), all
+/// five rows stacked full width in one column (web-mobile), each in a
+/// phone-shaped frame with its `name` captioned under it, static (rings at
+/// their rest phase).
 private struct VoiceCallSpecimens: View {
-    /// The phone the surface is laid out on, then scaled into the grid.
-    private static let phone = CGSize(width: 360, height: 640)
-    private static let scale: CGFloat = 0.38
+    /// The frame's height (web `h-[600px]`).
+    private static let height: CGFloat = 600
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+        VStack(spacing: 16) {
             ForEach(Array(VoiceCall.surfaceSpecimens.enumerated()), id: \.offset) { _, specimen in
-                VoiceCallSurface(
-                    view: specimen.view,
-                    callee: VoiceCallCallee(name: specimen.agent),
-                    timer: .fixed(specimen.timer),
-                    level: specimen.level,
-                    bands: specimen.bands,
-                    animated: false
-                )
-                .frame(width: Self.phone.width, height: Self.phone.height)
-                .background(DesignTokens.Palette.background)
-                .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 40, style: .continuous).stroke(DesignTokens.Palette.border, lineWidth: 2))
-                .scaleEffect(Self.scale)
-                .frame(width: Self.phone.width * Self.scale, height: Self.phone.height * Self.scale)
+                VStack(spacing: 8) {
+                    VoiceCallSurface(
+                        view: specimen.view,
+                        callee: VoiceCallCallee(name: specimen.agent),
+                        timer: .fixed(specimen.timer),
+                        level: specimen.level,
+                        bands: specimen.bands,
+                        animated: false
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: Self.height)
+                    .background(DesignTokens.Palette.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(DesignTokens.Palette.border, lineWidth: 1))
+                    Text(specimen.name)
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                }
             }
         }
         .frame(maxWidth: .infinity)
     }
 }
 
-/// S-3: the `call-controls` entry (eUI `CallButton`): the round call
-/// buttons in each state: in call (mute, speaker, the red end), toggled
-/// (muted, speaker off: the inverted fill), and ringing (only the red end,
-/// Cancel under it).
+/// S-3: the `call-controls` entry (eUI `CallButton`), web's gallery
+/// (`CallControlsSpecimen`) with its captions: the round buttons in every
+/// tone (neutral, pressed, speaker, speaker off, destructive, ringing with
+/// Cancel under the red end), then the rows (phones in call; web + desktop
+/// in call, muted; ringing). The compact row (the desktop's floating pill)
+/// is desktop-only and has no phone view.
 private struct CallControlsSpecimens: View {
     var body: some View {
-        VStack(spacing: 32) {
-            row(muted: false, speaker: true)
-            row(muted: true, speaker: false)
-            CallControls {
-                CallButton(
-                    icon: AppIcons.callEnd, label: VoiceCall.Copy.cancel, tone: .destructive,
-                    caption: VoiceCall.Copy.cancel, action: {}
-                )
+        VStack(alignment: .leading, spacing: 32) {
+            FlowLayout(spacing: 32, lineSpacing: 32) {
+                labelled("neutral") {
+                    CallButton(icon: AppIcons.callMute, label: VoiceCall.Copy.mute, action: {})
+                }
+                labelled("pressed") {
+                    CallButton(icon: AppIcons.callUnmute, label: VoiceCall.Copy.unmute, toggled: true, action: {})
+                }
+                labelled("speaker") {
+                    CallButton(icon: AppIcons.callSpeaker, label: VoiceCall.Copy.speaker, action: {})
+                }
+                labelled("speaker off") {
+                    CallButton(icon: AppIcons.callSpeakerOff, label: VoiceCall.Copy.speakerOff, action: {})
+                }
+                labelled("destructive") {
+                    CallButton(icon: AppIcons.callEnd, label: VoiceCall.Copy.endCall, tone: .destructive, action: {})
+                }
+                labelled("ringing: label under") {
+                    CallButton(
+                        icon: AppIcons.callEnd, label: VoiceCall.Copy.cancel, tone: .destructive,
+                        caption: VoiceCall.Copy.cancel, action: {}
+                    )
+                }
+            }
+            FlowLayout(spacing: 48, lineSpacing: 32) {
+                labelled("phones in call") {
+                    CallControls {
+                        CallButton(icon: AppIcons.callMute, label: VoiceCall.Copy.mute, action: {})
+                        CallButton(icon: AppIcons.callSpeaker, label: VoiceCall.Copy.speaker, action: {})
+                        CallButton(icon: AppIcons.callEnd, label: VoiceCall.Copy.endCall, tone: .destructive, action: {})
+                    }
+                }
+                labelled("web + desktop in call, muted") {
+                    CallControls {
+                        CallButton(icon: AppIcons.callUnmute, label: VoiceCall.Copy.unmute, toggled: true, action: {})
+                        CallButton(icon: AppIcons.callEnd, label: VoiceCall.Copy.endCall, tone: .destructive, action: {})
+                    }
+                }
+                labelled("ringing") {
+                    CallControls {
+                        CallButton(
+                            icon: AppIcons.callEnd, label: VoiceCall.Copy.cancel, tone: .destructive,
+                            caption: VoiceCall.Copy.cancel, action: {}
+                        )
+                    }
+                }
             }
         }
-        .padding(.vertical, 24)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func row(muted: Bool, speaker: Bool) -> some View {
-        CallControls {
-            CallButton(
-                icon: muted ? AppIcons.callUnmute : AppIcons.callMute,
-                label: muted ? VoiceCall.Copy.unmute : VoiceCall.Copy.mute, toggled: muted, action: {}
-            )
-            CallButton(
-                icon: speaker ? AppIcons.callSpeaker : AppIcons.callSpeakerOff,
-                label: speaker ? VoiceCall.Copy.speaker : VoiceCall.Copy.speakerOff, toggled: !speaker, action: {}
-            )
-            CallButton(icon: AppIcons.callEnd, label: VoiceCall.Copy.endCall, tone: .destructive, action: {})
+    /// Web `Labelled`: the control over its caption, centred (`gap-3`,
+    /// the control in an 80 pt tall slot).
+    private func labelled(_ label: String, @ViewBuilder _ content: () -> some View) -> some View {
+        VStack(spacing: 12) {
+            content()
+                .frame(minHeight: 80, alignment: .top)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Palette.mutedForeground)
         }
     }
 }

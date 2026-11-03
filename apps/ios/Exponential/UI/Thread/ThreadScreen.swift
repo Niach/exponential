@@ -298,42 +298,46 @@ struct ThreadScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        // S-3 (session-thread.json): the thread PR's Merge pill, left of
-        // `…`, on every page while the PR is open. EXP-1552: THE primary
-        // pill ×4 (web `PullRequestMergePill`), its own chrome: iOS 26's
-        // shared glass would fold it into the `…` capsule.
-        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: editor == nil) { headerMergePill }
-        .toolbar {
-            // EXP-1316: the title, ONE line, not tappable, the lock beside it.
-            if let editor {
-                ToolbarItem(placement: .principal) { editor.title }
-                if let trailing = editor.trailing {
-                    ToolbarItem(placement: .topBarTrailing) { trailing }
-                }
-            }
-            // EXP-1307/1316: ONE `…` rides the header's action slot on every
-            // tab while it has an entry — Close PR (EXP-1338: no GitHub
-            // entry), in THE Menu's sheet.
-            // NEW-69 (voice-call.json): an agent chat's telephone, left of `…`.
-            ToolbarItem(placement: .topBarTrailing) {
-                if editor == nil, let rows, rows.root.isAgent, rows.root.appId == nil,
+        // S-3 (session-thread.json): the trailing actions in web's order —
+        // the thread PR's Merge pill, then (NEW-69, voice-call.json) an
+        // agent chat's telephone, then ONE `…` (EXP-1307/1316: Close PR in
+        // THE Menu's sheet) — as ONE own-chrome item: iOS 26's shared glass
+        // would fold them into a filled capsule (web-mobile draws bare
+        // glyphs), and separate items let SwiftUI reorder them.
+        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: editor == nil) {
+            HStack(spacing: 8) {
+                headerMergePill
+                if let rows, rows.root.isAgent, rows.root.appId == nil,
                    let agentId = rows.root.agentId {
                     AgentCallButton(
                         agentId: agentId, agentName: rows.agentName,
                         agentIcon: rows.agent?.isAssistant == true ? nil : BoardTypeDisplay.iconName(for: rows.agent?.icon),
                         agentColor: rows.agent?.color
                     )
+                    .buttonStyle(.plain)
+                    .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
                 }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                if editor == nil, !chatMenuEntries.isEmpty {
+                if !chatMenuEntries.isEmpty {
                     Button { openChatMenu() } label: {
                         AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium, weight: .medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("More")
                     .accessibilityIdentifier(SessionTree.ThreadCopy.guideMenuTestId)
                 }
+            }
+        }
+        // An app editor's `…`: a bare glyph too (no shared glass).
+        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: editor?.trailing != nil) {
+            editor?.trailing
+        }
+        .toolbar {
+            // EXP-1316: the title, ONE line, not tappable, the lock beside it.
+            if let editor {
+                ToolbarItem(placement: .principal) { editor.title }
             }
         }
         // Each presentation on its OWN node (EXP-240).

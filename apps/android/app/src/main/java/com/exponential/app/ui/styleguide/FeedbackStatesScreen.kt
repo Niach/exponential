@@ -136,7 +136,7 @@ fun FeedbackStatesScreen() {
                             .clip(RoundedCornerShape(GlassTokens.GroupRadius))
                             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, RoundedCornerShape(GlassTokens.GroupRadius)),
                     ) {
-                        BlockingSurface(FeedbackStates.switchingTeam("Personal"))
+                        BlockingSurface(FeedbackStates.switchingTeam("Personal"), still = true)
                     }
                 }
                 Kind(6, "Errors") {

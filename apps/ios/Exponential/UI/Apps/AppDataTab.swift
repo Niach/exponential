@@ -35,9 +35,10 @@ struct AppDataTab: View {
     @State private var pendingMenu: (row: AppDataRowTarget, action: AppDataRowMenuSheet.Action)?
     @State private var deleting: AppDataRowTarget?
 
-    /// The head package (its manifest carries `records`); nil = a draft.
+    /// The head package (its manifest carries `records`; eApps V1: the
+    /// draft, else the published one); nil = a draft.
     private var manifest: CardJSON? {
-        guard let text = app.package,
+        guard let text = app.headPackage,
               let parsed = try? JSONSerialization.jsonObject(with: Data(text.utf8))
         else { return nil }
         return CardJSON(any: parsed)
@@ -69,7 +70,7 @@ struct AppDataTab: View {
             model.bind(accountId: accountId, appId: next, userId: deps.auth.userId, db: deps.db)
             model.loadAccess(accountId: accountId, appId: next, trpc: deps.trpc)
         }
-        .onChange(of: app.package) { _, _ in model.manifest = manifest }
+        .onChange(of: app.headPackage) { _, _ in model.manifest = manifest }
         .onDisappear { model.stop() }
         // Each presentation on its OWN node (EXP-240).
         .background {

@@ -3456,20 +3456,9 @@ impl SteerSessionView {
     /// the draft is empty whenever the button shows Stop, and the person
     /// can edit and re-send. The device's empty `queue` frame confirms.
     fn stop_turn(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.tree_scope {
-            // A root's composer stops the TREE: every session of it that is
-            // working right now, the root's own turn included — and nothing
-            // else (a Stop on an idle or queued root would be a no-op at
-            // best).
-            let mut busy = busy_tree_sessions(&self.session_id, cx);
-            if self.working_now() && !busy.contains(&self.session_id) {
-                busy.push(self.session_id.clone());
-            }
-            // One stop action = at most one toast, however many it stops.
-            stop_sessions(busy, cx);
-        } else {
-            stop_session(&self.session_id, cx);
-        }
+        // Web parity (thread-screen `busy` = the ROOT's): the composer's
+        // Stop interrupts the root's turn only; a busy child never shows it.
+        stop_session(&self.session_id, cx);
         let unread = self.feed.take_queue();
         if !unread.is_empty() {
             let held = unread
@@ -3490,8 +3479,10 @@ impl SteerSessionView {
     fn shows_stop(&self, cx: &App) -> bool {
         let has_draft =
             !self.input.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
+        // Web parity (thread-screen: "the ROOT's busy: Stop stops the root,
+        // so a busy child never shows it").
         let working = if self.tree_scope {
-            self.working_now() || !busy_tree_sessions(&self.session_id, cx).is_empty()
+            self.working_now()
         } else {
             self.working
         };
@@ -3756,16 +3747,6 @@ pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this session";
 pub(crate) fn device_offline_copy(label: Option<&str>) -> String {
     let label = label.map(str::trim).filter(|label| !label.is_empty()).unwrap_or("The device");
     format!("{label} is offline. The transcript lives on that machine.")
-}
-
-/// The sessions of `root_id`'s tree that are working right now (the synced
-/// `busy`, the ONE spinner input ×4) — what a root's composer Stops.
-pub(crate) fn busy_tree_sessions(root_id: &str, cx: &App) -> Vec<String> {
-    crate::session_data::tree_of_root(root_id, cx)
-        .into_iter()
-        .filter(|session| session.busy && !session.is_ended())
-        .map(|session| session.id)
-        .collect()
 }
 
 /// EXP-1294 — who may message and Stop a session: any team member when it

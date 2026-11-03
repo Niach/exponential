@@ -103,7 +103,9 @@ fn app_state(app_id: &str, access: Option<String>, cx: &App) -> (Option<Value>, 
         access,
         package: None,
     };
-    let package = row.and_then(|row| row.package).filter(Value::is_object);
+    // eApps V1 (#VAPP-210): the editor's Data tab works on the HEAD's kinds
+    // (the draft while ahead, else the published package).
+    let package = row.and_then(|row| row.draft_package.filter(Value::is_object).or(row.package)).filter(Value::is_object);
     let viewer = Viewer { package: package.clone().map(std::sync::Arc::new), ..viewer };
     let records = Store::try_global(cx)
         .map(|store| {
@@ -169,6 +171,11 @@ impl AppDataTab {
             .detach();
         }
         Self { app_id, kind: None, scroll: ScrollHandle::new(), table_scroll: ScrollHandle::new(), access: None, _subscriptions: subscriptions }
+    }
+
+    /// eApps R3: the viewer's app access (`None` until known = write).
+    pub(crate) fn access(&self) -> Option<&str> {
+        self.access.as_deref()
     }
 
     fn toolbar(&self, kinds: &[(String, usize)], picked: &str, schema: &DataSchema, viewer: &Viewer, cx: &mut gpui::Context<Self>) -> Div {

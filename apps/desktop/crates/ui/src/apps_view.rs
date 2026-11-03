@@ -19,7 +19,7 @@ use gpui::{
 use gpui_component::{v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
-use domain::apps::{sort_apps, version_label, AppListLike, APPS};
+use domain::apps::{sort_apps, AppListLike, APPS};
 use domain::prompts::{Action, Prompt, Role};
 use domain::rows::AppRow;
 
@@ -36,6 +36,8 @@ pub(crate) struct AppEntry {
     pub(crate) icon: Option<String>,
     pub(crate) color: Option<String>,
     pub(crate) head_version: i64,
+    /// eApps V1 (#VAPP-210): the published version (0 = never published).
+    pub(crate) published_version: i64,
     pub(crate) row: Option<AppRow>,
 }
 
@@ -54,6 +56,7 @@ impl AppEntry {
             icon: row.icon.clone(),
             color: row.color.clone(),
             head_version: row.head_version.unwrap_or(0),
+            published_version: row.published_version.unwrap_or(0),
             row: Some(row.clone()),
         }
     }
@@ -73,9 +76,20 @@ impl AppEntry {
         }
     }
 
-    /// The version pill's text: `v{n}` or `Draft`.
+    /// eApps V1: the two pointers (fixture `publishCases`).
+    pub(crate) fn versions(&self) -> domain::apps::AppVersions {
+        domain::apps::AppVersions { head: self.head_version, published: self.published_version }
+    }
+
+    /// The version pill's text (`listPill`): the published `v{n}` or `Draft`.
     pub(crate) fn pill_label(&self) -> String {
-        version_label(self.head_version)
+        domain::apps::list_pill(self.versions())
+    }
+
+    /// The head's package: the draft while ahead, else the published one.
+    pub(crate) fn head_package(&self) -> Option<serde_json::Value> {
+        let row = self.row.as_ref()?;
+        row.draft_package.clone().filter(serde_json::Value::is_object).or_else(|| row.package.clone().filter(serde_json::Value::is_object))
     }
 }
 
@@ -116,7 +130,7 @@ pub(crate) fn find_app(app: &str, team_id: Option<&str>, cx: &App) -> Option<App
 pub(crate) fn version_pill(id: impl Into<gpui::ElementId>, entry: &AppEntry, cx: &App) -> gpui::AnyElement {
     let pill = crate::surface::glass_pill(id, crate::surface::PillSize::Sm, crate::surface::PillMode::Readonly, cx)
         .child(SharedString::from(entry.pill_label()));
-    if entry.head_version > 0 {
+    if entry.published_version > 0 {
         pill.into_any_element()
     } else {
         pill.text_color(cx.theme().muted_foreground).into_any_element()

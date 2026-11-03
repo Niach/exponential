@@ -570,6 +570,9 @@ private struct PlanCardLiveSurface: View {
     @Environment(\.accountId) private var accountId
     @State private var model: SurfaceModel?
     @State private var failed = false
+    /// The `buildKey` the current model was built from: a re-appearing card
+    /// (a pager page coming back) keeps its model instead of rebuilding it.
+    @State private var builtKey: String?
 
     /// Rebuild when the root OR the stamped data changes (a card closing
     /// brings the person's values with it).
@@ -582,6 +585,11 @@ private struct PlanCardLiveSurface: View {
                     .overlay(alignment: .topLeading) {
                         if staggerChildren, !motion.reduceMotion { childVeils(model) }
                     }
+                    // A rebuilt model = a fresh painter: the surface feeds its
+                    // width from a geometry CHANGE, so a new model under the
+                    // same view (an unchanged width) would never lay out and
+                    // paint an empty bar (the Stories tab's question card).
+                    .id(ObjectIdentifier(model))
             } else if failed {
                 EmptyView()
             } else {
@@ -612,6 +620,8 @@ private struct PlanCardLiveSurface: View {
     }
 
     private func build() {
+        guard model == nil || builtKey != buildKey else { return }
+        builtKey = buildKey
         let host = PlanCardSurfaceHost(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,

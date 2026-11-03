@@ -465,13 +465,75 @@ function compare(a: unknown, b: unknown): number {
   return byCodeUnits(text(a), text(b))
 }
 
-function holds(filter: RecordsFilter, value: unknown): boolean {
+/** VAPP-202: a value read once for comparing: its number when it parses, its text. */
+interface Key {
+  n: number | null
+  t: string
+}
+const keyOf = (v: unknown): Key => {
+  const n = num(v)
+  return { n, t: n === null ? text(v) : `` }
+}
+/** `compare` over keys (a number's text only when the other side is text). */
+function compareKeys(a: Key, b: Key, av: unknown, bv: unknown): number {
+  if (a.n !== null && b.n !== null) return a.n < b.n ? -1 : a.n > b.n ? 1 : 0
+  return byCodeUnits(a.n === null ? a.t : text(av), b.n === null ? b.t : text(bv))
+}
+
+/** VAPP-202: a condition with its bounds parsed once per query, not per row. */
+interface Cond {
+  filter: RecordsFilter
+  list: readonly string[]
+  eq: string
+  bounds: { key: Key; v: string }[]
+}
+function cond(filter: RecordsFilter): Cond {
   const list = Array.isArray(filter.value) ? filter.value : [filter.value]
-  if (filter.op === `eq`) return text(value) === text(filter.value)
-  if (filter.op === `in`) return list.includes(text(value))
-  if (filter.op === `between`) return list.length === 2 && compare(value, list[0]) >= 0 && compare(value, list[1]) <= 0
-  const c = compare(value, list.length === 1 ? list[0] : text(filter.value))
-  return filter.op === `gt` ? c > 0 : filter.op === `gte` ? c >= 0 : filter.op === `lt` ? c < 0 : c <= 0
+  const bounds = filter.op === `between` ? (list.length === 2 ? list : []) : list.length === 1 ? list : [text(filter.value)]
+  return { filter, list, eq: text(filter.value), bounds: bounds.map((v) => ({ key: keyOf(v), v })) }
+}
+
+function holds(c: Cond, value: unknown): boolean {
+  const op = c.filter.op
+  if (op === `eq`) return text(value) === c.eq
+  if (op === `in`) return c.list.includes(text(value))
+  const k = keyOf(value)
+  if (op === `between`) return c.bounds.length === 2 && compareKeys(k, c.bounds[0]!.key, value, c.bounds[0]!.v) >= 0 && compareKeys(k, c.bounds[1]!.key, value, c.bounds[1]!.v) <= 0
+  const b = c.bounds[0]!
+  const r = compareKeys(k, b.key, value, b.v)
+  return op === `gt` ? r > 0 : op === `gte` ? r >= 0 : op === `lt` ? r < 0 : r <= 0
+}
+
+/** VAPP-202: `rows` in the query's order (sort keys, ties by id), each row's
+ *  keys read ONCE into a column (all numbers: the numbers; all text: the
+ *  distinct texts ranked once; both: the generic comparison) instead of
+ *  parsing and stringifying both sides of every comparison. */
+function sorted(rows: RecordRow[], sort: readonly RecordsSortKey[]): RecordRow[] {
+  const cols = sort.map((s) => {
+    const values = rows.map((row) => field(row, s.field))
+    const keys = values.map(keyOf)
+    const sign = s.order === `asc` ? 1 : -1
+    if (keys.every((k) => k.n !== null)) {
+      const v = Float64Array.from(keys, (k) => k.n!)
+      return (a: number, b: number) => sign * (v[a]! < v[b]! ? -1 : v[a]! > v[b]! ? 1 : 0)
+    }
+    if (keys.every((k) => k.n === null)) {
+      const distinct = [...new Set(keys.map((k) => k.t))].sort(byCodeUnits)
+      const rank = new Map(distinct.map((t, i) => [t, i]))
+      const v = Uint32Array.from(keys, (k) => rank.get(k.t)!)
+      return (a: number, b: number) => sign * (v[a]! - v[b]!)
+    }
+    return (a: number, b: number) => sign * compareKeys(keys[a]!, keys[b]!, values[a], values[b])
+  })
+  const idx = rows.map((_, i) => i)
+  idx.sort((a, b) => {
+    for (const col of cols) {
+      const c = col(a, b)
+      if (c !== 0) return c
+    }
+    return byCodeUnits(rows[a]!.id, rows[b]!.id)
+  })
+  return idx.map((i) => rows[i]!)
 }
 
 /** A row's author: `authorId`, else `createdBy`. */
@@ -580,19 +642,25 @@ class Running {
   }
 }
 
-/** A group's column: `author` = the author's name (+ `authorId`), a
- *  bucket = the date's bucket key, any other field its value. */
-function groupColumns(key: RecordsGroupKey, row: RecordRow, names: Record<string, string> | undefined): { cols: [string, unknown][]; part: string } {
+/** A group's part of the key: the author's id, a date's bucket key, any
+ *  other field's text (VAPP-202: computed once per row). */
+function groupPart(key: RecordsGroupKey, row: RecordRow): string {
+  if (key.field === `author`) return recordAuthor(row) ?? ``
+  const v = field(row, key.field)
+  return key.bucket !== null ? (dateBucket(text(v), key.bucket) ?? ``) : text(v)
+}
+
+/** A group's columns (from its first row): `author` = the author's name (+
+ *  `authorId`), a bucket = the date's bucket key, any other field its value. */
+function groupColumns(key: RecordsGroupKey, row: RecordRow, names: Record<string, string> | undefined, cols: Record<string, unknown>): void {
   if (key.field === `author`) {
     const author = recordAuthor(row)
-    return { cols: [[`author`, (author && names?.[author]) || ``], [`authorId`, author]], part: author ?? `` }
+    cols.author = (author && names?.[author]) || ``
+    cols.authorId = author
+    return
   }
   const v = field(row, key.field)
-  if (key.bucket !== null) {
-    const b = dateBucket(text(v), key.bucket)
-    return { cols: [[key.field, b]], part: b ?? `` }
-  }
-  return { cols: [[key.field, jsonOf(v)]], part: text(v) }
+  cols[key.field] = key.bucket !== null ? dateBucket(text(v), key.bucket) : jsonOf(v)
 }
 
 /** The value a records binding emits for `query` over `rows` (every row of
@@ -604,43 +672,35 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
   const now = ctx.now ?? new Date().toISOString()
   const view = query.month
   const monthKey = view ? (view.key ?? now.slice(0, 7)) : null
+  const where = query.where.map(cond)
+  const or = query.or.map((alt) => alt.map(cond))
+  const beforeDate = query.before ? keyOf(query.before.date) : null
   const before: RecordRow[] = []
-  const matched = rows
-    .filter((row) => {
+  const matched = sorted(
+    rows.filter((row) => {
       if (row.kind !== query.from) return false
       const author = recordAuthor(row)
       if (query.mine && (ctx.me === null || author !== ctx.me)) return false
       if (query.user !== null && author !== query.user) return false
-      if (!query.where.every((f) => holds(f, field(row, f.field)))) return false
-      if (query.or.length && !query.or.some((alt) => alt.every((f) => holds(f, field(row, f.field))))) return false
+      if (!where.every((c) => holds(c, field(row, c.filter.field)))) return false
+      if (or.length && !or.some((alt) => alt.every((c) => holds(c, field(row, c.filter.field))))) return false
       if (query.before) {
         const t = text(field(row, query.before.field))
-        if (t !== `` && compare(t, query.before.date) < 0) {
+        if (t !== `` && compareKeys(keyOf(t), beforeDate!, t, query.before.date) < 0) {
           before.push(row)
           return false
         }
       }
       if (view && monthKey !== null && !text(row.data[view.field]).startsWith(monthKey)) return false
       return true
-    })
-    .sort((a, b) => {
-      for (const key of query.sort) {
-        const c = compare(field(a, key.field), field(b, key.field))
-        if (c !== 0) return key.order === `asc` ? c : -c
-      }
-      return byCodeUnits(a.id, b.id)
-    })
+    }),
+    query.sort,
+  )
   // The before rows in the query's order too (first/last read it).
-  before.sort((a, b) => {
-    for (const key of query.sort) {
-      const c = compare(field(a, key.field), field(b, key.field))
-      if (c !== 0) return key.order === `asc` ? c : -c
-    }
-    return byCodeUnits(a.id, b.id)
-  })
+  const beforeRows = sorted(before, query.sort)
   const seeded = () => {
     const r = new Running(query.running)
-    for (const row of before) r.add(row)
+    for (const row of beforeRows) r.add(row)
     return r
   }
   const rowRunning = query.running.length && !query.group.length ? seeded() : null
@@ -700,18 +760,19 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
   }
   if (query.group.length) {
     const groups = new Map<string, { parts: string[]; rows: RecordRow[]; out: Record<string, unknown> }>()
+    // One part: the part is the id; several: joined (JSON only when a part
+    // could hold the separator).
+    const one = query.group.length === 1
     for (const row of matched) {
-      const cols: Record<string, unknown> = {}
-      const parts: string[] = []
-      for (const key of query.group) {
-        const c = groupColumns(key, row, ctx.names)
-        for (const [k, v] of c.cols) cols[k] = v
-        parts.push(c.part)
-      }
-      const id = JSON.stringify(parts)
+      const parts = query.group.map((key) => groupPart(key, row))
+      const id = one ? parts[0]! : parts.some((p) => p.includes(`\u0000`)) ? JSON.stringify(parts) : parts.join(`\u0000`)
       const g = groups.get(id)
       if (g) g.rows.push(row)
-      else groups.set(id, { parts, rows: [row], out: cols })
+      else {
+        const cols: Record<string, unknown> = {}
+        for (const key of query.group) groupColumns(key, row, ctx.names, cols)
+        groups.set(id, { parts, rows: [row], out: cols })
+      }
     }
     const list = [...groups.values()]
     for (const g of list) Object.assign(g.out, summary(query, g.rows))
@@ -742,6 +803,6 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
     out.groups = list.map((g) => g.out)
   }
   if (query.aggregate.length) out.totals = summary(query, matched)
-  if (query.before) out.before = summary(query, before)
+  if (query.before) out.before = summary(query, beforeRows)
   return out
 }

@@ -13,8 +13,9 @@ import com.exponential.app.ui.theme.DesignTokens
 /**
  * Visual tokens for the block markdown editor / viewer — a Compose port of iOS
  * `MarkdownStyle` (`apps/ios/Exponential/UI/Markdown/MarkdownAttributes.swift`)
- * so the two clients render identically. Body text is pinned at 17 sp (iOS
- * `.body`); colors are white-alpha tiers over the dark glass background.
+ * so the two clients render identically. Body text = web's `.tiptap-content`
+ * (0.875rem on a 1.625 line: tokens `type.size.sm`); colors are white-alpha
+ * tiers over the dark glass background.
  */
 object MdStyle {
     val Text = Color.White.copy(alpha = 0.9f)
@@ -70,19 +71,21 @@ object MdStyle {
         inlineCodeBg = DesignTokens.Semantic.CodeFill,
     )
 
-    val bodySize = 17.sp
-    val lineHeight = 25.sp
+    val bodySize = DesignTokens.Typography.Size.Sm.sp
+    val lineHeight = bodySize * 1.625f
+
+    /** The media chrome's own measure (captions, upload states, the player's
+     *  labels scale off it), independent of the prose body. */
+    val mediaTextSize = 17.sp
 
     val body = TextStyle(color = Text, fontSize = bodySize, lineHeight = lineHeight)
 
     fun heading(level: Int): TextStyle {
         val size = when (level) {
-            1 -> 24.sp
-            2 -> 20.sp
-            3 -> 18.sp
-            4 -> 16.sp
-            5 -> 15.sp
-            6 -> 14.sp
+            // web `.tiptap-content h1/h2/h3` (1.25rem, 1.1rem, 1rem); deeper = body.
+            1 -> 20.sp
+            2 -> 17.6.sp
+            3 -> 16.sp
             else -> bodySize
         }
         return TextStyle(color = Text, fontWeight = FontWeight.SemiBold, fontSize = size, lineHeight = size * 1.25f)
