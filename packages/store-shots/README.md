@@ -1,7 +1,7 @@
 # @exp/store-shots
 
-Dev-only picture tooling around exponential.at (moved out of the retired
-`apps/marketing`). Run from the repo root:
+Dev-only picture tooling around exponential.at (once in
+apps/marketing, now retired). Run from the repo root:
 
 | command | what |
 |---|---|
