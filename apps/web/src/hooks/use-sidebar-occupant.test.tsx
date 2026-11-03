@@ -22,13 +22,20 @@ afterEach(() => {
 })
 
 describe(`useSidebarOccupant`, () => {
-  it(`is the main menu on the Agent page, Threads and a thread`, () => {
+  it(`is the main menu everywhere but Settings: nothing folds`, () => {
     for (const pathname of [
       `/t/acme/agent`,
       `/t/acme/threads`,
       `/t/acme/threads/t1`,
       `/t/acme/agents/a1`,
       `/t/acme/sessions/s1`,
+      `/t/acme/inbox`,
+      `/t/acme/devices`,
+      `/t/acme/apps`,
+      `/t/acme/apps/working-hours`,
+      `/t/acme/boards/app`,
+      `/t/acme/boards/app/issues/APP-1`,
+      `/t/acme/drafts`,
     ]) {
       location.value = { pathname, search: { from: `agent:recent` } }
       const { result } = renderHook(() => useSidebarOccupant())

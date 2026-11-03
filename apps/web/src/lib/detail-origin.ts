@@ -236,8 +236,8 @@ export function originListNavigation(
 }
 
 /** Who occupies the sidebar column: the main menu, or (on `/settings`) the
- *  48px icon rail beside the settings nav. #EXP-1672: the Inbox never folds
- *  the main menu any more — its list is the content card's second sidebar
+ *  settings nav in its place — desktop `left_occupant_for`. #EXP-1672: the
+ *  Inbox keeps the main menu; its list is the content card's second sidebar
  *  (`secondSidebarFor`), desktop `second_sidebar_for` parity. */
 export type SidebarOccupant = { kind: `main` } | { kind: `settings` }
 

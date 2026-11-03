@@ -1,4 +1,3 @@
-import type * as React from "react"
 import { Link } from "@tanstack/react-router"
 import { APPS_COPY } from "@exp/domain-contract/apps"
 import {
@@ -89,35 +88,3 @@ export function SidebarAppsSection({
   )
 }
 
-/** The compact rail's app icons, after the agent icons. */
-export function SidebarAppsIcons({
-  teamSlug,
-  apps,
-  renderItem,
-  separator,
-}: {
-  teamSlug: string
-  apps: readonly AppListEntry[]
-  renderItem: (item: {
-    key: string
-    label: string
-    link: { to: string; params: Record<string, string> }
-    icon: React.ReactNode
-  }) => React.ReactNode
-  separator?: React.ReactNode
-}) {
-  if (apps.length === 0) return null
-  return (
-    <>
-      {separator}
-      {apps.map((app) =>
-        renderItem({
-          key: app.id,
-          label: app.name,
-          link: { to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug } },
-          icon: <AppIcon app={app} />,
-        })
-      )}
-    </>
-  )
-}

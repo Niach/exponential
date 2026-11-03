@@ -20,14 +20,12 @@ import { safeLocalStorage } from "@/lib/local-storage"
 
 const tokens = designTokens.sidebar
 
-export const SIDEBAR_RAIL_WIDTH: number = tokens.railWidth
 export const SIDEBAR_MIN_WIDTH: number = tokens.minWidth
 export const SIDEBAR_MAX_WIDTH: number = tokens.maxWidth
 export const SIDEBAR_HANDLE_WIDTH: number = tokens.handleWidth
 export const SIDEBAR_KEYBOARD_STEP: number = tokens.keyboardStep
 
-/** The resizable columns: the main menu, the settings nav beside the rail,
- *  and (#EXP-1672) the content card's second sidebar, the Inbox `list`. */
+/** The resizable columns: the main menu, the settings nav in its place, and (#EXP-1672) the content card's second sidebar, the Inbox `list`. */
 export type SidebarPanelKey = `main` | `list` | `settings`
 
 export const SIDEBAR_PANEL_KEYS: readonly SidebarPanelKey[] = [
@@ -55,31 +53,23 @@ export function sidebarResizable(key: SidebarPanelKey): boolean {
   return key !== `main`
 }
 
-/** The rail is beside the settings nav only. #EXP-1672: the Inbox list sits
- * in the content card next to the full main menu. */
-export function sidebarHasRail(key: SidebarPanelKey): boolean {
-  return key === `settings`
-}
-
 /**
  * The bounds a panel's width may take: the shared min/max, and — given the
- * viewport (design units) — the whole column (rail + panel, or the main menu
- * alone) at most half of it, never below the minimum.
+ * viewport (design units) — at most half of it, never below the minimum.
  */
 export function sidebarWidthBounds(
-  opts: { viewportWidth?: number | null; withRail?: boolean } = {}
+  opts: { viewportWidth?: number | null } = {}
 ): { min: number; max: number } {
   let max = SIDEBAR_MAX_WIDTH
   if (opts.viewportWidth != null && Number.isFinite(opts.viewportWidth)) {
-    const rail = opts.withRail ? SIDEBAR_RAIL_WIDTH : 0
-    max = Math.min(max, Math.floor(opts.viewportWidth / 2) - rail)
+    max = Math.min(max, Math.floor(opts.viewportWidth / 2))
   }
   return { min: SIDEBAR_MIN_WIDTH, max: Math.max(SIDEBAR_MIN_WIDTH, max) }
 }
 
 export function clampSidebarWidth(
   width: number,
-  opts: { viewportWidth?: number | null; withRail?: boolean } = {}
+  opts: { viewportWidth?: number | null } = {}
 ): number {
   const { min, max } = sidebarWidthBounds(opts)
   return Math.round(Math.min(Math.max(width, min), max))
@@ -158,7 +148,7 @@ function resolve(): Snapshot {
   const widths = {} as Widths
   const max = {} as Widths
   for (const key of SIDEBAR_PANEL_KEYS) {
-    const opts = { viewportWidth: viewport, withRail: sidebarHasRail(key) }
+    const opts = { viewportWidth: viewport }
     widths[key] = clampSidebarWidth(values[key] ?? DEFAULTS[key], opts)
     max[key] = sidebarWidthBounds(opts).max
   }
@@ -319,17 +309,6 @@ export function useSidebarResizing(): boolean {
     () => resizing,
     () => false
   )
-}
-
-/**
- * The whole column's width for an occupant — the main menu alone, or the
- * folded rail plus the panel beside it. What `--sidebar-width` carries.
- */
-export function sidebarColumnWidth(
-  widths: Record<SidebarPanelKey, number>,
-  key: `main` | `settings`
-): number {
-  return sidebarHasRail(key) ? SIDEBAR_RAIL_WIDTH + widths[key] : widths[key]
 }
 
 /** Tests only: forget the in-memory map so the next read re-parses storage. */

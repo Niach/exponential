@@ -49,16 +49,13 @@ export function AgentIcon({
   return <Icon className={cn(`size-4 shrink-0`, className)} style={{ color: agent.color }} />
 }
 
-/** The trailing state: the spinner while busy, else yellow when it needs you.
- *  A row carries it in its trailing column (EXP-1477), an icon at its
- *  top-right corner. */
+/** The trailing state: the spinner while busy, else yellow when it needs you,
+ *  in the row's trailing column (EXP-1477). */
 function AgentState({
   agent,
-  placement,
   yieldsOnHover = false,
 }: {
   agent: Pick<AgentRow, `busy` | `needsYou`>
-  placement: `row` | `icon`
   /** The owner's hover gear takes the same column. */
   yieldsOnHover?: boolean
 }) {
@@ -69,13 +66,13 @@ function AgentState({
         aria-hidden
         tone="needsYou"
         data-testid="agent-needs-you"
-        className={cn(`pointer-events-none`, placement === `icon` && `absolute right-1 top-1`)}
+        className="pointer-events-none"
       />
     )
-  } else if (agent.busy && placement === `row`) {
+  } else if (agent.busy) {
     mark = <ClaudeSpinner className="size-3.5" />
   }
-  if (!mark || placement === `icon`) return mark
+  if (!mark) return null
   return (
     <SidebarMenuTrailing
       aria-hidden
@@ -131,7 +128,7 @@ export function SidebarAgentsSection({
                   <span className="min-w-0 flex-1 truncate">{agent.name}</span>
                 </Link>
               </SidebarMenuButton>
-              <AgentState agent={agent} placement="row" yieldsOnHover={isOwner} />
+              <AgentState agent={agent} yieldsOnHover={isOwner} />
               {isOwner && (
                 <SidebarMenuAction asChild showOnHover title="Agent settings">
                   <Link
@@ -151,43 +148,3 @@ export function SidebarAgentsSection({
   )
 }
 
-/** The compact rail's agent icons, above the board icons. */
-export function SidebarAgentsIcons({
-  teamSlug,
-  agents,
-  renderItem,
-  separator,
-}: {
-  teamSlug: string
-  agents: readonly AgentRow[]
-  renderItem: (item: {
-    key: string
-    label: string
-    link: { to: string; params: Record<string, string> }
-    icon: React.ReactNode
-  }) => React.ReactNode
-  separator?: React.ReactNode
-}) {
-  if (agents.length === 0) return null
-  return (
-    <>
-      {separator}
-      {agents.map((agent) =>
-        renderItem({
-          key: agent.agentId,
-          label: agent.name,
-          link: {
-            to: `/t/$teamSlug/agents/$agentId`,
-            params: { teamSlug, agentId: agent.agentId },
-          },
-          icon: (
-            <>
-              <AgentIcon agent={agent} />
-              <AgentState agent={agent} placement="icon" />
-            </>
-          ),
-        })
-      )}
-    </>
-  )
-}
