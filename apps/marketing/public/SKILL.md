@@ -58,10 +58,15 @@ Two ways in:
 
 ## Tools
 
-16 tools, one per noun, all named `exponential_<noun>`. Every call carries an
+22 tools in 7 groups, one per noun, all named `exponential_<noun>`. Every call carries an
 `op` and that op's fields beside it, e.g. `exponential_issues {op: "get", id:
 "ABC-12"}`; each tool's description (from `tools/list`) lists its ops with
-their parameters, so read it instead of a static list.
+their parameters, so read it instead of a static list. The groups: **Work**
+(issues, comments, pr, sessions_send, show; always loaded), **Tracker**
+(boards, labels, statuses, attachments), **Team** (teams, people,
+repositories, devices), **Agents** (agents, prompts, skills, mcp_servers),
+**Sessions** (sessions, session_self), **Apps** (apps), **Activity** (events,
+notifications).
 
 - **issues**: `list` (filters: boards, `status`/`statusId`/`statusCategory`
   each with an `exclude*` twin, priority, assignee, labels any/all/unlabeled,
@@ -85,13 +90,17 @@ their parameters, so read it instead of a static list.
   member and everything beneath it), `close`, `retarget`, `update`,
   `unlink`, `files`. A PR is named by `pullRequestId`, `issueId` or
   `repositoryId` + `prNumber`.
-- **teams** (`list`, `get`, `create`, `update`), **boards** (`list`, `get`,
-  `create`, `update`, `delete` = the 48-hour trash, `set_repository`),
-  **people** (`list`, `add`, `invites_list`, `invites_create`,
-  `invites_revoke`), **team_config** (`labels_*`, `statuses_*` — builtins
-  are locked, deleting one in use needs `reassignToId` —, `prompts_*`
-  (`list`, `get`; `create`/`update`/`delete` are owner-only), `agents_list`, `mcp_servers_list`/`add`/`remove`,
-  `repositories_list`/`add`).
+- **boards** (`list`, `get`, `create`, `update`, `delete` = the 48-hour
+  trash, `set_repository`), **labels** (`list`, `get`, `create`, `update`,
+  `delete`), **statuses** (`list`, `create`, `update`, `delete`; builtins
+  are locked, deleting one in use needs `reassignToId`).
+- **teams** (`list`, `get`, `create`, `update`), **people** (`list`, `add`,
+  `invites_list`, `invites_create`, `invites_revoke`), **repositories**
+  (`list`, `create`).
+- **agents** (`list`, `get`), **prompts** (`list`, `get`;
+  `create`/`update`/`delete` are owner-only), **skills** (`list`, `get` by
+  id or name; `create`/`update`/`delete` are owner-only), **mcp_servers** (`list`,
+  `create`, `delete`; the team's MCP servers for coding sessions).
 - **apps**: a team's Exponential apps (declarative Exponential UI packages
   rendered in every client): `list`, `get` (the head or a `version`'s
   package), `upsert` (`slug` + `package` publishes a new version; a new slug
@@ -105,11 +114,14 @@ their parameters, so read it instead of a static list.
   team agent (the caller's own conversation with it); `{parentId, text}`
   starts a child; `{appId, text}` messages the caller's editor session of an
   app. Every transition of a session comes back as a message.
-- **sessions**: `get` (a tree: title, issues, PRs, Guide, children, latest
-  messages; no id = the caller's own), `list`, `link`, `unlink`, `end`.
-- **session_self** (inside a launcher-started session only): `ask`, `plan`,
-  `suggest`, `compact`, `report_bug` (cloud).
-- **guide_write**: the thread's one Guide, the body of every PR in it.
+- **show** (inside a session only, no op): one card per turn (a surface, a
+  question with options, or a plan); cards with pictures are stories, which
+  a PR body shows.
+- **sessions**: `get` (a tree: title, issues, PRs, children, latest
+  messages; no id = the caller's own), `list`, `link`, `unlink`,
+  `configure`, `escalate`, `end`.
+- **session_self** (inside a launcher-started session only): `suggest`,
+  `compact`, `report_bug` (cloud).
 - **devices** (`list`, `account_login`), **events** (`emit`, `list`),
   **notifications** (`list`, `mark_read`).
 ## Core concepts
@@ -131,7 +143,7 @@ their parameters, so read it instead of a static list.
   started, completed, cancelled, duplicate). Six builtins always exist
   (backlog, in_progress, in_review, done, cancelled, duplicate) and
   teams add custom named statuses. Enum-taking tools accept the builtin
-  values; `exponential_team_config {op: "statuses_list"}` + `statusId`
+  values; `exponential_statuses {op: "list"}` + `statusId`
   reach the custom rows.
 - **Pull requests**: one branch per session: `exp/<IDENTIFIER>` when the
   session holds exactly one issue, else `exp/session-<id>`. Several issues

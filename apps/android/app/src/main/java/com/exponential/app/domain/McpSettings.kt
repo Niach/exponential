@@ -99,13 +99,31 @@ object McpSettings {
     /** One built-in Exponential tool row (web `builtinExpTools`): contract order. */
     data class BuiltinTool(val name: String, val title: String, val blurb: String)
 
-    fun builtinTools(): List<BuiltinTool> = DomainContract.expToolNames.indices.map { i ->
-        BuiltinTool(
-            name = DomainContract.expToolPrefix + DomainContract.expToolNames[i],
-            title = DomainContract.expToolTitles[i],
-            blurb = DomainContract.expToolBlurbs[i],
-        )
-    }
+    /** #EXP-1657: one band of the BUILT-IN section = one contract tool group. */
+    data class BuiltinToolBand(val id: String, val label: String, val tools: List<BuiltinTool>)
+
+    /** The listed rows: every contract row but the retired `aliasOf` ones
+     *  (their `expToolRowGroups` entry is ""), in contract order. */
+    fun builtinTools(): List<BuiltinTool> = DomainContract.expToolNames.indices
+        .filter { DomainContract.expToolRowGroups[it].isNotEmpty() }
+        .map(::builtinTool)
+
+    private fun builtinTool(i: Int) = BuiltinTool(
+        name = DomainContract.expToolPrefix + DomainContract.expToolNames[i],
+        title = DomainContract.expToolTitles[i],
+        blurb = DomainContract.expToolBlurbs[i],
+    )
+
+    /** The bands the BUILT-IN section shows for [query] (TS `builtinToolBands`):
+     *  contract group order and labels, rows filtered by [filterBuiltinTools],
+     *  a band with no match left out (all gone = the empty state). */
+    fun builtinToolBands(query: String): List<BuiltinToolBand> =
+        DomainContract.expToolGroupIds.mapIndexed { g, id ->
+            val rows = DomainContract.expToolNames.indices
+                .filter { DomainContract.expToolRowGroups[it] == id }
+                .map(::builtinTool)
+            BuiltinToolBand(id, DomainContract.expToolGroupLabels[g], filterBuiltinTools(rows, query))
+        }.filter { it.tools.isNotEmpty() }
 
     const val BUILTIN_FILTER_PLACEHOLDER = "Filter tools"
 

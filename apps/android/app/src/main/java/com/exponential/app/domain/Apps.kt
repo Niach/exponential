@@ -93,6 +93,8 @@ object Apps {
         const val PREVIEW_TOOLBAR = "app-preview-toolbar"
         const val PREVIEW_FRAME = "app-preview-frame"
         const val PREVIEW_TEMPLATE = "app-preview-template"
+        // VAPP-198: Run as (in the toolbar: web ≥ md + desktop only).
+        const val PREVIEW_RUN_AS = "app-preview-run-as"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,

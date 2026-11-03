@@ -7,7 +7,8 @@
 //! same grid (schema columns share the width, `by` / `updated` / the menu
 //! fixed px), each cell one truncated line; the trailing `…` opens Edit /
 //! Delete (destructive, asks first); VAPP-187: a row the viewer may not
-//! change (`can_change_record`: neither its author nor a team owner) keeps
+//! change (eApps R3: the kind's policy under the viewer's app access, eUI's
+//! record-policy.json; by default neither its author nor a team owner) keeps
 //! its `…` DISABLED, and `by` names the AUTHOR (VAPP-188 `record_byline`:
 //! `{writer} for {author}` when an owner wrote it for them). For a team
 //! OWNER the form's first field is `copy.author` (the select control over
@@ -36,10 +37,11 @@ use serde_json::Value;
 use sync::Store;
 
 use domain::app_records::{
-    author_options, can_change_record, cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
-    form_author, record_byline, DataControl, DataFormField, DataSchema, FormInput, RecordOp, RecordRowInput, DATA_TAB,
+    author_options, cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
+    form_author, record_byline, DataControl, DataFormField, DataSchema, FormInput, RecordRowInput, DATA_TAB,
 };
 use domain::apps::APPS;
+use eui_core::host::{record_policy, record_refusal, RecordOp as PolicyOp, RecordViewer};
 use domain::prompts::{Action, Prompt, Role};
 
 use crate::controls::{glass_input, PointerMenuButtonExt as _, WebControl as _};
@@ -60,28 +62,34 @@ struct Record {
 }
 
 /// VAPP-187: the viewer (signed-in user id) and their role in the app's
-/// team (`None` = not a member), what `can_change_record` reads.
+/// team (`None` = not a member), and the head package (eApps R3: each
+/// kind's policy).
 #[derive(Clone, Default)]
 struct Viewer {
     user_id: Option<String>,
     role: Option<String>,
     /// The app's team (VAPP-188: the Author picker's members).
     team_id: Option<String>,
+    /// eApps R3: the viewer's app access (`None` = write until fetched).
+    access: Option<String>,
+    package: Option<std::sync::Arc<Value>>,
 }
 
 impl Viewer {
-    fn may_change(&self, record: &Record) -> bool {
-        let (author, created_by) = (record.author_id.as_deref(), record.created_by.as_deref());
-        let (viewer, role) = (self.user_id.as_deref(), self.role.as_deref());
-        // The menu opens when either op is allowed (fixture `ownership`).
-        can_change_record(author, created_by, viewer, role, RecordOp::Update)
-            || can_change_record(author, created_by, viewer, role, RecordOp::Delete)
+    /// eApps R3: may the viewer `op` (a record of) `kind` under its policy
+    /// and their app access (record-policy.json)?
+    fn may(&self, kind: &str, op: PolicyOp, record: Option<&Record>) -> bool {
+        let policy = record_policy(self.package.as_deref().and_then(|p| p.get("records")).and_then(|r| r.get(kind)));
+        let row = record.map(|r| serde_json::json!({"authorId": r.author_id, "createdBy": r.created_by}));
+        let viewer = RecordViewer { id: self.user_id.as_deref(), role: self.role.as_deref(), access: self.access.as_deref() };
+        record_refusal(&policy, op, &viewer, row.as_ref()).is_none()
     }
+
 }
 
 /// The app's head package (the `records` manifest), its synced records and
 /// the viewer.
-fn app_state(app_id: &str, cx: &App) -> (Option<Value>, Vec<Record>, Viewer) {
+fn app_state(app_id: &str, access: Option<String>, cx: &App) -> (Option<Value>, Vec<Record>, Viewer) {
     let row = crate::apps_view::find_app(app_id, None, cx).and_then(|entry| entry.row);
     let team_id = row.as_ref().and_then(|row| row.team_id.clone());
     let viewer = Viewer {
@@ -92,8 +100,11 @@ fn app_state(app_id: &str, cx: &App) -> (Option<Value>, Vec<Record>, Viewer) {
             .and_then(|team_id| crate::settings::my_membership(cx, team_id))
             .map(|(_, role)| role),
         team_id,
+        access,
+        package: None,
     };
     let package = row.and_then(|row| row.package).filter(Value::is_object);
+    let viewer = Viewer { package: package.clone().map(std::sync::Arc::new), ..viewer };
     let records = Store::try_global(cx)
         .map(|store| {
             store
@@ -124,6 +135,8 @@ pub(crate) struct AppDataTab {
     scroll: ScrollHandle,
     /// The table's sideways scroll.
     table_scroll: ScrollHandle,
+    /// eApps R3: the viewer's app access (`appAccess.mine`; `None` until known = write).
+    access: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -139,7 +152,23 @@ impl AppDataTab {
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.team_members, |_, _, cx| cx.notify()));
         }
-        Self { app_id, kind: None, scroll: ScrollHandle::new(), table_scroll: ScrollHandle::new(), _subscriptions: subscriptions }
+        if let Some(trpc) = crate::queries::trpc_client(cx) {
+            let id = app_id.clone();
+            cx.spawn(async move |this, cx| {
+                let result = cx.background_executor().spawn(async move { api::app_access::mine(&trpc, &id) }).await;
+                match result {
+                    Ok(out) => {
+                        let _ = this.update(cx, |this, cx| {
+                            this.access = Some(out.level);
+                            cx.notify();
+                        });
+                    }
+                    Err(err) => log::warn!("[ui] appAccess.mine failed: {err}"),
+                }
+            })
+            .detach();
+        }
+        Self { app_id, kind: None, scroll: ScrollHandle::new(), table_scroll: ScrollHandle::new(), access: None, _subscriptions: subscriptions }
     }
 
     fn toolbar(&self, kinds: &[(String, usize)], picked: &str, schema: &DataSchema, viewer: &Viewer, cx: &mut gpui::Context<Self>) -> Div {
@@ -172,6 +201,7 @@ impl AppDataTab {
                 }
                 menu
             });
+        let may_add = viewer.may(picked, PolicyOp::Create, None);
         let (app_id, kind, schema, viewer) = (self.app_id.clone(), picked.to_string(), schema.clone(), viewer.clone());
         h_flex()
             .w_full()
@@ -186,6 +216,7 @@ impl AppDataTab {
                     .cursor_pointer()
                     .icon(Icon::new(registry::UI_ADD))
                     .label(DATA_TAB.copy.add_record.clone())
+                    .disabled(!may_add)
                     .on_click(move |_, window, cx| {
                         open_form(window, cx, app_id.clone(), kind.clone(), schema.clone(), None, &viewer)
                     }),
@@ -220,7 +251,9 @@ impl AppDataTab {
     }
 
     fn row_menu(&self, index: usize, record: &Record, schema: &DataSchema, viewer: &Viewer, cx: &App) -> AnyElement {
-        let allowed = viewer.may_change(record);
+        // eApps R3: each item only when its op is allowed (record-policy.json).
+        let (may_update, may_delete) = (viewer.may(&record.kind, PolicyOp::Update, Some(record)), viewer.may(&record.kind, PolicyOp::Delete, Some(record)));
+        let allowed = may_update || may_delete;
         let (app_id, viewer, edited) = (self.app_id.clone(), viewer.clone(), record.clone());
         let schema = schema.clone();
         let button = crate::controls::ghost_icon_button(
@@ -237,7 +270,10 @@ impl AppDataTab {
             let (edit_app, edit_schema, edit_viewer, edit_record) =
                 (app_id.clone(), schema.clone(), viewer.clone(), edited.clone());
             let (delete_app, delete_id) = (app_id.clone(), edited.id.clone());
-            menu.item(
+            let menu = if !may_update {
+                menu
+            } else {
+                menu.item(
                 crate::controls::pointer_label_item(DATA_TAB.copy.edit.clone(), false)
                     .icon(Icon::new(registry::UI_EDIT))
                     .on_click(move |_: &ClickEvent, window, cx| {
@@ -252,7 +288,11 @@ impl AppDataTab {
                         )
                     }),
             )
-            .item(
+            };
+            if !may_delete {
+                return menu;
+            }
+            menu.item(
                 crate::controls::danger_menu_item(DATA_TAB.copy.delete.clone(), Icon::new(registry::UI_DELETE), cx)
                     .on_click(move |_: &ClickEvent, window, cx| {
                         confirm_delete(delete_app.clone(), delete_id.clone(), window, cx)
@@ -265,7 +305,7 @@ impl AppDataTab {
 
 impl Render for AppDataTab {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let (package, records, viewer) = app_state(&self.app_id, cx);
+        let (package, records, viewer) = app_state(&self.app_id, self.access.clone(), cx);
         let kinds = data_kinds(package.as_ref(), records.iter().map(|r| r.kind.as_str()));
         let body = if kinds.is_empty() {
             crate::controls::empty_state_list(Icon::new(registry::NAV_APPS), DATA_TAB.copy.no_kinds.clone(), cx)

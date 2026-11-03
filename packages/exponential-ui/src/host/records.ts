@@ -46,6 +46,9 @@ export interface RecordKind {
   schema: RecordSchema
   title?: string
   description?: string
+  /** eApps R3: who may read, create, update and delete its records
+   *  (`host/record-policy.ts`; absent ops keep `DEFAULT_RECORD_POLICY`). */
+  policy?: Partial<import("./record-policy").RecordPolicy>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)

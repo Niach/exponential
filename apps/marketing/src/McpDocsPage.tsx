@@ -18,40 +18,67 @@ const SECTIONS: DocsSectionType[] = [
   { id: `your-own-servers`, num: `07`, label: `Your own servers` },
 ]
 
-/* Tool reference — the 16 noun tools (NEW-4), mirroring apps/web/src/lib/emcp/nouns.ts:
-   every tool takes `op` plus that op's fields; its description lists every op
-   with its parameters. */
+/* Tool reference — the 22 tools in 7 groups (NEW-4, EXP-1657, EXP-1663), mirroring
+   apps/web/src/lib/emcp/nouns.ts (`NOUN_TOOLS`, `NOUN_GROUPS`): every noun
+   takes `op` plus that op's fields; its description lists every op with its
+   parameters. */
 const TOOL_GROUPS: {
   heading: string
   tools: { name: string; desc: string }[]
 }[] = [
   {
-    heading: `Work`,
+    heading: `Work (always loaded)`,
     tools: [
       { name: `exponential_issues`, desc: `op list (filters by boards, status / statusId / statusCategory each with an exclude twin, priority, assignee, labels any/all/unlabeled, source, comment activity, created/updated/due ranges, text and identifier search, sort; open work only unless includeClosed or a status filter), get (by UUID or identifier "EXP-42", with label ids, relations, latest comments), show (the interactive list in MCP Apps hosts), create, update, delete, activity, update_status, subscribe, unsubscribe, labels_add, labels_remove, relations_add, relations_remove.` },
       { name: `exponential_comments`, desc: `op list, create, update, delete. Plain GFM; threads one level deep; audience "reporter" emails a widget reporter.` },
-      { name: `exponential_attachments`, desc: `op list, get (metadata plus contents or a signed URL), upload (bytes now, or a signed uploadUrl then a finalize call), delete.` },
       { name: `exponential_pr`, desc: `op open (links the session's issues, infers the base in a stack), merge (squash through the GitHub App; stack: true lands a stack member and everything beneath it), close, retarget, update, unlink, files. Name a PR by pullRequestId, issueId or repositoryId + prNumber; default = the session's newest open PR.` },
+      { name: `exponential_sessions_send`, desc: `THE session verb, no op: sessionId messages a session (answer answers its open question or plan; stop: true interrupts its turn; issueIds forwards issues; account switches its login; deviceId moves it), agentId messages a team agent (your own conversation with it), appId your app editor session, parentId starts a child, neither starts a thread (text, issueIds, promptId, repositoryId; deviceId required). Every transition of a session comes back as a message.` },
+      { name: `exponential_show`, desc: `Inside a session only, no op: one card in the chat per turn (an Exponential UI surface, a question with options, or a plan with questions; replace: true updates it). Questions, plans and cards with pictures are stories: they land in the Stories rings on top of Chats, and the pictures (labels starting web, ios, android or desktop, each uploaded with the returned curl line) are what a PR body shows.` },
     ],
   },
   {
-    heading: `Teams and boards`,
+    heading: `Tracker`,
+    tools: [
+      { name: `exponential_boards`, desc: `op list, get, create, update, delete (the 48-hour trash), set_repository.` },
+      { name: `exponential_labels`, desc: `op list, get, create, update, delete (a team's issue labels).` },
+      { name: `exponential_statuses`, desc: `op list, create, update, delete (a team's statuses, each in an anchor category).` },
+      { name: `exponential_attachments`, desc: `op list, get (metadata plus contents or a signed URL), upload (bytes now, or a signed uploadUrl then a finalize call), delete.` },
+    ],
+  },
+  {
+    heading: `Team`,
     tools: [
       { name: `exponential_teams`, desc: `op list, get, create, update.` },
-      { name: `exponential_boards`, desc: `op list, get, create, update, delete (the 48-hour trash), set_repository.` },
       { name: `exponential_people`, desc: `op list and add members; invites_list, invites_create, invites_revoke.` },
-      { name: `exponential_team_config`, desc: `op labels_list/get/create/update/delete, statuses_list/create/update/delete, prompts_list/get/create/update/delete, agents_list, mcp_servers_list/add/remove, repositories_list/add.` },
+      { name: `exponential_repositories`, desc: `op list, create (connect a GitHub repository the team's GitHub App can see).` },
+      { name: `exponential_devices`, desc: `op list (the machines running sessions, their agents and logins), account_login.` },
+    ],
+  },
+  {
+    heading: `Agents`,
+    tools: [
+      { name: `exponential_agents`, desc: `op list, get (a team agent with its triggers, device, owner and instructions; message one with exponential_sessions_send agentId).` },
+      { name: `exponential_prompts`, desc: `op list, get, create, update, delete (saved prompts; run one with exponential_sessions_send promptId).` },
+      { name: `exponential_skills`, desc: `op list, get, create, update, delete (the team's skills: SKILL.md instructions a session runs with; owners write).` },
+      { name: `exponential_mcp_servers`, desc: `op list, create, delete (the team's MCP servers for coding sessions).` },
+    ],
+  },
+  {
+    heading: `Sessions`,
+    tools: [
+      { name: `exponential_sessions`, desc: `op get (a session tree: title, issues, PRs, children, latest messages; no id = your own), list, link, unlink, configure (model, account, effort; no message), escalate (a waiting card to the managing agent), end.` },
+      { name: `exponential_session_self`, desc: `Inside a session only: op suggest (one-tap replies or follow-up tasks), compact (ask the host to compact your context), report_bug (when Exponential itself misbehaves; cloud only).` },
+    ],
+  },
+  {
+    heading: `Apps`,
+    tools: [
       { name: `exponential_apps`, desc: `op list, get (the head or a version's package), upsert (publishes a new version; a new slug creates the app), delete, catalog (the components, bindings, functions and records a package may use), records_list, records_upsert, records_delete (an app's own data).` },
     ],
   },
   {
-    heading: `Sessions and agents`,
+    heading: `Activity`,
     tools: [
-      { name: `exponential_sessions_send`, desc: `THE session verb, no op: sessionId messages a session (answer answers its open question or plan; stop: true interrupts its turn; issueIds forwards issues; account switches its login; deviceId moves it), agentId messages a team agent (your own conversation with it), appId your app editor session, parentId starts a child, neither starts a thread (text, issueIds, promptId, repositoryId; deviceId required). Every transition of a session comes back as a message.` },
-      { name: `exponential_sessions`, desc: `op get (a session tree: title, issues, PRs, children, latest messages; no id = your own), list, link, unlink, end.` },
-      { name: `exponential_session_self`, desc: `Inside a session only: op suggest (one-tap replies or follow-up tasks), compact (ask the host to compact your context), report_bug (when Exponential itself misbehaves; cloud only).` },
-      { name: `exponential_show`, desc: `Inside a session only, no op: one card in the chat per turn (an Exponential UI surface, a question with options, or a plan with questions; replace: true updates it). Questions, plans and cards with pictures are stories: they land in the Stories rings on top of Chats, and the pictures (labels starting web, ios, android or desktop, each uploaded with the returned curl line) are what a PR body shows.` },
-      { name: `exponential_devices`, desc: `op list (the machines running sessions, their agents and logins), account_login.` },
       { name: `exponential_events`, desc: `op emit (a named event with a payload; every agent with a trigger on that name wakes), list.` },
       { name: `exponential_notifications`, desc: `op list, mark_read.` },
     ],
@@ -258,7 +285,7 @@ npx mcp-remote ${LINKS.app.mcp}
           <DocsSection id="tools" num="04" label="Tool reference">
             <h2>Tool reference</h2>
             <p>
-              16 tools, one per noun. Every call carries an <code>op</code>
+              22 tools in 7 groups, one per noun. Every call carries an <code>op</code>
               and that op&apos;s fields beside it, for example{` `}
               <code>exponential_issues {`{op: "get", id: "EXP-42"}`}</code>;
               a tool&apos;s description lists every op with its parameters.
@@ -268,7 +295,7 @@ npx mcp-remote ${LINKS.app.mcp}
               identifier (&quot;EXP-42&quot;) wherever they take a UUID.
             </p>
             <DocsCallout kind="note" title="The same tools for every caller">
-              Every client sees all 16. An op that only makes sense inside an
+              Every client sees all 22. An op that only makes sense inside an
               agent session the launcher started (show, the self ops) or
               on the cloud (report_bug) answers with a message saying so
               instead of hiding.
@@ -298,7 +325,7 @@ npx mcp-remote ${LINKS.app.mcp}
               <em>bug</em>.&quot; The client chains{` `}
               <code>exponential_boards</code> op list →{` `}
               <code>exponential_issues</code> op create →{` `}
-              <code>exponential_team_config</code> op labels_list →{` `}
+              <code>exponential_labels</code> op list →{` `}
               <code>exponential_issues</code> op labels_add, and answers with the
               new identifier.
             </p>

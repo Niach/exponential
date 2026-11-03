@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { appRecords, appVersions, apps, devices, sessions, teamMembers, teams } from "@/db/schema"
+import { appAccess, appRecords, appVersions, apps, devices, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 // Release train 2026-10-23 (VAPP-110 review): the apps router against the
@@ -180,7 +180,7 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
   // VAPP-122: records (fixtures/app-records.json): validated against the
   // head package's kind schema, patched by id, trashed with the app.
   const RECORDS_PACKAGE = {
-    formatVersion: 2,
+    formatVersion: 3,
     id: `t.hours`,
     name: `Hours`,
     version: `1.0.0`,
@@ -273,6 +273,56 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(row!.updatedBy).toBe(w.mate)
   })
 
+  // eApps R3 (record-policy.json): per-kind policies and the member's app
+  // access, enforced by the records service, the apps router and the shapes.
+  it(`records: per-kind policies and app access`, async () => {
+    const { appShapeRules, appRecordClauses, invalidateAppShapeRules } = await import(`@/lib/apps/records-shape`)
+    const w = await world()
+    const third = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: third, role: `member` })
+    const kind = (policy?: Record<string, string>) => ({ schema: { type: `object`, properties: { note: { type: `string` } } }, ...(policy ? { policy } : {}) })
+    const pkg = { ...RECORDS_PACKAGE, records: { ...RECORDS_PACKAGE.records, secret: kind({ read: `author` }), salary: kind({ read: `owners`, create: `owners` }) } }
+    const appId = (await caller(w.owner).create({ teamId: w.teamId, name: `Private`, package: pkg })).app.id
+    const kinds = async (u: string) => (await caller(u).records.list({ id: appId, limit: 100, offset: 0 })).records.map((r) => `${r.kind}:${r.data.note ?? ``}`).sort()
+    // read: author: the author and owners read it, another member does not; a write to it is NOT_FOUND.
+    const secret = await caller(w.mate).records.upsert({ id: appId, kind: `secret`, data: { note: `m` } })
+    expect(await kinds(w.mate)).toEqual([`secret:m`])
+    expect(await kinds(third)).toEqual([])
+    expect(await kinds(w.owner)).toEqual([`secret:m`])
+    await expect(caller(third).records.upsert({ id: appId, kind: `secret`, data: { note: `x` }, recordId: secret.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    await expect(caller(third).records.delete({ id: appId, recordId: secret.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    // create: owners / read: owners.
+    await expect(caller(w.mate).records.upsert({ id: appId, kind: `salary`, data: { note: `s` } })).rejects.toMatchObject({ code: `FORBIDDEN`, message: `Only team owners can add these records` })
+    await caller(w.owner).records.upsert({ id: appId, kind: `salary`, data: { note: `s` } })
+    expect(await kinds(w.mate)).toEqual([`secret:m`])
+    expect(await kinds(w.owner)).toEqual([`salary:s`, `secret:m`])
+    // An action batch is judged write by write, all or nothing.
+    await expect(
+      caller(w.mate).records.batch({ id: appId, writes: [{ op: `upsert`, kind: `secret`, data: { note: `n` } }, { op: `upsert`, kind: `salary`, data: { note: `t` } }] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN`, message: `write 1: Only team owners can add these records` })
+    expect(await kinds(w.mate)).toEqual([`secret:m`])
+    // The shape rules: a non-owner's private kinds, nothing for an owner.
+    invalidateAppShapeRules()
+    const rules = await appShapeRules(third, [w.teamId])
+    expect(rules.privateKinds.find((k) => k.appId === appId)).toEqual({ appId, owners: [`salary`], author: [`secret`] })
+    expect(appRecordClauses(third, rules).join(` `)).toContain(`"kind" IN ('secret')`)
+    expect((await appShapeRules(w.owner, [w.teamId])).privateKinds.find((k) => k.appId === appId)).toBeUndefined()
+    // Access read: reads, never writes (records or the package).
+    await db.insert(appAccess).values({ appId, teamId: w.teamId, userId: w.mate, level: `read` })
+    expect(await kinds(w.mate)).toEqual([`secret:m`])
+    await expect(caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 1 } })).rejects.toMatchObject({ code: `FORBIDDEN`, message: `You have read-only access to this app` })
+    await expect(caller(w.mate).records.delete({ id: appId, recordId: secret.id })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(caller(w.mate).upsertPackage({ id: appId, package: pkg })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // Access none: the app is gone for them (router, records, shapes).
+    await db.update(appAccess).set({ level: `none` }).where(eq(appAccess.userId, w.mate))
+    await expect(caller(w.mate).records.list({ id: appId, limit: 10, offset: 0 })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    await expect(caller(w.mate).get({ id: appId })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect((await caller(w.mate).list({ teamId: w.teamId })).apps.map((a) => a.id)).not.toContain(appId)
+    expect((await caller(third).list({ teamId: w.teamId })).apps.map((a) => a.id)).toContain(appId)
+    invalidateAppShapeRules()
+    expect((await appShapeRules(w.mate, [w.teamId])).hiddenAppIds).toEqual([appId])
+  })
+
   // VAPP-188 (app-records.json `onBehalf`): an owner writes for another
   // member (created_by/updated_by = the owner, author_id = the member) and
   // may reassign; a member writing for someone else is FORBIDDEN, a
@@ -323,12 +373,13 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
       { kind: `entry`, data: { date: `2026-10-07`, hours: 3 } },
     ]
     const text = JSON.stringify(file)
-    // A member may not import rows for another member.
+    // VAPP-192: a member importing another member's rows (a teammate's
+    // export) keeps them as their own; nothing is refused.
     const forOwner = JSON.stringify({ ...file, records: [{ kind: `entry`, data: { date: `2026-10-05`, hours: 1 }, author: w.owner }] })
-    expect((await caller(w.mate).validateImport({ teamId: w.teamId, text: forOwner })).issues).toEqual([
-      { path: `/records/0/author`, message: `Only a team owner can write for another member` },
-    ])
-    await expect(caller(w.mate).import({ teamId: w.teamId, text: forOwner })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect((await caller(w.mate).validateImport({ teamId: w.teamId, text: forOwner })).issues).toEqual([])
+    const asMine = await caller(w.mate).import({ teamId: w.teamId, text: forOwner })
+    const [kept] = await db.select().from(appRecords).where(eq(appRecords.appId, asMine.app.id))
+    expect(kept).toMatchObject({ createdBy: w.mate, authorId: w.mate })
     // An owner keeps a member's author; a stranger and none = the importer.
     expect((await caller(w.owner).validateImport({ teamId: w.teamId, text })).issues).toEqual([])
     const imported = await caller(w.owner).import({ teamId: w.teamId, text })

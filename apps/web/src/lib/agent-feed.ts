@@ -1805,7 +1805,8 @@ export function builtinExpTools(): {
   title: string
   blurb: string
 }[] {
-  return contract.expToolDisplay.tools.map((row) => ({
+  // EXP-1657: a retired row (`aliasOf`) only renders old transcripts.
+  return contract.expToolDisplay.tools.filter((row) => !row.aliasOf).map((row) => ({
     name: `${contract.expToolDisplay.prefix}${row.name}`,
     title: row.title,
     blurb: row.blurb,

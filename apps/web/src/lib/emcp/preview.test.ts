@@ -54,7 +54,7 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
 // The widest surface: every gate open plus the cloud-only report_bug.
 vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
-import { displayRowNames } from "@/lib/emcp/nouns"
+import { displayRowNames, RETIRED_ROW_ALIASES } from "@/lib/emcp/nouns"
 import {
   entityRefKinds,
   listRefNoun,
@@ -66,7 +66,7 @@ import { contract } from "@exp/domain-contract"
 import fixture from "@exp/domain-contract/fixtures/tool-result-preview.json"
 
 function registeredToolNames(): string[] {
-  // NEW-4: the surface is 15 noun tools; a result's preview is keyed by the
+  // NEW-4 → EXP-1657: the surface is 22 tools; a result's preview is keyed by the
   // display row `<noun>_<op>` the engine composes (nouns.ts).
   return displayRowNames()
     .map((row) => `${contract.expToolDisplay.prefix}${row}`)
@@ -88,7 +88,9 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_apps_get: [],
   exponential_apps_list: [],
   exponential_apps_upsert: [],
-  exponential_team_config_agents_list: [`list`, `agent`],
+  exponential_agents_list: [`list`, `agent`],
+  // EXP-1657
+  exponential_agents_get: [`agent`],
   exponential_events_emit: [],
   exponential_events_list: [`list`, `event`],
   exponential_attachments_delete: [],
@@ -125,21 +127,21 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_issues_unlink: [`session`, `issue`],
   exponential_issues_update: [`issue`],
   exponential_issues_update_status: [`issue`, `status`],
-  exponential_team_config_labels_create: [`label`],
-  exponential_team_config_labels_delete: [],
-  exponential_team_config_labels_get: [`label`],
-  exponential_team_config_labels_list: [`list`, `label`],
-  exponential_team_config_labels_update: [`label`],
-  exponential_team_config_mcp_servers_add: [],
-  exponential_team_config_mcp_servers_list: [],
-  exponential_team_config_mcp_servers_remove: [],
+  exponential_labels_create: [`label`],
+  exponential_labels_delete: [],
+  exponential_labels_get: [`label`],
+  exponential_labels_list: [`list`, `label`],
+  exponential_labels_update: [`label`],
+  exponential_mcp_servers_create: [],
+  exponential_mcp_servers_list: [],
+  exponential_mcp_servers_delete: [],
   exponential_people_add: [`member`],
   exponential_people_list: [`list`, `member`],
   exponential_notifications_list: [`list`, `notification`],
   exponential_notifications_mark_read: [],
   exponential_session_self_report_bug: [`issue`],
-  exponential_team_config_repositories_add: [`repository`],
-  exponential_team_config_repositories_list: [`list`, `repository`],
+  exponential_repositories_create: [`repository`],
+  exponential_repositories_list: [`list`, `repository`],
   exponential_session_self_compact: [],
   exponential_show: [],
   exponential_sessions_configure: [`session`],
@@ -147,19 +149,25 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_sessions_end: [],
   exponential_sessions_list: [`list`, `session`],
   exponential_session_self_suggest: [],
-  exponential_team_config_statuses_create: [`status`],
-  exponential_team_config_statuses_delete: [],
-  exponential_team_config_statuses_list: [`list`, `status`],
-  exponential_team_config_statuses_update: [`status`],
+  exponential_statuses_create: [`status`],
+  exponential_statuses_delete: [],
+  exponential_statuses_list: [`list`, `status`],
+  exponential_statuses_update: [`status`],
   exponential_teams_create: [`team`],
   exponential_teams_get: [`team`],
   exponential_teams_list: [`list`, `team`],
   exponential_teams_update: [`team`],
-  exponential_team_config_prompts_create: [`prompt`],
-  exponential_team_config_prompts_delete: [],
-  exponential_team_config_prompts_get: [`prompt`],
-  exponential_team_config_prompts_update: [`prompt`],
-  exponential_team_config_prompts_list: [`list`, `prompt`],
+  exponential_prompts_create: [`prompt`],
+  exponential_prompts_delete: [],
+  exponential_prompts_get: [`prompt`],
+  exponential_prompts_update: [`prompt`],
+  exponential_prompts_list: [`list`, `prompt`],
+  // EXP-1663: skills answer plain JSON (no skill chip).
+  exponential_skills_create: [],
+  exponential_skills_delete: [],
+  exponential_skills_get: [],
+  exponential_skills_list: [],
+  exponential_skills_update: [],
   exponential_pr_close: [`issue`],
   exponential_pr_files: [`issue`],
   exponential_pr_merge: [`issue`],
@@ -200,15 +208,17 @@ describe(`toolResultPreview covers the whole tool surface (EXP-988/EXP-920)`, ()
 
 describe(`toolResultPreview (EXP-920)`, () => {
   it(`maps every registered tool in the contract spec table, and nothing else`, () => {
+    // EXP-1657: + the retired team_config rows, kept so old transcripts preview.
     expect(contract.expToolPreview.tools.map((tool) => `${contract.expToolDisplay.prefix}${tool.name}`).sort()).toEqual(
-      registeredToolNames()
+      [...registeredToolNames(), ...Object.keys(RETIRED_ROW_ALIASES).map((row) => `exponential_${row}`)].sort()
     )
   })
 
   it(`PREVIEW_KINDS is the kinds of the contract spec, tool by tool`, () => {
     for (const tool of contract.expToolPreview.tools) {
+      const live = RETIRED_ROW_ALIASES[tool.name] ?? tool.name
       const name = `${contract.expToolDisplay.prefix}${tool.name}`
-      expect(specKinds(tool.refs), name).toEqual(PREVIEW_KINDS[name])
+      expect(specKinds(tool.refs), name).toEqual(PREVIEW_KINDS[`${contract.expToolDisplay.prefix}${live}`])
     }
   })
 
@@ -276,5 +286,7 @@ describe(`toolResultPreview (EXP-920)`, () => {
     expect(listRefNoun(`issue`)).toBe(`issues`)
     const [list] = toolResultPreview(`exponential_team_config_labels_list`, [{ id: `l`, name: `bug` }])
     expect(list).toEqual({ kind: `list`, id: `label`, title: `labels`, count: 1 })
+    // EXP-1657: the live row previews the same as its retired alias.
+    expect(toolResultPreview(`exponential_labels_list`, [{ id: `l`, name: `bug` }])[0]).toEqual(list)
   })
 })

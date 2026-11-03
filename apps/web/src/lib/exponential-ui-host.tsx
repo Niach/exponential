@@ -44,8 +44,9 @@ import {
 } from "@/lib/collections"
 import { RECORDS_SCHEME, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
-import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
-import { appMediaAllowed } from "@exp/domain-contract/apps"
+import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
+import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
+import { readableRows, type AppAccessLevel } from "@exponential_app/eui/host"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
@@ -311,6 +312,8 @@ export interface RecordsScope {
   appId: string | null
   teamId: string | null
   me: string | null
+  /** VAPP-198 (Run as): only the rows this member may read (record-policy.json `readable`). */
+  readable?: (rows: readonly RecordRow[]) => RecordRow[]
 }
 
 /** VAPP-122: `records:<kind>?…` → the eUI evaluator's value over the synced
@@ -327,7 +330,8 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
   let records: IncrementalTable<RecordRow> | null = null
   const push = () => {
     if (!ready) return
-    const rows = records?.rows() ?? []
+    const all = records?.rows() ?? []
+    const rows = scope.readable ? scope.readable(all) : all
     const names: Record<string, string> = {}
     for (const row of rows) {
       const author = recordAuthor(row)
@@ -450,6 +454,10 @@ export interface AppHostOptions {
   /** The instance origin the media rule compares against (default: the
    *  page's own; tests pass the fixture's). */
   origin?: string
+  /** VAPP-198: the editor preview "Run as <member>" (owners): `me` is them,
+   *  the records are what their role and app access may read, and every
+   *  write or host call is refused with `copy.runAs.writesOff`. */
+  runAs?: { id: string; name: string; role: string; access?: AppAccessLevel } | null
 }
 
 /** VAPP-157: an APP host. Every src an app surface loads (Image, Avatar,
@@ -481,10 +489,30 @@ export function ownPrivateHosts(origin: string): string[] {
   }
 }
 
+/** VAPP-198: under Run as, every function but the toast and navigation is
+ *  refused with `copy.runAs.writesOff` (a preview never acts as someone else). */
+const RUN_AS_ALLOWED = new Set([`harness.toast`, `harness.openIssue`, `harness.openDevice`])
+function refuseAsOther(runAs: AppHostOptions[`runAs`], functions: Record<string, HostFunction>): Record<string, HostFunction> {
+  if (!runAs) return functions
+  const refused: HostFunction = () => {
+    const text = APPS_COPY.runAs.writesOff.replace(`{name}`, runAs.name)
+    toast(text)
+    throw new Error(text)
+  }
+  return Object.fromEntries(Object.entries(functions).map(([name, fn]) => [name, RUN_AS_ALLOWED.has(name) ? fn : refused]))
+}
+
 export function createAppHost(options: AppHostOptions): AppHost {
   const origin = options.origin ?? (typeof window === `undefined` ? `http://localhost` : window.location.origin)
   const allowPrivate = ownPrivateHosts(origin)
-  const scope: RecordsScope = { appId: options.appId ?? null, teamId: options.teamId ?? null, me: options.me ?? null }
+  const runAs = options.runAs ?? null
+  const kinds = (options.packages?.[0] as { records?: Record<string, unknown> } | undefined)?.records
+  const scope: RecordsScope = {
+    appId: options.appId ?? null,
+    teamId: options.teamId ?? null,
+    me: runAs ? runAs.id : (options.me ?? null),
+    readable: runAs ? (rows) => readableRows(rows, kinds, { id: runAs.id, role: runAs.role, access: runAs.access }) : undefined,
+  }
   const appRef = () => {
     if (!scope.appId) throw new Error(`No app to keep records for`)
     return { id: scope.appId }
@@ -535,7 +563,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
       },
       [RECORDS_SCHEME]: (source, emit) => recordsSource(source, emit, scope),
     },
-    functions: {
+    functions: refuseAsOther(runAs, {
       "harness.toast": ({ message, tone }) => {
         const text = String(message ?? ``)
         if (tone === `error`) toast.error(text)
@@ -549,9 +577,10 @@ export function createAppHost(options: AppHostOptions): AppHost {
       "harness.openDevice": ({ id, label }) => (options.openDevice ? options.openDevice(String(id)) : toast(String(label ?? id ?? ``))),
       "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>),
       // VAPP-120: every MCP operation as a typed function (fixtures/app-actions.json):
-      // the same tools/call as the viewer, `op` + the args.
+      // the same tools/call as the viewer, `op` + the args. EXP-1657: the
+      // aliases too, so a package published before the split keeps working.
       ...Object.fromEntries(
-        APP_ACTIONS.map((name) => {
+        [...APP_ACTIONS, ...Object.keys(APP_ACTION_ALIASES)].map((name) => {
           const target = parseActionName(name)!
           return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args)]
         })
@@ -560,7 +589,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
       "records.upsert": recordsUpsert,
       "records.delete": recordsDelete,
       "records.batch": recordsBatch,
-    },
+    }),
     policy: {
       functions: { ask: [`harness.mcp`, `exponential.*`] },
       // A granted typed action runs without the card; anything else asks.

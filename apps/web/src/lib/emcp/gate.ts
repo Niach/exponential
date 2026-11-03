@@ -2,7 +2,7 @@
 // audit, shared by `/api/mcp` and the coming `/api/mcp/apps` (#VAPP-181).
 // An endpoint is a TOOL PROVIDER: given the authenticated caller it builds
 // the MCP server for this request (stateless transport, rebuilt per POST);
-// Exponential's 16 tools are one (`exponentialToolProvider`). The gate owns
+// Exponential's 22 tools are one (`exponentialToolProvider`). The gate owns
 // everything around it: credentials, the 401 with the protected-resource
 // hint, the acting session's confinement and sign of life, the transport,
 // and the `mcp_calls` row of every `tools/call` (audit.ts).

@@ -50,6 +50,62 @@ object AppRecords {
         return author != null && author == viewer
     }
 
+    /** eApps R3: who may read, create, update and delete a kind's records
+     *  under the member's app access: a hand port of eUI's
+     *  `src/host/record-policy.ts` (packages/exponential-ui
+     *  fixtures/record-policy.json is the spec; AppRecordsTest replays it). */
+    object Policy {
+        val OPS = listOf("read", "create", "update", "delete")
+        val LEVELS = listOf("member", "author", "owners")
+        val ACCESS = listOf("none", "read", "write")
+        val DEFAULTS: Map<String, String> = mapOf("read" to "member", "create" to "member", "update" to "author", "delete" to "author")
+        const val COPY_NONE = "You have no access to this app"
+        const val COPY_READ_ONLY = "You have read-only access to this app"
+        val COPY_AUTHOR: Map<String, String> = mapOf(
+            "read" to "Only the record's author or a team owner can read it",
+            "update" to "Only the record's author or a team owner can change it",
+            "delete" to "Only the record's author or a team owner can change it",
+        )
+        val COPY_OWNERS: Map<String, String> = mapOf(
+            "read" to "Only team owners can read these records",
+            "create" to "Only team owners can add these records",
+            "update" to "Only team owners can change these records",
+            "delete" to "Only team owners can change these records",
+        )
+
+        /** A kind's effective policy (`kind` = the package's `records.<kind>`;
+         *  an invalid entry keeps the default). */
+        fun effective(kind: JsonValue?): Map<String, String> {
+            val out = DEFAULTS.toMutableMap()
+            val policy = kind?.obj?.get("policy")?.obj ?: return out
+            for (op in OPS) {
+                val level = policy[op]?.string ?: continue
+                if (level in LEVELS && !(op == "create" && level == "author")) out[op] = level
+            }
+            return out
+        }
+
+        /** The policy of [kind] in a package JSON. */
+        fun of(pkg: JsonValue?, kind: String): Map<String, String> = effective(pkg?.obj?.get("records")?.obj?.get(kind))
+
+        /** Why [viewer] (team [role], null = not a member; app [access], null =
+         *  write) may NOT [op] a record ([row] for read/update/delete), or null. */
+        fun refusal(policy: Map<String, String>, op: String, viewer: String?, role: String?, access: String? = null, row: Row? = null): String? {
+            val level0 = access ?: "write"
+            if (viewer == null || role == null || level0 == "none") return COPY_NONE
+            if (level0 == "read" && op != "read") return COPY_READ_ONLY
+            if (role == "owner") return null
+            val level = policy[op] ?: DEFAULTS[op] ?: "member"
+            if (level == "member") return null
+            if (level == "owners" || op == "create") return COPY_OWNERS[op]
+            val author = row?.let(::recordAuthor)
+            return if (author != null && author == viewer) null else COPY_AUTHOR[op]
+        }
+
+        fun allowed(policy: Map<String, String>, op: String, viewer: String?, role: String?, access: String? = null, row: Row? = null): Boolean =
+            refusal(policy, op, viewer, role, access, row) == null
+    }
+
     // VAPP-188 ON-BEHALF (fixture `onBehalf`, locked by AppRecordsTest): who
     // may name another member as a write's author, and the server's refusals.
     const val ON_BEHALF_REFUSAL = "Only a team owner can write for another member"
@@ -74,10 +130,11 @@ object AppRecords {
 
     /** An imported record's author (`importCases`): absent, the importer or a
      *  stranger to the team = the importer; another member = them when the
-     *  importer is an owner, else null (the import is refused). */
+     *  importer is an owner, else the importer too (VAPP-192: a member
+     *  importing a teammate's export keeps the rows as their own). */
     fun importAuthor(importer: String, role: String?, author: String?, members: List<String>): String? {
         if (author == null || author == importer || author !in members) return importer
-        return if (role == "owner") author else null
+        return if (role == "owner") author else importer
     }
 
     /** JavaScript's `Number(text)` for a decimal literal (whitespace trimmed,

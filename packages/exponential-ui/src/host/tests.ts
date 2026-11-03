@@ -13,6 +13,7 @@ import { applyRecordBatch, runAction } from "./actions"
 import type { PackageIssue } from "./package"
 import { RECORDS_SCHEME, expandQuerySource, parseRecordsSource, recordsValue } from "./query"
 import type { RecordRow } from "./query"
+import { readableRows } from "./record-policy"
 import { validateRecord } from "./records"
 import type { RecordSchema } from "./records"
 import { canonicalJson } from "./signature"
@@ -20,8 +21,10 @@ import { parseSource, sourceWithParams } from "./sources"
 
 /** Caps: tests per package; the characters (code points) of a `got` an issue prints. */
 export const PACKAGE_TEST_LIMITS = { tests: 50, gotMax: 300 } as const
-/** The clock and the member a test runs at when it names none. */
-export const PACKAGE_TEST_DEFAULTS = { now: `2026-01-01T00:00:00.000Z`, as: `member` } as const
+/** The clock, the member and their team role a test runs at when it names none. */
+export const PACKAGE_TEST_DEFAULTS = { now: `2026-01-01T00:00:00.000Z`, as: `member`, role: `member` } as const
+/** eApps R3: the roles a test may run as. */
+export const PACKAGE_TEST_ROLES: readonly string[] = [`member`, `owner`]
 /** What a test runs: exactly one of these keys. */
 export const PACKAGE_TEST_KINDS: readonly string[] = [`expr`, `query`, `action`]
 
@@ -66,6 +69,7 @@ export function validatePackageTests(pkg: Record<string, unknown>): PackageIssue
     if (!own(t, `expect`)) issues.push({ path: `${at}/expect`, message: `expect is required` })
     if (t.now !== undefined && (typeof t.now !== `string` || parseTimestamp(t.now) === null)) issues.push({ path: `${at}/now`, message: `now is an ISO timestamp` })
     if (t.as !== undefined && (typeof t.as !== `string` || !t.as)) issues.push({ path: `${at}/as`, message: `as is a member id` })
+    if (t.role !== undefined && !PACKAGE_TEST_ROLES.includes(t.role as string)) issues.push({ path: `${at}/role`, message: `role is member or owner` })
     if (t.records !== undefined) {
       if (!isObject(t.records)) issues.push({ path: `${at}/records`, message: `records is {<kind>: [rows]}` })
       else
@@ -150,7 +154,11 @@ function runTest(pkg: Record<string, unknown>, t: Record<string, unknown>): unkn
   const now = typeof t.now === `string` ? t.now : PACKAGE_TEST_DEFAULTS.now
   const nowMs = parseTimestamp(now)!
   const me = typeof t.as === `string` ? t.as : PACKAGE_TEST_DEFAULTS.as
-  const rows = seedRows(t.records, me, now)
+  const role = typeof t.role === `string` ? t.role : PACKAGE_TEST_DEFAULTS.role
+  const kinds = isObject(pkg.records) ? pkg.records : undefined
+  // eApps R3: the test reads what its member may read, and writes under the policy.
+  const stored = seedRows(t.records, me, now)
+  const rows = readableRows(stored, kinds, { id: me, role })
   if (isObject(t.expr)) {
     const vars: Record<string, unknown> = {}
     if (isObject(t.expr.vars)) for (const [k, v] of Object.entries(t.expr.vars)) vars[k] = testVar(v, pkg, rows, me, now)
@@ -168,10 +176,10 @@ function runTest(pkg: Record<string, unknown>, t: Record<string, unknown>): unkn
   const a = t.action as Record<string, unknown>
   const result = runAction(pkg, a.name as string, a.params, { data: a.data, me, now: nowMs })
   if (`error` in result) return { error: result.error }
-  const batch = applyRecordBatch(rows, result.plan.writes, { records: isObject(pkg.records) ? pkg.records : undefined, me, now, newId: (i) => `new-${i + 1}` })
+  const batch = applyRecordBatch(stored, result.plan.writes, { records: kinds, me, role, now, newId: (i) => `new-${i + 1}` })
   if (`error` in batch) return { error: batch.error }
   const records: Record<string, unknown[]> = {}
-  for (const row of batch.rows) (records[row.kind] ??= []).push({ ...row.data, id: row.id, author: row.authorId ?? row.createdBy })
+  for (const row of readableRows(batch.rows, kinds, { id: me, role })) (records[row.kind] ??= []).push({ ...row.data, id: row.id, author: row.authorId ?? row.createdBy })
   return { records, sets: result.plan.sets, calls: result.plan.calls }
 }
 

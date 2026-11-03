@@ -112,11 +112,34 @@ final class McpSettingsTests: XCTestCase {
 
     func testBuiltinToolsFilter() {
         let tools = McpSettings.builtinTools
-        XCTAssertEqual(tools.count, DomainContract.expToolNames.count)
+        // The retired `aliasOf` rows (old `team_config_*`) are never listed.
+        XCTAssertEqual(tools.count, DomainContract.expToolRowGroups.filter { !$0.isEmpty }.count)
+        XCTAssertFalse(tools.contains { $0.name.contains("team_config") })
+        XCTAssertEqual(tools.count, McpSettings.builtinToolBands(query: "").reduce(0) { $0 + $1.tools.count })
         XCTAssertTrue(tools.allSatisfy { $0.name.hasPrefix(DomainContract.expToolPrefix) })
         XCTAssertEqual(McpSettings.filterBuiltinTools(tools, query: "  "), tools)
         XCTAssertTrue(McpSettings.filterBuiltinTools(tools, query: "zzzz-no-such-tool").isEmpty)
         XCTAssertFalse(McpSettings.filterBuiltinTools(tools, query: "ISSUES_CREATE").isEmpty)
+    }
+
+    func testBuiltinCases() throws {
+        let f = try fixture()
+        XCTAssertEqual(McpSettings.builtinFilterPlaceholder, f["builtinFilter"] as? String)
+        let cases = try XCTUnwrap(f["builtinCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let bands = McpSettings.builtinToolBands(query: c["query"] as? String ?? "")
+            let expected = try XCTUnwrap(c["expected"] as? [[String: Any]])
+            XCTAssertEqual(bands.map(\.id), expected.map { $0["id"] as? String ?? "" }, name)
+            for (want, band) in zip(expected, bands) {
+                XCTAssertEqual(band.label, want["label"] as? String, name)
+                XCTAssertEqual(band.tools.count, want["count"] as? Int, name)
+                if let rows = want["rows"] as? [String] {
+                    XCTAssertEqual(band.tools.map(\.name), rows, name)
+                }
+            }
+        }
     }
 
     func testEndpoint() {

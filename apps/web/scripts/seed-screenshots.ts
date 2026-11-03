@@ -784,7 +784,7 @@ async function seedSessionTree(ctx: {
       )
     }
     return {
-      formatVersion: 2,
+      formatVersion: 3,
       id: `acme.team-dashboard`,
       name: `Team dashboard`,
       version,

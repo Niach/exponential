@@ -771,7 +771,24 @@ async fn handshake(shared: &Shared) -> Result<(), Error> {
     shared
         .server
         .notify("initialized", json!({}))
-        .map_err(internal)
+        .map_err(internal)?;
+    set_skill_roots(shared).await;
+    Ok(())
+}
+
+/// #EXP-1658: the session's team skills folder as an extra skills root
+/// (`skills/extraRoots/set`, codex 0.156; a process-wide setting, so once
+/// per app-server covers `thread/start`, `thread/resume` and `/new`).
+/// Re-sent on every handshake (idempotent). A codex that refuses it runs
+/// without skills: a warning, never a failed start.
+async fn set_skill_roots(shared: &Shared) {
+    let Some(dir) = shared.spec.skills_dir.as_deref() else {
+        return;
+    };
+    let root = dir.join(".claude").join("skills");
+    if let Err(error) = call(shared, "skills/extraRoots/set", codex_wire::skills_extra_roots_params(&root)).await {
+        log::warn!("codex: the session's skills were not registered ({error:?}); running without them");
+    }
 }
 
 fn initialize_response(request: &InitializeRequest) -> InitializeResponse {

@@ -5,7 +5,7 @@ import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 // VAPP-110 / VAPP-107: what a stored app package may be.
 
 const pkg = (over: Record<string, unknown> = {}) => ({
-  formatVersion: 2,
+  formatVersion: 3,
   id: `acme.board`,
   name: `Board`,
   version: `1.0.0`,
@@ -39,10 +39,10 @@ describe(`validateAppPackage`, () => {
     expect(() => validateAppPackage(pkg({ sources: [`exp:issues`, `exp:records`] }))).toThrow(/exp:records/)
   })
 
-  it(`refuses a package without format version 2`, () => {
+  it(`refuses a package without format version 3`, () => {
     const { formatVersion: _omit, ...rest } = pkg()
-    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(2\)/)
-    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read: write 2/)
+    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(3\)/)
+    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read: write 3/)
   })
 
   it(`names the host sources and the sources rule in the catalog`, () => {
@@ -52,8 +52,8 @@ describe(`validateAppPackage`, () => {
   })
 })
 
-// VAPP-161: the package format version 2 on Exponential's hosts.
-describe(`validateAppPackage: format version 2`, () => {
+// VAPP-161: the package format version 3 on Exponential's hosts.
+describe(`validateAppPackage: format version 3`, () => {
   const records = { entry: { schema: { type: `object`, properties: { hours: { type: `number` } } } } }
   const neutral = (over: Record<string, unknown> = {}) =>
     pkg({
@@ -85,14 +85,14 @@ describe(`validateAppPackage: format version 2`, () => {
   })
 
   it(`refuses a newer format version`, () => {
-    expect(() => validateAppPackage(neutral({ formatVersion: 3 }))).toThrow(/format version 3 is newer than this host/)
+    expect(() => validateAppPackage(neutral({ formatVersion: 4 }))).toThrow(/format version 4 is newer than this host/)
   })
 
   it(`names the neutral spelling in the catalog`, () => {
     const text = appCatalogText()
     expect(text).toContain(`records:<kind>`)
     expect(text).toContain(`records.upsert`)
-    expect(text).toContain(`formatVersion: 2`)
+    expect(text).toContain(`formatVersion: 3`)
     expect(text).not.toContain(`exp:records`)
     expect(text).not.toContain(`harness.records`)
   })

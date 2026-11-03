@@ -64,6 +64,10 @@
     "frame": {
       "desktop": "Desktop",
       "phone": "Phone"
+    },
+    "runAs": {
+      "me": "Me",
+      "writesOff": "Running as {name}: nothing is saved"
     }
   },
   "panes": {
@@ -255,7 +259,8 @@
     "data": "app-editor-data",
     "previewToolbar": "app-preview-toolbar",
     "previewFrame": "app-preview-frame",
-    "previewTemplate": "app-preview-template"
+    "previewTemplate": "app-preview-template",
+    "previewRunAs": "app-preview-run-as"
   },
   "slugifyCases": [
     {
@@ -517,5 +522,86 @@
         "$why": "empty"
       }
     ]
-  }
+  },
+  "runAs": {
+    "$comment": "VAPP-198 (eApps R3, spec §11) RUN AS <member>: in THE PREVIEW TOOLBAR (`preview`: web ≥ md + desktop; phones have no toolbar, so no Run as), for a team OWNER only, a Select (testId `previewRunAs`) after the frame control: `runAsOptions(members, me, role)` = null (no Select) unless the viewer is an owner and the team has another member; else `copy.runAs.me` (value \"\") first, then every OTHER member by name (case-insensitive, then id; no name = the id). Picking a member renders the preview AS them: the host's `me` is them, a `records:` binding reads only the rows their team role and their app access may read (packages/exponential-ui fixtures/record-policy.json `readable`; the owner's device holds every row), and every write or host call (records.*, actions' writes, MCP and typed actions) is refused with the toast `copy.runAs.writesOff` ({name} = their name) and does nothing: a preview never writes as someone else. `exp:` sources stay the owner's (the preview cannot read another member's issues). Switching apps or leaving the editor drops back to Me."
+  },
+  "runAsCases": [
+    {
+      "$why": "a member: no Run as",
+      "members": [
+        {
+          "userId": "u1",
+          "name": "Ada",
+          "role": "member"
+        },
+        {
+          "userId": "u2",
+          "name": "Bo",
+          "role": "owner"
+        }
+      ],
+      "me": "u1",
+      "role": "member",
+      "options": null
+    },
+    {
+      "$why": "an owner alone in the team: no Run as",
+      "members": [
+        {
+          "userId": "u2",
+          "name": "Bo",
+          "role": "owner"
+        }
+      ],
+      "me": "u2",
+      "role": "owner",
+      "options": null
+    },
+    {
+      "$why": "an owner: Me first, then the others by name, case-insensitive; no name = the id",
+      "members": [
+        {
+          "userId": "u2",
+          "name": "Bo",
+          "role": "owner"
+        },
+        {
+          "userId": "u3",
+          "name": "carla",
+          "role": "member"
+        },
+        {
+          "userId": "u1",
+          "name": "Ada",
+          "role": "member"
+        },
+        {
+          "userId": "u4",
+          "name": "",
+          "role": "owner"
+        }
+      ],
+      "me": "u2",
+      "role": "owner",
+      "options": [
+        {
+          "value": "",
+          "label": "Me"
+        },
+        {
+          "value": "u1",
+          "label": "Ada"
+        },
+        {
+          "value": "u3",
+          "label": "carla"
+        },
+        {
+          "value": "u4",
+          "label": "u4"
+        }
+      ]
+    }
+  ]
 }

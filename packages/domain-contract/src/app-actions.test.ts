@@ -13,6 +13,13 @@ describe(`app actions (VAPP-120)`, () => {
       expect(rows.has(`${t.tool.replace(/^exponential_/, ``)}${t.op ? `_${t.op}` : ``}`), name).toBe(true)
     }
   })
+  test(`aliases (EXP-1657) are never offered and each names an offered action`, () => {
+    for (const [old, name] of Object.entries(fixture.aliases)) {
+      expect(APP_ACTIONS.includes(old), old).toBe(false)
+      expect(APP_ACTIONS.includes(name), name).toBe(true)
+      expect(parseActionName(old)).toEqual(parseActionName(name))
+    }
+  })
   test.each(fixture.parseCases)(`parseActionName $name`, (c) => {
     expect(parseActionName(c.name)).toEqual(c.expected as never)
   })

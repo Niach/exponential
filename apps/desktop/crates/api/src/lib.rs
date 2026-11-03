@@ -96,6 +96,7 @@ pub mod session_device;
 pub mod session_keys;
 pub mod sessions;
 pub mod settings_lock;
+pub mod skills;
 pub mod statuses;
 pub mod steer;
 pub mod token_store;

@@ -123,6 +123,7 @@ private fun writeAppExport(context: Context, app: AppListEntry, records: List<Ap
                 kind = r.kind,
                 data = r.data?.takeIf { it.isNotBlank() }?.let(JsonValue::parse) ?: JsonValue.Obj(emptyMap()),
                 createdAt = r.createdAt,
+                author = r.authorId ?: r.createdBy,
             )
         },
         includeRecords = includeRecords,

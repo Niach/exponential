@@ -54,6 +54,7 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use sync::Store;
 
 use domain::apps::{
@@ -215,6 +216,10 @@ pub struct AppScreenView {
     /// VAPP-179: the picked template (`None` = the default; an id the shown
     /// package lacks falls back to it).
     picked_template: Option<String>,
+    /// VAPP-198: Run as (`None` = me) and the app's non-Full access levels
+    /// (`appAccess.levels`, owners) for that app.
+    run_as: Option<String>,
+    access_levels: Option<(String, HashMap<String, String>)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -270,6 +275,8 @@ impl AppScreenView {
             data: None,
             frame: PreviewFrame::default_frame(),
             picked_template: None,
+            run_as: None,
+            access_levels: None,
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -290,6 +297,64 @@ impl AppScreenView {
             self.frame = frame;
             cx.notify();
         }
+    }
+
+    /// VAPP-198: the Run as options (`runAsCases`) for the app's team: the
+    /// members with their names and roles; `None` = no picker.
+    fn run_as_choices(&self, cx: &App) -> Option<Vec<domain::apps::RunAsOption>> {
+        let team_id = self.app.as_ref()?.row.as_ref()?.team_id.clone()?;
+        let store = Store::try_global(cx)?;
+        let me = crate::queries::active_account(cx).map(|a| a.user_id);
+        let users = store.collections().users.read(cx);
+        let members: Vec<(String, Option<String>, String)> = store
+            .collections()
+            .team_members
+            .read(cx)
+            .iter()
+            .filter(|m| m.team_id == team_id)
+            .map(|m| (m.user_id.clone(), users.get(&m.user_id).and_then(|u| u.name.clone()), m.role.clone().unwrap_or_else(|| "member".into())))
+            .collect();
+        let role = members.iter().find(|(id, _, _)| Some(id) == me.as_ref()).map(|(_, _, role)| role.clone());
+        domain::apps::run_as_options(&members, me.as_deref(), role.as_deref())
+    }
+
+    /// VAPP-198: the member the preview runs as (`None` = me).
+    fn run_as(&self, pkg: &Value, cx: &App) -> Option<crate::exponential_ui_host::RunAs> {
+        let id = self.run_as.clone()?;
+        let app_id = self.app.as_ref()?.id.clone();
+        let label = self.run_as_choices(cx)?.into_iter().find(|o| o.value == id)?.label;
+        let team_id = self.app.as_ref()?.row.as_ref()?.team_id.clone()?;
+        let role = Store::try_global(cx)?
+            .collections()
+            .team_members
+            .read(cx)
+            .iter()
+            .find(|m| m.team_id == team_id && m.user_id == id)
+            .and_then(|m| m.role.clone())
+            .unwrap_or_else(|| "member".into());
+        let access = self.access_levels.as_ref().filter(|(app, _)| *app == app_id).and_then(|(_, levels)| levels.get(&id).cloned());
+        Some(crate::exponential_ui_host::RunAs { id, name: label, role, access, kinds: pkg.get("records").map(Value::to_string).unwrap_or_default() })
+    }
+
+    /// VAPP-198: run the preview as `member` (`None` = me); the first pick
+    /// fetches the app's access levels (owners only).
+    fn pick_run_as(&mut self, member: Option<String>, cx: &mut gpui::Context<Self>) {
+        self.run_as = member;
+        let app_id = self.app.as_ref().map(|a| a.id.clone());
+        if let (Some(app_id), Some(trpc)) = (app_id.filter(|id| self.access_levels.as_ref().map(|(a, _)| a) != Some(id)), crate::queries::trpc_client(cx)) {
+            cx.spawn(async move |this, cx| {
+                let id = app_id.clone();
+                let result = cx.background_executor().spawn(async move { api::app_access::levels(&trpc, &id) }).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.access_levels = Some((app_id, result.map(|r| r.levels).unwrap_or_default()));
+                    this.sync_preview(cx);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        self.sync_preview(cx);
+        cx.notify();
     }
 
     /// VAPP-179: show `template` (the host re-syncs on the new key).
@@ -386,9 +451,11 @@ impl AppScreenView {
         // an older version's never does (a grant is about the HEAD package).
         // VAPP-179: and the template shown (a pick = a fresh host).
         let template = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
+        let run_as = pkg.as_ref().and_then(|pkg| self.run_as(pkg, cx));
         let key = format!(
-            "{}:{template}:{}",
+            "{}:{template}:{:?}:{}",
             self.viewing.is_some(),
+            run_as,
             pkg.as_ref().map(Value::to_string).unwrap_or_default()
         );
         if self.preview.as_ref().map(|p| p.key.as_str()) == Some(key.as_str()) {
@@ -405,6 +472,7 @@ impl AppScreenView {
             app_id: app.id.clone(),
             team_id: app.row.as_ref().and_then(|row| row.team_id.clone()),
             grants: self.viewing.is_none(),
+            run_as: run_as.clone(),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
         if let Some(message) = apply_template_message(&pkg, self.picked_template.as_deref()) {
@@ -614,6 +682,34 @@ impl AppScreenView {
                     menu
                 })
         });
+        // VAPP-198: Run as (owners with another member), after the frame.
+        let run_as_picker = self.run_as_choices(cx).map(|choices| {
+            let current = self.run_as.clone().unwrap_or_default();
+            let label = choices.iter().find(|o| o.value == current).map(|o| o.label.clone()).unwrap_or_default();
+            let view = cx.entity().downgrade();
+            Button::new(SharedString::from(APPS.test_ids.preview_run_as.clone()))
+                .outline()
+                .web_sm()
+                .cursor_pointer()
+                .child(div().min_w_0().truncate().child(label))
+                .child(Icon::new(registry::UI_CHEVRON_DOWN).size(px(14.)).text_color(cx.theme().muted_foreground))
+                .pointer_menu(move |mut menu, _window, _cx| {
+                    menu = crate::pickers::single_select_menu(menu);
+                    for option in &choices {
+                        let view = view.clone();
+                        let value = option.value.clone();
+                        menu = menu.item(
+                            crate::controls::pointer_label_item(option.label.clone(), false)
+                                .checked(option.value == current)
+                                .on_click(move |_, _, cx| {
+                                    let value = value.clone();
+                                    let _ = view.update(cx, |this, cx| this.pick_run_as(Some(value).filter(|v| !v.is_empty()), cx));
+                                }),
+                        );
+                    }
+                    menu
+                })
+        });
         h_flex()
             .id(SharedString::from(APPS.test_ids.preview_toolbar.clone()))
             .flex_shrink_0()
@@ -628,6 +724,7 @@ impl AppScreenView {
                     .h(px(32.))
                     .children(segments),
             )
+            .children(run_as_picker)
             .child(div().flex_1())
             .children(picker)
             .into_any_element()

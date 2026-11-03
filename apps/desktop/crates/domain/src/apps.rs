@@ -88,6 +88,48 @@ pub struct AppsCopy {
     pub preview: String,
     /// VAPP-179: the preview toolbar's frame segments.
     pub frame: AppsFrameCopy,
+    /// VAPP-198: Run as.
+    pub run_as: AppsRunAsCopy,
+}
+
+/// VAPP-198: `copy.runAs.*`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsRunAsCopy {
+    pub me: String,
+    pub writes_off: String,
+}
+
+/// VAPP-198: one Run as option (`value` "" = me).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunAsOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// VAPP-198: the preview toolbar's Run as options (`runAsCases`): `None`
+/// unless the viewer is a team owner with another member; else Me, then
+/// every other member by name (case-insensitive, then id; no name = id).
+/// `members` = (user id, name, role).
+pub fn run_as_options(members: &[(String, Option<String>, String)], me: Option<&str>, role: Option<&str>) -> Option<Vec<RunAsOption>> {
+    if role != Some("owner") {
+        return None;
+    }
+    let mut others: Vec<RunAsOption> = members
+        .iter()
+        .filter(|(id, _, _)| Some(id.as_str()) != me)
+        .map(|(id, name, _)| RunAsOption {
+            value: id.clone(),
+            label: name.as_deref().filter(|n| !n.trim().is_empty()).unwrap_or(id).to_string(),
+        })
+        .collect();
+    if others.is_empty() {
+        return None;
+    }
+    others.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()).then_with(|| a.value.cmp(&b.value)));
+    let mut out = vec![RunAsOption { value: String::new(), label: APPS.copy.run_as.me.clone() }];
+    out.extend(others);
+    Some(out)
 }
 
 /// VAPP-179: `copy.frame.*`.
@@ -226,6 +268,8 @@ pub struct AppsTestIds {
     pub preview_toolbar: String,
     pub preview_frame: String,
     pub preview_template: String,
+    /// VAPP-198: Run as (owners only).
+    pub preview_run_as: String,
 }
 
 /// `fixtures/apps.json` minus its cases.
@@ -566,6 +610,24 @@ mod tests {
         // VAPP-177: the floating layout is gone from the fixture.
         assert!(fixture.get("layout").is_none() && fixture.get("dockCard").is_none());
         assert!(fixture["panes"].get("headerHeight").is_none());
+    }
+
+    #[test]
+    fn run_as_options_replay_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).unwrap();
+        for case in fixture["runAsCases"].as_array().unwrap() {
+            let members: Vec<(String, Option<String>, String)> = case["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| (m["userId"].as_str().unwrap().into(), m["name"].as_str().map(String::from), m["role"].as_str().unwrap().into()))
+                .collect();
+            let got = run_as_options(&members, case["me"].as_str(), case["role"].as_str())
+                .map(|list| list.into_iter().map(|o| serde_json::json!({"value": o.value, "label": o.label})).collect::<Vec<_>>());
+            assert_eq!(got.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null), case["options"], "{case}");
+        }
+        assert_eq!(APPS.test_ids.preview_run_as, fixture["testIds"]["previewRunAs"].as_str().unwrap());
+        assert_eq!(APPS.copy.run_as.writes_off, fixture["copy"]["runAs"]["writesOff"].as_str().unwrap());
     }
 
     #[test]

@@ -124,6 +124,13 @@ data class AppAccessList(
 )
 
 @Serializable
+private data class AppAccessMineInput(val appId: String)
+
+/** eApps R3: the caller's own level for an app (`appAccess.mine`). */
+@Serializable
+data class AppAccessMine(val level: String)
+
+@Serializable
 private data class AppAccessSetInput(val appId: String, val userId: String, val level: String)
 
 @Serializable
@@ -160,6 +167,10 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
 
     suspend fun appAccess(accountId: String, teamId: String): AppAccessList =
         trpc.query(accountId, "appAccess.list", McpServersListInput(teamId), McpServersListInput.serializer(), AppAccessList.serializer())
+
+    /** eApps R3: the caller's own level for one app (`none | read | write`). */
+    suspend fun appAccessMine(accountId: String, appId: String): AppAccessMine =
+        trpc.query(accountId, "appAccess.mine", AppAccessMineInput(appId), AppAccessMineInput.serializer(), AppAccessMine.serializer())
 
     suspend fun setAppAccess(accountId: String, appId: String, userId: String, level: String) {
         trpc.mutationUnit(accountId, "appAccess.set", AppAccessSetInput(appId, userId, level), AppAccessSetInput.serializer())

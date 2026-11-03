@@ -28,6 +28,7 @@ import {
   notifications,
   prompts,
   pullRequests,
+  skills,
   sessions,
   teamInvites,
   teamMembers,
@@ -149,6 +150,10 @@ async function world() {
     .values({ teamId: teamB, category: `started`, name: `${MARK} status`, color: `#123456`, sortOrder: 99 })
     .returning({ id: issueStatuses.id })
   const [promptB] = await db.insert(prompts).values({ teamId: teamB, name: `${MARK} prompt`, body: `${MARK} prompt body` }).returning({ id: prompts.id })
+  const [skillB] = await db
+    .insert(skills)
+    .values({ teamId: teamB, name: `teamb-secret-skill`, description: `${MARK} skill`, body: `${MARK} skill body` })
+    .returning({ id: skills.id })
   const [agentB] = await db.insert(agents).values({ teamId: teamB, name: `${MARK} agent`, deviceId: bBox, ownerId: u.id }).returning({ id: agents.id })
   const [eventB] = await db
     .insert(events)
@@ -222,6 +227,7 @@ async function world() {
     labelId: labelB!.id,
     statusId: statusB!.id,
     promptId: promptB!.id,
+    skillId: skillB!.id,
     agentId: agentB!.id,
     eventId: eventB!.id,
     sessionId: threadB.sessionId,
@@ -250,7 +256,7 @@ async function world() {
   }
 }
 
-/** The 16 as U's agent-tree caller sees them (header + confined access). */
+/** The 21 as U's agent-tree caller sees them (header + confined access). */
 async function callerTools(w: World): Promise<(name: string) => Call> {
   const request = new Request(`https://x.test/api/mcp`, { headers: { "x-exp-session-id": w.callerId } })
   const access = await confineMcpAccessToActingSession(FULL_ACCESS, request, w.u.id, w.callerId)
@@ -301,7 +307,7 @@ async function snapshotB(w: World): Promise<Record<string, string>> {
 }
 
 /** B's ids, the strings a read must never carry. */
-const secretIds = (w: World) => [w.b.teamId, w.b.boardId, w.b.repositoryId, w.b.issueId, w.b.identifier, w.b.issue2Id, w.b.commentId, w.b.labelId, w.b.statusId, w.b.promptId, w.b.agentId, w.b.eventId, w.b.sessionId, w.b.messageId, w.b.appId, w.b.appSlug, w.b.recordId, w.b.attachmentId, w.b.mcpServerId, w.b.pullRequestId, w.b.inviteId, w.b.notificationId, w.b.mateId, w.b.deviceId]
+const secretIds = (w: World) => [w.b.teamId, w.b.boardId, w.b.repositoryId, w.b.issueId, w.b.identifier, w.b.issue2Id, w.b.commentId, w.b.labelId, w.b.statusId, w.b.promptId, w.b.skillId, w.b.agentId, w.b.eventId, w.b.sessionId, w.b.messageId, w.b.appId, w.b.appSlug, w.b.recordId, w.b.attachmentId, w.b.mcpServerId, w.b.pullRequestId, w.b.inviteId, w.b.notificationId, w.b.mateId, w.b.deviceId]
 
 type Kind = `read` | `write`
 interface Case {
@@ -370,27 +376,36 @@ const CASES: Record<string, Case> = {
   [`people.invites_list`]: r(`people.invites_list`, (w) => ({ op: `invites_list`, teamId: w.b.teamId })),
   [`people.invites_create`]: wr(`people.invites_create`, (w) => ({ op: `invites_create`, teamId: w.b.teamId, email: `leak@iso.test` })),
   [`people.invites_revoke`]: wr(`people.invites_revoke`, (w) => ({ op: `invites_revoke`, id: w.b.inviteId })),
-  // team_config
-  [`team_config.labels_list`]: r(`team_config.labels_list`, (w) => ({ op: `labels_list`, teamId: w.b.teamId })),
-  [`team_config.labels_get`]: r(`team_config.labels_get`, (w) => ({ op: `labels_get`, id: w.b.labelId })),
-  [`team_config.labels_create`]: wr(`team_config.labels_create`, (w) => ({ op: `labels_create`, teamId: w.b.teamId, name: `leak` })),
-  [`team_config.labels_update`]: wr(`team_config.labels_update`, (w) => ({ op: `labels_update`, id: w.b.labelId, name: `hijacked` })),
-  [`team_config.labels_delete`]: wr(`team_config.labels_delete`, (w) => ({ op: `labels_delete`, id: w.b.labelId })),
-  [`team_config.statuses_list`]: r(`team_config.statuses_list`, (w) => ({ op: `statuses_list`, teamId: w.b.teamId })),
-  [`team_config.statuses_create`]: wr(`team_config.statuses_create`, (w) => ({ op: `statuses_create`, teamId: w.b.teamId, category: `started`, name: `leak`, color: `#000000` })),
-  [`team_config.statuses_update`]: wr(`team_config.statuses_update`, (w) => ({ op: `statuses_update`, id: w.b.statusId, name: `hijacked` })),
-  [`team_config.statuses_delete`]: wr(`team_config.statuses_delete`, (w) => ({ op: `statuses_delete`, id: w.b.statusId })),
-  [`team_config.prompts_list`]: r(`team_config.prompts_list`, (w) => ({ op: `prompts_list`, teamId: w.b.teamId })),
-  [`team_config.prompts_get`]: r(`team_config.prompts_get`, (w) => ({ op: `prompts_get`, id: w.b.promptId })),
-  [`team_config.prompts_create`]: wr(`team_config.prompts_create`, (w) => ({ op: `prompts_create`, teamId: w.b.teamId, name: `leak`, body: `leak` })),
-  [`team_config.prompts_update`]: wr(`team_config.prompts_update`, (w) => ({ op: `prompts_update`, id: w.b.promptId, body: `hijacked` })),
-  [`team_config.prompts_delete`]: wr(`team_config.prompts_delete`, (w) => ({ op: `prompts_delete`, id: w.b.promptId })),
-  [`team_config.agents_list`]: r(`team_config.agents_list`, (w) => ({ op: `agents_list`, teamId: w.b.teamId })),
-  [`team_config.mcp_servers_list`]: r(`team_config.mcp_servers_list`, (w) => ({ op: `mcp_servers_list`, teamId: w.b.teamId })),
-  [`team_config.mcp_servers_add`]: wr(`team_config.mcp_servers_add`, (w) => ({ op: `mcp_servers_add`, teamId: w.b.teamId, url: `https://leak.test/mcp` })),
-  [`team_config.mcp_servers_remove`]: wr(`team_config.mcp_servers_remove`, (w) => ({ op: `mcp_servers_remove`, id: w.b.mcpServerId })),
-  [`team_config.repositories_list`]: r(`team_config.repositories_list`, (w) => ({ op: `repositories_list`, teamId: w.b.teamId })),
-  [`team_config.repositories_add`]: wr(`team_config.repositories_add`, (w) => ({ op: `repositories_add`, teamId: w.b.teamId, fullName: `leak/leak` })),
+  // EXP-1657: the old team_config ops, one noun each
+  [`labels.list`]: r(`labels.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`labels.get`]: r(`labels.get`, (w) => ({ op: `get`, id: w.b.labelId })),
+  [`labels.create`]: wr(`labels.create`, (w) => ({ op: `create`, teamId: w.b.teamId, name: `leak` })),
+  [`labels.update`]: wr(`labels.update`, (w) => ({ op: `update`, id: w.b.labelId, name: `hijacked` })),
+  [`labels.delete`]: wr(`labels.delete`, (w) => ({ op: `delete`, id: w.b.labelId })),
+  [`statuses.list`]: r(`statuses.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`statuses.create`]: wr(`statuses.create`, (w) => ({ op: `create`, teamId: w.b.teamId, category: `started`, name: `leak`, color: `#000000` })),
+  [`statuses.update`]: wr(`statuses.update`, (w) => ({ op: `update`, id: w.b.statusId, name: `hijacked` })),
+  [`statuses.delete`]: wr(`statuses.delete`, (w) => ({ op: `delete`, id: w.b.statusId })),
+  [`prompts.list`]: r(`prompts.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`prompts.get`]: r(`prompts.get`, (w) => ({ op: `get`, id: w.b.promptId })),
+  [`prompts.create`]: wr(`prompts.create`, (w) => ({ op: `create`, teamId: w.b.teamId, name: `leak`, body: `leak` })),
+  [`prompts.update`]: wr(`prompts.update`, (w) => ({ op: `update`, id: w.b.promptId, body: `hijacked` })),
+  [`prompts.delete`]: wr(`prompts.delete`, (w) => ({ op: `delete`, id: w.b.promptId })),
+  // EXP-1663
+  [`skills.list teamId`]: r(`skills.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`skills.list unfiltered`]: r(`skills.list`, () => ({ op: `list` })),
+  [`skills.get`]: r(`skills.get`, (w) => ({ op: `get`, id: w.b.skillId })),
+  [`skills.get by name`]: r(`skills.get`, () => ({ op: `get`, name: `teamb-secret-skill` })),
+  [`skills.create`]: wr(`skills.create`, (w) => ({ op: `create`, teamId: w.b.teamId, name: `leak`, description: `leak`, body: `leak` })),
+  [`skills.update`]: wr(`skills.update`, (w) => ({ op: `update`, id: w.b.skillId, body: `hijacked` })),
+  [`skills.delete`]: wr(`skills.delete`, (w) => ({ op: `delete`, id: w.b.skillId })),
+  [`agents.list`]: r(`agents.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`agents.get`]: r(`agents.get`, (w) => ({ op: `get`, id: w.b.agentId })),
+  [`mcp_servers.list`]: r(`mcp_servers.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`mcp_servers.create`]: wr(`mcp_servers.create`, (w) => ({ op: `create`, teamId: w.b.teamId, url: `https://leak.test/mcp` })),
+  [`mcp_servers.delete`]: wr(`mcp_servers.delete`, (w) => ({ op: `delete`, id: w.b.mcpServerId })),
+  [`repositories.list`]: r(`repositories.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`repositories.create`]: wr(`repositories.create`, (w) => ({ op: `create`, teamId: w.b.teamId, fullName: `leak/leak` })),
   // apps
   [`apps.list teamId`]: r(`apps.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`apps.list unfiltered`]: r(`apps.list`, () => ({ op: `list` })),

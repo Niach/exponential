@@ -559,7 +559,31 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
 /// first refusal (`write <i>: …`). A patch merges onto its row and the
 /// merged row is checked; a create's id is `new_id(<i-th create>)`, its
 /// `createdBy` = `me`, every touched row stamped `now`.
-pub fn apply_record_batch(rows: &[Value], writes: &[Value], records: Option<&Value>, me: Option<&str>, now: &str, mut new_id: impl FnMut(usize) -> String) -> Result<(Vec<Value>, Vec<String>), String> {
+pub fn apply_record_batch(rows: &[Value], writes: &[Value], records: Option<&Value>, me: Option<&str>, now: &str, new_id: impl FnMut(usize) -> String) -> Result<(Vec<Value>, Vec<String>), String> {
+    apply_record_batch_as(rows, writes, records, me, None, None, now, new_id)
+}
+
+/// eApps R3: [`apply_record_batch`] with every write judged by its kind's
+/// policy for the writer `me` with team `role` and app `access` (TS
+/// `BatchOptions.role` / `access`); `role` `None` = not judged.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_record_batch_as(
+    rows: &[Value],
+    writes: &[Value],
+    records: Option<&Value>,
+    me: Option<&str>,
+    role: Option<&str>,
+    access: Option<&str>,
+    now: &str,
+    mut new_id: impl FnMut(usize) -> String,
+) -> Result<(Vec<Value>, Vec<String>), String> {
+    use super::record_policy::{record_policy, record_refusal, RecordOp, RecordViewer};
+    let judged = role.is_some();
+    let viewer = RecordViewer { id: me, role, access };
+    let kind_def = |kind: &str| records.and_then(|r| r.get(kind));
+    let judge = |kind: &str, op: RecordOp, row: Option<&Value>| if judged { record_refusal(&record_policy(kind_def(kind)), op, &viewer, row) } else { None };
+    // A row the writer may not read is not there for them.
+    let readable = |r: &Value| !judged || record_refusal(&record_policy(kind_def(r.get("kind").and_then(Value::as_str).unwrap_or(""))), RecordOp::Read, &viewer, Some(r)).is_none();
     let mut out: Vec<Value> = rows.to_vec();
     let mut ids = Vec::new();
     let mut creates = 0;
@@ -569,8 +593,11 @@ pub fn apply_record_batch(rows: &[Value], writes: &[Value], records: Option<&Val
         let wid = w.get("id").map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string));
         if w.get("op").and_then(Value::as_str) == Some("delete") {
             let id = wid.unwrap_or_else(|| "undefined".into());
-            if !out.iter().any(|r| row_id(r).as_deref() == Some(id.as_str())) {
+            let Some(row) = out.iter().find(|r| row_id(r).as_deref() == Some(id.as_str()) && readable(r)) else {
                 return Err(format!("{where}: record {id} not found"));
+            };
+            if let Some(refusal) = judge(row.get("kind").and_then(Value::as_str).unwrap_or(""), RecordOp::Delete, Some(row)) {
+                return Err(format!("{where}: {refusal}"));
             }
             out.retain(|r| row_id(r).as_deref() != Some(id.as_str()));
             ids.push(id);
@@ -582,9 +609,12 @@ pub fn apply_record_batch(rows: &[Value], writes: &[Value], records: Option<&Val
         };
         let wdata = w.get("data").cloned().unwrap_or(Value::Null);
         if let Some(id) = wid {
-            let Some(index) = out.iter().position(|r| row_id(r).as_deref() == Some(id.as_str())) else { return Err(format!("{where}: record {id} not found")) };
+            let Some(index) = out.iter().position(|r| row_id(r).as_deref() == Some(id.as_str()) && readable(r)) else { return Err(format!("{where}: record {id} not found")) };
             if out[index].get("kind").and_then(Value::as_str) != Some(kind) {
                 return Err(format!("{where}: record {id} is not of kind {kind}"));
+            }
+            if let Some(refusal) = judge(kind, RecordOp::Update, Some(&out[index])) {
+                return Err(format!("{where}: {refusal}"));
             }
             let mut data = out[index].get("data").and_then(Value::as_object).cloned().unwrap_or_default();
             if let Some(patch) = wdata.as_object() {
@@ -604,13 +634,16 @@ pub fn apply_record_batch(rows: &[Value], writes: &[Value], records: Option<&Val
             ids.push(id);
             continue;
         }
+        if let Some(refusal) = judge(kind, RecordOp::Create, None) {
+            return Err(format!("{where}: {refusal}"));
+        }
         let issues = validate_record(schema, &wdata);
         if !issues.is_empty() {
             return Err(format!("{where}: records: {}", issue_text(&issues)));
         }
         let id = new_id(creates);
         creates += 1;
-        out.push(json!({"id": id, "kind": kind, "data": wdata, "createdBy": me, "createdAt": now, "updatedAt": now}));
+        out.push(json!({"id": id, "kind": kind, "data": wdata, "createdBy": me, "authorId": me, "createdAt": now, "updatedAt": now}));
         ids.push(id);
     }
     Ok((out, ids))

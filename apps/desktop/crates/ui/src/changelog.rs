@@ -57,6 +57,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_178: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-exponential-tools-in-groups",
+    date: "2026-11-03",
+    title: "Exponential tools in groups",
+    summary: "Settings › MCP lists Exponential's own tools in groups, and agents get one tool per kind of thing: labels, statuses, prompts, agents, MCP servers and repositories.",
+    body: r#"- **Grouped tools**: Settings › MCP shows Exponential's tools in bands: Work, Tracker, Team, Agents, Sessions, Apps and Activity. The filter searches every band.
+- **One tool per kind**: agents now use separate tools for labels, statuses, prompts, agents, MCP servers and repositories, so each one is easier to find. An agent can also read one agent's setup.
+- **Old sessions**: transcripts from before the change still show these calls with their names."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_177: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-voice-works-on-windows",
     date: "2026-11-03",

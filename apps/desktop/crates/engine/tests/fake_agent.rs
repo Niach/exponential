@@ -782,6 +782,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             servers: Vec::new(),
             mcp_secrets: Default::default(),
             confine_to: None,
+            skills_dir: None,
         },
         tab_title: "claude · EXP-746".to_string(),
         tab_title_prefix: "EXP-746".to_string(),
@@ -794,6 +795,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         codex_resume_id: None,
         launch_hold: None,
         mcp_pick: None,
+        skill_pick: None,
         audience: None,
     }
 }

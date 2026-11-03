@@ -50,7 +50,7 @@ class Undo extends Error {}
 
 /** `fn` under the role inside a SAVEPOINT that is always rolled back (the
  *  role and scope revert with it): its value, or the Postgres error. */
-async function underRole<T>(tx: RealDbTx, scope: { teamId: string; appIds: string[] } | null, fn: (tx: RealDbTx) => Promise<T>): Promise<{ value?: T; error?: { code?: string; message: string } }> {
+async function underRole<T>(tx: RealDbTx, scope: { teamId: string; appIds: string[]; write?: boolean } | null, fn: (tx: RealDbTx) => Promise<T>): Promise<{ value?: T; error?: { code?: string; message: string } }> {
   let out: { value?: T; error?: { code?: string; message: string } } = {}
   try {
     await tx.transaction(async (sp) => {
@@ -101,7 +101,7 @@ describe.skipIf(!ready.ok)(`records RLS scope (real db)`, () => {
   it(`a write outside the scope fails WITH CHECK; hard deletes are denied`, async () => {
     await inRollback(async (tx) => {
       const w = await seed(tx)
-      const scope = { teamId: w.teamA, appIds: [w.a1] }
+      const scope = { teamId: w.teamA, appIds: [w.a1], write: true }
       const foreignTeam = await underRole(tx, scope, (t) => t.insert(appRecords).values({ appId: w.b1, teamId: w.teamB, kind: `entry`, data: {} }))
       expect(foreignTeam.error?.message).toMatch(/row-level security/)
       const foreignApp = await underRole(tx, scope, (t) => t.insert(appRecords).values({ appId: w.a2, teamId: w.teamA, kind: `entry`, data: {} }))
@@ -118,6 +118,22 @@ describe.skipIf(!ready.ok)(`records RLS scope (real db)`, () => {
       )
       expect(own.error).toBeUndefined()
       expect(own.value?.[0]?.appDeletedAt).toBeInstanceOf(Date)
+    })
+  })
+
+  // eApps R3: a write needs `eapps.write = on` (a member with write access);
+  // a read-only scope still reads.
+  it(`a read-only scope reads but never inserts or updates`, async () => {
+    await inRollback(async (tx) => {
+      const w = await seed(tx)
+      const scope = { teamId: w.teamA, appIds: [w.a1] }
+      expect((await underRole(tx, scope, allRows)).value).toEqual([1, 2])
+      const insert = await underRole(tx, scope, (t) => t.insert(appRecords).values({ appId: w.a1, teamId: w.teamA, kind: `entry`, data: {} }))
+      expect(insert.error?.message).toMatch(/row-level security/)
+      const update = await underRole(tx, scope, (t) => t.execute(sql`UPDATE app_records SET data = '{}'::jsonb RETURNING id`))
+      expect((update.value as { rows: unknown[] } | undefined)?.rows ?? []).toEqual([])
+      const write = await underRole(tx, { ...scope, write: true }, (t) => t.insert(appRecords).values({ appId: w.a1, teamId: w.teamA, kind: `entry`, data: { n: 7 } }))
+      expect(write.error).toBeUndefined()
     })
   })
 

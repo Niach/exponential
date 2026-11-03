@@ -417,6 +417,7 @@ fn spec_env(
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
         confine_to: None,
+        skills_dir: None,
         aside: false,
         exit: engine::ChildExitLink::new(),
     }
@@ -810,6 +811,32 @@ async fn a_usage_warning_never_walls_the_row() {
     let plain = workdir("basic");
     let run = drive("basic", &plain.0, "Reply with the single word ok.", false, reject_all(), cancel_elicitations()).await;
     assert!(run.blocked_edges().iter().all(Option::is_none), "{:?}", run.blocked_edges());
+}
+
+/// #EXP-1658: the session's team skills folder rides the argv as an
+/// `--add-dir` (claude loads its `.claude/skills/*` unprefixed); a run
+/// without skills carries no `--add-dir` at all.
+#[tokio::test]
+async fn the_skills_folder_rides_the_argv_as_an_add_dir() {
+    let _session = one_session_at_a_time();
+    let work = workdir("argv-skills");
+    let skills = work.0.join("skills-row-1");
+    let spec = AdapterSpec { skills_dir: Some(skills.clone()), ..spec("basic", &work.0, false) };
+    let run = drive_spec(spec, &work.0, "Reply with the single word ok.", reject_all(), cancel_elicitations()).await;
+    assert_eq!(run.argv_value("--add-dir"), Some(skills.display().to_string().as_str()));
+    assert!(!run.argv.iter().any(|arg| arg == "--plugin-dir"));
+
+    let bare = workdir("argv-no-skills");
+    let run = drive(
+        "basic",
+        &bare.0,
+        "Reply with the single word ok.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    assert!(!run.argv.iter().any(|arg| arg == "--add-dir"));
 }
 
 #[tokio::test]

@@ -130,6 +130,8 @@ public enum Apps {
         public static let previewToolbar = "app-preview-toolbar"
         public static let previewFrame = "app-preview-frame"
         public static let previewTemplate = "app-preview-template"
+        // VAPP-198: Run as (in the toolbar: web ≥ md + desktop only).
+        public static let previewRunAs = "app-preview-run-as"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and

@@ -104,16 +104,68 @@ pub struct BuiltinExpTool {
 }
 
 /// EXP-862 — every built-in Exponential tool, in contract order, for the
-/// collapsed "Built-in Exponential tools" group of the MCP servers page.
+/// "Built-in Exponential tools" section of the MCP page. EXP-1657: a retired
+/// row (`aliasOf`, the old `team_config_*` rows kept so old transcripts
+/// render; its group is "") is never listed.
 /// Mirrored ×2 (web `lib/agent-feed.ts` `builtinExpTools`).
 pub fn builtin_tools() -> Vec<BuiltinExpTool> {
     domain::contract::EXP_TOOL_NAMES
         .iter()
         .enumerate()
-        .map(|(index, row)| BuiltinExpTool {
-            name: format!("{}{row}", domain::contract::EXP_TOOL_PREFIX),
-            title: domain::contract::EXP_TOOL_TITLES[index],
-            blurb: domain::contract::EXP_TOOL_BLURBS[index],
+        .filter(|(index, _)| !domain::contract::EXP_TOOL_ROW_GROUPS[*index].is_empty())
+        .map(|(index, row)| builtin_tool(index, row))
+        .collect()
+}
+
+fn builtin_tool(index: usize, row: &str) -> BuiltinExpTool {
+    BuiltinExpTool {
+        name: format!("{}{row}", domain::contract::EXP_TOOL_PREFIX),
+        title: domain::contract::EXP_TOOL_TITLES[index],
+        blurb: domain::contract::EXP_TOOL_BLURBS[index],
+    }
+}
+
+/// EXP-1657 — one band of the MCP page's built-in section: a contract tool
+/// group (`expToolDisplay.groups`) and the op rows it lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltinToolBand {
+    /// The group id (`work`, `tracker`, …).
+    pub id: &'static str,
+    /// The band header's label ("Work").
+    pub label: &'static str,
+    /// The group's rows that pass the filter, in contract table order.
+    pub tools: Vec<BuiltinExpTool>,
+}
+
+/// Whether a built-in tool passes the page's filter: a case-insensitive
+/// substring of its title, its blurb or its wire name, the query trimmed;
+/// blank = every tool (fixtures/settings-mcp.json `builtinCases`).
+pub fn builtin_tool_matches(tool: &BuiltinExpTool, query: &str) -> bool {
+    let needle = query.trim().to_lowercase();
+    needle.is_empty()
+        || tool.title.to_lowercase().contains(&needle)
+        || tool.blurb.to_lowercase().contains(&needle)
+        || tool.name.to_lowercase().contains(&needle)
+}
+
+/// EXP-1657 — the built-in section as bands: one per contract tool group, in
+/// group order, each listing its rows that match `query` in contract table
+/// order; a band with no match is dropped. Retired (alias) rows belong to no
+/// group and never show. Mirrors the TS reference
+/// `packages/domain-contract/src/settings-mcp.ts` `builtinToolBands`.
+pub fn builtin_tool_bands(query: &str) -> Vec<BuiltinToolBand> {
+    domain::contract::EXP_TOOL_GROUP_IDS
+        .iter()
+        .zip(domain::contract::EXP_TOOL_GROUP_LABELS)
+        .filter_map(|(id, label)| {
+            let tools: Vec<BuiltinExpTool> = domain::contract::EXP_TOOL_NAMES
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| domain::contract::EXP_TOOL_ROW_GROUPS[*index] == *id)
+                .map(|(index, row)| builtin_tool(index, row))
+                .filter(|tool| builtin_tool_matches(tool, query))
+                .collect();
+            (!tools.is_empty()).then_some(BuiltinToolBand { id, label, tools })
         })
         .collect()
 }
@@ -268,7 +320,15 @@ mod tests {
     #[test]
     fn the_builtin_list_carries_the_wire_name_and_the_copy() {
         let tools = builtin_tools();
-        assert_eq!(tools.len(), domain::contract::EXP_TOOL_NAMES.len());
+        let live = domain::contract::EXP_TOOL_ROW_GROUPS
+            .iter()
+            .filter(|group| !group.is_empty())
+            .count();
+        assert_eq!(tools.len(), live);
+        assert!(
+            tools.iter().all(|tool| !tool.name.contains("team_config")),
+            "EXP-1657: a retired alias row is never listed"
+        );
         let create = tools
             .iter()
             .find(|tool| tool.name == "exponential_issues_create")
@@ -280,5 +340,58 @@ mod tests {
             assert!(!tool.title.is_empty() && !tool.blurb.is_empty());
             assert!(tool.blurb.len() <= 120, "{} blurb is long", tool.name);
         }
+    }
+
+    /// EXP-1657: a retired `team_config_*` row still renders an old
+    /// transcript's call; its replacement resolves to its own row.
+    #[test]
+    fn a_retired_team_config_call_still_resolves() {
+        assert_eq!(
+            exp_tool_row("mcp__exponential__exponential_team_config_labels_list"),
+            Some("team_config_labels_list")
+        );
+        assert_eq!(exp_tool_row("exponential_labels_list"), Some("labels_list"));
+        assert_eq!(
+            domain::contract::EXP_TOOL_ROW_GROUPS.len(),
+            domain::contract::EXP_TOOL_NAMES.len()
+        );
+    }
+
+    /// EXP-1657: fixtures/settings-mcp.json `builtinCases` replay — per query
+    /// the bands shown (id, label, row count, and the wire names in order when
+    /// the case lists them).
+    #[test]
+    fn the_builtin_bands_replay_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/settings-mcp.json"
+        ))
+        .expect("settings-mcp.json parses");
+        let cases = fixture["builtinCases"].as_array().expect("builtinCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or_default();
+            let query = case["query"].as_str().expect("query");
+            let bands = builtin_tool_bands(query);
+            let expected = case["expected"].as_array().expect("expected");
+            assert_eq!(bands.len(), expected.len(), "{name}: band count");
+            for (band, want) in bands.iter().zip(expected) {
+                assert_eq!(band.id, want["id"].as_str().unwrap(), "{name}");
+                assert_eq!(band.label, want["label"].as_str().unwrap(), "{name}");
+                assert_eq!(
+                    band.tools.len() as u64,
+                    want["count"].as_u64().unwrap(),
+                    "{name}: {} count",
+                    band.id
+                );
+                if let Some(rows) = want["rows"].as_array() {
+                    let got: Vec<&str> = band.tools.iter().map(|tool| tool.name.as_str()).collect();
+                    let want: Vec<&str> = rows.iter().map(|row| row.as_str().unwrap()).collect();
+                    assert_eq!(got, want, "{name}: {} rows", band.id);
+                }
+            }
+        }
+        // Blank lists every live row exactly once.
+        let total: usize = builtin_tool_bands("").iter().map(|band| band.tools.len()).sum();
+        assert_eq!(total, builtin_tools().len());
     }
 }

@@ -38,7 +38,7 @@ const COMING = <StatusChip status="planned">coming</StatusChip>
 
 /* The hero's package: Stunden, trimmed to what reads at a glance. */
 const PACKAGE = `{
-  "formatVersion": 2,
+  "formatVersion": 3,
   "id": "acme.stunden",
   "name": "Stunden",
   "records": {

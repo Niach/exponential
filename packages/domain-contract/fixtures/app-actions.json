@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-120 typed host ACTIONS ×4: every Exponential MCP operation is a host function an app may call, `exponential.<noun>.<op>` (the apps noun's ops included; the `exponential_sessions_send` verb tool = `exponential.sessions.send`; `session_self` and `guide_write` are not offered: they need an agent's session), run by the client's app host as a tools/call on the instance's MCP as the viewer (the `harness.mcp` transport, arguments = {op, …args}; no `op` for the verb tool). A package lists what it calls in `functions` (an exact name or a `prefix*` pattern: `exponential.issues.*`); the SDK denies anything else. GRANTS (the 2026-10-24 ruling, a conservative default): only a team OWNER (`grantRole`; `canGrantActions(role)`) sets or changes an app's grants, the app's creator gets no grant power from creating it; a DESTRUCTIVE operation (`destructiveWords`: a word of the tool name or op is delete, merge, close, end, remove, trash; `actionDestructive`, `actionGrantable` = not destructive) can NEVER be granted: the server refuses it, every host ignores a stored grant for it (`grantAllows` is false), and it always shows the consent card with the operation's words, for every viewer; the settings row of a destructive action shows `copy.tools.always` in place of the switch, a non-owner sees the switches disabled. `grantableCases` and `canGrantCases` replay ×4 beside `grantCases` (which carry: an owner's grant skips the card for a non-destructive op, a destructive op ignores a grant). A DESTRUCTIVE CALL (`destructiveArgs`: the operations prompts.json flags destructive that ride on an argument of a grantable action: `exponential.sessions.send` with `stop` set = the `stop-run` prompt) ignores a grant the same way and shows the destructive card (`callDestructive(name, args)`; `grantAllows(granted, name, args)` takes the call's args, an arg present and not false/null counts); the action itself stays grantable for its other calls. `apps.granted_tools` (synced on the apps shape, a list of exact function names) = what the app may run as the viewer WITHOUT asking: the app's SETTINGS page (web + desktop; phones have no app settings) shows a `copy.tools` group under the records line with one row per declared function (`declaredActions`: patterns expand against `functions`), the display row's title (contract `expToolDisplay`, `<noun>_<op>`) + the function name muted + a Switch (an owner; others see it disabled; a destructive action shows `copy.tools.always` instead), `copy.tools.none` when the package declares none, `copy.tools.hint` under the title. The server (`apps.update`, an owner only) accepts a grant only for a non-destructive action the HEAD package declares, and every new version (upsert, restore) drops the grants it no longer declares: a grant is a choice about the current package, never inherited by a later version that re-declares the action; a version written by anyone but a team OWNER (a member's upsert or restore) clears ALL the grants, so a non-owner's code never runs on an owner's grant without the consent card, while an owner's own new version keeps the grants it still declares. A typed call's `op` is the NAME's: an `op` key in the args never changes the operation (×4). CONSENT: a declared, ungranted call shows the consent card worded for the operation (`actionConsent`: title `Allow this surface to <title, lower-cased><subject>?` where subject = the arg named by the row's `subjectKey` when it is a string; the destructive variant when a word of the tool name or op is delete, merge, close, end, remove, trash; the arguments block = the args without `op`), Allow runs it ONCE; a granted call runs without a card; `harness.mcp` keeps the generic copy and always asks. The TS reference `app-actions.ts` is replayed by desktop `domain::app_actions`, iOS `AppActions.swift`, Android `AppActions.kt` (`parseCases`, `grantCases`, `declaredCases`, `consentCases`); `functions` is the ×4 list (the web gates it against its noun table). VAPP-158 OWNER ACTIONS (`ownerActions`, `actionOwnerOnly`): the non-destructive operations the server runs for a team OWNER only (adding a member, minting or revoking an invite, adding an MCP server, creating or editing a prompt, changing the team's settings) are never grantable either: `actionGrantable` is false, the server refuses the grant, every host ignores a stored one (`grantAllows` false) and the call always shows the consent card (the plain card, not the destructive variant: `callDestructive` is unchanged), so an app never runs an owner's operation card-free for anyone, owners included; the settings row shows `copy.tools.always` like a destructive one. `ownerOnlyCases` replay ×4.",
+  "$comment": "VAPP-120 typed host ACTIONS ×4: every Exponential MCP operation is a host function an app may call, `exponential.<noun>.<op>` (the apps noun's ops included; the `exponential_sessions_send` verb tool = `exponential.sessions.send`; `session_self` and `guide_write` are not offered: they need an agent's session), run by the client's app host as a tools/call on the instance's MCP as the viewer (the `harness.mcp` transport, arguments = {op, …args}; no `op` for the verb tool). A package lists what it calls in `functions` (an exact name or a `prefix*` pattern: `exponential.issues.*`); the SDK denies anything else. GRANTS (the 2026-10-24 ruling, a conservative default): only a team OWNER (`grantRole`; `canGrantActions(role)`) sets or changes an app's grants, the app's creator gets no grant power from creating it; a DESTRUCTIVE operation (`destructiveWords`: a word of the tool name or op is delete, merge, close, end, remove, trash; `actionDestructive`, `actionGrantable` = not destructive) can NEVER be granted: the server refuses it, every host ignores a stored grant for it (`grantAllows` is false), and it always shows the consent card with the operation's words, for every viewer; the settings row of a destructive action shows `copy.tools.always` in place of the switch, a non-owner sees the switches disabled. `grantableCases` and `canGrantCases` replay ×4 beside `grantCases` (which carry: an owner's grant skips the card for a non-destructive op, a destructive op ignores a grant). A DESTRUCTIVE CALL (`destructiveArgs`: the operations prompts.json flags destructive that ride on an argument of a grantable action: `exponential.sessions.send` with `stop` set = the `stop-run` prompt) ignores a grant the same way and shows the destructive card (`callDestructive(name, args)`; `grantAllows(granted, name, args)` takes the call's args, an arg present and not false/null counts); the action itself stays grantable for its other calls. `apps.granted_tools` (synced on the apps shape, a list of exact function names) = what the app may run as the viewer WITHOUT asking: the app's SETTINGS page (web + desktop; phones have no app settings) shows a `copy.tools` group under the records line with one row per declared function (`declaredActions`: patterns expand against `functions`), the display row's title (contract `expToolDisplay`, `<noun>_<op>`) + the function name muted + a Switch (an owner; others see it disabled; a destructive action shows `copy.tools.always` instead), `copy.tools.none` when the package declares none, `copy.tools.hint` under the title. The server (`apps.update`, an owner only) accepts a grant only for a non-destructive action the HEAD package declares, and every new version (upsert, restore) drops the grants it no longer declares: a grant is a choice about the current package, never inherited by a later version that re-declares the action; a version written by anyone but a team OWNER (a member's upsert or restore) clears ALL the grants, so a non-owner's code never runs on an owner's grant without the consent card, while an owner's own new version keeps the grants it still declares. A typed call's `op` is the NAME's: an `op` key in the args never changes the operation (×4). CONSENT: a declared, ungranted call shows the consent card worded for the operation (`actionConsent`: title `Allow this surface to <title, lower-cased><subject>?` where subject = the arg named by the row's `subjectKey` when it is a string; the destructive variant when a word of the tool name or op is delete, merge, close, end, remove, trash; the arguments block = the args without `op`), Allow runs it ONCE; a granted call runs without a card; `harness.mcp` keeps the generic copy and always asks. The TS reference `app-actions.ts` is replayed by desktop `domain::app_actions`, iOS `AppActions.swift`, Android `AppActions.kt` (`parseCases`, `grantCases`, `declaredCases`, `consentCases`); `functions` is the ×4 list (the web gates it against its noun table). VAPP-158 OWNER ACTIONS (`ownerActions`, `actionOwnerOnly`): the non-destructive operations the server runs for a team OWNER only (adding a member, minting or revoking an invite, adding an MCP server, creating or editing a prompt, changing the team's settings) are never grantable either: `actionGrantable` is false, the server refuses the grant, every host ignores a stored one (`grantAllows` false) and the call always shows the consent card (the plain card, not the destructive variant: `callDestructive` is unchanged), so an app never runs an owner's operation card-free for anyone, owners included; the settings row shows `copy.tools.always` like a destructive one. `ownerOnlyCases` replay ×4. EXP-1657 ALIASES (`aliases`, old name → new name): the retired `exponential_team_config` tool split into its nouns (labels, statuses, prompts, agents, mcp_servers, repositories; `mcp_servers_add` = `mcp_servers.create`, `mcp_servers_remove` = `mcp_servers.delete`, `repositories_add` = `repositories.create`), so `exponential.team_config.<x>_<y>` became `exponential.<noun>.<op>`. An already-published package keeps working: every host registers each alias as a function too (`actionAliases`), an alias PARSES to its new name's target, and everything else follows the NEW name (`canonicalAction`): destructive, owner-only, grantable, the display title and the consent card; a grant matches when the grant and the call name the same canonical action (a grant stored under an old name counts for the new one and vice versa); `declaredActions` expands a package's names and patterns over the aliases too and returns their NEW names. Aliases are never listed in `functions`, `tools` or a declared list. Alias cases sit in `parseCases`, `grantCases`, `grantableCases`, `ownerOnlyCases`, `declaredCases` and `consentCases` (`$why` names them).",
   "prefix": "exponential.",
   "excluded": [
     "session_self",
@@ -20,15 +20,17 @@
     ]
   },
   "ownerActions": [
+    "exponential.mcp_servers.create",
     "exponential.people.add",
     "exponential.people.invites_create",
     "exponential.people.invites_revoke",
-    "exponential.team_config.mcp_servers_add",
-    "exponential.team_config.prompts_create",
-    "exponential.team_config.prompts_update",
+    "exponential.prompts.create",
+    "exponential.prompts.update",
     "exponential.teams.update"
   ],
   "functions": [
+    "exponential.agents.get",
+    "exponential.agents.list",
     "exponential.apps.catalog",
     "exponential.apps.delete",
     "exponential.apps.get",
@@ -69,6 +71,14 @@
     "exponential.issues.unsubscribe",
     "exponential.issues.update",
     "exponential.issues.update_status",
+    "exponential.labels.create",
+    "exponential.labels.delete",
+    "exponential.labels.get",
+    "exponential.labels.list",
+    "exponential.labels.update",
+    "exponential.mcp_servers.create",
+    "exponential.mcp_servers.delete",
+    "exponential.mcp_servers.list",
     "exponential.notifications.list",
     "exponential.notifications.mark_read",
     "exponential.people.add",
@@ -83,32 +93,23 @@
     "exponential.pr.retarget",
     "exponential.pr.unlink",
     "exponential.pr.update",
+    "exponential.prompts.create",
+    "exponential.prompts.delete",
+    "exponential.prompts.get",
+    "exponential.prompts.list",
+    "exponential.prompts.update",
+    "exponential.repositories.create",
+    "exponential.repositories.list",
     "exponential.sessions.end",
     "exponential.sessions.get",
     "exponential.sessions.link",
     "exponential.sessions.list",
     "exponential.sessions.send",
     "exponential.sessions.unlink",
-    "exponential.team_config.agents_list",
-    "exponential.team_config.labels_create",
-    "exponential.team_config.labels_delete",
-    "exponential.team_config.labels_get",
-    "exponential.team_config.labels_list",
-    "exponential.team_config.labels_update",
-    "exponential.team_config.mcp_servers_add",
-    "exponential.team_config.mcp_servers_list",
-    "exponential.team_config.mcp_servers_remove",
-    "exponential.team_config.prompts_create",
-    "exponential.team_config.prompts_delete",
-    "exponential.team_config.prompts_get",
-    "exponential.team_config.prompts_list",
-    "exponential.team_config.prompts_update",
-    "exponential.team_config.repositories_add",
-    "exponential.team_config.repositories_list",
-    "exponential.team_config.statuses_create",
-    "exponential.team_config.statuses_delete",
-    "exponential.team_config.statuses_list",
-    "exponential.team_config.statuses_update",
+    "exponential.statuses.create",
+    "exponential.statuses.delete",
+    "exponential.statuses.list",
+    "exponential.statuses.update",
     "exponential.teams.create",
     "exponential.teams.get",
     "exponential.teams.list",
@@ -263,85 +264,89 @@
       "tool": "exponential_people",
       "op": "invites_revoke"
     },
-    "exponential.team_config.labels_list": {
-      "tool": "exponential_team_config",
-      "op": "labels_list"
+    "exponential.labels.list": {
+      "tool": "exponential_labels",
+      "op": "list"
     },
-    "exponential.team_config.labels_get": {
-      "tool": "exponential_team_config",
-      "op": "labels_get"
+    "exponential.labels.get": {
+      "tool": "exponential_labels",
+      "op": "get"
     },
-    "exponential.team_config.labels_create": {
-      "tool": "exponential_team_config",
-      "op": "labels_create"
+    "exponential.labels.create": {
+      "tool": "exponential_labels",
+      "op": "create"
     },
-    "exponential.team_config.labels_update": {
-      "tool": "exponential_team_config",
-      "op": "labels_update"
+    "exponential.labels.update": {
+      "tool": "exponential_labels",
+      "op": "update"
     },
-    "exponential.team_config.labels_delete": {
-      "tool": "exponential_team_config",
-      "op": "labels_delete"
+    "exponential.labels.delete": {
+      "tool": "exponential_labels",
+      "op": "delete"
     },
-    "exponential.team_config.statuses_list": {
-      "tool": "exponential_team_config",
-      "op": "statuses_list"
+    "exponential.statuses.list": {
+      "tool": "exponential_statuses",
+      "op": "list"
     },
-    "exponential.team_config.statuses_create": {
-      "tool": "exponential_team_config",
-      "op": "statuses_create"
+    "exponential.statuses.create": {
+      "tool": "exponential_statuses",
+      "op": "create"
     },
-    "exponential.team_config.statuses_update": {
-      "tool": "exponential_team_config",
-      "op": "statuses_update"
+    "exponential.statuses.update": {
+      "tool": "exponential_statuses",
+      "op": "update"
     },
-    "exponential.team_config.statuses_delete": {
-      "tool": "exponential_team_config",
-      "op": "statuses_delete"
+    "exponential.statuses.delete": {
+      "tool": "exponential_statuses",
+      "op": "delete"
     },
-    "exponential.team_config.prompts_list": {
-      "tool": "exponential_team_config",
-      "op": "prompts_list"
+    "exponential.prompts.list": {
+      "tool": "exponential_prompts",
+      "op": "list"
     },
-    "exponential.team_config.prompts_get": {
-      "tool": "exponential_team_config",
-      "op": "prompts_get"
+    "exponential.prompts.get": {
+      "tool": "exponential_prompts",
+      "op": "get"
     },
-    "exponential.team_config.prompts_create": {
-      "tool": "exponential_team_config",
-      "op": "prompts_create"
+    "exponential.prompts.create": {
+      "tool": "exponential_prompts",
+      "op": "create"
     },
-    "exponential.team_config.prompts_update": {
-      "tool": "exponential_team_config",
-      "op": "prompts_update"
+    "exponential.prompts.update": {
+      "tool": "exponential_prompts",
+      "op": "update"
     },
-    "exponential.team_config.prompts_delete": {
-      "tool": "exponential_team_config",
-      "op": "prompts_delete"
+    "exponential.prompts.delete": {
+      "tool": "exponential_prompts",
+      "op": "delete"
     },
-    "exponential.team_config.agents_list": {
-      "tool": "exponential_team_config",
-      "op": "agents_list"
+    "exponential.agents.list": {
+      "tool": "exponential_agents",
+      "op": "list"
     },
-    "exponential.team_config.mcp_servers_list": {
-      "tool": "exponential_team_config",
-      "op": "mcp_servers_list"
+    "exponential.agents.get": {
+      "tool": "exponential_agents",
+      "op": "get"
     },
-    "exponential.team_config.mcp_servers_add": {
-      "tool": "exponential_team_config",
-      "op": "mcp_servers_add"
+    "exponential.mcp_servers.list": {
+      "tool": "exponential_mcp_servers",
+      "op": "list"
     },
-    "exponential.team_config.mcp_servers_remove": {
-      "tool": "exponential_team_config",
-      "op": "mcp_servers_remove"
+    "exponential.mcp_servers.create": {
+      "tool": "exponential_mcp_servers",
+      "op": "create"
     },
-    "exponential.team_config.repositories_list": {
-      "tool": "exponential_team_config",
-      "op": "repositories_list"
+    "exponential.mcp_servers.delete": {
+      "tool": "exponential_mcp_servers",
+      "op": "delete"
     },
-    "exponential.team_config.repositories_add": {
-      "tool": "exponential_team_config",
-      "op": "repositories_add"
+    "exponential.repositories.list": {
+      "tool": "exponential_repositories",
+      "op": "list"
+    },
+    "exponential.repositories.create": {
+      "tool": "exponential_repositories",
+      "op": "create"
     },
     "exponential.apps.list": {
       "tool": "exponential_apps",
@@ -452,6 +457,28 @@
       "op": "mark_read"
     }
   },
+  "aliases": {
+    "exponential.team_config.agents_list": "exponential.agents.list",
+    "exponential.team_config.labels_create": "exponential.labels.create",
+    "exponential.team_config.labels_delete": "exponential.labels.delete",
+    "exponential.team_config.labels_get": "exponential.labels.get",
+    "exponential.team_config.labels_list": "exponential.labels.list",
+    "exponential.team_config.labels_update": "exponential.labels.update",
+    "exponential.team_config.mcp_servers_add": "exponential.mcp_servers.create",
+    "exponential.team_config.mcp_servers_list": "exponential.mcp_servers.list",
+    "exponential.team_config.mcp_servers_remove": "exponential.mcp_servers.delete",
+    "exponential.team_config.prompts_create": "exponential.prompts.create",
+    "exponential.team_config.prompts_delete": "exponential.prompts.delete",
+    "exponential.team_config.prompts_get": "exponential.prompts.get",
+    "exponential.team_config.prompts_list": "exponential.prompts.list",
+    "exponential.team_config.prompts_update": "exponential.prompts.update",
+    "exponential.team_config.repositories_add": "exponential.repositories.create",
+    "exponential.team_config.repositories_list": "exponential.repositories.list",
+    "exponential.team_config.statuses_create": "exponential.statuses.create",
+    "exponential.team_config.statuses_delete": "exponential.statuses.delete",
+    "exponential.team_config.statuses_list": "exponential.statuses.list",
+    "exponential.team_config.statuses_update": "exponential.statuses.update"
+  },
   "copy": {
     "title": "Tools",
     "hint": "What this app may do as you without asking. Anything else asks each time.",
@@ -482,11 +509,34 @@
       }
     },
     {
+      "name": "exponential.labels.create",
+      "expected": {
+        "tool": "exponential_labels",
+        "op": "create"
+      }
+    },
+    {
+      "name": "exponential.agents.get",
+      "expected": {
+        "tool": "exponential_agents",
+        "op": "get"
+      }
+    },
+    {
       "name": "exponential.team_config.labels_create",
       "expected": {
-        "tool": "exponential_team_config",
-        "op": "labels_create"
-      }
+        "tool": "exponential_labels",
+        "op": "create"
+      },
+      "$why": "an alias (a name from before EXP-1657) parses to its new name's target"
+    },
+    {
+      "name": "exponential.team_config.mcp_servers_add",
+      "expected": {
+        "tool": "exponential_mcp_servers",
+        "op": "create"
+      },
+      "$why": "an alias (a name from before EXP-1657) parses to its new name's target"
     },
     {
       "name": "exponential.session_self.ask",
@@ -594,9 +644,9 @@
     },
     {
       "granted": [
-        "exponential.team_config.mcp_servers_add"
+        "exponential.mcp_servers.create"
       ],
-      "name": "exponential.team_config.mcp_servers_add",
+      "name": "exponential.mcp_servers.create",
       "args": {
         "url": "https://mcp.example.com"
       },
@@ -613,6 +663,51 @@
       },
       "expected": false,
       "$why": "an owner-only op ignores a stored grant"
+    },
+    {
+      "granted": [
+        "exponential.labels.create"
+      ],
+      "name": "exponential.team_config.labels_create",
+      "args": {
+        "name": "bug"
+      },
+      "expected": true,
+      "$why": "an alias (a name from before EXP-1657) follows the new name's grant"
+    },
+    {
+      "granted": [
+        "exponential.team_config.labels_create"
+      ],
+      "name": "exponential.labels.create",
+      "args": {
+        "name": "bug"
+      },
+      "expected": true,
+      "$why": "a grant stored under an alias (a name from before EXP-1657) counts for the new name"
+    },
+    {
+      "granted": [
+        "exponential.mcp_servers.create",
+        "exponential.team_config.mcp_servers_add"
+      ],
+      "name": "exponential.team_config.mcp_servers_add",
+      "args": {
+        "url": "https://mcp.example.com"
+      },
+      "expected": false,
+      "$why": "an alias (a name from before EXP-1657) is owner-only when its new name is"
+    },
+    {
+      "granted": [
+        "exponential.team_config.labels_delete"
+      ],
+      "name": "exponential.team_config.labels_delete",
+      "args": {
+        "id": "l1"
+      },
+      "expected": false,
+      "$why": "an alias (a name from before EXP-1657) is destructive when its new name is"
     }
   ],
   "grantableCases": [
@@ -658,7 +753,7 @@
       "$why": "an owner-only operation is never grantable"
     },
     {
-      "name": "exponential.team_config.mcp_servers_add",
+      "name": "exponential.mcp_servers.create",
       "expected": false,
       "$why": "an owner-only operation is never grantable"
     },
@@ -666,6 +761,16 @@
       "name": "exponential.teams.update",
       "expected": false,
       "$why": "an owner-only operation is never grantable"
+    },
+    {
+      "name": "exponential.team_config.labels_list",
+      "expected": true,
+      "$why": "an alias (a name from before EXP-1657) follows its new name"
+    },
+    {
+      "name": "exponential.team_config.mcp_servers_remove",
+      "expected": false,
+      "$why": "an alias (a name from before EXP-1657) follows its new name (delete)"
     }
   ],
   "canGrantCases": [
@@ -718,6 +823,8 @@
         "exponential.*"
       ],
       "expected": [
+        "exponential.agents.get",
+        "exponential.agents.list",
         "exponential.apps.catalog",
         "exponential.apps.delete",
         "exponential.apps.get",
@@ -758,6 +865,14 @@
         "exponential.issues.unsubscribe",
         "exponential.issues.update",
         "exponential.issues.update_status",
+        "exponential.labels.create",
+        "exponential.labels.delete",
+        "exponential.labels.get",
+        "exponential.labels.list",
+        "exponential.labels.update",
+        "exponential.mcp_servers.create",
+        "exponential.mcp_servers.delete",
+        "exponential.mcp_servers.list",
         "exponential.notifications.list",
         "exponential.notifications.mark_read",
         "exponential.people.add",
@@ -772,32 +887,23 @@
         "exponential.pr.retarget",
         "exponential.pr.unlink",
         "exponential.pr.update",
+        "exponential.prompts.create",
+        "exponential.prompts.delete",
+        "exponential.prompts.get",
+        "exponential.prompts.list",
+        "exponential.prompts.update",
+        "exponential.repositories.create",
+        "exponential.repositories.list",
         "exponential.sessions.end",
         "exponential.sessions.get",
         "exponential.sessions.link",
         "exponential.sessions.list",
         "exponential.sessions.send",
         "exponential.sessions.unlink",
-        "exponential.team_config.agents_list",
-        "exponential.team_config.labels_create",
-        "exponential.team_config.labels_delete",
-        "exponential.team_config.labels_get",
-        "exponential.team_config.labels_list",
-        "exponential.team_config.labels_update",
-        "exponential.team_config.mcp_servers_add",
-        "exponential.team_config.mcp_servers_list",
-        "exponential.team_config.mcp_servers_remove",
-        "exponential.team_config.prompts_create",
-        "exponential.team_config.prompts_delete",
-        "exponential.team_config.prompts_get",
-        "exponential.team_config.prompts_list",
-        "exponential.team_config.prompts_update",
-        "exponential.team_config.repositories_add",
-        "exponential.team_config.repositories_list",
-        "exponential.team_config.statuses_create",
-        "exponential.team_config.statuses_delete",
-        "exponential.team_config.statuses_list",
-        "exponential.team_config.statuses_update",
+        "exponential.statuses.create",
+        "exponential.statuses.delete",
+        "exponential.statuses.list",
+        "exponential.statuses.update",
         "exponential.teams.create",
         "exponential.teams.get",
         "exponential.teams.list",
@@ -817,6 +923,45 @@
         "exponential.issues.nope"
       ],
       "expected": []
+    },
+    {
+      "functions": [
+        "exponential.team_config.labels_create",
+        "exponential.issues.get"
+      ],
+      "expected": [
+        "exponential.issues.get",
+        "exponential.labels.create"
+      ],
+      "$why": "an alias declares its new name; aliases are never listed"
+    },
+    {
+      "functions": [
+        "exponential.team_config.*"
+      ],
+      "expected": [
+        "exponential.agents.list",
+        "exponential.labels.create",
+        "exponential.labels.delete",
+        "exponential.labels.get",
+        "exponential.labels.list",
+        "exponential.labels.update",
+        "exponential.mcp_servers.create",
+        "exponential.mcp_servers.delete",
+        "exponential.mcp_servers.list",
+        "exponential.prompts.create",
+        "exponential.prompts.delete",
+        "exponential.prompts.get",
+        "exponential.prompts.list",
+        "exponential.prompts.update",
+        "exponential.repositories.create",
+        "exponential.repositories.list",
+        "exponential.statuses.create",
+        "exponential.statuses.delete",
+        "exponential.statuses.list",
+        "exponential.statuses.update"
+      ],
+      "$why": "a pattern over the aliases declares their new names"
     }
   ],
   "consentCases": [
@@ -897,6 +1042,19 @@
       }
     },
     {
+      "name": "exponential.team_config.labels_create",
+      "args": {
+        "teamId": "t1",
+        "name": "bug"
+      },
+      "expected": {
+        "tool": "exponential_labels",
+        "title": "Allow this surface to create label bug?",
+        "destructive": false,
+        "args": "{\"teamId\":\"t1\",\"name\":\"bug\"}"
+      }
+    },
+    {
       "name": "harness.mcp",
       "args": {
         "tool": "exponential_issues",
@@ -922,15 +1080,15 @@
       "expected": true
     },
     {
-      "name": "exponential.team_config.mcp_servers_add",
+      "name": "exponential.mcp_servers.create",
       "expected": true
     },
     {
-      "name": "exponential.team_config.prompts_create",
+      "name": "exponential.prompts.create",
       "expected": true
     },
     {
-      "name": "exponential.team_config.prompts_update",
+      "name": "exponential.prompts.update",
       "expected": true
     },
     {
@@ -946,13 +1104,18 @@
       "expected": false
     },
     {
-      "name": "exponential.team_config.mcp_servers_remove",
+      "name": "exponential.mcp_servers.delete",
       "expected": false,
       "$why": "destructive, not owner-only (it is never grantable through the destructive rule)"
     },
     {
       "name": "exponential.nope.nope",
       "expected": false
+    },
+    {
+      "name": "exponential.team_config.prompts_create",
+      "expected": true,
+      "$why": "an alias (a name from before EXP-1657) follows its new name"
     }
   ]
 }

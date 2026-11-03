@@ -539,43 +539,57 @@ private fun AccessMemberRow(name: String, image: String?, userId: String, level:
 
 @Composable
 private fun BuiltinToolsSection() {
-    val tools = remember { McpSettings.builtinTools() }
     var query by rememberSaveable { mutableStateOf("") }
-    val shown = remember(query) { McpSettings.filterBuiltinTools(tools, query) }
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(Modifier.testTag(McpSettings.TestIds.BUILTIN)) {
-        SectionHeader(McpSettings.LABELS.getValue("builtin"))
-        McpGroup(Modifier.padding(bottom = 8.dp)) {
-            SearchListInput(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = McpSettings.BUILTIN_FILTER_PLACEHOLDER,
-                modifier = Modifier.testTag("mcp-builtin-tools-filter"),
-            )
+    // #EXP-1657: ONE band per contract tool group; the first VISIBLE band's
+    // header carries the filter (one composition slot, so typing never
+    // drops its focus), every band filtered away = the one empty state under
+    // the old "Built-in Exponential tools" label.
+    val bands = remember(query) { McpSettings.builtinToolBands(query) }
+    val first = bands.firstOrNull()
+    Column(Modifier.testTag(McpSettings.TestIds.BUILTIN), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        Column {
+            SectionHeader(first?.label ?: McpSettings.LABELS.getValue("builtin"))
+            McpGroup(Modifier.padding(bottom = 8.dp)) {
+                SearchListInput(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = McpSettings.BUILTIN_FILTER_PLACEHOLDER,
+                    modifier = Modifier.testTag("mcp-builtin-tools-filter"),
+                )
+            }
+            if (first == null) EmptyState(EmptyStateCopy.builtinToolsNoMatch) else BuiltinToolsGroup(first.tools)
         }
-        if (shown.isEmpty()) {
-            EmptyState(EmptyStateCopy.builtinToolsNoMatch)
-        } else {
-            McpGroup {
-                shown.forEachIndexed { i, tool ->
-                    if (i > 0) GroupDivider()
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Box(Modifier.size(12.dp)) { ExponentialMark(size = 12.dp) }
-                        Text(tool.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1)
-                        Text(
-                            tool.blurb,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = muted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
+        bands.drop(1).forEach { band ->
+            Column {
+                SectionHeader(band.label)
+                BuiltinToolsGroup(band.tools)
+            }
+        }
+    }
+}
+
+/** One band's glass group: the built-in rows exactly as before. */
+@Composable
+private fun BuiltinToolsGroup(tools: List<McpSettings.BuiltinTool>) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    McpGroup {
+        tools.forEachIndexed { i, tool ->
+            if (i > 0) GroupDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(Modifier.size(12.dp)) { ExponentialMark(size = 12.dp) }
+                Text(tool.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1)
+                Text(
+                    tool.blurb,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }

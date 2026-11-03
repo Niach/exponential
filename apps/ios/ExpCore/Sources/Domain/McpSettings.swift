@@ -131,12 +131,41 @@ public enum McpSettings {
         public var id: String { name }
     }
 
-    public static let builtinTools: [BuiltinTool] = DomainContract.expToolNames.indices.map { i in
+    /// #EXP-1657: one band of the BUILT-IN section = one contract tool group.
+    public struct BuiltinToolBand: Equatable, Sendable, Identifiable {
+        public let id: String
+        public let label: String
+        public let tools: [BuiltinTool]
+    }
+
+    private static func builtinTool(_ i: Int) -> BuiltinTool {
         BuiltinTool(
             name: DomainContract.expToolPrefix + DomainContract.expToolNames[i],
             title: DomainContract.expToolTitles[i],
             blurb: DomainContract.expToolBlurbs[i]
         )
+    }
+
+    /// Every contract row but the retired `aliasOf` ones (their
+    /// `expToolRowGroups` entry is ""), in contract order.
+    public static let builtinTools: [BuiltinTool] = DomainContract.expToolNames.indices
+        .filter { !DomainContract.expToolRowGroups[$0].isEmpty }
+        .map(builtinTool)
+
+    /// The bands the BUILT-IN section shows for a query (TS
+    /// `builtinToolBands`): contract group order and labels, rows filtered by
+    /// `filterBuiltinTools`, a band with no match left out (all gone = the
+    /// empty state).
+    public static func builtinToolBands(query: String) -> [BuiltinToolBand] {
+        DomainContract.expToolGroupIds.indices.compactMap { g in
+            let id = DomainContract.expToolGroupIds[g]
+            let rows = DomainContract.expToolNames.indices
+                .filter { DomainContract.expToolRowGroups[$0] == id }
+                .map(builtinTool)
+            let shown = filterBuiltinTools(rows, query: query)
+            guard !shown.isEmpty else { return nil }
+            return BuiltinToolBand(id: id, label: DomainContract.expToolGroupLabels[g], tools: shown)
+        }
     }
 
     public static let builtinFilterPlaceholder = "Filter tools"

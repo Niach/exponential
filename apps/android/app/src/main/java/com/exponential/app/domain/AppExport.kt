@@ -34,8 +34,9 @@ object AppExport {
     /** The app's identity as the file carries it. */
     data class App(val name: String, val icon: String?, val color: String?, val description: String?)
 
-    /** One synced record (only `kind` + `data` reach the file). */
-    data class Record(val id: String, val kind: String, val data: JsonValue, val createdAt: String)
+    /** One synced record (`kind`, `data` and, VAPP-192, its author
+     *  `authorId ?? createdBy` reach the file). */
+    data class Record(val id: String, val kind: String, val data: JsonValue, val createdAt: String, val author: String? = null)
 
     /** One server issue (`apps.validateImport`). */
     data class Issue(val path: String, val message: String)
@@ -51,8 +52,9 @@ object AppExport {
     fun appExportFileName(slug: String): String = "$slug$SUFFIX"
 
     /** The file: the identity, the head package and, when switched on, every
-     *  record as `{kind, data}` oldest first (createdAt, then id). Never ids,
-     *  authors, times or grants; no `records` key when there are none. */
+     *  record as `{kind, data, author}` oldest first (createdAt, then id;
+     *  VAPP-192: `author` left out when the row has none). Never ids, times
+     *  or grants; no `records` key when there are none. */
     fun buildAppExport(app: App, pkg: JsonValue, records: List<Record>, includeRecords: Boolean): JsonValue {
         val file = LinkedHashMap<String, JsonValue>()
         file["format"] = JsonValue.Str(FORMAT)
@@ -70,7 +72,11 @@ object AppExport {
                 compareBy<Record> { WireTimestamps.parseEpochMs(it.createdAt) ?: 0L }.thenBy { it.id },
             )
             file["records"] = JsonValue.Arr(
-                sorted.map { JsonValue.Obj(linkedMapOf("kind" to JsonValue.Str(it.kind), "data" to it.data)) },
+                sorted.map { record ->
+                    val row = linkedMapOf("kind" to JsonValue.Str(record.kind), "data" to record.data)
+                    record.author?.let { row["author"] = JsonValue.Str(it) }
+                    JsonValue.Obj(row)
+                },
             )
         }
         return JsonValue.Obj(file)

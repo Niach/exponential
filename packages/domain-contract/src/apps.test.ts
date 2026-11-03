@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { appMediaAllowed, editorBrief, editorTab, previewTemplate, previewTemplates, slugify, sortApps, versionLabel } from "./apps"
+import { appMediaAllowed, editorBrief, editorTab, previewTemplate, previewTemplates, runAsOptions, slugify, sortApps, versionLabel } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -21,6 +21,9 @@ describe(`apps (VAPP-110)`, () => {
   test(`a draft's brief asks the agent to name it`, () => {
     expect(editorBrief({ name: `Untitled app`, slug: `untitled-app`, headVersion: 0 })).toContain(`pass name, icon, color and description`)
     expect(editorBrief({ name: `Team dashboard`, slug: `team-dashboard`, headVersion: 1 })).not.toContain(`DRAFT`)
+  })
+  test.each(fixture.runAsCases)(`runAsOptions %j`, (c) => {
+    expect(runAsOptions(c.members, c.me, c.role)).toEqual(c.options as never)
   })
   test.each(fixture.templateCases)(`previewTemplate %j`, (c) => {
     const pkg = { templates: Object.fromEntries(c.templates.map((id) => [id, {}])) }

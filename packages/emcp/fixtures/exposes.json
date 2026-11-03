@@ -24,7 +24,7 @@
   "actionAccessCases": [
     { "name": "exponential.issues.list", "expected": "read" },
     { "name": "exponential.issues.get", "expected": "read" },
-    { "name": "exponential.team_config.labels_list", "expected": "read" },
+    { "name": "exponential.labels.list", "expected": "read" },
     { "name": "exponential.pr.files", "expected": "read" },
     { "name": "exponential.issues.create", "expected": "write" },
     { "name": "exponential.issues.update_status", "expected": "write" },

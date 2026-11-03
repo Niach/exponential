@@ -505,8 +505,10 @@ fun rememberAppHost(
         }
         // VAPP-120: every MCP operation as a typed function
         // (fixtures/app-actions.json): the same tools/call as the viewer,
-        // `op` + the args (no op for a verb tool).
-        val actions: Map<String, HostFunction> = AppActions.TOOLS.mapValues { (_, target) ->
+        // `op` + the args (no op for a verb tool). EXP-1657: the aliases too,
+        // so a package published before the `team_config` split keeps working.
+        val targets = AppActions.TOOLS + AppActions.ALIASES.mapValues { (_, name) -> AppActions.TOOLS.getValue(name) }
+        val actions: Map<String, HostFunction> = targets.mapValues { (_, target) ->
             val fn: HostFunction = { args, _ ->
                 callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(AppActions.arguments(target, args)))
             }

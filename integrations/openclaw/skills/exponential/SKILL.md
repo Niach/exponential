@@ -8,7 +8,7 @@ description: "Track and change work in Exponential (exponential.at): list, show,
 Exponential is a realtime issue tracker: issues live on boards inside teams,
 carry a status, priority, labels and comments, and close through pull requests
 that coding agents open. This plugin connects the `exponential` MCP server:
-16 tools, one per noun, each taking an `op` with that op's fields beside it
+22 tools in 7 groups, one per noun, each taking an `op` with that op's fields beside it
 (`exponential_issues {op: "get", id: "APP-12"}`); every tool's description
 lists its ops. They appear as `exponential__exponential_*`.
 
@@ -33,8 +33,8 @@ lists its ops. They appear as `exponential__exponential_*`.
 ## Changing work
 
 - Resolve ids first: `exponential_teams {op: "list"}`, `exponential_boards
-  {op: "list"}`, `exponential_people {op: "list"}`, `exponential_team_config
-  {op: "labels_list" | "statuses_list"}`.
+  {op: "list"}`, `exponential_people {op: "list"}`, `exponential_labels
+  {op: "list"}`, `exponential_statuses {op: "list"}`.
 - Create with `exponential_issues {op: "create"}`, edit with `op: "update"`,
   move with `op: "update_status"`, comment with `exponential_comments
   {op: "create"}`. Descriptions and comments are plain GFM; `#APP-12` links an

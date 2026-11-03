@@ -62,7 +62,8 @@ final class AppExportTests: XCTestCase {
                     id: try XCTUnwrap(row["id"] as? String),
                     kind: try XCTUnwrap(row["kind"] as? String),
                     data: try XCTUnwrap(CardJSON(any: row["data"])),
-                    createdAt: try XCTUnwrap(row["createdAt"] as? String)
+                    createdAt: try XCTUnwrap(row["createdAt"] as? String),
+                    author: (row["authorId"] as? String) ?? (row["createdBy"] as? String)
                 )
             }
             let file = AppExport.build(

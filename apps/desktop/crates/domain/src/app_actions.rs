@@ -48,6 +48,7 @@ struct ActionsSpec {
     owner_actions: Vec<String>,
     functions: Vec<String>,
     tools: BTreeMap<String, ToolRow>,
+    aliases: BTreeMap<String, String>,
     copy: ActionsCopy,
 }
 
@@ -58,6 +59,17 @@ static SPEC: LazyLock<ActionsSpec> =
 pub static APP_ACTION_PREFIX: LazyLock<&'static str> = LazyLock::new(|| SPEC.prefix.as_str());
 /// Every function name, sorted (the fixture's ×4 list).
 pub static APP_ACTIONS: LazyLock<&'static [String]> = LazyLock::new(|| SPEC.functions.as_slice());
+/// EXP-1657: the names from before the `team_config` split (old → new). A
+/// host registers each as a function too, so a published package keeps
+/// working; never listed in `APP_ACTIONS` or a declared list.
+pub static APP_ACTION_ALIASES: LazyLock<&'static BTreeMap<String, String>> =
+    LazyLock::new(|| &SPEC.aliases);
+
+/// The name an action is judged by: an alias's new name, else the name.
+pub fn canonical_action(name: &str) -> &str {
+    SPEC.aliases.get(name).map(String::as_str).unwrap_or(name)
+}
+
 /// The settings page's Tools group copy.
 pub static APP_ACTIONS_COPY: LazyLock<&'static ActionsCopy> = LazyLock::new(|| &SPEC.copy);
 
@@ -68,10 +80,10 @@ pub struct ActionTarget {
     pub op: Option<String>,
 }
 
-/// `exponential.issues.update_status` → the tool and op it runs; None for
-/// anything that is not an offered action.
+/// `exponential.issues.update_status` → the tool and op it runs (an alias →
+/// its new name's); None for anything that is not an offered action.
 pub fn parse_action_name(name: &str) -> Option<ActionTarget> {
-    SPEC.tools.get(name).map(|row| ActionTarget { tool: row.tool.clone(), op: row.op.clone() })
+    SPEC.tools.get(canonical_action(name)).map(|row| ActionTarget { tool: row.tool.clone(), op: row.op.clone() })
 }
 
 /// VAPP-107's pattern rule: an exact name or a `prefix*`.
@@ -82,12 +94,16 @@ fn matches(pattern: &str, name: &str) -> bool {
     }
 }
 
-/// The actions a package's `functions` list names (patterns expanded), in
-/// the fixture's order; anything that is not an offered action is dropped.
+/// The actions a package's `functions` list names (patterns expanded, over
+/// the aliases too: an alias declares its NEW name), in the fixture's order;
+/// anything that is not an offered action is dropped.
 pub fn declared_actions<S: AsRef<str>>(functions: &[S]) -> Vec<String> {
+    let named = |name: &str| functions.iter().any(|pattern| matches(pattern.as_ref(), name));
     APP_ACTIONS
         .iter()
-        .filter(|name| functions.iter().any(|pattern| matches(pattern.as_ref(), name)))
+        .filter(|name| {
+            named(name) || SPEC.aliases.iter().any(|(old, new)| new == *name && named(old))
+        })
         .cloned()
         .collect()
 }
@@ -115,6 +131,7 @@ pub fn action_destructive(name: &str) -> bool {
 /// invites, MCP servers, prompts, the team's settings). Never grantable;
 /// always asks (the plain card).
 pub fn action_owner_only(name: &str) -> bool {
+    let name = canonical_action(name);
     SPEC.owner_actions.iter().any(|a| a == name)
 }
 
@@ -131,17 +148,21 @@ pub fn call_destructive(name: &str, args: &Map<String, Value>) -> bool {
     if action_destructive(name) {
         return true;
     }
-    SPEC.destructive_args.get(name).is_some_and(|keys| {
+    SPEC.destructive_args.get(canonical_action(name)).is_some_and(|keys| {
         keys.iter()
             .any(|key| args.get(key).is_some_and(|v| !v.is_null() && *v != Value::Bool(false)))
     })
 }
 
 /// Does the app's `granted_tools` list let this call run without asking?
-/// Exact names only (a grant is a person's choice, never a pattern), and a
-/// destructive action or call ignores a stored grant: it always asks.
+/// Exact names only (a grant is a person's choice, never a pattern; an alias
+/// and its new name are the same action), and a destructive action or call
+/// ignores a stored grant: it always asks.
 pub fn grant_allows<S: AsRef<str>>(granted: &[S], name: &str, args: &Map<String, Value>) -> bool {
-    action_grantable(name) && !call_destructive(name, args) && granted.iter().any(|g| g.as_ref() == name)
+    let action = canonical_action(name);
+    action_grantable(name)
+        && !call_destructive(name, args)
+        && granted.iter().any(|g| canonical_action(g.as_ref()) == action)
 }
 
 /// The consent card's words for a typed action call.
@@ -232,6 +253,16 @@ mod tests {
         // Every offered action has a display row (the settings label).
         for name in APP_ACTIONS.iter() {
             assert_ne!(action_title(name), *name, "{name} has no expToolDisplay row");
+        }
+    }
+
+    #[test]
+    fn aliases_are_never_offered() {
+        assert!(!APP_ACTION_ALIASES.is_empty());
+        for (old, new) in APP_ACTION_ALIASES.iter() {
+            assert!(!APP_ACTIONS.contains(old), "{old}");
+            assert!(APP_ACTIONS.contains(new), "{new}");
+            assert_eq!(parse_action_name(old), parse_action_name(new), "{old}");
         }
     }
 

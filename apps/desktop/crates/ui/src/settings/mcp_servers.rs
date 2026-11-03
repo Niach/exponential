@@ -188,26 +188,6 @@ fn test_message(name: &str, result: &api::mcp_servers::McpTestResult) -> String 
     }
 }
 
-/// EXP-1274 — the built-in tools filter: a case-insensitive substring of
-/// the title, the blurb or the wire name. A blank query keeps every tool.
-pub(super) fn filter_builtin_tools(
-    tools: Vec<steer::exp_tool::BuiltinExpTool>,
-    query: &str,
-) -> Vec<steer::exp_tool::BuiltinExpTool> {
-    let needle = query.trim().to_lowercase();
-    if needle.is_empty() {
-        return tools;
-    }
-    tools
-        .into_iter()
-        .filter(|tool| {
-            tool.title.to_lowercase().contains(&needle)
-                || tool.blurb.to_lowercase().contains(&needle)
-                || tool.name.to_lowercase().contains(&needle)
-        })
-        .collect()
-}
-
 enum Load {
     Idle,
     Loading,
@@ -1304,21 +1284,21 @@ mod tests {
         assert_eq!(test_message("Linear", &result(false, None, None)), "Linear did not answer");
     }
 
-    /// EXP-1274: the built-in tools filter matches title, blurb or wire
-    /// name, case-insensitively; blank keeps all, nonsense keeps none.
+    /// EXP-1274/1657: the built-in tools filter (now
+    /// `steer::exp_tool::builtin_tool_matches`, the bands' rule) matches
+    /// title, blurb or wire name, case-insensitively; blank keeps all,
+    /// nonsense keeps none.
     #[test]
     fn builtin_tools_filter_matches_title_blurb_or_name() {
-        let all = steer::exp_tool::builtin_tools();
-        let total = all.len();
-        assert!(total > 0);
-        assert_eq!(filter_builtin_tools(all.clone(), "  ").len(), total);
+        use steer::exp_tool::{builtin_tool_bands, builtin_tool_matches, builtin_tools};
+        let all = builtin_tools();
+        assert!(!all.is_empty());
         let first = all[0].clone();
-        let by_title = filter_builtin_tools(all.clone(), &first.title.to_uppercase());
-        assert!(by_title.iter().any(|tool| tool.name == first.name));
-        let by_name = filter_builtin_tools(all.clone(), &first.name);
-        assert!(by_name.iter().any(|tool| tool.name == first.name));
-        let by_blurb = filter_builtin_tools(all.clone(), first.blurb);
-        assert!(by_blurb.iter().any(|tool| tool.name == first.name));
-        assert!(filter_builtin_tools(all, "zzqx-no-such-tool").is_empty());
+        assert!(builtin_tool_matches(&first, "  "));
+        assert!(builtin_tool_matches(&first, &first.title.to_uppercase()));
+        assert!(builtin_tool_matches(&first, &first.name));
+        assert!(builtin_tool_matches(&first, first.blurb));
+        assert!(!builtin_tool_matches(&first, "zzqx-no-such-tool"));
+        assert!(builtin_tool_bands("zzqx-no-such-tool").is_empty());
     }
 }

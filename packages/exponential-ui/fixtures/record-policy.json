@@ -1,0 +1,552 @@
+{
+  "$comment": "eApps R3 (docs/spec/apps.md §3.4, §9): the per-kind record policy and the member's app access, ONE rule for every host: the TS reference (src/host/record-policy.ts) and the Rust core (eui_core::host::record_policy) replay it, the Exponential server enforces it (the records service on every read and write, the app-records shape's row filter for `read`), and the four clients use it to disable what the server would refuse and for the editor's \"Run as <member>\" preview. A kind's `policy` (package formatVersion 3) names a LEVEL per OP: `member` = any member of the app's team, `author` = the record's author (`authorId ?? createdBy`; a row with neither has no author) or a team owner, `owners` = team owners only (not even the author). `create` is member or owners (a new record has no author yet). An op the policy leaves out keeps `defaults`; an invalid entry keeps its default too (validation reports it: `validateCases`, issue paths under the kind's `/policy`; `effective` = the policy hosts apply). Over it sits the member's `app_access` LEVEL for the app (`access`): `none` = nothing at all (the app is hidden from the Apps list and syncs no records), `read` = reads only (writes refused, inputs disabled), `write` = everything the policy allows (no row = write); it binds owners too. `allowCases`: `refusal` = why the viewer may not (the exact `copy` text: a toast, a disabled control's reason, the server's FORBIDDEN), null = allowed. Order: signed out (`viewer` null), not a member of the team (`role` null) or access none = `copy.none`; access read and a write = `copy.readOnly`; a team owner = allowed; the op's level (`copy.author[op]`, `copy.owners[op]`). `readable`: the rows a viewer may read, each by its kind's policy (an undeclared kind = the defaults), in row order.",
+  "ops": [
+    "read",
+    "create",
+    "update",
+    "delete"
+  ],
+  "levels": [
+    "member",
+    "author",
+    "owners"
+  ],
+  "access": [
+    "none",
+    "read",
+    "write"
+  ],
+  "defaults": {
+    "read": "member",
+    "create": "member",
+    "update": "author",
+    "delete": "author"
+  },
+  "copy": {
+    "none": "You have no access to this app",
+    "readOnly": "You have read-only access to this app",
+    "author": {
+      "read": "Only the record's author or a team owner can read it",
+      "update": "Only the record's author or a team owner can change it",
+      "delete": "Only the record's author or a team owner can change it"
+    },
+    "owners": {
+      "read": "Only team owners can read these records",
+      "create": "Only team owners can add these records",
+      "update": "Only team owners can change these records",
+      "delete": "Only team owners can change these records"
+    }
+  },
+  "validateCases": [
+    {
+      "name": "every op",
+      "policy": {
+        "read": "author",
+        "create": "owners",
+        "update": "member",
+        "delete": "owners"
+      },
+      "issues": [],
+      "effective": {
+        "read": "author",
+        "create": "owners",
+        "update": "member",
+        "delete": "owners"
+      }
+    },
+    {
+      "name": "empty = the defaults",
+      "policy": {},
+      "issues": [],
+      "effective": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      }
+    },
+    {
+      "name": "not an object",
+      "policy": "author",
+      "issues": [
+        {
+          "path": "",
+          "message": "policy is {read?, create?, update?, delete?}"
+        }
+      ],
+      "effective": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      }
+    },
+    {
+      "name": "an unknown op",
+      "policy": {
+        "write": "author"
+      },
+      "issues": [
+        {
+          "path": "/write",
+          "message": "unknown policy op write: read, create, update or delete"
+        }
+      ],
+      "effective": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      }
+    },
+    {
+      "name": "an unknown level",
+      "policy": {
+        "read": "everyone",
+        "update": "role:approver"
+      },
+      "issues": [
+        {
+          "path": "/read",
+          "message": "read is member, author or owners"
+        },
+        {
+          "path": "/update",
+          "message": "update is member, author or owners"
+        }
+      ],
+      "effective": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      }
+    },
+    {
+      "name": "create: author",
+      "policy": {
+        "create": "author",
+        "delete": "member"
+      },
+      "issues": [
+        {
+          "path": "/create",
+          "message": "create is member or owners: a new record has no author yet"
+        }
+      ],
+      "effective": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "member"
+      }
+    },
+    {
+      "name": "a level that is not a string",
+      "policy": {
+        "delete": 1
+      },
+      "issues": [
+        {
+          "path": "/delete",
+          "message": "delete is member, author or owners"
+        }
+      ],
+      "effective": {
+        "read": "member",
+        "create": "member",
+        "update": "author",
+        "delete": "author"
+      }
+    }
+  ],
+  "allowCases": [
+    {
+      "name": "default: any member reads",
+      "op": "read",
+      "viewer": "u2",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "default: any member creates",
+      "op": "create",
+      "viewer": "u2",
+      "role": "member",
+      "refusal": null
+    },
+    {
+      "name": "default: the author updates",
+      "op": "update",
+      "viewer": "u1",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "default: another member may not update",
+      "op": "update",
+      "viewer": "u2",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "Only the record's author or a team owner can change it"
+    },
+    {
+      "name": "default: another member may not delete",
+      "op": "delete",
+      "viewer": "u2",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "Only the record's author or a team owner can change it"
+    },
+    {
+      "name": "default: an owner updates anyone's",
+      "op": "update",
+      "viewer": "u3",
+      "role": "owner",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "the author is authorId, not the creator",
+      "op": "update",
+      "viewer": "u1",
+      "role": "member",
+      "author": "u2",
+      "createdBy": "u1",
+      "refusal": "Only the record's author or a team owner can change it"
+    },
+    {
+      "name": "a row without authorId reads its creator",
+      "op": "delete",
+      "viewer": "u1",
+      "role": "member",
+      "author": null,
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "a row with no author at all: a member may not",
+      "op": "update",
+      "viewer": "u1",
+      "role": "member",
+      "author": null,
+      "createdBy": null,
+      "refusal": "Only the record's author or a team owner can change it"
+    },
+    {
+      "name": "read: author hides another member's row",
+      "policy": {
+        "read": "author"
+      },
+      "op": "read",
+      "viewer": "u2",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "Only the record's author or a team owner can read it"
+    },
+    {
+      "name": "read: author shows the author their row",
+      "policy": {
+        "read": "author"
+      },
+      "op": "read",
+      "viewer": "u1",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "read: author shows an owner every row",
+      "policy": {
+        "read": "author"
+      },
+      "op": "read",
+      "viewer": "u3",
+      "role": "owner",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "read: owners hides even the author's own row",
+      "policy": {
+        "read": "owners"
+      },
+      "op": "read",
+      "viewer": "u1",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "Only team owners can read these records"
+    },
+    {
+      "name": "read: owners shows owners",
+      "policy": {
+        "read": "owners"
+      },
+      "op": "read",
+      "viewer": "u3",
+      "role": "owner",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "create: owners refuses a member",
+      "policy": {
+        "create": "owners"
+      },
+      "op": "create",
+      "viewer": "u2",
+      "role": "member",
+      "refusal": "Only team owners can add these records"
+    },
+    {
+      "name": "create: owners lets an owner",
+      "policy": {
+        "create": "owners"
+      },
+      "op": "create",
+      "viewer": "u3",
+      "role": "owner",
+      "refusal": null
+    },
+    {
+      "name": "update: member lets anyone change",
+      "policy": {
+        "update": "member"
+      },
+      "op": "update",
+      "viewer": "u2",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "delete: owners refuses the author",
+      "policy": {
+        "delete": "owners"
+      },
+      "op": "delete",
+      "viewer": "u1",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "Only team owners can change these records"
+    },
+    {
+      "name": "an entry left out keeps its default",
+      "policy": {
+        "update": "member"
+      },
+      "op": "delete",
+      "viewer": "u2",
+      "role": "member",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "Only the record's author or a team owner can change it"
+    },
+    {
+      "name": "access none: nothing, not even reading",
+      "op": "read",
+      "viewer": "u1",
+      "role": "member",
+      "access": "none",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "You have no access to this app"
+    },
+    {
+      "name": "access none: an owner too",
+      "op": "read",
+      "viewer": "u3",
+      "role": "owner",
+      "access": "none",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "You have no access to this app"
+    },
+    {
+      "name": "access read: reads",
+      "op": "read",
+      "viewer": "u2",
+      "role": "member",
+      "access": "read",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": null
+    },
+    {
+      "name": "access read: no create",
+      "op": "create",
+      "viewer": "u2",
+      "role": "member",
+      "access": "read",
+      "refusal": "You have read-only access to this app"
+    },
+    {
+      "name": "access read: not even the author's own update",
+      "op": "update",
+      "viewer": "u1",
+      "role": "member",
+      "access": "read",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "You have read-only access to this app"
+    },
+    {
+      "name": "access read: an owner neither",
+      "op": "delete",
+      "viewer": "u3",
+      "role": "owner",
+      "access": "read",
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "You have read-only access to this app"
+    },
+    {
+      "name": "access write = no row",
+      "op": "create",
+      "viewer": "u2",
+      "role": "member",
+      "access": "write",
+      "refusal": null
+    },
+    {
+      "name": "not a member of the team: never",
+      "op": "read",
+      "viewer": "u1",
+      "role": null,
+      "author": "u1",
+      "createdBy": "u1",
+      "refusal": "You have no access to this app"
+    },
+    {
+      "name": "signed out: never",
+      "op": "read",
+      "viewer": null,
+      "role": "member",
+      "author": null,
+      "createdBy": null,
+      "refusal": "You have no access to this app"
+    }
+  ],
+  "readable": {
+    "name": "Run as u2 (member) over a private kind and a shared one",
+    "kinds": {
+      "entry": {
+        "schema": {
+          "type": "object",
+          "properties": {}
+        },
+        "policy": {
+          "read": "author"
+        }
+      },
+      "note": {
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "salary": {
+        "schema": {
+          "type": "object",
+          "properties": {}
+        },
+        "policy": {
+          "read": "owners"
+        }
+      }
+    },
+    "rows": [
+      {
+        "id": "e1",
+        "kind": "entry",
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      {
+        "id": "e2",
+        "kind": "entry",
+        "authorId": "u2",
+        "createdBy": "u1"
+      },
+      {
+        "id": "e3",
+        "kind": "entry",
+        "authorId": null,
+        "createdBy": "u2"
+      },
+      {
+        "id": "n1",
+        "kind": "note",
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      {
+        "id": "s1",
+        "kind": "salary",
+        "authorId": "u2",
+        "createdBy": "u2"
+      },
+      {
+        "id": "x1",
+        "kind": "undeclared",
+        "authorId": "u1",
+        "createdBy": "u1"
+      }
+    ],
+    "views": [
+      {
+        "viewer": "u2",
+        "role": "member",
+        "ids": [
+          "e2",
+          "e3",
+          "n1",
+          "x1"
+        ]
+      },
+      {
+        "viewer": "u3",
+        "role": "owner",
+        "ids": [
+          "e1",
+          "e2",
+          "e3",
+          "n1",
+          "s1",
+          "x1"
+        ]
+      },
+      {
+        "viewer": "u2",
+        "role": "member",
+        "access": "none",
+        "ids": []
+      },
+      {
+        "viewer": "u2",
+        "role": "member",
+        "access": "read",
+        "ids": [
+          "e2",
+          "e3",
+          "n1",
+          "x1"
+        ]
+      }
+    ]
+  }
+}

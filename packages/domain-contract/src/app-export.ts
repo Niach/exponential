@@ -22,8 +22,9 @@ export interface AppExportApp {
 export interface AppExportRecord {
   kind: string
   data: Record<string, unknown>
-  /** VAPP-188: whose record it is (a user id; import only: app-records.json
-   *  `onBehalf.importCases` resolves it against the importing team). */
+  /** VAPP-188/192: whose record it is (a user id; the export writes the
+   *  row's author, the import resolves it against the importing team by
+   *  app-records.json `onBehalf.importCases`). */
   author?: string
 }
 
@@ -45,7 +46,7 @@ export function appExportFileName(slug: string): string {
 export function buildAppExport(input: {
   app: { name: string; icon?: string | null; color?: string | null; description?: string | null }
   package: Record<string, unknown>
-  records?: readonly { id: string; kind: string; data: Record<string, unknown>; createdAt: string | Date }[]
+  records?: readonly { id: string; kind: string; data: Record<string, unknown>; createdAt: string | Date; createdBy?: string | null; authorId?: string | null }[]
   includeRecords: boolean
 }): AppExportFile {
   const file: AppExportFile = {
@@ -62,7 +63,11 @@ export function buildAppExport(input: {
   if (records.length > 0) {
     const at = (r: { createdAt: string | Date }) => new Date(r.createdAt).getTime()
     records.sort((a, b) => at(a) - at(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    file.records = records.map((r) => ({ kind: r.kind, data: r.data }))
+    // VAPP-192: each record names its author (`authorId ?? createdBy`).
+    file.records = records.map((r) => {
+      const author = r.authorId ?? r.createdBy ?? null
+      return author === null ? { kind: r.kind, data: r.data } : { kind: r.kind, data: r.data, author }
+    })
   }
   return file
 }

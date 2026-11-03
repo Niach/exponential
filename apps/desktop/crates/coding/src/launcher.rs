@@ -877,6 +877,10 @@ pub struct AcpLaunch {
     /// N-5 / NEW-5: `Some(cwd)` = a repo-less run, confined to its scratch
     /// dir ([`crate::scratch::is_scratch_dir`]); `None` = a worktree run.
     pub confine_to: Option<PathBuf>,
+    /// #EXP-1658: the session's team skills folder
+    /// ([`crate::team_skills`], `<data_dir>/skills/<session>`): claude
+    /// `--add-dir`, codex `skills/extraRoots/set`. `None` = no skills.
+    pub skills_dir: Option<PathBuf>,
 }
 
 /// EXP-792: the resolved servers' secret values, for the steer redactor.
@@ -1101,6 +1105,11 @@ pub struct PreparedLaunch {
     /// ([`ResolvedMcp::pick`]): the baseline a live run's between-turn check
     /// compares `sessions.mcpPicks` against. `None` = unknown.
     pub mcp_pick: Option<Vec<String>>,
+    /// #EXP-1658: the skill pick this launch resolved
+    /// ([`crate::team_skills::ResolvedSkills::pick`]): the baseline the
+    /// between-turn check compares `sessions.skillPicks` against. `None` =
+    /// unknown.
+    pub skill_pick: Option<Vec<String>>,
     /// VAPP-33: who may steer this run over eNet (`fixtures/steer-enet.json`
     /// ACCESS), off the synced row. `None` = unknown: nobody can.
     pub audience: Option<SteerAudience>,
@@ -1670,6 +1679,18 @@ fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsStrin
 /// key. EXP-1292: the pick lives on the `sessions` row (set by
 /// `sessions.send`), so no ids are named here — the row's whole pick plus
 /// the members' shared connections and the roster for the note (FEED-73).
+/// #EXP-1658: the session's team skills, resolved server-side
+/// (`skills.resolveForLaunch`) and written to its launcher-owned folder
+/// ([`crate::team_skills`]). Like the MCP pick it NEVER blocks a launch: a
+/// failed resolve is a logged warning and the run starts without skills.
+fn resolve_team_skills(deps: &CodingDeps, session_id: &str) -> crate::team_skills::ResolvedSkills {
+    let resolved = crate::team_skills::resolve(&deps.trpc, &deps.data_dir, session_id);
+    for warning in &resolved.warnings {
+        log::warn!("{warning}");
+    }
+    resolved
+}
+
 fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
     let resolved = crate::mcp_servers::resolve(&deps.trpc, None, session_id);
     for warning in &resolved.warnings {
@@ -2324,6 +2345,8 @@ fn prepare_session(
     // server-side (unconnected or unpicked ones are skipped, never a
     // blocker). The pick lives on the row, so no ids are named here.
     let mut team_mcp = resolve_mcp_servers(deps, &session_id);
+    // #EXP-1658: the row's skill pick, written outside the worktree.
+    let team_skills = resolve_team_skills(deps, &session_id);
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
@@ -2420,6 +2443,10 @@ fn prepare_session(
                         row.account.as_deref(),
                     )),
                 );
+                // #EXP-1658: the skill pick this launch resolved.
+                extra.extend(crate::run_registry::skill_ids_extra(
+                    team_skills.pick.as_deref().unwrap_or_default(),
+                ));
                 extra
             },
         },
@@ -2515,6 +2542,7 @@ fn prepare_session(
                 long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
             ),
             confine_to,
+            skills_dir: team_skills.dir.clone(),
         },
         seed_message_id: None,
         bypass_permissions: true,
@@ -2525,6 +2553,7 @@ fn prepare_session(
         codex_resume_id: None,
         launch_hold,
         mcp_pick: team_mcp.pick.clone(),
+        skill_pick: team_skills.pick.clone(),
         audience: SteerAudience::of(row),
     }))
 }
@@ -3046,6 +3075,13 @@ fn prepare_resume(
     } else {
         resolve_mcp_servers(deps, &session_id)
     };
+    // #EXP-1658: re-resolved on every resume (a pick or an edit since lands
+    // now); an aside runs without skills, like without team servers.
+    let team_skills = if aside {
+        crate::team_skills::ResolvedSkills::default()
+    } else {
+        resolve_team_skills(deps, &session_id)
+    };
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     let computer_use =
         !aside && attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
@@ -3139,6 +3175,11 @@ fn prepare_resume(
     resumed_record.set_honored_row_account(row.account.as_deref());
     // EXP-1292: the row runs again — an END its last exit owed is moot.
     resumed_record.set_unreported_end(false);
+    // #EXP-1658: the skill pick this resume resolved (an unreadable one
+    // keeps the recorded ids).
+    if let Some(pick) = &team_skills.pick {
+        resumed_record.set_skill_ids(pick);
+    }
     crate::run_registry::record(&deps.data_dir, resumed_record);
 
     // EXP-746 (D8): how the ACP engine reopens the conversation — the
@@ -3200,6 +3241,7 @@ fn prepare_resume(
                 long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
             ),
             confine_to,
+            skills_dir: team_skills.dir.clone(),
         },
         seed_message_id: resume.message_id.clone(),
         bypass_permissions: true,
@@ -3210,6 +3252,7 @@ fn prepare_resume(
         codex_resume_id,
         launch_hold,
         mcp_pick: team_mcp.pick.clone(),
+        skill_pick: team_skills.pick.clone(),
         audience: SteerAudience::of(row),
     }))
 }
@@ -3687,7 +3730,7 @@ mod tests {
     use super::*;
     use crate::test_support::{
         canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, MINT_OK,
-        REPORT_OK, RESOLVE_NONE, TOKEN_OK,
+        REPORT_OK, RESOLVE_NONE, SKILLS_NONE, TOKEN_OK,
     };
     use api::token_store::SecretKind;
     use std::fs;
@@ -3826,7 +3869,7 @@ mod tests {
         vec![
             (200, TOKEN_OK.to_string()),
             (200, REPORT_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]
     }
 
@@ -4451,7 +4494,7 @@ mod tests {
 
         // The wire: mint, branch report, resolve — and never a row creation.
         let requests = captured.lock().unwrap();
-        assert_eq!(requests.len(), 3, "{requests:?}");
+        assert_eq!(requests.len(), 4, "{requests:?}");
         assert!(requests[0].contains("repositories.installationToken"), "{}", requests[0]);
         assert!(requests[1].starts_with("POST /api/trpc/sessions.report"), "{}", requests[1]);
         assert!(
@@ -4462,6 +4505,9 @@ mod tests {
         assert!(requests[2].contains("mcpServers.resolveForLaunch"), "{}", requests[2]);
         assert!(!requests[2].contains("serverIds"), "{}", requests[2]);
         assert!(requests[2].to_ascii_lowercase().contains("x-exp-session-id: sess-1"));
+        // #EXP-1658: the skills resolve, for the same row.
+        assert!(requests[3].contains("skills.resolveForLaunch"), "{}", requests[3]);
+        assert!(requests[3].to_ascii_lowercase().contains("x-exp-session-id: sess-1"));
         assert!(!requests.iter().any(|r| r.contains("codingSessions")));
         drop(requests);
 
@@ -4584,7 +4630,7 @@ mod tests {
         assert!(!record.extra.contains_key("dispatch"), "nothing writes the legacy flag");
 
         // Repo-less: the scratch dir, confined to it.
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let prepared = ready(launch(session_request(row("scratch-1", None), &[]), &deps));
         assert!(crate::scratch::is_scratch_dir(&dir.0, &prepared.worktree));
@@ -4745,7 +4791,7 @@ mod tests {
     #[test]
     fn a_repo_less_session_runs_in_its_scratch_dir() {
         let dir = temp_dir("session-scratch");
-        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string())]);
+        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let mut child = row("child-1", None);
         child.root_id = Some("root-1".to_string());
@@ -4765,8 +4811,9 @@ mod tests {
         assert_eq!(prepared.tab_title, "claude · Code review");
         assert_eq!(seed_prompt(&prepared), BRIEF);
         let requests = captured.lock().unwrap();
-        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert_eq!(requests.len(), 2, "{requests:?}");
         assert!(requests[0].contains("mcpServers.resolveForLaunch"));
+        assert!(requests[1].contains("skills.resolveForLaunch"));
         drop(requests);
         let record = crate::run_registry::get(&dir.0, "child-1").expect("record");
         assert_eq!(record.clone, None);
@@ -4778,7 +4825,7 @@ mod tests {
     #[test]
     fn a_hostile_session_id_stays_under_the_scratch_root() {
         let dir = temp_dir("session-traversal");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let prepared = ready(launch(session_request(row("../../escape", None), &[]), &deps));
         assert!(prepared.worktree.starts_with(dir.0.join("scratch")));
@@ -4790,7 +4837,7 @@ mod tests {
     #[test]
     fn an_agent_root_carries_its_instructions_and_records_as_an_agent() {
         let dir = temp_dir("session-agent");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         // #EXP-1383: an agent's tree runs on its team's key (already minted).
         deps.token_store
@@ -4878,7 +4925,7 @@ mod tests {
         let dir = temp_dir("agent-team-key");
         let (base, captured) = canned_server_recording(vec![
             (200, TEAM_MINT_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let prepared = ready(launch(session_request(agent_row("agent-1"), &[]), &deps));
@@ -4899,7 +4946,7 @@ mod tests {
         );
         // The second launch of the team's tree reads the stored key.
         let again = ready(launch(session_request(agent_row("agent-2"), &[]), &make_deps(
-            &canned_server(vec![(200, RESOLVE_NONE.to_string())]),
+            &canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]),
             &dir.0,
             fake_worktrees(&dir.0.join("unused")),
         )));
@@ -4911,7 +4958,7 @@ mod tests {
     #[test]
     fn a_thread_keeps_the_device_key() {
         let dir = temp_dir("thread-device-key");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let prepared = ready(launch(session_request(row("t-1", None), &[]), &deps));
         assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
@@ -4963,7 +5010,7 @@ mod tests {
     #[test]
     fn an_agent_trees_child_and_resume_use_the_team_key() {
         let dir = temp_dir("agent-tree-key");
-        let deps = make_deps(&canned_server(vec![(200, RESOLVE_NONE.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let deps = make_deps(&canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.token_store
             .set("acct", SecretKind::AgentTeamKey("ws-1".to_string()), "expu_team_stored")
             .unwrap();
@@ -4974,7 +5021,7 @@ mod tests {
         let prepared = ready(launch(req, &deps));
         assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_team_stored".to_string())));
 
-        let deps = make_deps(&canned_server(vec![(200, RESOLVE_NONE.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let deps = make_deps(&canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
         let mut record = resume_record(&dir.0, "agent-1");
         record.kind = RunKind::Agent;
         let prepared = ready(launch(resume_request(record), &deps));
@@ -5202,7 +5249,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             (200, TOKEN_OK.to_string()),
             (200, MINT_OK.to_string()),
             (200, REPORT_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
         deps.token_store.delete("acct", SecretKind::PersonalApiKey);
@@ -5627,7 +5674,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn an_acp_resume_reopens_the_recorded_session_with_the_message() {
         let dir = temp_dir("resume-acp");
-        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string())]);
+        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         let mut record = resume_record(&dir.0, "sess-old");
@@ -5643,8 +5690,11 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert!(prepared.bypass_permissions);
         assert_eq!(prepared.claude_session_id, None);
         let requests = captured.lock().unwrap();
-        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert_eq!(requests.len(), 2, "{requests:?}");
         assert!(requests[0].to_ascii_lowercase().contains("x-exp-session-id: sess-old"));
+        // #EXP-1658: every resume re-resolves the skills, for the same row.
+        assert!(requests[1].contains("skills.resolveForLaunch"));
+        assert!(requests[1].to_ascii_lowercase().contains("x-exp-session-id: sess-old"));
         drop(requests);
         let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
         assert_eq!(record.acp_session_id.as_deref(), Some("acp-42"), "kept until the engine upserts");
@@ -5657,7 +5707,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_resume_without_a_conversation_reseeds_the_brief_and_the_message() {
         let dir = temp_dir("resume-fresh");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         deps.claude_projects_root = Some(dir.0.join("empty-projects"));
@@ -5702,7 +5752,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_resume_reuses_the_recorded_claude_transcript() {
         let dir = temp_dir("resume-claude");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         seed_transcript(&dir.0, &mut deps, "claude-1");
@@ -5724,7 +5774,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_fresh_approval_resume_starts_a_new_conversation() {
         let dir = temp_dir("resume-fresh");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         seed_transcript(&dir.0, &mut deps, "claude-1");
@@ -5753,7 +5803,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn an_agent_restart_resume_seeds_nothing_and_takes_the_new_instructions() {
         let dir = temp_dir("resume-restart");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         deps.token_store
@@ -5792,7 +5842,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn an_aside_resume_carries_no_mcp_servers() {
         let dir = temp_dir("resume-aside");
-        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string())]);
+        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         seed_transcript(&dir.0, &mut deps, "claude-1");
@@ -5812,7 +5862,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_resume_takes_the_rows_model() {
         let dir = temp_dir("resume-model");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let mut req = resume_request(resume_record(&dir.0, "sess-old"));
         req.session.model = Some("opus".to_string());
@@ -5891,7 +5941,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_resume_hands_the_transcript_to_the_target_account() {
         let dir = temp_dir("resume-switch");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         // The run happened on the AMBIENT login, whose tree the fixture root
         // stands in for.
@@ -5935,7 +5985,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn an_account_switch_onto_a_persisted_login_runs_on_its_token() {
         let dir = temp_dir("resume-switch-persisted");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         seed_transcript(&dir.0, &mut deps, "claude-1");
         let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
@@ -6015,7 +6065,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     fn an_account_switch_without_a_message_continues_only_a_walled_session() {
         for walled in [true, false] {
             let dir = temp_dir(if walled { "resume-switch-prompt" } else { "resume-switch-idle" });
-            let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+            let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
             let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
             seed_transcript(&dir.0, &mut deps, "claude-1");
             let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
@@ -6044,7 +6094,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_resume_refuses_a_switch_it_cannot_honor() {
         let dir = temp_dir("resume-switch-refused");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
 
         let mut req = resume_request(resume_record(&dir.0, "sess-old"));
@@ -6107,7 +6157,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         let dir = temp_dir("resume-reclaimed");
         let (base, captured) = canned_server_recording(vec![
             (200, TOKEN_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("session-1a2b3c4d");
         let worktrees = fake_worktrees(&layout);
@@ -6153,7 +6203,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             let dir = temp_dir(if woken { "resume-reclaimed-woken" } else { "resume-reclaimed-alone" });
             let (base, _captured) = canned_server_recording(vec![
                 (200, TOKEN_OK.to_string()),
-                (200, RESOLVE_NONE.to_string()),
+                (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             ]);
             let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("session-9a8b7c6d");
             let mut deps = make_deps(&base, &dir.0, fake_worktrees(&layout));
@@ -6216,7 +6266,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             }
         }
         let dir = temp_dir("resume-beside");
-        let base = canned_server(vec![(200, TOKEN_OK.to_string()), (200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, TOKEN_OK.to_string()), (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("session-1a2b3c4d");
         fs::create_dir_all(&layout).unwrap();
         fs::write(layout.join(".git"), "gitdir: /nowhere/at/all\n").unwrap();
@@ -6246,7 +6296,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_resume_re_makes_a_purged_scratch_dir() {
         let dir = temp_dir("resume-scratch-purged");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.claude_projects_root = Some(dir.0.join("empty-projects"));
         let record = resume_record(&dir.0, "sess-old4");
@@ -6349,7 +6399,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     fn an_unnamed_launch_lands_on_the_signed_in_profile() {
         for account in [None, Some("system")] {
             let dir = temp_dir("gate-unnamed");
-            let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+            let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
             let deps = auth_deps(&base, &dir.0);
             let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
             crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
@@ -6374,7 +6424,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn an_unnamed_launch_skips_a_signed_out_last_used_profile() {
         let dir = temp_dir("gate-last-used-signed-out");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = auth_deps(&base, &dir.0);
         let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
@@ -6418,7 +6468,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn a_named_signed_in_profile_launches_in_its_dir() {
         let dir = temp_dir("gate-profile");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = auth_deps(&base, &dir.0);
         let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);

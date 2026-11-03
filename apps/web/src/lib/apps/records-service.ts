@@ -14,13 +14,14 @@
 // structured query maps onto a parameterised Drizzle query over a fixed
 // column allowlist: app text never becomes SQL.
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
+import { RECORD_POLICY_COPY, recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
-import { APP_RECORDS_ON_BEHALF, APP_RECORDS_OWNERSHIP, canChangeRecord, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
+import { APP_RECORDS_ON_BEHALF, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
-import { appRecords, apps, teamMembers, type App } from "@/db/schema"
+import { appAccess, appRecords, apps, teamMembers, type App } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
@@ -32,10 +33,13 @@ export const RECORDS_ROLE = `eapps`
 /** A records statement's ceiling under the role. */
 export const RECORDS_STATEMENT_TIMEOUT = `2s`
 
-/** What a records transaction may touch: one team, these apps. */
+/** What a records transaction may touch: one team, these apps; `write` =
+ *  it may insert or update (eApps R3: only a member with write access to
+ *  the app; the policy `eapps_write` refuses anything else). */
 export interface RecordsScope {
   teamId: string
   appIds: readonly string[]
+  write?: boolean
 }
 
 /** One app by id or by (team, slug). */
@@ -51,7 +55,9 @@ type Executor = typeof defaultDb
  *  the transaction), then runs `fn`. Read every other table BEFORE this:
  *  under the role they answer permission denied. */
 export async function asEapps<T>(tx: Tx, scope: RecordsScope, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  await tx.execute(sql`SELECT set_config('eapps.team', ${scope.teamId}, true), set_config('eapps.apps', ${scope.appIds.join(`,`)}, true), set_config('statement_timeout', ${RECORDS_STATEMENT_TIMEOUT}, true)`)
+  await tx.execute(
+    sql`SELECT set_config('eapps.team', ${scope.teamId}, true), set_config('eapps.apps', ${scope.appIds.join(`,`)}, true), set_config('eapps.write', ${scope.write ? `on` : `off`}, true), set_config('statement_timeout', ${RECORDS_STATEMENT_TIMEOUT}, true)`
+  )
   await tx.execute(sql.raw(`SET LOCAL ROLE ${RECORDS_ROLE}`))
   return fn(tx)
 }
@@ -85,10 +91,53 @@ function assertCanWriteAs(userId: string, role: string, author: string | undefin
   if (verdict === `notMember`) throw new TRPCError({ code: `BAD_REQUEST`, message: APP_RECORDS_ON_BEHALF.notMember })
 }
 
-/** VAPP-187: a record's author or a team owner may patch/delete it
- *  (app-records.json `ownership`); anyone else = FORBIDDEN. */
-function assertCanChangeRecord(row: { authorId: string | null; createdBy: string | null }, userId: string, role: string, op: `update` | `delete`) {
-  if (!canChangeRecord(row, userId, role, op)) throw new TRPCError({ code: `FORBIDDEN`, message: APP_RECORDS_OWNERSHIP.refusal })
+/** eApps R3: the member's access level for the app (no row = write). Read
+ *  BEFORE the role switch. */
+export async function appAccessLevel(executor: Pick<Tx, `select`>, appId: string, userId: string): Promise<AppAccessLevel> {
+  const [row] = await executor.select({ level: appAccess.level }).from(appAccess).where(and(eq(appAccess.appId, appId), eq(appAccess.userId, userId))).limit(1)
+  return (row?.level as AppAccessLevel | undefined) ?? `write`
+}
+
+/** eApps R3: who is asking (membership + access); access `none` hides the
+ *  app (NOT_FOUND, as if it did not exist). */
+async function viewerOf(executor: Pick<Tx, `select`>, app: App, userId: string): Promise<RecordViewer & { id: string; role: string }> {
+  const member = await assertTeamMember(userId, app.teamId)
+  const access = await appAccessLevel(executor, app.id, userId)
+  if (access === `none`) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+  return { id: userId, role: member.role, access }
+}
+
+/** eApps R3: a write needs write access (before any locked read: under
+ *  `eapps.write = off` a FOR UPDATE read sees no row). */
+function assertCanWrite(viewer: RecordViewer) {
+  if ((viewer.access ?? `write`) !== `write`) throw new TRPCError({ code: `FORBIDDEN`, message: RECORD_POLICY_COPY.readOnly })
+}
+
+/** A kind's effective policy (record-policy.json). */
+const kindPolicy = (app: Pick<App, `package`>, kind: string) => recordPolicy((app.package as { records?: Record<string, unknown> } | null)?.records?.[kind])
+
+/** eApps R3: refuse what the kind's policy and the member's access refuse
+ *  (record-policy.json `copy` = the FORBIDDEN message). */
+function assertRecordOp(app: Pick<App, `package`>, kind: string, op: RecordOp, viewer: RecordViewer, row?: { authorId: string | null; createdBy: string | null }) {
+  const refusal = recordRefusal(kindPolicy(app, kind), op, viewer, row)
+  if (refusal) throw new TRPCError({ code: `FORBIDDEN`, message: refusal })
+}
+
+/** A row the viewer may not read is not there for them (NOT_FOUND, no leak). */
+function assertReadable(app: Pick<App, `package`>, viewer: RecordViewer, row: { kind: string; authorId: string | null; createdBy: string | null }) {
+  if (recordRefusal(kindPolicy(app, row.kind), `read`, viewer, row)) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+}
+
+/** eApps R3: the SQL twin of the read policy for one app (a parameterised
+ *  condition, undefined = every row): a non-owner never reads an `owners`
+ *  kind, and reads an `author` kind's rows only where they are the author. */
+export function readPolicyWhere(app: Pick<App, `package`>, viewer: { id: string; role: string }): SQL | undefined {
+  if (viewer.role === `owner`) return undefined
+  const kinds = Object.keys((app.package as { records?: Record<string, unknown> } | null)?.records ?? {})
+  const owners = kinds.filter((k) => kindPolicy(app, k).read === `owners`)
+  const author = kinds.filter((k) => kindPolicy(app, k).read === `author`)
+  const mine = sql`coalesce(${appRecords.authorId}, ${appRecords.createdBy}) = ${viewer.id}`
+  return and(owners.length ? notInArray(appRecords.kind, owners) : undefined, author.length ? or(notInArray(appRecords.kind, author), mine) : undefined)
 }
 
 /** The team's record quota, behind the team's lock, in `tx` and BEFORE the
@@ -136,14 +185,14 @@ export async function listRecords(
   executor: Executor = defaultDb
 ) {
   const app = await loadApp(executor, ref)
-  await assertTeamMember(userId, app.teamId)
+  const viewer = await viewerOf(executor, app, userId)
   const rows = await inRecordsScope(
     { teamId: app.teamId, appIds: [app.id] },
     (tx) =>
       tx
         .select(RECORD_COLUMNS)
         .from(appRecords)
-        .where(and(eq(appRecords.appId, app.id), isNull(appRecords.deletedAt), query.kind ? eq(appRecords.kind, query.kind) : undefined))
+        .where(and(eq(appRecords.appId, app.id), isNull(appRecords.deletedAt), query.kind ? eq(appRecords.kind, query.kind) : undefined, readPolicyWhere(app, viewer)))
         .orderBy(...newestFirst)
         .limit(query.limit)
         .offset(query.offset),
@@ -163,7 +212,9 @@ export async function upsertRecord(
   executor: Executor = defaultDb
 ): Promise<{ txid: number; id: string; created: boolean }> {
   const app = await loadApp(executor, ref)
-  const member = await assertTeamMember(userId, app.teamId)
+  const viewer = await viewerOf(executor, app, userId)
+  assertCanWrite(viewer)
+  const member = { role: viewer.role }
   const schema = recordKindSchema(app.package, input.kind)
   if (!schema) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${input.kind}": add it to the package's records first` })
@@ -172,7 +223,7 @@ export async function upsertRecord(
   // VAPP-188: an on-behalf author must be a member (team_members: read now).
   const onBehalf = input.author !== undefined && input.author !== userId && member.role === `owner`
   const members = onBehalf ? await teamMemberIds(executor, app.teamId) : []
-  const scope = { teamId: app.teamId, appIds: [app.id] }
+  const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   return await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     if (input.recordId) {
@@ -182,13 +233,14 @@ export async function upsertRecord(
         // in THIS transaction, so two concurrent patches queue here and
         // neither loses the other's fields.
         const [existing] = await tx
-          .select({ id: appRecords.id, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+          .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
           .from(appRecords)
           .where(and(eq(appRecords.id, recordId), eq(appRecords.appId, app.id), eq(appRecords.kind, input.kind), isNull(appRecords.deletedAt)))
           .limit(1)
           .for(`update`)
         if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
-        assertCanChangeRecord(existing, userId, member.role, `update`)
+        assertReadable(app, viewer, existing)
+        assertRecordOp(app, input.kind, `update`, viewer, existing)
         // VAPP-188: an owner may REASSIGN the row (`author` ≠ its author).
         const reassign = input.author !== undefined && input.author !== recordAuthor(existing)
         if (reassign) assertCanWriteAs(userId, member.role, input.author, members)
@@ -200,6 +252,7 @@ export async function upsertRecord(
         return { txid: txId, id: existing.id, created: false }
       })
     }
+    assertRecordOp(app, input.kind, `create`, viewer)
     const data = checked(input.data)
     // VAPP-188: an on-behalf create (owners only; the author a member).
     assertCanWriteAs(userId, member.role, input.author, members)
@@ -220,18 +273,20 @@ export async function upsertRecord(
 /** Soft-delete one record (its author or a team owner). */
 export async function deleteRecord(userId: string, ref: AppRef, recordId: string, executor: Executor = defaultDb): Promise<{ txid: number }> {
   const app = await loadApp(executor, ref)
-  const member = await assertTeamMember(userId, app.teamId)
+  const viewer = await viewerOf(executor, app, userId)
+  assertCanWrite(viewer)
   return await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
-    return asEapps(tx, { teamId: app.teamId, appIds: [app.id] }, async (tx) => {
+    return asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }, async (tx) => {
       const [existing] = await tx
-        .select({ id: appRecords.id, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+        .select({ id: appRecords.id, kind: appRecords.kind, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
         .from(appRecords)
         .where(and(eq(appRecords.id, recordId), eq(appRecords.appId, app.id), isNull(appRecords.deletedAt)))
         .limit(1)
         .for(`update`)
       if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
-      assertCanChangeRecord(existing, userId, member.role, `delete`)
+      assertReadable(app, viewer, existing)
+      assertRecordOp(app, existing.kind, `delete`, viewer, existing)
       await tx
         .update(appRecords)
         .set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() })
@@ -259,7 +314,8 @@ export async function commitRecordBatch(
   executor: Executor = defaultDb
 ): Promise<{ txid: number; ids: string[] }> {
   const app = await loadApp(executor, ref)
-  const member = await assertTeamMember(userId, app.teamId)
+  const viewer = await viewerOf(executor, app, userId)
+  assertCanWrite(viewer)
   const at = (i: number, e: unknown): never => {
     if (e instanceof TRPCError) throw new TRPCError({ code: e.code, message: `write ${i}: ${e.message}` })
     throw e
@@ -271,7 +327,7 @@ export async function commitRecordBatch(
     return schema
   })
   const creates = writes.filter((w) => w.op === `upsert` && w.id === undefined).length
-  const scope = { teamId: app.teamId, appIds: [app.id] }
+  const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   return await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     if (creates > 0) await lockAndCheckQuota(tx, app.teamId, creates)
@@ -281,13 +337,14 @@ export async function commitRecordBatch(
         try {
           if (w.op === `delete`) {
             const [existing] = await tx
-              .select({ id: appRecords.id, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+              .select({ id: appRecords.id, kind: appRecords.kind, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
               .from(appRecords)
               .where(and(eq(appRecords.id, w.id), eq(appRecords.appId, app.id), isNull(appRecords.deletedAt)))
               .limit(1)
               .for(`update`)
             if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
-            assertCanChangeRecord(existing, userId, member.role, `delete`)
+            assertReadable(app, viewer, existing)
+            assertRecordOp(app, existing.kind, `delete`, viewer, existing)
             await tx.update(appRecords).set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             ids.push(existing.id)
             continue
@@ -295,18 +352,20 @@ export async function commitRecordBatch(
           const schema = schemas[i]!
           if (w.id !== undefined) {
             const [existing] = await tx
-              .select({ id: appRecords.id, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+              .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
               .from(appRecords)
               .where(and(eq(appRecords.id, w.id), eq(appRecords.appId, app.id), eq(appRecords.kind, w.kind), isNull(appRecords.deletedAt)))
               .limit(1)
               .for(`update`)
             if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
-            assertCanChangeRecord(existing, userId, member.role, `update`)
+            assertReadable(app, viewer, existing)
+            assertRecordOp(app, w.kind, `update`, viewer, existing)
             const data = checkedRecordData(schema, { ...existing.data, ...w.data })
             await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             ids.push(existing.id)
             continue
           }
+          assertRecordOp(app, w.kind, `create`, viewer)
           const data = checkedRecordData(schema, w.data)
           const [row] = await tx
             .insert(appRecords)
@@ -326,13 +385,15 @@ export async function commitRecordBatch(
 // The broker resolved the grant, membership and level already; writes go
 // through `upsertRecord` like every other writer.
 
-/** One live record of the app's kind, or null. */
-export async function getAppRecord(app: { id: string; teamId: string }, kind: string, id: string) {
+/** One live record of the app's kind the member may read, or null. */
+export async function getAppRecord(app: { id: string; teamId: string }, kind: string, id: string, userId: string) {
+  const full = await loadApp(defaultDb, { id: app.id })
+  const viewer = await viewerOf(defaultDb, full, userId)
   const [row] = await inRecordsScope({ teamId: app.teamId, appIds: [app.id] }, (tx) =>
     tx
       .select(BROKER_COLUMNS)
       .from(appRecords)
-      .where(and(eq(appRecords.appId, app.id), eq(appRecords.kind, kind), isNull(appRecords.deletedAt), eq(appRecords.id, id)))
+      .where(and(eq(appRecords.appId, app.id), eq(appRecords.kind, kind), isNull(appRecords.deletedAt), eq(appRecords.id, id), readPolicyWhere(full, viewer)))
       .limit(1)
   )
   return row ?? null
@@ -340,7 +401,9 @@ export async function getAppRecord(app: { id: string; teamId: string }, kind: st
 
 /** The app's live records of a kind whose data CONTAINS `where` (jsonb `@>`,
  *  one bound parameter), newest first, `limit` clamped to the query caps. */
-export async function queryAppRecords(app: { id: string; teamId: string }, kind: string, where: Record<string, unknown>, limit: number | undefined) {
+export async function queryAppRecords(app: { id: string; teamId: string }, kind: string, where: Record<string, unknown>, limit: number | undefined, userId: string) {
+  const full = await loadApp(defaultDb, { id: app.id })
+  const viewer = await viewerOf(defaultDb, full, userId)
   const asked = typeof limit === `number` && Number.isFinite(limit) ? Math.floor(limit) : RECORDS_QUERY.limitDefault
   const capped = Math.min(Math.max(asked, 1), RECORDS_QUERY.limitMax)
   return inRecordsScope({ teamId: app.teamId, appIds: [app.id] }, (tx) =>
@@ -352,7 +415,8 @@ export async function queryAppRecords(app: { id: string; teamId: string }, kind:
           eq(appRecords.appId, app.id),
           eq(appRecords.kind, kind),
           isNull(appRecords.deletedAt),
-          Object.keys(where).length > 0 ? sql`${appRecords.data} @> ${JSON.stringify(where)}::jsonb` : undefined
+          Object.keys(where).length > 0 ? sql`${appRecords.data} @> ${JSON.stringify(where)}::jsonb` : undefined,
+          readPolicyWhere(full, viewer)
         )
       )
       .orderBy(...newestFirst)
@@ -367,13 +431,16 @@ export async function queryAppRecords(app: { id: string; teamId: string }, kind:
  *  after this in `tx` may touch another table). */
 export async function importRecords(
   tx: Tx,
-  app: { id: string; teamId: string },
+  app: Pick<App, `id` | `teamId` | `package`>,
   userId: string,
+  role: string,
   records: readonly { kind: string; data: Record<string, unknown>; author?: string }[]
 ): Promise<void> {
   if (records.length === 0) return
+  // eApps R3: the importer creates every record (a new app: no access row yet).
+  for (const kind of new Set(records.map((r) => r.kind))) assertRecordOp(app, kind, `create`, { id: userId, role })
   await lockAndCheckQuota(tx, app.teamId, records.length)
-  await asEapps(tx, { teamId: app.teamId, appIds: [app.id] }, async (tx) => {
+  await asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: true }, async (tx) => {
     await tx
       .insert(appRecords)
       .values(records.map((r) => ({ appId: app.id, teamId: app.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: r.author ?? userId, updatedBy: userId })))

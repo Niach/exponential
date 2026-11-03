@@ -73,10 +73,11 @@ export function writeAsVerdict(viewer: string | null, role: string | null, autho
 
 /** An imported record's author (`importCases`): absent, the importer or a
  *  stranger to the team = the importer; another member = them when the
- *  importer is an owner, else null (the import is refused). */
-export function importAuthor(importer: string, role: string | null, author: string | null | undefined, members: readonly string[]): string | null {
+ *  importer is an owner, else the importer too (VAPP-192: a member
+ *  importing a teammate's export keeps the rows as their own). */
+export function importAuthor(importer: string, role: string | null, author: string | null | undefined, members: readonly string[]): string {
   if (author == null || author === importer || !members.includes(author)) return importer
-  return role === `owner` ? author : null
+  return role === `owner` ? author : importer
 }
 
 /** Settings → Apps → the app: "1,240 records", "1,240 of 25,000 records"
