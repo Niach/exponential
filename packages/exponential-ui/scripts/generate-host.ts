@@ -44,7 +44,7 @@ import {
   AUTHOR_KEY_PREFIX,
 } from "../src/host"
 import { dateBucket, type DateBucket } from "../src/dates"
-import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordRow } from "../src/host"
+import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordRefTarget, RecordRow } from "../src/host"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
 const read = (rel: string) => JSON.parse(readFileSync(join(pkgRoot, rel), `utf8`))
@@ -148,6 +148,8 @@ function renderRecordsQuery(f: Record<string, any>): Record<string, unknown> {
       today: c.today as string | undefined,
       names: c.names as Record<string, string>,
       computed: c.computed as Record<string, string> | undefined,
+      refs: c.refs as Record<string, RecordRefTarget> | undefined,
+      issues: c.issues as Record<string, Record<string, unknown>> | undefined,
     }),
   }))
   return f

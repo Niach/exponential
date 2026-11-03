@@ -2893,11 +2893,16 @@ pub fn records_value_json(rows_json: String, query_json: String, context_json: S
             /// VAPP-214: the queried kind's computed fields (name → CEL).
             #[serde(default)]
             computed: Option<std::collections::BTreeMap<String, String>>,
+            /// eApps R5 (VAPP-219): the queried kind's refs + identifier → issue summary.
+            #[serde(default)]
+            refs: Option<Value>,
+            #[serde(default)]
+            issues: Option<serde_json::Map<String, Value>>,
         }
         let rows: Vec<h::RecordRow> = parse(&rows_json)?;
         let query: h::RecordsQuery = parse(&query_json)?;
         let ctx: Context = parse(&context_json)?;
-        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, today: ctx.today.as_deref(), names: &ctx.names, computed: ctx.computed.as_ref() });
+        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, today: ctx.today.as_deref(), names: &ctx.names, computed: ctx.computed.as_ref(), refs: ctx.refs.as_ref().filter(|r| r.is_object()), issues: ctx.issues.as_ref() });
         Ok(value.map_or_else(|| "null".to_string(), |v| v.to_string()))
     })
 }

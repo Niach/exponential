@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { appAccess, appRecords, appVersions, apps, devices, sessions, teamMembers, teams } from "@/db/schema"
+import { appAccess, appRecords, appVersions, apps, boards, devices, issues, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { grantVersion } from "@exp/domain-contract/apps"
 
@@ -264,6 +264,43 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const [after] = await db.select().from(appRecords).where(eq(appRecords.id, first.id))
     expect(after!.appDeletedAt).not.toBeNull()
     await expect(api.delete({ id: appId, recordId: first.id })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  // eApps R5 (#VAPP-219): refs resolve on every write (a record of the
+  // target kind of the app, an issue / a member of the team: else
+  // BAD_REQUEST naming the field); a query's expand inlines them; a
+  // deleted target dangles (null), never cascades.
+  it(`R5: refs are checked on write and followed by expand`, async () => {
+    const w = await world()
+    const pkg = {
+      ...RECORDS_PACKAGE,
+      id: `t.crm`,
+      records: {
+        company: { schema: { type: `object`, properties: { name: { type: `string` } } } },
+        deal: { schema: { type: `object`, properties: { title: { type: `string` }, customer: { type: `string` }, owner: { type: `string` }, task: { type: `string` } } }, refs: { customer: { kind: `company` }, owner: `member`, task: `issue` } },
+      },
+    }
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `CRM`, package: pkg })
+    const appId = created.app.id
+    const api = caller(w.mate).records
+    const [board] = await db.insert(boards).values({ teamId: w.teamId, name: `Ops`, slug: `ops-${id8()}`, prefix: `OPS` }).returning({ id: boards.id })
+    const [issue] = await db.insert(issues).values({ boardId: board!.id, teamId: w.teamId, title: `Ship it`, number: 7, identifier: `OPS-7` }).returning({ id: issues.id, identifier: issues.identifier })
+    const acme = await api.upsert({ id: appId, kind: `company`, data: { name: `Acme` } })
+    const deal = await api.upsert({ id: appId, kind: `deal`, data: { title: `Big`, customer: acme.id, owner: w.owner, task: issue!.identifier } })
+    await expect(api.upsert({ id: appId, kind: `deal`, data: { customer: deal.id } })).rejects.toThrow(/\/customer: no company record/)
+    await expect(api.upsert({ id: appId, kind: `deal`, data: { customer: `not-a-uuid` } })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(api.upsert({ id: appId, kind: `deal`, data: { owner: `nobody` } })).rejects.toThrow(/\/owner: no member nobody in the team/)
+    await expect(api.upsert({ id: appId, kind: `deal`, data: { task: `OPS-99` }, recordId: deal.id })).rejects.toThrow(/\/task: no issue OPS-99 in the team/)
+    await expect(api.batch({ id: appId, writes: [{ op: `upsert`, kind: `deal`, data: { title: `ok` } }, { op: `upsert`, kind: `deal`, data: { owner: `nobody` } }] })).rejects.toThrow(/^write 1: /)
+    const q = await api.query({ id: appId, kind: `deal`, query: { expand: [`customer`, `owner`, `task`] } })
+    expect(q.rows[0]).toMatchObject({ title: `Big`, customer: { id: acme.id, name: `Acme` }, owner: { id: w.owner, name: `Tester` }, task: { id: issue!.id, identifier: `OPS-7`, title: `Ship it` } })
+    await expect(api.query({ id: appId, kind: `deal`, query: { expand: [`title`] } })).rejects.toThrow(/\/expand\/0: title is not a ref of deal/)
+    // A deleted target: the ref dangles and expands to null.
+    await api.delete({ id: appId, recordId: acme.id })
+    const after = await api.query({ id: appId, kind: `deal`, query: { expand: [`customer`] } })
+    expect(after.rows[0]).toMatchObject({ customer: null })
+    const [stored] = await db.select().from(appRecords).where(eq(appRecords.id, deal.id))
+    expect(stored!.data).toMatchObject({ customer: acme.id })
   })
 
   // Release train 2026-10-25: a patch merges onto the row locked in its own

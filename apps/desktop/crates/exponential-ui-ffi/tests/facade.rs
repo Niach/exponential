@@ -1243,7 +1243,7 @@ fn the_records_query_fixture_replays_through_the_free_functions() {
             Some(json) => canon(&parse_records_json(json.to_string(), c["kind"].as_str().map(str::to_string)).unwrap())["query"].to_string(),
             None => parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap(),
         };
-        let ctx = json!({"me": c["me"], "now": c["now"], "today": c.get("today"), "names": c["names"], "computed": c.get("computed")});
+        let ctx = json!({"me": c["me"], "now": c["now"], "today": c.get("today"), "names": c["names"], "computed": c.get("computed"), "refs": c.get("refs"), "issues": c.get("issues")});
         let got = records_value_json(c["rows"].to_string(), query, ctx.to_string()).unwrap();
         assert!(eui_core::json::equal(&canon(&got), &c["expected"]), "value: {}\n got {got}", c["name"]);
     }

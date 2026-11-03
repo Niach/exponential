@@ -237,6 +237,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                             }
                             // VAPP-214 (Q3): computed fields, typed against the schema.
                             issues.extend(super::expressions::validate_record_computed(&Value::Object(def.clone()), &at));
+                            // eApps R5 (VAPP-219): refs name a string field and a declared kind.
+                            issues.extend(super::records::validate_record_refs(&Value::Object(def.clone()), &at, p.get("records")));
                         }
                     }
                 }
@@ -297,6 +299,21 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                         issues.push(issue(format!("{at}/from"), format!("records:{from} names no declared kind")));
                     } else if !from.is_empty() && !from.contains("${") && q.is_object() {
                         issues.extend(query_field_issues(q, from, p.get("records").and_then(|r| r.get(from)), &at));
+                    }
+                    // eApps R5: an expanded field is a ref of the kind.
+                    let def = (!from.is_empty()).then(|| p.get("records").and_then(|r| r.get(from))).flatten().filter(|d| d.is_object());
+                    if let (Some(def), Some(expand)) = (def, q.get("expand").and_then(Value::as_array)) {
+                        let refs = def.get("refs");
+                        for (i, f) in expand.iter().enumerate() {
+                            let Some(f) = f.as_str().map(super::js_trim).filter(|f| !f.is_empty()) else { continue };
+                            let known = match refs {
+                                None => false,
+                                Some(r) => r.as_object().is_some_and(|r| r.contains_key(f)),
+                            };
+                            if !known {
+                                issues.push(issue(format!("{at}/expand/{i}"), format!("{f} is not a ref of {from}")));
+                            }
+                        }
                     }
                 }
             }

@@ -23,7 +23,7 @@ export const RECORDS_SCHEME = `records`
 /** The URL sugar's defaults and caps (catalog/host.json `package.records.query`). */
 export const RECORDS_QUERY = { sortDefault: `createdAt`, orderDefault: `desc`, limitDefault: 100, limitMax: 500 } as const
 /** Query keys with a meaning of their own; never a field filter. */
-export const RECORDS_RESERVED_PARAMS: readonly string[] = [`app`, `before`, `by`, `limit`, `mine`, `month`, `order`, `q`, `query`, `sort`, `sum`, `user`]
+export const RECORDS_RESERVED_PARAMS: readonly string[] = [`app`, `before`, `by`, `expand`, `limit`, `mine`, `month`, `order`, `q`, `query`, `sort`, `sum`, `user`]
 /** The keys every value row carries next to its data (a data key never shadows one). */
 export const RECORDS_ROW_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId`, `author`]
 /** The filter operators: `eq` is the bare key, the others a `.<op>` suffix
@@ -120,7 +120,15 @@ export interface RecordsQuery {
   /** VAPP-190: the running values, by field. */
   running: RecordsRunning[]
   before: RecordsBefore | null
+  /** eApps R5 (VAPP-219): ref fields whose target is inlined into every
+   *  row (`records.<kind>.refs`, one level); [] = none. */
+  expand: string[]
 }
+
+/** eApps R5 (VAPP-219): what a ref field points to: a record of a kind of
+ *  the same app, an issue of the team (by identifier, `EXP-12`) or a member
+ *  of the team (by user id). */
+export type RecordRefTarget = { kind: string } | `issue` | `member`
 
 /** One stored record as a host hands it to the evaluator. */
 export interface RecordRow {
@@ -183,6 +191,12 @@ export interface RecordsContext {
   /** VAPP-214 (Q3): the queried kind's computed fields (`records.<kind>.computed`:
    *  name → CEL), evaluated on every row of the kind before the query. */
   computed?: Record<string, string>
+  /** eApps R5 (VAPP-219): the queried kind's refs (`records.<kind>.refs`),
+   *  what `expand` follows; a field without one is left as stored. */
+  refs?: Record<string, RecordRefTarget>
+  /** eApps R5: identifier → the issue summary an `issue` ref expands to
+   *  (`{id, identifier, title, status}`); an identifier missing here reads null. */
+  issues?: Record<string, Record<string, unknown>>
 }
 
 /** A problem with a JSON query, a JSON pointer into it. */
@@ -241,6 +255,7 @@ export function parseRecordsQuery(params: Record<string, string>, kind?: string 
     aggregate: [],
     running: [],
     before: before ? { field: by ?? RECORDS_QUERY.sortDefault, date: before } : null,
+    expand: [...new Set((params.expand ?? ``).split(`,`).map((f) => f.trim()).filter(Boolean))],
   }
 }
 
@@ -292,7 +307,7 @@ function parseCondition(entry: unknown, at: string, issues: RecordsQueryIssue[])
   return { field, op, value: op === `between` ? (values as string[]) : values[0]! }
 }
 
-const QUERY_KEYS: readonly string[] = [`from`, `app`, `mine`, `user`, `where`, `sort`, `limit`, `sum`, `month`, `group`, `aggregate`, `running`, `before`]
+const QUERY_KEYS: readonly string[] = [`from`, `app`, `mine`, `user`, `where`, `sort`, `limit`, `sum`, `month`, `group`, `aggregate`, `running`, `before`, `expand`]
 
 /** VAPP-190: the JSON form (a package's `queries`, the `q` param) → the
  *  query and every problem with it (a problem drops the part, the rest
@@ -426,6 +441,16 @@ export function parseRecordsJson(json: unknown, kind?: string | null): { query: 
     if (typeof b === `string`) query.before = trimmed(b) ? { field: implied, date: b.trim() } : null
     else if (isObject(b) && typeof b.field === `string` && b.field.trim() && typeof b.date === `string`) query.before = b.date.trim() ? { field: b.field.trim(), date: b.date.trim() } : null
     else issues.push({ path: `/before`, message: `before is a date or {field, date}` })
+  }
+  // eApps R5 (VAPP-219): the ref fields to inline.
+  if (json.expand !== undefined) {
+    if (!Array.isArray(json.expand)) issues.push({ path: `/expand`, message: `expand is a list of ref fields` })
+    else
+      json.expand.forEach((entry, i) => {
+        if (typeof entry !== `string` || !entry.trim()) return void issues.push({ path: `/expand/${i}`, message: `an expanded field is a non-empty string` })
+        if (query.expand.includes(entry.trim())) return void issues.push({ path: `/expand/${i}`, message: `duplicate expand ${entry.trim()}` })
+        query.expand.push(entry.trim())
+      })
   }
   return { query, issues }
 }
@@ -685,6 +710,38 @@ export function kindComputed(records: unknown, kind: string | null | undefined):
   return Object.keys(out).length ? out : undefined
 }
 
+/** eApps R5 (VAPP-219): a package's refs of `kind` (`records.<kind>.refs`,
+ *  the well-formed ones); undefined = none. What a host passes as `refs`. */
+export function kindRefs(records: unknown, kind: string | null | undefined): Record<string, RecordRefTarget> | undefined {
+  const def = kind && isObject(records) && Object.prototype.hasOwnProperty.call(records, kind) ? records[kind] : undefined
+  if (!isObject(def) || !isObject(def.refs)) return undefined
+  const out: Record<string, RecordRefTarget> = {}
+  for (const [name, target] of Object.entries(def.refs)) {
+    if (target === `issue` || target === `member`) out[name] = target
+    else if (isObject(target) && typeof target.kind === `string` && target.kind) out[name] = { kind: target.kind }
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+/** A record as a value row: its data and the row keys (`author` = the name). */
+function valueRow(row: RecordRow, names: Record<string, string> | undefined): Record<string, unknown> {
+  const author = recordAuthor(row)
+  return { ...row.data, id: row.id, createdAt: row.createdAt, updatedAt: row.updatedAt, createdBy: row.createdBy, authorId: author, author: (author && names?.[author]) || `` }
+}
+
+/** eApps R5 (VAPP-219): one ref's value inlined: a record of the target kind
+ *  among `rows` (as a value row, its own refs not followed), an issue summary
+ *  from `ctx.issues`, a member `{id, name}` from `ctx.names`; a dangling ref
+ *  (deleted, unknown, not readable here) and an empty one read null. */
+function expandedRef(target: RecordRefTarget, value: unknown, byId: () => Map<string, RecordRow>, ctx: RecordsContext): unknown {
+  const id = typeof value === `string` ? value : typeof value === `number` ? String(value) : ``
+  if (!id) return null
+  if (target === `issue`) return ctx.issues && Object.prototype.hasOwnProperty.call(ctx.issues, id) ? ctx.issues[id] : null
+  if (target === `member`) return ctx.names && Object.prototype.hasOwnProperty.call(ctx.names, id) ? { id, name: ctx.names[id] } : null
+  const row = byId().get(id)
+  return row && row.kind === target.kind ? valueRow(row, ctx.names) : null
+}
+
 /** VAPP-214 (Q3): `rows` with the computed fields of `kind` written into
  *  each of its rows' data (other kinds' rows as they are). A field reads
  *  the row's data and the row keys by name (a missing one = null); it never
@@ -719,7 +776,12 @@ export function withComputed(rows: readonly RecordRow[], kind: string, computed:
 export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ctx: RecordsContext): RecordsValue | null {
   if (!query.from) return null
   const now = ctx.now ?? new Date().toISOString()
+  const all = rows
   rows = withComputed(rows, query.from, ctx.computed, now)
+  // eApps R5: the expanded fields that are refs of the kind (another name stays as stored).
+  const expand = query.expand.flatMap((name) => (ctx.refs && Object.prototype.hasOwnProperty.call(ctx.refs, name) ? [{ name, target: ctx.refs[name]! }] : []))
+  let index: Map<string, RecordRow> | null = null
+  const byId = () => (index ??= new Map(all.map((r) => [r.id, r])))
   const view = query.month
   const today = ctx.today && /^\d{4}-\d{2}-\d{2}$/.test(ctx.today) ? ctx.today : now.slice(0, 10)
   const monthKey = view ? (view.key ?? today.slice(0, 7)) : null
@@ -757,16 +819,8 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
   const rowRunning = query.running.length && !query.group.length ? seeded() : null
   const out: RecordsValue = {
     rows: matched.slice(0, query.limit).map((row) => {
-      const author = recordAuthor(row)
-      const value: Record<string, unknown> = {
-        ...row.data,
-        id: row.id,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-        createdBy: row.createdBy,
-        authorId: author,
-        author: (author && ctx.names?.[author]) || ``,
-      }
+      const value = valueRow(row, ctx.names)
+      for (const e of expand) value[e.name] = expandedRef(e.target, row.data[e.name], byId, ctx)
       if (rowRunning) {
         rowRunning.add(row)
         value.running = rowRunning.read()

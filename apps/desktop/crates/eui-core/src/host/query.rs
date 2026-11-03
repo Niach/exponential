@@ -34,7 +34,7 @@ pub const RECORDS_ORDER_DEFAULT: &str = "desc";
 pub const RECORDS_LIMIT_DEFAULT: u32 = 100;
 pub const RECORDS_LIMIT_MAX: u32 = 500;
 /// Query keys with a meaning of their own; never a field filter.
-pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "before", "by", "limit", "mine", "month", "order", "q", "query", "sort", "sum", "user"];
+pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "before", "by", "expand", "limit", "mine", "month", "order", "q", "query", "sort", "sum", "user"];
 /// The keys every value row carries next to its data (a data key never shadows one).
 pub const RECORDS_ROW_KEYS: &[&str] = &["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"];
 /// The filter operators: `eq` is the bare key, the others a `.<op>` suffix
@@ -264,6 +264,10 @@ pub struct RecordsQuery {
     pub running: Vec<RecordsRunning>,
     #[serde(default)]
     pub before: Option<RecordsBefore>,
+    /// eApps R5 (VAPP-219): ref fields whose target is inlined into every
+    /// row (`records.<kind>.refs`, one level).
+    #[serde(default)]
+    pub expand: Vec<String>,
 }
 
 impl Default for RecordsQuery {
@@ -283,6 +287,7 @@ impl Default for RecordsQuery {
             aggregate: Vec::new(),
             running: Vec::new(),
             before: None,
+            expand: Vec::new(),
         }
     }
 }
@@ -409,6 +414,15 @@ pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>
         sum: trimmed(params.get("sum").map(String::as_str)),
         before: before.map(|date| RecordsBefore { field: by.clone().unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string()), date }),
         month: by.map(|field| RecordsMonthView { field, key: params.get("month").filter(|m| is_month_key(m)).cloned() }),
+        expand: {
+            let mut out: Vec<String> = Vec::new();
+            for f in params.get("expand").map(String::as_str).unwrap_or("").split(',').map(js_trim).filter(|f| !f.is_empty()) {
+                if !out.iter().any(|o| o == f) {
+                    out.push(f.to_string());
+                }
+            }
+            out
+        },
         ..RecordsQuery::default()
     }
 }
@@ -469,7 +483,7 @@ fn parse_condition(entry: &Value, at: &str, issues: &mut Vec<RecordsQueryIssue>)
     Some(RecordsFilter { field: field.to_string(), op, value })
 }
 
-const QUERY_KEYS: &[&str] = &["from", "app", "mine", "user", "where", "sort", "limit", "sum", "month", "group", "aggregate", "running", "before"];
+const QUERY_KEYS: &[&str] = &["from", "app", "mine", "user", "where", "sort", "limit", "sum", "month", "group", "aggregate", "running", "before", "expand"];
 
 fn sorted_keys(map: &Map<String, Value>) -> Vec<&String> {
     let mut keys: Vec<&String> = map.keys().collect();
@@ -679,6 +693,20 @@ pub fn parse_records_json(json: &Value, kind: Option<&str>) -> (RecordsQuery, Ve
             }
         }
     }
+    // eApps R5 (VAPP-219): the ref fields to inline.
+    match obj.get("expand") {
+        None => {}
+        Some(Value::Array(list)) => {
+            for (i, entry) in list.iter().enumerate() {
+                match entry.as_str().map(js_trim).filter(|f| !f.is_empty()) {
+                    None => issue(&mut issues, format!("/expand/{i}"), "an expanded field is a non-empty string"),
+                    Some(f) if query.expand.iter().any(|e| e == f) => issue(&mut issues, format!("/expand/{i}"), format!("duplicate expand {f}")),
+                    Some(f) => query.expand.push(f.to_string()),
+                }
+            }
+        }
+        Some(_) => issue(&mut issues, "/expand", "expand is a list of ref fields"),
+    }
     (query, issues)
 }
 
@@ -785,6 +813,68 @@ pub struct RecordsContext<'a> {
     /// VAPP-214 (Q3): the queried kind's computed fields (`records.<kind>.computed`:
     /// name → CEL), evaluated on every row of the kind before the query.
     pub computed: Option<&'a BTreeMap<String, String>>,
+    /// eApps R5 (VAPP-219): the queried kind's refs (`records.<kind>.refs`:
+    /// field → `{kind}` | `"issue"` | `"member"`), what `expand` follows.
+    pub refs: Option<&'a Value>,
+    /// eApps R5: identifier → the issue summary an `issue` ref expands to.
+    pub issues: Option<&'a Map<String, Value>>,
+}
+
+/// eApps R5 (VAPP-219): a package's refs of `kind` (`records.<kind>.refs`,
+/// the well-formed ones); `None` = none. What a host passes as `refs`.
+pub fn kind_refs(records: Option<&Value>, kind: Option<&str>) -> Option<Value> {
+    let def = records?.as_object()?.get(kind?)?.as_object()?;
+    let mut out = Map::new();
+    for (name, target) in def.get("refs")?.as_object()? {
+        match target {
+            Value::String(t) if t == "issue" || t == "member" => {
+                out.insert(name.clone(), target.clone());
+            }
+            Value::Object(o) => {
+                if let Some(k) = o.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty()) {
+                    out.insert(name.clone(), json!({ "kind": k }));
+                }
+            }
+            _ => {}
+        }
+    }
+    (!out.is_empty()).then_some(Value::Object(out))
+}
+
+/// A record as a value row: its data and the row keys (`author` = the name).
+fn value_row(row: &RecordRowRef, names: &HashMap<String, String>) -> Map<String, Value> {
+    let mut obj: Map<String, Value> = row.data.as_object().cloned().unwrap_or_default();
+    obj.insert("id".into(), json!(row.id));
+    obj.insert("createdAt".into(), json!(row.created_at));
+    obj.insert("updatedAt".into(), json!(row.updated_at));
+    obj.insert("createdBy".into(), json!(row.created_by));
+    obj.insert("authorId".into(), json!(row.author()));
+    let author = row.author().and_then(|a| names.get(a)).cloned().unwrap_or_default();
+    obj.insert("author".into(), json!(author));
+    obj
+}
+
+/// eApps R5 (VAPP-219): one ref's value inlined: a record of the target kind
+/// among the rows (as a value row, its own refs not followed), an issue
+/// summary from `ctx.issues`, a member `{id, name}` from `ctx.names`; a
+/// dangling ref and an empty one read null.
+fn expanded_ref(target: &Value, value: Option<&Value>, by_id: &HashMap<&str, &RecordRowRef>, ctx: &RecordsContext) -> Value {
+    let id = match value {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => number_to_string(n.as_f64().unwrap_or(0.0)),
+        _ => String::new(),
+    };
+    if id.is_empty() {
+        return Value::Null;
+    }
+    match target {
+        Value::String(t) if t == "issue" => ctx.issues.and_then(|m| m.get(&id)).cloned().unwrap_or(Value::Null),
+        Value::String(t) if t == "member" => ctx.names.get(&id).map_or(Value::Null, |name| json!({ "id": id, "name": name })),
+        _ => {
+            let kind = target.get("kind").and_then(Value::as_str).unwrap_or("");
+            by_id.get(id.as_str()).filter(|r| r.kind == kind).map_or(Value::Null, |r| Value::Object(value_row(r, ctx.names)))
+        }
+    }
 }
 
 /// VAPP-214 (Q3): at most this many computed fields per kind.
@@ -1268,13 +1358,22 @@ fn sorted<'r, 'a>(rows: Vec<&'r RecordRowRef<'a>>, sort: &[RecordsSortKey]) -> V
 /// month?, groups?, totals?, before?}: the matches sorted (ties by id) then
 /// cut at the limit, `count` and `sum` before the limit.
 pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsContext) -> Option<Value> {
+    records_value_in(rows, rows, query, ctx)
+}
+
+/// [`records_value`] with `all` = the rows refs resolve against (before the
+/// computed fields are written).
+fn records_value_in(all: &[RecordRowRef], rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsContext) -> Option<Value> {
     let kind = query.from.as_deref()?;
     // VAPP-214: the computed fields ride in each row's data from here on.
     if let Some(computed) = ctx.computed.filter(|c| !c.is_empty()) {
         let data = computed_data(rows, kind, computed, ctx.now);
         let rows: Vec<RecordRowRef> = rows.iter().zip(&data).map(|(row, d)| RecordRowRef { data: d.as_ref().unwrap_or(row.data), ..*row }).collect();
-        return records_value(&rows, query, RecordsContext { computed: None, ..ctx });
+        return records_value_in(all, &rows, query, RecordsContext { computed: None, ..ctx });
     }
+    // eApps R5: the expanded fields that are refs of the kind (another name stays as stored).
+    let expand: Vec<(&str, &Value)> = query.expand.iter().filter_map(|name| ctx.refs.and_then(|r| r.get(name)).map(|t| (name.as_str(), t))).collect();
+    let by_id: HashMap<&str, &RecordRowRef> = if expand.is_empty() { HashMap::new() } else { all.iter().map(|r| (r.id, r)).collect() };
     let view = query.month.as_ref();
     let today: &str = ctx.today.filter(|t| is_day_text(t)).unwrap_or_else(|| prefix_str(ctx.now, 10));
     let month_key: Option<String> = view.map(|v| v.key.clone().unwrap_or_else(|| prefix(today, 7)));
@@ -1330,14 +1429,10 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
         .iter()
         .take(query.limit as usize)
         .map(|row| {
-            let mut obj: Map<String, Value> = row.data.as_object().cloned().unwrap_or_default();
-            obj.insert("id".into(), json!(row.id));
-            obj.insert("createdAt".into(), json!(row.created_at));
-            obj.insert("updatedAt".into(), json!(row.updated_at));
-            obj.insert("createdBy".into(), json!(row.created_by));
-            obj.insert("authorId".into(), json!(row.author()));
-            let author = row.author().and_then(|a| ctx.names.get(a)).cloned().unwrap_or_default();
-            obj.insert("author".into(), json!(author));
+            let mut obj = value_row(row, ctx.names);
+            for (name, target) in &expand {
+                obj.insert((*name).to_string(), expanded_ref(target, row.data.get(*name), &by_id, &ctx));
+            }
             if let Some(r) = row_running.as_mut() {
                 r.add(row);
                 obj.insert("running".into(), r.read());

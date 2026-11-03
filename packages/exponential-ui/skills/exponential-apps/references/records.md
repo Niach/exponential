@@ -4,7 +4,7 @@
 
 ## Records
 
-An app's own data. `records: {<kind>: {schema, title?, description?, policy?, computed?}}`
+An app's own data. `records: {<kind>: {schema, title?, description?, policy?, computed?, refs?}}`
 declares every kind (VAPP-122: the kind pattern, the JSON Schema subset and
 the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
@@ -80,6 +80,24 @@ them: the clients' records query (`recordsValue(rows, query, {…, computed})`,
 the FFI context's `computed`; `kindComputed(records, kind)` picks a kind's)
 and Exponential's server (the records list, MCP and the broker's reads).
 
+**Refs** (eApps R5, VAPP-219; `fixtures/records-query.json` VAPP-219
+cases, `fixtures/host-router.json` `acme.crm` / `acme.badrefs`): string
+fields that hold an id, so a kind points at another instead of nesting:
+
+```jsonc
+"refs": { "customer": { "kind": "company" }, "owner": "member", "task": "issue" }
+```
+
+`{kind}` = a record of that kind of the same app (cross-app refs are out),
+`"issue"` = an issue of the team by identifier (`EXP-12`), `"member"` = a
+member of the team by user id. At install, issues at `/records/<kind>/refs/<field>`:
+the field is a declared `string` field, a `{kind}` names a declared kind.
+The host validates every write: a ref that does not resolve (no live record
+of that kind in the app, no such issue or member in the team) refuses the
+write (Exponential: BAD_REQUEST naming the field). A read follows a ref with
+`expand` (below); deleting the target never cascades: the ref dangles and
+an expanded one reads null.
+
 **Read** = the binding source `records:<kind>[?query]`. The value is
 `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`
 (`authorId` = the row's author, `authorId ?? createdBy`):
@@ -101,6 +119,7 @@ structured query, below):
 | `<field>.in=a,b` | the field (as text) is one of the comma-separated values |
 | `<field>.between=lo,hi` | inclusive, numbers when both parse, else text |
 | `before=<date>` | the rows whose date (`by`'s field, else `createdAt`) is before it leave the rows and are totalled into `before` |
+| `expand=<field>[,<field>]` | eApps R5: each ref field reads its target inlined (below) |
 | `q=<json>` | the JSON form below (the other params are ignored) |
 | `query=<name>` | one of the package's `queries` (below) |
 
@@ -134,9 +153,21 @@ pointer) drops that part; the rest still runs.
   "running": { "hours": "sum" },                    // sum count avg min max, cumulative
   "before": "2026-10-01",                           // or {field, date}
   "sort": [["date", "desc"]], "limit": 500,         // also mine, user, app, sum, month: {field, key?}
+  "expand": ["customer"],                           // ref fields inlined (eApps R5)
 }
 ```
 
+- `expand: [field…]` (eApps R5): every output row carries each named REF's
+  target in place of its id, one level: a `{kind}` ref = that record as a
+  row (`{…data, id, createdAt, updatedAt, createdBy, authorId, author}`, its
+  own refs not followed), an `issue` ref = the issue's summary `{id,
+  identifier, title, status}`, a `member` ref = `{id, name}`. A dangling ref
+  (deleted, unknown, not readable by the viewer) and an empty one read null;
+  a name that is not a ref of the kind stays as stored. Filters, sorts and
+  groups read the stored id; groups and totals are never expanded. The host
+  hands the evaluator the kind's refs (`kindRefs(records, kind)`, the FFI
+  context's `refs`) and the issue summaries (context `issues`, by
+  identifier); a named query's `expand` must name refs of its `from`.
 - `groups`: one object per group: its columns (`author` = the author's name
   plus `authorId`; a bucket = `2026-10-05`, `2026-W41` (ISO), `2026-10`,
   `2026-Q4`, `2026`, null without a date that precise; any other field its
