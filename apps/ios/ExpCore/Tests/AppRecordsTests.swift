@@ -207,6 +207,7 @@ final class AppRecordsTests: XCTestCase {
         typealias T = AppRecords.DataTab.TestIds
         XCTAssertEqual(tab["testIds"] as? [String: String], [
             "kind": T.kind, "add": T.add, "row": T.row, "menu": T.menu, "form": T.form, "save": T.save, "error": T.error,
+            "history": T.history, "historyRow": T.historyRow, "restore": T.restore,
         ])
         XCTAssertEqual(C.kindOption("entry", count: 2), "entry · 2")
         XCTAssertEqual(C.newTitle("entry"), "New entry")
@@ -351,6 +352,110 @@ final class AppRecordsTests: XCTestCase {
             )
             XCTAssertEqual(result.defaultAuthor, item["default"] as? String, name)
             XCTAssertEqual(result.send, item["send"] as? String, name)
+        }
+    }
+
+    // MARK: - Record history + undo (VAPP-215, fixture `history`)
+
+    private func history() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["history"] as? [String: Any])
+    }
+
+    private func historyCases(_ key: String) throws -> [[String: Any]] {
+        let list = try XCTUnwrap(try history()[key] as? [[String: Any]], key)
+        XCTAssertFalse(list.isEmpty, key)
+        return list
+    }
+
+    /// A fixture object (null = nil).
+    private func object(_ value: Any?) -> [String: CardJSON]? {
+        value is NSNull ? nil : json(value).objectValue
+    }
+
+    private func event(_ item: [String: Any]) -> AppRecords.RecordEvent {
+        AppRecords.RecordEvent(
+            id: item["id"] as? String ?? "",
+            op: item["op"] as? String ?? "",
+            actor: item["actor"] as? String,
+            before: object(item["before"]),
+            patch: object(item["patch"]),
+            createdAt: item["createdAt"] as? String ?? ""
+        )
+    }
+
+    func testHistoryConstantsMatchTheFixture() throws {
+        let h = try history()
+        typealias H = AppRecords.History
+        typealias C = AppRecords.History.Copy
+        XCTAssertEqual(h["undoSeconds"] as? Double, H.undoSeconds)
+        XCTAssertEqual(h["retentionDays"] as? Int, H.retentionDays)
+        XCTAssertEqual(h["batch"] as? Int, H.batch)
+        XCTAssertEqual(h["historyLimit"] as? Int, H.historyLimit)
+        XCTAssertEqual(h["maxFields"] as? Int, H.maxFields)
+        XCTAssertEqual(h["ops"] as? [String], H.ops)
+        XCTAssertEqual(h["vias"] as? [String], H.vias)
+        XCTAssertEqual(h["copy"] as? [String: String], [
+            "history": C.history, "restore": C.restore, "undo": C.undo, "created": C.created,
+            "deleted": C.deleted, "restored": C.restored, "changed": C.changed, "more": C.more,
+            "saved": C.saved, "empty": C.empty, "undoCreate": C.undoCreate, "undoUpdate": C.undoUpdate,
+            "undoDelete": C.undoDelete, "undoBatch": C.undoBatch, "undoVerb": C.undoVerb, "undoThing": C.undoThing,
+        ])
+        XCTAssertEqual(AppRecords.undoTitle(.create), C.undoCreate)
+        XCTAssertEqual(AppRecords.undoTitle(.update), C.undoUpdate)
+        XCTAssertEqual(AppRecords.undoTitle(.delete), C.undoDelete)
+        XCTAssertEqual(AppRecords.undoTitle(.batch), C.undoBatch)
+    }
+
+    func testHistoryStateCases() throws {
+        for item in try historyCases("stateCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let e = event(try XCTUnwrap(item["event"] as? [String: Any], name))
+            XCTAssertEqual(AppRecords.eventState(e), object(item["state"]), name)
+        }
+    }
+
+    func testHistoryInverseCases() throws {
+        for item in try historyCases("inverseCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let e = event(try XCTUnwrap(item["event"] as? [String: Any], name))
+            let inverse = try XCTUnwrap(item["inverse"] as? [String: Any], name)
+            let expected: AppRecords.InverseWrite
+            if inverse["op"] as? String == "delete" {
+                expected = .delete
+            } else {
+                expected = .restore(try XCTUnwrap(object(inverse["data"]), name))
+            }
+            XCTAssertEqual(AppRecords.inverseWrite(e), expected, name)
+        }
+    }
+
+    func testHistoryLabelCases() throws {
+        for item in try historyCases("labelCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let e = event(try XCTUnwrap(item["event"] as? [String: Any], name))
+            XCTAssertEqual(AppRecords.eventLabel(e), item["label"] as? String, name)
+        }
+    }
+
+    func testHistoryRowsCases() throws {
+        for item in try historyCases("rowsCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let events = try XCTUnwrap(item["events"] as? [[String: Any]], name).map { event($0) }
+            let rows = AppRecords.historyRows(
+                events,
+                names: try XCTUnwrap(item["names"] as? [String: String], name),
+                fallback: try XCTUnwrap(item["fallback"] as? String, name)
+            )
+            let expected = try XCTUnwrap(item["rows"] as? [[String: Any]], name).map {
+                AppRecords.HistoryRow(
+                    id: $0["id"] as? String ?? "",
+                    label: $0["label"] as? String ?? "",
+                    who: $0["who"] as? String ?? "",
+                    at: $0["at"] as? String ?? "",
+                    restorable: $0["restorable"] as? Bool ?? false
+                )
+            }
+            XCTAssertEqual(rows, expected, name)
         }
     }
 }

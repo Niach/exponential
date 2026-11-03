@@ -24,6 +24,8 @@ data class ToastItem(
     val title: String,
     val description: String? = null,
     val action: ToastAction? = null,
+    /** VAPP-215: how long it stays (null = [ToastStack.Constants.DURATION_MS]; the Undo toast's 10 s). */
+    val durationMs: Long? = null,
 )
 
 object ToastStack {

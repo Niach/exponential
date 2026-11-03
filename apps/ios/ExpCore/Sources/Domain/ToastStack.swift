@@ -33,19 +33,24 @@ public struct ToastItem: Identifiable, Sendable, Equatable {
     public let title: String
     public let description: String?
     public let action: ToastAction?
+    /// The auto-dismiss clock (nil = `Constants.durationMs`; VAPP-215: the
+    /// records Undo toast stays `undoSeconds`).
+    public let durationMs: Int?
 
     public init(
         id: UUID = UUID(),
         kind: ToastKind,
         title: String,
         description: String? = nil,
-        action: ToastAction? = nil
+        action: ToastAction? = nil,
+        durationMs: Int? = nil
     ) {
         self.id = id
         self.kind = kind
         self.title = title
         self.description = description
         self.action = action
+        self.durationMs = durationMs
     }
 
     public static func == (lhs: ToastItem, rhs: ToastItem) -> Bool {

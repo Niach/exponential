@@ -160,6 +160,8 @@ class AppRecordsTest {
             "kind" to AppRecords.DataTestIds.KIND, "add" to AppRecords.DataTestIds.ADD, "row" to AppRecords.DataTestIds.ROW,
             "menu" to AppRecords.DataTestIds.MENU, "form" to AppRecords.DataTestIds.FORM,
             "save" to AppRecords.DataTestIds.SAVE, "error" to AppRecords.DataTestIds.ERROR,
+            "history" to AppRecords.DataTestIds.HISTORY, "historyRow" to AppRecords.DataTestIds.HISTORY_ROW,
+            "restore" to AppRecords.DataTestIds.RESTORE,
         )
         assertEquals(ids.obj!!.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(key, ids[key]!!.string, value)
@@ -305,5 +307,85 @@ class AppRecordsTest {
         assertEquals("2026-10-23", AppRecords.rowTitle(columns, row))
         assertEquals("6 · a, b", AppRecords.rowSubtitle(columns, row))
         assertEquals(AppRecords.DataCopy.EMPTY_TITLE, AppRecords.rowTitle(listOf("note"), row))
+    }
+
+    // VAPP-215: record history + undo (`history`).
+    private val history = fixture["history"]!!
+
+    private fun historyCases(key: String): List<JsonValue> = history[key]!!.array!!.also { assert(it.isNotEmpty()) }
+
+    private fun dataOf(v: JsonValue?): Map<String, JsonValue>? = v?.obj
+
+    private fun event(v: JsonValue): AppRecords.RecordEvent = AppRecords.RecordEvent(
+        id = v["id"]?.string ?: "",
+        op = v["op"]!!.string!!,
+        before = dataOf(v["before"]),
+        patch = dataOf(v["patch"]),
+        actor = v["actor"]?.string,
+        createdAt = v["createdAt"]?.string ?: "",
+    )
+
+    /** Numbers by value (2 == 2.0). */
+    private fun assertData(name: String, expected: Map<String, JsonValue>?, actual: Map<String, JsonValue>?) {
+        if (expected == null || actual == null) return assertEquals(name, expected, actual)
+        assert(AppRecords.jsonEqual(JsonValue.Obj(expected), JsonValue.Obj(actual))) { "$name: $expected != $actual" }
+    }
+
+    @Test
+    fun `the history constants match the fixture`() {
+        assertEquals(history["undoSeconds"]!!.number!!.toInt(), AppRecords.History.UNDO_SECONDS)
+        assertEquals(history["retentionDays"]!!.number!!.toInt(), AppRecords.History.RETENTION_DAYS)
+        assertEquals(history["batch"]!!.number!!.toInt(), AppRecords.History.BATCH)
+        assertEquals(history["historyLimit"]!!.number!!.toInt(), AppRecords.History.HISTORY_LIMIT)
+        assertEquals(history["maxFields"]!!.number!!.toInt(), AppRecords.History.MAX_FIELDS)
+        assertEquals(strings(history["ops"]), AppRecords.History.OPS)
+        assertEquals(strings(history["vias"]), AppRecords.History.VIAS)
+        val c = AppRecords.HistoryCopy
+        val expected = mapOf(
+            "history" to c.HISTORY, "restore" to c.RESTORE, "undo" to c.UNDO, "created" to c.CREATED,
+            "deleted" to c.DELETED, "restored" to c.RESTORED, "changed" to c.CHANGED, "more" to c.MORE,
+            "saved" to c.SAVED, "empty" to c.EMPTY, "undoCreate" to c.UNDO_CREATE, "undoUpdate" to c.UNDO_UPDATE,
+            "undoDelete" to c.UNDO_DELETE, "undoBatch" to c.UNDO_BATCH, "undoVerb" to c.UNDO_VERB, "undoThing" to c.UNDO_THING,
+        )
+        assertEquals(params(history["copy"]), expected)
+        assertEquals(c.UNDO_CREATE, AppRecords.undoTitle("create"))
+        assertEquals(c.UNDO_UPDATE, AppRecords.undoTitle("update"))
+        assertEquals(c.UNDO_DELETE, AppRecords.undoTitle("delete"))
+        assertEquals(c.UNDO_BATCH, AppRecords.undoTitle("batch"))
+    }
+
+    @Test
+    fun `eventState replays stateCases`() {
+        for (c in historyCases("stateCases")) {
+            assertData(c["name"]!!.string!!, dataOf(c["state"]), AppRecords.eventState(event(c["event"]!!)))
+        }
+    }
+
+    @Test
+    fun `inverseWrite replays inverseCases`() {
+        for (c in historyCases("inverseCases")) {
+            val name = c["name"]!!.string!!
+            val got = AppRecords.inverseWrite(event(c["event"]!!))
+            assertEquals(name, c["inverse"]!!["op"]!!.string, got.op)
+            assertData(name, dataOf(c["inverse"]!!["data"]), got.data)
+        }
+    }
+
+    @Test
+    fun `eventLabel replays labelCases`() {
+        for (c in historyCases("labelCases")) {
+            assertEquals(c["name"]!!.string, c["label"]!!.string, AppRecords.eventLabel(event(c["event"]!!)))
+        }
+    }
+
+    @Test
+    fun `historyRows replays rowsCases`() {
+        for (c in history["rowsCases"]!!.array!!) {
+            val rows = AppRecords.historyRows(c["events"]!!.array!!.map(::event), params(c["names"]), c["fallback"]!!.string!!)
+            val expected = c["rows"]!!.array!!.map {
+                AppRecords.HistoryRow(it["id"]!!.string!!, it["label"]!!.string!!, it["who"]!!.string!!, it["at"]!!.string!!, it["restorable"]!!.bool!!)
+            }
+            assertEquals(c["name"]!!.string, expected, rows)
+        }
     }
 }

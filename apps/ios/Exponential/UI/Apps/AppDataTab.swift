@@ -20,6 +20,9 @@ import SwiftUI
 /// only its author or a team owner) keeps its `…`, DISABLED.
 /// VAPP-188: phones show no `by` cell (the wide table's); an OWNER's form
 /// leads with the Author picker (`AppDataAuthorPicker`).
+/// VAPP-215 (fixture `history`): every add / save / delete toasts Undo for
+/// `undoSeconds` s (`AppRecordUndo`); Edit lists the record's History (who ·
+/// when · what) with Restore on older rows.
 struct AppDataTab: View {
     let app: AppListEntry
 
@@ -76,7 +79,7 @@ struct AppDataTab: View {
         .background {
             Color.clear
                 .sheet(item: $form) { target in
-                    AppRecordFormSheet(appId: app.id, target: target, author: model.authorPicker)
+                    AppRecordFormSheet(appId: app.id, target: target, author: model.authorPicker, names: model.names)
                 }
         }
         .background {
@@ -239,13 +242,57 @@ struct AppDataTab: View {
         let appId = app.id
         Task {
             do {
-                try await api.recordsDelete(accountId: account, appId: appId, recordId: target.row.id)
+                let result = try await api.recordsDelete(
+                    accountId: account, appId: appId, recordId: target.row.id, via: "editor"
+                )
+                // VAPP-215: Undo for 10 s.
+                AppRecordUndo.toast(
+                    .delete, appId: appId, eventIds: result.eventId.map { [$0] } ?? [], via: "editor",
+                    accountId: account, api: api, toaster: toaster
+                )
             } catch {
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "delete", thing: "the record"),
                     description: error.trpcUserMessage
                 )
             }
+        }
+    }
+}
+
+/// VAPP-215 (fixture `history`): the Undo toast a UI records write raises
+/// (the Data tab's add / save / delete, a package action's batch): THE
+/// success toast + its action `Undo` for `undoSeconds` s. Undo =
+/// `apps.records.undo` (each event's `before` as a new write); a refusal =
+/// the failed-action toast `Couldn't undo the change` (web `record-undo.ts`).
+@MainActor
+enum AppRecordUndo {
+    /// Toast `write` with Undo; no events (a batch that changed nothing) = no toast.
+    static func toast(
+        _ write: AppRecords.UndoWrite, appId: String, eventIds: [String], via: String,
+        accountId: String, api: AppsApi, toaster: Toaster
+    ) {
+        guard !eventIds.isEmpty else { return }
+        toaster.success(
+            AppRecords.undoTitle(write),
+            action: ToastAction(label: AppRecords.History.Copy.undo) {
+                Task { @MainActor in
+                    await undo(appId: appId, eventIds: eventIds, via: via, accountId: accountId, api: api, toaster: toaster)
+                }
+            },
+            durationMs: Int(AppRecords.History.undoSeconds * 1000)
+        )
+    }
+
+    /// Run the undo; a refusal is the failed-action toast.
+    static func undo(appId: String, eventIds: [String], via: String, accountId: String, api: AppsApi, toaster: Toaster) async {
+        do {
+            try await api.recordsUndo(accountId: accountId, appId: appId, eventIds: eventIds, via: via)
+        } catch {
+            toaster.error(
+                FeedbackStates.Errors.title(verb: AppRecords.History.Copy.undoVerb, thing: AppRecords.History.Copy.undoThing),
+                description: error.trpcUserMessage
+            )
         }
     }
 }
@@ -324,10 +371,17 @@ struct AppDataRowMenuSheet: View {
 /// select control (required, no None) over the members by name, defaulting
 /// to `formAuthor(...).defaultAuthor`; Save sends `author` only when
 /// `formAuthor(...).send` names one. A `notMember` BAD_REQUEST = inline.
+/// VAPP-215: EDIT lists the record's History under the fields
+/// (`apps.records.history`, read on appear): one row per event, newest
+/// first (`AppRecords.historyRows`), `who · when` muted under the label,
+/// Restore (`apps.records.restore`) on every older row but deletes; none =
+/// `No history yet`. A restore dismisses and toasts Undo.
 struct AppRecordFormSheet: View {
     let appId: String
     let target: AppDataFormTarget
     let author: AppDataAuthorPicker?
+    /// VAPP-215: member names for the History rows.
+    let names: [String: String]
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -338,13 +392,18 @@ struct AppRecordFormSheet: View {
     @State private var error: String?
     /// VAPP-188: the Author picker's pick (a user id; "" = none).
     @State private var pickedAuthor: String
+    /// VAPP-215: the record's events (nil = loading).
+    @State private var events: [AppRecords.RecordEvent]?
+    /// VAPP-215: the event a Restore is running for.
+    @State private var restoring: String?
 
     private let fields: [AppRecords.DataFormField]
 
-    init(appId: String, target: AppDataFormTarget, author: AppDataAuthorPicker? = nil) {
+    init(appId: String, target: AppDataFormTarget, author: AppDataAuthorPicker? = nil, names: [String: String] = [:]) {
         self.appId = appId
         self.target = target
         self.author = author
+        self.names = names
         let base = AppRecords.formAuthor(viewer: author?.viewer, record: target.row, picked: nil).defaultAuthor
         _pickedAuthor = State(initialValue: base ?? "")
         let fields = AppRecords.formFields(target.schema)
@@ -383,6 +442,9 @@ struct AppRecordFormSheet: View {
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier(AppRecords.DataTab.TestIds.error)
+                }
+                if let record = target.row {
+                    historySection(record)
                 }
             }
             .padding(16)
@@ -533,6 +595,101 @@ struct AppRecordFormSheet: View {
         .accessibilityIdentifier(identifier)
     }
 
+    // MARK: - History (VAPP-215)
+
+    @ViewBuilder
+    private func historySection(_ record: AppRecords.Row) -> some View {
+        let rows = events.map { AppRecords.historyRows($0, names: names, fallback: Apps.Copy.byAgent) } ?? []
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(AppRecords.History.Copy.history, loading: events == nil)
+            if events != nil, rows.isEmpty {
+                EmptyState(title: AppRecords.History.Copy.empty, size: .list)
+                    .padding(.vertical, 8)
+            } else if !rows.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(rows, id: \.id) { row in
+                        historyRow(row, recordId: record.id)
+                    }
+                }
+                .glassSection()
+            }
+        }
+        .padding(.top, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AppRecords.DataTab.TestIds.history)
+        .task(id: record.id) { await loadHistory(record.id) }
+    }
+
+    private func historyRow(_ row: AppRecords.HistoryRow, recordId: String) -> some View {
+        let when = RelativeTime.long(wire: row.at)
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(when.isEmpty ? row.who : "\(row.who)\(UserMessageCaption.separator)\(when)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if row.restorable {
+                // The small ghost button (the Versions sheet's Preview).
+                Button { restore(recordId: recordId, eventId: row.id) } label: {
+                    Text(AppRecords.History.Copy.restore)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
+                        .frame(height: GlassPillTokens.heightSm)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(restoring != nil)
+                .opacity(restoring == nil || restoring == row.id ? 1 : 0.45)
+                .accessibilityIdentifier(AppRecords.DataTab.TestIds.restore)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AppRecords.DataTab.TestIds.historyRow)
+    }
+
+    private func loadHistory(_ recordId: String) async {
+        events = nil
+        let loaded = try? await deps.appsApi.recordsHistory(accountId: accountId, appId: appId, recordId: recordId)
+        events = loaded ?? []
+    }
+
+    /// Restore = the record as that event left it, as a new write; then
+    /// dismiss and toast Undo for the events it wrote.
+    private func restore(recordId: String, eventId: String) {
+        guard restoring == nil else { return }
+        restoring = eventId
+        let api = deps.appsApi
+        let account = accountId
+        let appId = appId
+        Task {
+            defer { restoring = nil }
+            do {
+                let result = try await api.recordsRestore(
+                    accountId: account, appId: appId, recordId: recordId, eventId: eventId, via: "editor"
+                )
+                dismiss()
+                AppRecordUndo.toast(
+                    .update, appId: appId, eventIds: result.eventIds, via: "editor",
+                    accountId: account, api: api, toaster: toaster
+                )
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "restore", thing: "the record"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
     // MARK: - Save
 
     private func save() {
@@ -555,10 +712,16 @@ struct AppRecordFormSheet: View {
         Task {
             defer { saving = false }
             do {
-                _ = try await api.recordsUpsert(
-                    accountId: account, appId: appId, kind: kind, data: data, recordId: recordId, author: sendAuthor
+                let result = try await api.recordsUpsert(
+                    accountId: account, appId: appId, kind: kind, data: data, recordId: recordId, author: sendAuthor,
+                    via: "editor"
                 )
                 dismiss()
+                // VAPP-215: Undo for 10 s.
+                AppRecordUndo.toast(
+                    result.created ? .create : .update, appId: appId, eventIds: result.eventId.map { [$0] } ?? [],
+                    via: "editor", accountId: account, api: api, toaster: toaster
+                )
             } catch {
                 if error.trpcErrorCode == "BAD_REQUEST", !error.isPlanLimitError {
                     self.error = error.trpcUserMessage
@@ -613,6 +776,11 @@ final class AppDataModel {
             let level = try? await McpServersApi(trpc: trpc).appAccessMine(accountId: accountId, appId: appId).level
             await MainActor.run { self?.access = level }
         }
+    }
+
+    /// VAPP-215: the team's member names by id (the History rows' `who`).
+    var names: [String: String] {
+        Dictionary(members.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// VAPP-188: a team OWNER's Author picker; nil = no picker (and no

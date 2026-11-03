@@ -40,7 +40,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -516,8 +518,9 @@ class AppEditorViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val body = Json.parseToJsonElement(JsonValue.Obj(data).orderedJson) as JsonObject
-                api.recordsUpsert(accountId, appId, kind, body, recordId, author)
+                val result = api.recordsUpsert(accountId, appId, kind, body, recordId, author, via = "editor")
                 onDone()
+                result.eventId?.let { _undo.tryEmit(RecordUndo(if (result.created) "create" else "update", listOf(it), "editor")) }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 if (!isOfflineError(t) && t is TrpcException && t.code == "BAD_REQUEST" && !t.isPlanLimit) {
@@ -541,14 +544,77 @@ class AppEditorViewModel @Inject constructor(
         _recordDeleting.value = true
         viewModelScope.launch {
             try {
-                api.recordsDelete(accountId, appId, recordId)
+                val result = api.recordsDelete(accountId, appId, recordId, via = "editor")
                 onDone()
+                result.eventId?.let { _undo.tryEmit(RecordUndo("delete", listOf(it), "editor")) }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 onDone()
                 _failure.value = FailedAction("delete", "the record", trpcErrorMessage(t, "")) { deleteRecord(recordId) {} }
             } finally {
                 _recordDeleting.value = false
+            }
+        }
+    }
+
+    private val _undo = MutableSharedFlow<RecordUndo>(extraBufferCapacity = 8)
+    /** VAPP-215: a Data tab write to toast Undo for (the screen raises it, [recordUndo]). */
+    val undo: SharedFlow<RecordUndo> = _undo
+
+    /** VAPP-215: the toast's Undo = `apps.records.undo {id, eventIds, via}`;
+     *  a refusal = the failed-action toast `Couldn't undo the change`. */
+    fun undoRecords(eventIds: List<String>, via: String) {
+        val accountId = auth.activeAccountId.value ?: return
+        viewModelScope.launch {
+            try {
+                api.recordsUndo(accountId, appId, eventIds, via)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction(AppRecords.HistoryCopy.UNDO_VERB, AppRecords.HistoryCopy.UNDO_THING, trpcErrorMessage(t, ""))
+            }
+        }
+    }
+
+    /** VAPP-215: record [recordId]'s History (newest first); a failed read = none. */
+    suspend fun recordHistory(recordId: String): List<AppRecords.RecordEvent> {
+        val accountId = auth.activeAccountId.value ?: return emptyList()
+        return try {
+            api.recordsHistory(accountId, appId, recordId).events.map { e ->
+                AppRecords.RecordEvent(
+                    id = e.id,
+                    op = e.op,
+                    before = e.before?.let { runCatching { JsonValue.parse(it.toString()).obj }.getOrNull() },
+                    patch = e.patch?.let { runCatching { JsonValue.parse(it.toString()).obj }.getOrNull() },
+                    actor = e.actor,
+                    createdAt = e.createdAt,
+                )
+            }
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            emptyList()
+        }
+    }
+
+    private val _recordRestoring = MutableStateFlow<String?>(null)
+    /** VAPP-215: the History event whose Restore is in flight. */
+    val recordRestoring: StateFlow<String?> = _recordRestoring
+
+    /** VAPP-215: History's Restore = `apps.records.restore {id, recordId,
+     *  eventId, via}`; [onDone] closes the form, then the Undo toast. */
+    fun restoreRecord(recordId: String, eventId: String, onDone: () -> Unit) {
+        if (_recordRestoring.value != null) return
+        val accountId = auth.activeAccountId.value ?: return
+        _recordRestoring.value = eventId
+        viewModelScope.launch {
+            try {
+                val result = api.recordsRestore(accountId, appId, recordId, eventId, via = "editor")
+                onDone()
+                _undo.tryEmit(RecordUndo("update", result.eventIds, "editor"))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("restore", "the record", trpcErrorMessage(t, ""))
+            } finally {
+                _recordRestoring.value = null
             }
         }
     }

@@ -282,6 +282,50 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(row!.data).toEqual({ date: `2026-10-05`, hours: 4, note: `meet` })
   })
 
+  // VAPP-215 (R4, app-records.json `history`): every write appends its event
+  // in the write's transaction (under the eapps role); history reads them
+  // newest first; restore + undo are new writes; reading needs read policy.
+  it(`records: history, restore and undo`, async () => {
+    const w = await world()
+    const third = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: third, role: `member` })
+    const appId = (await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })).app.id
+    const api = caller(w.mate).records
+    const made = await api.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3 }, via: `editor` })
+    const saved = await api.upsert({ id: appId, kind: `entry`, data: { hours: 4, note: `meet` }, recordId: made.id, via: `editor` })
+    let { events } = await api.history({ id: appId, recordId: made.id })
+    expect(events.map((e) => [e.op, e.via, e.actor])).toEqual([
+      [`update`, `editor`, w.mate],
+      [`create`, `editor`, w.mate],
+    ])
+    expect(events[0]).toMatchObject({ id: saved.eventId, patch: { hours: 4, note: `meet` }, before: { date: `2026-10-05`, hours: 3 } })
+    // Undo the save = restore before.
+    await api.undo({ id: appId, eventIds: [saved.eventId] })
+    let [row] = await db.select().from(appRecords).where(eq(appRecords.id, made.id))
+    expect(row!.data).toEqual({ date: `2026-10-05`, hours: 3 })
+    // Delete, then undo = live again with its data.
+    const gone = await api.delete({ id: appId, recordId: made.id, via: `editor` })
+    await api.undo({ id: appId, eventIds: [gone.eventId] })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, made.id))
+    expect(row!.deletedAt).toBeNull()
+    // Restore the save's state from History.
+    await api.restore({ id: appId, recordId: made.id, eventId: saved.eventId })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, made.id))
+    expect(row!.data).toEqual({ date: `2026-10-05`, hours: 4, note: `meet` })
+    ;({ events } = await api.history({ id: appId, recordId: made.id }))
+    expect(events.map((e) => e.op)).toEqual([`restore`, `restore`, `delete`, `restore`, `update`, `create`])
+    // Another member reads the history (read: member) but may not restore (update: author).
+    expect((await caller(third).records.history({ id: appId, recordId: made.id })).events).toHaveLength(6)
+    await expect(caller(third).records.restore({ id: appId, recordId: made.id, eventId: saved.eventId })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // Undo a create = delete; a package action's batch logs `action`.
+    const batch = await api.batch({ id: appId, writes: [{ op: `upsert`, kind: `entry`, data: { date: `2026-10-06`, hours: 1 } }] })
+    expect(batch.eventIds).toHaveLength(1)
+    expect((await api.history({ id: appId, recordId: batch.ids[0]! })).events[0]).toMatchObject({ op: `create`, via: `action` })
+    await api.undo({ id: appId, eventIds: batch.eventIds })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, batch.ids[0]!))
+    expect(row!.deletedAt).not.toBeNull()
+  })
+
   // VAPP-187 (app-records.json `ownership`): only the record's author or a
   // team owner patches or deletes it; anyone else = FORBIDDEN, row untouched.
   it(`records: only the author or a team owner may patch or delete a record`, async () => {

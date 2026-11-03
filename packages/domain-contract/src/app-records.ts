@@ -271,3 +271,100 @@ export function formAuthor(
   const base = record ? recordAuthor(record) : viewer
   return { default: base ?? viewer, send: picked !== null && picked !== base ? picked : null }
 }
+
+// VAPP-215 (R4) RECORD HISTORY + UNDO (fixture `history`): what one
+// `app_record_events` row means, its undo and its History row, pure so the
+// four clients replay the same cases.
+
+export const APP_RECORD_HISTORY = fixture.history
+export const APP_HISTORY_COPY = fixture.history.copy
+
+export type RecordEventOp = `create` | `update` | `delete` | `restore`
+export type RecordEventVia = `editor` | `app` | `mcp` | `action` | `import`
+
+/** The part of an event the pure rules read. */
+export interface RecordEventCore {
+  op: RecordEventOp
+  before: Record<string, unknown> | null
+  patch: Record<string, unknown> | null
+}
+
+/** One event as `apps.records.history` returns it (newest first). */
+export interface RecordEvent extends RecordEventCore {
+  id: string
+  actor: string | null
+  createdAt: string
+}
+
+/** The write that undoes an event: a delete, or a restore of `data`. */
+export type InverseWrite = { op: `delete` } | { op: `restore`; data: Record<string, unknown> }
+
+/** The record an event left (`stateCases`): null = gone. */
+export function eventState(event: RecordEventCore): Record<string, unknown> | null {
+  if (event.op === `delete`) return null
+  if (event.op === `update`) return { ...(event.before ?? {}), ...(event.patch ?? {}) }
+  return event.patch ?? {}
+}
+
+/** Undo = a new write of the event's `before` (`inverseCases`). */
+export function inverseWrite(event: RecordEventCore): InverseWrite {
+  return event.before === null ? { op: `delete` } : { op: `restore`, data: event.before }
+}
+
+/** Deep JSON equality (objects by key, numbers by value). */
+export function jsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a === null || b === null || typeof a !== `object` || typeof b !== `object`) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  if (Array.isArray(a)) {
+    const other = b as unknown[]
+    return a.length === other.length && a.every((item, i) => jsonEqual(item, other[i]))
+  }
+  const ka = Object.keys(a as object)
+  const kb = Object.keys(b as object)
+  return ka.length === kb.length && ka.every((k) => k in (b as object) && jsonEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+}
+
+/** A History row's title (`labelCases`). */
+export function eventLabel(event: RecordEventCore): string {
+  const c = APP_HISTORY_COPY
+  if (event.op === `create`) return c.created
+  if (event.op === `delete`) return c.deleted
+  if (event.op === `restore`) return c.restored
+  const before = event.before ?? {}
+  const patch = event.patch ?? {}
+  const changed = Object.keys(patch)
+    .filter((k) => !jsonEqual(before[k], patch[k]))
+    .sort()
+  if (changed.length === 0) return c.saved
+  const max = APP_RECORD_HISTORY.maxFields
+  const shown = changed.slice(0, max).join(`, `)
+  const rest = changed.length - max
+  return c.changed.replace(`{fields}`, rest > 0 ? `${shown} ${c.more.replace(`{n}`, String(rest))}` : shown)
+}
+
+export interface HistoryRow {
+  id: string
+  label: string
+  who: string
+  at: string
+  restorable: boolean
+}
+
+/** The History list (`rowsCases`): the events in the server's order (newest
+ *  first); Restore on every row but the newest, never on a delete. */
+export function historyRows(events: readonly RecordEvent[], names: Readonly<Record<string, string>>, fallback: string): HistoryRow[] {
+  return events.map((event, i) => ({
+    id: event.id,
+    label: eventLabel(event),
+    who: (event.actor !== null ? names[event.actor] : undefined) ?? fallback,
+    at: event.createdAt,
+    restorable: i > 0 && event.op !== `delete`,
+  }))
+}
+
+/** The Undo toast's title for a UI write. */
+export function undoTitle(write: `create` | `update` | `delete` | `batch`): string {
+  const c = APP_HISTORY_COPY
+  return write === `create` ? c.undoCreate : write === `update` ? c.undoUpdate : write === `delete` ? c.undoDelete : c.undoBatch
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-records.json" with { type: "json" }
-import { APP_RECORD_ROW_KEYS, appRecordPurgeDue, authorOptions, canChangeRecord, formAuthor, importAuthor, recordAuthor, recordByline, writeAsVerdict, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, recordsCountLabel } from "./app-records"
+import { eventLabel, eventState, historyRows, inverseWrite, APP_RECORD_ROW_KEYS, appRecordPurgeDue, authorOptions, canChangeRecord, formAuthor, importAuthor, recordAuthor, recordByline, writeAsVerdict, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, recordsCountLabel } from "./app-records"
 
 // VAPP-189: the query and its value are eUI's (packages/exponential-ui
 // fixtures/records-query.json); what stays here is Exponential's own.
@@ -65,5 +65,21 @@ describe(`the Data tab (VAPP-178)`, () => {
   })
   test.each(tab.parseCases)(`formData %j`, (c) => {
     expect(formData(c.schema as never, c.inputs as never, c.editing)).toEqual(c.data)
+  })
+})
+
+describe(`record history (VAPP-215)`, () => {
+  const h = fixture.history
+  test.each(h.stateCases)(`eventState: $name`, (c) => {
+    expect(eventState(c.event as never)).toEqual(c.state)
+  })
+  test.each(h.inverseCases)(`inverseWrite: $name`, (c) => {
+    expect(inverseWrite(c.event as never)).toEqual(c.inverse)
+  })
+  test.each(h.labelCases)(`eventLabel: $name`, (c) => {
+    expect(eventLabel(c.event as never)).toBe(c.label)
+  })
+  test.each(h.rowsCases)(`historyRows: $name`, (c) => {
+    expect(historyRows(c.events as never, c.names as Record<string, string>, c.fallback)).toEqual(c.rows)
   })
 })

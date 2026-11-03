@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-record-history",
+    date: "2026-11-03",
+    title: "Undo and history for app records",
+    summary: "Changes to an app's records can be undone for 10 seconds, and every record keeps a history you can restore from.",
+    body: r#"- **Undo**: adding, saving or deleting a record in an app's Data tab, and an app action that writes records, shows Undo for 10 seconds.
+- **History**: editing a record shows its history, who changed what and when, and Restore puts back any earlier state.
+- **Agents**: exponential_apps gained records_history and records_restore."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_185: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-computed-fields",
     date: "2026-11-03",
     title: "Computed fields in apps",

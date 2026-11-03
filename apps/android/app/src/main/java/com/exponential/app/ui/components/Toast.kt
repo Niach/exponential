@@ -129,8 +129,8 @@ class Toaster {
         return item.id
     }
 
-    fun success(title: String, description: String? = null, action: ToastAction? = null): String =
-        show(ToastKind.Success, title, description, action)
+    fun success(title: String, description: String? = null, action: ToastAction? = null, durationMs: Long? = null): String =
+        show(ToastKind.Success, title, description, action, durationMs)
 
     fun error(title: String, description: String? = null, action: ToastAction? = null): String =
         show(ToastKind.Error, title, description, action)
@@ -146,7 +146,8 @@ class Toaster {
         title: String,
         description: String? = null,
         action: ToastAction? = null,
-    ): String = show(ToastItem("toast-${++counter}", kind, title, description, action))
+        durationMs: Long? = null,
+    ): String = show(ToastItem("toast-${++counter}", kind, title, description, action, durationMs))
 
     fun dismiss(id: String) {
         toasts.removeAll { it.id == id }
@@ -366,12 +367,12 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
     val slow = Motion.slow<Float>()
     val standard = Motion.standard<Float>()
 
-    // Auto-dismiss: 4 s per toast, paused (remaining kept) while expanded.
+    // Auto-dismiss: 4 s per toast (its own durationMs if set), paused (remaining kept) while expanded.
     for (item in live) {
         key(item.id) {
             LaunchedEffect(item.id, expanded) {
                 if (expanded) return@LaunchedEffect
-                val remaining = toaster.remainingMs[item.id] ?: ToastStack.Constants.DURATION_MS
+                val remaining = toaster.remainingMs[item.id] ?: item.durationMs ?: ToastStack.Constants.DURATION_MS
                 val started = SystemClock.uptimeMillis()
                 try {
                     delay(remaining)

@@ -755,7 +755,7 @@ fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
             move |trpc, app_id| {
                 api::apps::records_upsert(
                     trpc,
-                    &api::apps::RecordUpsertInput { id: app_id.to_string(), kind, data, record_id, author: None },
+                    &api::apps::RecordUpsertInput { id: app_id.to_string(), kind, data, record_id, author: None, via: None },
                 )
             },
             |out| json!({ "id": out.id }),
@@ -763,21 +763,34 @@ fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
     })
 }
 
-/// VAPP-194: `records.batch {writes}` = ONE `apps.records.batch`. No toast
-/// of its own: a refusal fails the package action, whose failure toasts
-/// ([`action_failed_hook`]).
+/// VAPP-194: `records.batch {writes}` = ONE `apps.records.batch`. A
+/// refusal fails the package action, whose failure toasts
+/// ([`action_failed_hook`]); VAPP-215: writes that landed toast Undo for
+/// 10 s (app-records.json `history`, title `undoBatch`, via `app`).
 fn records_batch_fn(scope: Option<HostScope>) -> HostFunction {
     Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
         let writes = args.get("writes").and_then(Value::as_array).cloned().unwrap_or_default();
         let (Some(scope), Some(trpc)) = (scope.clone(), crate::queries::trpc_client(cx)) else {
             return Task::ready(Err("No app to keep records for".to_string()));
         };
+        let app_id = scope.app_id.clone();
         cx.spawn(async move |cx| {
-            cx.background_executor()
+            let out = cx
+                .background_executor()
                 .spawn(async move { api::apps::records_batch(&trpc, &scope.app_id, &writes) })
                 .await
-                .map(|out| json!({ "ids": out.ids }))
-                .map_err(|err| err.to_string())
+                .map_err(|err| err.to_string())?;
+            let ids = json!({ "ids": out.ids });
+            let _ = cx.update(|cx| {
+                crate::app_data_tab::toast_record_undo(
+                    &app_id,
+                    domain::app_records::UndoableWrite::Batch,
+                    out.event_ids,
+                    "app",
+                    cx,
+                )
+            });
+            Ok(ids)
         })
     })
 }
@@ -821,7 +834,7 @@ fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
             "delete",
             scope.clone(),
             cx,
-            move |trpc, app_id| api::apps::records_delete(trpc, app_id, &record_id),
+            move |trpc, app_id| api::apps::records_delete(trpc, app_id, &record_id, None),
             |_| Value::Null,
         )
     })

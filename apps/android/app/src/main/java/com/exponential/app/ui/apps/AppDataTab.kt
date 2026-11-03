@@ -39,6 +39,7 @@ import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.AppRecords.Controls
 import com.exponential.app.domain.AppRecords.DataCopy
 import com.exponential.app.domain.AppRecords.DataTestIds
+import com.exponential.app.domain.AppRecords.HistoryCopy
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CircleIconButton
@@ -51,6 +52,8 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
@@ -78,6 +81,8 @@ import com.exponential.app.ui.theme.glassGroup
 // team OWNER's form leads with the Author picker (`formAuthor`); Save sends
 // `author` only when the pick differs from the record's author / the viewer.
 // (Phones show no `by` cell, so `recordByline` has no phone site.)
+// VAPP-215 (`history`): every write toasts Undo for 10 s; Edit lists the
+// record's History (who · when · what) with Restore on older rows.
 
 /** The open form: a new row of [kind], or the edit of [row]. */
 private data class DataFormTarget(val kind: String, val row: AppRecords.Row?)
@@ -108,6 +113,11 @@ fun AppDataTab(
     val access by viewModel.myAccess.collectAsStateWithLifecycle()
     fun may(op: String, k: String, row: AppRecords.Row? = null) =
         AppRecords.Policy.allowed(AppRecords.Policy.of(manifest, k), op, me, role, access, row)
+    // VAPP-215: an add / save / delete / restore toasts Undo (10 s).
+    val toaster = LocalToaster.current
+    LaunchedEffect(viewModel) {
+        viewModel.undo.collect { u -> toaster.recordUndo(u.write, u.eventIds) { viewModel.undoRecords(u.eventIds, u.via) } }
+    }
 
     Column(modifier = modifier.fillMaxSize().testTag(Apps.TestIds.DATA)) {
         if (kind == null) {
@@ -404,7 +414,66 @@ private fun DataFormSheet(
                 }
             }
             FieldError(error, modifier = Modifier.padding(horizontal = 20.dp).testTag(DataTestIds.ERROR))
+            target.row?.let { row -> RecordHistory(row.id, viewModel, onRestored = onDismiss) }
             Spacer(Modifier.width(1.dp))
+        }
+    }
+}
+
+/** VAPP-215: a record's History (read on open): newest first, who · when
+ *  under the label, Restore on every older row but deletes. */
+@Composable
+private fun RecordHistory(recordId: String, viewModel: AppEditorViewModel, onRestored: () -> Unit) {
+    var events by remember(recordId) { mutableStateOf<List<AppRecords.RecordEvent>?>(null) }
+    LaunchedEffect(recordId) { events = viewModel.recordHistory(recordId) }
+    val restoring by viewModel.recordRestoring.collectAsStateWithLifecycle()
+    val users by viewModel.users.collectAsStateWithLifecycle()
+    val names = remember(users) { users.mapValues { (id, user) -> userDisplayName(user, id) } }
+    val rows = events?.let { AppRecords.historyRows(it, names, Apps.Copy.BY_AGENT) }.orEmpty()
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag(DataTestIds.HISTORY)) {
+        SectionHeader(HistoryCopy.HISTORY, loading = events == null, modifier = Modifier.padding(horizontal = 16.dp))
+        if (events != null && rows.isEmpty()) {
+            EmptyState(
+                title = HistoryCopy.EMPTY,
+                size = EmptyStateSize.List,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        } else if (rows.isNotEmpty()) {
+            OptionGroup {
+                rows.forEachIndexed { index, row ->
+                    if (index > 0) GroupDivider()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag(DataTestIds.HISTORY_ROW)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(row.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "${row.who} · ${relativeTime(row.at)}",
+                                color = muted,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (row.restorable) {
+                            GlassPill(
+                                HistoryCopy.RESTORE,
+                                size = PillSize.Sm,
+                                loading = restoring == row.id,
+                                enabled = restoring == null,
+                                onClick = { viewModel.restoreRecord(recordId, row.id, onRestored) },
+                                modifier = Modifier.testTag(DataTestIds.RESTORE),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

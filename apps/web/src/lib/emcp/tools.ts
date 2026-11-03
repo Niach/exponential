@@ -4188,6 +4188,40 @@ export function registerExponentialTools(
     }
   )
 
+  // VAPP-215 (R4): a record's history and a restore of an earlier state.
+  server.registerTool(
+    `exponential_apps_records_history`,
+    {
+      annotations: READ_ONLY,
+      description: `A record's history newest first (90 days): id (the eventId), op (create/update/delete/restore), actor, via, patch, before, createdAt.`,
+      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), id: uuidString }),
+    },
+    async ({ slug, teamId, id }) => {
+      try {
+        const result = await caller(user, request).apps.records.history({ slug, teamId: await appsTeam(teamId), recordId: id })
+        return ok({ events: result.events })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_apps_records_restore`,
+    {
+      description: `Restore a record to the state one of its history events left (eventId from records_history), as a new write (needs update on the record).`,
+      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), id: uuidString, eventId: uuidString }),
+    },
+    async ({ slug, teamId, id, eventId }) => {
+      try {
+        await caller(user, request).apps.records.restore({ slug, teamId: await appsTeam(teamId), recordId: id, eventId })
+        return ok({ ok: true, id, restored: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   server.registerTool(
     `exponential_apps_catalog`,
     {

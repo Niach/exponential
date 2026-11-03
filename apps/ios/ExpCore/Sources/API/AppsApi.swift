@@ -163,8 +163,10 @@ private struct AppRecordUpsertInput: Encodable {
     let recordId: String?
     /// VAPP-188: an on-behalf write's author (owners only; nil = omitted).
     var author: String? = nil
+    /// VAPP-215: where the write came from (`editor` = the Data tab; nil = omitted).
+    var via: String? = nil
 
-    enum CodingKeys: String, CodingKey { case id, kind, data, recordId, author }
+    enum CodingKeys: String, CodingKey { case id, kind, data, recordId, author, via }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -173,12 +175,65 @@ private struct AppRecordUpsertInput: Encodable {
         try c.encode(data, forKey: .data)
         try c.encodeIfPresent(recordId, forKey: .recordId)
         try c.encodeIfPresent(author, forKey: .author)
+        try c.encodeIfPresent(via, forKey: .via)
     }
 }
 
 private struct AppRecordDeleteInput: Encodable {
     let id: String
     let recordId: String
+    /// VAPP-215: `editor` = the Data tab (nil = omitted).
+    var via: String? = nil
+}
+
+/// VAPP-215 `apps.records.history {id, recordId}`.
+private struct AppRecordHistoryInput: Encodable {
+    let id: String
+    let recordId: String
+}
+
+/// VAPP-215 `apps.records.restore {id, recordId, eventId, via}`.
+private struct AppRecordRestoreInput: Encodable {
+    let id: String
+    let recordId: String
+    let eventId: String
+    let via: String
+}
+
+/// VAPP-215 `apps.records.undo {id, eventIds, via}`.
+private struct AppRecordUndoInput: Encodable {
+    let id: String
+    let eventIds: [String]
+    let via: String
+}
+
+/// One `app_record_events` row on the wire (`createdAt` = ISO text).
+private struct AppRecordEventWire: Decodable {
+    let id: String
+    let op: String
+    let actor: String?
+    let author: String?
+    let via: String?
+    let patch: AnyJSON?
+    let before: AnyJSON?
+    let createdAt: String
+}
+
+private struct AppRecordHistoryResult: Decodable {
+    let events: [AppRecordEventWire]
+}
+
+/// `apps.records.restore` / `apps.records.undo`'s answer: the events the
+/// new writes left (what the Undo toast undoes).
+public struct AppRecordEventsWritten: Decodable, Sendable, Equatable {
+    public let txid: Double?
+    public let eventIds: [String]
+}
+
+/// `apps.records.delete`'s answer (VAPP-215: the write's event).
+public struct AppRecordDeleted: Decodable, Sendable, Equatable {
+    public let txid: Double?
+    public let eventId: String?
 }
 
 /// VAPP-194 `apps.records.batch`: a package action's record writes
@@ -193,12 +248,16 @@ private struct AppRecordBatchInput: Encodable {
 public struct AppRecordBatched: Decodable, Sendable, Equatable {
     public let txid: Double?
     public let ids: [String]
+    /// VAPP-215: the events the batch wrote (the Undo toast's).
+    public let eventIds: [String]?
 }
 
 /// `apps.records.upsert`'s answer: the row's id and whether it is new.
 public struct AppRecordUpserted: Decodable, Sendable, Equatable {
     public let id: String
     public let created: Bool
+    /// VAPP-215: the write's event (the Undo toast's).
+    public let eventId: String?
 }
 
 public final class AppsApi: Sendable {
@@ -270,13 +329,14 @@ public final class AppsApi: Sendable {
     /// VAPP-188: `author` = an on-behalf write (owners only; nil = omitted).
     public func recordsUpsert(
         accountId: String, appId: String, kind: String, data: [String: CardJSON], recordId: String?,
-        author: String? = nil
+        author: String? = nil, via: String? = nil
     ) async throws -> AppRecordUpserted {
         try await trpc.mutation(
             accountId: accountId,
             path: "apps.records.upsert",
             input: AppRecordUpsertInput(
-                id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId, author: author
+                id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId, author: author,
+                via: via
             )
         )
     }
@@ -292,10 +352,50 @@ public final class AppsApi: Sendable {
         )
     }
 
-    /// VAPP-122 `apps.records.delete` (the trash mirror).
-    public func recordsDelete(accountId: String, appId: String, recordId: String) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId, path: "apps.records.delete", input: AppRecordDeleteInput(id: appId, recordId: recordId)
+    /// VAPP-122 `apps.records.delete` (the trash mirror). VAPP-215: `via`
+    /// (`editor` = the Data tab) and the write's event back.
+    @discardableResult
+    public func recordsDelete(accountId: String, appId: String, recordId: String, via: String? = nil) async throws -> AppRecordDeleted {
+        try await trpc.mutation(
+            accountId: accountId, path: "apps.records.delete",
+            input: AppRecordDeleteInput(id: appId, recordId: recordId, via: via)
+        )
+    }
+
+    /// VAPP-215 `apps.records.history`: a record's events, newest first.
+    public func recordsHistory(accountId: String, appId: String, recordId: String) async throws -> [AppRecords.RecordEvent] {
+        let result: AppRecordHistoryResult = try await trpc.query(
+            accountId: accountId, path: "apps.records.history", input: AppRecordHistoryInput(id: appId, recordId: recordId)
+        )
+        return result.events.map { event in
+            AppRecords.RecordEvent(
+                id: event.id,
+                op: event.op,
+                actor: event.actor,
+                before: event.before?.value.objectValue,
+                patch: event.patch?.value.objectValue,
+                createdAt: AppRecords.isoTimestamp(event.createdAt)
+            )
+        }
+    }
+
+    /// VAPP-215 `apps.records.restore`: the record as `eventId` left it, as
+    /// a new write.
+    public func recordsRestore(
+        accountId: String, appId: String, recordId: String, eventId: String, via: String
+    ) async throws -> AppRecordEventsWritten {
+        try await trpc.mutation(
+            accountId: accountId, path: "apps.records.restore",
+            input: AppRecordRestoreInput(id: appId, recordId: recordId, eventId: eventId, via: via)
+        )
+    }
+
+    /// VAPP-215 `apps.records.undo`: each event's `before` as a new write.
+    @discardableResult
+    public func recordsUndo(accountId: String, appId: String, eventIds: [String], via: String) async throws -> AppRecordEventsWritten {
+        try await trpc.mutation(
+            accountId: accountId, path: "apps.records.undo",
+            input: AppRecordUndoInput(id: appId, eventIds: eventIds, via: via)
         )
     }
 

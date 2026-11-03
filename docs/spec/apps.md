@@ -317,8 +317,8 @@ The server enforces the policy (the records service on every read and write, the
 
 ### 3.5 History, undo, retention, quotas
 
-- 🆕 **History** (R4): an `app_record_events` row per write: `{record_id, op, actor, author, via, patch, before}`. It is kept 90 days, like `mcp_calls`.
-- **Undo:** the UI offers it for 10 s through the toast (`feedback-states.json`). A record's History drawer can restore any earlier state as a new write.
+- ✅ **History** (R4, #VAPP-215, fixture `app-records.json` `history` ×4): an `app_record_events` row per records-service write, in the write's own transaction under role `eapps` (RLS team + app): `{record_id, op (create/update/delete/restore), actor, author, via (editor/app/mcp/action/import), patch, before}`. It is kept 90 days, like `mcp_calls` (the watchdog purge); a record's hard delete takes its events. Read on demand (no shape): tRPC `apps.records.history` (the record's read policy), MCP `apps records_history` / `records_restore`.
+- ✅ **Undo:** a Data tab write and a package action's batch toast Undo for 10 s (the existing toast action); Undo = each event's `before` as a new write (`apps.records.undo`: a create undone = a delete, a delete undone = a restore). The record form's History section (existing list rows: label, who · when) restores any earlier state as a new write (`apps.records.restore`, needs update).
 - **Deletes are soft** ✅ (`deleted_at`). The trash is purged after 30 days (✅ purge, #VAPP-159). Owners can restore from the Data tab.
 - 🆕 **Retention per kind:** `"retention": "365d"` purges old rows. Retention is not a quota tool.
 - **Quotas** ✅ per team and plan. The editor and Data tab show the count against the plan. 🆕 A soft warning at 80 %. A write over the quota fails with a toast, never silently.
@@ -597,7 +597,7 @@ The UI form is the `handoff` action: "Ask agent to follow up" in the Admin conso
 ### 9.3 Audit and attribution
 
 - ✅ `mcp_calls` (90 days, args hashed, never stored).
-- 🆕 `app_record_events` (§3.5).
+- ✅ `app_record_events` (§3.5, #VAPP-215).
 - 🆕 Extend `via_app_id` from comments to issues, sessions and records, so every write an app causes reads "via <app>" ×4.
 
 ### 9.4 Public links (🆕 P1, decided: Phase 7)
@@ -760,7 +760,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **R1 ★** ✅ #VAPP-187 Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
 - **R2 ★** ✅ #VAPP-188 On-behalf writes: `author` on `records_upsert`, `.app.json` import and the Data tab, owners only. Audit `created_by ≠ author`. (C2)
 - **R3** ✅ #VAPP-199 Per-kind policy (`read/create/update/delete`), with a shape row filter for `read: author`. `app_access` enforced in tRPC, the shapes, RLS and the Data tab ×4 (an app's inputs at read: #VAPP-200). (C4)
-- **R4** Record history (`app_record_events`), a 10 s undo, the History drawer. (§3.5)
+- **R4** ✅ #VAPP-215 Record history (`app_record_events`), a 10 s undo, the History section ×4. (§3.5)
 - **RLS** ✅ #VAPP-193 One records service on the server + the Postgres scope (role `eapps`, team + app) under every server read and write of a record. (§3.4, §12.2)
 
 **Phase 2: The query** (unblocks reports and dashboards)

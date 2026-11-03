@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY } from "@exp/domain-contract/apps"
 import {
   APP_DATA_COPY,
   APP_DATA_TAB,
+  APP_HISTORY_COPY,
+  historyRows,
   authorOptions,
   cellText,
   columnWidth,
@@ -17,6 +19,7 @@ import {
   recordByline,
   type DataFormField,
   type DataSchema,
+  type RecordEvent,
 } from "@exp/domain-contract/app-records"
 import { recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp } from "@exponential_app/eui/host"
 import {
@@ -31,6 +34,7 @@ import {
   DialogTitle,
   EmptyState,
   FEEDBACK_WORDS,
+  GlassSectionHeader,
   Input,
   Label,
   ListRow,
@@ -47,6 +51,7 @@ import {
 import type { User } from "@/db/schema"
 import { relativeTime } from "@/components/comment-rows/format"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { toastRecordUndo } from "@/lib/apps/record-undo"
 import { appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
@@ -58,6 +63,8 @@ import { cn } from "@/lib/utils"
 // every row on the same grid), on phones one row per record (first column
 // over the others). Add / Edit = a form (the Dialog; a sheet on phones);
 // a BAD_REQUEST shows inline under it, anything else toasts. Delete asks.
+// VAPP-215 (`history`): every write toasts Undo for 10 s; Edit lists the
+// record's History (who · when · what) with Restore on older rows.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiAddIcon = conceptIcon(`ui-add`)
@@ -142,9 +149,10 @@ export function AppDataTab({
     if (!deleting) return
     setDeleteBusy(true)
     try {
-      const result = await trpc.apps.records.delete.mutate({ id: appId, recordId: deleting.id }, SKIP_ERROR_TOAST)
+      const result = await trpc.apps.records.delete.mutate({ id: appId, recordId: deleting.id, via: `editor` }, SKIP_ERROR_TOAST)
       await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
       setDeleting(null)
+      toastRecordUndo(appId, `delete`, [result.eventId], `editor`)
     } catch (error) {
       failedAction(`delete`, `the record`, error)
     } finally {
@@ -296,6 +304,7 @@ export function AppDataTab({
         schema={form ? (manifest?.records?.[form.kind]?.schema ?? null) : null}
         me={me}
         authors={role === `owner` ? users : null}
+        names={names}
         onClose={() => setForm(null)}
       />
       <Prompt
@@ -321,6 +330,7 @@ function RecordForm({
   schema,
   me,
   authors,
+  names,
   onClose,
 }: {
   appId: string
@@ -329,6 +339,8 @@ function RecordForm({
   me: string | null
   /** VAPP-188: the team's members for an OWNER's Author picker (null = no picker). */
   authors: readonly User[] | null
+  /** VAPP-215: member names for the History rows. */
+  names: Readonly<Record<string, string>>
   onClose: () => void
 }) {
   const open = state !== null && schema !== null
@@ -366,11 +378,12 @@ function RecordForm({
       const data = formData(schema, inputs, editing)
       const send = authorChoices ? formAuthor(me, state.record, author).send : null
       const result = await trpc.apps.records.upsert.mutate(
-        { id: appId, kind: state.kind, data, ...(state.record ? { recordId: state.record.id } : {}), ...(send ? { author: send } : {}) },
+        { id: appId, kind: state.kind, data, ...(state.record ? { recordId: state.record.id } : {}), ...(send ? { author: send } : {}), via: `editor` },
         SKIP_ERROR_TOAST
       )
       await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
       onClose()
+      toastRecordUndo(appId, result.created ? `create` : `update`, [result.eventId], `editor`)
     } catch (err) {
       if (trpcErrorCode(err) === `BAD_REQUEST`) setError(trpcErrorMessage(err, `record is invalid`))
       else failedAction(`save`, `the record`, err)
@@ -405,6 +418,7 @@ function RecordForm({
                 {error}
               </p>
             )}
+            {open && state?.record && <RecordHistory appId={appId} recordId={state.record.id} names={names} onRestored={onClose} />}
           </DialogBody>
           <DialogFooter>
             <DialogCancel disabled={saving}>{APP_DATA_COPY.cancel}</DialogCancel>
@@ -415,6 +429,75 @@ function RecordForm({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** VAPP-215: a record's History (read on demand): newest first, who · when
+ *  under the label, Restore on every older row but deletes. */
+function RecordHistory({ appId, recordId, names, onRestored }: { appId: string; recordId: string; names: Readonly<Record<string, string>>; onRestored: () => void }) {
+  const [events, setEvents] = useState<RecordEvent[] | null>(null)
+  const [restoring, setRestoring] = useState<string | null>(null)
+  const load = useCallback(async () => {
+    try {
+      const result = await trpc.apps.records.history.query({ id: appId, recordId })
+      setEvents(result.events.map((e) => ({ ...e, createdAt: iso(e.createdAt) })))
+    } catch {
+      setEvents([])
+    }
+  }, [appId, recordId])
+  useEffect(() => {
+    setEvents(null)
+    void load()
+  }, [load])
+
+  const restore = async (eventId: string) => {
+    setRestoring(eventId)
+    try {
+      const result = await trpc.apps.records.restore.mutate({ id: appId, recordId, eventId, via: `editor` }, SKIP_ERROR_TOAST)
+      await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+      onRestored()
+      toastRecordUndo(appId, `update`, result.eventIds, `editor`)
+    } catch (error) {
+      failedAction(`restore`, `the record`, error)
+    } finally {
+      setRestoring(null)
+    }
+  }
+
+  const rows = events ? historyRows(events, names, APPS_COPY.byAgent) : []
+  return (
+    <div className="space-y-1.5 pt-2" data-testid={T.history}>
+      <GlassSectionHeader label={APP_HISTORY_COPY.history} loading={events === null} />
+      {events !== null && rows.length === 0 ? (
+        <EmptyState title={APP_HISTORY_COPY.empty} size="list" />
+      ) : (
+        <div className={SETTINGS_LIST_CLASS}>
+          {rows.map((row) => (
+            <ListRow key={row.id} className="gap-3 px-3 py-2 text-sm" data-testid={T.historyRow}>
+              <div className="min-w-0 flex-1">
+                <div className="truncate">{row.label}</div>
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {row.who} · {relativeTime(row.at)}
+                </div>
+              </div>
+              {row.restorable && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  pending={restoring === row.id}
+                  disabled={restoring !== null}
+                  onClick={() => void restore(row.id)}
+                  data-testid={T.restore}
+                >
+                  {APP_HISTORY_COPY.restore}
+                </Button>
+              )}
+            </ListRow>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

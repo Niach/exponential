@@ -79,13 +79,53 @@ private data class AppRecordUpsertInput(
     val recordId: String? = null,
     /** VAPP-188: an owner's on-behalf author (null = the writer; omitted). */
     val author: String? = null,
+    /** VAPP-215: where the write came from (`editor` = the Data tab; null = omitted, the server says `app`). */
+    val via: String? = null,
 )
 
 @Serializable
-data class AppRecordUpsertResult(val id: String, val created: Boolean = false, val txid: Long? = null)
+data class AppRecordUpsertResult(
+    val id: String,
+    val created: Boolean = false,
+    val txid: Long? = null,
+    /** VAPP-215: the write's `app_record_events` row (the Undo toast's). */
+    val eventId: String? = null,
+)
 
 @Serializable
-private data class AppRecordDeleteInput(val id: String, val recordId: String)
+private data class AppRecordDeleteInput(val id: String, val recordId: String, val via: String? = null)
+
+@Serializable
+data class AppRecordDeleteResult(val txid: Long? = null, val eventId: String? = null)
+
+// VAPP-215 (app-records.json `history`): a record's events, History's
+// Restore and the toast's Undo (read on demand, no synced shape).
+@Serializable
+private data class AppRecordHistoryInput(val id: String, val recordId: String)
+
+@Serializable
+data class AppRecordEventRow(
+    val id: String,
+    val op: String,
+    val actor: String? = null,
+    val author: String? = null,
+    val via: String? = null,
+    val patch: JsonElement? = null,
+    val before: JsonElement? = null,
+    val createdAt: String = "",
+)
+
+@Serializable
+data class AppRecordHistoryResult(val events: List<AppRecordEventRow> = emptyList())
+
+@Serializable
+private data class AppRecordRestoreInput(val id: String, val recordId: String, val eventId: String, val via: String? = null)
+
+@Serializable
+private data class AppRecordUndoInput(val id: String, val eventIds: List<String>, val via: String? = null)
+
+@Serializable
+data class AppRecordEventsResult(val txid: Long? = null, val eventIds: List<String> = emptyList())
 
 // VAPP-194: `apps.records.batch`: a package action's record writes
 // (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`, the plan's
@@ -94,7 +134,12 @@ private data class AppRecordDeleteInput(val id: String, val recordId: String)
 private data class AppRecordBatchInput(val id: String, val writes: JsonArray)
 
 @Serializable
-data class AppRecordBatchResult(val txid: Long? = null, val ids: List<String> = emptyList())
+data class AppRecordBatchResult(
+    val txid: Long? = null,
+    val ids: List<String> = emptyList(),
+    /** VAPP-215: the batch's events (the Undo toast's; none = nothing changed). */
+    val eventIds: List<String> = emptyList(),
+)
 
 // VAPP-121: `apps.validateImport` / `apps.import` (fixtures/app-export.json):
 // the SERVER is the one authority on a pasted app file or bare package.
@@ -201,11 +246,12 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
         data: JsonObject,
         recordId: String?,
         author: String? = null,
+        via: String? = null,
     ): AppRecordUpsertResult =
         trpc.mutation(
             accountId,
             path = "apps.records.upsert",
-            input = AppRecordUpsertInput(appId, kind, data, recordId, author),
+            input = AppRecordUpsertInput(appId, kind, data, recordId, author, via),
             inputSerializer = AppRecordUpsertInput.serializer(),
             outputSerializer = AppRecordUpsertResult.serializer(),
         )
@@ -223,15 +269,44 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /** VAPP-122: trash record [recordId] of app [appId]. */
-    suspend fun recordsDelete(accountId: String, appId: String, recordId: String) {
+    suspend fun recordsDelete(accountId: String, appId: String, recordId: String, via: String? = null): AppRecordDeleteResult =
         trpc.mutation(
             accountId,
             path = "apps.records.delete",
-            input = AppRecordDeleteInput(appId, recordId),
+            input = AppRecordDeleteInput(appId, recordId, via),
             inputSerializer = AppRecordDeleteInput.serializer(),
-            outputSerializer = TxResult.serializer(),
+            outputSerializer = AppRecordDeleteResult.serializer(),
         )
-    }
+
+    /** VAPP-215: record [recordId]'s events, newest first. */
+    suspend fun recordsHistory(accountId: String, appId: String, recordId: String): AppRecordHistoryResult =
+        trpc.query(
+            accountId,
+            path = "apps.records.history",
+            input = AppRecordHistoryInput(appId, recordId),
+            inputSerializer = AppRecordHistoryInput.serializer(),
+            outputSerializer = AppRecordHistoryResult.serializer(),
+        )
+
+    /** VAPP-215: History's Restore: the record as event [eventId] left it, as a new write. */
+    suspend fun recordsRestore(accountId: String, appId: String, recordId: String, eventId: String, via: String? = null): AppRecordEventsResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.records.restore",
+            input = AppRecordRestoreInput(appId, recordId, eventId, via),
+            inputSerializer = AppRecordRestoreInput.serializer(),
+            outputSerializer = AppRecordEventsResult.serializer(),
+        )
+
+    /** VAPP-215: the toast's Undo: each event's `before` as a new write, newest first. */
+    suspend fun recordsUndo(accountId: String, appId: String, eventIds: List<String>, via: String? = null): AppRecordEventsResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.records.undo",
+            input = AppRecordUndoInput(appId, eventIds, via),
+            inputSerializer = AppRecordUndoInput.serializer(),
+            outputSerializer = AppRecordEventsResult.serializer(),
+        )
 
     /** VAPP-121: the server's issues with [text] (an app file or a bare
      *  package); none = importable. */

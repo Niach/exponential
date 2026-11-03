@@ -134,11 +134,13 @@ pub(crate) struct Toast {
     pub title: SharedString,
     pub description: Option<SharedString>,
     pub action: Option<ToastAction>,
+    /// The auto-dismiss clock (`None` = the contract's `durationMs`).
+    pub duration: Option<Duration>,
 }
 
 impl Toast {
     pub(crate) fn new(kind: ToastKind, title: impl Into<SharedString>) -> Self {
-        Self { kind, title: title.into(), description: None, action: None }
+        Self { kind, title: title.into(), description: None, action: None, duration: None }
     }
 
     pub(crate) fn success(title: impl Into<SharedString>) -> Self {
@@ -170,6 +172,13 @@ impl Toast {
         on_click: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
         self.action = Some(ToastAction { label: label.into(), on_click: Rc::new(on_click) });
+        self
+    }
+
+    /// VAPP-215: a longer clock than `durationMs` (the records Undo toast's
+    /// `undoSeconds`).
+    pub(crate) fn duration(mut self, duration: Duration) -> Self {
+        self.duration = Some(duration);
         self
     }
 }
@@ -374,7 +383,8 @@ impl ToastLayer {
         let id = self.next_id;
         self.next_id += 1;
         let now = cx.background_executor().now();
-        self.manager.push(id, toast, ToastOptions { timeout: Some(constants::DURATION) }, now);
+        let timeout = toast.duration.unwrap_or(constants::DURATION);
+        self.manager.push(id, toast, ToastOptions { timeout: Some(timeout) }, now);
         self.phase_at.insert(id, now);
         self.ensure_ticking(cx);
         cx.notify();

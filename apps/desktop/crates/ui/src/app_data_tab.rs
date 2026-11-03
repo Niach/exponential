@@ -17,6 +17,10 @@
 //! ([`open_form`]): one labelled field per column, Save = `apps.records.
 //! upsert` (a BAD_REQUEST shows inline under the fields, anything else is
 //! the failed-action toast). The pure model is `domain::app_records`.
+//! VAPP-215 (`history`): every add / save / delete toasts `Undo` for
+//! `undoSeconds` s ([`toast_record_undo`], `apps.records.undo`); Edit lists
+//! the record's History under the fields (`apps.records.history`, read on
+//! open: who · when · what), Restore on every older row but deletes.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -38,7 +42,8 @@ use sync::Store;
 
 use domain::app_records::{
     author_options, cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
-    form_author, record_byline, DataControl, DataFormField, DataSchema, FormInput, RecordRowInput, DATA_TAB,
+    form_author, history_rows, record_byline, undo_title, DataControl, DataFormField, DataSchema, FormInput, RecordEvent,
+    RecordRowInput, UndoableWrite, APP_RECORD_HISTORY, DATA_TAB,
 };
 use domain::apps::APPS;
 use eui_core::host::{record_policy, record_refusal, RecordOp as PolicyOp, RecordViewer};
@@ -454,11 +459,15 @@ fn confirm_delete(app_id: String, record_id: String, window: &mut Window, cx: &m
             cx.spawn(async move |cx| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { api::apps::records_delete(&trpc, &app_id, &record_id) })
+                    .spawn({
+                        let app_id = app_id.clone();
+                        async move { api::apps::records_delete(&trpc, &app_id, &record_id, Some("editor")) }
+                    })
                     .await;
-                if let Err(err) = result {
-                    let _ = cx.update(|cx| crate::action_error::failed_action_err("delete", "the record", &err, cx));
-                }
+                let _ = cx.update(|cx| match result {
+                    Ok(out) => toast_record_undo(&app_id, UndoableWrite::Delete, out.event_id.into_iter().collect(), "editor", cx),
+                    Err(err) => crate::action_error::failed_action_err("delete", "the record", &err, cx),
+                });
             })
             .detach();
             true
@@ -467,10 +476,49 @@ fn confirm_delete(app_id: String, record_id: String, window: &mut Window, cx: &m
     native_dialog::open_alert(window, cx, spec);
 }
 
+/// VAPP-215: a UI records write's Undo toast (web `toastRecordUndo`): the
+/// success toast, title `undo_title`, the toast action `copy.undo`, for
+/// `undoSeconds` s. No events (a batch that changed nothing) = no toast.
+pub(crate) fn toast_record_undo(app_id: &str, write: UndoableWrite, event_ids: Vec<String>, via: &'static str, cx: &mut App) {
+    if event_ids.is_empty() {
+        return;
+    }
+    let app_id = app_id.to_string();
+    let toast = crate::toast::Toast::success(undo_title(write))
+        .duration(std::time::Duration::from_secs(APP_RECORD_HISTORY.undo_seconds))
+        .action(APP_RECORD_HISTORY.copy.undo.clone(), move |_, cx| {
+            undo_record_write(app_id.clone(), event_ids.clone(), via, cx)
+        });
+    crate::toast::show_in_active_window(toast, cx);
+}
+
+/// Run the undo (`apps.records.undo`); a refusal = the failed-action toast
+/// (`Couldn't undo the change`).
+fn undo_record_write(app_id: String, event_ids: Vec<String>, via: &'static str, cx: &mut App) {
+    let copy = &APP_RECORD_HISTORY.copy;
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        crate::action_error::failed_action(&copy.undo_verb, &copy.undo_thing, None, cx);
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::apps::records_undo(&trpc, &app_id, &event_ids, via) })
+            .await;
+        if let Err(err) = result {
+            let copy = &APP_RECORD_HISTORY.copy;
+            let _ = cx.update(|cx| crate::action_error::failed_action_err(&copy.undo_verb, &copy.undo_thing, &err, cx));
+        }
+    })
+    .detach();
+}
+
 /// The form's width and its height per field (a grouped row).
 const FORM_WIDTH: f32 = 460.;
 const FORM_ROW_PX: f32 = 46.;
 const FORM_CHROME_PX: f32 = 120.;
+/// VAPP-215: Edit's History section (the head + a few rows).
+const FORM_HISTORY_PX: f32 = 180.;
 
 /// VAPP-188: the owner's Author field: the team's members by name, the
 /// record (`None` = create) and the pick.
@@ -536,7 +584,8 @@ fn open_form(
     let author = AuthorField::new(viewer, editing, cx);
     let editing = editing.map(|record| (record.id.clone(), record.data.clone()));
     let fields = (form_fields(&schema).len() + usize::from(author.is_some())).max(1) as f32;
-    let height = (window.viewport_size().height * 0.85).min(px(FORM_CHROME_PX + FORM_ROW_PX * fields));
+    let history = if editing.is_some() { FORM_HISTORY_PX } else { 0. };
+    let height = (window.viewport_size().height * 0.85).min(px(FORM_CHROME_PX + FORM_ROW_PX * fields + history));
     let spec = DialogSpec::new(title, size(px(FORM_WIDTH), height)).resizable(size(px(400.), px(240.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| RecordFormView::new(app_id, kind, schema, editing, author, window, cx));
@@ -572,6 +621,10 @@ pub(crate) struct RecordFormView {
     busy: bool,
     /// The server's BAD_REQUEST message, inline under the fields.
     error: Option<SharedString>,
+    /// VAPP-215: the edited record's events, newest first (`None` = loading).
+    history: Option<Vec<RecordEvent>>,
+    /// The event a Restore is writing.
+    restoring: Option<String>,
     body_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -626,18 +679,155 @@ impl RecordFormView {
                 (field, state)
             })
             .collect();
+        let record_id = editing.map(|(id, _)| id);
+        if let Some(record_id) = record_id.clone() {
+            Self::load_history(app_id.clone(), record_id, cx);
+        }
         Self {
             app_id,
             kind,
             schema,
-            record_id: editing.map(|(id, _)| id),
+            record_id,
             fields,
             author,
             busy: false,
             error: None,
+            history: None,
+            restoring: None,
             body_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
+    }
+
+    /// VAPP-215: read the record's History once on open (a failure = none).
+    fn load_history(app_id: String, record_id: String, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            cx.spawn(async move |this, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.history = Some(Vec::new());
+                    cx.notify();
+                });
+            })
+            .detach();
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::apps::records_history(&trpc, &app_id, &record_id) })
+                .await;
+            let events = match result {
+                Ok(out) => out.events.iter().filter_map(RecordEvent::from_value).collect(),
+                Err(err) => {
+                    log::warn!("[ui] apps.records.history failed: {err}");
+                    Vec::new()
+                }
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.history = Some(events);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// VAPP-215: History's Restore (`apps.records.restore`): the record as
+    /// that event left it; then the form closes and toasts Undo.
+    fn restore(&mut self, event_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.restoring.is_some() || self.busy {
+            return;
+        }
+        let (Some(trpc), Some(record_id)) = (crate::queries::trpc_client(cx), self.record_id.clone()) else {
+            crate::action_error::failed_action("restore", "the record", None, cx);
+            return;
+        };
+        let app_id = self.app_id.clone();
+        self.restoring = Some(event_id.clone());
+        cx.notify();
+        cx.spawn_in(window, async move |this, window| {
+            let call_app = app_id.clone();
+            let result = window
+                .background_executor()
+                .spawn(async move { api::apps::records_restore(&trpc, &call_app, &record_id, &event_id, "editor") })
+                .await;
+            let _ = this.update_in(window, |this, window, cx| {
+                this.restoring = None;
+                match result {
+                    Ok(out) => {
+                        native_dialog::close_dialog_window(window, cx);
+                        toast_record_undo(&app_id, UndoableWrite::Update, out.event_ids, "editor", cx);
+                    }
+                    Err(err) => crate::action_error::failed_action_err("restore", "the record", &err, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// VAPP-215: the History section (web `RecordHistory`): the muted list
+    /// head over the grouped list, a row = the label over a muted `who ·
+    /// relative time`, a trailing ghost `Restore` when restorable; no
+    /// events = the list-size empty state.
+    fn render_history(&self, cx: &mut gpui::Context<Self>) -> Div {
+        let copy = &APP_RECORD_HISTORY.copy;
+        let header = crate::surface::glass_section_header_loading(copy.history.clone(), self.history.is_none(), None, cx);
+        let section = v_flex().id(SharedString::from(DATA_TAB.test_ids.history.clone())).w_full().gap_1p5().pt_2().child(header);
+        let Some(events) = &self.history else {
+            return div().w_full().child(section);
+        };
+        let users = Store::try_global(cx).map(|store| store.collections().users.clone());
+        let rows = history_rows(
+            events,
+            |id| users.as_ref()?.read(cx).get(id)?.name.clone().filter(|name| !name.trim().is_empty()),
+            &APPS.copy.by_agent,
+        );
+        if rows.is_empty() {
+            return div().w_full().child(
+                section.child(crate::controls::empty_state_list(Icon::new(registry::UI_HISTORY), copy.empty.clone(), cx)),
+            );
+        }
+        let muted = cx.theme().muted_foreground;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let rows: Vec<Div> = rows
+            .into_iter()
+            .map(|row| {
+                let when = crate::comments::relative_time(&row.at, now);
+                let caption = if when.is_empty() { row.who.clone() } else { format!("{} · {when}", row.who) };
+                let restore = row.restorable.then(|| {
+                    let event_id = row.id.clone();
+                    Button::new(SharedString::from(format!("{}-{}", DATA_TAB.test_ids.restore, row.id)))
+                        .ghost()
+                        .web_sm()
+                        .cursor_pointer()
+                        .label(copy.restore.clone())
+                        .loading(self.restoring.as_deref() == Some(row.id.as_str()))
+                        .disabled(self.restoring.is_some())
+                        .on_click(cx.listener(move |this, _, window, cx| this.restore(event_id.clone(), window, cx)))
+                });
+                crate::surface::glass_row_shell().py_2().child(
+                    h_flex()
+                        .id(SharedString::from(format!("{}-{}", DATA_TAB.test_ids.history_row, row.id)))
+                        .flex_1()
+                        .min_w_0()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_0p5()
+                                .child(div().min_w_0().truncate().text_sm().child(row.label))
+                                .child(div().min_w_0().truncate().text_xs().text_color(muted).child(caption)),
+                        )
+                        .children(restore),
+                )
+            })
+            .collect();
+        div().w_full().child(section.child(crate::surface::glass_group_rows(rows)))
     }
 
     fn inputs(&self, cx: &App) -> HashMap<String, FormInput> {
@@ -669,7 +859,9 @@ impl RecordFormView {
             data: Value::Object(data),
             record_id: self.record_id.clone(),
             author: self.author.as_ref().and_then(AuthorField::send),
+            via: Some("editor".to_string()),
         };
+        let app_id = self.app_id.clone();
         self.busy = true;
         self.error = None;
         cx.notify();
@@ -681,7 +873,11 @@ impl RecordFormView {
             let _ = this.update_in(window, |this, window, cx| {
                 this.busy = false;
                 match result {
-                    Ok(_) => native_dialog::close_dialog_window(window, cx),
+                    Ok(out) => {
+                        native_dialog::close_dialog_window(window, cx);
+                        let write = if out.created { UndoableWrite::Create } else { UndoableWrite::Update };
+                        toast_record_undo(&app_id, write, out.event_id.into_iter().collect(), "editor", cx);
+                    }
                     // The schema's issues stay under the form (invalid input).
                     Err(err @ api::ApiError::Http { status: 400, .. }) => {
                         this.error = Some(
@@ -860,6 +1056,9 @@ impl Render for RecordFormView {
             body = body.child(
                 crate::action_error::field_error(message, cx).id(SharedString::from(DATA_TAB.test_ids.error.clone())).px_1(),
             );
+        }
+        if self.record_id.is_some() {
+            body = body.child(self.render_history(cx));
         }
         let body_scroll = self.body_scroll.clone();
         v_flex()

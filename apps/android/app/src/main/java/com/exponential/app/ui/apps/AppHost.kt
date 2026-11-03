@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -124,7 +125,8 @@ import kotlinx.coroutines.launch
  *    (the app's own rows), a refusal = the failed-action toast;
  *  - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
  *    `apps.records.batch`; a failed action (that or a false `require`) =
- *    `onActionFailed`'s failed-action toast;
+ *    `onActionFailed`'s failed-action toast; VAPP-215 a landed one toasts
+ *    Undo for 10 s (`apps.records.undo`, via `app`);
  *  - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
  *    with Compose painters for its `IconDisc` and `LiveDot` natives (Exponential
  *    ships no built-in apps: only the team's packages are installed);
@@ -354,6 +356,8 @@ fun rememberAppHost(
 ): ExponentialHost {
     val context = LocalContext.current
     val toaster = LocalToaster.current
+    // VAPP-215: the batch's Undo outlives the call that toasted it.
+    val undoScope = rememberCoroutineScope()
     val openIssue by rememberUpdatedState(onOpenIssue)
     // The markdown links' rule for an allowed href (web + iOS alike): an
     // instance link opens in-app, anything else in the Custom Tab; no
@@ -522,6 +526,17 @@ fun rememberAppHost(
             val app = appId ?: error("No app to keep records for")
             val writes = kotlinx.serialization.json.Json.parseToJsonElement((args["writes"] ?: JsonValue.Arr(emptyList())).orderedJson)
             val result = api.recordsBatch(account, app, writes as? kotlinx.serialization.json.JsonArray ?: kotlinx.serialization.json.JsonArray(emptyList()))
+            // VAPP-215: a package action's writes toast Undo for 10 s (app-records.json `history`).
+            toaster.recordUndo("batch", result.eventIds) {
+                undoScope.launch {
+                    try {
+                        api.recordsUndo(account, app, result.eventIds, via = "app")
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        toaster.failedAction(AppRecords.HistoryCopy.UNDO_VERB, AppRecords.HistoryCopy.UNDO_THING, e.message)
+                    }
+                }
+            }
             JsonValue.Obj(mapOf("ids" to JsonValue.Arr(result.ids.map { JsonValue.Str(it) })))
         }
         // VAPP-120: every MCP operation as a typed function

@@ -1624,6 +1624,28 @@
         "result": "none"
       },
       {
+        "name": "apps_records_history",
+        "title": "Read record history",
+        "blurb": "Lists one app record's history (its writes), newest first.",
+        "progressive": "Reading record history",
+        "done": "Read record history",
+        "progressiveMany": "Reading record history {n} times",
+        "doneMany": "Read record history {n} times",
+        "subjectKey": "slug",
+        "result": "list"
+      },
+      {
+        "name": "apps_records_restore",
+        "title": "Restore app record",
+        "blurb": "Restores one app record to an earlier state from its history.",
+        "progressive": "Restoring app record",
+        "done": "Restored app record",
+        "progressiveMany": "Restoring {n} app records",
+        "doneMany": "Restored {n} app records",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
         "name": "events_emit",
         "title": "Emit event",
         "blurb": "Posts a named event with a payload; the agents listening on that name wake with it.",
@@ -2061,6 +2083,8 @@
       { "name": "apps_records_list", "refs": "" },
       { "name": "apps_records_upsert", "refs": "" },
       { "name": "apps_records_delete", "refs": "" },
+      { "name": "apps_records_history", "refs": "" },
+      { "name": "apps_records_restore", "refs": "" },
       { "name": "events_emit", "refs": "" },
       { "name": "events_list", "refs": "list:event@events" },
       { "name": "notifications_list", "refs": "list:notification@" },
