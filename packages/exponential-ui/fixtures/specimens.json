@@ -10091,12 +10091,70 @@
                 "id": "specimen-switch-case-1-label",
                 "component": "Text",
                 "props": {
-                  "text": "disabled · true",
+                  "text": "size · default",
                   "variant": "caption"
                 }
               },
               {
                 "id": "c1-switch",
+                "component": "Switch",
+                "props": {
+                  "label": "Auto-scan",
+                  "name": "autoScan",
+                  "checked": true,
+                  "size": "default"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-switch-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-switch-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · compact",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-switch",
+                "component": "Switch",
+                "props": {
+                  "label": "Auto-scan",
+                  "name": "autoScan",
+                  "checked": true,
+                  "size": "compact"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-switch-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-switch-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "disabled · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-switch",
                 "component": "Switch",
                 "props": {
                   "label": "Auto-scan",

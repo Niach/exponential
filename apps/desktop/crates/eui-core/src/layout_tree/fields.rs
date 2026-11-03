@@ -677,8 +677,12 @@ impl Builder<'_, '_> {
         let control_part = if owner.component == "Switch" { "track" } else { "box" };
         let checked = bool_prop(&owner.props, "checked");
         let invalid = !self.field_errors(&owner).is_empty();
+        let mut control_props = json!({"checked": checked, "disabled": bool_prop(&owner.props, "disabled")});
+        if owner.component == "Switch" {
+            control_props["size"] = json!(str_prop(&owner.props, "size").unwrap_or("default"));
+        }
         let control = |b: &mut Self, parent: u32| {
-            let c = b.part_in(parent, &owner, control_part, &owner.component, NodeKind::Leaf, json!({"flexShrink": 0}), json!({"checked": checked, "disabled": bool_prop(&owner.props, "disabled")}), "");
+            let c = b.part_in(parent, &owner, control_part, &owner.component, NodeKind::Leaf, json!({"flexShrink": 0}), control_props.clone(), "");
             if checked {
                 b.add_state(c, "checked");
             }

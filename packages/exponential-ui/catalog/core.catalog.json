@@ -265,6 +265,10 @@
       "default",
       "sm"
     ],
+    "switchSize": [
+      "default",
+      "compact"
+    ],
     "traceStatus": [
       "running",
       "error",
@@ -4589,7 +4593,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "The state; bind it."
+          "description": "On or off."
         },
         "disabled": {
           "type": "boolean",
@@ -4773,7 +4777,7 @@
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "The state; bind it."
+          "description": "On or off."
         },
         "description": {
           "type": "string",
@@ -4783,6 +4787,12 @@
           "type": "boolean",
           "default": false,
           "description": "Shows it inert."
+        },
+        "size": {
+          "type": "enum",
+          "enum": "switchSize",
+          "default": "default",
+          "description": "compact = dense rows."
         }
       },
       "events": [

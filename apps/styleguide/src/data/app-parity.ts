@@ -997,7 +997,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "switch",
     "title": "Switch",
-    "blurb": "The 36×20 capsule that flips a setting the moment it is pressed — there is no Save beside one. Off is the active fill under the foreground knob, on the primary fill under the primary-foreground knob, and the travel is one fast duration. It almost always rides a toggle ROW, which owns the label and the description; this is the bare control.",
+    "blurb": "The 36×20 capsule that flips a setting the moment it is pressed — there is no Save beside one. Off is the active fill under the foreground knob, on the primary fill under the primary-foreground knob, and the travel is one fast duration. It almost always rides a toggle ROW, which owns the label and the description; this is the bare control. `compact` is the 28×16 in-row switch under a 12px knob, the one a trigger row carries on every platform.",
     "components": [
       "Switch"
     ],

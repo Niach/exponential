@@ -63,6 +63,7 @@ export const ENUMS = {
   codeToken: ["plain","keyword","string","number","comment","punctuation","operator","type","function","property","tag","attribute","success","warning","error"],
   codeBlockVariant: ["default","destructive"],
   codeBlockSize: ["default","sm"],
+  switchSize: ["default","compact"],
   traceStatus: ["running","error","pending","done","skipped"],
   traceSize: ["default","sm"],
   voiceWaveActivity: ["idle","listening","thinking","speaking","muted"],
@@ -118,6 +119,7 @@ export type CodeLanguageValue = (typeof ENUMS)["codeLanguage"][number]
 export type CodeTokenValue = (typeof ENUMS)["codeToken"][number]
 export type CodeBlockVariantValue = (typeof ENUMS)["codeBlockVariant"][number]
 export type CodeBlockSizeValue = (typeof ENUMS)["codeBlockSize"][number]
+export type SwitchSizeValue = (typeof ENUMS)["switchSize"][number]
 export type TraceStatusValue = (typeof ENUMS)["traceStatus"][number]
 export type TraceSizeValue = (typeof ENUMS)["traceSize"][number]
 export type VoiceWaveActivityValue = (typeof ENUMS)["voiceWaveActivity"][number]
@@ -266,7 +268,7 @@ export interface ComponentProps {
   Checkbox: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; disabled?: boolean; checks?: Shapes["check"][] }
   Radio: { label?: string; name: string; options: Shapes["option"][]; value?: string | Dynamic; orientation?: OrientationValue; checks?: Shapes["check"][] }
   ChoiceTiles: { name: string; options: Shapes["option"][]; type?: GroupTypeValue; value?: string | Dynamic; columns?: number; disabled?: boolean; checks?: Shapes["check"][] }
-  Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean }
+  Switch: { label: string | Dynamic; name: string; checked?: boolean | Dynamic; description?: string; disabled?: boolean; size?: SwitchSizeValue }
   Slider: { label?: string; min?: number | Dynamic; max: number | Dynamic; step?: number; value?: number | Dynamic }
   Rating: { value?: number | Dynamic; max?: number; readOnly?: boolean; size?: ControlSizeValue }
   Select: { label?: string; name: string; options?: Shapes["option"][] | Dynamic; source?: string; placeholder?: string; value?: string | Dynamic; multiple?: boolean; searchable?: boolean; emptyText?: string; disabled?: boolean; checks?: Shapes["check"][]; validateOn?: ValidateOnValue }

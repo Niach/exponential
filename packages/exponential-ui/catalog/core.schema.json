@@ -12583,7 +12583,7 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "The state; bind it.",
+              "description": "On or off.",
               "default": false
             },
             "disabled": {
@@ -12845,7 +12845,7 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "The state; bind it.",
+              "description": "On or off.",
               "default": false
             },
             "description": {
@@ -12856,6 +12856,14 @@
               "type": "boolean",
               "description": "Shows it inert.",
               "default": false
+            },
+            "size": {
+              "enum": [
+                "default",
+                "compact"
+              ],
+              "description": "compact = dense rows.",
+              "default": "default"
             },
             "on": {
               "type": "object",
