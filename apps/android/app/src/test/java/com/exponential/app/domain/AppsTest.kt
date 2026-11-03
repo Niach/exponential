@@ -213,6 +213,8 @@ class AppsTest {
             menu["settings"]!!.jsonPrimitive.content to Apps.Copy.MENU_SETTINGS,
             menu["export"]!!.jsonPrimitive.content to Apps.Copy.MENU_EXPORT,
             menu["delete"]!!.jsonPrimitive.content to Apps.Copy.MENU_DELETE,
+            menu["edit"]!!.jsonPrimitive.content to Apps.Copy.MENU_EDIT,
+            c("runEmpty") to Apps.Copy.RUN_EMPTY,
             tabs["chat"]!!.jsonPrimitive.content to Apps.Copy.TAB_CHAT,
             tabs["preview"]!!.jsonPrimitive.content to Apps.Copy.TAB_PREVIEW,
             tabs["data"]!!.jsonPrimitive.content to Apps.Copy.TAB_DATA,
@@ -228,7 +230,7 @@ class AppsTest {
         // VAPP-176: no Rename, no create form.
         assertEquals(null, copy["create"])
         assertEquals(null, copy["rename"])
-        assertEquals(setOf("versions", "settings", "export", "delete"), menu.keys)
+        assertEquals(setOf("versions", "settings", "export", "delete", "edit"), menu.keys)
         assertEquals(setOf("chat", "preview", "data", "versions", "settings"), tabs.keys)
         // VAPP-177: the floating layout's copy is gone.
         for (gone in listOf("dockToSide", "float", "working", "openEditor")) assertEquals(null, copy[gone])
@@ -259,6 +261,7 @@ class AppsTest {
             "webhooks" to Apps.TestIds.WEBHOOKS, "webhookRow" to Apps.TestIds.WEBHOOK_ROW,
             "webhookSecret" to Apps.TestIds.WEBHOOK_SECRET,
             "previewScreens" to Apps.TestIds.PREVIEW_SCREENS,
+            "run" to Apps.TestIds.RUN, "runMenu" to Apps.TestIds.RUN_MENU, "newMenu" to Apps.TestIds.NEW_MENU,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

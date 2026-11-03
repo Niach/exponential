@@ -2,14 +2,15 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// VAPP-110 (fixtures/apps.json): the Apps list = the band with `Import…`
-/// and `New app` as its trailing pills, then one flat row per app (glyph,
-/// name, the version pill, the `…` menu: Export, Delete), sorted by name.
+/// VAPP-110 (fixtures/apps.json THE LIST): the Apps TAB = the band whose
+/// `New app` pill opens THE NEW MENU (VAPP-242: New app, Import…), then one
+/// flat row per app (glyph, name, the version pill, the `…` menu: Edit app,
+/// Export, Delete app), sorted by name. VAPP-242: a row tap RUNS the app
+/// (THE RUN VIEW, pushed); the editor sits behind `…` › Edit app.
 /// VAPP-176: New app = `apps.create {teamId}` (a DRAFT) and its editor at
-/// once, no dialog; Import opens the import step as its own sheet. Empty (no app of the
-/// team's; Exponential ships no built-in apps): the list-size
-/// empty state under the band. The active team's apps (web
-/// `t/$teamSlug/apps`).
+/// once, no dialog; Import… opens the import step as its own sheet. Empty
+/// (no app of the team's; Exponential ships no built-in apps): the
+/// list-size empty state under the band.
 struct AppsListScreen: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -19,53 +20,42 @@ struct AppsListScreen: View {
     @State private var model = AppsListModel()
     @State private var creatingDraft = false
     @State private var importing = false
+    /// VAPP-242: THE NEW MENU (the band pill's sheet) and its pick.
+    @State private var newMenuOpen = false
+    @State private var pendingNew: AppsNewMenuSheet.Action?
     @State private var menuTarget: AppListEntry?
     /// The menu's pick, run once its sheet has dismissed.
     @State private var pendingMenu: (app: AppListEntry, action: AppMenuSheet.Action)?
     @State private var deleting: AppListEntry?
     @State private var exporting: AppListEntry?
 
-    /// #EXP-1632: Settings › Apps (settings-nav.json `apps`) shows THIS
-    /// list for its team inside the settings page chrome; nil = the Apps tab.
-    var settingsTeamId: String? = nil
-
-    private var teamId: String? { settingsTeamId ?? teamState.activeTeamId ?? teamState.teams.first?.id }
+    private var teamId: String? { teamState.activeTeamId ?? teamState.teams.first?.id }
 
     var body: some View {
-        if settingsTeamId != nil {
-            host(TeamSettingsPageChrome(section: .apps) { list })
-        } else {
-            host(ZStack {
-                AppBackground()
-                ScrollView {
-                    list
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 24)
-                }
-                .scrollContentBackground(.hidden)
-                .tabBarBottomInset()
+        host(ZStack {
+            AppBackground()
+            ScrollView {
+                list
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 24)
             }
-            // #EXP-1384: the Apps TAB's root wears the page header.
-            .pageHeader(Chats.Copy.Headers.apps))
+            .scrollContentBackground(.hidden)
+            .tabBarBottomInset()
         }
+        // #EXP-1384: the Apps TAB's root wears the page header.
+        .pageHeader(Chats.Copy.Headers.apps))
     }
 
-    /// The band with Import… + New app over one row per app.
+    /// The band with the New app pill (THE NEW MENU) over one row per app.
     private var list: some View {
         VStack(alignment: .leading, spacing: 0) {
             GlassSectionBand(Apps.Copy.title) {
-                HStack(spacing: 8) {
-                    GlassPill(Apps.Copy.import, mode: .action {
-                        UIApplication.endEditing()
-                        importing = true
-                    })
-                    .accessibilityIdentifier(Apps.TestIds.importApp)
-                    GlassPill(Apps.Copy.newApp, icon: AppIcons.uiAdd, mode: .action {
-                        createDraft()
-                    }, enabled: !creatingDraft && teamId != nil)
-                    .accessibilityIdentifier(Apps.TestIds.newApp)
-                }
+                GlassPill(Apps.Copy.newApp, icon: AppIcons.uiAdd, mode: .action {
+                    UIApplication.endEditing()
+                    newMenuOpen = true
+                }, enabled: !creatingDraft && teamId != nil)
+                .accessibilityIdentifier(Apps.TestIds.newApp)
             }
             ForEach(model.apps) { app in
                 row(app)
@@ -82,6 +72,15 @@ struct AppsListScreen: View {
     /// The sheets, the delete confirm and the observation both hosts share.
     private func host<Content: View>(_ content: Content) -> some View {
         content
+        .background {
+            Color.clear
+                .sheet(isPresented: $newMenuOpen, onDismiss: runPendingNew) {
+                    AppsNewMenuSheet { action in
+                        pendingNew = action
+                        newMenuOpen = false
+                    }
+                }
+        }
         .sheet(isPresented: $importing) {
             if let teamId {
                 AppImportStep(teamId: teamId) { imported in
@@ -95,6 +94,7 @@ struct AppsListScreen: View {
         .sheet(item: $menuTarget, onDismiss: runPendingMenu) { app in
             AppMenuSheet(
                 title: app.name,
+                canEdit: model.canManage(app, userId: deps.auth.userId),
                 canExport: app.headVersion > 0,
                 canManage: model.canManage(app, userId: deps.auth.userId)
             ) { action in
@@ -130,8 +130,9 @@ struct AppsListScreen: View {
 
     private func row(_ app: AppListEntry) -> some View {
         HStack(spacing: 10) {
+            // VAPP-242: a tap RUNS the app (THE RUN VIEW), never the editor.
             Button {
-                pushRoute(.app(accountId: accountId, appId: app.id))
+                pushRoute(.appRun(accountId: accountId, appId: app.id))
             } label: {
                 HStack(spacing: 10) {
                     AgentRowIcon(icon: app.glyph, color: app.color ?? AppGlyph.neutralColor)
@@ -158,6 +159,7 @@ struct AppsListScreen: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Menu for \(app.name)")
+                .accessibilityIdentifier("\(Apps.TestIds.row)-menu-\(app.slug)")
             }
         }
         .padding(.horizontal, 12)
@@ -171,10 +173,21 @@ struct AppsListScreen: View {
         guard let pick = pendingMenu else { return }
         pendingMenu = nil
         switch pick.action {
+        case .edit: pushRoute(.app(accountId: accountId, appId: pick.app.id))
         case .export: exporting = pick.app
         case .delete: deleting = pick.app
         // The editor's menu only (the row's menu offers neither).
         case .publish, .versions, .settings: break
+        }
+    }
+
+    /// VAPP-242: THE NEW MENU's pick, once its sheet is gone.
+    private func runPendingNew() {
+        guard let action = pendingNew else { return }
+        pendingNew = nil
+        switch action {
+        case .newApp: createDraft()
+        case .importApp: importing = true
         }
     }
 
@@ -236,9 +249,12 @@ struct AppVersionPill: View {
 /// and Settings (`editorTabs.menu`); eApps V1 (#VAPP-210): Publish comes
 /// FIRST while `Apps.canPublish` and the viewer may write the app.
 struct AppMenuSheet: View {
-    enum Action { case publish, versions, settings, export, delete }
+    enum Action { case edit, publish, versions, settings, export, delete }
 
     let title: String
+    /// VAPP-242 (`run.menu`): Edit app FIRST (the list row's and the run
+    /// view's menus; the creator or an owner) = THE EDITOR.
+    var canEdit = false
     /// eApps V1: the editor's Publish (the head is ahead of the published one).
     var canPublish = false
     var canExport = false
@@ -250,6 +266,13 @@ struct AppMenuSheet: View {
     var body: some View {
         GlassSheetChrome(title: title) {
             VStack(spacing: 0) {
+                if canEdit {
+                    Button { onPick(.edit) } label: {
+                        GlassMenuItemLabel(Apps.Copy.Menu.edit, icon: AppIcons.uiEdit)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app-menu-edit")
+                }
                 if canPublish {
                     Button { onPick(.publish) } label: {
                         GlassMenuItemLabel(Apps.Copy.publish, icon: AppIcons.uiSubmit)
@@ -294,6 +317,37 @@ struct AppMenuSheet: View {
             .padding(.bottom, 16)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("app-menu-sheet")
+        }
+    }
+}
+
+/// VAPP-242 THE NEW MENU (`run.newMenu`, testId `newMenu`): the band's
+/// `New app` pill opens THE Menu in its sheet presentation (the row's `…`
+/// alike): New app (ui-add) · Import… (ui-file). A pick hands the action
+/// back; the list acts once the sheet has dismissed.
+struct AppsNewMenuSheet: View {
+    enum Action { case newApp, importApp }
+
+    let onPick: (Action) -> Void
+
+    var body: some View {
+        GlassSheetChrome(title: Apps.Copy.newApp) {
+            VStack(spacing: 0) {
+                Button { onPick(.newApp) } label: {
+                    GlassMenuItemLabel(Apps.Copy.newApp, icon: AppIcons.uiAdd)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("apps-new-menu-new")
+                Button { onPick(.importApp) } label: {
+                    GlassMenuItemLabel(Apps.Copy.import, icon: AppIcons.uiFile)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(Apps.TestIds.importApp)
+            }
+            .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
+            .padding(.bottom, 16)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.newMenu)
         }
     }
 }

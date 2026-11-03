@@ -111,6 +111,7 @@ import com.exponential.app.ui.settings.SkillSettingsScreen
 import com.exponential.app.ui.settings.SkillsSettingsScreen
 import com.exponential.app.ui.thread.AgentConversationScreen
 import com.exponential.app.ui.apps.AppEditorScreen
+import com.exponential.app.ui.apps.AppRunScreen
 import com.exponential.app.ui.apps.AppsScreen
 import com.exponential.app.ui.settings.AgentsSettingsScreen
 import com.exponential.app.ui.session.AgentsScreen
@@ -312,9 +313,8 @@ fun AppNavHost() {
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
                 }
-            // VAPP-218: an app screen link (a tapped in-app link or a verified
-            // App Link): the app's editor on its Preview tab showing that
-            // screen, resolved like the issue link (Custom Tab on a miss).
+            // VAPP-218 / VAPP-242: an app screen link (a tapped in-app link or
+            // a verified App Link): THE RUN VIEW showing that screen, resolved like the issue link (Custom Tab on a miss).
             is DeepLinkBus.Target.AppScreen ->
                 when (val resolution = webLinkResolver.resolveApp(target)) {
                     is WebLinkResolver.Resolution.Found -> {
@@ -840,8 +840,27 @@ private fun AuthenticatedNav(
         composable(MainTabs.APPS) {
             // #EXP-1384: the Apps TAB's root (chats.json `shell.tabs`).
             AppsScreen(
-                onBack = null,
+                // VAPP-242: a row RUNS the app; `…` › Edit app / New app / an import = the editor.
+                onRunApp = { id -> navController.navigate(Routes.appRun(id)) },
                 onOpenApp = { id -> navController.navigate(Routes.app(id)) },
+            )
+        }
+        composable(
+            Routes.APP_RUN_PATTERN,
+            arguments = Routes.APP_RUN_ARGS.map { name ->
+                navArgument(name) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            },
+        ) {
+            // VAPP-242 (apps.json THE RUN VIEW): the published app, full screen.
+            AppRunScreen(
+                onBack = { navController.popBackStack() },
+                onEdit = { id -> navController.navigate(Routes.app(id)) },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenTeamSettings = openReadinessTeamSettings,
             )
         }
         composable(
