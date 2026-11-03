@@ -42,3 +42,4 @@
 - A tulajdonosok beállítják a csapat időzónáját; az appok abban olvassák a dátumokat
 - Az app rekordjainak módosítása 10 másodpercig visszavonható; minden rekordnak van visszaállítható előzménye
 - Az appok mezőket számolhatnak és rekordokat kapcsolhatnak össze
+- Az offline módosítások elküldésre kerülnek, amint újra online vagy

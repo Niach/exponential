@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.11.0 (2026-11-03)
+
 - VAPP-233 (eApps R8): `host::record_migrations` (`migrate_record`, `range_holds`, `validate_migrations`, `kind_changes`, `migration_refusal`).
 - VAPP-222 (eApps R6): `host::record_transitions` (`transition_refusal`, `transitions_from`, `validate_record_transitions`, `kind_transitions`); `RecordsContext.transitions` + `role` (rows carry `transitions`).
 

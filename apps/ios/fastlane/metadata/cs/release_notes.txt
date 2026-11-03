@@ -42,3 +42,4 @@
 - Vlastníci nastaví časové pásmo týmu; aplikace v něm čtou data
 - Změny záznamů aplikace lze 10 sekund vrátit; každý záznam má obnovitelnou historii
 - Aplikace umí počítat pole a propojovat záznamy
+- Úpravy aplikace provedené offline se odešlou, jakmile budete zase online

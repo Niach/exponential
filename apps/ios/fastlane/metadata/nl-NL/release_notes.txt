@@ -42,3 +42,4 @@
 - Eigenaren stellen de tijdzone van het team in; apps lezen datums daarin
 - Maak wijzigingen aan records 10 seconden ongedaan; elk record bewaart een herstelbare geschiedenis
 - Apps kunnen velden berekenen en records aan elkaar koppelen
+- Offline gemaakte wijzigingen worden verstuurd zodra je weer online bent

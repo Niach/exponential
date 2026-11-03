@@ -42,3 +42,4 @@
 - Vlastníci nastavia časové pásmo tímu; aplikácie v ňom čítajú dátumy
 - Zmeny záznamov aplikácie vrátite 10 sekúnd; každý záznam má obnoviteľnú históriu
 - Aplikácie vedia počítať polia a prepájať záznamy
+- Úpravy urobené offline sa odošlú, keď budete znova online

@@ -42,3 +42,4 @@
 - Właściciele ustawiają strefę czasową zespołu; aplikacje czytają w niej daty
 - Cofnij zmiany rekordów przez 10 sekund; każdy rekord ma historię do przywrócenia
 - Aplikacje mogą obliczać pola i łączyć rekordy
+- Zmiany wprowadzone offline są wysyłane po powrocie do sieci

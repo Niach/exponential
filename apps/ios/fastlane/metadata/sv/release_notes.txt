@@ -42,3 +42,4 @@
 - Ägare väljer teamets tidszon; appar läser datum i den
 - Ångra ändringar i appposter i 10 sekunder; varje post har en historik du kan återställa från
 - Appar kan beräkna fält och länka poster till varandra
+- Ändringar gjorda offline skickas när du är online igen

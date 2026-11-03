@@ -139,7 +139,7 @@ release after that removes the shim crate and the old tag pattern.
 
 | product | version | registry | tag |
 |---|---|---|---|
-| eUI | 0.10.0 (eApps R5 refs + expand, history, files; Q3 binding fix; VAPP-214/215/221) | npm `@exponential_app/eui{,-react,-solid,-element}`, crates.io `eui-core`, Maven Central `at.exponential:eui-compose{,-primitives}`, SwiftPM `Niach/exponential-ui-swift`; `eui-gpui`, `eui-motion` = git dependencies on the tag | `eui-v0.10.0` |
+| eUI | 0.11.0 (eApps R6 transitions, R8 record migrations; VAPP-222/233) | npm `@exponential_app/eui{,-react,-solid,-element}`, crates.io `eui-core`, Maven Central `at.exponential:eui-compose{,-primitives}`, SwiftPM `Niach/exponential-ui-swift`; `eui-gpui`, `eui-motion` = git dependencies on the tag | `eui-v0.11.0` |
 | eTalk | 0.2.3 | GitHub release (git dependencies on the tag), npm `@exponential_app/etalk`, SwiftPM `Niach/exponential-talk-swift` (product `ExponentialTalk`), Maven Central `at.exponential:etalk` (`etalk-ffi` inside both) | `etalk-v0.2.4` |
 | ePilot | 0.1.0 | GitHub release (git dependencies on the tag) | `epilot-v0.1.0` |
 | eNet | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |

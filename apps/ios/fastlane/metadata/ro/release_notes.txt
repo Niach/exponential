@@ -42,3 +42,4 @@
 - Proprietarii setează fusul orar al echipei; aplicațiile citesc datele în el
 - Anulează modificările înregistrărilor timp de 10 secunde; fiecare are un istoric restaurabil
 - Aplicațiile pot calcula câmpuri și lega înregistrări
+- Modificările făcute offline sunt trimise când revii online
