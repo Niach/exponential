@@ -1,13 +1,15 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,10 +22,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -46,17 +50,22 @@ fun BlocksBadge(
 ) {
     if (counts.blockedBy <= 0 && counts.blocking <= 0) return
     val label = remember(counts) { IssueGraph.blocksBadgeLabel(counts) }
-    val shape = remember { RoundedCornerShape(BadgeRadius) }
+    // EXP-1647: web `IssueBlocksBadge` exactly — a 20dp CAPSULE in the row
+    // rung (glass-row fill + glass-stroke hairline), 6dp side padding, 6dp
+    // between the two sides, 12dp glyphs over 11sp muted digits.
+    val shape = CircleShape
     Row(
         modifier = modifier
             .testTag("blocks-badge")
+            .height(20.dp)
             .clip(shape)
-            .background(GlassTokens.RowFillActive, shape)
+            .background(GlassTokens.RowFill, shape)
+            .border(1.dp, GlassTokens.StrokeRow, shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 5.dp, vertical = 2.dp)
+            .padding(horizontal = 6.dp)
             .semantics { contentDescription = label },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (counts.blockedBy > 0) {
             BadgeSide(
@@ -69,7 +78,7 @@ fun BlocksBadge(
             BadgeSide(
                 icon = ExpIcons.relationBlocks,
                 count = counts.blocking,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                tint = DesignTokens.Palette.MutedForeground,
             )
         }
     }
@@ -85,8 +94,15 @@ private fun BadgeSide(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(11.dp), tint = tint)
-        Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = tint)
+        Icon(icon, contentDescription = null, modifier = Modifier.size(12.dp), tint = tint)
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp,
+                fontFeatureSettings = "tnum",
+            ),
+            color = tint,
+        )
     }
 }
 
@@ -160,4 +176,3 @@ fun IssueGraphSheet(
     }
 }
 
-private val BadgeRadius = 6.dp
