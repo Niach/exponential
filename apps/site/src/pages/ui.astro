@@ -6,10 +6,11 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
 import catalog from "@exponential_app/eui/catalog/core.catalog.json"
 import manifest from "@exponential_app/eui/conformance/manifest.json"
 import EuiSurface from "../components/eui/EuiSurface.tsx"
-import { DEPLOY_CARD, MOTION_GALLERY, SETTINGS_DATA, SETTINGS_FORM } from "../components/eui/trees.ts"
+import { DEPLOY_CARD, MOTION_GALLERY, SETTINGS_DATA, SETTINGS_FORM, THEME_CARD } from "../components/eui/trees.ts"
 import PlatformShots from "../components/PlatformShots.astro"
 
 const components = Object.keys(catalog.components).length
+const THEMES = [`neutral`, `exponential`, `playful`, `orange`]
 const cases = manifest.suites.reduce((n, s) => n + s.cases, 0).toLocaleString(`en-US`)
 ---
 
@@ -22,7 +23,8 @@ const cases = manifest.suites.reduce((n, s) => n + s.cases, 0).toLocaleString(`e
       tagline: `Agents send UI as data. Every platform paints it natively.`,
       actions: [
         { text: `Get started`, link: `/docs/libraries/eui/guides/`, icon: `right-arrow` },
-        { text: `Components`, link: `/docs/libraries/eui/reference/`, variant: `minimal` },
+        { text: `Components`, link: `/docs/libraries/eui/reference/components/`, variant: `minimal` },
+        { text: `Playground`, link: `/docs/libraries/eui/tools/playground/`, variant: `minimal` },
       ],
     },
   }}
@@ -40,11 +42,23 @@ const cases = manifest.suites.reduce((n, s) => n + s.cases, 0).toLocaleString(`e
     <EuiSurface client:visible id="settings" tree={SETTINGS_FORM} data={SETTINGS_DATA} />
   </div>
 
-  <h2>Motion</h2>
+  <h2>One file per theme</h2>
+  <div class="eui-themes">
+    {
+      THEMES.map((theme) => (
+        <div class="exp-live">
+          <EuiSurface id={`theme-${theme}`} tree={THEME_CARD} theme={theme} />
+        </div>
+      ))
+    }
+  </div>
+  <p><a href="/docs/libraries/eui/tools/theme-builder/">Theme builder</a></p>
+
+  <h2><a class="eui-h2-link" href="/motion/">Motion</a></h2>
   <div class="exp-live">
     <EuiSurface client:visible id="motion" tree={MOTION_GALLERY} />
   </div>
 
   <h2>{components} components · {cases} conformance cases</h2>
-  <p>Every renderer, every change.</p>
+  <p><a href="/docs/libraries/eui/reference/conformance/">Every renderer, every change.</a></p>
 </StarlightPage>

@@ -8,6 +8,9 @@
 import { useEffect, useMemo, useState } from "react"
 import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import type { HostPlugin } from "@exponential_app/eui-react"
+
+/** The host's icon map (name → component), as HostPlugin takes it. */
+export type IconMap = NonNullable<HostPlugin[`icons`]>
 import type { NestedNode } from "@exponential_app/eui"
 
 type Mode = `light` | `dark`
@@ -30,14 +33,17 @@ export interface EuiSurfaceProps {
   tree: NestedNode
   data?: Record<string, unknown>
   theme?: string
+  /** Extra icons for the surface (build-time surfaces only: components do not serialize into an island). */
+  icons?: IconMap
 }
 
-export default function EuiSurface({ id, tree, data, theme = `exponential` }: EuiSurfaceProps) {
+export default function EuiSurface({ id, tree, data, theme = `exponential`, icons }: EuiSurfaceProps) {
   const surface = useSurface({ surfaceId: id, initial: tree, data })
   const mode = useSiteMode()
   const { setData } = surface
   const host = useMemo<HostPlugin>(
     () => ({
+      ...(icons ? { icons } : {}),
       // A stub host: inputs echo into the data model, actions resolve.
       onInput: (e) => {
         if (e.path) setData(e.path, e.value)
@@ -45,7 +51,7 @@ export default function EuiSurface({ id, tree, data, theme = `exponential` }: Eu
       },
       onAction: () => Promise.resolve(),
     }),
-    [setData]
+    [setData, icons]
   )
   useEffect(() => {
     document.dispatchEvent(new Event(`exp:surface-mounted`))

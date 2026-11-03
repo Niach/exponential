@@ -5,7 +5,7 @@
    surface renders nothing, so llms.txt keeps the page's text and tables.
    `hydrate` = a client:visible island; without it the surface is HTML at
    build time, zero JS. */
-import EuiSurface from "./EuiSurface.tsx"
+import EuiSurface, { type IconMap } from "./EuiSurface.tsx"
 import type { NestedNode } from "@exponential_app/eui"
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
   data?: Record<string, unknown>
   theme?: string
   hydrate?: boolean
+  icons?: IconMap
 }
 const { hydrate, ...props } = Astro.props
 const llms = Astro.url.pathname.endsWith(`.txt`)

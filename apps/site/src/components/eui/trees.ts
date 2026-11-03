@@ -97,3 +97,37 @@ export const MOTION_GALLERY: NestedNode = {
     ],
   })),
 }
+
+/** One small card, painted once per built-in theme on /ui/. */
+export const THEME_CARD: NestedNode = {
+  id: `theme-card`,
+  component: `Card`,
+  children: [
+    {
+      id: `tc-stack`,
+      component: `Stack`,
+      props: { gap: `sm` },
+      children: [
+        {
+          id: `tc-head`,
+          component: `Stack`,
+          props: { direction: `horizontal`, justify: `between`, align: `center` },
+          children: [
+            { id: `tc-title`, component: `Heading`, props: { text: `Review`, level: 4 } },
+            { id: `tc-badge`, component: `Badge`, props: { text: `3 open` } },
+          ],
+        },
+        { id: `tc-progress`, component: `Progress`, props: { value: 60 } },
+        {
+          id: `tc-actions`,
+          component: `Stack`,
+          props: { direction: `horizontal`, gap: `xs` },
+          children: [
+            { id: `tc-approve`, component: `Button`, props: { label: `Approve` } },
+            { id: `tc-later`, component: `Button`, props: { label: `Later`, variant: `outline` } },
+          ],
+        },
+      ],
+    },
+  ],
+}

@@ -1,7 +1,8 @@
 ---
 /* An eUI tree rendered at build time inside the site's live-surface frame. */
 import type { NestedNode } from "@exponential_app/eui"
-import LibSurface from "./LibSurface.tsx"
+import Eui from "../eui/Eui.astro"
+import { LIB_ICONS } from "./icons.ts"
 
 interface Props {
   id: string
@@ -11,5 +12,5 @@ const { id, tree } = Astro.props
 ---
 
 <div class="exp-live lib-diagram">
-  <LibSurface id={id} tree={tree} />
+  <Eui id={id} tree={tree} icons={LIB_ICONS} />
 </div>

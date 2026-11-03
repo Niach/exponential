@@ -81,19 +81,41 @@ const motion = {
   ],
 }
 
+/** The other libraries' extra guides and references (slug → page slugs under guides/ and reference/). */
+const EXTRA: Record<string, { guides?: [string, string][]; reference?: [string, string][] }> = {
+  etalk: {
+    guides: [[`install`, `Install`], [`your-voice`, `Your voice`], [`push-to-talk`, `Push to talk`]],
+    reference: [[`api`, `API`], [`numbers`, `Numbers`], [`licences`, `Licences`], [`contract`, `Contract`], [`gpui`, `gpui`], [`ffi`, `FFI`], [`wakeword`, `Wake word`]],
+  },
+  enet: { reference: [[`ffi`, `FFI`], [`wasm`, `WASM`]] },
+  epilot: { reference: [[`screen`, `Screen`]] },
+  emcp: { reference: [[`contract`, `Contract`]] },
+  eagent: { reference: [[`orchestration`, `Orchestration`], [`hub-core`, `Hub core`], [`hub-core-wasm`, `Hub core WASM`], [`migrating`, `Migrating`]] },
+  ecore: { reference: [[`contract`, `Contract`]] },
+}
+
+function otherLibrary(slug: string, name: string) {
+  const base = `/docs/libraries/${slug}`
+  const extra = EXTRA[slug] ?? {}
+  const section = (label: string, dir: string, pages?: [string, string][]) =>
+    pages?.length
+      ? { label, collapsed: true, items: [{ label: `Overview`, link: `${base}/${dir}/` }, ...pages.map(([p, l]) => ({ label: l, link: `${base}/${dir}/${p}/` }))] }
+      : { label, link: `${base}/${dir}/` }
+  return {
+    label: name,
+    collapsed: true,
+    items: [{ label: `Overview`, link: `${base}/` }, section(`Guides`, `guides`, extra.guides), section(`Reference`, `reference`, extra.reference)],
+  }
+}
+
 export const LIBRARIES_GROUP = {
   label: `Libraries`,
-  items: LIBRARIES.map((lib) => {
-    if (lib.slug === `eui`) return eui
-    if (lib.slug === `motion`) return motion
-    return {
-      label: lib.name,
-      collapsed: true,
-      items: [
-        { label: `Overview`, link: `/docs/libraries/${lib.slug}/` },
-        { label: `Guides`, link: `/docs/libraries/${lib.slug}/guides/` },
-        { label: `Reference`, link: `/docs/libraries/${lib.slug}/reference/` },
-      ],
-    }
-  }),
+  items: [
+    { label: `Install from a release tag`, link: `/docs/libraries/install/` },
+    ...LIBRARIES.map((lib) => {
+      if (lib.slug === `eui`) return eui
+      if (lib.slug === `motion`) return motion
+      return otherLibrary(lib.slug, lib.name)
+    }),
+  ],
 }

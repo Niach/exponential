@@ -88,8 +88,68 @@ for (const theme of [`dark`, `light`] as const) {
   await ctx.close()
 }
 
-// 5. Pictures of the key pages (CI uploads them; mint captures nothing).
-const PAGES = [`/`, `/ui/`, `/motion/`, `/apps/`, `/talk/`, `/net/`, `/pilot/`, `/mcp/`, `/agent/`, `/core/`, `/docs/`, `/docs/using/sessions/`, `/docs/eapps/`, `/docs/build/mcp/`, `/docs/libraries/motion/reference/`, `/docs/libraries/etalk/`, `/pricing/`, `/download/`, `/contact/`, `/imprint/`, `/blog/`, `/blog/exponentialos/`, `/blog/session-as-interface/`]
+// 5. /motion/ and the Motion guide: every player paints (the first two,
+//    the eight gallery tiles, the three showcase steps, the like button and
+//    the level bar), under the production CSP, in both themes.
+async function canvasesPaint(page: import("playwright").Page, label: string, expected: number) {
+  // Islands hydrate on view: walk the page so every one mounts.
+  const height = await page.evaluate(() => document.body.scrollHeight)
+  for (let y = 0; y < height; y += 400) {
+    await page.evaluate((top) => window.scrollTo(0, top), y)
+    await page.waitForTimeout(120)
+  }
+  let painted: number[] = []
+  for (let i = 0; i < 60; i++) {
+    painted = await page.$$eval(`[data-xui-surface] canvas`, (canvases) =>
+      canvases.map((c) => {
+        const el = c as HTMLCanvasElement
+        // A tile scrolled off-screen pauses on its poster, still painted.
+        const d = el.width && el.height ? el.getContext(`2d`)?.getImageData(0, 0, el.width, el.height).data : undefined
+        let n = 0
+        if (d) for (let j = 3; j < d.length; j += 4) if (d[j]! > 0) n++
+        return n
+      })
+    )
+    if (painted.length >= expected && painted.every((n) => n > 0)) return
+    await page.waitForTimeout(250)
+  }
+  problems.push(`${label}: Motion players painted ${JSON.stringify(painted)} (expected ${expected}, all > 0)`)
+}
+for (const theme of [`dark`, `light`] as const) {
+  for (const [path, expected] of [[`/motion/`, 15], [`/docs/libraries/motion/guides/animate/`, 12]] as const) {
+    const { ctx, page } = await open(path, theme)
+    await canvasesPaint(page, `${path} ${theme}`, expected)
+    await ctx.close()
+  }
+}
+
+// 6. The eUI playground: prerendered editor, hydrated stage in the site's
+//    mode, an example switch reaches the preview.
+for (const theme of [`dark`, `light`] as const) {
+  const path = `/docs/libraries/eui/tools/playground/`
+  const { ctx, page } = await open(path, theme)
+  const ready = await page
+    .locator(`.eui-playground[data-ready="true"] .eui-stage .xui-surface`)
+    .waitFor({ timeout: 20_000 })
+    .then(() => true, () => false)
+  if (!ready) problems.push(`${path} ${theme}: the playground did not hydrate`)
+  else {
+    const mode = await page.$eval(`.eui-stage [data-xui-mode]`, (e) => e.getAttribute(`data-xui-mode`))
+    if (mode !== theme) problems.push(`${path} ${theme}: stage in mode ${mode}`)
+    await page.selectOption(`select[aria-label="Starter example"]`, `form`)
+    const switched = await page
+      .locator(`.eui-stage`)
+      .getByText(`Join the beta`)
+      .first()
+      .waitFor({ timeout: 5_000 })
+      .then(() => true, () => false)
+    if (!switched) problems.push(`${path} ${theme}: the example switch did not reach the preview`)
+  }
+  await ctx.close()
+}
+
+// 7. Pictures of the key pages (CI uploads them; mint captures nothing).
+const PAGES = [`/`, `/ui/`, `/motion/`, `/apps/`, `/talk/`, `/net/`, `/pilot/`, `/mcp/`, `/agent/`, `/core/`, `/docs/`, `/docs/using/sessions/`, `/docs/eapps/`, `/docs/build/mcp/`, `/docs/libraries/motion/`, `/docs/libraries/motion/guides/animate/`, `/docs/libraries/motion/reference/`, `/docs/libraries/eui/`, `/docs/libraries/eui/guides/react/`, `/docs/libraries/eui/reference/components/`, `/docs/libraries/eui/reference/components/button/`, `/docs/libraries/eui/reference/themes/`, `/docs/libraries/eui/tools/playground/`, `/docs/libraries/eui/tools/theme-builder/`, `/docs/libraries/etalk/`, `/pricing/`, `/download/`, `/contact/`, `/imprint/`, `/blog/`, `/blog/exponentialos/`, `/blog/session-as-interface/`]
 if (shots) {
   for (const path of PAGES) {
     for (const theme of [`dark`, `light`] as const) {
