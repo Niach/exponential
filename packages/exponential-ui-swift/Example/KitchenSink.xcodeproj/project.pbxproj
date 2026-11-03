@@ -12,6 +12,7 @@
 		1FAE3B57999FD76C6C0F8555 /* AccessibilityWalk.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3247696246199ED1C4DD54A /* AccessibilityWalk.swift */; };
 		28C67EEF931D2A4C29E1CD82 /* brand.theme.json in Resources */ = {isa = PBXBuildFile; fileRef = 0BF880DA00B4E4D2AC437015 /* brand.theme.json */; };
 		D740FE05FE1D356237519BAB /* kitchen-sink.json in Resources */ = {isa = PBXBuildFile; fileRef = 8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */; };
+		E1653A0B1C2D3E4F5A6B7C01 /* kitchen-sink.data.json in Resources */ = {isa = PBXBuildFile; fileRef = E1653A0B1C2D3E4F5A6B7C02 /* kitchen-sink.data.json */; };
 		A93E5F0C1B2D4E6F7A8B9C01 /* specimens.json in Resources */ = {isa = PBXBuildFile; fileRef = A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */; };
 		B127E5A0C1D2E3F4A5B6C701 /* eval-specimens.json in Resources */ = {isa = PBXBuildFile; fileRef = B127E5A0C1D2E3F4A5B6C702 /* eval-specimens.json */; };
 		E1654A0C1B2D4E6F7A8B9C01 /* samples in Resources */ = {isa = PBXBuildFile; fileRef = E1654A0C1B2D4E6F7A8B9C02 /* samples */; };
@@ -28,6 +29,7 @@
 		A3247696246199ED1C4DD54A /* AccessibilityWalk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AccessibilityWalk.swift"; path = "KitchenSink/AccessibilityWalk.swift"; sourceTree = "<group>"; };
 		0BF880DA00B4E4D2AC437015 /* brand.theme.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "brand.theme.json"; path = "KitchenSink/Resources/brand.theme.json"; sourceTree = "<group>"; };
 		8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "kitchen-sink.json"; path = "../../exponential-ui/fixtures/kitchen-sink.json"; sourceTree = "<group>"; };
+		E1653A0B1C2D3E4F5A6B7C02 /* kitchen-sink.data.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "kitchen-sink.data.json"; path = "../../exponential-ui-react/fixtures/kitchen-sink.data.json"; sourceTree = "<group>"; };
 		A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "specimens.json"; path = "../../exponential-ui/fixtures/specimens.json"; sourceTree = "<group>"; };
 		B127E5A0C1D2E3F4A5B6C702 /* eval-specimens.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "eval-specimens.json"; path = "../../exponential-ui/eval/eval-specimens.json"; sourceTree = "<group>"; };
 		E1654A0C1B2D4E6F7A8B9C02 /* samples */ = {isa = PBXFileReference; lastKnownFileType = folder; name = samples; path = "../../exponential-ui/samples"; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 				E1555A0000000000000000F1 /* LucideIcons.swift */,
 				0BF880DA00B4E4D2AC437015 /* brand.theme.json */,
 				8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */,
+				E1653A0B1C2D3E4F5A6B7C02 /* kitchen-sink.data.json */,
 				A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */,
 				B127E5A0C1D2E3F4A5B6C702 /* eval-specimens.json */,
 				E1654A0C1B2D4E6F7A8B9C02 /* samples */,
@@ -209,6 +212,7 @@
 			files = (
 				28C67EEF931D2A4C29E1CD82 /* brand.theme.json in Resources */,
 				D740FE05FE1D356237519BAB /* kitchen-sink.json in Resources */,
+				E1653A0B1C2D3E4F5A6B7C01 /* kitchen-sink.data.json in Resources */,
 				A93E5F0C1B2D4E6F7A8B9C01 /* specimens.json in Resources */,
 				B127E5A0C1D2E3F4A5B6C701 /* eval-specimens.json in Resources */,
 				E1654A0C1B2D4E6F7A8B9C01 /* samples in Resources */,

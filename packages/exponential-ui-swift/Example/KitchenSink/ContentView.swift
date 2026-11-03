@@ -160,6 +160,15 @@ final class SinkState: ObservableObject {
         }
         try! model.setNested(json: json)
         model.setData(path: "/draft", value: .object(["title": .string("")]))
+        // EXP-1653: the data model web renders the sink against (the Inbox
+        // header's team name, the posts, every bound input, the closed toast).
+        if specimenJSON == nil,
+           let url = Bundle.main.url(forResource: "kitchen-sink.data", withExtension: "json"),
+           let raw = try? Data(contentsOf: url),
+           let object = try? JSONSerialization.jsonObject(with: raw),
+           case let .object(data) = JSONValue(any: object) {
+            for (key, value) in data where key != "$comment" { model.setData(path: "/\(key)", value: value) }
+        }
         if case let .object(data)? = specimenData {
             for (key, value) in data { model.setData(path: "/\(key)", value: value) }
         }

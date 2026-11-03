@@ -1101,7 +1101,7 @@
                 "id": "specimen-sidebar-case-0-label",
                 "component": "Text",
                 "props": {
-                  "text": "example",
+                  "text": "collapseBelow · never",
                   "variant": "caption"
                 }
               },
@@ -1111,7 +1111,7 @@
                 "props": {
                   "side": "left",
                   "width": 240,
-                  "collapseBelow": "md"
+                  "collapseBelow": "never"
                 },
                 "children": [
                   {
@@ -5464,7 +5464,8 @@
                   "description": "The server did not answer.",
                   "type": "error",
                   "actionLabel": "Retry",
-                  "open": true
+                  "open": true,
+                  "duration": 0
                 }
               }
             ]

@@ -51,6 +51,11 @@ use crate::surface::{PillMode, PillSize};
 const KITCHEN_SINK_JSON: &str =
     include_str!("../../../../../packages/exponential-ui/fixtures/kitchen-sink.json");
 
+/// The data model the web route and the Compose example render the sink
+/// against (the Inbox header's team name, the posts, every bound input).
+const KITCHEN_SINK_DATA_JSON: &str =
+    include_str!("../../../../../packages/exponential-ui-react/fixtures/kitchen-sink.data.json");
+
 /// The fake host round trip of the typing test (the web harness's 150 ms).
 const ECHO_DELAY: Duration = Duration::from_millis(150);
 
@@ -210,15 +215,24 @@ fn parse_theme(spec: Option<&str>) -> &'static str {
     THEME_IDS.iter().copied().find(|id| Some(*id) == spec).unwrap_or("exponential")
 }
 
-/// The fixture's data model: what the web harness seeds (`draft.title`
-/// empty) plus `n` posts when asked (the List windows past 24).
-fn seed_data(posts: usize) -> Vec<(&'static str, Value)> {
-    let mut data = vec![("/draft", json!({"title": ""})), ("/ui", json!({"confirmOpen": false}))];
+/// The fixture's data model: what the web route seeds (EXP-1653:
+/// `kitchen-sink.data.json`, so the AppBar subtitle and the closed toast
+/// match web) plus `n` posts when asked (the List windows past 24).
+fn seed_data(posts: usize) -> Vec<(String, Value)> {
+    let raw: Value = serde_json::from_str(KITCHEN_SINK_DATA_JSON).expect("the kitchen-sink data parses");
+    let mut data: Vec<(String, Value)> = raw
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, _)| k.as_str() != "$comment")
+        .map(|(k, v)| (format!("/{k}"), v.clone()))
+        .collect();
     if posts > 0 {
         let rows: Vec<Value> = (0..posts)
             .map(|i| json!({"title": format!("Post {}", i + 1), "score": format!("{} points", (posts - i) * 7)}))
             .collect();
-        data.push(("/posts", Value::Array(rows)));
+        data.retain(|(p, _)| p != "/posts");
+        data.push(("/posts".to_string(), Value::Array(rows)));
     }
     data
 }
@@ -267,7 +281,7 @@ impl ExponentialUiKitchenSink {
         let view = cx.new(|cx| {
             let mut view = SurfaceView::new(options, window, cx);
             for (path, value) in seed_data(posts) {
-                if let Err(e) = view.set_data(path, Some(value), cx) {
+                if let Err(e) = view.set_data(&path, Some(value), cx) {
                     log::warn!("[exponential-ui kitchen sink] {path}: {e}");
                 }
             }
@@ -775,11 +789,16 @@ mod tests {
 
     #[test]
     fn seed_matches_the_web_harness_unless_posts_are_asked_for() {
-        let paths: Vec<&str> = seed_data(0).into_iter().map(|(p, _)| p).collect();
-        assert_eq!(paths, vec!["/draft", "/ui"]);
+        let seed = seed_data(0);
+        let paths: Vec<&str> = seed.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(paths.contains(&"/draft") && paths.contains(&"/ui") && !paths.contains(&"/$comment"));
+        let ui = &seed.iter().find(|(p, _)| p == "/ui").unwrap().1;
+        assert_eq!(ui["teamName"], json!("Platform team"));
+        assert_eq!(ui["toastOpen"], json!(false));
         let with_posts = seed_data(30);
-        assert_eq!(with_posts[2].0, "/posts");
-        assert_eq!(with_posts[2].1.as_array().map(Vec::len), Some(30));
+        let posts = with_posts.iter().filter(|(p, _)| p == "/posts").collect::<Vec<_>>();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].1.as_array().map(Vec::len), Some(30));
     }
 
     #[test]

@@ -101,6 +101,10 @@ pub struct LNode {
     pub trigger_for: Option<String>,
     /// The enclosing Form's id (fields and submit buttons).
     pub form: Option<String>,
+    /// EXP-1653: `disabled` came from the enclosing Form, not the author.
+    /// Behaviour sees it; recipe PROP conditions (`when: {disabled: true}`)
+    /// do not, like web, where only the `disabled` state reaches the parts.
+    pub form_disabled: bool,
     /// A live region: `polite | assertive` (Text `live`, Toast, Form errors).
     pub live: Option<String>,
 }
@@ -443,6 +447,17 @@ pub(crate) fn str_prop<'p>(props: &'p Props, key: &str) -> Option<&'p str> {
     props.get(key).and_then(Value::as_str)
 }
 
+/// The props a recipe's `when` reads: the author's, without a `disabled`
+/// only the enclosing Form injected (EXP-1653).
+pub(crate) fn recipe_props(props: &Props, form_disabled: bool) -> std::borrow::Cow<'_, Props> {
+    if !form_disabled {
+        return std::borrow::Cow::Borrowed(props);
+    }
+    let mut own = props.clone();
+    own.remove("disabled");
+    std::borrow::Cow::Owned(own)
+}
+
 pub(crate) fn bool_prop(props: &Props, key: &str) -> bool {
     props.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
@@ -533,6 +548,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             accessibility: None,
             trigger_for: None,
             form,
+            form_disabled: false,
             live: None,
         }
     }
@@ -549,7 +565,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.owner_component = Some(owner.component.clone());
         n.base_style = obj(style);
         n.props = obj(props);
-        let query_props = self.ctx.recipes.native_recipe_props(&owner.component, &owner.props);
+        let query_props = self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled));
         n.part_query = Some(RecipeQuery::new(owner.component.clone(), part, query_props, Vec::new()));
         if let Some(l) = n.props.get("lines").and_then(Value::as_u64) {
             n.lines = Some(l as u32);
@@ -681,8 +697,10 @@ impl<'a, 'b> Builder<'a, 'b> {
         // Inside a disabled Form every field (and button) is inert; inside a
         // busy one the submit buttons show loading.
         let form = parent.and_then(|p| self.nodes[p as usize].form.clone());
+        let mut form_disabled = false;
         if let Some((disabled, busy)) = form.as_ref().and_then(|f| self.forms.get(f)).copied() {
             if disabled && (FORM_FIELDS.contains(&node.component.as_str()) || node.component == "Button") {
+                form_disabled = !bool_prop(&props, "disabled");
                 props.insert("disabled".into(), Value::Bool(true));
             }
             if busy && node.component == "Button" && bool_prop(&props, "submit") {
@@ -734,7 +752,8 @@ impl<'a, 'b> Builder<'a, 'b> {
         n.source = self.sources.get(&node.id).cloned();
         n.accessibility = node.accessibility.as_ref().and_then(|a| self.resolve(a, scope));
         n.live = str_prop(&props, "live").filter(|l| *l != "off").map(str::to_string);
-        n.own_query = Some(RecipeQuery::new(node.component.clone(), "root", self.ctx.recipes.native_recipe_props(&node.component, &props), Vec::new()));
+        n.form_disabled = form_disabled;
+        n.own_query = Some(RecipeQuery::new(node.component.clone(), "root", self.ctx.recipes.native_recipe_props(&node.component, &recipe_props(&props, form_disabled)), Vec::new()));
         if let Some(r) = &node.recipe {
             n.part_query = Some(RecipeQuery::new(r.macro_.clone(), r.part.clone(), self.resolve_map(&r.props, scope), Vec::new()));
             n.authored_keys = r.authored.clone();
@@ -1067,7 +1086,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         root.owner_component = Some(owner.component.clone());
         root.form = owner.form.clone();
         root.base_style = obj(style);
-        root.part_query = Some(RecipeQuery::new(owner.component.clone(), part, self.ctx.recipes.native_recipe_props(&owner.component, &owner.props), vec!["open".into()]));
+        root.part_query = Some(RecipeQuery::new(owner.component.clone(), part, self.ctx.recipes.native_recipe_props(&owner.component, &recipe_props(&owner.props, owner.form_disabled)), vec!["open".into()]));
         let index = self.push(root);
         (layer, index)
     }

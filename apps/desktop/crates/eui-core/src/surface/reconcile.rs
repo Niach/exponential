@@ -247,6 +247,7 @@ impl Surface {
             accessibility: None,
             trigger_for: None,
             form: None,
+            form_disabled: false,
             live: None,
         });
         self.live.push(false);

@@ -8,12 +8,14 @@
 //! The thread screen paints the same pill (`surface_card::locked_pill`).
 //! #EXP-1553: like web, the phone's BUBBLES layout first (the agent's reply
 //! in its left bubble with its time), then the IDE transcript.
+//! #EXP-1633: laid out like web's — a wrapping row of the phone card, the
+//! wide transcript and the chats list card, not one column.
 
 use domain::chats::{ChatPreview, ChatPreviewKind, ChatRow};
 use domain::sealed::{LockedReason, PLACEHOLDER};
 use domain::session_tree::SessionThreadRow;
 use gpui::{div, px, AnyElement, App, Div, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
-use gpui_component::{v_flex, ActiveTheme as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use crate::chat_list::{chat_lead_disc, chat_row};
 use crate::markdown::ImageCache;
@@ -77,19 +79,34 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let bubbles: Vec<AnyElement> =
         transcript().iter().map(|(row, time)| paint_bubble(row, time, &images, window, cx)).collect();
     let rows: Vec<AnyElement> = transcript().iter().map(|(row, time)| paint(row, time, &images, window, cx)).collect();
-    v_flex()
-        .w(px(520.))
-        .gap_5()
-        .child(label("Phone (bubbles)", cx))
-        .children(bubbles)
-        .child(label("Wide (transcript)", cx))
-        .children(rows)
+    // Web: `flex flex-wrap items-start gap-6`; the phone card `w-[22rem]
+    // rounded-3xl border bg-background p-4`, the transcript `w-[32rem]`,
+    // the list card `w-[390px] rounded-xl bg-background p-4 gap-4`.
+    h_flex()
+        .flex_wrap()
+        .items_start()
+        .gap_6()
         .child(
             v_flex()
-                .w_full()
+                .w(px(352.))
+                .rounded_3xl()
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                .bg(cx.theme().background)
+                .p_4()
+                .child(label("Phone (bubbles)", cx).mb_3())
+                .child(v_flex().gap_5().children(bubbles)),
+        )
+        .child(v_flex().w(px(512.)).child(label("Wide (transcript)", cx).mb_3()).child(v_flex().gap_5().children(rows)))
+        .child(
+            v_flex()
+                .w(px(390.))
+                .gap_4()
+                .p_4()
                 .rounded_xl()
                 .bg(cx.theme().background)
-                .children(list_rows().iter().map(|row| chat_row(row, chat_lead_disc(row.lead, None, false, cx), cx).into_any_element())),
+                .child(label("Chats list", cx))
+                .child(v_flex().w_full().children(list_rows().iter().map(|row| chat_row(row, chat_lead_disc(row.lead, None, false, cx), cx).into_any_element()))),
         )
 }
 
