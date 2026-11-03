@@ -142,7 +142,10 @@ jobs:
       # exits 1 without this.
       - name: Resolve SPM dependencies
         id: deps
-        run: tuist install
+        # A second Mac instance resolves into its own SwiftPM cache
+        # (EXP_SWIFTPM_CACHE, .github/runners/mac/install.sh): two parallel
+        # resolves in the shared one lose Firebase's xcframeworks.
+        run: tuist install ${EXP_SWIFTPM_CACHE:+-- --cache-path "$EXP_SWIFTPM_CACHE"}
 
       - name: Compile the app target (Release, unsigned)
         run: |
@@ -190,6 +193,12 @@ jobs:
           # select step picked it: iPhone 17 Pro Max on the iOS 27 runtime.
           DEVICE="$IOS_SIM_NAME"
 
+          # A fresh DerivedData per job, never ~/Library/Developer/Xcode's:
+          # GRDBSQLite's Copy Module Map phase cp's a read-only modulemap, so a
+          # kept one fails the next build (exit 65, 0 tests). Writable again
+          # before each suite, which rebuilds into the same dir.
+          DD="$RUNNER_TEMP/dd-test"
+
           fail=0
           run_suite() {
             local scheme="$1" floor="$2"
@@ -197,10 +206,13 @@ jobs:
             local dir="$RUNNER_TEMP/xcresult/$scheme"
             rm -rf "$dir" && mkdir -p "$dir"
 
+            [ -d "$DD/Build/Products" ] && chmod -R u+w "$DD/Build/Products"
+
             local status=0
             tuist test "$scheme" --no-selective-testing \
               --device "$DEVICE" --os "$IOS_SIM_OS" \
               --result-bundle-path "$dir/$scheme.xcresult" \
+              -- -derivedDataPath "$DD" \
               > "$log" 2>&1 || status=$?
 
             local bundle="$dir/$scheme.xcresult"

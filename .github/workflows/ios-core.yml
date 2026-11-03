@@ -43,7 +43,7 @@ jobs:
           path: apps/ios/ExpCore/.build
           key: ${{ runner.os }}-expcore-${{ hashFiles('apps/ios/ExpCore/Package.swift') }}
       - name: swift test
-        run: swift test --package-path apps/ios/ExpCore
+        run: swift test --package-path apps/ios/ExpCore ${EXP_SWIFTPM_CACHE:+--cache-path "$EXP_SWIFTPM_CACHE"}
       - name: Free the MacBook's disk
         if: always() && runner.environment == 'self-hosted'
         run: rm -rf apps/ios/ExpCore/.build
