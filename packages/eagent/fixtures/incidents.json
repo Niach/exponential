@@ -986,7 +986,7 @@
           },
           "failure": {
             "code": "invalid",
-            "message": "This chat is sealed: its messages must be sealed too",
+            "message": "This chat is end-to-end encrypted: its messages must be encrypted too",
             "retryable": false
           }
         },
@@ -1004,7 +1004,7 @@
           },
           "failure": {
             "code": "invalid",
-            "message": "This chat is sealed: its messages must be sealed too",
+            "message": "This chat is end-to-end encrypted: its messages must be encrypted too",
             "retryable": false
           }
         },
@@ -1076,7 +1076,7 @@
           },
           "failure": {
             "code": "invalid",
-            "message": "This chat is sealed: its messages must be sealed too",
+            "message": "This chat is end-to-end encrypted: its messages must be encrypted too",
             "retryable": false
           }
         },
@@ -1107,7 +1107,7 @@
           },
           "failure": {
             "code": "invalid",
-            "message": "This chat is sealed: its messages must be sealed too",
+            "message": "This chat is end-to-end encrypted: its messages must be encrypted too",
             "retryable": false
           }
         },

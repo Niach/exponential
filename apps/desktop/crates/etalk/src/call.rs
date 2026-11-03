@@ -45,6 +45,8 @@ pub struct CallCopy {
     pub speaker_off: String,
     pub end_call: String,
     pub cancel: String,
+    /// EXP-1681: the phones' minimize button (the pill's way in).
+    pub minimize: String,
     pub queued: String,
     /// S-3: what the device says once answered, by language.
     pub greeting: HashMap<String, String>,
@@ -61,6 +63,7 @@ pub struct CallIcons {
     pub speaker: String,
     pub speaker_off: String,
     pub end: String,
+    pub minimize: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,6 +76,7 @@ pub struct CallTestIds {
     pub panel: String,
     pub pill: String,
     pub timer: String,
+    pub minimize: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,13 +123,16 @@ pub struct CallWire {
     pub max_frame_bytes: usize,
 }
 
-/// S-3: the desktop's floating call pill (fixed size, never resized).
+/// S-3: the floating call pill (fixed size, never resized); EXP-1681 the
+/// phones' minimized call too.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallPill {
     pub width: f32,
     pub height: f32,
     pub margin_px: f32,
+    /// EXP-1681: a phone pill's default bottom edge above the safe area's.
+    pub phone_bottom_px: f32,
 }
 
 /// One styleguide row of the call surface (`surfaceSpecimens`).

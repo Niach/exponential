@@ -56,7 +56,6 @@ import { Empty } from "@/components/empty"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
-import { ListDetailPane, listDetailKey } from "@/components/team/list-detail"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import {
   SidebarRunningSection,
@@ -82,7 +81,7 @@ import {
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { panelOffset, type SidebarOccupant } from "@/lib/detail-origin"
+import type { SidebarOccupant } from "@/lib/detail-origin"
 import {
   SIDEBAR_HANDLE_WIDTH,
   SIDEBAR_KEYBOARD_STEP,
@@ -132,12 +131,6 @@ const UiInviteIcon = conceptIcon(`ui-invite`)
 // EXP-1156: a drag (`data-resizing` on the sidebar wrapper) switches it off,
 // or every slot would trail the pointer by the whole duration.
 const SLOT_MOTION = `duration-standard ease-standard motion-reduce:transition-none group-data-[resizing=true]/sidebar-wrapper:transition-none`
-
-const OFFSET_CLASS = {
-  [-1]: `-translate-x-full`,
-  0: `translate-x-0`,
-  1: `translate-x-full`,
-} as const
 
 interface TeamSidebarProps {
   teamSlug: string
@@ -202,9 +195,9 @@ export function TeamSidebar({
 
   // EXP-456 / EXP-851 / EXP-870: the column's layout is a function of the URL
   // (`useSidebarOccupant`) — the MAIN menu alone, or the rail compacted to
-  // icons beside the settings nav or the LIST NAV a detail brings along
-  // (`?from=`). Every entry point (footer gear, mobile topbar menu, a list
-  // row, deep links) drives the same swap, and a direct load lands settled.
+  // icons beside the settings nav. #EXP-1672: the Inbox keeps the main menu
+  // (its list is the content card's second sidebar, desktop parity). Every
+  // entry point drives the same swap, and a direct load lands settled.
   const router = useRouter()
   const locationHref = useRouterState({ select: (s) => s.location.href })
   const activeAgentId = useRouterState({
@@ -217,10 +210,9 @@ export function TeamSidebar({
   const { apps } = useApps(team?.id)
   const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
-  const listOrigin = occupant.kind === `list` ? occupant.origin : null
-  // EXP-870: a panel is up → the rail compacts to its icon column instead of
+  // EXP-870: settings is up → the rail compacts to its icon column instead of
   // leaving. Strictly derived, never a toggle.
-  const compact = occupant.kind !== `main`
+  const compact = inSettings
 
   // Last non-settings location — the back button returns exactly here (with
   // its search params), not merely to the team index. Read in the same
@@ -640,17 +632,16 @@ export function TeamSidebar({
             </RailSlot>
 
             {/* EXP-870: the PANEL slot — 0 wide with the main menu, the
-                ACTIVE panel's dragged width (EXP-1156) beside the compact
-                rail. Its panels slide by DIRECTION (`panelOffset`, in each
-                layer's OWN width): going deeper a panel comes out from under
-                the rail's edge, coming back it slides back under it. */}
+                settings nav's dragged width (EXP-1156) beside the compact
+                rail. It comes out from under the rail's edge going in and
+                slides back under it on the way out. */}
             <PanelSlot occupant={occupant.kind}>
               <PanelLayer
                 panel="settings"
                 inert={!inSettings}
                 className={cn(
                   `transition-transform`,
-                  OFFSET_CLASS[panelOffset(`settings`, occupant.kind)]
+                  inSettings ? `translate-x-0` : `-translate-x-full`
                 )}
               >
                 <SettingsSidebar
@@ -658,27 +649,6 @@ export function TeamSidebar({
                   permissions={permissions}
                   onBack={handleSettingsBack}
                 />
-              </PanelLayer>
-
-              {/* EXP-1246: the ONE list-detail host — the Inbox, beside what
-                  it opened. Mounted only while it is up: its lists run live
-                  queries. Keyed by the LIST, so stepping through it one
-                  detail at a time never remounts it. */}
-              <PanelLayer
-                panel="list"
-                inert={!listOrigin}
-                className={cn(
-                  `transition-transform`,
-                  OFFSET_CLASS[panelOffset(`list`, occupant.kind)]
-                )}
-              >
-                {listOrigin && (
-                  <ListDetailPane
-                    key={listDetailKey(listOrigin)}
-                    teamSlug={teamSlug}
-                    origin={listOrigin}
-                  />
-                )}
               </PanelLayer>
             </PanelSlot>
           </div>

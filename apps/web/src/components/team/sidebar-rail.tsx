@@ -40,12 +40,12 @@ import {
   useDraftCount,
 } from "@/components/team/sidebar-nav-entries"
 
-// EXP-870: the rail never leaves. Beside a list nav or the settings nav the
-// main menu MORPHS into this 48px icon column instead of sliding away —
-// Inbox, Agent, Threads, the agents, the boards, the pins and the running
-// threads and the account stay one click away in
-// every state (desktop `compact_rail.rs`). Strictly derived from the URL
-// (`sidebarOccupant`), never a user toggle. 32px ghost buttons centred in
+// EXP-870: the rail never leaves. Beside the settings nav the main menu
+// MORPHS into this 48px icon column instead of sliding away — Inbox, Agent,
+// Threads, the agents, the boards, the pins and the running threads and the
+// account stay one click away. #EXP-1672: the Inbox no longer folds it (its
+// list is the content card's second sidebar, like the IDE's). Strictly
+// derived from the URL (`sidebarOccupant`), never a user toggle. 32px ghost buttons centred in
 // the column, the name in a right-hand tooltip, badges top-right.
 //
 // The badges live here and are shared with the expanded rows in

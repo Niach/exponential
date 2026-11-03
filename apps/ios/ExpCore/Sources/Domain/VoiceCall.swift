@@ -25,6 +25,8 @@ public enum VoiceCall {
         public static let speakerOff = "Speaker off"
         public static let endCall = "End call"
         public static let cancel = "Cancel"
+        /// EXP-1681: the phone surface's minimize button.
+        public static let minimize = "Minimize"
         public static let queued = "{count} queued · {text}"
         /// S-3: what the voice device says once the call is answered.
         public static let greeting: [String: String] = ["en": "Hello?", "de": "Hallo?"]
@@ -74,6 +76,7 @@ public enum VoiceCall {
         public static let panel = "voice-call-panel"
         public static let pill = "voice-call-pill"
         public static let timer = "voice-call-timer"
+        public static let minimize = "voice-call-minimize"
     }
 
     /// Icon concepts (`AppIcons.voiceCall`, `AppIcons.callMute`, …).
@@ -85,6 +88,7 @@ public enum VoiceCall {
         public static let speaker = "call-speaker"
         public static let speakerOff = "call-speaker-off"
         public static let end = "call-end"
+        public static let minimize = "ui-chevron-down"
     }
 
     public enum Constants {
@@ -698,11 +702,14 @@ public enum VoiceCall {
         )),
     ]
 
-    /// The floating pill's fixed size (desktop only; mirrored for parity).
+    /// The floating pill's fixed size (the desktop's; EXP-1681 the phones'
+    /// minimized call, never wider than the screen minus two margins).
     public enum Pill {
         public static let width = 320
         public static let height = 56
         public static let marginPx = 24
+        /// The phone pill's default bottom edge above the safe area's.
+        public static let phoneBottomPx = 96
     }
 
     // MARK: - Transport

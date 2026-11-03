@@ -55,7 +55,7 @@ async function world() {
 afterAll(async () => {
   if (!ready.ok) return
   if (made.teams.length) await db.delete(teams).where(inArray(teams.id, made.teams))
-  if (made.users.length) await db.execute(sql`DELETE FROM users WHERE id = ANY(${made.users})`)
+  if (made.users.length) await db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`)
 })
 
 describe.skipIf(!ready.ok)(`device-routed upstream calls (real db)`, () => {

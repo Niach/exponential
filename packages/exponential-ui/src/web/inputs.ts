@@ -8,7 +8,19 @@
 // stale echo can never clobber a key in flight. A renderer wraps
 // `HostOwnedController` in its reactivity (React: `useHostOwnedValue`).
 
+import { resolveRecipe } from "@exponential_app/eui"
+import type { ResolvedTheme } from "@exponential_app/eui"
+
 export const DEBOUNCE_MS = 150
+
+/** How far a Switch thumb travels when checked: the resolved track width
+ *  less the thumb and the 2px inset either side, per `size`. */
+export function switchTravel(theme: ResolvedTheme, size: string): number {
+  const props = { checked: true, disabled: false, size }
+  const track = resolveRecipe(theme, { component: `Switch`, part: `track`, props }, `light`).width
+  const thumb = resolveRecipe(theme, { component: `Switch`, part: `thumb`, props }, `light`).width
+  return Math.max(0, (typeof track === `number` ? track : 32) - (typeof thumb === `number` ? thumb : 16) - 4)
+}
 
 export type HostOwnedSend<T> = (value: T, revision: number, kind: `change` | `commit`) => void | Promise<void>
 

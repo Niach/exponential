@@ -33,8 +33,10 @@ import {
 // message row's lock, in the same transaction as what it records, gated
 // like answering a card (`assertCanSteer` on the card's session).
 
-const sealedRefused = () =>
-  new TRPCError({ code: `BAD_REQUEST`, message: `This card is sealed: the server cannot act on its items` })
+/** The refusal for a sealed suggestions/replies card (sealed-readers.real-db.test.ts matches it). */
+export const SEALED_SUGGESTIONS_MESSAGE = `This card is end-to-end encrypted: the server cannot act on its items`
+
+const sealedRefused = () => new TRPCError({ code: `BAD_REQUEST`, message: SEALED_SUGGESTIONS_MESSAGE })
 
 /** The card message + its session, steer-gated. */
 async function loadSuggestionCard(userId: string, messageId: string) {

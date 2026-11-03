@@ -74,6 +74,8 @@ import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
 import com.exponential.app.ui.styleguide.MentionPillSpecimenTestId
 import com.exponential.app.ui.styleguide.CallControlsSpecimenScreen
 import com.exponential.app.ui.styleguide.CallControlsSpecimenTestId
+import com.exponential.app.ui.styleguide.CallPillSpecimenScreen
+import com.exponential.app.ui.styleguide.CallPillSpecimenTestId
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenScreen
@@ -147,7 +149,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-skills · sg_settings-skill ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
+ *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
@@ -169,8 +171,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * EXP-1309: every Threads v2 surface WITH a seed counterpart is walked live,
  * so it reads the same seed web, desktop and iOS photograph and cannot drift:
- * sg_agent-home (the landing, the bottom bar over it), sg_session-row (THE
- * row on the Threads tab, EXP-1311/1316: the home has no Running band), sg_composer-menu +
+ * sg_agent-home (the landing, the bottom bar over it), sg_composer-menu +
  * sg_chat-issues (the home composer's "+" and Implement issue), sg_threads
  * (the Threads tab), sg_agent-channel (Triage), sg_thread (the cold-start
  * thread), sg_session ("Profile the launch path", its pending question in
@@ -229,6 +230,8 @@ class StyleguideScreenshotsTest {
             "sg_session-xref",
             // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
             "sg_pr-row",
+            // Thread 20b7fdc2: THE session row (web's `session-row` island).
+            "sg_session-row",
             // #EXP-1611: the Merge pill's check states + the Checks submenu.
             "sg_pr-checks",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
@@ -244,6 +247,8 @@ class StyleguideScreenshotsTest {
             // NEW-69 / S-3: the phone-call screen's states, and its round buttons.
             "sg_voice-call",
             "sg_call-controls",
+            // EXP-1681: THE floating call pill a minimized call draws.
+            "sg_call-pill",
             // EXP-1375: the Storage band + the composer's low-disk row.
             "sg_device-readiness",
             // S-3 STORIES: THE story ring row + THE story viewer.
@@ -470,26 +475,11 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_agent-home")
 
-        // --- sg_session-row: THE session row (EXP-1248/1311). EXP-1316: the
-        // home lost its Running band, so the row's phone instance is the
-        // Threads tab's, gated on the seeded cold-start thread waiting on me
-        // (web/desktop photograph a styleguide island).
-        //
         // EXP-1558: from here on the walk is a run of [step]s, each starting
         // from a tab: a step that fails is retried once, then recorded, and
         // the walk carries on, so one flaky screen no longer costs every shot
         // after it (the lane keeps the shots taken; the test still fails).
-        step("session-row") {
-            composeRule.onNode(hasTestTag("tab-threads")).performClick()
-            flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
-            flow.waitFor(
-                hasTestTag(Chats.TestIds.CHAT_ROW) and
-                    hasText(COLD_START_THREAD_TITLE, substring = true),
-                SYNC_TIMEOUT,
-            )
-            flow.settle()
-            flow.screenshot("sg_session-row")
-        }
+        // (Thread 20b7fdc2: sg_session-row is a capture-only specimen now.)
 
         // The app lands on the Agent tab; the board shots start on Issues.
         // --- Board: wait out session fetch + first Electric sync, then let the
@@ -1721,6 +1711,11 @@ class StyleguideScreenshotsTest {
         showThreadCards(ThreadCardsKind.PrRow)
         flow.screenshot("sg_pr-row")
 
+        // --- sg_session-row (thread 20b7fdc2): THE session row under the
+        // Running caption — web's `session-row` island, by the real SessionRow.
+        showThreadCards(ThreadCardsKind.SessionRow)
+        flow.screenshot("sg_session-row")
+
         // --- sg_pr-checks (#EXP-1611): THE header Merge pill in its four
         // check states + the `…`'s Checks submenu pushed open over
         // pr-checks.json `specimen`, by the real MergePill / ChatMenuPanel.
@@ -1777,6 +1772,9 @@ class StyleguideScreenshotsTest {
         // --- sg_call-controls (S-3): the round icon-only call buttons.
         show(CallControlsSpecimenTestId) { CallControlsSpecimenScreen() }
         flow.screenshot("sg_call-controls")
+        // --- sg_call-pill (EXP-1681): THE floating call pill, once per row.
+        show(CallPillSpecimenTestId) { CallPillSpecimenScreen() }
+        flow.screenshot("sg_call-pill")
         // --- sg_device-readiness (EXP-1375, device-doctor.json): the low-disk
         // case's block and the composer's low-disk row.
         show(DeviceReadinessSpecimenTestId) { DeviceReadinessSpecimenScreen() }

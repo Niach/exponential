@@ -36,6 +36,8 @@ final class VoiceCallClient {
     private(set) var callee = VoiceCallCallee(name: "")
     /// When the call was answered (the timer's zero); nil while ringing.
     private(set) var answeredAt: Date?
+    /// EXP-1681: the call screen is minimized into the floating pill.
+    private(set) var minimized = false
 
     /// What the call surface shows; nil = no call.
     var view: VoiceCall.View? { VoiceCall.callView(state, platform: .phone) }
@@ -58,6 +60,8 @@ final class VoiceCallClient {
     ) {
         guard state.phase == .hidden else { return }
         self.callee = callee
+        // A new call always opens full screen.
+        minimized = false
         generation += 1
         let generation = generation
         step(.start(device: device, language: language))
@@ -101,6 +105,18 @@ final class VoiceCallClient {
         }
         teardown()
         step(.end)
+    }
+
+    /// EXP-1681: Minimize (the chevron, a swipe down): the screen goes, the
+    /// floating pill shows, the call goes on.
+    func minimize() {
+        guard state.phase != .hidden else { return }
+        minimized = true
+    }
+
+    /// A tap on the pill: the call screen again.
+    func expand() {
+        minimized = false
     }
 
     /// Mute / Unmute: the microphone closes (silence goes up, which keeps

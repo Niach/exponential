@@ -19,7 +19,7 @@ export type SwitchProps = Omit<ComponentProps<`button`>, `value` | `onChange`> &
   value?: string
   form?: string
   disabled?: boolean
-  size?: `sm` | `default`
+  size?: `sm` | `compact` | `default`
 }
 
 function Switch(props: SwitchProps) {

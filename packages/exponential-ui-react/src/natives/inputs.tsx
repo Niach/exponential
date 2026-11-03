@@ -10,7 +10,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react"
 import { Checkbox as CheckboxPrimitive, RadioGroup as RadioPrimitive, Slider as SliderPrimitive, Switch as SwitchPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { boundPath, hostPath } from "@exponential_app/eui/web"
+import { boundPath, hostPath, switchTravel } from "@exponential_app/eui/web"
 import { FieldErrors, joinIds, useField } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useHostOwnedValue } from "../inputs"
@@ -306,11 +306,8 @@ export function SwitchNative({ node, props, rootProps, emit, scope, domId }: Nat
   const focusRef = useRef<HTMLButtonElement | null>(null)
   const f = useField({ node, domId, props, value: checked, focusRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
-  const travel = useMemo(() => {
-    const trackWidth = num((ctx.theme.recipes.Switch?.track?.[0]?.style as { width?: number } | undefined)?.width, 32)
-    const thumb = num((ctx.theme.recipes.Switch?.thumb?.[0]?.style as { width?: number } | undefined)?.width, 16)
-    return Math.max(0, trackWidth - thumb - 4)
-  }, [ctx.theme])
+  const size = str(props.size, `default`)
+  const travel = useMemo(() => switchTravel(ctx.theme, size), [ctx.theme, size])
   const description = str(props.description)
   // Round 2 §7: [label + description][switch] — label first, the track at
   // the END; the whole row toggles (the label already clicks the control).

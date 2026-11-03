@@ -195,7 +195,7 @@ export function sealAnswerInput(
   standIn?: { card: Card; key: { epoch: number; publicKey: string } }
 ): CardAnswerInput | { decision?: `approved` | `rejected`; fresh?: boolean; sealedCard: Card } {
   if (!message.card || typeof message.card.sealed !== `string`) return input
-  const locked = new Error(`This card is sealed and this browser holds no key for it yet`)
+  const locked = new Error(`This card is end-to-end encrypted and this browser holds no key for it yet`)
   const opened = holder ? openCardCached(message.card, holder.keysFor(message.rootId)) : null
   const full = opened?.status === `opened` ? opened.card : standIn?.card
   if (!full) throw locked

@@ -80,7 +80,7 @@ export const REFERENCE: ReferenceSource[] = [
     source: `${CRATES}/enet-core/README.md`,
     slug: `docs/libraries/enet/reference`,
     title: `eNet reference`,
-    description: `enet-core: the node, identities and tickets, the channels, push sealing, the security model, targets and features.`,
+    description: `enet-core: the node, identities and tickets, the channels, push encryption, the security model, targets and features.`,
   },
   {
     source: `${CRATES}/exponential-net-ffi/README.md`,

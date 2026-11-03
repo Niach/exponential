@@ -172,7 +172,7 @@ const listenerCopiesSchema = z
 /** EXP-1458: a writer's body is plaintext or a well-formed envelope; an
  *  ask text and every listener copy are envelopes. */
 function assertSealedWrite(body: string, askText?: string, copies?: ReadonlyArray<{ body?: string }>) {
-  const bad = (what: string) => new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed ${what}` })
+  const bad = (what: string) => new TRPCError({ code: `BAD_REQUEST`, message: `Invalid encrypted ${what}` })
   if (!validSealedBody(body)) throw bad(`body`)
   if (askText !== undefined && (!isSealedBody(askText) || !validSealedBody(askText))) throw bad(`ask text`)
   for (const copy of copies ?? []) {
@@ -738,7 +738,7 @@ export const sessionsRouter = router({
         sealedTitle: z
           .string()
           .max(sealedBodyMax(255))
-          .refine((value) => isSealedBody(value) && validSealedBody(value), `not a sealed title`)
+          .refine((value) => isSealedBody(value) && validSealedBody(value), `not an encrypted title`)
           .optional(),
         // EXP-849: the login the run ACTUALLY runs on (a start pick or a
         // rotation may move it off the row's), so the row says it and a
@@ -985,7 +985,7 @@ export const sessionsRouter = router({
       assertSealedWrite(input.body, input.askText, input.listenerCopies)
       const sealedCard = card !== null && isSealedCard(card)
       if (sealedCard && !validSealedCard(card as Record<string, unknown>)) {
-        throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed card` })
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid encrypted card` })
       }
       // A question card's `options` are labels; their descriptions ride the
       // parallel `optionDescriptions` sidecar.

@@ -257,7 +257,13 @@ public struct GlassToggleStyle: ToggleStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.motion) private var motion
 
-    public init() {}
+    /// `compact` = the eUI `Switch size=compact` (28×16, a 12pt thumb): the
+    /// in-row switch a trigger row carries on every platform.
+    let compact: Bool
+
+    public init(compact: Bool = false) {
+        self.compact = compact
+    }
 
     public func makeBody(configuration: Configuration) -> some View {
         Button {
@@ -282,17 +288,22 @@ public struct GlassToggleStyle: ToggleStyle {
     /// style keeps only the interaction shell (whole-row tap, motion,
     /// disabled dimming, accessibility).
     private func track(isOn: Bool) -> some View {
-        Self.drawn.track(isOn: isOn)
+        (compact ? Self.drawnCompact : Self.drawn).track(isOn: isOn)
     }
 
     /// The UISwitch geometry (51×31, 27pt thumb, 2pt inset) in the glass
     /// paint. No animation of its own: `makeBody` toggles inside
     /// `withAnimation(motion.fast)`, which a track animation would override.
-    static var drawn: DrawnSwitchStyle {
+    static var drawn: DrawnSwitchStyle { paint(trackWidth: 51, trackHeight: 31, thumbSize: 27) }
+
+    /// The compact switch: the same paint at 28×16 with a 12pt thumb.
+    static var drawnCompact: DrawnSwitchStyle { paint(trackWidth: 28, trackHeight: 16, thumbSize: 12) }
+
+    private static func paint(trackWidth: CGFloat, trackHeight: CGFloat, thumbSize: CGFloat) -> DrawnSwitchStyle {
         DrawnSwitchStyle(
-            trackWidth: 51,
-            trackHeight: 31,
-            thumbSize: 27,
+            trackWidth: trackWidth,
+            trackHeight: trackHeight,
+            thumbSize: thumbSize,
             trackOn: DesignTokens.Palette.primary,
             trackOff: GlassTokens.fillCard,
             thumb: DesignTokens.Palette.foreground,

@@ -189,8 +189,8 @@
     "Checkbox": { "box": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "borderColor": "$color.primary", "boxShadow": "$shadow.none" } } ] },
     "Radio": { "item": [ { "style": { "borderWidth": "$border.thick", "borderColor": "$color.primary", "boxShadow": "$shadow.none" } } ] },
     "Switch": {
-      "track": [ { "style": { "width": 44, "backgroundColor": "$color.muted", "borderWidth": "$border.thick", "borderColor": "$color.primary" } }, { "when": { "checked": true }, "style": { "backgroundColor": "$color.primary" } } ],
-      "thumb": [ { "style": { "width": 16, "height": 16, "backgroundColor": "$color.primary" } }, { "when": { "checked": true }, "style": { "backgroundColor": "$color.primaryForeground" } } ]
+      "track": [ { "style": { "width": 44, "backgroundColor": "$color.muted", "borderWidth": "$border.thick", "borderColor": "$color.primary" } }, { "when": { "checked": true }, "style": { "backgroundColor": "$color.primary" } }, { "when": { "size": "compact" }, "style": { "width": 28, "height": 16 } } ],
+      "thumb": [ { "style": { "width": 16, "height": 16, "backgroundColor": "$color.primary" } }, { "when": { "checked": true }, "style": { "backgroundColor": "$color.primaryForeground" } }, { "when": { "size": "compact" }, "style": { "width": 12, "height": 12 } } ]
     },
     "Slider": { "track": [ { "style": { "height": 8 } } ], "thumb": [ { "style": { "borderWidth": "$border.thick" } } ] },
     "Composer": { "root": [ { "style": { "borderRadius": "$radius.xl2", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "send": [ { "style": { "borderRadius": "$radius.full" } } ] },

@@ -16,7 +16,7 @@
 // and, inside a <form>, Radix's hidden BUBBLE inputs after the control.
 
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from "solid-js"
-import { boundPath, hostPath, parseLocaleNumber } from "@exponential_app/eui/web"
+import { boundPath, hostPath, switchTravel, parseLocaleNumber } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
 import { IconGlyph } from "../icons"
@@ -383,11 +383,7 @@ export function SwitchNative(props: NativeProps): JSX.Element {
   const disabled = () => bool(props.props.disabled) || Boolean(f.form?.disabled)
   const inForm = createInForm(track)
   let stopped = false
-  const travel = createMemo(() => {
-    const trackWidth = num((ctx.theme.recipes.Switch?.track?.[0]?.style as { width?: number } | undefined)?.width, 32)
-    const thumb = num((ctx.theme.recipes.Switch?.thumb?.[0]?.style as { width?: number } | undefined)?.width, 16)
-    return Math.max(0, trackWidth - thumb - 4)
-  })
+  const travel = createMemo(() => switchTravel(ctx.theme, str(props.props.size, `default`)))
   const description = () => str(props.props.description)
   // Round 2 §7: [label + description][switch] — label first, the track at
   // the END; the whole row toggles (the label already clicks the control).

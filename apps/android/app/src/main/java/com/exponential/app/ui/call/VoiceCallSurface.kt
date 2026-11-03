@@ -147,11 +147,14 @@ fun VoiceCallScreen(
     onEnd: () -> Unit,
     modifier: Modifier = Modifier,
     still: Boolean = false,
+    /** EXP-1681: the top start chevron (null = none). */
+    onMinimize: (() -> Unit)? = null,
 ) {
+  Box(modifier.testTag(VoiceCall.TestIds.SURFACE)) {
     Column(
-        modifier = modifier
-            .padding(horizontal = 24.dp, vertical = 32.dp)
-            .testTag(VoiceCall.TestIds.SURFACE),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.weight(0.6f))
@@ -189,6 +192,19 @@ fun VoiceCallScreen(
         Spacer(Modifier.weight(1f))
         CallControls(view = view, onMute = onMute, onSpeaker = onSpeaker, onEnd = onEnd)
     }
+    if (onMinimize != null) {
+        CircleIconButton(
+            icon = ExpIcons.uiChevronDown,
+            contentDescription = VoiceCall.Copy.MINIMIZE,
+            onClick = onMinimize,
+            borderless = true,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 12.dp, top = 4.dp)
+                .testTag(VoiceCall.TestIds.MINIMIZE),
+        )
+    }
+  }
 }
 
 /**
@@ -279,7 +295,15 @@ private fun RingingHalo(animates: Boolean) {
  * motion); idle and muted draw quiet (35%, the muted colour).
  */
 @Composable
-private fun VoiceCallWave(activity: VoiceCall.Activity, level: Float, bands: List<Double>, still: Boolean, child: @Composable () -> Unit) {
+internal fun VoiceCallWave(
+    activity: VoiceCall.Activity,
+    level: Float,
+    bands: List<Double>,
+    still: Boolean,
+    /** `xl` around the avatar; EXP-1681 the call pill's `sm` (no child). */
+    size: Float = WAVE_XL,
+    child: @Composable () -> Unit = {},
+) {
     val reduced = LocalReduceMotion.current
     val animates = !still && !reduced && activity != VoiceCall.Activity.Muted
     val elapsed = remember { mutableFloatStateOf(0f) }
@@ -296,13 +320,15 @@ private fun VoiceCallWave(activity: VoiceCall.Activity, level: Float, bands: Lis
     val quiet = activity == VoiceCall.Activity.Muted
     val outer = if (quiet) DesignTokens.Palette.MutedForeground else DesignTokens.Semantic.Blue
     val inner = if (quiet) DesignTokens.Palette.MutedForeground else MaterialTheme.colorScheme.primary
-    val frame = voiceWaveFrame(activity.wire, level.toDouble(), bands, if (animates) elapsed.floatValue.toDouble() else 0.0, reduced || still)
+    // The pill's ring idles while ringing (the avatar's halo is the ring).
+    val wire = if (activity == VoiceCall.Activity.Ringing) "idle" else activity.wire
+    val frame = voiceWaveFrame(wire, level.toDouble(), bands, if (animates) elapsed.floatValue.toDouble() else 0.0, reduced || still, size)
     val rings = frame?.rings.orEmpty().map { r ->
         VoiceWaveRing(r.points, if (r.part == "outer") outer else inner, r.fillAlpha, r.strokeAlpha, r.strokeWidth)
     }
     VoiceWaveView(
         rings = rings,
-        size = WAVE_XL.dp,
+        size = size.dp,
         // S-3: the avatar disc keeps its size (the phone-call layout); the rings move around it.
         childScale = 1f,
         modifier = Modifier.alpha(if (quiet) 0.35f else 1f),
@@ -316,18 +342,20 @@ private class WaveRing(val part: String, val points: FloatArray, val fillAlpha: 
 private class WaveFrame(val rings: List<WaveRing>, val childScale: Float)
 
 /** One core frame (`voiceWaveJson`); null when the core is unavailable or refuses. */
-private fun voiceWaveFrame(activity: String, level: Double, bands: List<Double>, elapsed: Double, reducedMotion: Boolean): WaveFrame? =
+private fun voiceWaveFrame(activity: String, level: Double, bands: List<Double>, elapsed: Double, reducedMotion: Boolean, size: Float = WAVE_XL): WaveFrame? =
     runCatching {
         val input = buildJsonObject {
-            put("size", WAVE_XL)
+            put("size", size)
             put("activity", activity)
             put("level", level)
             putJsonArray("bands") { bands.forEach { add(JsonPrimitive(it)) } }
             put("elapsed", elapsed)
             put("reducedMotion", reducedMotion)
-            putJsonObject("child") {
-                put("width", AVATAR_SIZE.value)
-                put("height", AVATAR_SIZE.value)
+            if (size == WAVE_XL) {
+                putJsonObject("child") {
+                    put("width", AVATAR_SIZE.value)
+                    put("height", AVATAR_SIZE.value)
+                }
             }
         }
         val out = Json.parseToJsonElement(voiceWaveJson(input.toString())).jsonObject
@@ -374,10 +402,26 @@ fun VoiceCallHost(viewModel: VoiceCallHostViewModel = hiltViewModel()) {
         controller.consumeToast()
     }
     val view = ui.view ?: return
+    // EXP-1681: a minimized call is the floating pill over every screen.
+    if (ui.minimized) {
+        VoiceCallPillOverlay(
+            agent = ui.agent,
+            agentIcon = ui.agentIcon,
+            agentColor = ui.agentColor,
+            view = view,
+            answeredAt = ui.answeredAt,
+            level = level,
+            onMute = controller::toggleMute,
+            onEnd = controller::end,
+            onExpand = controller::expand,
+        )
+        return
+    }
     Dialog(
-        onDismissRequest = {},
+        // Back minimizes; only End call hangs up.
+        onDismissRequest = controller::minimize,
         properties = DialogProperties(
-            dismissOnBackPress = false,
+            dismissOnBackPress = true,
             dismissOnClickOutside = false,
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
@@ -410,6 +454,7 @@ fun VoiceCallHost(viewModel: VoiceCallHostViewModel = hiltViewModel()) {
                 onSpeaker = controller::toggleSpeaker,
                 onEnd = controller::end,
                 modifier = Modifier.fillMaxSize().systemBarsPadding(),
+                onMinimize = controller::minimize,
             )
         }
     }
@@ -538,5 +583,6 @@ fun VoiceCallSpecimen(specimen: VoiceCall.SurfaceSpecimen, modifier: Modifier = 
         onEnd = {},
         modifier = modifier,
         still = true,
+        onMinimize = {},
     )
 }

@@ -63,6 +63,7 @@ class VoiceCallTest {
             "speakerOff" to c.SPEAKER_OFF,
             "endCall" to c.END_CALL,
             "cancel" to c.CANCEL,
+            "minimize" to c.MINIMIZE,
             "queued" to c.QUEUED,
         )
         // A key added to the fixture must land here too.
@@ -96,17 +97,18 @@ class VoiceCallTest {
             "panel" to VoiceCall.TestIds.PANEL,
             "pill" to VoiceCall.TestIds.PILL,
             "timer" to VoiceCall.TestIds.TIMER,
+            "minimize" to VoiceCall.TestIds.MINIMIZE,
         )
         assertEquals(obj("testIds").strings(), ids)
         val i = VoiceCall.Icons
         assertEquals(
             obj("icons").strings(),
-            mapOf("call" to i.CALL, "mute" to i.MUTE, "unmute" to i.UNMUTE, "speaker" to i.SPEAKER, "speakerOff" to i.SPEAKER_OFF, "end" to i.END),
+            mapOf("call" to i.CALL, "mute" to i.MUTE, "unmute" to i.UNMUTE, "speaker" to i.SPEAKER, "speakerOff" to i.SPEAKER_OFF, "end" to i.END, "minimize" to i.MINIMIZE),
         )
         val pill = obj("pill")
         assertEquals(
             pill.keys.associateWith { pill.getValue(it).jsonPrimitive.int },
-            mapOf("width" to VoiceCall.Pill.WIDTH, "height" to VoiceCall.Pill.HEIGHT, "marginPx" to VoiceCall.Pill.MARGIN_PX),
+            mapOf("width" to VoiceCall.Pill.WIDTH, "height" to VoiceCall.Pill.HEIGHT, "marginPx" to VoiceCall.Pill.MARGIN_PX, "phoneBottomPx" to VoiceCall.Pill.PHONE_BOTTOM_PX),
         )
         val k = VoiceCall.Constants
         val constants = mapOf<String, Number>(

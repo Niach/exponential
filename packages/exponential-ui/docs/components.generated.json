@@ -5485,7 +5485,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "The state; bind it."
+          "description": "On or off."
         },
         {
           "name": "disabled",
@@ -5757,7 +5757,7 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "The state; bind it."
+          "description": "On or off."
         },
         {
           "name": "description",
@@ -5775,6 +5775,15 @@
           "responsive": false,
           "default": false,
           "description": "Shows it inert."
+        },
+        {
+          "name": "size",
+          "type": "default | compact",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "compact = dense rows."
         }
       ],
       "accessibility": {

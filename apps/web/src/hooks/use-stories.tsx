@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react"
-import { currentKeyHolder } from "@/lib/enet/current-key-holder"
+import { currentKeySource } from "@/lib/enet/current-key-holder"
 import { openMessageWith } from "@/lib/enet/sealed-open"
 import { useKeyVersion } from "@/lib/enet/use-key-holder"
 import { and, eq, gt, inArray, isNull, not, useLiveQuery } from "@tanstack/react-db"
@@ -137,7 +137,7 @@ type LoadedCardRow = {
 function openStoryRow(row: LoadedCardRow): LoadedCardRow {
   const card = row.card as Record<string, unknown> | null
   if (!card || !(`sealed` in card)) return row
-  const opened = openMessageWith({ body: ``, card }, row.rootId, currentKeyHolder())
+  const opened = openMessageWith({ body: ``, card }, row.rootId, currentKeySource())
   return { ...row, card: opened.locked ? null : opened.card }
 }
 

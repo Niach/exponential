@@ -95,7 +95,9 @@ struct HolderInner {
     install_secret: [u8; 32],
     install_public: [u8; 32],
     api: Arc<dyn KeyApi>,
-    keyring: Keyring,
+    /// Shared with `coding::sealing`'s preload: the reader opened rows off
+    /// it before this holder ran.
+    keyring: Arc<Keyring>,
     /// Serializes key creation (two writers of one root in this process).
     creating: Mutex<()>,
     /// #FEED-177: rotations the server refused this install (not the
@@ -111,14 +113,14 @@ struct HolderInner {
 }
 
 impl KeyHolder {
-    pub fn new(install_id: String, push: &PushKeypair, api: Arc<dyn KeyApi>, keyring: Keyring) -> KeyHolder {
+    pub fn new(install_id: String, push: &PushKeypair, api: Arc<dyn KeyApi>, keyring: impl Into<Arc<Keyring>>) -> KeyHolder {
         KeyHolder {
             inner: Arc::new(HolderInner {
                 install_id,
                 install_secret: push.secret(),
                 install_public: push.public(),
                 api,
-                keyring,
+                keyring: keyring.into(),
                 creating: Mutex::new(()),
                 refused: Mutex::default(),
                 stopped: AtomicBool::new(false),

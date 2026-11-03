@@ -8,13 +8,13 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen|session-xref|pr-checks>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|call-pill|settings-voice|device-readiness|work-screen|session-xref|pr-checks|session-row>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks", "session-row"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -86,9 +86,11 @@ struct ThreadCardsScreen: View {
                     case "sealed-locked": SealedLockedSpecimens()
                     case "voice-call": VoiceCallSpecimens()
                     case "call-controls": CallControlsSpecimens()
+                    case "call-pill": CallPillSpecimens()
                     case "device-readiness": DeviceReadinessSpecimens()
                     case "work-screen": WorkScreenSpecimens()
                     case "pr-row": PrRowSpecimens()
+                    case "session-row": SessionRowSpecimens()
                     case "pr-checks": PrChecksSpecimens()
                     default: workCards
                     }
@@ -355,6 +357,42 @@ private struct PrRowSpecimens: View {
         .padding(.horizontal, -16)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("pr-row-specimen")
+    }
+}
+
+/// Thread 20b7fdc2 `session-row` (web `apps/styleguide` entry `session-row`,
+/// desktop `session_row.rs`, row for row): THE SessionRow under the Running
+/// caption — the APP-5 tree (needs you, a working child, an idle grandchild),
+/// APP-14 working, an ended root; bold = unread, the first row lit. The lead
+/// is the session's run mark (`ThreadSessionChipMark`, the card state).
+private struct SessionRowSpecimens: View {
+    private static let rows: [(identifier: String?, title: String, depth: Int, state: SessionState, unread: Bool)] = [
+        ("APP-5", "Reduce cold start below 800 ms", 0, .needsYou, true),
+        (nil, "Profile the launch path", 1, .working, false),
+        (nil, "Trace the splash screen", 2, .idle, true),
+        ("APP-14", "Group board issues by status", 0, .working, false),
+        (nil, "Pre-cleanup release", 0, .done, false),
+    ]
+
+    var body: some View {
+        let guides = TreeGuides.compute(depths: Self.rows.map(\.depth))
+        VStack(alignment: .leading, spacing: 4) {
+            GlassSectionBand("Running")
+            ForEach(Array(Self.rows.enumerated()), id: \.offset) { index, row in
+                SessionRow(
+                    identifier: row.identifier,
+                    title: row.title,
+                    guide: guides[index],
+                    active: index == 0,
+                    unread: row.unread
+                ) {
+                    ThreadSessionChipMark(state: row.state)
+                }
+            }
+        }
+        .padding(.horizontal, -16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("session-row-specimen")
     }
 }
 
@@ -916,7 +954,8 @@ private struct VoiceCallSpecimens: View {
                         timer: .fixed(specimen.timer),
                         level: specimen.level,
                         bands: specimen.bands,
-                        animated: false
+                        animated: false,
+                        onMinimize: {}
                     )
                     .frame(maxWidth: .infinity)
                     .frame(height: Self.height)
@@ -937,8 +976,8 @@ private struct VoiceCallSpecimens: View {
 /// (`CallControlsSpecimen`) with its captions: the round buttons in every
 /// tone (neutral, pressed, speaker, speaker off, destructive, ringing with
 /// Cancel under the red end), then the rows (phones in call; web + desktop
-/// in call, muted; ringing). The compact row (the desktop's floating pill)
-/// is desktop-only and has no phone view.
+/// in call, muted; ringing), then the compact row (EXP-1681: the floating
+/// call pill, `call-pill`).
 private struct CallControlsSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 32) {
@@ -988,6 +1027,15 @@ private struct CallControlsSpecimens: View {
                     }
                 }
             }
+            if let inCall = VoiceCall.surfaceSpecimens.first(where: { $0.name == "in call, speaking" }) {
+                labelled("compact row: the floating call pill") {
+                    VoiceCallPill(
+                        view: inCall.view, callee: VoiceCallCallee(name: inCall.agent), timer: .fixed(inCall.timer),
+                        level: inCall.level, bands: inCall.bands, width: CallPillSpecimens.width, animated: false
+                    )
+                }
+                .frame(maxWidth: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1002,6 +1050,31 @@ private struct CallControlsSpecimens: View {
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Palette.mutedForeground)
         }
+    }
+}
+
+/// EXP-1681: the `call-pill` entry (voice-call.json `surfaceSpecimens`):
+/// THE floating call pill a minimized call draws, one per row, static.
+private struct CallPillSpecimens: View {
+    /// `pill.width`, inside the 16 pt page margins.
+    static var width: CGFloat { min(CGFloat(VoiceCall.Pill.width), UIScreen.main.bounds.width - 32) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(Array(VoiceCall.surfaceSpecimens.enumerated()), id: \.offset) { _, specimen in
+                VoiceCallPill(
+                    view: specimen.view,
+                    callee: VoiceCallCallee(name: specimen.agent),
+                    timer: .fixed(specimen.timer),
+                    level: specimen.level,
+                    bands: specimen.bands,
+                    width: Self.width,
+                    animated: false
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("call-pill-specimen")
     }
 }
 

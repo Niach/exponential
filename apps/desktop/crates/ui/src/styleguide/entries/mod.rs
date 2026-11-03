@@ -60,6 +60,7 @@ pub(crate) mod team_agents_settings;
 pub(crate) mod voice_call;
 // S-3: the round call buttons.
 pub(crate) mod call_controls;
+pub(crate) mod call_pill;
 pub(crate) mod voice_call_overlay;
 // NEW-67: Settings → Voice.
 pub(crate) mod voice_settings;
@@ -191,6 +192,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
     Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },
     Entry { id: voice_call::ID, owner: voice_call::OWNER, render: voice_call::render },
+    Entry { id: call_pill::ID, owner: call_pill::OWNER, render: call_pill::render },
     Entry { id: computer_use_banner::ID, owner: computer_use_banner::OWNER, render: computer_use_banner::render },
     Entry { id: voice_settings::ID, owner: voice_settings::OWNER, render: voice_settings::render },
     Entry { id: meeting_consent::ID, owner: meeting_consent::OWNER, render: meeting_consent::render },

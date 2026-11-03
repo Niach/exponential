@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.13.0 (2026-11-03)
+
+- No changes of its own; released with the SDK.
+
 ## 0.12.0 (2026-11-03)
 
 - No changes of its own; released with the SDK (U1 screens, R8 client migrations and R7 components() landed in the core).

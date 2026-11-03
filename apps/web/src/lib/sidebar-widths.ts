@@ -26,7 +26,8 @@ export const SIDEBAR_MAX_WIDTH: number = tokens.maxWidth
 export const SIDEBAR_HANDLE_WIDTH: number = tokens.handleWidth
 export const SIDEBAR_KEYBOARD_STEP: number = tokens.keyboardStep
 
-/** The panels a column can hold — `SidebarOccupant['kind']`. */
+/** The resizable columns: the main menu, the settings nav beside the rail,
+ *  and (#EXP-1672) the content card's second sidebar, the Inbox `list`. */
 export type SidebarPanelKey = `main` | `list` | `settings`
 
 export const SIDEBAR_PANEL_KEYS: readonly SidebarPanelKey[] = [
@@ -47,15 +48,17 @@ export function sidebarDefaultWidth(key: SidebarPanelKey): number {
   return DEFAULTS[key]
 }
 
-/** The main menu is FIXED at its default: only the panels beside the rail
- * drag, and a stored `main` (an older build's) is never read. */
+/** The main menu is FIXED at its default: only the settings nav and the
+ * card's second sidebar drag, and a stored `main` (an older build's) is
+ * never read. */
 export function sidebarResizable(key: SidebarPanelKey): boolean {
   return key !== `main`
 }
 
-/** The rail is beside every panel but the main menu. */
+/** The rail is beside the settings nav only. #EXP-1672: the Inbox list sits
+ * in the content card next to the full main menu. */
 export function sidebarHasRail(key: SidebarPanelKey): boolean {
-  return key !== `main`
+  return key === `settings`
 }
 
 /**
@@ -324,7 +327,7 @@ export function useSidebarResizing(): boolean {
  */
 export function sidebarColumnWidth(
   widths: Record<SidebarPanelKey, number>,
-  key: SidebarPanelKey
+  key: `main` | `settings`
 ): number {
   return sidebarHasRail(key) ? SIDEBAR_RAIL_WIDTH + widths[key] : widths[key]
 }

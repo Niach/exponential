@@ -13,12 +13,15 @@ import SwiftUI
 //     toggle (EXP-859: the 51×31 switch is too tall for a 28pt row, and
 //     scaling it left SwiftUI laying out the unscaled size).
 //   - no title: the BARE switch, for a row that already names what it
-//     switches (a trigger row's enable). It takes only its own width and must
-//     carry an accessibility label.
+//     switches. It takes only its own width and must carry an accessibility
+//     label.
+//   - `.compact`: the bare COMPACT switch (eUI `Switch size=compact`, 28×16):
+//     a trigger row's enable, the same size on all four clients.
 
 public enum GlassToggleRowStyle: Sendable {
     case row
     case pill
+    case compact
 }
 
 public enum GlassToggleRowTokens {
@@ -77,6 +80,11 @@ public struct GlassToggleRow<Leading: View>: View {
                     .toggleStyle(.glass)
                     .fixedSize()
             }
+        case .compact:
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(GlassToggleStyle(compact: true))
+                .fixedSize()
         case .pill:
             Toggle(isOn: $isOn) {
                 Text(title ?? "")

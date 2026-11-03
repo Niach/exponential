@@ -27,7 +27,7 @@
 - **Apps**: New app opens the editor; describe a dashboard or a checklist and an agent session builds it as a team app, with a live preview and versions. Apps keep their own records, read the team's boards, issues and chats, act as you through the tools an owner grants, and travel as one file.
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts sessions on.
 - **Feedback widget**: a script tag for your site; reports with annotated screenshots land as issues, and the reporter keeps a conversation with your team through an emailed link.
-- **Sealed sessions**: session content is sealed on your devices and the server stores only ciphertext; watching and steering a session goes over eNet, straight to the machine it runs on.
+- **End-to-end encrypted sessions**: session content is encrypted on your devices and the server stores only ciphertext; watching and steering a session goes over eNet, straight to the machine it runs on.
 - **MCP server** at `/api/mcp` (22 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client, and your team's app tools at `/api/mcp/apps`.
 
 ## Libraries
@@ -39,7 +39,7 @@ Exponential is built from open libraries it shares with other apps ([docs/librar
 | **eUI** | Generative UI: agents send A2UI, native renderers paint it on web, iOS, Android and desktop | `packages/exponential-ui*`, `apps/desktop/crates/eui-core*` | [exponential.at/ui](https://exponential.at/ui/) |
 | **eTalk** | Speech in and out for agents: push to talk, wake word, spoken replies, calls | `apps/desktop/crates/etalk*`, `packages/etalk` | [exponential.at/talk](https://exponential.at/talk/) |
 | **ePilot** | Computer use: the agent sees the real screen and drives the real pointer and keyboard | `apps/desktop/crates/epilot*` | [exponential.at/pilot](https://exponential.at/pilot/) |
-| **eNet** | Peer to peer, end-to-end encrypted networking on iroh: sealed sessions, steering, calls, sealed push | `apps/desktop/crates/enet-core*` | [exponential.at/net](https://exponential.at/net/) |
+| **eNet** | Peer to peer, end-to-end encrypted networking on iroh: encrypted sessions, steering, calls, encrypted push | `apps/desktop/crates/enet-core*` | [exponential.at/net](https://exponential.at/net/) |
 | **eMCP** | MCP on rmcp: a loopback server, a client with OAuth and a vault, the app tool contract | `apps/desktop/crates/emcp`, `packages/emcp` | [exponential.at/mcp](https://exponential.at/mcp/) |
 | **eApps** | The app package format: templates, bindings, records and tools as data | `packages/exponential-ui/src/host` (runtime crate `eapps` planned) | [exponential.at/apps](https://exponential.at/apps/) |
 | **eAgent** | The server-free agent core: run the user's own Claude Code or Codex, plus the orchestration spec (tree, bus, wake-ups) | `apps/desktop/crates/eagent`, `packages/eagent` | [exponential.at/agent](https://exponential.at/agent/) |

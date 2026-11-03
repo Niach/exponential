@@ -277,13 +277,19 @@ struct AppNavigator: View {
         }
         .transaction { $0.animation = nil }
         // NEW-69: THE call surface (voice-call.json), full screen above every
-        // screen so a call outlives the chat that started it.
+        // screen so a call outlives the chat that started it; EXP-1681: a
+        // minimized call is the floating pill over every screen instead.
         .background {
-            let inCall = voiceCall.view != nil
+            let shown = voiceCall.view != nil && !voiceCall.minimized
             Color.clear
-                .fullScreenCover(isPresented: Binding(get: { inCall }, set: { if !$0 { voiceCall.end() } })) {
+                .fullScreenCover(isPresented: Binding(get: { shown }, set: { if !$0 { voiceCall.minimize() } })) {
                     VoiceCallScreen(client: voiceCall)
                 }
+        }
+        .overlay {
+            if voiceCall.view != nil, voiceCall.minimized {
+                VoiceCallPillOverlay(client: voiceCall)
+            }
         }
         .onPreferenceChange(ToastTopInsetKey.self) { height in
             MainActor.assumeIsolated { toastBannerHeight = height }

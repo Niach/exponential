@@ -675,11 +675,36 @@
           "default": {
             "props": {
               "checked": true,
-              "disabled": false
+              "disabled": false,
+              "size": "default"
             },
             "geometry": {
               "width": 32,
               "height": 20,
+              "borderRadius": 9999
+            }
+          },
+          "size=default": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "default"
+            },
+            "geometry": {
+              "width": 32,
+              "height": 20,
+              "borderRadius": 9999
+            }
+          },
+          "size=compact": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "compact"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 16,
               "borderRadius": 9999
             }
           }
@@ -1950,11 +1975,36 @@
           "default": {
             "props": {
               "checked": true,
-              "disabled": false
+              "disabled": false,
+              "size": "default"
             },
             "geometry": {
               "width": 32,
               "height": 20,
+              "borderRadius": 9999
+            }
+          },
+          "size=default": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "default"
+            },
+            "geometry": {
+              "width": 32,
+              "height": 20,
+              "borderRadius": 9999
+            }
+          },
+          "size=compact": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "compact"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 16,
               "borderRadius": 9999
             }
           }
@@ -3225,11 +3275,38 @@
           "default": {
             "props": {
               "checked": true,
-              "disabled": false
+              "disabled": false,
+              "size": "default"
             },
             "geometry": {
               "width": 44,
               "height": 24,
+              "borderWidth": 3,
+              "borderRadius": 9999
+            }
+          },
+          "size=default": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "default"
+            },
+            "geometry": {
+              "width": 44,
+              "height": 24,
+              "borderWidth": 3,
+              "borderRadius": 9999
+            }
+          },
+          "size=compact": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "compact"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 16,
               "borderWidth": 3,
               "borderRadius": 9999
             }
@@ -4501,11 +4578,36 @@
           "default": {
             "props": {
               "checked": true,
-              "disabled": false
+              "disabled": false,
+              "size": "default"
             },
             "geometry": {
               "width": 32,
               "height": 20,
+              "borderRadius": 9999
+            }
+          },
+          "size=default": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "default"
+            },
+            "geometry": {
+              "width": 32,
+              "height": 20,
+              "borderRadius": 9999
+            }
+          },
+          "size=compact": {
+            "props": {
+              "checked": true,
+              "disabled": false,
+              "size": "compact"
+            },
+            "geometry": {
+              "width": 28,
+              "height": 16,
               "borderRadius": 9999
             }
           }

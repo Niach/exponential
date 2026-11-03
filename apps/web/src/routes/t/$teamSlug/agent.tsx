@@ -92,7 +92,7 @@ const str = (value: unknown): string | undefined =>
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
-// buttons; S-3 `session-xref` THE session link, #EXP-1611 `pr-checks` the
+// buttons; EXP-1681 `call-pill` THE floating call pill; S-3 `session-xref` THE session link, #EXP-1611 `pr-checks` the
 // Merge pill's check states + the Checks submenu, `story-ring` / `story-viewer`
 // THE story ring + viewer, `story-tab` THE Stories tab body; EXP-1558
 // `mention-pill` / `schedule-picker` / `pr-row` / `sealed-locked` the
@@ -117,6 +117,7 @@ const DEV_VIEWS = [
   `voice-call`,
   `voice-call-overlay`,
   `call-controls`,
+  `call-pill`,
   `session-xref`,
   `pr-checks`,
   `story-ring`,
@@ -225,6 +226,8 @@ function AgentRoute() {
           </div>
         ) : dev === `call-controls` ? (
           <CallControlsSpecimen />
+        ) : dev === `call-pill` ? (
+          <VoiceCallPillSpecimen />
         ) : (
           <FeedbackStatesSpecimen />
         )}
