@@ -1706,6 +1706,7 @@ mod tests {
             },
             Screen::Home,
             Screen::Threads,
+            Screen::Apps,
             Screen::BoardIssues {
                 board_id: "b1".into(),
             },

@@ -484,6 +484,9 @@ pub(crate) struct SteerSessionView {
     /// Hosted as a ROOT session's composer ([`Self::host_root_composer`]):
     /// Send⇄Stop follows the whole tree.
     tree_scope: bool,
+    /// EXP-1650: an app editor's chat draws no "No transcript" replay banner
+    /// (web shows only "Session ended" there) — [`Self::hide_empty_replay`].
+    hide_empty_replay: bool,
     /// The composer controls' element ids.
     composer_ids: ComposerIds,
     sending: bool,
@@ -819,6 +822,7 @@ impl SteerSessionView {
             slash_dismissed_for: None,
             pending_images: PendingImages::default(),
             tree_scope: false,
+            hide_empty_replay: false,
             composer_ids: ComposerIds::session(),
             sending: false,
             notice: None,
@@ -7409,7 +7413,12 @@ impl SteerSessionView {
         let paused = self.paused(cx);
         if self.source.read_only() && !matches!(self.phase, ViewerPhase::Ended { .. }) {
             out.push(banner("replay", "ui-info", "Replay", REPLAY_BANNER.to_string(), DockTint::Muted, None));
-        } else if self.feed.is_empty() && !self.is_local() && self.session_over() && !self.phase.is_device_offline() {
+        } else if !self.hide_empty_replay
+            && self.feed.is_empty()
+            && !self.is_local()
+            && self.session_over()
+            && !self.phase.is_device_offline()
+        {
             out.push(banner("replay", "ui-info", "Replay", REPLAY_EMPTY_BANNER.to_string(), DockTint::Muted, None));
         }
         match &self.phase {
@@ -7890,6 +7899,12 @@ impl SteerSessionView {
         self.tree_scope = true;
         self.composer_ids = ids;
         self.set_placeholder(placeholder, window, cx);
+    }
+
+    /// EXP-1650: the app editor's chat — no empty-replay banner.
+    pub(crate) fn hide_empty_replay(&mut self, cx: &mut gpui::Context<Self>) {
+        self.hide_empty_replay = true;
+        cx.notify();
     }
 
     /// The composer field's placeholder.

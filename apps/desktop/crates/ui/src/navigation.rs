@@ -95,6 +95,10 @@ pub enum Screen {
     /// Needs you / Running / Recent (`domain::session_tree::partition_threads`).
     /// Tab-less full-page mode like Devices.
     Threads,
+    /// EXP-1650: the Apps page (web `t/$teamSlug/apps`): the team's apps
+    /// list ([`crate::apps_view::AppsPage`]), the rail's `Apps` label.
+    /// Tab-less full-page mode like Threads.
+    Apps,
     /// VAPP-110: one app's EDITOR ([`crate::app_screen`], web
     /// `apps/$appSlug`): the member's editor session beside the live preview.
     /// `app` = the `apps` row id, or a slug of the active team (the dev route
@@ -445,6 +449,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
         Screen::Home => "Home".into(),
         Screen::Threads => domain::session_tree::THREADS_LIST.copy.title.clone().into(),
+        Screen::Apps => domain::apps::APPS.copy.title.clone().into(),
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
         Screen::App { app } => crate::app_screen::app_tab_title(app, cx),
         Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
@@ -847,7 +852,7 @@ impl Navigation {
 /// `actions` | `action:<uuid>` (SLOP-2: one action's page) | `usage` |
 /// `board-issues` | `inbox` | `inbox-my-issues` | `files` | `source-control`
 /// (EXP-851 — the list screens the rail's tool windows became) | `home` |
-/// `threads` | `issue:<uuid>` | `thread:<uuid>` / `session:<uuid>` /
+/// `threads` | `apps` (EXP-1650) | `issue:<uuid>` | `thread:<uuid>` / `session:<uuid>` /
 /// `agent:<uuid>` (EXP-1294: one `sessions` row — a thread root, any session
 /// of a tree, an agent root) | `styleguide:<entry id>` (EXP-1259: one IDE
 /// styleguide entry, full-window) (anything else = no pre-route).
@@ -871,6 +876,8 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "home" => Some(Screen::Home),
         // EXP-1294: the Threads page.
         "threads" => Some(Screen::Threads),
+        // EXP-1650: the Apps page.
+        "apps" => Some(Screen::Apps),
         // EXP-851: the four list screens the rail's tool windows became. A
         // board takes the window's ACTIVE board (the empty `board_id`
         // sentinel, resolved at render time) so `EXP_DEV_BOARD_ID` still
@@ -2243,6 +2250,7 @@ mod tests {
         // spellings are gone with their screens.
         assert_eq!(parse_dev_screen("home"), Some(Screen::Home));
         assert_eq!(parse_dev_screen("threads"), Some(Screen::Threads));
+        assert_eq!(parse_dev_screen("apps"), Some(Screen::Apps));
         assert_eq!(parse_dev_screen("reviews"), None);
         assert_eq!(parse_dev_screen("chat"), None);
         assert_eq!(parse_dev_screen("chat?issues=a"), None);
@@ -2326,6 +2334,10 @@ mod tests {
         assert_eq!(Screen::Threads.list_origin(), None);
         assert!(!Screen::Threads.is_detail());
         assert!(!Screen::Threads.undockable());
+        // EXP-1650: so is the Apps page.
+        assert_eq!(Screen::Apps.list_origin(), None);
+        assert!(!Screen::Apps.is_detail());
+        assert!(!Screen::Apps.undockable());
         assert!(!Screen::Home.is_detail());
         assert!(Screen::IssueDetail {
             issue_id: "i1".into()
@@ -2455,6 +2467,7 @@ mod tests {
             Screen::Drafts,
             Screen::Home,
             Screen::Threads,
+            Screen::Apps,
             Screen::Files,
             Screen::SourceControl,
             Screen::ExponentialUiKitchenSink,
@@ -2958,6 +2971,7 @@ mod tests {
             // EXP-1170: the New issue page names itself by the contract.
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
             assert_eq!(screen_title(&Screen::Threads, cx), "Chats");
+            assert_eq!(screen_title(&Screen::Apps, cx), "Apps");
             assert_eq!(screen_title(&Screen::Home, cx), "Home");
         });
     }

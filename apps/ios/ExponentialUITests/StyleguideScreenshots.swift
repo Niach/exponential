@@ -1263,9 +1263,10 @@ final class StyleguideScreenshots: XCTestCase {
     /// VAPP-110: the Apps TAB (#EXP-1384) → the list (gated on the seeded
     /// Working hours row) → its editor → the Preview tab (VAPP-122: the app
     /// rendered through the host over its records, gated on the preview
-    /// frame) → VAPP-178: the Data tab (the records list) → VAPP-177: the
-    /// header's … → Versions, then … → Settings (each a sheet, dismissed) →
-    /// back to the Apps list.
+    /// frame) → VAPP-178: the Data tab (the records list) → back on the
+    /// Chat segment (#EXP-1650: web-mobile opens the menu sheets over Chat)
+    /// → VAPP-177: the header's … → Versions, then … → Settings (each a
+    /// sheet, dismissed) → … → Export (VAPP-121) → back to the Apps list.
     @MainActor
     private func walkApps(_ app: XCUIApplication) {
         let appsTab = app.buttons["tab-apps"]
@@ -1274,16 +1275,13 @@ final class StyleguideScreenshots: XCTestCase {
         let appRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
         expect(appRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
         snapshot("sg_apps", settle: 2)
-        if ScreenshotShots.isWanted("sg_app-export") {
-            walkAppExport(app)
-        }
         if ScreenshotShots.isWanted("sg_app-import") {
             walkAppImport(app)
         }
         if ScreenshotShots.isWanted("sg_app-draft") {
             walkAppDraft(app)
         }
-        guard ["sg_app", "sg_app-versions", "sg_app-settings", "sg_app-data"].map(ScreenshotShots.isWanted).contains(true) else { return }
+        guard ["sg_app", "sg_app-versions", "sg_app-settings", "sg_app-data", "sg_app-export"].map(ScreenshotShots.isWanted).contains(true) else { return }
         appRow.tap()
         expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The editor drew no Chat | Preview control")
         if ScreenshotShots.isWanted("sg_app") {
@@ -1316,11 +1314,21 @@ final class StyleguideScreenshots: XCTestCase {
             )
             snapshot("sg_app-data", settle: 2)
         }
+        // #EXP-1650: the menu sheets open over the Chat segment (web-mobile).
+        if ["sg_app-versions", "sg_app-settings", "sg_app-export"].map(ScreenshotShots.isWanted).contains(true) {
+            let chatTab = anyElement(app, identified: "app-editor-tabs-chat")
+            expect(chatTab, within: Wait.nav, "The editor's control has no Chat segment")
+            chatTab.tap()
+            settle(1)
+        }
         if ScreenshotShots.isWanted("sg_app-versions") {
             walkAppMenuSheet(app, item: "app-menu-versions", sheet: "app-editor-versions", shot: "sg_app-versions")
         }
         if ScreenshotShots.isWanted("sg_app-settings") {
             walkAppMenuSheet(app, item: "app-menu-settings", sheet: "app-editor-settings", shot: "sg_app-settings")
+        }
+        if ScreenshotShots.isWanted("sg_app-export") {
+            walkAppExport(app)
         }
         goBack(app)
         settle(1)
@@ -1350,16 +1358,16 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
-    /// VAPP-121 (app-export.json `capture`): the Working hours row's `…` →
+    /// VAPP-121 (app-export.json `capture`): the editor header's `…` →
     /// Export → Include records ON → sg_app-export → dismissed; ends on the
-    /// Apps list.
+    /// editor (#EXP-1650: over the Chat segment, like web-mobile).
     @MainActor
     private func walkAppExport(_ app: XCUIApplication) {
-        let menuButton = app.buttons.matching(NSPredicate(format: "label == %@", "Menu for \(Self.appName)")).firstMatch
-        expect(menuButton, within: Wait.nav, "The \(Self.appName) row has no … menu")
-        menuButton.tap()
+        let menu = anyElement(app, identified: "app-editor-menu")
+        expect(menu, within: Wait.nav, "The \(Self.appName) editor has no … menu")
+        menu.tap()
         let exportItem = anyElement(app, identified: "app-menu-export")
-        expect(exportItem, within: Wait.nav, "The row menu has no Export (the app has no version?)")
+        expect(exportItem, within: Wait.nav, "The editor's … menu has no Export (the app has no version?)")
         exportItem.tap()
         let dialog = anyElement(app, identified: "app-export-dialog")
         expect(dialog, within: Wait.nav, "Export opened no sheet")

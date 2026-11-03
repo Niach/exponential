@@ -780,6 +780,39 @@ pub(crate) fn rail_section_label(text: &'static str, cx: &App) -> gpui::Div {
         )
 }
 
+/// EXP-1650: [`rail_section_label`] whose TEXT is a link (the Apps label →
+/// the Apps page): the label's muted ink, the foreground on hover and while
+/// `lit`. Only the text clicks, so a trailing `+` keeps its own click.
+pub(crate) fn rail_section_link(
+    id: &'static str,
+    text: &'static str,
+    lit: bool,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::Div {
+    let muted = cx.theme().sidebar_foreground.opacity(0.5);
+    let foreground = cx.theme().sidebar_foreground;
+    h_flex()
+        .w_full()
+        .h(px(24.))
+        .pl_1p5()
+        .pr_1()
+        .items_center()
+        .child(
+            div().flex_1().min_w_0().child(
+                div()
+                    .id(id)
+                    .cursor_pointer()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if lit { foreground } else { muted })
+                    .hover(move |label| label.text_color(foreground))
+                    .on_click(move |_: &ClickEvent, window, cx| on_click(window, cx))
+                    .child(text),
+            ),
+        )
+}
+
 /// [`rail_trailing_slot`] holding a row's hover gear over its badge: the
 /// gear shows while `group` is hovered and the badge (if any) yields the
 /// column to it — the web's `yieldsOnHover`.
@@ -2209,8 +2242,17 @@ impl Render for RailView {
                 self.rail_app_row(index, entry, manage, cx)
             })
             .collect();
+        // EXP-1650: the label itself opens the Apps page (web parity), lit
+        // while it shows (Settings → Apps' label twin).
+        let on_apps_page = matches!(resolved_screen(&self.nav, cx), Some(Screen::Apps));
         let apps_header: Option<gpui::AnyElement> = active_team.clone().map(|team_id| {
-            self.section_label(domain::apps::APPS.copy.title.as_str(), cx)
+            rail_section_link(
+                "rail-apps-page",
+                domain::apps::APPS.copy.title.as_str(),
+                on_apps_page,
+                |window, cx| navigate(window, cx, Screen::Apps),
+                cx,
+            )
                 .child(
                     Button::new("rail-new-app")
                         .ghost()
@@ -3944,6 +3986,8 @@ mod tests {
         );
         // EXP-1294: nor does the Threads page — its rows open full width.
         assert_eq!(row_origin_for(ListMode::Screen, None, Some(&Screen::Threads)), None);
+        // EXP-1650: nor the Apps page.
+        assert_eq!(row_origin_for(ListMode::Screen, None, Some(&Screen::Apps)), None);
         // A screen that is no list pins nothing (the panel is only mounted
         // for the board list, so this is the defensive arm).
         assert_eq!(row_origin_for(ListMode::Screen, None, Some(&issue)), None);

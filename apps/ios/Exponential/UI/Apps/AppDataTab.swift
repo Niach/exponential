@@ -197,7 +197,7 @@ struct AppDataTab: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(RelativeTime.compact(wire: row.updatedAt))
+            Text(RelativeTime.long(wire: row.updatedAt))
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
