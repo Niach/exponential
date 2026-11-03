@@ -65,8 +65,10 @@ export function skillsMenuValue(count: number): string | null {
   return (count === 1 ? fixture.menuValue.one : fixture.menuValue.other).replace(`{n}`, String(count))
 }
 
-/** The agent page row's value: `N skills`, `None` at zero. */
-export function agentSkillsValue(count: number): string {
-  if (count <= 0) return fixture.agentRow.none
-  return (count === 1 ? fixture.agentValue.one : fixture.agentValue.other).replace(`{n}`, String(count))
+/** The agent page row's value: the picked names (list order) through the
+ *  shared picker summary (`a` / `a, b` / `a, b +N`), `None` when empty. */
+export function agentSkillsValue(names: readonly string[]): string {
+  if (names.length === 0) return fixture.agentRow.none
+  if (names.length <= 2) return names.join(`, `)
+  return `${names.slice(0, 2).join(`, `)} +${names.length - 2}`
 }
