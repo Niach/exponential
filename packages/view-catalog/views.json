@@ -7104,6 +7104,10 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_call-pill",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -7113,8 +7117,8 @@
       },
       "notes": {
         "web": "The DEV-ONLY `?dev=call-pill`: `@exp/ui` `VoiceCallPillSpecimen` (the styleguide entry's specimen). Web itself never shows a pill: its call is the full-height overlay.",
-        "ios": "The phone pill (a minimized call) lands with EXP-1681's iOS PR; until then the desktop twin is the picture.",
-        "android": "See ios.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_call-pill: the pill a minimized call draws.",
+        "android": "The phone pill (a minimized call) lands with EXP-1681's Android PR; until then the desktop twin is the picture.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:call-pill`: the IDE styleguide twin drawn full-window.",
         "web-mobile": "Inherits web."
       }
