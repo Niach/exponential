@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-app-public-links`,
+    date: `2026-11-04`,
+    title: `Public links for apps`,
+    summary: `An app can offer a public form or a read-only list through a private link, on web first.`,
+    body: `- **Form links**: a guest fills one form and creates one record, shown as Guest in the app.
+- **View links**: a guest reads a snapshot of the fields the app names, nothing else.
+- **Owner control**: an owner turns a link on in the app's Settings, copies it, or replaces it with a new one.`,
+  },
+  {
     id: `2026-11-04-app-record-macros`,
     date: `2026-11-04`,
     title: `Record forms and tables in apps`,

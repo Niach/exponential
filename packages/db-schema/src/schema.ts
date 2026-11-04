@@ -2523,6 +2523,9 @@ export const appRecords = pgTable(
     viaAppId: uuid(`via_app_id`).references((): AnyPgColumn => apps.id, {
       onDelete: `set null`,
     }),
+    // VAPP-241 (app-share.json): the public link that created it: its author
+    // is the link's sponsor, clients DISPLAY Guest. NULL = anyone else. SYNCED.
+    shareName: varchar(`share_name`, { length: 24 }),
     // eApps R8 (#VAPP-233): the published package `number` the record's data
     // is shaped for (every write stamps it; the publish sweep moves it).
     // 0 = written before R8 (the published version at the first sweep).
@@ -2568,7 +2571,7 @@ export const appRecordEvents = pgTable(
     op: varchar({ length: 16 }).$type<`create` | `update` | `delete` | `restore`>().notNull(),
     actor: text().references(() => users.id, { onDelete: `set null` }),
     author: text().references(() => users.id, { onDelete: `set null` }),
-    via: varchar({ length: 16 }).$type<`editor` | `app` | `mcp` | `action` | `import` | `migration`>().notNull(),
+    via: varchar({ length: 48 }).$type<`editor` | `app` | `mcp` | `action` | `import` | `migration` | `share:${string}`>().notNull(),
     patch: jsonb().$type<AppRecordData>(),
     before: jsonb().$type<AppRecordData>(),
     // VAPP-235 (O1): the client write id of an outbox replay (the dedupe key:
@@ -3804,6 +3807,53 @@ export const appAccess = pgTable(
 // `secret_ciphertext` = the vault-sealed (ev1, slot
 // `app_hooks.secret_ciphertext.<id>`) HMAC secret, minted and rotated by a
 // team owner (shown once), re-sealed by the vault sweep.
+// VAPP-241 (app-share.json): a public link of an app. ONE row per share name;
+// `token` is server-only (no shape): owners read links through tRPC.
+export const appShareLinks = pgTable(
+  `app_share_links`,
+  {
+    id: uuidPk(),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    name: varchar({ length: 24 }).notNull(),
+    token: varchar({ length: 64 }).notNull(),
+    // The sponsor: the owner who enabled it, every record's author.
+    enabledBy: text(`enabled_by`).references(() => users.id, { onDelete: `set null` }),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }),
+    revokedAt: timestamp(`revoked_at`, { withTimezone: true }),
+    rotatedAt: timestamp(`rotated_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [unique(`app_share_links_app_name_unique`).on(table.appId, table.name), unique(`app_share_links_token_unique`).on(table.token)]
+)
+
+// VAPP-241: the audit of every submission (app-share.json `caps.auditDays`).
+// `ip_hash` = a keyed hash, never the address.
+export const appShareSubmissions = pgTable(
+  `app_share_submissions`,
+  {
+    id: uuidPk(),
+    linkId: uuid(`link_id`)
+      .notNull()
+      .references(() => appShareLinks.id, { onDelete: `cascade` }),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    recordId: uuid(`record_id`),
+    ipHash: varchar(`ip_hash`, { length: 64 }).notNull(),
+    outcome: varchar({ length: 16 }).$type<`created` | `honeypot` | `invalid` | `rate_limited` | `quota`>().notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index(`app_share_submissions_link_created_idx`).on(table.linkId, table.createdAt), index(`app_share_submissions_link_ip_idx`).on(table.linkId, table.ipHash, table.createdAt)]
+)
+
 export const appHooks = pgTable(
   `app_hooks`,
   {

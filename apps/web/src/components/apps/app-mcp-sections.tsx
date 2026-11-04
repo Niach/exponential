@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { Button, GlassGroup, Pill, Prompt, Switch, toast } from "@exp/ui"
+import { Button, conceptIcon, GlassGroup, Menu, Pill, Prompt, Switch, toast } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, automationSponsor, webhookRow } from "@exp/domain-contract/apps"
+import { APP_SHARE, APP_SHARE_COPY, shareRowSubtitle, shareSwitchOn } from "@exp/domain-contract/app-share"
 import { promptActions, rotateWebhookSecretPrompt } from "@/lib/prompts"
 
 // #VAPP-183: an app's MCP side on its settings page (web + desktop, the
@@ -16,6 +17,8 @@ import { promptActions, rotateWebhookSecretPrompt } from "@/lib/prompts"
 // #VAPP-238: WEBHOOKS = the published package's hooks (`webhookRowCases`):
 // the URL to copy, an owner's Create/Rotate secret; the minted secret is
 // shown once (this component's memory only, never refetched).
+
+const MoreIcon = conceptIcon(`ui-more`)
 
 type AppTools = Awaited<ReturnType<typeof trpc.appAccess.appTools.query>>
 
@@ -37,7 +40,7 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
     }
   }, [appId, headVersion])
 
-  if (!data || (data.tools.length === 0 && data.upstreams.length === 0 && data.automations.length === 0 && data.hooks.length === 0)) return null
+  if (!data || (data.tools.length === 0 && data.upstreams.length === 0 && data.automations.length === 0 && data.hooks.length === 0 && data.shares.length === 0)) return null
 
   const connect = async (serverId: string, auth: string | null) => {
     if (auth !== `oauth`) {
@@ -86,10 +89,56 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
     }
   }
 
+  // VAPP-241 (app-share.json `rowCases`): the Public links rows.
+  const setShare = async (name: string, action: `enable` | `rotate` | `revoke`) => {
+    setBusy(`share:${name}`)
+    try {
+      await trpc.appAccess.setShareLink.mutate({ appId, name, action }, SKIP_ERROR_TOAST)
+      const next = await trpc.appAccess.appTools.query({ appId })
+      setData(next)
+    } catch (e) {
+      failedAction(`save`, `the link`, e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const rotateCopy = rotateWebhookSecretPrompt(rotateTarget ?? ``)
 
   return (
     <>
+      {data.shares.length > 0 && (
+        <div className="space-y-1" data-testid={APP_SHARE.testIds.shareLinks}>
+          <h2 className="px-1 text-sm font-medium">{APP_SHARE_COPY.title}</h2>
+          <GlassGroup>
+            {data.shares.map((s) => (
+              <div key={s.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APP_SHARE.testIds.shareRow}-${s.name}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm">{s.name}</div>
+                  <div className="truncate text-xs text-muted-foreground">{shareRowSubtitle(s.mode, s.state, s.expiresAt)}</div>
+                </div>
+                {data.canToggle && s.state === `on` && s.url ? (
+                  <Menu
+                    align="end"
+                    aria-label={s.name}
+                    entries={[
+                      { kind: `item` as const, id: `copy`, label: APP_SHARE_COPY.copyLink, onSelect: () => copyText(s.url!) },
+                      { kind: `item` as const, id: `rotate`, label: APP_SHARE_COPY.newLink, onSelect: () => void setShare(s.name, `rotate`) },
+                    ]}
+                    trigger={
+                      <Button size="icon-sm" variant="ghost" aria-label={s.name}>
+                        <MoreIcon />
+                      </Button>
+                    }
+                  />
+                ) : null}
+                {data.canToggle ? <Switch checked={shareSwitchOn(s.state)} disabled={busy !== null} onCheckedChange={(on) => void setShare(s.name, on ? `enable` : `revoke`)} aria-label={s.name} /> : null}
+              </div>
+            ))}
+          </GlassGroup>
+        </div>
+      )}
+
       {data.upstreams.length > 0 && (
         <div className="space-y-1" data-testid={APPS_TEST_IDS.accounts}>
           <h2 className="px-1 text-sm font-medium">{APPS_COPY.accounts.title}</h2>

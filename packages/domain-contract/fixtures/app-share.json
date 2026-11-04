@@ -1,9 +1,25 @@
 {
-  "$comment": "VAPP-241 (eApps P1, docs/spec/apps.md §9.4, §18 item 5) PUBLIC LINKS ×4. A package declares `share: [{name, mode, kind, fields?, query?, expires?}]` (validated by eUI: packages/exponential-ui/docs/package-format.md \"Public links\"). An owner turns one on in the app's Settings tab: a row of `app_share_links` with a random token (`tokenBytes` bytes, unpadded base64url), the URL `urlPrefix`<token> on the server's base url. STATES (`linkState`, `stateCases`): no row or a revoked one = `off`; expired (`expires_at` <= now) = `expired`; the package no longer declares the share = `orphaned` (a guest gets `copy.gone`, the Settings row stays until revoked); else `on`. A guest of any state but `on` gets the one page `copy.gone`, the same answer as an unknown token, so a token's history never leaks. ENABLE = a new row (`enabled_by` = the owner, `expires_at` = now + the share's `expires` days, none = never). ROTATE = a new token on the same row (`rotated_at`): the old URL stops at once, `expires_at` and the sponsor stay. REVOKE = `revoked_at`; enabling again mints a NEW token. Owners only (`apps.shareLinks.{list, enable, rotate, revoke}`); `list` returns the rows of the PUBLISHED package's shares, no new synced shape. SUBMIT: a guest fills one RecordForm of the kind and creates exactly one record: `submitFields` (`fieldCases`): `fields` when declared (order kept), else the Data tab's order; files, computed and undeclared names dropped; a required field left out of `fields` is an install issue (the guest could never submit). The record = the share's sponsor: `author_id` = `created_by` = `enabled_by`, `share_name` = the share's name, R4 history `via` = `share:<name>`. A sponsor who is no longer a member or an owner closes the link (`copy.gone`). Honeypot: the form carries the invisible field `honeypot`; filled = answered like a success, nothing stored, audited `honeypot`. CAPS: `caps.perIpPerHour` submissions per hashed IP per link and `caps.perLinkPerHour` per link (`capCases`; over = HTTP 429 `copy.tooMany`), the plan's record quota and the schema validate as any write (an invalid body = 400 with the field issues, shown inline; the quota = `copy.closed`). Bodies ≤ `caps.maxBodyBytes`. AUDIT: every submission = one `app_share_submissions` row {link, record?, ip_hash (HMAC of the IP, never the IP), outcome (`outcomes`), created_at}, kept `caps.auditDays` days. VIEW: a frozen query, computed by the server per request, no shape and no live sync: the share's `query` narrowed to `viewFields` (`fieldCases`: `fields`, else every schema field; reserved keys other than `id` and `updatedAt`, authors and computed names outside `fields` dropped), at most `caps.viewRows` rows, rendered as a read-only RecordTable (`editable: false`, no Add); never another kind, no member data, no `exp:` source. DISPLAY (`bylineCases`, replayed ×4 wherever the By/author label shows): a record with `shareName` reads `copy.guest` instead of its author, on web, desktop and in R4's history subtitle. SETTINGS (testId `shareLinks`, shown when the published package declares shares; everyone reads it, owners act): the existing group heading `copy.title`, one ListRow per share (testId `shareRow`): title = the share's name, subtitle = `rowSubtitle` (`rowCases`): `{mode label} · {state label}`, with the expiry date when on; trailing a Switch (owner; on = enable, off = revoke) and, while on, the `…` menu `copy.copyLink` / `copy.newLink`. A failed action = the failed-action toast.",
+  "$comment": "VAPP-241 (eApps P1, docs/spec/apps.md §9.4, §18 item 5) PUBLIC LINKS ×4. A package declares `share: [{name, mode, kind, fields?, query?, expires?}]` (validated by eUI: packages/exponential-ui/docs/package-format.md \"Public links\"). An owner turns one on in the app's Settings tab: a row of `app_share_links` with a random token (`tokenBytes` bytes, unpadded base64url), the URL `urlPrefix`<token> on the server's base url. STATES (`linkState`, `stateCases`): no row or a revoked one = `off`; expired (`expires_at` <= now) = `expired`; the package no longer declares the share = `orphaned` (a guest gets `copy.gone`, the Settings row stays until revoked); else `on`. A guest of any state but `on` gets the one page `copy.gone`, the same answer as an unknown token, so a token's history never leaks. ENABLE = a new row (`enabled_by` = the owner, `expires_at` = now + the share's `expires` days, none = never). ROTATE = a new token on the same row (`rotated_at`): the old URL stops at once, `expires_at` and the sponsor stay. REVOKE = `revoked_at`; enabling again mints a NEW token. Owners only (tRPC `appAccess.setShareLink {appId, name, action: enable | rotate | revoke}`); the rows of the PUBLISHED package's shares ride on `appAccess.appTools` `shares` (`url` only for owners), no new synced shape. SUBMIT: a guest fills one RecordForm of the kind and creates exactly one record: `submitFields` (`fieldCases`): `fields` when declared (order kept), else the Data tab's order; files, computed and undeclared names dropped; a required field left out of `fields` is an install issue (the guest could never submit). The record = the share's sponsor: `author_id` = `created_by` = `enabled_by`, `share_name` = the share's name, R4 history `via` = `share:<name>`. A sponsor who is no longer a member or an owner closes the link (`copy.gone`). Honeypot: the form carries the invisible field `honeypot`; filled = answered like a success, nothing stored, audited `honeypot`. CAPS: `caps.perIpPerHour` submissions per hashed IP per link and `caps.perLinkPerHour` per link (`capCases`; over = HTTP 429 `copy.tooMany`), the plan's record quota and the schema validate as any write (an invalid body = 400 with the field issues, shown inline; the quota = `copy.closed`). Bodies ≤ `caps.maxBodyBytes`. AUDIT: every submission = one `app_share_submissions` row {link, record?, ip_hash (HMAC of the IP, never the IP), outcome (`outcomes`), created_at}, kept `caps.auditDays` days. VIEW: a frozen query, computed by the server per request, no shape and no live sync: the share's `query` narrowed to `viewFields` (`fieldCases`: `fields`, else every schema field; reserved keys other than `id` and `updatedAt`, authors and computed names outside `fields` dropped), at most `caps.viewRows` rows, rendered as a read-only RecordTable (`editable: false`, no Add); never another kind, no member data, no `exp:` source. DISPLAY (`bylineCases`, replayed ×4 wherever the By/author label shows): a record with `shareName` reads `copy.guest` instead of its author, and a history event with a `share:` via reads it as its actor (`historyCases`). SETTINGS (testId `shareLinks`, shown when the published package declares shares; everyone reads it, owners act): the existing group heading `copy.title`, one ListRow per share (testId `shareRow`): title = the share's name, subtitle = `rowSubtitle` (`rowCases`): `{mode label} · {state label}`, with the expiry date when on; trailing a Switch (owner; reads on for `on` and `orphaned` (`switchCases`), so an orphaned link can be revoked; on = enable, off = revoke) and, while on, the `…` menu `copy.copyLink` / `copy.newLink`. A failed action = the failed-action toast.",
   "tokenBytes": 32,
   "urlPrefix": "/s/",
-  "outcomes": ["created", "honeypot", "invalid", "rate_limited", "quota"],
-  "caps": { "perIpPerHour": 10, "perLinkPerHour": 200, "maxBodyBytes": 65536, "viewRows": 500, "auditDays": 90 },
+  "testIds": {
+    "shareLinks": "app-settings-share-links",
+    "shareRow": "app-settings-share-row"
+  },
+  "outcomes": [
+    "created",
+    "honeypot",
+    "invalid",
+    "rate_limited",
+    "quota"
+  ],
+  "caps": {
+    "perIpPerHour": 10,
+    "perLinkPerHour": 200,
+    "maxBodyBytes": 65536,
+    "viewRows": 500,
+    "auditDays": 90
+  },
   "copy": {
     "title": "Public links",
     "submit": "Form",
@@ -22,29 +38,218 @@
     "thanks": "Thanks, your answer was sent"
   },
   "stateCases": [
-    { "name": "no row", "link": null, "declared": true, "now": "2026-11-04T10:00:00Z", "state": "off" },
-    { "name": "live, no expiry", "link": { "revokedAt": null, "expiresAt": null }, "declared": true, "now": "2026-11-04T10:00:00Z", "state": "on" },
-    { "name": "live, before its expiry", "link": { "revokedAt": null, "expiresAt": "2026-11-05T10:00:00Z" }, "declared": true, "now": "2026-11-04T10:00:00Z", "state": "on" },
-    { "name": "the expiry instant counts as expired", "link": { "revokedAt": null, "expiresAt": "2026-11-04T10:00:00Z" }, "declared": true, "now": "2026-11-04T10:00:00Z", "state": "expired" },
-    { "name": "revoked beats expired", "link": { "revokedAt": "2026-11-01T10:00:00Z", "expiresAt": "2026-11-02T10:00:00Z" }, "declared": true, "now": "2026-11-04T10:00:00Z", "state": "off" },
-    { "name": "the package dropped the share", "link": { "revokedAt": null, "expiresAt": null }, "declared": false, "now": "2026-11-04T10:00:00Z", "state": "orphaned" }
+    {
+      "name": "no row",
+      "link": null,
+      "declared": true,
+      "now": "2026-11-04T10:00:00Z",
+      "state": "off"
+    },
+    {
+      "name": "live, no expiry",
+      "link": {
+        "revokedAt": null,
+        "expiresAt": null
+      },
+      "declared": true,
+      "now": "2026-11-04T10:00:00Z",
+      "state": "on"
+    },
+    {
+      "name": "live, before its expiry",
+      "link": {
+        "revokedAt": null,
+        "expiresAt": "2026-11-05T10:00:00Z"
+      },
+      "declared": true,
+      "now": "2026-11-04T10:00:00Z",
+      "state": "on"
+    },
+    {
+      "name": "the expiry instant counts as expired",
+      "link": {
+        "revokedAt": null,
+        "expiresAt": "2026-11-04T10:00:00Z"
+      },
+      "declared": true,
+      "now": "2026-11-04T10:00:00Z",
+      "state": "expired"
+    },
+    {
+      "name": "revoked beats expired",
+      "link": {
+        "revokedAt": "2026-11-01T10:00:00Z",
+        "expiresAt": "2026-11-02T10:00:00Z"
+      },
+      "declared": true,
+      "now": "2026-11-04T10:00:00Z",
+      "state": "off"
+    },
+    {
+      "name": "the package dropped the share",
+      "link": {
+        "revokedAt": null,
+        "expiresAt": null
+      },
+      "declared": false,
+      "now": "2026-11-04T10:00:00Z",
+      "state": "orphaned"
+    }
   ],
   "capCases": [
-    { "name": "under both", "ipCount": 9, "linkCount": 199, "allowed": true },
-    { "name": "the IP cap", "ipCount": 10, "linkCount": 0, "allowed": false },
-    { "name": "the link cap", "ipCount": 0, "linkCount": 200, "allowed": false }
+    {
+      "name": "under both",
+      "ipCount": 9,
+      "linkCount": 199,
+      "allowed": true
+    },
+    {
+      "name": "the IP cap",
+      "ipCount": 10,
+      "linkCount": 0,
+      "allowed": false
+    },
+    {
+      "name": "the link cap",
+      "ipCount": 0,
+      "linkCount": 200,
+      "allowed": false
+    }
   ],
   "fieldCases": [
-    { "name": "declared fields keep their order, unknown names drop", "schema": { "type": "object", "required": ["title"], "properties": { "title": { "type": "string" }, "note": { "type": "string" } } }, "fields": ["note", "title", "nope"], "submit": ["note", "title"], "view": ["note", "title"] },
-    { "name": "no fields = the Data tab's order, files only in neither", "schema": { "type": "object", "required": ["title"], "properties": { "title": { "type": "string" }, "amount": { "type": "number" }, "receipt": { "type": "string", "format": "attachment" } } }, "submit": ["title", "amount"], "view": ["title", "amount"] }
+    {
+      "name": "declared fields keep their order, unknown names drop",
+      "schema": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "fields": [
+        "note",
+        "title",
+        "nope"
+      ],
+      "submit": [
+        "note",
+        "title"
+      ],
+      "view": [
+        "note",
+        "title"
+      ]
+    },
+    {
+      "name": "no fields = the Data tab's order, files only in neither",
+      "schema": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "receipt": {
+            "type": "string",
+            "format": "attachment"
+          }
+        }
+      },
+      "submit": [
+        "title",
+        "amount"
+      ],
+      "view": [
+        "title",
+        "amount"
+      ]
+    }
   ],
   "bylineCases": [
-    { "name": "a shared record reads Guest, not its sponsor", "shareName": "signup", "byline": "Ana", "text": "Guest" },
-    { "name": "any other record keeps its byline", "shareName": null, "byline": "Ana", "text": "Ana" }
+    {
+      "name": "a shared record reads Guest, not its sponsor",
+      "shareName": "signup",
+      "byline": "Ana",
+      "text": "Guest"
+    },
+    {
+      "name": "any other record keeps its byline",
+      "shareName": null,
+      "byline": "Ana",
+      "text": "Ana"
+    }
   ],
   "rowCases": [
-    { "name": "off", "mode": "submit", "state": "off", "expiresAt": null, "text": "Form · Off" },
-    { "name": "on with an expiry", "mode": "view", "state": "on", "expiresAt": "2026-12-01", "text": "View · On · until 2026-12-01" },
-    { "name": "expired", "mode": "submit", "state": "expired", "expiresAt": "2026-11-01", "text": "Form · Expired" }
+    {
+      "name": "off",
+      "mode": "submit",
+      "state": "off",
+      "expiresAt": null,
+      "text": "Form · Off"
+    },
+    {
+      "name": "on with an expiry",
+      "mode": "view",
+      "state": "on",
+      "expiresAt": "2026-12-01",
+      "text": "View · On · until 2026-12-01"
+    },
+    {
+      "name": "expired",
+      "mode": "submit",
+      "state": "expired",
+      "expiresAt": "2026-11-01",
+      "text": "Form · Expired"
+    }
+  ],
+  "historyCases": [
+    {
+      "name": "a guest's submission reads Guest",
+      "via": "share:signup",
+      "actor": "u1",
+      "names": {
+        "u1": "Ana"
+      },
+      "who": "Guest"
+    },
+    {
+      "name": "any other write keeps its actor",
+      "via": "app",
+      "actor": "u1",
+      "names": {
+        "u1": "Ana"
+      },
+      "who": "Ana"
+    }
+  ],
+  "switchCases": [
+    {
+      "state": "off",
+      "on": false
+    },
+    {
+      "state": "on",
+      "on": true
+    },
+    {
+      "state": "expired",
+      "on": false
+    },
+    {
+      "state": "orphaned",
+      "on": true
+    }
   ]
 }

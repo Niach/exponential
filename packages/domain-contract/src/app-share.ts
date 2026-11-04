@@ -53,3 +53,9 @@ export function shareRowSubtitle(mode: ShareMode, state: ShareLinkState, expires
   if (state === `on` && expiresAt) parts.push(fixture.copy.expiresOn.replace(`{date}`, expiresAt))
   return parts.join(` · `)
 }
+
+/** A Settings row's Switch (`switchCases`): an orphaned link still reads on,
+ *  so its owner can revoke it. */
+export function shareSwitchOn(state: ShareLinkState): boolean {
+  return state === `on` || state === `orphaned`
+}
