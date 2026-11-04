@@ -16,10 +16,10 @@ import {
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { boardVisible } from "@/lib/board-visibility"
 import { loadSessionForUser } from "@/lib/sessions/access"
-import { PR_BODY_MAX, prBodyFromStories } from "@/lib/pr-body"
+import { PR_BODY_MAX, prBodyFromPictures } from "@/lib/pr-body"
 import { expandTeamLinksInMarkdown } from "@/lib/app-link"
 import { appBaseUrl } from "@/lib/notification-email-policy"
-import { compareCommitMessages, linkedIssuesOfPullRequest, loadStoryPictures, storiesUrlFor } from "@/lib/pr-stories"
+import { compareCommitMessages, linkedIssuesOfPullRequest, loadPrPictures, chatUrlFor } from "@/lib/pr-pictures"
 import { logicalSessionIds } from "@/lib/sessions/guide-entries"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import {
@@ -143,7 +143,7 @@ export async function pullRequestHeadSha(pullRequestId: string): Promise<string 
   }
 }
 
-/** EXP-1315 → S-3: a thread's PR that changes UI needs a labelled STORY
+/** EXP-1315 → S-3: a thread's PR that changes UI needs a labelled
  *  picture per touched platform, or `notRun` naming it. A failed compare
  *  never blocks the PR: it is logged and the guard skipped. */
 async function assertUiPictures(args: {
@@ -193,7 +193,7 @@ async function isSameLogicalSession(rootId: string, callerId: string, openerId: 
 /** The footer link of every PR body: the thread (root session). */
 async function threadUrlFor(teamId: string, rootId: string): Promise<string | null> {
   const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, teamId)).limit(1)
-  return team ? storiesUrlFor(team.slug, rootId) : null
+  return team ? chatUrlFor(team.slug, rootId) : null
 }
 
 /** #EXP-1674: a PR body leaves the app, so its `~/x` links go absolute. */
@@ -397,23 +397,23 @@ export async function openPullRequest(args: {
   // later body render and the next pr_open keep it.
   const notRun = args.notRun?.replace(/\s+/g, ` `).trim() || existing?.notRun || null
   const threadUrl = root ? await threadUrlFor(repo.teamId, root.id) : null
-  // S-3: the PR's pictures = the opener's stories (its logical session and
+  // S-3: the PR's pictures = the opener's (its logical session and
   // subtree); the body = a server summary + those pictures.
   const pictures = root
-    ? await loadStoryPictures(root.id, caller?.id ?? null, {
+    ? await loadPrPictures(root.id, caller?.id ?? null, {
         pullRequestId: existing?.id ?? null,
         head,
         repositoryId: repo.id,
       })
     : []
-  const storyBody = async (base: string) =>
-    prBodyFromStories({
+  const pictureBody = async (base: string) =>
+    prBodyFromPictures({
       title: args.title,
       issues: linked.map((issue) => ({ identifier: issue.identifier, title: issue.title })),
       commits: await compareCommitMessages({ repo: repo.fullName, base, head: head!, token }),
       pictures,
       notRun,
-      storiesUrl: threadUrl,
+      resultsUrl: threadUrl,
     })
   const keepNotRun = async (pullRequestId: string) => {
     if (args.notRun === undefined) return
@@ -443,9 +443,9 @@ export async function openPullRequest(args: {
 
   if (existing) {
     // #NEW-20: a PR's body comes from its own thread: another thread's
-    // session may update it, but its stories never replace that body.
+    // session may update it, but its pictures never replace that body.
     const ownThread = root && (!existing.rootSessionId || existing.rootSessionId === root.id)
-    const body = args.body ?? (ownThread ? await storyBody(existing.base) : undefined)
+    const body = args.body ?? (ownThread ? await pictureBody(existing.base) : undefined)
     await patchPullDescription({
       repoFullName: repo.fullName,
       prNumber: existing.number,
@@ -482,7 +482,7 @@ export async function openPullRequest(args: {
       })
     ).base
   if (root) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, pictures, notRun })
-  const body = await withAbsoluteLinks(repo.teamId, args.body ?? (root ? await storyBody(base) : ``))
+  const body = await withAbsoluteLinks(repo.teamId, args.body ?? (root ? await pictureBody(base) : ``))
 
   // EXP-494: the initiator is claimed BEFORE the GitHub call, so the
   // `opened` webhook (which beats our own write) fires attributed.
@@ -996,12 +996,12 @@ export async function pullRequestFiles(args: {
   }
 }
 
-// One chain per thread: overlapping story uploads PATCH in call order, and
-// each link re-reads the committed stories, so the last PATCH carries it.
+// One chain per thread: overlapping picture uploads PATCH in call order, and
+// each link re-reads the committed cards, so the last PATCH carries it.
 const bodySyncChains = new Map<string, Promise<void>>()
 
-/** S-3: re-render every LIVE PR body of a thread from its stories (each
- *  PR: its title, linked issues and commits, its opener's story pictures,
+/** S-3: re-render every LIVE PR body of a thread from its cards (each
+ *  PR: its title, linked issues and commits, its opener's pictures,
  *  its notRun). Best effort: never throws. */
 export function syncPullRequestBodies(rootId: string): Promise<void> {
   const previous = bodySyncChains.get(rootId) ?? Promise.resolve()
@@ -1032,19 +1032,19 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
         const token = await tokens.get(pr.repositoryId)!
         const repoFullName = repoFromPrUrl(pr.url)
         if (!token || !repoFullName) continue
-        const storyBody = prBodyFromStories({
+        const pictureBody = prBodyFromPictures({
           title: pr.title ?? ``,
           issues: await linkedIssuesOfPullRequest(pr.id),
           commits: await compareCommitMessages({ repo: repoFullName, base: pr.base, head: pr.head, token }),
-          pictures: await loadStoryPictures(rootId, pr.sessionId, {
+          pictures: await loadPrPictures(rootId, pr.sessionId, {
             pullRequestId: pr.id,
             head: pr.head,
             repositoryId: pr.repositoryId,
           }),
           notRun: pr.notRun,
-          storiesUrl: threadUrl,
+          resultsUrl: threadUrl,
         })
-        const body = await withAbsoluteLinks(root.teamId, storyBody)
+        const body = await withAbsoluteLinks(root.teamId, pictureBody)
         await patchPullDescription({ repoFullName, prNumber: pr.number, token, fields: { body } })
       } catch (err) {
         console.warn(`[pull-requests] body sync of ${pr.url} failed`, err)

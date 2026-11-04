@@ -3156,7 +3156,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
 describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures`, async () => {
   const { sessionReads } = await import(`@/db/schema`)
   const { buildSurfaceCard, postShowCard, publishCardPicture } = await import(`@/lib/sessions/plan`)
-  const { loadStoryPictures } = await import(`@/lib/pr-stories`)
+  const { loadPrPictures } = await import(`@/lib/pr-pictures`)
   const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
   const caller = (userId: string) =>
     sessionsRouter.createCaller({
@@ -3197,9 +3197,9 @@ describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures
     )
     const row = (await db.select().from(messages).where(eq(messages.id, posted.messageId)))[0]!
     expect((row.card as { pictures: { attachmentId: string }[] }).pictures[0]!.attachmentId).toBe(attachmentId)
-    expect((await loadStoryPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
+    expect((await loadPrPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
     const sibling = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `web part` } })
-    expect(await loadStoryPictures(root.sessionId, sibling.sessionId)).toEqual([])
+    expect(await loadPrPictures(root.sessionId, sibling.sessionId)).toEqual([])
   })
 
   it(`replace keeps the pictures already uploaded and grants only the new labels (F37)`, async () => {
@@ -3230,7 +3230,7 @@ describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures
       { label: `ios chats`, attachmentId, width: 10, height: 20 },
       { label: `web chats`, attachmentId: null },
     ])
-    expect((await loadStoryPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
+    expect((await loadPrPictures(root.sessionId, root.sessionId)).map((p) => p.label)).toEqual([`ios chats`])
   })
 })
 

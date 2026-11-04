@@ -24,26 +24,26 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
   buildSessionDeepLinkPath: (slug: string, id: string) => `/t/${slug}/sessions/${id}`,
 }))
 
-const { loadStoryPictures, storyPicturesOfCard, storySessionIds } = await import(`@/lib/pr-stories`)
+const { loadPrPictures, prPicturesOfCard, prPictureSessionIds } = await import(`@/lib/pr-pictures`)
 
 const sealed = `v1:1:${`A`.repeat(80)}`
 const root = `00000000-0000-4000-8000-000000000001`
 
 const load = async (cards: unknown[]) => {
   h.results.push([{ id: root, parentId: null, branch: null, status: `idle` }], [], cards.map((card) => ({ card })))
-  return (await loadStoryPictures(root, null)).map((p) => [p.label, p.attachmentId, p.url])
+  return (await loadPrPictures(root, null)).map((p) => [p.label, p.attachmentId, p.url])
 }
 
-describe(`loadStoryPictures`, () => {
+describe(`loadPrPictures`, () => {
   beforeEach(() => {
     h.results.length = 0
   })
 
-  it(`reads a plaintext story card as before (story:false skipped)`, async () => {
+  it(`reads a plaintext story card as before (result:false skipped)`, async () => {
     expect(
       await load([
         { kind: `surface`, pictures: [{ label: `web list`, attachmentId: `a1`, caption: `List` }] },
-        { kind: `surface`, story: false, pictures: [{ label: `web chat`, attachmentId: `a2` }] },
+        { kind: `surface`, result: false, pictures: [{ label: `web chat`, attachmentId: `a2` }] },
       ])
     ).toEqual([[`web list`, `a1`, `https://exp.example/api/attachments/a1`]])
   })
@@ -51,7 +51,7 @@ describe(`loadStoryPictures`, () => {
   it(`reads a sealed story card through its clear pictures (story true or absent)`, async () => {
     expect(
       await load([
-        { kind: `surface`, story: true, pictures: [{ label: `web list`, attachmentId: `s1` }], sealed },
+        { kind: `surface`, result: true, pictures: [{ label: `web list`, attachmentId: `s1` }], sealed },
         { kind: `plan`, fresh: false, pictures: [{ label: `ios plan`, attachmentId: `s2` }], sealed },
       ])
     ).toEqual([
@@ -60,39 +60,39 @@ describe(`loadStoryPictures`, () => {
     ])
   })
 
-  it(`skips a sealed story:false card and a picture still to upload`, async () => {
+  it(`skips a sealed result:false card and a picture still to upload`, async () => {
     expect(
       await load([
-        { kind: `surface`, story: false, pictures: [{ label: `web chat`, attachmentId: `s3` }], sealed },
-        { kind: `surface`, story: true, pictures: [{ label: `web later` }, { label: `ios now`, attachmentId: `s4` }], sealed },
+        { kind: `surface`, result: false, pictures: [{ label: `web chat`, attachmentId: `s3` }], sealed },
+        { kind: `surface`, result: true, pictures: [{ label: `web later` }, { label: `ios now`, attachmentId: `s4` }], sealed },
       ])
     ).toEqual([[`ios now`, `s4`, `https://exp.example/api/attachments/s4`]])
   })
 })
 
-describe(`storyPicturesOfCard`, () => {
+describe(`prPicturesOfCard`, () => {
   it(`never carries sealed text: a sealed card yields label + id only`, () => {
-    expect(storyPicturesOfCard({ kind: `surface`, pictures: [{ label: `web a`, attachmentId: `x`, caption: `leak` }], sealed })).toEqual([
+    expect(prPicturesOfCard({ kind: `surface`, pictures: [{ label: `web a`, attachmentId: `x`, caption: `leak` }], sealed })).toEqual([
       { label: `web a`, attachmentId: `x` },
     ])
   })
 
   it(`a sealed card of another kind or without pictures has none`, () => {
-    expect(storyPicturesOfCard({ kind: `report`, pictures: [{ label: `web a`, attachmentId: `x` }], sealed })).toEqual([])
-    expect(storyPicturesOfCard({ kind: `surface`, sealed })).toEqual([])
+    expect(prPicturesOfCard({ kind: `report`, pictures: [{ label: `web a`, attachmentId: `x` }], sealed })).toEqual([])
+    expect(prPicturesOfCard({ kind: `surface`, sealed })).toEqual([])
   })
 })
 
-describe(`validSealedCard: the clear story flag`, () => {
-  it(`takes a boolean story beside sealed, refuses anything else`, async () => {
+describe(`validSealedCard: the clear result flag`, () => {
+  it(`takes a boolean result beside sealed, refuses anything else`, async () => {
     const { validSealedCard } = await import(`@/lib/sessions/sealed`)
-    expect(validSealedCard({ kind: `surface`, story: false, sealed })).toBe(true)
-    expect(validSealedCard({ kind: `surface`, story: `no`, sealed })).toBe(false)
+    expect(validSealedCard({ kind: `surface`, result: false, sealed })).toBe(true)
+    expect(validSealedCard({ kind: `surface`, result: `no`, sealed })).toBe(false)
   })
 })
 
 // #EXP-1402 (FEED-166 (2)): a PR body shows exactly its own sessions' stories.
-describe(`storySessionIds`, () => {
+describe(`prPictureSessionIds`, () => {
   // root → a (PR #1302) → a1; root → b (PR #1303, continued as b2); root → c (no PR)
   const tree = [
     { id: `root`, parentId: null, status: `idle` },
@@ -105,12 +105,12 @@ describe(`storySessionIds`, () => {
   const sorted = (ids: Set<string>) => [...ids].sort()
 
   it(`a child's PR shows its lineage and subtree, never a sibling's`, () => {
-    expect(sorted(storySessionIds(tree, `b`, new Set([`a`])))).toEqual([`b`, `b2`])
-    expect(sorted(storySessionIds(tree, `a`, new Set([`b`, `b2`])))).toEqual([`a`, `a1`])
+    expect(sorted(prPictureSessionIds(tree, `b`, new Set([`a`])))).toEqual([`b`, `b2`])
+    expect(sorted(prPictureSessionIds(tree, `a`, new Set([`b`, `b2`])))).toEqual([`a`, `a1`])
   })
 
   it(`the root's PR leaves out the subtrees that opened their own`, () => {
-    expect(sorted(storySessionIds(tree, `root`, new Set([`a`, `b`, `b2`])))).toEqual([`c`, `root`])
-    expect(sorted(storySessionIds(tree, null, new Set([`a`])))).toEqual([`b`, `b2`, `c`, `root`])
+    expect(sorted(prPictureSessionIds(tree, `root`, new Set([`a`, `b`, `b2`])))).toEqual([`c`, `root`])
+    expect(sorted(prPictureSessionIds(tree, null, new Set([`a`])))).toEqual([`b`, `b2`, `c`, `root`])
   })
 })

@@ -31,7 +31,7 @@ pub const RUN_SKILL: &str = include_str!("runbook.md");
 pub const DISPATCH_HEADING: &str = "## Agents";
 
 /// The coding-work sections a dispatcher never reads: it hands that work
-/// to children instead (S-3: `## Show` and `## Stories` are everyone's).
+/// to children instead (S-3: `## Show` and `## Results` are everyone's).
 pub const CODING_ONLY_HEADINGS: [&str; 2] = ["## Fan out", "## Pull requests"];
 
 /// The playbook ONE run gets: a dispatcher's swaps the coding-work sections
@@ -154,7 +154,7 @@ an API; use the screen only when the task needs a desktop app or the person's lo
 image's pixels; `list_windows` + `activate_window` put the right window in front), then \
 `screenshot` again to verify; an unverified effect is not success. A run works on one display at \
 a time; `screenshot {display}` switches.
-- Show the person a frame that matters: a story, `exponential_show` with a `label`ed picture \
+- Show the person a frame that matters: `exponential_show` with a `label`ed picture \
 (through its returned upload line).
 - Drive the screen from ONE subagent at a time on model `{model}` (the `Agent` tool's `model`, a \
 fast one by design): there is one pointer and one keyboard, so screen work never runs in parallel; \

@@ -263,9 +263,9 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     agent: false,
     reportBug: true,
   })
-  expect(noSession).not.toContain(`Show your work as stories`)
+  expect(noSession).not.toContain(`Show your work as results`)
   expect(noSession).not.toContain(`op: "end"`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`Show your work as stories`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`Show your work as results`)
   // EXP-1291: people are pinged by @email, never a notify tool.
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`@email`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`notifications_send`)

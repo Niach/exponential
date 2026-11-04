@@ -31,9 +31,10 @@ pub const SEAL_EPOCH_MAX: u32 = i32::MAX as u32;
 pub const WRAPPED_TREE_KEY_BYTES: usize = PUSH_OVERHEAD + 32;
 /// The `messages.card` fields that stay in clear; everything else is sealed.
 /// `pictures` stays in clear PROJECTED (each entry's `label` and
-/// `attachmentId` only) and is never laid over the opened card. `story`
-/// (addendum 5) stays in clear only when a boolean (PR stories honour it).
-pub const CARD_CLEAR_FIELDS: [&str; 13] = [
+/// `attachmentId` only) and is never laid over the opened card. `result`
+/// (and an older writer's `story`; addendum 5) stays in clear only when a
+/// boolean (PR pictures honour it).
+pub const CARD_CLEAR_FIELDS: [&str; 14] = [
     "kind",
     "messageId",
     "sessionId",
@@ -47,6 +48,7 @@ pub const CARD_CLEAR_FIELDS: [&str; 13] = [
     "answered",
     "pictures",
     "story",
+    "result",
 ];
 
 /// The clear projection of a card's `pictures`: `{label, attachmentId}` per
@@ -344,7 +346,7 @@ pub fn split_card(card: &Value) -> Result<(Map<String, Value>, String)> {
             if let Some(pictures) = clear_pictures(full.get("pictures")) {
                 clear.insert(field.into(), pictures);
             }
-        } else if field == "story" {
+        } else if field == "story" || field == "result" {
             if let Some(v) = full.get(field).filter(|v| v.is_boolean()) {
                 clear.insert(field.into(), v.clone());
             }

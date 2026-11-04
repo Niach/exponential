@@ -50,7 +50,8 @@ export function validSealedCard(card: Record<string, unknown>): boolean {
   if (parseSealedValue(card.sealed).kind === `malformed`) return false
   const clear = new Set<string>([...CARD_CLEAR_FIELDS, `sealed`])
   if (!Object.keys(card).every((key) => clear.has(key))) return false
-  // `story` in clear (addendum 5) is the flag only.
+  // `result` and an older writer's `story` in clear (addendum 5) are the flag only.
+  if (card.result !== undefined && typeof card.result !== `boolean`) return false
   if (card.story !== undefined && typeof card.story !== `boolean`) return false
   // `pictures` in clear is the projection only: `{label?, attachmentId}`,
   // or `{label}` = a picture still to upload (addendum 4).
