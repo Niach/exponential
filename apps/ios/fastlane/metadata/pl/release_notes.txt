@@ -22,3 +22,5 @@
 - Pływający przycisk trzyma rozmowę pod ręką
 - Aplikacje otwierają się na pełnym ekranie z paska bocznego; edytor jest pod zębatką
 - Wklejone obrazy pokazują się w czacie jako miniatury
+- Rozpoczęcie kodowania u agenta teraz do niego trafia; czaty z agentami to zwykła rozmowa
+- Zespoły mogą mieć własny obraz

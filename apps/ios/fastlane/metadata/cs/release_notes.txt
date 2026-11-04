@@ -22,3 +22,5 @@
 - Plovoucí lišta drží hovor po ruce, zatímco používáte aplikaci
 - Aplikace se z postranního panelu otevírají na celou obrazovku; editor je pod ozubeným kolem
 - Vložené obrázky se v chatu zobrazují jako náhledy
+- Spuštění kódování u agenta ho nyní zastihne; chaty s agenty zůstávají prostou konverzací
+- Týmy mohou mít vlastní obrázek

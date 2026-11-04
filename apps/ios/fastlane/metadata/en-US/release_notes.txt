@@ -22,3 +22,5 @@
 - A floating pill keeps your call within reach while you use the app
 - Apps open full screen from the sidebar; the editor is behind the gear
 - Pasted images show as thumbnails in chats
+- Start coding to an agent now reaches it; agent chats stay a plain conversation
+- Teams can have their own image

@@ -22,3 +22,5 @@
 - Una píldora flotante mantiene tu llamada a mano mientras usas la app
 - Las apps se abren a pantalla completa desde la barra lateral; el editor está tras el engranaje
 - Las imágenes pegadas se ven como miniaturas en los chats
+- Empezar a programar con un agente ya le llega; sus chats son una conversación normal
+- Los equipos pueden tener su propia imagen

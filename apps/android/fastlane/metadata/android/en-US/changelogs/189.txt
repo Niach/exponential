@@ -1,0 +1,3 @@
+- Start coding to an agent now reaches it; agent chats stay a plain conversation
+- Teams can have their own image, and the team switcher is on phones too
+- App settings show who may read and change each kind of record
