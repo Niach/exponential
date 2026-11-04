@@ -2580,7 +2580,8 @@ pub struct MarkdownView {
     resolver: Option<RefResolver>,
     images: Option<Entity<ImageCache>>,
     on_open_issue: Option<OpenIssueCallback>,
-    /// EXP-1188: replaces the default link open ([`open_link_href`]).
+    /// EXP-1188: replaces the default link open
+    /// ([`crate::links::open_agent_link`]).
     on_open_link: Option<OpenLinkCallback>,
     /// #EXP-1493: replaces the default picture open (THE image preview).
     on_open_image: Option<OpenImageCallback>,
@@ -2638,9 +2639,9 @@ impl MarkdownView {
     }
 
     /// EXP-1188: route a clicked link's raw href through `on_open_link`
-    /// instead of the default (the OS browser for `http(s)`/`mailto`). The
-    /// steer feed and the Guide pass [`open_agent_link`] so links to this
-    /// instance open in the app.
+    /// instead of the default ([`crate::links::open_agent_link`] on the
+    /// window's active team). #EXP-1674: a surface that knows its team passes
+    /// [`crate::links::link_opener`], so `~/x` resolves against that team.
     pub fn on_open_link(
         mut self,
         on_open_link: impl Fn(&str, &mut Window, &mut App) + 'static,
@@ -2727,94 +2728,6 @@ pub(crate) fn open_link_href(url: &str) {
     }
     if let Err(error) = api::opener::open_in_browser(url) {
         log::warn!("open link failed: {error}");
-    }
-}
-
-/// The synced team a link's slug names (case-insensitive).
-fn team_id_by_slug(team_slug: &str, cx: &App) -> Option<String> {
-    sync::Store::global(cx)
-        .collections()
-        .teams
-        .read(cx)
-        .iter()
-        .find(|team| team.slug.as_deref().is_some_and(|slug| slug.eq_ignore_ascii_case(team_slug)))
-        .map(|team| team.id.clone())
-}
-
-/// EXP-1188: open a link from AGENT prose (narration, the thread, the Guide)
-/// per `domain::app_link`: a run or issue on THIS instance opens in the app,
-/// another instance page opens in the browser at its absolute URL, anything
-/// else external goes to the OS opener, an ignored href does nothing. An
-/// issue whose team or row has not synced falls back to the browser.
-pub(crate) fn open_agent_link(href: &str, window: &mut Window, cx: &mut App) {
-    use domain::app_link::{classify_app_link, AppLink};
-    let origin = crate::queries::instance_origin(cx);
-    let origin = origin.as_deref().unwrap_or("").trim_end_matches('/').to_string();
-    let link = classify_app_link(href, &origin);
-    // The absolute URL of an in-app link, for the browser fallback.
-    let instance_url = || {
-        let href = href.trim();
-        if href.starts_with('/') {
-            (!origin.is_empty()).then(|| format!("{origin}{href}"))
-        } else {
-            Some(href.to_string())
-        }
-    };
-    match link {
-        AppLink::Ignore => {
-            log::info!("agent link ignored: {href}");
-        }
-        AppLink::External { url } => open_link_href(&url),
-        AppLink::App { .. } => {
-            if let Some(url) = instance_url() {
-                open_link_href(&url);
-            }
-        }
-        AppLink::Session { session_id, .. } => {
-            let screen = crate::navigation::session_screen_for(&session_id, cx);
-            crate::navigation::navigate(window, cx, screen);
-        }
-        AppLink::Thread { thread_id, .. } => crate::navigation::navigate(
-            window,
-            cx,
-            crate::navigation::Screen::Thread {
-                session_id: thread_id,
-            },
-        ),
-        // VAPP-218: the app's editor, Preview tab, on that screen (the
-        // browser when this instance has no such app).
-        AppLink::AppScreen { team_slug, app_slug, screen, params } => {
-            let team_id = team_id_by_slug(&team_slug, cx);
-            match crate::apps_view::find_app(&app_slug, team_id.as_deref(), cx).filter(|_| team_id.is_some()) {
-                Some(app) => {
-                    let params = params.into_iter().map(|(k, v)| (k, serde_json::Value::String(v))).collect();
-                    crate::app_screen::open_app_screen(window, cx, app.id, screen, params);
-                }
-                None => {
-                    if let Some(url) = instance_url() {
-                        open_link_href(&url);
-                    }
-                }
-            }
-        }
-        AppLink::Issue { team_slug, identifier, .. } => {
-            let team_id = team_id_by_slug(&team_slug, cx);
-            let issue_id = team_id.as_deref().and_then(|team_id| {
-                crate::description_editor::issue_id_by_identifier(team_id, &identifier, cx)
-            });
-            match issue_id {
-                Some(issue_id) => crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::IssueDetail { issue_id },
-                ),
-                None => {
-                    if let Some(url) = instance_url() {
-                        open_link_href(&url);
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -3487,7 +3400,7 @@ fn render_inline_text(
                 match target {
                     ClickTarget::Url(url) => match &on_open_link {
                         Some(on_open_link) => on_open_link(url, window, cx),
-                        None => open_link_href(url),
+                        None => crate::links::open_agent_link(url, window, cx),
                     },
                     ClickTarget::Issue(identifier) => {
                         if let Some(on_open_issue) = &on_open_issue {

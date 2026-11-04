@@ -22,7 +22,10 @@ const ANDROID_PACKAGES = [`at.exponential`, `at.exponential.staging`]
 // paths would hijack public feedback-board visitors and web-only surfaces.
 // VAPP-218: an app screen (`/t/<team>/apps/<app>/<screen>`, app-link.json appScreen) opens THE RUN VIEW on it (VAPP-242).
 // EXP-1288: a thread page opens the native Thread screen.
-const LINK_PATHS = [`/t/*/boards/*/issues/*`, `/t/*/threads/*`, `/invite/*`, `/t/*/apps/*/*`]
+// #EXP-1674: the short issue route and a session (its plan page included). Boards
+// and settings stay unclaimed for the reason above: inside the apps they route
+// natively, from outside they stay on the web.
+const LINK_PATHS = [`/t/*/boards/*/issues/*`, `/t/*/issues/*`, `/t/*/sessions/*`, `/t/*/threads/*`, `/invite/*`, `/t/*/apps/*/*`]
 
 export function buildAppleAppSiteAssociation(): unknown {
   return {

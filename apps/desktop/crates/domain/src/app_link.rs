@@ -2,7 +2,11 @@
 //! Guide, the thread) opens. Web `lib/app-link.ts`'s twin, byte-locked ×4 by
 //! `packages/domain-contract/fixtures/app-link.json` (its `description` is the
 //! rule). Hand-parsed on purpose: a URL crate's normalisation would drift
-//! from the other three clients.
+//! from the other three clients. #EXP-1674: one link system: the team
+//! shorthand, the routes table and THE open rule ([`link_open_outcome`]).
+
+/// `copy.noAccess`: what a link the viewer cannot reach says.
+pub const NO_ACCESS: &str = "Not found or no access";
 
 /// The classified target of one href.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,13 +17,38 @@ pub enum AppLink {
         board_slug: String,
         identifier: String,
     },
+    /// #EXP-1674: an issue by identifier alone (agents rarely know the board).
+    IssueRef { team_slug: String, identifier: String },
+    /// #EXP-1674: one board's issue list.
+    Board { team_slug: String, board_slug: String },
     /// A run on THIS instance — open it in the app.
     Session { team_slug: String, session_id: String },
+    /// #EXP-1674: THE plan page of one plan card of a session.
+    Plan {
+        team_slug: String,
+        session_id: String,
+        message_id: String,
+    },
     /// EXP-1284: a thread on THIS instance — open it in the app.
     Thread { team_slug: String, thread_id: String },
-    /// VAPP-218: an app screen on THIS instance — open the app's editor on
-    /// its Preview tab showing `screen` with `params` (the query, minus the
-    /// editor's own keys apps.json `screens.reserved`).
+    /// #EXP-1674: the chats list.
+    Threads { team_slug: String },
+    /// #EXP-1674: one agent's page.
+    Agent { team_slug: String, agent_id: String },
+    /// #EXP-1674: the team's agent page.
+    AgentHome { team_slug: String },
+    /// #EXP-1674: the inbox.
+    Inbox { team_slug: String },
+    /// #EXP-1674: the devices page (`devices` or `settings/devices`).
+    Devices { team_slug: String },
+    /// #EXP-1674: one settings page; `section` = the segment, empty for the
+    /// Settings root.
+    Settings { team_slug: String, section: String },
+    /// #EXP-1674: the app's first screen in THE RUN VIEW.
+    AppHome { team_slug: String, app_slug: String },
+    /// VAPP-218: an app screen on THIS instance — THE RUN VIEW showing
+    /// `screen` with `params` (the query, minus the editor's own keys
+    /// apps.json `screens.reserved`).
     AppScreen {
         team_slug: String,
         app_slug: String,
@@ -36,11 +65,23 @@ pub enum AppLink {
 }
 
 /// Classify `href` against the instance `origin` (`https://host[:port]`, a
-/// trailing slash tolerated).
+/// trailing slash tolerated), with no surface team (`~/x` = ignore).
 pub fn classify_app_link(href: &str, origin: &str) -> AppLink {
+    classify_app_link_in_team(href, origin, None)
+}
+
+/// #EXP-1674: [`classify_app_link`] with the SURFACE'S team slug (the team of
+/// the message, issue or app holding the link), which `~/x` resolves against.
+pub fn classify_app_link_in_team(href: &str, origin: &str, team: Option<&str>) -> AppLink {
     let href = href.trim();
     if href.is_empty() {
         return AppLink::Ignore;
+    }
+    if href.starts_with('~') {
+        return match expand_team_link(href, team) {
+            Some(path) => in_app(&path),
+            None => AppLink::Ignore,
+        };
     }
     if href.starts_with('/') {
         if href.starts_with("//") {
@@ -102,39 +143,158 @@ fn valid_authority(authority: &str) -> bool {
         })
 }
 
-/// An in-app path (`/…`, query + hash allowed) → issue | session | app.
-fn in_app(path: &str) -> AppLink {
-    let bare = &path[..path.find(['?', '#']).unwrap_or(path.len())];
-    let segments: Vec<String> = bare
+/// A path's segments: query + hash dropped, empty segments dropped, each
+/// percent-decoded.
+fn path_segments(path: &str) -> Vec<String> {
+    path[..path.find(['?', '#']).unwrap_or(path.len())]
         .split('/')
         .filter(|segment| !segment.is_empty())
-        .map(percent_decode)
-        .collect();
-    match segments.as_slice() {
-        [t, team, boards, board, issues, identifier]
-            if t == "t" && boards == "boards" && issues == "issues" =>
-        {
-            AppLink::Issue {
-                team_slug: team.clone(),
-                board_slug: board.clone(),
-                identifier: identifier.clone(),
-            }
+        .map(strict_decode)
+        .collect()
+}
+
+/// An in-app path (`/…`, query + hash allowed): a row of the routes table,
+/// else `app` with the path as written.
+fn in_app(path: &str) -> AppLink {
+    let segments = path_segments(path);
+    let segments: Vec<&str> = segments.iter().map(String::as_str).collect();
+    if let ["t", team, rest @ ..] = segments.as_slice() {
+        if let Some(link) = route(team, rest, path) {
+            return link;
         }
-        [t, team, sessions, id] if t == "t" && sessions == "sessions" => AppLink::Session {
-            team_slug: team.clone(),
-            session_id: id.clone(),
+    }
+    AppLink::App { path: path.to_string() }
+}
+
+/// `routes` (app-link.json), in matching order: `rest` = the segments after
+/// `/t/<team>/`, exact counts.
+fn route(team: &str, rest: &[&str], path: &str) -> Option<AppLink> {
+    let team_slug = team.to_string();
+    Some(match rest {
+        ["issues", identifier] => AppLink::IssueRef {
+            team_slug,
+            identifier: identifier.to_string(),
         },
-        [t, team, threads, id] if t == "t" && threads == "threads" => AppLink::Thread {
-            team_slug: team.clone(),
-            thread_id: id.clone(),
+        ["boards", board, "issues", identifier] => AppLink::Issue {
+            team_slug,
+            board_slug: board.to_string(),
+            identifier: identifier.to_string(),
         },
-        [t, team, apps, app, screen] if t == "t" && apps == "apps" => AppLink::AppScreen {
-            team_slug: team.clone(),
-            app_slug: app.clone(),
-            screen: screen.clone(),
+        ["boards", board] => AppLink::Board {
+            team_slug,
+            board_slug: board.to_string(),
+        },
+        ["sessions", session, "plan", message] => AppLink::Plan {
+            team_slug,
+            session_id: session.to_string(),
+            message_id: message.to_string(),
+        },
+        ["sessions", session] => AppLink::Session {
+            team_slug,
+            session_id: session.to_string(),
+        },
+        ["threads", thread] => AppLink::Thread {
+            team_slug,
+            thread_id: thread.to_string(),
+        },
+        ["threads"] => AppLink::Threads { team_slug },
+        ["agents", agent] => AppLink::Agent {
+            team_slug,
+            agent_id: agent.to_string(),
+        },
+        ["agent"] => AppLink::AgentHome { team_slug },
+        ["inbox"] => AppLink::Inbox { team_slug },
+        ["devices"] | ["settings", "devices"] => AppLink::Devices { team_slug },
+        ["settings", section] => AppLink::Settings {
+            team_slug,
+            section: section.to_string(),
+        },
+        ["settings"] => AppLink::Settings {
+            team_slug,
+            section: String::new(),
+        },
+        ["apps", app, screen] => AppLink::AppScreen {
+            team_slug,
+            app_slug: app.to_string(),
+            screen: screen.to_string(),
             params: screen_query_params(path),
         },
-        _ => AppLink::App { path: path.to_string() },
+        ["apps", app] => AppLink::AppHome {
+            team_slug,
+            app_slug: app.to_string(),
+        },
+        _ => return None,
+    })
+}
+
+/// #EXP-1674: `~/x` = `/t/<team>/x`, or `None` when it cannot be expanded (no
+/// team, not `~/`, `~//`, a `.` or `..` segment even percent-encoded).
+pub fn expand_team_link(href: &str, team: Option<&str>) -> Option<String> {
+    let team = team.filter(|team| !team.is_empty())?;
+    if !href.starts_with("~/") || href.starts_with("~//") {
+        return None;
+    }
+    let rest = &href[2..];
+    let bare = &rest[..rest.find(['?', '#']).unwrap_or(rest.len())];
+    if bare.split('/').map(strict_decode).any(|segment| segment == "." || segment == "..") {
+        return None;
+    }
+    Some(format!("/t/{}/{rest}", encode_uri_component(team)))
+}
+
+/// `encodeURIComponent`: everything but `A-Za-z0-9-_.!~*'()` as `%XX` over
+/// the UTF-8 bytes.
+fn encode_uri_component(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// The team an `app` link's path names (`/t/<team>/…`), for THE open rule's
+/// membership check; `None` = not a team page.
+pub fn app_path_team(path: &str) -> Option<String> {
+    let mut segments = path_segments(path).into_iter();
+    if segments.next().as_deref() != Some("t") {
+        return None;
+    }
+    segments.next()
+}
+
+/// #EXP-1674: what opening a resolved in-app link does (`openCases`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkOpenOutcome {
+    /// Opens where it is.
+    Open,
+    /// Found in another team of the viewer's: switch without asking, then open.
+    SwitchTeam,
+    /// The viewer is not a member of the link's team: home + `copy.noAccess`.
+    NoAccess,
+    /// A page this client has no screen for: the browser.
+    Browser,
+    /// Missing or unreadable: the existing not-found state, else `copy.noAccess`.
+    NotFound,
+}
+
+/// #EXP-1674: THE open rule ×4 (`openCases`), checked in this order.
+/// Unreadable looks exactly like missing.
+pub fn link_open_outcome(member: bool, active_team: bool, found: bool, web_only: bool) -> LinkOpenOutcome {
+    if !member {
+        LinkOpenOutcome::NoAccess
+    } else if web_only {
+        LinkOpenOutcome::Browser
+    } else if !found {
+        LinkOpenOutcome::NotFound
+    } else if active_team {
+        LinkOpenOutcome::Open
+    } else {
+        LinkOpenOutcome::SwitchTeam
     }
 }
 
@@ -165,7 +325,7 @@ fn screen_query_params(path: &str) -> std::collections::BTreeMap<String, String>
     found
 }
 
-/// VAPP-218: `decodeURIComponent`, or the text as written when any escape is
+/// `decodeURIComponent`, or the text as written when any escape is
 /// malformed or the bytes are not UTF-8 (the TS reference keeps it whole).
 fn strict_decode(text: &str) -> String {
     let bytes = text.as_bytes();
@@ -189,26 +349,6 @@ fn strict_decode(text: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| text.to_string())
 }
 
-/// `%XX` → byte; a malformed escape stays literal; invalid UTF-8 is lossy.
-fn percent_decode(segment: &str) -> String {
-    let bytes = segment.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            let hex = |b: u8| (b as char).to_digit(16);
-            if let (Some(high), Some(low)) = (hex(bytes[index + 1]), hex(bytes[index + 2])) {
-                out.push((high * 16 + low) as u8);
-                index += 3;
-                continue;
-            }
-        }
-        out.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,7 +369,10 @@ mod tests {
         board_slug: Option<String>,
         identifier: Option<String>,
         session_id: Option<String>,
+        message_id: Option<String>,
         thread_id: Option<String>,
+        agent_id: Option<String>,
+        section: Option<String>,
         app_slug: Option<String>,
         screen: Option<String>,
         params: Option<std::collections::BTreeMap<String, String>>,
@@ -243,13 +386,42 @@ mod tests {
                     board_slug: self.board_slug.unwrap(),
                     identifier: self.identifier.unwrap(),
                 },
+                "issueRef" => AppLink::IssueRef {
+                    team_slug: self.team_slug.unwrap(),
+                    identifier: self.identifier.unwrap(),
+                },
+                "board" => AppLink::Board {
+                    team_slug: self.team_slug.unwrap(),
+                    board_slug: self.board_slug.unwrap(),
+                },
                 "session" => AppLink::Session {
                     team_slug: self.team_slug.unwrap(),
                     session_id: self.session_id.unwrap(),
                 },
+                "plan" => AppLink::Plan {
+                    team_slug: self.team_slug.unwrap(),
+                    session_id: self.session_id.unwrap(),
+                    message_id: self.message_id.unwrap(),
+                },
                 "thread" => AppLink::Thread {
                     team_slug: self.team_slug.unwrap(),
                     thread_id: self.thread_id.unwrap(),
+                },
+                "threads" => AppLink::Threads { team_slug: self.team_slug.unwrap() },
+                "agent" => AppLink::Agent {
+                    team_slug: self.team_slug.unwrap(),
+                    agent_id: self.agent_id.unwrap(),
+                },
+                "agentHome" => AppLink::AgentHome { team_slug: self.team_slug.unwrap() },
+                "inbox" => AppLink::Inbox { team_slug: self.team_slug.unwrap() },
+                "devices" => AppLink::Devices { team_slug: self.team_slug.unwrap() },
+                "settings" => AppLink::Settings {
+                    team_slug: self.team_slug.unwrap(),
+                    section: self.section.unwrap(),
+                },
+                "appHome" => AppLink::AppHome {
+                    team_slug: self.team_slug.unwrap(),
+                    app_slug: self.app_slug.unwrap(),
                 },
                 "appScreen" => AppLink::AppScreen {
                     team_slug: self.team_slug.unwrap(),
@@ -265,32 +437,103 @@ mod tests {
         }
     }
 
+    /// A present field, `null` included: `Some(None)` = no team, an absent
+    /// field stays `None` = the fixture's top-level team.
+    fn present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Option<String>>, D::Error> {
+        Option::<String>::deserialize(deserializer).map(Some)
+    }
+
     #[derive(Deserialize)]
     struct Case {
         name: String,
         href: String,
+        #[serde(default, deserialize_with = "present")]
+        team: Option<Option<String>>,
         link: FixtureLink,
     }
 
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct OpenInput {
+        member: bool,
+        active_team: bool,
+        found: bool,
+        web_only: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct OpenCase {
+        name: String,
+        input: OpenInput,
+        outcome: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct LinkCopy {
+        no_access: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Fixture {
         origin: String,
+        team: Option<String>,
         cases: Vec<Case>,
+        open_cases: Vec<OpenCase>,
+        copy: LinkCopy,
     }
 
     #[test]
     fn app_link_fixture_cases() {
         let fixture: Fixture = serde_json::from_str(FIXTURE).expect("app-link.json parses");
         assert!(!fixture.cases.is_empty());
+        let default_team = fixture.team.clone();
         let mut failures = Vec::new();
         for case in fixture.cases {
-            let got = classify_app_link(&case.href, &fixture.origin);
+            let team = case.team.unwrap_or_else(|| default_team.clone());
+            let got = classify_app_link_in_team(&case.href, &fixture.origin, team.as_deref());
             let want = case.link.expected();
             if got != want {
                 failures.push(format!("{}: got {got:?}, want {want:?}", case.name));
             }
         }
         assert!(failures.is_empty(), "app-link fixture failures:\n{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn app_link_fixture_open_cases() {
+        let fixture: Fixture = serde_json::from_str(FIXTURE).expect("app-link.json parses");
+        assert!(!fixture.open_cases.is_empty());
+        assert_eq!(fixture.copy.no_access, NO_ACCESS);
+        for case in fixture.open_cases {
+            let want = match case.outcome.as_str() {
+                "open" => LinkOpenOutcome::Open,
+                "switchTeam" => LinkOpenOutcome::SwitchTeam,
+                "noAccess" => LinkOpenOutcome::NoAccess,
+                "browser" => LinkOpenOutcome::Browser,
+                "notFound" => LinkOpenOutcome::NotFound,
+                other => panic!("unknown fixture outcome {other}"),
+            };
+            let input = &case.input;
+            let got = link_open_outcome(input.member, input.active_team, input.found, input.web_only);
+            assert_eq!(got, want, "{}", case.name);
+        }
+    }
+
+    #[test]
+    fn app_path_team_reads_a_team_page() {
+        assert_eq!(app_path_team("/t/my%20team/reviews?tab=mine").as_deref(), Some("my team"));
+        assert_eq!(app_path_team("/t/acme").as_deref(), Some("acme"));
+        assert_eq!(app_path_team("/settings/account"), None);
+        assert_eq!(app_path_team("/t"), None);
+        assert_eq!(app_path_team("/"), None);
+    }
+
+    #[test]
+    fn the_team_encodes_like_encode_uri_component() {
+        assert_eq!(encode_uri_component("a b/ü-_.!~*'()"), "a%20b%2F%C3%BC-_.!~*'()");
+        assert_eq!(expand_team_link("~/inbox", Some("")), None);
     }
 
     #[test]
@@ -303,7 +546,8 @@ mod tests {
             classify_app_link("https://app.exponential.at?x=1", "https://app.exponential.at"),
             AppLink::App { path: "/?x=1".into() }
         );
-        assert_eq!(percent_decode("a%2"), "a%2");
-        assert_eq!(percent_decode("a%zz"), "a%zz");
+        assert_eq!(strict_decode("a%2"), "a%2");
+        assert_eq!(strict_decode("a%zz"), "a%zz");
+        assert_eq!(strict_decode("a%2Fb%zz"), "a%2Fb%zz");
     }
 }

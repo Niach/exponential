@@ -1,5 +1,5 @@
 {
-  "description": "EXP-1188: what a tapped markdown link in agent prose (narration, Guide, thread) opens. classifyAppLink(href, origin): trim; '' → ignore. A '/'-path (not '//') resolves against the instance origin. 'mailto:' → external as given. 'http(s)://' needs a valid authority ([A-Za-z0-9-] labels joined by '.', at least two labels unless the host is 'localhost' (case-insensitive), optional ':port', no userinfo), else ignore (browsers punycode a placeholder like 'https://…' into a one-label host); scheme+authority equal to origin (case-insensitive) = in-app, else external with the href as given. Anything else (other schemes, '//', '#x', bare words) → ignore. In-app paths split on '/' (query + hash dropped, empty segments dropped, each segment percent-decoded): ['t',team,'boards',board,'issues',identifier] → issue, ['t',team,'sessions',id] → session, ['t',team,'threads',id] → thread (EXP-1284), otherwise app with the path as written (query + hash kept; an absolute URL's path = everything after the authority, '/'-prefixed when it does not start with '/'). Locked ×4: web lib/app-link.ts, desktop domain::app_link, iOS ExpCore AppLink.swift, Android domain/AppLink.kt. VAPP-218: ['t',team,'apps',app,screen] (exactly 5 segments) → appScreen {teamSlug, appSlug, screen, params}: params = the query's `k=v` pairs (split on '&' then the first '='; a key without '=' has the value ''; each side percent-decoded as a whole (a side with any bad escape or invalid UTF-8 is kept entirely as written), no '+' rewriting; empty keys dropped; a repeated key keeps the LAST), minus the editor's own keys apps.json `screens.reserved` (tab, frame); the hash dropped. It opens THE RUN VIEW showing that screen (apps.json `screens`, VAPP-242: never the editor). ['t',team,'apps',app] alone stays an app path.",
+  "description": "EXP-1188: what a tapped markdown link in agent prose (narration, Guide, thread) opens. classifyAppLink(href, origin): trim; '' → ignore. A '/'-path (not '//') resolves against the instance origin. 'mailto:' → external as given. 'http(s)://' needs a valid authority ([A-Za-z0-9-] labels joined by '.', at least two labels unless the host is 'localhost' (case-insensitive), optional ':port', no userinfo), else ignore (browsers punycode a placeholder like 'https://…' into a one-label host); scheme+authority equal to origin (case-insensitive) = in-app, else external with the href as given. Anything else (other schemes, '//', '#x', bare words) → ignore. In-app paths split on '/' (query + hash dropped, empty segments dropped, each segment percent-decoded): ['t',team,'boards',board,'issues',identifier] → issue, ['t',team,'sessions',id] → session, ['t',team,'threads',id] → thread (EXP-1284), otherwise app with the path as written (query + hash kept; an absolute URL's path = everything after the authority, '/'-prefixed when it does not start with '/'). Locked ×4: web lib/app-link.ts, desktop domain::app_link, iOS ExpCore AppLink.swift, Android domain/AppLink.kt. VAPP-218: ['t',team,'apps',app,screen] (exactly 5 segments) → appScreen {teamSlug, appSlug, screen, params}: params = the query's `k=v` pairs (split on '&' then the first '='; a key without '=' has the value ''; each side percent-decoded as a whole (a side with any bad escape or invalid UTF-8 is kept entirely as written), no '+' rewriting; empty keys dropped; a repeated key keeps the LAST), minus the editor's own keys apps.json `screens.reserved` (tab, frame); the hash dropped. It opens THE RUN VIEW showing that screen (apps.json `screens`, VAPP-242: never the editor). #EXP-1674: ONE LINK SYSTEM (L1). `classifyAppLink(href, origin, team)` takes the SURFACE'S team slug (the team of the message, issue or app holding the link; null/absent = none). THE TEAM SHORTHAND: `~/x` = `/t/<percent-encoded team>/x`, then the in-app path rule; without a team, anything starting with `~` but not `~/`, `~//…`, or a path with a `.` or `..` segment (after percent-decoding) → ignore. THE ROUTES (`routes`, in matching order; exact segment counts; anything else under `/t/` stays `app`): each row's `path` after `/t/<team>/` → its `kind`. `issueRef` = an issue by identifier alone (agents and packages rarely know the board; web redirects to the board URL). `settings` {teamSlug, section}: `section` = the segment, '' for the Settings root; `settings/devices` = `devices` (its page has its own route); a deeper settings path stays `app`. `appHome` = the app's first screen in THE RUN VIEW (apps.json). OPENING (`linkOpenOutcome`, `openCases`, the ONE rule ×4, unreadable looks exactly like missing): `noAccess` when the viewer is not a member of the link's team (home + toast `copy.noAccess`); `browser` when the target is a web-only page on this client (billing, admin, any page a client has no screen for); `notFound` when the target is missing or not readable by the viewer (a settings row whose settings-nav.json `visible` hides it from this viewer included) (the client's existing not-found state, else toast `copy.noAccess`); `switchTeam` when it is found in another team of the viewer's (switch without asking, then open); else `open`. Checked in that order. A link only navigates: it opens on a person's tap, and no route writes on open.",
   "origin": "https://app.exponential.at",
   "cases": [
     {
@@ -290,11 +290,12 @@
       }
     },
     {
-      "name": "an app's editor stays an app path",
+      "name": "an app's path opens the app; its query is dropped",
       "href": "/t/acme/apps/crm?tab=settings",
       "link": {
-        "kind": "app",
-        "path": "/t/acme/apps/crm?tab=settings"
+        "kind": "appHome",
+        "teamSlug": "acme",
+        "appSlug": "crm"
       }
     },
     {
@@ -310,6 +311,351 @@
           "q": "a%2Fb%zz"
         }
       }
+    },
+    {
+      "name": "the short issue route",
+      "href": "/t/acme/issues/EXP-12",
+      "link": {
+        "kind": "issueRef",
+        "teamSlug": "acme",
+        "identifier": "EXP-12"
+      }
+    },
+    {
+      "name": "a board",
+      "href": "/t/acme/boards/web?x=1",
+      "link": {
+        "kind": "board",
+        "teamSlug": "acme",
+        "boardSlug": "web"
+      }
+    },
+    {
+      "name": "a plan",
+      "href": "https://app.exponential.at/t/acme/sessions/abc/plan/m1",
+      "link": {
+        "kind": "plan",
+        "teamSlug": "acme",
+        "sessionId": "abc",
+        "messageId": "m1"
+      }
+    },
+    {
+      "name": "a session path with another tail stays an app path",
+      "href": "/t/acme/sessions/abc/plan",
+      "link": {
+        "kind": "app",
+        "path": "/t/acme/sessions/abc/plan"
+      }
+    },
+    {
+      "name": "the chats list",
+      "href": "/t/acme/threads",
+      "link": {
+        "kind": "threads",
+        "teamSlug": "acme"
+      }
+    },
+    {
+      "name": "an agent",
+      "href": "/t/acme/agents/a1",
+      "link": {
+        "kind": "agent",
+        "teamSlug": "acme",
+        "agentId": "a1"
+      }
+    },
+    {
+      "name": "the team's agent page",
+      "href": "/t/acme/agent",
+      "link": {
+        "kind": "agentHome",
+        "teamSlug": "acme"
+      }
+    },
+    {
+      "name": "the inbox",
+      "href": "/t/acme/inbox",
+      "link": {
+        "kind": "inbox",
+        "teamSlug": "acme"
+      }
+    },
+    {
+      "name": "the devices page",
+      "href": "/t/acme/devices",
+      "link": {
+        "kind": "devices",
+        "teamSlug": "acme"
+      }
+    },
+    {
+      "name": "the settings devices row is the devices page",
+      "href": "/t/acme/settings/devices",
+      "link": {
+        "kind": "devices",
+        "teamSlug": "acme"
+      }
+    },
+    {
+      "name": "a settings section",
+      "href": "/t/acme/settings/members",
+      "link": {
+        "kind": "settings",
+        "teamSlug": "acme",
+        "section": "members"
+      }
+    },
+    {
+      "name": "the settings root",
+      "href": "/t/acme/settings",
+      "link": {
+        "kind": "settings",
+        "teamSlug": "acme",
+        "section": ""
+      }
+    },
+    {
+      "name": "a deeper settings page stays an app path",
+      "href": "/t/acme/settings/agents/a1",
+      "link": {
+        "kind": "app",
+        "path": "/t/acme/settings/agents/a1"
+      }
+    },
+    {
+      "name": "the apps list stays an app path",
+      "href": "/t/acme/apps",
+      "link": {
+        "kind": "app",
+        "path": "/t/acme/apps"
+      }
+    },
+    {
+      "name": "the team shorthand opens an issue",
+      "href": "~/issues/EXP-12",
+      "link": {
+        "kind": "issueRef",
+        "teamSlug": "acme",
+        "identifier": "EXP-12"
+      }
+    },
+    {
+      "name": "the team shorthand opens settings",
+      "href": "  ~/settings/members ",
+      "link": {
+        "kind": "settings",
+        "teamSlug": "acme",
+        "section": "members"
+      }
+    },
+    {
+      "name": "the team shorthand keeps an app screen's params",
+      "href": "~/apps/crm/deal?id=7",
+      "link": {
+        "kind": "appScreen",
+        "teamSlug": "acme",
+        "appSlug": "crm",
+        "screen": "deal",
+        "params": {
+          "id": "7"
+        }
+      }
+    },
+    {
+      "name": "the team shorthand on an unknown page is an app path",
+      "href": "~/reviews?tab=mine",
+      "link": {
+        "kind": "app",
+        "path": "/t/acme/reviews?tab=mine"
+      }
+    },
+    {
+      "name": "the team shorthand refuses a parent segment",
+      "href": "~/../../admin",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "the team shorthand refuses an encoded parent segment",
+      "href": "~/%2e%2e/admin",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "the team shorthand refuses a double slash",
+      "href": "~//evil.example",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a tilde word is ignored",
+      "href": "~acme/issues/EXP-1",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "the team shorthand without a team is ignored",
+      "href": "~/issues/EXP-12",
+      "team": null,
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "the team slug is percent-encoded and decoded back",
+      "href": "~/inbox",
+      "team": "my team",
+      "link": {
+        "kind": "inbox",
+        "teamSlug": "my team"
+      }
+    }
+  ],
+  "copy": {
+    "noAccess": "Not found or no access"
+  },
+  "team": "acme",
+  "routes": [
+    {
+      "path": "issues/:identifier",
+      "kind": "issueRef"
+    },
+    {
+      "path": "boards/:boardSlug/issues/:identifier",
+      "kind": "issue"
+    },
+    {
+      "path": "boards/:boardSlug",
+      "kind": "board"
+    },
+    {
+      "path": "sessions/:sessionId/plan/:messageId",
+      "kind": "plan"
+    },
+    {
+      "path": "sessions/:sessionId",
+      "kind": "session"
+    },
+    {
+      "path": "threads/:threadId",
+      "kind": "thread"
+    },
+    {
+      "path": "threads",
+      "kind": "threads"
+    },
+    {
+      "path": "agents/:agentId",
+      "kind": "agent"
+    },
+    {
+      "path": "agent",
+      "kind": "agentHome"
+    },
+    {
+      "path": "inbox",
+      "kind": "inbox"
+    },
+    {
+      "path": "devices",
+      "kind": "devices"
+    },
+    {
+      "path": "settings/devices",
+      "kind": "devices"
+    },
+    {
+      "path": "settings/:section",
+      "kind": "settings"
+    },
+    {
+      "path": "settings",
+      "kind": "settings"
+    },
+    {
+      "path": "apps/:appSlug/:screen",
+      "kind": "appScreen"
+    },
+    {
+      "path": "apps/:appSlug",
+      "kind": "appHome"
+    }
+  ],
+  "openCases": [
+    {
+      "name": "found in the active team opens",
+      "input": {
+        "member": true,
+        "activeTeam": true,
+        "found": true,
+        "webOnly": false
+      },
+      "outcome": "open"
+    },
+    {
+      "name": "found in another team of the viewer switches",
+      "input": {
+        "member": true,
+        "activeTeam": false,
+        "found": true,
+        "webOnly": false
+      },
+      "outcome": "switchTeam"
+    },
+    {
+      "name": "not a member never learns more",
+      "input": {
+        "member": false,
+        "activeTeam": false,
+        "found": false,
+        "webOnly": false
+      },
+      "outcome": "noAccess"
+    },
+    {
+      "name": "not a member beats web-only",
+      "input": {
+        "member": false,
+        "activeTeam": false,
+        "found": false,
+        "webOnly": true
+      },
+      "outcome": "noAccess"
+    },
+    {
+      "name": "a web-only page opens the browser",
+      "input": {
+        "member": true,
+        "activeTeam": true,
+        "found": true,
+        "webOnly": true
+      },
+      "outcome": "browser"
+    },
+    {
+      "name": "missing or unreadable in the active team",
+      "input": {
+        "member": true,
+        "activeTeam": true,
+        "found": false,
+        "webOnly": false
+      },
+      "outcome": "notFound"
+    },
+    {
+      "name": "missing in another team does not switch",
+      "input": {
+        "member": true,
+        "activeTeam": false,
+        "found": false,
+        "webOnly": false
+      },
+      "outcome": "notFound"
     }
   ]
 }

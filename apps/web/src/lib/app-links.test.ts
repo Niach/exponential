@@ -13,7 +13,7 @@ import {
 // CDN caches the AASA, so mistakes here are slow to roll back.
 
 describe(`buildAppleAppSiteAssociation`, () => {
-  it(`claims exactly the issue-detail, thread, invite and app-screen paths for both app ids`, () => {
+  it(`claims exactly the issue-detail, session, thread, invite and app-screen paths for both app ids`, () => {
     const aasa = buildAppleAppSiteAssociation() as {
       applinks: {
         details: { appIDs: string[]; components: { "/": string }[] }[]
@@ -27,6 +27,8 @@ describe(`buildAppleAppSiteAssociation`, () => {
     ])
     expect(detail.components).toEqual([
       { "/": `/t/*/boards/*/issues/*` },
+      { "/": `/t/*/issues/*` },
+      { "/": `/t/*/sessions/*` },
       { "/": `/t/*/threads/*` },
       { "/": `/invite/*` },
       { "/": `/t/*/apps/*/*` },

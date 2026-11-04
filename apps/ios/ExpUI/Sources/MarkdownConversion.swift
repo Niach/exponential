@@ -658,7 +658,12 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
 
     case CMARK_NODE_LINK:
         let urlStr = cmark_node_get_url(node).flatMap { String(cString: $0) } ?? ""
-        let resolved = resolveURL(urlStr, baseURL: context.baseURL)
+        // #EXP-1674: only a `/`-path means something against the instance; a
+        // `~/` team link, `#x` or `//x` stays as written (`AppLink.classify`
+        // reads it on the tap).
+        let resolved = urlStr.hasPrefix("/") && !urlStr.hasPrefix("//")
+            ? resolveURL(urlStr, baseURL: context.baseURL)
+            : URL(string: urlStr)
         var linkExtra: [NSAttributedString.Key: Any] = [:]
         if let resolved { linkExtra[.link] = resolved }
         context.pushStyle(color: MarkdownStyle.linkColor, extra: linkExtra)

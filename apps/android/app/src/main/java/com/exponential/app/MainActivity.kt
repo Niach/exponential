@@ -134,56 +134,21 @@ class MainActivity : ComponentActivity() {
             handlePushExtras(intent)
             return
         }
-        // Verified App Links (EXP-92): https issue/invite URLs from the
-        // manifest's autoVerify filter. Kept dumb here — resolution (slug +
-        // identifier → local issue id) happens in AppNavHost, which already
-        // parks targets until auth/sync are ready.
+        // Verified App Links (EXP-92): https URLs from the manifest's autoVerify
+        // filter. Kept dumb here — resolution (slugs → local ids) happens in
+        // AppNavHost, which already parks targets until auth/sync are ready.
         if (data.scheme == "https" || data.scheme == "http") {
-            // VAPP-218: an app screen (`/t/{team}/apps/{app}/{screen}?<params>`)
-            // classifies through the in-app link rule (app-link.json
-            // `appScreen`), which reads the raw query as the screen's params.
-            val origin = "${data.scheme}://${data.encodedAuthority}"
-            val screenLink = classifyAppLink(data.toString(), origin)
-            if (screenLink is AppLink.AppScreen) {
-                deepLinkBus.openAppScreen(
-                    uri = data,
-                    host = data.host ?: return,
-                    teamSlug = screenLink.teamSlug,
-                    appSlug = screenLink.appSlug,
-                    screen = screenLink.screen,
-                    params = screenLink.params,
-                )
+            val invite = WebLinks.parsePath(data.path) as? WebLinks.Parsed.Invite
+            if (invite != null) {
+                deepLinkBus.openInvite(invite.token)
                 return
             }
-            when (val parsed = WebLinks.parsePath(data.path)) {
-                is WebLinks.Parsed.IssueRef -> deepLinkBus.openWebIssueRef(
-                    uri = data,
-                    host = data.host ?: return,
-                    teamSlug = parsed.teamSlug,
-                    identifier = parsed.identifier,
-                )
-                // EXP-1288: a thread, resolved like the issue link.
-                is WebLinks.Parsed.ThreadRef -> deepLinkBus.openWebThreadRef(
-                    uri = data,
-                    host = data.host ?: return,
-                    teamSlug = parsed.teamSlug,
-                    threadId = parsed.threadId,
-                )
-                // EXP-1291: the PR body footer's `/t/{team}/sessions/{id}`.
-                is WebLinks.Parsed.SessionRef -> deepLinkBus.openWebThreadRef(
-                    uri = data,
-                    host = data.host ?: return,
-                    teamSlug = parsed.teamSlug,
-                    threadId = parsed.sessionId,
-                    sessionPath = true,
-                )
-                is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)
-                // EXP-825: the Agent page, on the active account.
-                is WebLinks.Parsed.Agent -> deepLinkBus.openAgent()
-                // Claimed by the manifest's pathPattern but not renderable
-                // (a nested `/agent` path, say): the documented Custom Tab
-                // fallback rather than a silently dropped tap.
-                null -> deepLinkBus.openWebUrl(data)
+            // #EXP-1674: the in-app link rule (app-link.json) reads the raw URL,
+            // query included; AppNavHost opens it like a tapped link.
+            val origin = "${data.scheme}://${data.encodedAuthority}"
+            when (val link = classifyAppLink(data.toString(), origin)) {
+                is AppLink.External, AppLink.Ignore -> deepLinkBus.openWebUrl(data)
+                else -> deepLinkBus.openLink(link, data, data.host ?: return)
             }
             return
         }

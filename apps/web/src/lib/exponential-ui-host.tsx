@@ -25,6 +25,7 @@
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
 import { toastRecordUndo } from "@/lib/apps/record-undo"
+import { appLinkPath, classifyAppLink, isRoutedAppPath } from "@/lib/app-link"
 import { useState, useSyncExternalStore } from "react"
 import { eq } from "@tanstack/react-db"
 import { ExponentialHost, isPrivateHost, readPointer } from "@exponential_app/eui"
@@ -733,9 +734,14 @@ export function createAppHost(options: AppHostOptions): AppHost {
       onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(grantableTools(options.grantedTools?.()), call.name, call.args) ? true : options.consent.ask(call)),
       media: { baseUrl: origin, allowPrivate },
       urls: { baseUrl: origin, allowPrivate },
+      // #EXP-1674: the ONE classifier: an in-app route navigates, a same-origin
+      // resource and an external link leave the app.
       openUrl: (url) => {
-        if (url.startsWith(`${origin}/`)) options.navigate(url.slice(origin.length))
-        else window.open(url, `_blank`, `noopener,noreferrer`)
+        const link = classifyAppLink(url, origin, teamCollection.toArray.find((t) => t.id === options.teamId)?.slug)
+        if (link.kind === `ignore`) return
+        const path = appLinkPath(link)
+        if (path && (link.kind !== `app` || isRoutedAppPath(link.path))) options.navigate(path)
+        else window.open(link.kind === `external` ? link.url : url, `_blank`, `noopener,noreferrer`)
       },
     },
   }, origin, upstreamAnswers)

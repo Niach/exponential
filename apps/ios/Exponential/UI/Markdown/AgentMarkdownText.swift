@@ -309,89 +309,16 @@ struct AgentMarkdownText: View {
 
     // MARK: - Link taps (EXP-1188)
 
-    /// A tapped link classified against the account's instance
-    /// (`AppLink.classify`, fixture-locked ×4): a run or issue on this
-    /// instance opens in-app, a placeholder link does nothing, the rest keep
-    /// UIKit's own open.
+    /// A tapped link goes to THE opener (#EXP-1674), with the surface's team
+    /// for the `~/` shorthand (none here = the active team).
     private var linkHandler: MarkdownLinkHandler? {
         guard let deps else { return nil }
-        let accountId = context?.accountId.nilIfEmpty ?? deps.auth.activeAccountId ?? ""
-        let base = context?.baseURL ?? deps.auth.instanceBaseURL(forAccountId: accountId)
-        let origin = base?.absoluteString ?? ""
-        return { url in
-            Self.linkAction(url, base: base, origin: origin, accountId: accountId, deps: deps)
-        }
-    }
-
-    static func linkAction(
-        _ tapped: URL, base: URL?, origin: String, accountId: String, deps: AppDependencies
-    ) -> (() -> Void)? {
-        // F37: a RELATIVE href (`/t/acme/agent`) only means something against
-        // the account's instance; resolved there it classifies as before, and
-        // without an instance it is nothing to open (never a bare path into
-        // the Safari sheet).
-        let url: URL
-        if tapped.scheme == nil {
-            guard let base,
-                  let resolved = URL(string: tapped.absoluteString, relativeTo: base)?.absoluteURL
-            else { return {} }
-            url = resolved
-        } else {
-            url = tapped
-        }
-        switch AppLink.classify(url.absoluteString, origin: origin) {
-        case .external:
-            // EXP-1188: a web source opens in the in-app Safari sheet, like
-            // Android's Custom Tab; mailto keeps the system handler.
-            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-                return nil
-            }
-            return { deps.deepLinkBus.openExternal(url) }
-        case .ignore:
-            return {}
-        case let .session(_, sessionId):
-            // EXP-1291: a root opens its thread (S-3: on its Conversation,
-            // `?view=guide` included), a child its session.
-            guard let account = deps.auth.accounts.first(where: { $0.id == accountId }) else { return {} }
-            return {
-                deps.deepLinkBus.navigateToSessionLink(sessionId, account: account, db: deps.db)
-            }
-        case let .thread(_, threadId):
-            // EXP-1284: a thread link opens the Thread screen.
-            return { deps.deepLinkBus.navigateToThread(threadId, accountId: accountId) }
-        case let .issue(teamSlug, _, identifier):
-            return {
-                if let issueId = IssueRefLookup.resolve(
-                    identifier: identifier, teamSlug: teamSlug, db: deps.db, accountId: accountId
-                ) {
-                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
-                } else {
-                    // Not synced / not visible: the in-app Safari sheet —
-                    // never UIApplication.open, the app is entitled for the
-                    // link and would re-open itself.
-                    deps.deepLinkBus.openExternal(url)
-                }
-            }
-        case let .appScreen(teamSlug, appSlug, screen, params):
-            // VAPP-218: the app's editor on its Preview tab, that screen shown.
-            return {
-                deps.deepLinkBus.navigateToAppScreen(DeepLinkBus.AppScreenLink(
-                    teamSlug: teamSlug,
-                    appSlug: appSlug,
-                    request: Apps.ScreenRequest(screen: screen, params: params),
-                    accountId: accountId,
-                    url: url
-                ))
-            }
-        case .app:
-            // The one other page the app renders natively (EXP-825); every
-            // other instance page goes to the Safari sheet for the same
-            // entitlement reason as above.
-            if case let .agent(teamSlug) = WebLinks.parse(url) {
-                return { deps.deepLinkBus.navigateToAgent(teamSlug: teamSlug, accountId: accountId) }
-            }
-            return { deps.deepLinkBus.openExternal(url) }
-        }
+        return LinkOpener.surfaceHandler(
+            accountId: context?.accountId.nilIfEmpty,
+            baseURL: context?.baseURL,
+            teamId: context?.issueRefs?.teamId,
+            deps: deps
+        )
     }
 }
 

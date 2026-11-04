@@ -96,8 +96,9 @@
                  /.well-known/assetlinks.json with this build's signing cert (env
                  ANDROID_APP_LINK_FINGERPRINTS on the web app — Play App Signing
                  key for store installs). Only the shapes the app can render
-                 are claimed: issue detail, the Agent page, threads, app screens + invites; unresolvable links fall back
-                 to a Custom Tab in AppNavHost. -->
+                 are claimed (issue detail, sessions, the Agent page, threads, app screens +
+                 invites; never boards or settings: public board visitors and web-only
+                 pages stay on the web, #EXP-1674); AppNavHost applies the one open rule. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -108,6 +109,7 @@
                      /projects/ routes are dead on the web (no redirects), so
                      claiming them would swallow links nothing can render. -->
                 <data android:pathPattern="/t/.*/boards/.*/issues/.*" />
+                <data android:pathPattern="/t/.*/issues/.*" />
                 <data android:pathPattern="/t/.*/agent" />
                 <data android:pathPattern="/t/.*/threads/.*" />
                 <data android:pathPattern="/t/.*/sessions/.*" />

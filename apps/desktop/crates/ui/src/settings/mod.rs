@@ -314,6 +314,21 @@ fn flat_nav_items() -> impl Iterator<Item = &'static NavItem> {
         .flat_map(|item| std::iter::once(item).chain(item.children.iter()))
 }
 
+/// #EXP-1674: the section a `settings/<section>` link names: a nav page's id
+/// (`settings-nav.json`) or a web route the desktop folds into one. `None` =
+/// no such page here (Billing, Import, the Boards index): the browser's.
+pub(crate) fn section_for_link(section: &str) -> Option<SettingsSection> {
+    match section {
+        "agents" => Some(SettingsSection::Agents),
+        // The Voice section resolves to the viewer's Assistant page.
+        "assistant" | "voice" => Some(SettingsSection::Voice),
+        "mcp-servers" => Some(SettingsSection::Mcp),
+        _ => flat_nav_items()
+            .find(|item| item.id == section)
+            .map(|item| item.section.clone()),
+    }
+}
+
 struct NavGroup {
     /// The fixture's group id (`team`, `boards`, `agents`, `apps`,
     /// `device`, `personal`).

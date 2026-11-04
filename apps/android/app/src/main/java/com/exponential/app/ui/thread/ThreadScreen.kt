@@ -79,11 +79,13 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.IssueScreen
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.IssueSearchSheet
+import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.LocalMentions
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
+import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.ChangesViewModel
@@ -434,6 +436,8 @@ fun ThreadScreen(
         }
     }
 
+    // #EXP-1674: links in a thread's prose open like everywhere else.
+    val appLinkHandler = rememberAppLinkHandler(root?.teamId)
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {
@@ -444,6 +448,7 @@ fun ThreadScreen(
             LocalTitleCollapse provides titleCollapse,
             LocalIssueRefs provides issueRefHandler,
             LocalMentions provides mentionResolver,
+            LocalAppLinks provides appLinkHandler,
             com.exponential.app.ui.components.LocalAgentMarks provides agentMarks,
         ) {
             ThreadContent(

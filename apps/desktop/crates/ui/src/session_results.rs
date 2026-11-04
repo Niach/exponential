@@ -363,7 +363,7 @@ fn report_text(id: SharedString, text: &str, images: Option<&Entity<ImageCache>>
     let mut view = MarkdownView::new(id, text.to_string())
         .selectable(true)
         .autolink(true)
-        .on_open_link(crate::markdown::open_agent_link);
+        .on_open_link(crate::links::link_opener(team_id.map(str::to_string)));
     if let Some(images) = images {
         view = view.images(images.clone());
     }

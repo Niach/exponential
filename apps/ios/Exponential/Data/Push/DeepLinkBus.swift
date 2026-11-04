@@ -35,17 +35,8 @@ final class DeepLinkBus: @unchecked Sendable {
     // multi-account device opens it under the account it was delivered to.
     var pendingSessionId: String?
     var pendingSessionUserId: String?
-    // EXP-1284: a tapped thread link (EXP-1291: a root session's id), under
-    // the account it belongs to.
-    var pendingThreadId: String?
-    var pendingThreadAccountId: String?
-    // The page the thread opens on (an issue or session tab); nil = its
-    // Conversation.
-    var pendingThreadPage: ThreadPage?
-    // EXP-825: a `/t/{team}/agent` universal link — Home in that team,
-    // under the signed-in account whose host matched the URL.
-    var pendingAgentTeamSlug: String?
-    var pendingAgentAccountId: String?
+    // #EXP-1674: where a link resolved to (`LinkOpener`), under its account.
+    var pendingLinkLanding: LinkLanding?
     // #EXP-1534 (inbox-route.json): an `agent_signed_out` inbox row or push
     // tap — the devices ROW id whose settings open (the Devices page with
     // that device's settings sheet), under the account it belongs to: the
@@ -58,12 +49,8 @@ final class DeepLinkBus: @unchecked Sendable {
     // settings sheet for once its list holds it; set by the navigator as it
     // lands there, cleared by the page.
     var pendingDeviceSettingsRowId: String?
-    // VAPP-218: an app screen link (`AppLink.appScreen`, a tapped link or a
-    // universal link): the app's editor on its Preview tab showing that
-    // screen, under the account it was tapped / matched in.
-    var pendingAppScreen: AppScreenLink?
-    // A web URL the app was opened with but cannot render (unknown host, issue
-    // not synced/visible). MainNavigator presents it in an in-app Safari sheet —
+    // A web URL the app cannot render (another origin, a web-only page).
+    // MainNavigator presents it in an in-app Safari sheet —
     // NEVER hand it back to UIApplication.open: the app is entitled for the
     // link and would re-open itself in a loop.
     var pendingExternalUrl: URL?
@@ -113,62 +100,14 @@ final class DeepLinkBus: @unchecked Sendable {
         return id
     }
 
-    func navigateToThread(_ threadId: String, accountId: String, page: ThreadPage? = nil) {
-        pendingThreadAccountId = accountId
-        pendingThreadPage = page
-        pendingThreadId = threadId
+    func navigateToLink(_ landing: LinkLanding) {
+        pendingLinkLanding = landing
     }
 
-    /// EXP-1291: a `/t/{team}/sessions/{id}` link (the PR body footer, agent
-    /// prose). A ROOT opens its thread on its Conversation (S-3: a legacy
-    /// `?view=guide` too, the Guide tab is gone), and so does an id this account has not synced (the thread screen
-    /// resolves or says not found); a CHILD opens its raw session.
-    func navigateToSessionLink(
-        _ sessionId: String, account: ServerAccount, db: DatabaseManager
-    ) {
-        let row = (try? db.pool(forAccountId: account.id).read { db in
-            try SessionQueries.session(db: db, id: sessionId)
-        }) ?? nil
-        if let row, !row.isRoot {
-            navigateToSession(sessionId, userId: account.userId)
-        } else {
-            navigateToThread(sessionId, accountId: account.id)
-        }
-    }
-
-    func consumeThread() -> (threadId: String, accountId: String, page: ThreadPage?)? {
-        defer {
-            pendingThreadId = nil
-            pendingThreadAccountId = nil
-            pendingThreadPage = nil
-        }
-        guard let threadId = pendingThreadId else { return nil }
-        return (threadId, pendingThreadAccountId ?? "", pendingThreadPage)
-    }
-
-    /// VAPP-218: what an app screen link names; `url` = the Safari sheet's
-    /// fallback when the app is not synced under the account.
-    struct AppScreenLink: Equatable {
-        let teamSlug: String
-        let appSlug: String
-        let request: Apps.ScreenRequest
-        let accountId: String
-        let url: URL
-    }
-
-    func navigateToAppScreen(_ link: AppScreenLink) {
-        pendingAppScreen = link
-    }
-
-    func consumeAppScreen() -> AppScreenLink? {
-        let link = pendingAppScreen
-        pendingAppScreen = nil
-        return link
-    }
-
-    func navigateToAgent(teamSlug: String, accountId: String) {
-        pendingAgentAccountId = accountId
-        pendingAgentTeamSlug = teamSlug
+    func consumeLinkLanding() -> LinkLanding? {
+        let landing = pendingLinkLanding
+        pendingLinkLanding = nil
+        return landing
     }
 
     func openExternal(_ url: URL) {
@@ -202,15 +141,6 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingSessionId = nil
         pendingSessionUserId = nil
         return id
-    }
-
-    func consumeAgent() -> (teamSlug: String, accountId: String)? {
-        defer {
-            pendingAgentTeamSlug = nil
-            pendingAgentAccountId = nil
-        }
-        guard let slug = pendingAgentTeamSlug, let accountId = pendingAgentAccountId else { return nil }
-        return (slug, accountId)
     }
 
     /// Returns the recipient's user id (nil when none) when an inbox tap is

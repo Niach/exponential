@@ -89,13 +89,13 @@ import com.exponential.app.domain.AppSources
 import com.exponential.app.domain.AppUpstream
 import com.exponential.app.domain.Apps
 import com.exponential.app.ui.components.failedAction
-import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.CodeBlock
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
+import com.exponential.app.ui.markdown.openHref
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -537,7 +537,10 @@ fun rememberAppHost(
     // The markdown links' rule for an allowed href (web + iOS alike): an
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
-    val links = rememberAppLinkHandler()
+    val links = rememberAppLinkHandler(teamId)
+    // #EXP-1674: the team's slug lands after the first frame; read late so it
+    // never rebuilds the host (the host is keyed on the origin alone).
+    val latestLinks by rememberUpdatedState(links)
     // VAPP-221: a FileUpload's pick = the system document picker (several
     // when the FileUpload is `multiple`).
     val picks = remember { AppFilePicks() }
@@ -549,7 +552,7 @@ fun rememberAppHost(
             if (request.multiple) pickMany.launch(types) else pickOne.launch(types)
         }
     }
-    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly, upstreams, migrateFrom, navigate) {
+    val host = remember(packages, consent, themeId, links?.origin, appId, teamId, me, grants, readOnly, upstreams, migrateFrom, navigate) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
@@ -916,7 +919,7 @@ fun rememberAppHost(
                     // app's OWN instance is (the localhost dev setup), nothing
                     // else. A public origin listed here changes nothing.
                     urls = UrlPolicy(baseUrl = origin, allowPrivate = ownHost),
-                    openUrl = links?.let { handler -> { url: String -> handler.onOpen(classifyAppLink(url, handler.origin), url) } },
+                    openUrl = links?.let { handler -> { url: String -> (latestLinks ?: handler).openHref(url) } },
                     media = MediaOptions(
                         baseUrl = origin,
                         allowPrivate = ownHost,

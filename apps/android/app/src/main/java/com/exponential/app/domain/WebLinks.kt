@@ -61,8 +61,9 @@ object WebLinks {
     }
 
     /**
-     * Inverse of [issueUrl] and [agentUrl] plus the invite and thread routes —
-     * the only five shapes the manifest's autoVerify filter claims. Takes the already-decoded path
+     * Inverse of [issueUrl] and [agentUrl] plus the invite and thread routes.
+     * Only the invite is read off an App Link today: every in-app route opens
+     * through [classifyAppLink] (#EXP-1674). Takes the already-decoded path
      * (Uri.getPath) rather than a Uri so it stays JVM-unit-testable; empty
      * segments are dropped (trailing slash tolerated) and deeper paths fail
      * the exact-length match — the app only claims what it can render.
