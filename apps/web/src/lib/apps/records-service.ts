@@ -890,7 +890,7 @@ export function serverRecordsValue(
   const notRefs = query.expand.flatMap((field, i) => (ctx.refs && Object.prototype.hasOwnProperty.call(ctx.refs, field) ? [] : [{ path: `/expand/${i}`, message: `${field} is not a ref of ${kind}` }]))
   const all = [...fixed.map((key) => ({ path: `/${key}`, message: key === `app` ? `a tool reads only its own app's records` : `the kind is the tool's (${kind})` })), ...problems, ...notRefs]
   if (all.length > 0) return { value: null, issues: all }
-  const value = recordsValue(ctx.targets?.length ? [...rows, ...ctx.targets] : rows, query, { me: ctx.me, names: ctx.names, now: ctx.now, today: ctx.today, refs: ctx.refs, issues: ctx.issues })!
+  const value = recordsValue(ctx.targets?.length ? [...rows, ...ctx.targets] : rows, query, { me: ctx.me, names: ctx.names, now: ctx.now, today: ctx.today, refs: ctx.refs, issues: ctx.issues, transitions: ctx.transitions, role: ctx.role })!
   return { value, issues: [] }
 }
 
@@ -900,6 +900,9 @@ export interface RefLookups {
   refs: Record<string, RecordRefTarget> | undefined
   targets: RecordRow[]
   issues: Record<string, Record<string, unknown>>
+  /** eApps R6: the kind's machine and the reader's role (each row's `transitions`). */
+  transitions?: ReturnType<typeof kindTransitions>
+  role?: string
 }
 
 /** eApps R5 (#VAPP-219): the lookups of a JSON query's `expand` over `rows`
@@ -910,7 +913,8 @@ export async function readRefLookups(app: { id: string; teamId: string }, kind: 
   const refs = kindRefs(effectiveRecords(full), kind)
   const expand = Array.isArray(json.expand) ? json.expand.filter((f): f is string => typeof f === `string`).map((f) => f.trim()) : []
   const followed = expand.flatMap((f) => (refs && Object.prototype.hasOwnProperty.call(refs, f) ? [{ field: f, target: refs[f]! }] : []))
-  const out: RefLookups = { refs, targets: [], issues: {} }
+  const transitions = kindTransitions(effectiveRecords(full)[kind])
+  const out: RefLookups = { refs, targets: [], issues: {}, ...(transitions ? { transitions, role: (await viewerOf(executor, full, userId)).role } : {}) }
   if (!followed.length) return out
   const ids = (field: string) => [...new Set(rows.map((r) => r.data[field]).filter((v): v is string => typeof v === `string` && v !== ``))]
   const identifiers = [...new Set(followed.flatMap((f) => (f.target === `issue` ? ids(f.field) : [])))].slice(0, RECORDS_SERVER_READ_MAX)
