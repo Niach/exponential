@@ -58,6 +58,8 @@ pub type SourceResolver = Box<dyn Fn(ParsedSource, Emit) -> Cancel>;
 pub type ConsentHook = Rc<dyn Fn(&FunctionCallInfo, &mut App) -> Task<bool>>;
 /// Opens an allowed (absolute) url.
 pub type OpenUrlHandler = Rc<dyn Fn(&str, &mut App)>;
+/// #EXP-1674: [`HostPlugin::text_links`] of a policy-built host.
+pub type TextLinksHandler = Rc<dyn Fn(&str, &App) -> Option<Vec<eui_core::host::TextLink>>>;
 /// VAPP-194: the team zone, minutes east of UTC at an instant (epoch ms).
 pub type ZoneFn = Arc<dyn Fn(f64) -> i32 + Send + Sync>;
 /// VAPP-194: a package action that landed nothing (the host's toast).
@@ -152,6 +154,8 @@ pub struct HostPolicy {
     pub urls: Option<UrlPolicy>,
     /// Opens an allowed url (default: `cx.open_url`).
     pub open_url: Option<OpenUrlHandler>,
+    /// A `hostLinks` Text's segments (default: none).
+    pub text_links: Option<TextLinksHandler>,
     pub media: Option<MediaOptions>,
 }
 
@@ -1165,6 +1169,14 @@ impl HostPlugin for HostAdapter {
             host.update(cx, |h, cx| {
                 h.open_url(url, cx);
             });
+        }
+    }
+
+    fn text_links(&self, text: &str, cx: &App) -> Option<Vec<eui_core::host::TextLink>> {
+        let own = self.host.upgrade().and_then(|host| host.read(cx).policy.text_links.clone());
+        match own {
+            Some(links) => links(text, cx),
+            None => self.base.text_links(text, cx),
         }
     }
 

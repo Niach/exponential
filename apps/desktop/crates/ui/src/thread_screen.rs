@@ -992,6 +992,9 @@ pub(crate) fn message_markdown(
         .autolink(true)
         .images(images.clone())
         .on_open_link(crate::links::link_opener(text.team_id.clone()));
+    if let Some(team) = text.team_id.clone() {
+        view = view.chip_app_links(team);
+    }
     if let (Some(team), Some(resolver)) = (text.team_id.clone(), text.resolver.clone()) {
         // EXP-1347: a pill opens thread-aware (its thread tab, an open
         // tab, else a new one).

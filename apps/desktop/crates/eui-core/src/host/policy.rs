@@ -358,6 +358,31 @@ pub fn media_request(url: &str, options: &MediaOptions) -> Option<MediaRequest> 
     Some(MediaRequest { url: href, headers })
 }
 
+/// #EXP-1674 (`catalog/host.json` urls): one piece of a host's `text_links`
+/// answer for a `hostLinks` Text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextLink {
+    pub text: String,
+    pub href: Option<String>,
+}
+
+/// A host's `text_links` answer ready to paint, or `None` for the plain text:
+/// the segments must concatenate back to `text`; an href the policy denies
+/// stays text; no allowed link = plain.
+pub fn police_text_links(policy: Option<&UrlPolicy>, text: &str, segments: Vec<TextLink>) -> Option<Vec<TextLink>> {
+    if segments.iter().map(|segment| segment.text.as_str()).collect::<String>() != text {
+        return None;
+    }
+    let policed: Vec<TextLink> = segments
+        .into_iter()
+        .map(|segment| TextLink {
+            href: segment.href.and_then(|href| safe_href(policy, &href)),
+            text: segment.text,
+        })
+        .collect();
+    policed.iter().any(|segment| segment.href.is_some()).then_some(policed)
+}
+
 /// The href a renderer may navigate to (Link, markdown links, FileUpload
 /// file urls), or `None` when the URL policy denies it.
 pub fn safe_href(policy: Option<&UrlPolicy>, url: &str) -> Option<String> {

@@ -163,14 +163,54 @@ struct TextLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        // EXP-1324: `shimmer` = the glyphs filled with the moving gradient.
-        let shimmer = cx.props.flag("shimmer") ? TextShimmer.resolve(color: cx.ink.hexRGBA(), dark: cx.dark) : nil
-        ShimmerMask(shimmer: shimmer, size: cx.inner.size, rtl: cx.rtl) {
-            lines(shimmer == nil ? cx.ink : .black)
+        // #EXP-1674: a `hostLinks` Text (the Row subtitle) the host links part of.
+        if cx.props.flag("hostLinks"), let segments = cx.model.textLinkSegments(cx.props.text("text")) {
+            linked(segments)
+                .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+                .clipped()
+                .offset(x: cx.inner.minX, y: cx.inner.minY)
+        } else {
+            // EXP-1324: `shimmer` = the glyphs filled with the moving gradient.
+            let shimmer = cx.props.flag("shimmer") ? TextShimmer.resolve(color: cx.ink.hexRGBA(), dark: cx.dark) : nil
+            ShimmerMask(shimmer: shimmer, size: cx.inner.size, rtl: cx.rtl) {
+                lines(shimmer == nil ? cx.ink : .black)
+            }
+            .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+            .clipped()
+            .offset(x: cx.inner.minX, y: cx.inner.minY)
         }
-        .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
-        .clipped()
-        .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+
+    /// One ellipsized line, the links in the text's own colour, underlined. A
+    /// tap on a link opens it through the URL policy and never presses the Row
+    /// behind it; a tap on the rest presses the nearest pressable ancestor (the
+    /// tap gesture shadows the Row's button under the whole text).
+    private func linked(_ segments: [TextLinkSegment]) -> some View {
+        let ts = cx.textStyle
+        let ink = PlatformColor(cx.ink)
+        let runs = TextShaper.runs(
+            segments.map { MarkdownInline(text: ts.shown($0.text), link: $0.href) },
+            MarkdownTextSpec(size: ts.fontSize, lineHeight: ts.lineHeight, weight: ts.fontWeight, family: ts.fontFamily),
+            mono: nil, ink: ink, link: ink, codeBackground: nil
+        )
+        return TextLabel(attributed: runs, lineHeight: ts.lineHeight, lines: 1)
+            .frame(width: cx.inner.width, height: ts.lineHeight)
+            .contentShape(Rectangle())
+            .onTapGesture(coordinateSpace: .local) { point in
+                if let href = TextShaper.link(in: runs, lineHeight: ts.lineHeight, wrap: 1_000_000, at: point) {
+                    cx.model.openLink(href)
+                } else {
+                    var ancestor = cx.node.parent
+                    while let index = ancestor {
+                        let node = cx.model.nodes[index]
+                        if node.pressable {
+                            cx.model.press(index)
+                            return
+                        }
+                        ancestor = node.parent
+                    }
+                }
+            }
     }
 
     private func lines(_ ink: Color) -> some View {

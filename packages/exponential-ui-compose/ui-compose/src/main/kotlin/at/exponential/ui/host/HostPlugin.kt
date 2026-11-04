@@ -144,6 +144,13 @@ interface HostPlugin {
     }
 
     /**
+     * #EXP-1674: the text of a `hostLinks` Text (the `Row` subtitle) as segments
+     * that concatenate back to it; null = no links. eUI knows nothing of what
+     * they mean.
+     */
+    fun textLinks(text: String): List<TextLinkSegment>? = null
+
+    /**
      * Rewrites a media src BEFORE the media policy (relative attachment
      * paths, signed URLs); its result still passes [mediaOptions], never
      * around it.
@@ -179,6 +186,9 @@ interface HostPlugin {
      */
     fun pickFiles(request: FilePickRequest) {}
 }
+
+/** One piece of a host's [HostPlugin.textLinks] answer (`catalog/host.json` urls). */
+data class TextLinkSegment(val text: String, val href: String? = null)
 
 /** The host that does nothing (previews, tests). */
 object NoHost : HostPlugin

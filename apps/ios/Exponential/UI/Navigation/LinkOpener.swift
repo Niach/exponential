@@ -1,5 +1,8 @@
 import ExpCore
 import ExpUI
+#if canImport(ExponentialUI)
+import ExponentialUI
+#endif
 import Foundation
 import GRDB
 
@@ -96,6 +99,41 @@ enum LinkOpener {
             open(link, url: url, accountIds: accountIds, waitsForSync: true, deps: deps)
         }
     }
+
+    /// #EXP-1674 (plan-card.json): a chat card's link, in-app and https only,
+    /// with the card's team for `~/` (nil = the active team).
+    static func openCardLink(_ url: String, origin: String, accountId: String, teamId: String?, deps: AppDependencies) {
+        let written = shorthand(url, origin: origin)
+        let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps)
+        guard AppLink.cardLinkOpens(written, origin: origin, team: team), let tapped = URL(string: url) else { return }
+        tapAction(tapped, origin: origin, accountId: accountId, teamId: teamId, deps: deps)?()
+    }
+
+    #if canImport(ExponentialUI)
+    /// #EXP-1674: a host's `textLinks` for a `hostLinks` Text (the Row subtitle):
+    /// the `#IDENT` refs that resolve in the team, on its short issue route; an
+    /// unresolved ref stays text. nil = no link.
+    static func issueTextLinks(_ text: String, accountId: String, teamId: String?, deps: AppDependencies) -> [TextLinkSegment]? {
+        let matches = IssueRefs.matches(in: text)
+        guard !matches.isEmpty, let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps) else { return nil }
+        let ns = text as NSString
+        var segments: [TextLinkSegment] = []
+        var at = 0
+        for match in matches {
+            guard IssueRefLookup.resolve(identifier: match.identifier, teamSlug: team, db: deps.db, accountId: accountId) != nil,
+                  let href = AppLink.expandTeamLink("~/issues/\(match.identifier)", team: team)
+            else { continue }
+            if match.range.location > at {
+                segments.append(TextLinkSegment(text: ns.substring(with: NSRange(location: at, length: match.range.location - at))))
+            }
+            segments.append(TextLinkSegment(text: ns.substring(with: match.range), href: href))
+            at = match.range.location + match.range.length
+        }
+        if segments.isEmpty { return nil }
+        if at < ns.length { segments.append(TextLinkSegment(text: ns.substring(from: at))) }
+        return segments
+    }
+    #endif
 
     /// The slug of `teamId`, else of the account's active team.
     static func teamSlug(teamId: String?, accountId: String, deps: AppDependencies) -> String? {

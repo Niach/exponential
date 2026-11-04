@@ -2588,6 +2588,8 @@ pub struct MarkdownView {
     on_source_edit: Option<SourceEditCallback>,
     /// EXP-1188: link bare `http(s)://` URLs at render time (steer feed).
     autolink: bool,
+    /// #EXP-1674: see [`MarkdownView::chip_app_links`].
+    chip_team: Option<String>,
     /// EXP-521: join the window-level TextSelection layer (gpui-base #2730).
     /// Opt-in: the blurred editor preview keeps click-to-edit un-selectable.
     selectable: bool,
@@ -2613,9 +2615,18 @@ impl MarkdownView {
             on_open_image: None,
             on_source_edit: None,
             autolink: false,
+            chip_team: None,
             selectable: false,
             chat: false,
         }
+    }
+
+    /// #EXP-1674 (prose-links.json): agent prose reads its bare in-app URLs as
+    /// chips: the source is rewritten for display at render, in `team_id`'s
+    /// scope. This view never serializes.
+    pub fn chip_app_links(mut self, team_id: impl Into<String>) -> Self {
+        self.chip_team = Some(team_id.into());
+        self
     }
 
     /// Resolve `@email`/`#IDENT` into pills against the synced collections.
@@ -2832,7 +2843,10 @@ fn parsed_blocks(
 }
 
 impl gpui::RenderOnce for MarkdownView {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if let Some(team_id) = self.chip_team.take() {
+            self.source = crate::links::chip_prose_links(&self.source, Some(&team_id), cx);
+        }
         // EXP-233: the width this view painted at on the previous frame (see
         // the long comment below). EXP-726 hoists it above the block loop —
         // a table needs it to decide grow-vs-scroll.
@@ -4049,6 +4063,24 @@ enum DecorationStyle {
         /// the chip's leading gutter.
         icon: (SharedString, gpui::Hsla),
     },
+    /// #EXP-1674 (prose-links.json): a rewritten bare in-app URL as THE entity
+    /// chip: the glyph in the gutter, the link's text as the name; a click is
+    /// the link's.
+    EntityPill {
+        href: String,
+        icon: (SharedString, gpui::Hsla),
+    },
+}
+
+/// entity-chip.json `entityRefIcon` of a prose chip's kind.
+fn prose_chip_concept(kind: domain::prose_links::ProseChipKind) -> &'static str {
+    use domain::prose_links::ProseChipKind;
+    match kind {
+        ProseChipKind::Issue => "ui-issue",
+        ProseChipKind::Board => "nav-boards",
+        ProseChipKind::Session => "coding-running",
+        ProseChipKind::Agent => "settings-agents",
+    }
 }
 
 /// EXP-423: the icon gutter prepended to a resolved `#IDENT`'s display text —
@@ -4105,7 +4137,9 @@ fn build_display_line(
         .iter()
         .filter(|m| {
             m.kind == InlineKind::Link
-                && m.href.as_deref().is_some_and(|href| line.get(m.start..m.end) == Some(href))
+                && m.href.as_deref().is_some_and(|href| {
+                    line.get(m.start..m.end) == Some(href) || domain::prose_links::prose_chip_kind(href).is_some()
+                })
         })
         .map(|m| m.start..m.end)
         .collect();
@@ -4115,6 +4149,20 @@ fn build_display_line(
     };
 
     let mut decorations: Vec<Decoration> = Vec::new();
+    for mark in marks.iter().filter(|m| m.kind == InlineKind::Link) {
+        let Some(href) = mark.href.as_deref() else { continue };
+        let Some(kind) = domain::prose_links::prose_chip_kind(href) else { continue };
+        let Some(label) = line.get(mark.start..mark.end) else { continue };
+        let Some(icon) = crate::icons::concept_svg_path(prose_chip_concept(kind)) else { continue };
+        decorations.push(Decoration {
+            range: mark.start..mark.end,
+            display_text: format!("{CHIP_MARGIN}{CHIP_GUTTER}{label}{CHIP_MARGIN}"),
+            style: DecorationStyle::EntityPill {
+                href: href.to_string(),
+                icon: (icon, cx.theme().muted_foreground),
+            },
+        });
+    }
     if let Some(resolver) = resolver {
         for token in scan_mentions(line) {
             if in_code(token.start) {
@@ -4221,9 +4269,14 @@ fn build_display_line(
         issue_token: bool,
     }
     let mut ranges: Vec<(Range<usize>, Bits)> = Vec::new();
+    // A chip's link run has no link look; its pill draws it.
+    let is_chip_mark = |mark: &InlineMark| {
+        mark.kind == InlineKind::Link
+            && mark.href.as_deref().is_some_and(|href| domain::prose_links::prose_chip_kind(href).is_some())
+    };
     for mark in marks {
         let range = map_offset(mark.start)..map_offset(mark.end);
-        if range.is_empty() {
+        if range.is_empty() || is_chip_mark(mark) {
             continue;
         }
         let mut bits = Bits::default();
@@ -4238,7 +4291,7 @@ fn build_display_line(
     }
     let mut targets: Vec<(Range<usize>, ClickTarget)> = Vec::new();
     for mark in marks {
-        if mark.kind == InlineKind::Link {
+        if mark.kind == InlineKind::Link && !is_chip_mark(mark) {
             if let Some(href) = &mark.href {
                 let range = map_offset(mark.start)..map_offset(mark.end);
                 if !range.is_empty() {
@@ -4289,6 +4342,14 @@ fn build_display_line(
                 // loads — `on_hover` reports a character index, so the pill
                 // is found by containment (`issue_preview::pill_at_index`).
                 issue_preview_pills.push((chip_start..chip_end, issue_id.clone()));
+            }
+            DecorationStyle::EntityPill { href, icon } => {
+                bits.issue = true;
+                let chip_start = replacement.display.start + CHIP_MARGIN.len();
+                let chip_end = replacement.display.end - CHIP_MARGIN.len();
+                targets.push((chip_start..chip_end, ClickTarget::Url(href.clone())));
+                icon_ranges.push((chip_start..chip_start + CHIP_GUTTER.len(), icon.0.clone(), icon.1));
+                issue_pill_ranges.push(chip_start..chip_end);
             }
         }
         if bits != Bits::default() {
@@ -4756,6 +4817,33 @@ mod tests {
         // The hash alternative keeps its own, looser prefix rule.
         assert_eq!(bare("#exp-12"), vec![0..7]);
         assert_eq!(bare("exp-12"), Vec::<Range<usize>>::new());
+    }
+
+    /// #EXP-1674: THE scan, replayed ×4 (`fixtures/issue-refs.json`; web
+    /// `issue-refs.test.ts`, iOS `IssueRefsTests`, Android `IssueRefsTest`).
+    #[test]
+    fn the_issue_ref_scan_replays_its_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/issue-refs.json"
+        ))
+        .expect("issue-refs.json parses");
+        let strings = |value: &serde_json::Value| -> Vec<String> {
+            value
+                .as_array()
+                .expect("a token list")
+                .iter()
+                .map(|token| token.as_str().expect("a token").to_string())
+                .collect()
+        };
+        for case in fixture["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().expect("name");
+            let text = case["text"].as_str().expect("text");
+            let tokens = |bare: bool| -> Vec<String> {
+                scan_issue_refs_with(text, bare).into_iter().map(|range| text[range].to_string()).collect()
+            };
+            assert_eq!(tokens(false), strings(&case["hash"]), "{name} (hash)");
+            assert_eq!(tokens(true), strings(&case["bare"]), "{name} (bare)");
+        }
     }
 
     /// EXP-760: only the STEERING resolver chips bare tokens; prose keeps the

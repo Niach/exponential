@@ -487,3 +487,35 @@ fn an_a2ui_function_call_on_a_two_way_macro_is_reported_not_silently_dropped() {
     assert_eq!(outcome.issues.len(), 1, "{:?}", outcome.issues);
     assert!(outcome.issues[0].message.starts_with("on.change: a function action replaces the two-way set of props.open"));
 }
+
+// ---------------------------------------------------------------------------
+// #EXP-1674: `Row.href`, `Button.href`, `police_text_links`
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_row_or_button_href_opens_on_press() {
+    let mut s = surface(json!({"id": "root", "component": "Box", "children": [
+        {"id": "r", "component": "Row", "props": {"title": "Docs", "href": "https://exponential.at/r"}},
+        {"id": "b", "component": "Button", "props": {"label": "Go", "href": "https://exponential.at/b"}},
+        {"id": "plain", "component": "Button", "props": {"label": "Go"}, "on": {"press": {"event": {"name": "go"}}}}
+    ]}));
+    s.set_viewport(400.0, 600.0, None);
+    let mut m = fixed();
+    s.layout(&mut m);
+    let opened = |events: Vec<OutEvent>| events.into_iter().find_map(|e| if let OutEvent::OpenUrl { url } = e { Some(url) } else { None });
+    assert_eq!(opened(press(&mut s, "r")).as_deref(), Some("https://exponential.at/r"));
+    assert_eq!(opened(press(&mut s, "b")).as_deref(), Some("https://exponential.at/b"));
+    assert_eq!(opened(press(&mut s, "plain")), None);
+}
+
+#[test]
+fn text_links_are_policed() {
+    use eui_core::host::{police_text_links, TextLink};
+    let segment = |text: &str, href: Option<&str>| TextLink { text: text.into(), href: href.map(str::to_string) };
+    let text = "#A-1 merged";
+    let linked = police_text_links(None, text, vec![segment("#A-1", Some("https://exponential.at/i")), segment(" merged", None)]).unwrap();
+    assert_eq!(linked[0].href.as_deref(), Some("https://exponential.at/i"));
+    // Not the text back, or nothing allowed: the plain text.
+    assert!(police_text_links(None, text, vec![segment("other", Some("https://exponential.at/i"))]).is_none());
+    assert!(police_text_links(None, text, vec![segment(text, Some("javascript:alert(1)"))]).is_none());
+}

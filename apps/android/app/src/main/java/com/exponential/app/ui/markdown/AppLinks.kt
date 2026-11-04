@@ -11,18 +11,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import at.exponential.ui.host.TextLinkSegment
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.domain.AppLink
+import com.exponential.app.domain.ProseLinks
+import com.exponential.app.domain.cardLinkOpens
 import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.domain.expandTeamLink
+import com.exponential.app.domain.teamShorthandOf
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import java.net.URI
+import kotlinx.coroutines.flow.first
 
 /**
  * EXP-1188: links in agent prose (narration, Guide, thread) that point at THIS
@@ -34,6 +39,8 @@ import java.net.URI
 class AppLinkHandler(
     val origin: String,
     val team: String? = null,
+    /** The id of the team [team] names, null while unknown. */
+    val teamId: String? = null,
     val onOpen: (link: AppLink, url: String) -> Unit,
 )
 
@@ -55,7 +62,11 @@ internal fun appLinkAnnotation(
     handler: AppLinkHandler?,
     styles: TextLinkStyles,
 ): LinkAnnotation? {
-    if (handler == null) return LinkAnnotation.Url(url = href, styles = styles)
+    if (handler == null) {
+        // #EXP-1674: `~/x` means nothing to a browser (and no app can open it).
+        if (href.trim().startsWith("~")) return null
+        return LinkAnnotation.Url(url = href, styles = styles)
+    }
     return when (val link = classifyAppLink(href, handler.origin, handler.team)) {
         is AppLink.Issue, is AppLink.IssueRef, is AppLink.Board, is AppLink.Session, is AppLink.Plan,
         is AppLink.Thread, is AppLink.Threads, is AppLink.Agent, is AppLink.AgentHome, is AppLink.Inbox,
@@ -87,8 +98,14 @@ internal fun appLinkAnnotation(
 
 /** Opens [href] as a tapped link would (an app's `openUrl`, say). */
 fun AppLinkHandler.openHref(href: String) {
-    val link = classifyAppLink(href, origin, team)
-    if (link != AppLink.Ignore) onOpen(link, linkUrl(href, link, this))
+    val written = teamShorthandOf(href, origin)
+    val link = classifyAppLink(written, origin, team)
+    if (link != AppLink.Ignore) onOpen(link, linkUrl(written, link, this))
+}
+
+/** #EXP-1674 (plan-card.json): a chat card's link: in-app and https only. */
+fun AppLinkHandler.openCardHref(href: String) {
+    if (cardLinkOpens(teamShorthandOf(href, origin), origin, team)) openHref(href)
 }
 
 /** The absolute URL of a classified [href]. */
@@ -147,12 +164,12 @@ fun rememberAppLinkHandler(teamId: String? = null): AppLinkHandler? {
         }
     }
     val origin = remember(instanceUrl) { instanceOrigin(instanceUrl) } ?: return null
-    return remember(origin, entryPoint, team) {
+    return remember(origin, entryPoint, team, slugTeamId) {
         val bus = entryPoint.deepLinkBus()
         // The resolver matches accounts by `URI(instanceUrl).host`, so hand it
         // that exact host rather than the link's (which may differ in case).
         val host = runCatching { URI(origin).host }.getOrNull().orEmpty()
-        AppLinkHandler(origin, team) { link, url ->
+        AppLinkHandler(origin, team, slugTeamId) { link, url ->
             when (link) {
                 is AppLink.External -> bus.openWebUrl(Uri.parse(url))
                 AppLink.Ignore -> Unit
@@ -160,4 +177,90 @@ fun rememberAppLinkHandler(teamId: String? = null): AppLinkHandler? {
             }
         }
     }
+}
+
+/**
+ * #EXP-1674 (prose-links.json): agent prose with its bare in-app URLs rewritten
+ * to their chips, under the transcript's [LocalIssueRefBare] (display-only, like
+ * the bare identifiers: descriptions, comments and every stored-text path keep
+ * their bytes). The raw text until the synced rows have been read.
+ */
+@Composable
+internal fun rememberChippedProse(text: String): String {
+    val handler = LocalAppLinks.current
+    val issueRefs = LocalIssueRefs.current
+    val enabled = LocalIssueRefBare.current && handler != null && text.contains("://")
+    val context = LocalContext.current
+    val chipped by produceState(text, text, enabled, handler, issueRefs) {
+        value = text
+        val links = handler
+        val teamId = links?.teamId
+        if (!enabled || links == null || teamId == null) return@produceState
+        // Here, not on composition: a render outside the app has no entry point.
+        val entryPoint = appLinksEntryPoint(context)
+        val account = entryPoint.authRepository().activeAccountId.value ?: return@produceState
+        val asked = LinkedHashSet<Pair<ProseLinks.ChipKind, String>>()
+        ProseLinks.chipBareAppLinks(text, links.origin, links.team) { kind, id ->
+            asked.add(kind to id)
+            null
+        }
+        if (asked.isEmpty()) return@produceState
+        val db = runCatching { entryPoint.databaseHolder().database(account) }.getOrNull() ?: return@produceState
+        val titles = asked.associateWith { (kind, id) ->
+            runCatching {
+                when (kind) {
+                    ProseLinks.ChipKind.Issue -> issueRefs?.resolve(id)?.title
+                    ProseLinks.ChipKind.Board -> db.boardDao().observeBySlug(teamId, id).first()?.name
+                    ProseLinks.ChipKind.Session -> db.sessionDao().observeById(id).first()
+                        ?.takeIf { it.teamId == teamId }
+                        ?.let { row -> row.title?.takeIf { it.isNotBlank() } ?: "Session" }
+                    ProseLinks.ChipKind.Agent -> db.agentDefinitionDao().observeById(id).first()
+                        ?.takeIf { it.teamId == teamId }?.name
+                }
+            }.getOrNull()
+        }
+        value = ProseLinks.chipBareAppLinks(text, links.origin, links.team) { kind, id -> titles[kind to id] }
+    }
+    return if (enabled) chipped else text
+}
+
+/**
+ * #EXP-1674: a host's `textLinks` for a `hostLinks` Text (the Row subtitle): the
+ * `#IDENT` refs that resolve in [teamId], on the team's short issue route; an
+ * unresolved ref stays text. Collected: issues sync in behind the surface.
+ */
+@Composable
+fun rememberIssueTextLinks(teamId: String?, teamSlug: String?): (String) -> List<TextLinkSegment>? {
+    val context = LocalContext.current
+    val entryPoint = remember(context) { appLinksEntryPoint(context) }
+    val accountId by entryPoint.authRepository().activeAccountId.collectAsStateWithLifecycle()
+    val known by produceState(emptySet<String>(), accountId, teamId) {
+        val account = accountId
+        value = emptySet()
+        if (account != null && teamId != null) {
+            runCatching {
+                entryPoint.databaseHolder().database(account).issueDao().observeByTeam(teamId).collect { issues ->
+                    value = issues.mapTo(HashSet()) { it.identifier.uppercase() }
+                }
+            }
+        }
+    }
+    return remember(known, teamSlug) { { text -> issueTextLinks(text, teamSlug, known) } }
+}
+
+/** The pure half of [rememberIssueTextLinks]: null = no link. */
+internal fun issueTextLinks(text: String, team: String?, known: Set<String>): List<TextLinkSegment>? {
+    if (team == null) return null
+    val segments = mutableListOf<TextLinkSegment>()
+    var at = 0
+    for (match in IssueRefs.findAll(text)) {
+        if (match.identifier.uppercase() !in known) continue
+        val href = expandTeamLink("~/issues/${match.identifier}", team) ?: continue
+        if (match.start > at) segments += TextLinkSegment(text.substring(at, match.start))
+        segments += TextLinkSegment(text.substring(match.start, match.end), href)
+        at = match.end
+    }
+    if (segments.isEmpty()) return null
+    if (at < text.length) segments += TextLinkSegment(text.substring(at))
+    return segments
 }

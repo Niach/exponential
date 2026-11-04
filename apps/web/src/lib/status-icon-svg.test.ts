@@ -15,8 +15,11 @@ import {
   STATUS_ICON_BODIES,
   STATUS_ICON_NAME_LIST,
   STATUS_ICON_SVG_ATTRS,
+  PROSE_CHIP_ICON_BODIES,
+  proseChipIconSvg,
   statusIconDataUri,
   statusIconSvg,
+  type ProseChipIconKind,
   type StatusIconName,
 } from "./status-icon-svg"
 
@@ -100,5 +103,15 @@ describe(`status icon masks`, () => {
     expect(Object.keys(STATUS_ICON_BODIES).sort()).toEqual(
       [...STATUS_ICON_NAME_LIST].sort()
     )
+  })
+
+  it.each([
+    [`board`, `folder-kanban`],
+    [`session`, `play`],
+    [`agent`, `bot`],
+  ] as const)(`the prose %s chip wears %s`, (kind, name) => {
+    expect(Object.keys(PROSE_CHIP_ICON_BODIES)).toContain(kind satisfies ProseChipIconKind)
+    const registry = parseSvg(renderToStaticMarkup(createElement(ICON_COMPONENTS[name])))
+    expect(parseSvg(proseChipIconSvg(kind)).children).toEqual(registry.children)
   })
 })

@@ -31617,6 +31617,117 @@
       }
     },
     {
+      "name": "Row/href",
+      "input": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "Docs",
+          "meta": "312 posts",
+          "pressable": true,
+          "href": "https://ui.exponential.at"
+        }
+      },
+      "expected": {
+        "id": "row",
+        "component": "Box",
+        "props": {
+          "pressable": true,
+          "href": "https://ui.exponential.at"
+        },
+        "children": [
+          {
+            "id": "row.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "row.body.title",
+                "component": "Text",
+                "props": {
+                  "text": "Docs",
+                  "variant": "body",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Row",
+                  "part": "title",
+                  "props": {
+                    "selected": false,
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
+            },
+            "recipe": {
+              "macro": "Row",
+              "part": "body",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          },
+          {
+            "id": "row.meta",
+            "component": "Text",
+            "props": {
+              "text": "312 posts",
+              "variant": "muted",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Row",
+              "part": "meta",
+              "props": {
+                "selected": false,
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.sm",
+          "minHeight": "$control.row",
+          "paddingHorizontal": "$spacing.md",
+          "borderRadius": "$radius.md"
+        },
+        "recipe": {
+          "macro": "Row",
+          "part": "root",
+          "props": {
+            "selected": false,
+            "density": "default",
+            "surface": "flat",
+            "depth": 0
+          }
+        },
+        "accessibility": {
+          "role": "button",
+          "selected": false
+        }
+      }
+    },
+    {
       "name": "MessageBubble/example",
       "input": {
         "id": "message-bubble",
@@ -47670,7 +47781,8 @@
                     "path": "/subtitle"
                   },
                   "variant": "muted",
-                  "lines": 1
+                  "lines": 1,
+                  "hostLinks": true
                 },
                 "children": [],
                 "visible": {

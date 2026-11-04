@@ -392,6 +392,22 @@
   color: var(--foreground);
 }
 
+/* #EXP-1674 (prose-links.json): a bare in-app URL rewritten to THE entity chip:
+   the decoration's text IS the name, in the chip's title type, and the pill
+   has no title of its own. */
+.tiptap-content .prose-entity-chip {
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.tiptap-content .prose-entity-chip::after {
+  content: none;
+}
+.tiptap-content .editor-link:has(.prose-entity-chip) {
+  text-decoration: none;
+}
+
 /* Inline `@email` mention pills (a decoration — the underlying text stays the
    plain token; see lib/mention-pill-extension.ts). Read-only editors hide the
    raw email and show a `@Name` widget instead; editable editors keep the

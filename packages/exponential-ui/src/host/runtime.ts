@@ -51,6 +51,8 @@ export interface HostPolicy {
   urls?: UrlPolicy
   /** Opens an allowed url (default: `window.open(url, "_blank")`). */
   openUrl?: (url: string) => void
+  /** #EXP-1674: a `hostLinks` Text's segments (catalog/host.json urls); null = none. */
+  textLinks?: (text: string) => { text: string; href?: string }[] | null
   media?: MediaOptions
 }
 
@@ -614,6 +616,11 @@ export class ExponentialHost {
     const open = this.options.policy?.openUrl ?? ((u: string) => globalThis.window?.open(u, `_blank`, `noopener`))
     open(d.url)
     return true
+  }
+
+  /** #EXP-1674: the policy's `textLinks` (the renderer polices each href). */
+  textLinks(text: string): { text: string; href?: string }[] | null {
+    return this.options.policy?.textLinks?.(text) ?? null
   }
 
   /** A renderer's painter for `componentId` failed. Reported ONCE per

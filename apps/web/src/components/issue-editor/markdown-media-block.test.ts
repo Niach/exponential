@@ -126,3 +126,23 @@ describe(`media block markdown round-trip`, () => {
     expect(out).toBe(`[clip.mp4](/api/attachments/abc)`)
   })
 })
+
+// #EXP-1674: the team shorthand survives the editor (CONTRACT_FIXTURES
+// `team_link`, byte-mirrored on desktop, iOS and Android).
+describe(`team link`, () => {
+  it(`round-trips byte-for-byte`, () => {
+    const markdown = `See [x](~/settings/members) now`
+    expect(roundTrip(markdown)).toBe(markdown)
+    expect(roundTrip(roundTrip(markdown))).toBe(markdown)
+  })
+
+  it(`stays a link in the document`, () => {
+    const editor = makeEditor(`See [x](~/settings/members) now`)
+    const hrefs: string[] = []
+    editor.state.doc.descendants((node) => {
+      for (const mark of node.marks) if (mark.type.name === `link`) hrefs.push(String(mark.attrs.href))
+    })
+    editor.destroy()
+    expect(hrefs).toEqual([`~/settings/members`])
+  })
+})

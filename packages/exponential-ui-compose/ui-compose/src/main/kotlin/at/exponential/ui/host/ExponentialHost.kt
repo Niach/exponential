@@ -590,6 +590,9 @@ class ExponentialHost(
             this@ExponentialHost.openUrl(url)
         }
 
+        override fun textLinks(text: String): List<TextLinkSegment>? =
+            options.policy.textLinks?.invoke(text) ?: base.textLinks(text)
+
         override fun resolveUrl(src: String): String = base.resolveUrl(src)
 
         override fun onPaintError(error: PaintError) {

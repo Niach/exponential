@@ -1,3 +1,4 @@
+import ExpCore
 import Foundation
 import UIKit
 
@@ -88,7 +89,10 @@ public func expChipAttributes(baseColor: PlatformColor?) -> [NSAttributedString.
 public enum IssueRefs {
     /// Mirrors the web `ISSUE_REF_SOURCE`: `#` not glued to a word or another
     /// `#`, identifier = `{PREFIX}-{number}`, ending at a token boundary.
-    public static let pattern = "(?<![\\w#])#([A-Za-z][A-Za-z0-9]*-\\d+)(?![\\w-])"
+    ///
+    /// `\\w` and `\\d` are spelled out ASCII: ICU's are Unicode, JS's and
+    /// Rust's scan ASCII (`fixtures/issue-refs.json`, #EXP-1674).
+    public static let pattern = "(?<![A-Za-z0-9_#])#([A-Za-z][A-Za-z0-9]*-[0-9]+)(?![A-Za-z0-9_-])"
 
     /// EXP-760 — mirrors the web `ISSUE_REF_BARE_SOURCE`: the STEERING feeds
     /// also chip identifiers written WITHOUT the `#` (agents narrate
@@ -98,7 +102,7 @@ public enum IssueRefs {
     /// `exp/EXP-758` chips). Group 1 is the `#` form, group 2 the bare one.
     /// Never used for stored text: extraction and auto-relations keep `#`.
     public static let barePattern =
-        "(?:(?<![\\w#])#([A-Za-z][A-Za-z0-9]*-\\d+)|(?<![\\w#-])([A-Z][A-Z0-9]*-\\d+))(?![\\w-])"
+        "(?:(?<![A-Za-z0-9_#])#([A-Za-z][A-Za-z0-9]*-[0-9]+)|(?<![A-Za-z0-9_#-])([A-Z][A-Z0-9]*-[0-9]+))(?![A-Za-z0-9_-])"
 
     // NSRegularExpression is Sendable + documented thread-safe for matching.
     private static let regex = try! NSRegularExpression(pattern: pattern)
@@ -341,6 +345,45 @@ public enum IssueRefs {
             mutable = target
         }
         return mutable ?? attributed
+    }
+
+    /// #EXP-1674 (prose-links.json): a rewritten bare in-app URL's link run
+    /// as THE entity chip: the kind's glyph over a hidden, kerned `#` cell
+    /// spliced in front of the name, exactly like a resolved issue chip's. The
+    /// run keeps its `.link`, so a tap goes through THE opener. Display-only
+    /// (it changes characters), and idempotent: a chip run is never chipped
+    /// again.
+    public static func decorateProseChips(_ attributed: NSAttributedString) -> NSAttributedString {
+        guard attributed.length > 0 else { return attributed }
+        var runs: [(range: NSRange, kind: ProseLinks.ChipKind)] = []
+        let whole = NSRange(location: 0, length: attributed.length)
+        attributed.enumerateAttribute(.link, in: whole, options: []) { value, range, _ in
+            let href = (value as? URL)?.absoluteString ?? (value as? String)
+            guard let href, let kind = ProseLinks.chipKind(ofHref: href) else { return }
+            if attributed.attribute(.markdownChip, at: range.location, effectiveRange: nil) != nil { return }
+            runs.append((range, kind))
+        }
+        guard !runs.isEmpty else { return attributed }
+        let target = NSMutableAttributedString(attributedString: attributed)
+        for run in runs.reversed() {
+            var attrs = attributed.attributes(at: run.range.location, effectiveRange: nil)
+            for (key, value) in expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor) {
+                attrs[key] = value
+            }
+            let status = IssueRefStatusInfo(
+                iconName: EntityChipIcon.glyph(forConcept: run.kind.icon),
+                color: MarkdownStyle.chipTokenColor
+            )
+            attrs[.markdownIssueRefStatus] = status
+            attrs[.foregroundColor] = MarkdownStyle.textColor
+            let name = (attributed.string as NSString).substring(with: run.range)
+            let piece = NSMutableAttributedString(string: "#\(name)", attributes: attrs)
+            let cell = NSRange(location: 0, length: 1)
+            piece.addAttribute(.foregroundColor, value: PlatformColor.clear, range: cell)
+            piece.addAttribute(.kern, value: MarkdownStyle.chipStatusIconGap, range: cell)
+            target.replaceCharacters(in: run.range, with: piece)
+        }
+        return target
     }
 
     /// Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60 chars,

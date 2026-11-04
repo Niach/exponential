@@ -96,6 +96,7 @@ import com.exponential.app.ui.components.CodeBlock
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.openHref
+import com.exponential.app.ui.markdown.rememberIssueTextLinks
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -541,6 +542,7 @@ fun rememberAppHost(
     // #EXP-1674: the team's slug lands after the first frame; read late so it
     // never rebuilds the host (the host is keyed on the origin alone).
     val latestLinks by rememberUpdatedState(links)
+    val latestTextLinks by rememberUpdatedState(rememberIssueTextLinks(teamId, links?.team))
     // VAPP-221: a FileUpload's pick = the system document picker (several
     // when the FileUpload is `multiple`).
     val picks = remember { AppFilePicks() }
@@ -920,6 +922,8 @@ fun rememberAppHost(
                     // else. A public origin listed here changes nothing.
                     urls = UrlPolicy(baseUrl = origin, allowPrivate = ownHost),
                     openUrl = links?.let { handler -> { url: String -> (latestLinks ?: handler).openHref(url) } },
+                    // #EXP-1674: a Row subtitle's `#IDENT` refs that resolve in the app's team.
+                    textLinks = { text -> latestTextLinks(text) },
                     media = MediaOptions(
                         baseUrl = origin,
                         allowPrivate = ownHost,

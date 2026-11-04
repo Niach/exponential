@@ -36,6 +36,33 @@ class AppLinkTest {
         }
     }
 
+    /** #EXP-1674: plan-card.json `linkCases`, the same cases ×4. */
+    @Test
+    fun everyCardLinkCaseOpensTheSame() {
+        val card = Json.parseToJsonElement(contractFixtureJson("plan-card.json")).jsonObject
+        val origin = card.getValue("linkOrigin").jsonPrimitive.content
+        val defaultTeam = card.getValue("linkTeam").jsonPrimitive.content
+        val cases = card.getValue("linkCases").jsonArray
+        assertTrue(cases.isNotEmpty())
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val team = case["team"].let { if (it == null) defaultTeam else it.jsonPrimitive.contentOrNull }
+            assertEquals(
+                case.getValue("name").jsonPrimitive.content,
+                case.getValue("opens").jsonPrimitive.boolean,
+                cardLinkOpens(case.getValue("href").jsonPrimitive.content, origin, team),
+            )
+        }
+    }
+
+    @Test
+    fun theTeamShorthandSurvivesTheUrlPolicy() {
+        val origin = "https://app.exponential.at"
+        assertEquals("~/issues/EXP-1?x=1", teamShorthandOf("https://App.Exponential.at/~/issues/EXP-1?x=1", origin))
+        assertEquals("$origin/t/acme/inbox", teamShorthandOf("$origin/t/acme/inbox", origin))
+        assertEquals("https://other.example/~/inbox", teamShorthandOf("https://other.example/~/inbox", origin))
+    }
+
     @Test
     fun everyOpenCaseOutcomeIsTheSame() {
         val cases = fixture.getValue("openCases").jsonArray

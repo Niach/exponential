@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.font.FontWeight
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.ProseLinks
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.InlineMark
@@ -570,5 +571,56 @@ class MarkdownAnnotateTest {
         assertEquals(1f, MdStyle.mentionBorderWidth.value)
         // 6.4/13 em in total: the cell (a Roboto space) + its letter spacing.
         assertEquals(6.4f / 13f, MdStyle.mentionPadLetterSpacing.value + 507f / 2048f, 0.0001f)
+    }
+
+    // #EXP-1674 (prose-links.json): a rewritten link run is THE entity chip.
+    @Test
+    fun aProseChipGlyphIsItsKindsConcept() {
+        ProseLinks.ChipKind.entries.forEach { kind ->
+            assertEquals(
+                kind.wire,
+                com.exponential.app.ui.components.entityConceptIcon(kind.icon),
+                com.exponential.app.ui.icons.ExpIcons.byName(proseChipGlyph(kind)),
+            )
+        }
+    }
+
+    @Test
+    fun aProseChipSplicesItsGlyphCellAndKeepsItsLink() {
+        val handler = AppLinkHandler("https://app.exponential.at", team = "acme") { _, _ -> }
+        val href = "https://app.exponential.at/t/acme/boards/web#exp-chip-board"
+        val line = annotateLine(
+            "on Web now",
+            listOf(InlineMark(3, 6, InlineKind.Link, href)),
+            null,
+            appLinks = handler,
+        )
+        assertEquals("on ${CHIP_GLYPH_CELL}Web now", line.text.text)
+        assertEquals(1, line.chips.size)
+        assertEquals(3, line.chips[0].start)
+        assertEquals(7, line.chips[0].end)
+        assertEquals("folder-kanban", line.chips[0].iconName)
+        assertEquals(1, line.text.getLinkAnnotations(0, line.text.length).size)
+    }
+
+    @Test
+    fun aTeamLinkWithNoHandlerIsNoLink() {
+        assertNull(
+            appLinkAnnotation("~/settings/members", null, androidx.compose.ui.text.TextLinkStyles()),
+        )
+    }
+
+    /** #EXP-1674: only refs that resolve become links, on the team's short route. */
+    @Test
+    fun onlyResolvedRefsBecomeTextLinks() {
+        val subtitle = "#VAPP-202 #VAPP-203 merged · V1 #1758"
+        val segments = issueTextLinks(subtitle, "my team", setOf("VAPP-202"))!!
+        assertEquals(subtitle, segments.joinToString("") { it.text })
+        assertEquals(
+            listOf(at.exponential.ui.host.TextLinkSegment("#VAPP-202", "/t/my%20team/issues/VAPP-202")),
+            segments.filter { it.href != null },
+        )
+        assertNull(issueTextLinks("#VAPP-203", "acme", setOf("VAPP-202")))
+        assertNull(issueTextLinks("#VAPP-202", null, setOf("VAPP-202")))
     }
 }

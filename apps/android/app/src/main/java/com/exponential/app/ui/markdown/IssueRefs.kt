@@ -188,13 +188,15 @@ object IssueRefs {
     // be glued to a word or another `#` (so `foo#MET-1` / `##MET-1` don't
     // match), the identifier is `{PREFIX}-{number}`, and the match must end at
     // a token boundary (so `#MET-115-2` / `#MET-115abc` don't half-match).
-    private const val HASH = "(?<![\\w#])#([A-Za-z][A-Za-z0-9]*-\\d+)"
-    private const val TAIL = "(?![\\w-])"
+    // `\\w` and `\\d` are spelled out ASCII: Android's java.util.regex is ICU, whose
+    // are Unicode (`fixtures/issue-refs.json`, #EXP-1674).
+    private const val HASH = "(?<![A-Za-z0-9_#])#([A-Za-z][A-Za-z0-9]*-[0-9]+)"
+    private const val TAIL = "(?![A-Za-z0-9_-])"
 
     // Mirrors ISSUE_REF_BARE_SOURCE (EXP-760): an UPPERCASE prefix only, so
     // `utf-8` / `x86-64` / `exp-758` never chip, and not glued to a word, a
     // `#` or a `-` — `foo-EXP-1` stays text while `exp/EXP-758` chips.
-    private const val BARE = "(?<![\\w#-])([A-Z][A-Z0-9]*-\\d+)"
+    private const val BARE = "(?<![A-Za-z0-9_#-])([A-Z][A-Z0-9]*-[0-9]+)"
 
     private val REGEX = Regex("$HASH$TAIL")
     private val REGEX_BARE = Regex("(?:$HASH|$BARE)$TAIL")

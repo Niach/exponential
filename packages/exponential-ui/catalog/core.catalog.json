@@ -4140,6 +4140,10 @@
           "bindable": true,
           "description": "An icon before the label, or alone with size `icon`."
         },
+        "href": {
+          "type": "url",
+          "description": "The URL a press opens; `press` still fires."
+        },
         "variant": {
           "type": "enum",
           "enum": "variant",
@@ -5493,6 +5497,10 @@
           "type": "boolean",
           "default": false,
           "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
+        },
+        "href": {
+          "type": "url",
+          "description": "The URL a press opens; implies `pressable`."
         },
         "depth": {
           "type": "number",

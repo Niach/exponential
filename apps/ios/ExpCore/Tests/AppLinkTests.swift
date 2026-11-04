@@ -163,6 +163,24 @@ final class AppLinkTests: XCTestCase {
         )
     }
 
+    // #EXP-1674: plan-card.json `linkCases`, the same cases ×4.
+    func testCardLinkCases() throws {
+        let url = repoRoot.appendingPathComponent("packages/domain-contract/fixtures/plan-card.json")
+        let card = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let origin = try XCTUnwrap(card["linkOrigin"] as? String)
+        let defaultTeam = try XCTUnwrap(card["linkTeam"] as? String)
+        let cases = try XCTUnwrap(card["linkCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for item in cases {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let href = try XCTUnwrap(item["href"] as? String)
+            let opens = try XCTUnwrap(item["opens"] as? Bool)
+            // Absent = the fixture's team; null = no team.
+            let team = item.keys.contains("team") ? item["team"] as? String : defaultTeam
+            XCTAssertEqual(AppLink.cardLinkOpens(href, origin: origin, team: team), opens, name)
+        }
+    }
+
     func testOriginTrailingSlashIsTolerated() {
         XCTAssertEqual(
             AppLink.classify("https://app.exponential.at/t/acme/sessions/abc", origin: "https://app.exponential.at/"),

@@ -299,3 +299,28 @@ final class IssueRefsBareModeTests: XCTestCase {
         )
     }
 }
+
+// #EXP-1674: THE scan, replayed ×4 against fixtures/issue-refs.json (web
+// `issue-refs.test.ts`, desktop `markdown/editor.rs`, Android `IssueRefsTest`).
+final class IssueRefsFixtureTests: XCTestCase {
+    func testEveryCaseScansTheSame() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpUI/Tests/
+            .deletingLastPathComponent()          // ExpUI/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/issue-refs.json")
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
+        )
+        let cases = try XCTUnwrap(json["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let text = try XCTUnwrap(testCase["text"] as? String)
+            XCTAssertEqual(IssueRefs.matches(in: text).map(\.token), testCase["hash"] as? [String], name)
+            XCTAssertEqual(IssueRefs.matches(in: text, bare: true).map(\.token), testCase["bare"] as? [String], name)
+        }
+    }
+}

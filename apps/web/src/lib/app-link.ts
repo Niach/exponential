@@ -8,6 +8,7 @@
  */
 
 import { screenPath } from "@exp/domain-contract/apps"
+import { splitIssueRefs } from "@/lib/issue-refs"
 
 export type AppLink =
   | { kind: `issue`; teamSlug: string; boardSlug: string; identifier: string }
@@ -132,6 +133,39 @@ export function classifyAppLink(rawHref: string, origin: string, team?: string |
     return { kind: `external`, url: href }
   const path = end === -1 ? `/` : rest.slice(end)
   return classifyPath(path.startsWith(`/`) ? path : `/${path}`)
+}
+
+/** #EXP-1674: what a chat card's link may open (plan-card.json `linkCases`):
+ *  in-app, or https out. */
+export function cardLinkOpens(href: string, origin: string, team?: string | null): boolean {
+  const link = classifyAppLink(href, origin, team)
+  if (link.kind === `ignore`) return false
+  return link.kind !== `external` || link.url.toLowerCase().startsWith(`https://`)
+}
+
+/** #EXP-1674: the eUI URL policy resolves a relative `~/x` against its base
+ *  into `<origin>/~/x`: the shorthand back; anything else as given. */
+export function teamShorthandOf(url: string, origin: string): string {
+  const prefix = `${origin}/~/`
+  return url.toLowerCase().startsWith(prefix.toLowerCase()) ? `~/${url.slice(prefix.length)}` : url
+}
+
+/** #EXP-1674: a Row subtitle's `#IDENT` refs that `known` resolves, as a host's
+ *  `textLinks` segments on the team's short issue route; null = no link. */
+export function issueTextLinks(
+  text: string,
+  team: string | null | undefined,
+  known: (identifier: string) => boolean
+): { text: string; href?: string }[] | null {
+  if (!team || !text.includes(`#`)) return null
+  let linked = false
+  const segments = splitIssueRefs(text).map((segment) => {
+    const href = segment.identifier && known(segment.identifier) ? expandTeamLink(`~/issues/${segment.identifier}`, team) : null
+    if (!href) return { text: segment.text }
+    linked = true
+    return { text: segment.text, href }
+  })
+  return linked ? segments : null
 }
 
 /** The toast of a link the viewer cannot open (app-link.json `copy.noAccess`). */

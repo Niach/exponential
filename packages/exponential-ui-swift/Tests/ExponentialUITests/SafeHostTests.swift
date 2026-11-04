@@ -43,6 +43,23 @@ final class SafeHostTests: XCTestCase {
 
     // MARK: - hrefs
 
+    /// #EXP-1674: a host's text links stay plain unless they concatenate back
+    /// and the URL policy allows one.
+    func testTextLinksArePoliced() throws {
+        final class Links: HostPlugin {
+            var answer: [TextLinkSegment]?
+            func textLinks(_ text: String) -> [TextLinkSegment]? { answer }
+        }
+        let host = Links()
+        let m = try SurfaceModel(id: "t", options: SurfaceOptions(), host: host)
+        XCTAssertNil(m.textLinkSegments("#A-1 x"))
+        host.answer = [TextLinkSegment(text: "#A-1", href: "https://exponential.at/i"), TextLinkSegment(text: " x")]
+        XCTAssertEqual(m.textLinkSegments("#A-1 x")?.first?.href, "https://exponential.at/i")
+        XCTAssertNil(m.textLinkSegments("other"))
+        host.answer = [TextLinkSegment(text: "#A-1 x", href: "javascript:alert(1)")]
+        XCTAssertNil(m.textLinkSegments("#A-1 x"))
+    }
+
     func testDeniedHrefsNeverOpen() throws {
         // A bare plugin's default opener and a closure host both pass the policy.
         var opened: [String] = []

@@ -1789,7 +1789,8 @@
           }
         },
         "props": {
-          "pressable": "{props.pressable|false}"
+          "pressable": "{props.pressable|false}",
+          "href": "{props.href}"
         },
         "style": {
           "display": "flex",
@@ -1889,7 +1890,8 @@
                 "props": {
                   "text": "{props.subtitle}",
                   "variant": "muted",
-                  "lines": 1
+                  "lines": 1,
+                  "hostLinks": true
                 }
               }
             ]

@@ -1,5 +1,10 @@
 package com.exponential.app.ui.markdown
 
+import com.exponential.app.domain.contractFixtureJson
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -175,5 +180,20 @@ class IssueRefsTest {
     fun bareModeStillRejectsTokensContinuingPastTheNumber() {
         assertEquals(emptyList<String>(), bareIds("EXP-115abc"))
         assertEquals(emptyList<String>(), bareIds("EXP-115-2"))
+    }
+
+    /** #EXP-1674: THE scan, replayed ×4 against `issue-refs.json`. */
+    @Test
+    fun everyFixtureCaseScansTheSame() {
+        val fixture = Json.parseToJsonElement(contractFixtureJson("issue-refs.json")).jsonObject
+        fixture.getValue("cases").jsonArray.forEach { element ->
+            val case = element.jsonObject
+            val name = case.getValue("name").jsonPrimitive.content
+            val text = case.getValue("text").jsonPrimitive.content
+            fun tokens(bare: Boolean) = IssueRefs.findAll(text, bare).map { text.substring(it.start, it.end) }
+            fun expected(key: String) = case.getValue(key).jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(name, expected("hash"), tokens(false))
+            assertEquals(name, expected("bare"), tokens(true))
+        }
     }
 }

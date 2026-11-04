@@ -7,7 +7,7 @@ import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
-import { planCardHost } from "./plan-card"
+import { planCardHost, useCardLinks } from "./plan-card"
 import { userMessageTime } from "./user-message-bubble"
 
 // Thread 58cb32df (fixtures/chats.json TRANSCRIPT + SURFACE CARD ×4; iOS
@@ -143,13 +143,14 @@ export function SurfaceCard({
   })
   const replyRef = useRef(onReply)
   replyRef.current = onReply
+  const links = useCardLinks()
   const host = useMemo(
     () =>
       planCardHost((event) => {
         const reply = surfaceReply(event)
         if (reply) replyRef.current?.(reply.text)
-      }),
-    []
+      }, links),
+    [links]
   )
   const frameRef = useRef<HTMLDivElement>(null)
   const glowRef = useRef<HTMLSpanElement>(null)

@@ -412,6 +412,9 @@ pub(crate) const CONTRACT_FIXTURES: &[(&str, &str)] = &[
     ("inline_code", "This is `code` text"),
     ("link", "A [link](https://example.com) here"),
     ("relative_link", "See [docs](/help/page) now"),
+    // #EXP-1674: the team shorthand is a link like any other. Byte-mirrored on
+    // web, iOS and Android.
+    ("team_link", "See [x](~/settings/members) now"),
     ("heading1", "# Heading 1"),
     ("heading2", "## Heading 2"),
     ("heading3", "### Heading 3"),

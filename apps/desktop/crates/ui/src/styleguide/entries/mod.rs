@@ -99,6 +99,7 @@ pub(crate) mod chat_selection;
 pub(crate) mod sealed_locked;
 // Thread e4a04d22: mention pills in chats.
 pub(crate) mod mention_pill;
+pub(crate) mod entity_chip;
 // S-3: stories.
 pub(crate) mod story_ring;
 pub(crate) mod story_viewer;
@@ -152,6 +153,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: strip_chip::ID, owner: strip_chip::OWNER, render: strip_chip::render },
     Entry { id: session_xref::ID, owner: session_xref::OWNER, render: session_xref::render },
     Entry { id: mention_pill::ID, owner: mention_pill::OWNER, render: mention_pill::render },
+    Entry { id: entity_chip::ID, owner: entity_chip::OWNER, render: entity_chip::render },
     Entry { id: call_controls::ID, owner: call_controls::OWNER, render: call_controls::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },

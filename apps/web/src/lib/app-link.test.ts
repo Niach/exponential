@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { classifyAppLink, isRoutedAppPath, linkOpenOutcome, ROUTED_APP_PREFIXES, type AppLink } from "./app-link"
+import { cardLinkOpens, classifyAppLink, isRoutedAppPath, issueTextLinks, linkOpenOutcome, ROUTED_APP_PREFIXES, teamShorthandOf, type AppLink } from "./app-link"
+import planCard from "@exp/domain-contract/fixtures/plan-card.json"
 
 // EXP-1188: the ×4 contract — desktop `domain::app_link`, iOS `AppLinkTests`,
 // Android `AppLinkTest` run the same cases.
@@ -85,5 +86,30 @@ describe(`isRoutedAppPath`, () => {
       fullPaths.filter((p) => !resources(p)).map((p) => p.split(`/`)[1]).filter((s) => s)
     )
     expect([...ROUTED_APP_PREFIXES].sort()).toEqual([...firstSegments].sort())
+  })
+})
+
+describe(`#EXP-1674: a chat card's links`, () => {
+  for (const c of planCard.linkCases as { name: string; href: string; team?: string | null; opens: boolean }[]) {
+    it(c.name, () => {
+      expect(cardLinkOpens(c.href, planCard.linkOrigin, c.team === undefined ? planCard.linkTeam : c.team)).toBe(c.opens)
+    })
+  }
+
+  it(`the shorthand survives the URL policy`, () => {
+    expect(teamShorthandOf(`https://App.Exponential.at/~/issues/EXP-1?x=1`, fixture.origin)).toBe(`~/issues/EXP-1?x=1`)
+    expect(teamShorthandOf(`${fixture.origin}/t/acme/inbox`, fixture.origin)).toBe(`${fixture.origin}/t/acme/inbox`)
+    expect(teamShorthandOf(`https://other.example/~/inbox`, fixture.origin)).toBe(`https://other.example/~/inbox`)
+  })
+
+  it(`only refs that resolve become links, on the team's short route`, () => {
+    const known = (id: string) => id !== `VAPP-203`
+    const subtitle = `#VAPP-202 #VAPP-203 merged · V1 #1758`
+    const segments = issueTextLinks(subtitle, `my team`, known)!
+    expect(segments.map((segment) => segment.text).join(``)).toBe(subtitle)
+    expect(segments.filter((segment) => segment.href)).toEqual([{ text: `#VAPP-202`, href: `/t/my%20team/issues/VAPP-202` }])
+    expect(issueTextLinks(`#VAPP-203`, `acme`, known)).toBeNull()
+    expect(issueTextLinks(`no refs`, `acme`, known)).toBeNull()
+    expect(issueTextLinks(`#VAPP-202`, null, known)).toBeNull()
   })
 })

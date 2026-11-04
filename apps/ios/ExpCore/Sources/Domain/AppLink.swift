@@ -93,6 +93,16 @@ public enum AppLink: Equatable, Sendable {
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
     )
 
+    /// #EXP-1674: what a chat card's link may open (plan-card.json
+    /// `linkCases`): in-app, or https out.
+    public static func cardLinkOpens(_ href: String, origin: String, team: String?) -> Bool {
+        switch classify(href, origin: origin, team: team) {
+        case .ignore: return false
+        case let .external(url): return url.lowercased().hasPrefix("https://")
+        default: return true
+        }
+    }
+
     /// #EXP-1674: what opening a resolved in-app link does, the ONE rule ×4
     /// (`openCases`). Unreadable looks exactly like missing.
     public static func linkOpenOutcome(member: Bool, activeTeam: Bool, found: Bool, webOnly: Bool) -> LinkOpenOutcome {

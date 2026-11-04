@@ -4,6 +4,7 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AgentBrandMark, CommentCallCard } from "@exp/ui"
 import type { Comment, User } from "@/db/schema"
+import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { commentCollection } from "@/lib/collections"
 import { getCommentBodyText } from "@/lib/domain"
 import type { ToolItem } from "@/lib/steer-session-store"
@@ -105,6 +106,7 @@ export function CommentCallRow({ item }: { item: ToolItem }) {
   ]
     .filter((part): part is string => Boolean(part))
     .join(` · `)
+  const onLinkClick = useAppLinkClick()
   const open =
     issue && target.commentId && teamSlug
       ? () =>
@@ -140,12 +142,15 @@ export function CommentCallRow({ item }: { item: ToolItem }) {
         caption={caption}
         body={
           settled && text?.trim() ? (
-            <MarkdownEditor
-              markdown={text}
-              editable={false}
-              onChange={noop}
-              appearance="chat"
-            />
+            // #EXP-1674: a link goes through THE opener (`~/x`, in-app routes).
+            <div onClickCapture={onLinkClick}>
+              <MarkdownEditor
+                markdown={text}
+                editable={false}
+                onChange={noop}
+                appearance="chat"
+              />
+            </div>
           ) : null
         }
         onOpen={open}

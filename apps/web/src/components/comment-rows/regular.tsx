@@ -1,3 +1,4 @@
+import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { useAppName } from "@/hooks/use-apps"
 import type { Attachment, Comment, User } from "@/db/schema"
 import {
@@ -93,6 +94,7 @@ function CommentCardContent({
   onSaveEdit,
   users,
 }: CommentCardProps) {
+  const onLinkClick = useAppLinkClick()
   const bodyText = getCommentBodyText(comment.body)
   const name = authorAgent?.name ?? authorLabel(comment, author, reporterName)
   const viaAppName = useAppName(comment.viaAppId)
@@ -166,7 +168,8 @@ function CommentCardContent({
       ) : (
         <>
           {bodyText.trim().length > 0 && (
-            <div className="mt-1 text-sm text-foreground">
+            // #EXP-1674: a link goes through THE opener (`~/x`, in-app routes).
+            <div className="mt-1 text-sm text-foreground" onClickCapture={onLinkClick}>
               <MarkdownEditor
                 markdown={bodyText}
                 editable={false}

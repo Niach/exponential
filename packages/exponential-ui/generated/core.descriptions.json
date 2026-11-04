@@ -1690,6 +1690,9 @@
         "icon": {
           "description": "An icon before the label, or alone with size `icon`."
         },
+        "href": {
+          "description": "The URL a press opens; `press` still fires."
+        },
         "variant": {
           "description": "`default` = the primary action, `destructive` = dangerous, `ghost`/`link` = quiet."
         },
@@ -2469,6 +2472,9 @@
         },
         "pressable": {
           "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
+        },
+        "href": {
+          "description": "The URL a press opens; implies `pressable`."
         },
         "depth": {
           "description": "Depth under a tree Section (0 = root)."

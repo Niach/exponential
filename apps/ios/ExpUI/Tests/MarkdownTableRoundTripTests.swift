@@ -45,6 +45,13 @@ final class MarkdownTableRoundTripTests: XCTestCase {
         ("table_unicode", "| Grüße | 🚀 |\n| --- | --- |\n| ü | é |"),
     ]
 
+    /// #EXP-1674: the team shorthand is a link like any other
+    /// (`CONTRACT_FIXTURES` `team_link`, byte-mirrored on the other three).
+    func testTheTeamLinkRoundTripsByteForByte() {
+        let markdown = "See [x](~/settings/members) now"
+        XCTAssertEqual(roundTrip(markdown), markdown)
+    }
+
     func testEveryContractFixtureRoundTripsByteForByte() {
         for fixture in Self.fixtures {
             XCTAssertEqual(

@@ -1971,6 +1971,11 @@ impl IdeHost {
                 }),
                 // #EXP-1674: a `Link` to this instance opens in-app.
                 open_url: Some(crate::links::app_url_opener(scope.as_ref().and_then(|s| s.team_id.clone()))),
+                // #EXP-1674: a Row subtitle's `#IDENT` refs that resolve in the app's team.
+                text_links: Some({
+                    let team_id = scope.as_ref().and_then(|s| s.team_id.clone());
+                    Rc::new(move |text: &str, cx: &App| crate::links::issue_text_links(text, team_id.as_deref(), cx))
+                }),
                 media: Some(MediaOptions {
                     base_url: instance,
                     allow_private,

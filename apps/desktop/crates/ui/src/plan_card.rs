@@ -354,12 +354,15 @@ fn ensure_closed_surface(message_id: &str, surface: Option<&CardSurface>, surfac
 // ---------------------------------------------------------------------------
 
 /// The card's host: no transport (events stay in the card), `set` the only
-/// function (the built-in data write; `openUrl` and host calls do nothing),
+/// function (the built-in data write; host calls do nothing), links = in-app
+/// and https through THE opener (#EXP-1674, plan-card.json),
 /// media = the instance's `/api/attachments/*` with the account's bearer, or
 /// any https url.
 pub(crate) struct CardSurfaceHost {
     instance: Option<String>,
     token: Option<Arc<dyn api::TokenProvider>>,
+    /// The card's team, for `~/` and `#IDENT` links (`None` = the active team).
+    team_id: Option<String>,
 }
 
 impl CardSurfaceHost {
@@ -372,19 +375,31 @@ impl CardSurfaceHost {
         Self {
             instance: account.map(|account| account.instance_url),
             token,
+            team_id: None,
         }
+    }
+
+    /// The host of a card in `session_id`: that session's team.
+    pub(crate) fn for_session(session_id: &str, cx: &App) -> Self {
+        let team_id = crate::session_data::session(session_id, cx).and_then(|row| row.team_id.clone());
+        Self { team_id, ..Self::new(cx) }
+    }
+
+    /// https, plus the instance's own scheme (a local http stack).
+    fn schemes(&self) -> Vec<String> {
+        let mut schemes = vec!["https".to_string()];
+        if self.instance.as_deref().is_some_and(|url| url.starts_with("http://")) {
+            schemes.push("http".to_string());
+        }
+        schemes
     }
 
     /// The media policy: https anywhere, plus the instance's own scheme
     /// (a local http instance) for its attachments.
     fn options(&self) -> MediaOptions {
-        let mut schemes = vec!["https".to_string()];
-        if self.instance.as_deref().is_some_and(|url| url.starts_with("http://")) {
-            schemes.push("http".to_string());
-        }
         MediaOptions {
             base_url: self.instance.clone(),
-            schemes: Some(schemes),
+            schemes: Some(self.schemes()),
             allow_private: self.own_private_host(),
             ..Default::default()
         }
@@ -420,6 +435,7 @@ impl HostPlugin for CardSurfaceHost {
 
     fn url_policy(&self) -> Option<UrlPolicy> {
         Some(UrlPolicy {
+            schemes: Some(self.schemes()),
             base_url: self.instance.clone(),
             allow_private: self.own_private_host(),
             ..Default::default()
@@ -443,7 +459,13 @@ impl HostPlugin for CardSurfaceHost {
         Some(request)
     }
 
-    fn open_url(&self, _url: &str, _cx: &mut App) {}
+    fn open_url(&self, url: &str, cx: &mut App) {
+        crate::links::open_card_url(url, self.team_id.clone(), cx);
+    }
+
+    fn text_links(&self, text: &str, cx: &App) -> Option<Vec<eui_core::host::TextLink>> {
+        crate::links::issue_text_links(text, self.team_id.as_deref(), cx)
+    }
 
     /// Sandbox: a `Video` / `AudioPlayer` press plays nothing — web's host
     /// is inert too. The default would hand an agent-authored attachment

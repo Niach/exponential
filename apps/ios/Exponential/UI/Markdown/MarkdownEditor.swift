@@ -739,6 +739,9 @@ struct BlockTextEditor: UIViewRepresentable {
         tv.backgroundColor = .clear
         tv.textColor = MarkdownStyle.textColor
         tv.tintColor = MarkdownStyle.linkColor
+        // #EXP-1674: a link run wears its own attributes (already `linkColor`),
+        // so a prose entity chip keeps its hidden `#` cell and its name's color.
+        if isReadOnly { tv.linkTextAttributes = [:] }
         tv.font = MarkdownStyle.bodyFont
         // Read-only display (comment bodies): non-editable but selectable —
         // UITextView then opens .link attributes natively on tap.
