@@ -80,6 +80,7 @@ pub fn validate_package_shares(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
         let schema = def.and_then(|d| d.get("schema")).and_then(Value::as_object);
         let props = schema.and_then(|x| x.get("properties")).and_then(Value::as_object);
         let required: Vec<&Value> = schema.and_then(|x| x.get("required")).and_then(Value::as_array).map(|l| l.iter().collect()).unwrap_or_default();
+        let refs = def.and_then(|d| d.get("refs")).and_then(Value::as_object);
         if let Some(fields) = s.get("fields") {
             match fields.as_array().filter(|l| !l.is_empty() && l.iter().all(Value::is_string)) {
                 None => issues.push(issue(format!("{at}/fields"), "fields is a non-empty list of field names")),
@@ -93,6 +94,9 @@ pub fn validate_package_shares(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                         if is_file(field) {
                             issues.push(issue(format!("{at}/fields/{j}"), format!("a public link cannot carry the file field {name}")));
                         }
+                        if refs.is_some_and(|r| r.contains_key(name)) {
+                            issues.push(issue(format!("{at}/fields/{j}"), format!("a public link cannot carry the ref field {name}")));
+                        }
                     }
                     if mode == Some("submit") {
                         for name in &required {
@@ -104,8 +108,16 @@ pub fn validate_package_shares(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                 }
             }
         }
-        if mode == Some("submit") && required.iter().any(|n| n.as_str().and_then(|n| props.and_then(|p| p.get(n))).is_some_and(|f| f.get("format").and_then(Value::as_str) == Some("attachment"))) {
+        if mode == Some("submit") && required.iter().any(|n| n.as_str().and_then(|n| props.and_then(|p| p.get(n))).is_some_and(|f| is_file(Some(f)))) {
             issues.push(issue(format!("{at}/kind"), "a submit link cannot fill a required file field"));
+        }
+        // A guest has no picker for a ref; with `fields` the checks above already speak.
+        if mode == Some("submit") && s.get("fields").is_none() {
+            for name in required.iter().filter_map(|n| n.as_str()) {
+                if refs.is_some_and(|r| r.contains_key(name)) {
+                    issues.push(issue(format!("{at}/kind"), format!("a submit link cannot fill the required ref field {name}")));
+                }
+            }
         }
         if let Some(query) = s.get("query") {
             if mode != Some("view") {

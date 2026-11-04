@@ -48,19 +48,23 @@ export function validatePackageShares(pkg: Record<string, unknown>): PackageIssu
     const schema = isObject(def) && isObject(def.schema) ? def.schema : {}
     const props = isObject(schema.properties) ? schema.properties : {}
     const required = Array.isArray(schema.required) ? (schema.required as unknown[]) : []
+    const refs = isObject(def) && isObject(def.refs) ? def.refs : {}
+    const isFile = (field: unknown) => isObject(field) && (field.format === `attachment` || (isObject(field.items) && field.items.format === `attachment`))
     if (s.fields !== undefined) {
       if (!Array.isArray(s.fields) || !s.fields.length || s.fields.some((f) => typeof f !== `string`)) issues.push({ path: `${at}/fields`, message: `fields is a non-empty list of field names` })
       else {
         s.fields.forEach((f: string, j: number) => {
           if (isObject(def) && !own(props, f)) issues.push({ path: `${at}/fields/${j}`, message: `${f} is not a field of ${String(s.kind)}` })
           const field = own(props, f) ? props[f] : undefined
-          const file = isObject(field) && (field.format === `attachment` || (isObject(field.items) && field.items.format === `attachment`))
-          if (file) issues.push({ path: `${at}/fields/${j}`, message: `a public link cannot carry the file field ${f}` })
+          if (isFile(field)) issues.push({ path: `${at}/fields/${j}`, message: `a public link cannot carry the file field ${f}` })
+          if (own(refs, f)) issues.push({ path: `${at}/fields/${j}`, message: `a public link cannot carry the ref field ${f}` })
         })
         if (s.mode === `submit`) for (const name of required) if (!s.fields.includes(name)) issues.push({ path: `${at}/fields`, message: `a submit link needs the required field ${String(name)}` })
       }
     }
-    if (s.mode === `submit` && required.some((n) => typeof n === `string` && isObject(props[n]) && ((props[n] as Record<string, unknown>).format === `attachment`))) issues.push({ path: `${at}/kind`, message: `a submit link cannot fill a required file field` })
+    if (s.mode === `submit` && required.some((n) => typeof n === `string` && own(props, n) && isFile(props[n]))) issues.push({ path: `${at}/kind`, message: `a submit link cannot fill a required file field` })
+    // A guest has no picker for a ref; with `fields` the checks above already speak.
+    if (s.mode === `submit` && s.fields === undefined) for (const n of required) if (typeof n === `string` && own(refs, n)) issues.push({ path: `${at}/kind`, message: `a submit link cannot fill the required ref field ${n}` })
     if (s.query !== undefined) {
       if (s.mode !== `view`) issues.push({ path: `${at}/query`, message: `only a view link has a query` })
       else if (typeof s.query !== `string` || !own(queries, s.query)) issues.push({ path: `${at}/query`, message: `${String(s.query)} names no package query` })

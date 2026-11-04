@@ -12,7 +12,7 @@ import { pageTitle } from "@/lib/page-title"
 // host: `records.upsert` posts the submission, `records:` follows the
 // server's snapshot. No session, no synced data, no `exp:` source.
 export const Route = createFileRoute(`/s/$token`)({
-  head: () => ({ meta: [{ title: pageTitle(`Exponential`) }, { name: `robots`, content: `noindex` }] }),
+  head: () => ({ meta: [{ title: pageTitle(`Exponential`) }, { name: `robots`, content: `noindex` }, { name: `referrer`, content: `no-referrer` }] }),
   component: GuestPage,
   ssr: false,
 })

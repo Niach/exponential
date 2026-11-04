@@ -37,6 +37,73 @@
             }
           }
         }
+      },
+      "ticket": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "title",
+            "owner",
+            "bug"
+          ],
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            },
+            "bug": {
+              "type": "string"
+            },
+            "parent": {
+              "type": "string"
+            }
+          }
+        },
+        "refs": {
+          "owner": "member",
+          "bug": "issue",
+          "parent": {
+            "kind": "signup"
+          }
+        }
+      },
+      "note": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            }
+          }
+        },
+        "refs": {
+          "owner": "member"
+        }
+      },
+      "album": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "pics"
+          ],
+          "properties": {
+            "pics": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "attachment"
+              }
+            }
+          }
+        }
       }
     },
     "queries": {
@@ -335,6 +402,119 @@
         {
           "path": "/share/2/expires",
           "message": "expires is a whole number of days, 1 to 3650"
+        }
+      ]
+    },
+    {
+      "name": "a submit link cannot fill a required member or issue ref",
+      "share": [
+        {
+          "name": "a",
+          "mode": "submit",
+          "kind": "ticket"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/kind",
+          "message": "a submit link cannot fill the required ref field owner"
+        },
+        {
+          "path": "/share/0/kind",
+          "message": "a submit link cannot fill the required ref field bug"
+        }
+      ]
+    },
+    {
+      "name": "a public link cannot name a ref",
+      "share": [
+        {
+          "name": "a",
+          "mode": "submit",
+          "kind": "ticket",
+          "fields": [
+            "title",
+            "owner",
+            "bug"
+          ]
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "ticket",
+          "fields": [
+            "title",
+            "parent"
+          ]
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/fields/1",
+          "message": "a public link cannot carry the ref field owner"
+        },
+        {
+          "path": "/share/0/fields/2",
+          "message": "a public link cannot carry the ref field bug"
+        },
+        {
+          "path": "/share/1/fields/1",
+          "message": "a public link cannot carry the ref field parent"
+        }
+      ]
+    },
+    {
+      "name": "a required ref left out of fields is the usual issue",
+      "share": [
+        {
+          "name": "a",
+          "mode": "submit",
+          "kind": "ticket",
+          "fields": [
+            "title"
+          ]
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/fields",
+          "message": "a submit link needs the required field owner"
+        },
+        {
+          "path": "/share/0/fields",
+          "message": "a submit link needs the required field bug"
+        }
+      ]
+    },
+    {
+      "name": "an optional ref is only dropped; a view link may read a kind with required refs",
+      "share": [
+        {
+          "name": "a",
+          "mode": "submit",
+          "kind": "note"
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "ticket"
+        }
+      ],
+      "issues": []
+    },
+    {
+      "name": "a required list of files is a required file field",
+      "share": [
+        {
+          "name": "a",
+          "mode": "submit",
+          "kind": "album"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/kind",
+          "message": "a submit link cannot fill a required file field"
         }
       ]
     }

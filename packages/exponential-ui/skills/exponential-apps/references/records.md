@@ -384,8 +384,9 @@ links an owner can turn on; nothing is public until one does.
   and underscores (24 at most), unique. `mode` = `submit` or `view`. `kind` =
   a declared kind.
 - `fields` = the fields the link exposes, in order; default every field but
-  files. A file field is refused; a `submit` link must name every required
-  field, and cannot fill a required file field.
+  files and refs. A file or ref field is refused (a guest has no picker for
+  a member, an issue or another record); a `submit` link must name every
+  required field, and cannot fill a required file or ref field.
 - `query` (view only) = a package query of the kind. `expires` = whole days
   from enabling, 1 to 3650; default never.
 - **submit:** a guest fills one RecordForm and creates exactly one record,
