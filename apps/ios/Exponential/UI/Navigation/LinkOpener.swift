@@ -258,7 +258,7 @@ enum LinkOpener {
             let row = session(sessionId, pool: pool)
             return Target(
                 found: row != nil, teamId: row?.teamId ?? teamId,
-                destination: .push(.planPage(accountId: accountId, sessionId: sessionId, messageId: messageId), over: nil)
+                destination: .push(AppRoute.openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps), over: nil)
             )
         case let .thread(_, threadId):
             let row = session(threadId, pool: pool)

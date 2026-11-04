@@ -132,7 +132,11 @@ class WebLinkResolver @Inject constructor(
         is AppLink.Board -> db.boardDao().observeBySlug(teamId, link.boardSlug).first()?.let { LinkDestination.Board(it.id) }
         is AppLink.Session -> conversation(db, link.teamSlug, link.sessionId, sessionPath = true)
         is AppLink.Thread -> conversation(db, link.teamSlug, link.threadId, sessionPath = false)
-        is AppLink.Plan -> db.sessionDao().findIdByTeamRef(link.teamSlug, link.sessionId)?.let { LinkDestination.Plan(it, link.messageId) }
+        // #EXP-1662: a plan is a tab of its session's root.
+        is AppLink.Plan -> db.sessionDao().findIdByTeamRef(link.teamSlug, link.sessionId)?.let { id ->
+            val root = db.sessionDao().getById(id)?.rootId?.takeIf { it.isNotEmpty() } ?: id
+            LinkDestination.Plan(root, link.messageId)
+        }
         is AppLink.Threads -> LinkDestination.Threads
         is AppLink.Agent -> db.agentDefinitionDao().observeById(link.agentId).first()
             ?.takeIf { it.teamId == teamId }
