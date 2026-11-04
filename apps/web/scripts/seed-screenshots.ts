@@ -89,6 +89,7 @@ import {
 import { deleteObject } from "@/lib/storage"
 import { generateWidgetKey } from "@/lib/widget/key"
 import { seedDemoGuidePictures } from "./lib/demo-guide-pictures"
+import { seedSampleApps } from "./lib/demo-sample-apps"
 import {
   assertDemoLiveSessions,
   DEMO_LIVE_SESSIONS,
@@ -779,7 +780,7 @@ async function seedSessionTree(ctx: {
           identifier: { path: `identifier` },
           title: { path: `title` },
           pressable: true,
-          chevron: `always`,
+          chevron: `right`,
           on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
         }
       )
@@ -816,7 +817,7 @@ async function seedSessionTree(ctx: {
                     identifier: { path: `identifier` },
                     title: { path: `title` },
                     pressable: true,
-                    chevron: `always`,
+                    chevron: `right`,
                     on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
                   },
                 ],
@@ -894,6 +895,9 @@ async function seedSessionTree(ctx: {
       description: `Your hours per day, a month at a time: log them, see the total against the target, keep the issues you worked on.`,
       package: hoursPackage(`1.4.0`),
       headVersion: 5,
+      // VAPP-242: v5 is live, so the run view has something to run (`app-run`).
+      publishedVersion: 5,
+      publishedBy: demoId,
       // VAPP-120: nothing granted yet: "Post to the issue" asks with the
       // operation's words on every platform (the consent card shots); the
       // settings page shows the declared action with its switch off.
@@ -910,8 +914,13 @@ async function seedSessionTree(ctx: {
       icon: `chart-line`,
       color: `#0ea5e9`,
       description: `Open feedback, this week's rollout and the newest reports at a glance.`,
-      package: appPackage(`1.2.0`),
+      // eApps V1: v2 runs, v3 is the head's draft: the Publish button and the
+      // Versions page's read-only Preview have a subject.
+      package: appPackage(`1.1.0`),
+      draftPackage: appPackage(`1.2.0`),
       headVersion: 3,
+      publishedVersion: 2,
+      publishedBy: demoId,
       createdBy: demoId,
       createdAt: daysAgo(9),
       updatedAt: daysAgo(8),
@@ -984,7 +993,17 @@ async function seedSessionTree(ctx: {
   // VAPP-122: the Working hours records: the demo user's October (26.5 h, the
   // spreadsheet it replaces), two September days (the month switcher), the
   // target, and two of Jonas's days (`mine` keeps them out of the view).
-  const entry = (id: string, by: string, date: string, hours: number, note: string, issues: string[] = []) => ({
+  // The dates are written against October 2026; shift them with the clock so
+  // the run view always opens on a month with data.
+  const entryDate = (date: string) => {
+    const now = new Date()
+    const d = new Date(`${date}T00:00:00Z`)
+    d.setUTCMonth(d.getUTCMonth() + (now.getUTCFullYear() - 2026) * 12 + now.getUTCMonth() - 9)
+    return d.toISOString().slice(0, 10)
+  }
+  const entry = (id: string, by: string, rawDate: string, hours: number, note: string, issues: string[] = []) => {
+    const date = entryDate(rawDate)
+    return ({
     id,
     appId: DEMO_APP_ID,
     teamId,
@@ -995,7 +1014,8 @@ async function seedSessionTree(ctx: {
     updatedBy: by,
     createdAt: new Date(`${date}T18:00:00Z`),
     updatedAt: new Date(`${date}T18:00:00Z`),
-  })
+    })
+  }
   await db.insert(appRecords).values([
     entry(DEMO_APP_RECORD_IDS[0], demoId, `2026-10-05`, 3, `leaderboard, meet`, [`APP-3`]),
     entry(DEMO_APP_RECORD_IDS[1], demoId, `2026-10-09`, 3, `academy hiding, mcp`, [`APP-6`]),
@@ -1023,6 +1043,13 @@ async function seedSessionTree(ctx: {
       updatedAt: DEMO_APP_CHAT_TIMES.second,
     },
   ])
+  // eApps R8: v3's record sweep is under way (the Versions line, `app-versions`).
+  await db
+    .update(appVersions)
+    .set({ migrationState: `running`, migrationTotal: 40, migrationDone: 12 })
+    .where(and(eq(appVersions.appId, DEMO_APP_DASHBOARD_ID), eq(appVersions.number, 3)))
+  // VAPP-242/243: the rich apps (samples/apps + Ops desk).
+  await seedSampleApps(teamId, demoId)
 
   // ── the thread roots ───────────────────────────────────────────────────
   const batchGuide = [

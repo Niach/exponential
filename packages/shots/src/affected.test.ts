@@ -690,11 +690,13 @@ describe(`fail-safe`, () => {
     // Agent page a dev screen (`chat`, `chat?issues=…`, `chat?action=…`). With
     // none left, a hole in the desktop store is a real hole again — never a
     // hand capture nobody will make — so nothing may be marked manual without
-    // a reason written next to it.
+    // a reason written next to it. The six below are states inside a running
+    // app's painted surface (a form, a toast, a scrolled pane), which no
+    // `EXP_DEV_*` drive reaches yet: each view's `notes.desktop` is the recipe.
     const manual = viewsFor(`desktop`)
       .filter((view) => view.desktop?.drive.kind === `manual`)
       .map((view) => view.id)
-    expect(manual).toEqual([])
+    expect(manual.sort()).toEqual([`app-csv-import`, `app-record-form`, `app-record-history`, `app-record-undo`, `app-settings-automations`, `app-version-preview`])
     expect(viewById(`chat`)?.desktop?.drive).toEqual({ kind: `screen`, value: `chat` })
     // A diff that names it attributes to it like any other view.
     const named = affectedScope({

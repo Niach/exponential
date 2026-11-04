@@ -36,7 +36,12 @@ import XCTest
 ///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
 ///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
 ///   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
-///   sg_app-run (VAPP-242)
+///   sg_app-run (VAPP-242) ·
+///   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
+///   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview ·
+///   sg_app-settings-links · sg_app-settings-automations ·
+///   sg_app-csv-import · sg_app-record-history · sg_app-record-undo ·
+///   sg_team-avatar · sg_device-attention
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -244,8 +249,13 @@ final class StyleguideScreenshots: XCTestCase {
         // VAPP-178: sg_app-data (the editor's Data segment).
         // VAPP-242: sg_app-run (a row tap RUNS the app; the editor = … › Edit app).
         if ["sg_apps", "sg_app-run", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft", "sg_app-versions", "sg_app-settings", "sg_app-data"]
-            .map(ScreenshotShots.isWanted).contains(true) {
+            .map(ScreenshotShots.isWanted).contains(true) || Self.richAppShots.map(ScreenshotShots.isWanted).contains(true) {
             walkApps(app)
+        }
+        // The rich demo apps (CRM, Leave planner, Ops desk) + Team dashboard's
+        // publish states: walkRichApps ends on the Apps list.
+        if Self.richAppShots.map(ScreenshotShots.isWanted).contains(true) {
+            walkRichApps(app)
         }
 
         // Switch to the Board tab for the board.
@@ -1165,7 +1175,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness", "session-xref", "story-ring", "story-viewer",
         "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
-        "team-avatar", "share-targets", "share-composer", "composer-add-file",
+        "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
     ]
 
     /// EXP-1635: the entries whose capture-only screen has another name.
@@ -1213,8 +1223,9 @@ final class StyleguideScreenshots: XCTestCase {
             case "session-row": snapshot("sg_session-row", settle: 2)
             // #EXP-1611: the four Merge pills + the open Checks submenu.
             case "pr-checks": snapshot("sg_pr-checks", settle: 2)
-            // #EXP-1645: the team mark and the General row.
+            // #EXP-1645 / #EXP-1643: the specimens of states no seed draws.
             case "team-avatar": snapshot("sg_team-avatar", settle: 2)
+            case "device-attention": snapshot("sg_device-attention", settle: 2)
             // EXP-1635: the share flow's two steps + the + menu's sub-choice.
             case "share-targets": snapshot("sg_share-targets", settle: 2)
             case "share-composer": snapshot("sg_share-composer", settle: 2)
@@ -1233,6 +1244,210 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.launch,
             "The \(card) screen never opened — is -uiTestingStyleguide wired?"
         )
+    }
+
+    /// The rich demo apps' shots (`demo-sample-apps.ts`, walkRichApps).
+    private static let richAppShots = [
+        "sg_app-record-table", "sg_app-record-form", "sg_app-calendar", "sg_app-timeline", "sg_app-connect",
+        "sg_app-settings-links", "sg_app-settings-automations",
+        "sg_app-publish", "sg_app-versions-sweep", "sg_app-version-preview",
+        "sg_app-csv-import", "sg_app-record-history", "sg_app-record-undo",
+    ]
+
+    /// From the Apps list, back to it: CRM's RecordTable + RecordForm, Leave
+    /// planner's Calendar + Timeline, Ops desk's Connect banner + Settings,
+    /// Team dashboard's Publish + sweep + version preview (Publish is never
+    /// pressed: it would supersede the seeded sweep), then CRM's Data tab:
+    /// the CSV import (cancelled), a record's History, and LAST a delete's
+    /// Undo toast, whose Undo brings the record back. The surface's own
+    /// controls carry no test ids, only their labels.
+    @MainActor
+    private func walkRichApps(_ app: XCUIApplication) {
+        let wanted = { (names: [String]) in names.map(ScreenshotShots.isWanted).contains(true) }
+
+        if wanted(["sg_app-record-table", "sg_app-record-form"]) {
+            openAppRun(app, slug: "crm")
+            openAppScreen(app, "contacts")
+            expect(app.staticTexts["Ada Novak"], within: Wait.sync, "CRM Contacts drew no seeded contact")
+            snapshot("sg_app-record-table", settle: 2)
+            if ScreenshotShots.isWanted("sg_app-record-form") {
+                let add = app.buttons["Add"].firstMatch
+                expect(add, within: Wait.nav, "CRM Contacts has no Add")
+                add.tap()
+                let save = app.buttons["Save"].firstMatch
+                expect(save, within: Wait.nav, "Add opened no record form")
+                snapshot("sg_app-record-form", settle: 2)
+                app.buttons["Cancel"].firstMatch.tap()
+                _ = save.waitForNonExistence(timeout: Wait.nav)
+            }
+            goBack(app)
+            settle(1)
+        }
+
+        if wanted(["sg_app-calendar", "sg_app-timeline"]) {
+            openAppRun(app, slug: "leave-planner")
+            // The Page's subtitle: the shown month (the seed moves the sample's leave into it).
+            let month = DateFormatter()
+            month.locale = Locale(identifier: "en_US")
+            month.dateFormat = "MMMM yyyy"
+            expect(anyElement(app, containing: month.string(from: Date())), within: Wait.sync, "Leave planner drew no Calendar")
+            snapshot("sg_app-calendar", settle: 2)
+            if ScreenshotShots.isWanted("sg_app-timeline") {
+                openAppScreen(app, "timeline")
+                expect(app.staticTexts["Who is out"], within: Wait.sync, "Leave planner drew no Timeline")
+                snapshot("sg_app-timeline", settle: 2)
+            }
+            goBack(app)
+            settle(1)
+        }
+
+        if wanted(["sg_app-connect", "sg_app-settings-links", "sg_app-settings-automations"]) {
+            openAppRun(app, slug: "ops-desk")
+            expect(anyElement(app, identified: "exponential-ui-upstream-connect"), within: Wait.network, "Ops desk raised no Connect banner")
+            snapshot("sg_app-connect", settle: 2)
+            if wanted(["sg_app-settings-links", "sg_app-settings-automations"]) {
+                let runMenu = anyElement(app, identified: "app-run-menu")
+                expect(runMenu, within: Wait.nav, "Ops desk's run view has no … menu")
+                runMenu.tap()
+                let editItem = anyElement(app, identified: "app-menu-edit")
+                expect(editItem, within: Wait.nav, "Ops desk's menu has no Edit app")
+                editItem.tap()
+                let menu = anyElement(app, identified: "app-editor-menu")
+                expect(menu, within: Wait.sync, "Ops desk's editor has no … menu")
+                menu.tap()
+                let settingsItem = anyElement(app, identified: "app-menu-settings")
+                expect(settingsItem, within: Wait.nav, "Ops desk's editor menu has no Settings")
+                settingsItem.tap()
+                let sheet = anyElement(app, identified: "app-editor-settings")
+                expect(sheet, within: Wait.sync, "Ops desk's Settings sheet never opened")
+                expect(anyElement(app, identified: "app-settings-share-links"), within: Wait.network, "Ops desk's Settings drew no Public links")
+                snapshot("sg_app-settings-links", settle: 2)
+                if ScreenshotShots.isWanted("sg_app-settings-automations") {
+                    // Inside the sheet's scroller, down to its last groups.
+                    let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+                    from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+                    expect(anyElement(app, identified: "app-settings-webhooks"), within: Wait.nav, "Ops desk's Settings drew no Webhooks")
+                    snapshot("sg_app-settings-automations", settle: 2)
+                }
+                dismissSheet(app, whileVisible: sheet)
+                goBack(app)
+                settle(1)
+            }
+            goBack(app)
+            settle(1)
+        }
+
+        if wanted(["sg_app-publish", "sg_app-versions-sweep", "sg_app-version-preview"]) {
+            openAppEditor(app, slug: "team-dashboard")
+            let menu = anyElement(app, identified: "app-editor-menu")
+            expect(menu, within: Wait.sync, "Team dashboard's editor has no … menu")
+            menu.tap()
+            let publish = anyElement(app, identified: "app-editor-publish")
+            expect(publish, within: Wait.nav, "Team dashboard's menu has no Publish: is its head ahead of the published version?")
+            snapshot("sg_app-publish", settle: 2)
+            let versionsItem = anyElement(app, identified: "app-menu-versions")
+            expect(versionsItem, within: Wait.nav, "Team dashboard's menu has no Versions")
+            versionsItem.tap()
+            let versions = anyElement(app, identified: "app-editor-versions")
+            expect(versions, within: Wait.sync, "Team dashboard's Versions never opened")
+            expect(anyElement(app, containing: "Migrating records"), within: Wait.sync, "Versions drew no sweep line: reseed (a Publish supersedes it)")
+            snapshot("sg_app-versions-sweep", settle: 2)
+            if ScreenshotShots.isWanted("sg_app-version-preview") {
+                let preview = anyElement(app, identified: "app-version-preview")
+                expect(preview, within: Wait.nav, "Versions has no Preview row")
+                preview.tap()
+                expect(anyElement(app, identified: "app-editor-viewing"), within: Wait.sync, "Preview opened no viewing banner")
+                snapshot("sg_app-version-preview", settle: 3)
+            } else {
+                dismissSheet(app, whileVisible: versions)
+            }
+            goBack(app)
+            settle(1)
+        }
+
+        if wanted(["sg_app-csv-import", "sg_app-record-history", "sg_app-record-undo"]) {
+            openAppEditor(app, slug: "crm")
+            let dataTab = anyElement(app, identified: "app-editor-tabs-data")
+            expect(dataTab, within: Wait.sync, "CRM's editor has no Data tab")
+            dataTab.tap()
+            expect(anyElement(app, identified: "app-data-row"), within: Wait.sync, "CRM's Data tab drew no record")
+            if ScreenshotShots.isWanted("sg_app-csv-import") {
+                let importButton = anyElement(app, identified: "app-data-import")
+                expect(importButton, within: Wait.nav, "The Data tab has no Import…")
+                importButton.tap()
+                let field = anyElement(app, identified: "app-csv-text")
+                expect(field, within: Wait.nav, "Import… opened no CSV field")
+                focus(field)
+                field.typeText("name,stage,domain\nInitech,lead,initech.example\nUmbrella,active,umbrella.example\nHooli,nosuch,hooli.example")
+                dismissKeyboard(app)
+                expect(anyElement(app, identified: "app-csv-preview"), within: Wait.nav, "The pasted CSV drew no preview")
+                snapshot("sg_app-csv-import", settle: 2)
+                anyElement(app, identified: "app-csv-cancel").tap()
+                _ = field.waitForNonExistence(timeout: Wait.nav)
+            }
+            let rowMenus = app.buttons.matching(identifier: "app-data-row-menu")
+            if ScreenshotShots.isWanted("sg_app-record-history") {
+                rowMenus.firstMatch.tap()
+                let edit = anyElement(app, identified: "app-data-menu-edit")
+                expect(edit, within: Wait.nav, "A Data row's menu has no Edit")
+                edit.tap()
+                expect(anyElement(app, identified: "app-data-history-row"), within: Wait.sync, "The record form drew no History row")
+                snapshot("sg_app-record-history", settle: 2)
+                let cancel = anyElement(app, identified: "app-data-cancel")
+                cancel.tap()
+                _ = cancel.waitForNonExistence(timeout: Wait.nav)
+            }
+            if ScreenshotShots.isWanted("sg_app-record-undo") {
+                let rows = rowMenus.count
+                rowMenus.element(boundBy: rows - 1).tap()
+                let delete = anyElement(app, identified: "app-data-menu-delete")
+                expect(delete, within: Wait.nav, "A Data row's menu has no Delete")
+                delete.tap()
+                let confirm = anyElement(app, identified: "glass-alert-app-data-delete-confirm")
+                expect(confirm, within: Wait.nav, "Delete raised no confirm prompt")
+                confirm.tap()
+                let undo = app.buttons["Undo"].firstMatch
+                expect(undo, within: Wait.nav, "The delete raised no Undo toast")
+                snapshot("sg_app-record-undo", settle: 1)
+                undo.tap()
+                let restored = NSPredicate(format: "count == %d", rows)
+                let back = expectation(for: restored, evaluatedWith: rowMenus)
+                if XCTWaiter().wait(for: [back], timeout: Wait.sync) != .completed {
+                    XCTFail("Undo did not bring the deleted record back: \(rowMenus.count) rows of \(rows)")
+                }
+            }
+            goBack(app)
+            settle(1)
+        }
+    }
+
+    /// An Apps list row's tap: the app's run view.
+    @MainActor
+    private func openAppRun(_ app: XCUIApplication, slug: String) {
+        let row = anyElement(app, identified: "apps-row-\(slug)")
+        expect(row, within: Wait.sync, "The Apps list has no \(slug) row: reseed with `bun run seed:screenshots`")
+        row.tap()
+        expect(anyElement(app, identified: "app-run"), within: Wait.sync, "The \(slug) row opened no run view")
+    }
+
+    /// An Apps list row's … › Edit app: the app's editor.
+    @MainActor
+    private func openAppEditor(_ app: XCUIApplication, slug: String) {
+        let menu = anyElement(app, identified: "apps-row-menu-\(slug)")
+        expect(menu, within: Wait.sync, "The Apps list has no \(slug) row: reseed with `bun run seed:screenshots`")
+        menu.tap()
+        let edit = anyElement(app, identified: "app-menu-edit")
+        expect(edit, within: Wait.nav, "The \(slug) row's menu has no Edit app")
+        edit.tap()
+        expect(anyElement(app, identified: "app-editor-tabs"), within: Wait.sync, "The \(slug) editor drew no tabs")
+    }
+
+    /// The run view's tab bar (`previewScreens`): one screen.
+    @MainActor
+    private func openAppScreen(_ app: XCUIApplication, _ screen: String) {
+        let tab = anyElement(app, identified: "app-editor-preview-screens-\(screen)")
+        expect(tab, within: Wait.sync, "The run view has no \(screen) screen")
+        tab.tap()
     }
 
     /// VAPP-110: the Apps TAB (#EXP-1384) → the list (gated on the seeded
@@ -1423,6 +1638,7 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.network,
             "The import step never listed the server's /package issue"
         )
+        dismissKeyboard(app)
         snapshot("sg_app-import", settle: 2)
         dismissSheet(app, whileVisible: app.staticTexts["Import an app"])
         settle(1)
