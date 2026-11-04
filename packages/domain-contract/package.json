@@ -26,6 +26,7 @@
     "./script-card": "./src/script-card.ts",
     "./home-greeting": "./src/home-greeting.ts",
     "./composer-send": "./src/composer-send.ts",
+    "./share-targets": "./src/share-targets.ts",
     "./composer-agent-row": "./src/composer-agent-row.ts",
     "./devices-list": "./src/devices-list.ts",
     "./work-screen": "./src/work-screen.ts",

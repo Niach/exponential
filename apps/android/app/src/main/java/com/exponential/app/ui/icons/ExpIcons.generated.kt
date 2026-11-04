@@ -9320,6 +9320,7 @@ public object ExpIcons {
         "ui-avatar-placeholder" -> `user`
         "ui-back" -> `arrow-left`
         "ui-branch" -> `git-branch`
+        "ui-camera" -> `camera`
         "ui-check" -> `check`
         "ui-checklist" -> `list-checks`
         "ui-chevron-down" -> `chevron-down`
@@ -9378,6 +9379,7 @@ public object ExpIcons {
         "ui-organization" -> `building-2`
         "ui-owner" -> `crown`
         "ui-permission" -> `shield-question-mark`
+        "ui-photos" -> `images`
         "ui-pin" -> `pin`
         "ui-print" -> `printer`
         "ui-private" -> `lock`
@@ -9819,6 +9821,8 @@ public object ExpIcons {
     public val uiBack: ImageVector get() = `arrow-left`
     /** Concept `ui-branch`. */
     public val uiBranch: ImageVector get() = `git-branch`
+    /** Concept `ui-camera`. */
+    public val uiCamera: ImageVector get() = `camera`
     /** Concept `ui-check`. */
     public val uiCheck: ImageVector get() = `check`
     /** Concept `ui-checklist`. */
@@ -9935,6 +9939,8 @@ public object ExpIcons {
     public val uiOwner: ImageVector get() = `crown`
     /** Concept `ui-permission`. */
     public val uiPermission: ImageVector get() = `shield-question-mark`
+    /** Concept `ui-photos`. */
+    public val uiPhotos: ImageVector get() = `images`
     /** Concept `ui-pin`. */
     public val uiPin: ImageVector get() = `pin`
     /** Concept `ui-print`. */

@@ -1,0 +1,90 @@
+{
+  "$comment": "EXP-1635 (owner 2026-11-04): SHARING INTO EXPONENTIAL ×3 (iOS `ShareExtension`, Android `ui/share`, web `/share` behind the PWA manifest's `share_target`; the desktop has no share surface). Model = pure `shareTargets` + `shareChatText` + `directShareEntries` + `parseDirectShareId` (src/share-targets.ts; iOS ExpCore `ShareTargets.swift`, Android `domain/ShareTargets.kt`), every mirror replays the `*Cases`. STEP 1, the SHARE TO page (`copy.title`): a preview line (the shared images' thumbnails + `copy.imagesOne`/`copy.imagesMany`, no line for a text-only share), then one Section of plain Rows, `new-issue` (`icons.newIssue`) then `new-chat` (`copy.newChat`, subtitle `copy.newChatSubtitle`, `icons.newChat` = the agent row's dotted circle), then a Section titled `copy.agents` holding one Row per agent in agent-settings.json `orderedAgents` order (the Assistant first, then the team agents the viewer sees; each leads with the chats.json agent bubble; no Section when there are none). Every row has the right chevron. Existing styleguide Rows only: NOT a new component, NOT an Exponential UI primitive. A viewer on more than one team gets the team selector the share flow already has over the rows. STEP 2: `new-issue` = today's share-mode New issue page, unchanged (board picker on top, Back returns to Share to). `new-chat` or an agent = THE composer (composer-home.json: the agent row over the card) prefilled with `shareChatText` and with the images/files as its ordinary pending attachments (the composer's own caps + toasts apply, composer-menu.json `add-file`), the agent row seeded on the pick (`new-chat` = Temporary session). NOTHING is sent until the viewer taps Send. iOS draws that composer card inside the share extension and sends through sessions.send, staying in the sharing app; Android and web draw it on the Agent tab. A Temporary session needs a device: the composer's own default, with the + menu's Device row. DIRECT SHARE (the OS-drawn rows of the system share sheet; iOS `INSendMessageIntent` donations, Android sharing shortcuts): `directShareEntries` = the agents in `orderedAgents` order, then the recent chats newest first (no chat that is already an agent's own conversation), capped at `directShare.maxEntries`. Each carries the id `directShare.agentPrefix` + agent id, or `directShare.chatPrefix` + session id. A share arriving on such an id SKIPS step 1: an agent id opens step 2 seeded on that agent, a chat id opens that chat's composer with the same prefill; an id `parseDirectShareId` rejects, or one naming an agent or chat the viewer no longer sees, falls back to step 1. Web has no direct share. TEXT: `shareChatText` = the trimmed text, then the url on its own paragraph unless the text already holds it; with no images the subject (a link's page title, an email subject) LEADS as its own paragraph unless the text already holds it; with images the subject is dropped (it is a filename, like the issue path's prefill). Android also takes selected text from any app (`ACTION_PROCESS_TEXT`), the same flow with `text` only.",
+  "testIds": {
+    "page": "share-targets",
+    "row": "share-target-{id}",
+    "preview": "share-targets-preview"
+  },
+  "copy": {
+    "title": "Share to",
+    "newIssue": "New issue",
+    "newChat": "New chat",
+    "newChatSubtitle": "Temporary session",
+    "agents": "Agents",
+    "imagesOne": "1 image",
+    "imagesMany": "{n} images"
+  },
+  "ids": {
+    "newIssue": "new-issue",
+    "newChat": "new-chat"
+  },
+  "icons": {
+    "newIssue": "nav-create-issue",
+    "newChat": "ui-icon-placeholder"
+  },
+  "directShare": {
+    "agentPrefix": "share-agent:",
+    "chatPrefix": "share-chat:",
+    "maxEntries": 4
+  },
+  "targetCases": [
+    {
+      "name": "no agents: the two fixed rows only",
+      "input": { "me": "u1", "agents": [] },
+      "expected": { "rows": ["new-issue", "new-chat"], "agents": [] }
+    },
+    {
+      "name": "the Assistant leads, the team agents follow by sortOrder",
+      "input": {
+        "me": "u1",
+        "agents": [
+          { "id": "b", "name": "Support Triage", "sortOrder": 2, "role": "agent", "ownerId": "u2" },
+          { "id": "a", "name": "Release Manager", "sortOrder": 1, "role": "agent", "ownerId": "u2" },
+          { "id": "c", "name": "Assistant", "sortOrder": 9, "role": "assistant", "ownerId": "u1" }
+        ]
+      },
+      "expected": { "rows": ["new-issue", "new-chat"], "agents": ["c", "a", "b"] }
+    }
+  ],
+  "textCases": [
+    { "name": "image only: nothing to prefill", "input": { "hasImages": true }, "expected": "" },
+    { "name": "an image's filename subject is dropped", "input": { "subject": "IMG_0042.png", "hasImages": true }, "expected": "" },
+    { "name": "text is trimmed", "input": { "text": "  look at this \n", "hasImages": false }, "expected": "look at this" },
+    { "name": "a url joins as its own paragraph", "input": { "text": "crash log", "url": "https://example.com/a", "hasImages": true }, "expected": "crash log\n\nhttps://example.com/a" },
+    { "name": "a url the text holds is not repeated", "input": { "text": "see https://example.com/a now", "url": "https://example.com/a", "hasImages": false }, "expected": "see https://example.com/a now" },
+    { "name": "a link's page title leads", "input": { "subject": "Crash report", "text": "https://example.com/a", "hasImages": false }, "expected": "Crash report\n\nhttps://example.com/a" },
+    { "name": "a subject the text holds does not lead", "input": { "subject": "Crash report", "text": "Crash report from today", "hasImages": false }, "expected": "Crash report from today" },
+    { "name": "url alone", "input": { "url": "https://example.com/a", "hasImages": false }, "expected": "https://example.com/a" }
+  ],
+  "directShareCases": [
+    {
+      "name": "agents first, then recent chats newest first, capped",
+      "input": {
+        "me": "u1",
+        "agents": [
+          { "id": "a", "name": "Release Manager", "sortOrder": 1, "role": "agent", "ownerId": "u2" },
+          { "id": "c", "name": "Assistant", "sortOrder": 9, "role": "assistant", "ownerId": "u1" }
+        ],
+        "chats": [
+          { "id": "s1", "title": "Older", "updatedAt": "2026-11-01T10:00:00.000Z", "agentId": null },
+          { "id": "s2", "title": "Fix login crash", "updatedAt": "2026-11-03T10:00:00.000Z", "agentId": null },
+          { "id": "s3", "title": "Agent conversation", "updatedAt": "2026-11-04T10:00:00.000Z", "agentId": "a" },
+          { "id": "s4", "title": "Newest", "updatedAt": "2026-11-04T11:00:00.000Z", "agentId": null },
+          { "id": "s5", "title": "Cut off", "updatedAt": "2026-10-01T10:00:00.000Z", "agentId": null }
+        ]
+      },
+      "expected": [
+        { "id": "share-agent:c", "title": "Assistant" },
+        { "id": "share-agent:a", "title": "Release Manager" },
+        { "id": "share-chat:s4", "title": "Newest" },
+        { "id": "share-chat:s2", "title": "Fix login crash" }
+      ]
+    }
+  ],
+  "parseCases": [
+    { "name": "an agent id", "input": "share-agent:a1", "expected": { "kind": "agent", "id": "a1" } },
+    { "name": "a chat id", "input": "share-chat:s1", "expected": { "kind": "chat", "id": "s1" } },
+    { "name": "an empty id", "input": "share-agent:", "expected": null },
+    { "name": "a foreign id", "input": "pinned:1", "expected": null }
+  ]
+}
