@@ -737,3 +737,14 @@ public final class InstallSteerCarrier: SteerEnetCarrier {
 public protocol SteerEndpointLookup: Sendable {
     func forSession(accountId: String, sessionId: String) async throws -> [SteerEndpoint]
 }
+
+private struct InstallsSessionInput: Encodable { let sessionId: String }
+
+// Here, not in `InstallsApi.swift`: the share extension compiles that file
+// without eNet.
+extension InstallsApi: SteerEndpointLookup {
+    /// VAPP-33: the installs of the machine running `sessionId`, newest first.
+    public func forSession(accountId: String, sessionId: String) async throws -> [SteerEndpoint] {
+        try await trpc.query(accountId: accountId, path: "installs.forSession", input: InstallsSessionInput(sessionId: sessionId))
+    }
+}

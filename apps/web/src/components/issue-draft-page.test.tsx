@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@exp/ui"
@@ -50,6 +51,7 @@ const filesView = vi.hoisted(() => ({
   onAttach: null as null | ((files: File[]) => Promise<void> | void),
 }))
 const uploads = vi.hoisted(() => ({ uploadDraftAttachment: vi.fn() }))
+const pendingShare = vi.hoisted(() => ({ clear: vi.fn(async () => {}) }))
 
 vi.mock(`@exp/ui`, async (importOriginal) => {
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -117,6 +119,11 @@ vi.mock(`@/hooks/use-detail-chrome`, () => ({
 }))
 vi.mock(`@/components/issue-editor/markdown-editor`, () => ({
   MarkdownEditor: () => null,
+  partitionUploadFiles: (files: File[]) => ({
+    images: files.filter((file) => file.type.startsWith(`image/`)),
+    media: [],
+    others: files.filter((file) => !file.type.startsWith(`image/`)),
+  }),
 }))
 vi.mock(`@/components/issue-files-section`, () => ({
   FilesSectionView: (props: { onAttach: typeof filesView.onAttach }) => {
@@ -128,6 +135,10 @@ vi.mock(`@/components/issue-properties-panel`, () => ({
   IssuePropertiesPanel: () => null,
 }))
 vi.mock(`@/lib/storage/issue-image-upload`, () => uploads)
+vi.mock(`@/lib/share/pending-share`, async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  clearPendingShare: pendingShare.clear,
+}))
 vi.mock(`@/lib/storage/media-upload`, () => ({
   mediaPlayabilityHint: () => null,
   prepareMediaUpload: vi.fn(),
@@ -136,7 +147,7 @@ vi.mock(`@/lib/storage/media-upload`, () => ({
 
 const board = { id: `b1`, slug: `web`, prefix: `WEB` } as Board
 
-function renderPage() {
+function renderPage(props: Partial<ComponentProps<typeof IssueDraftPage>> = {}) {
   return render(
     <TooltipProvider>
       <IssueDraftPage
@@ -147,6 +158,7 @@ function renderPage() {
       users={[]}
       labels={[]}
       initialBoardId="b1"
+      {...props}
       />
     </TooltipProvider>
   )
@@ -266,6 +278,58 @@ describe(`IssueDraftPage files`, () => {
       filename: `mock.png`,
       asFile: true,
     })
+  })
+})
+
+describe(`IssueDraftPage from a share (EXP-1635)`, () => {
+  const png = new File([`x`], `shot.png`, { type: `image/png` })
+  const pdf = new File([`x`], `notes.pdf`, { type: `application/pdf` })
+  const share = { title: ``, text: `Crash\nstack`, url: ``, files: [png, pdf] }
+
+  beforeEach(() => {
+    pendingShare.clear.mockClear()
+    uploads.uploadDraftAttachment.mockReset()
+    uploads.uploadDraftAttachment.mockImplementation(async (_id: string, file: File) => ({
+      id: `att-${file.name}`,
+      filename: file.name,
+      contentType: file.type,
+      sizeBytes: 1,
+      url: `/api/attachments/att-${file.name}`,
+    }))
+    editor.addFile.mockReset()
+  })
+
+  it(`prefills a fresh draft, the files through the page's own upload path, once`, async () => {
+    renderPage({ fromShare: true, share })
+    expect(editor.options).toMatchObject({ initialTitle: `Crash`, initialDescription: `stack` })
+    await waitFor(() => expect(editor.addFile).toHaveBeenCalledTimes(1))
+    expect(uploads.uploadDraftAttachment).toHaveBeenCalledTimes(2)
+    expect(uploads.uploadDraftAttachment).toHaveBeenCalledWith(`d1`, png)
+    expect(uploads.uploadDraftAttachment).toHaveBeenCalledWith(`d1`, pdf, undefined)
+    expect(editor.addFile.mock.calls[0][0]).toMatchObject({ filename: `notes.pdf` })
+  })
+
+  it(`a reopened draft keeps its own row`, () => {
+    renderPage({ fromShare: true, share, draft: { id: `d1` } as never })
+    expect(editor.options).toMatchObject({ initialTitle: undefined, initialDescription: undefined })
+    expect(uploads.uploadDraftAttachment).not.toHaveBeenCalled()
+  })
+
+  it(`Back returns to Share to, the share still pending`, () => {
+    mobileState.mobile = true
+    renderPage({ fromShare: true, share })
+    fireEvent.click(screen.getByRole(`button`, { name: `Back` }))
+    expect(navigate).toHaveBeenCalledWith({ to: `/share`, ignoreBlocker: false })
+    expect(pendingShare.clear).not.toHaveBeenCalled()
+  })
+
+  it(`a filed issue ends the share`, async () => {
+    editor.create.mockResolvedValue({ id: `i1`, identifier: `WEB-1`, boardId: `b1` })
+    renderPage({ fromShare: true, share })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`issue-draft-create`))
+    })
+    expect(pendingShare.clear).toHaveBeenCalledOnce()
   })
 })
 

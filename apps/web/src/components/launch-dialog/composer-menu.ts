@@ -66,6 +66,24 @@ export function composerMenuRowTestId(id: ComposerMenuRowId): string {
   return fixture.testIds.row.replace(`{id}`, id)
 }
 
+/** EXP-1635: what add-file offers on a phone. */
+export type ComposerFileChoiceId = `camera` | `photos` | `file`
+
+export interface ComposerFileChoice {
+  id: ComposerFileChoiceId
+  label: string
+  /** A concept id (`packages/icons/icons.json`). */
+  icon: string
+}
+
+/** EXP-1635 (`addFile.phoneChoices`): add-file's sub-choice on a phone; a
+ *  pointer goes straight to the file chooser. */
+export const COMPOSER_FILE_CHOICES = fixture.addFile.phoneChoices as readonly ComposerFileChoice[]
+
+export function composerFileChoiceTestId(id: ComposerFileChoiceId): string {
+  return fixture.testIds.row.replace(`{id}`, `add-file-${id}`)
+}
+
 /** The rows the "+" shows on `surface` under `conditions` (a row's `when` =
  *  one condition or a list, all must hold), separators tidied (never
  *  leading, trailing or doubled). */

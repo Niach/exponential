@@ -615,6 +615,7 @@ public enum AppIcons {
         "ui-avatar-placeholder": "user",
         "ui-back": "arrow-left",
         "ui-branch": "git-branch",
+        "ui-camera": "camera",
         "ui-check": "check",
         "ui-checklist": "list-checks",
         "ui-chevron-down": "chevron-down",
@@ -673,6 +674,7 @@ public enum AppIcons {
         "ui-organization": "building-2",
         "ui-owner": "crown",
         "ui-permission": "shield-question-mark",
+        "ui-photos": "images",
         "ui-pin": "pin",
         "ui-print": "printer",
         "ui-private": "lock",
@@ -1119,6 +1121,8 @@ public enum AppIcons {
     public static let uiBack: String = "arrow-left"
     /// Concept `ui-branch`.
     public static let uiBranch: String = "git-branch"
+    /// Concept `ui-camera`.
+    public static let uiCamera: String = "camera"
     /// Concept `ui-check`.
     public static let uiCheck: String = "check"
     /// Concept `ui-checklist`.
@@ -1235,6 +1239,8 @@ public enum AppIcons {
     public static let uiOwner: String = "crown"
     /// Concept `ui-permission`.
     public static let uiPermission: String = "shield-question-mark"
+    /// Concept `ui-photos`.
+    public static let uiPhotos: String = "images"
     /// Concept `ui-pin`.
     public static let uiPin: String = "pin"
     /// Concept `ui-print`.

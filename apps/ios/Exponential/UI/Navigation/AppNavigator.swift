@@ -336,6 +336,12 @@ struct AppNavigator: View {
         )) {
             StorySpecimensScreen(kind: UITestingStyleguide.requested ?? "story-ring")
         }
+        // EXP-1635: the share extension's pages + the attach menu (capture only).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(ShareSpecimens.kinds.contains) == true
+        )) {
+            ShareSpecimens(kind: UITestingStyleguide.requested ?? "share-to")
+        }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
 
@@ -418,6 +424,8 @@ struct MainNavigator: View {
     /// EXP-1212: a New issue page with content holds every path change below.
     @State private var draftLeaveGuard = IssueDraftLeaveGuard()
     @State private var boardLoader: MultiAccountBoardLoader?
+    /// EXP-1635: the share extension's mirror and the direct-share donations.
+    @State private var shareTargets: ShareTargetsPublisher?
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     /// EXP-1373: the team of every unread notification the inbox can render
@@ -521,6 +529,8 @@ struct MainNavigator: View {
             }
             if boardLoader == nil {
                 boardLoader = MultiAccountBoardLoader(auth: deps.auth, db: deps.db)
+                shareTargets = ShareTargetsPublisher(auth: deps.auth, db: deps.db)
+                shareTargets?.refresh()
             }
             if teamLoader == nil {
                 teamLoader = MultiAccountTeamLoader(auth: deps.auth, db: deps.db)
@@ -538,6 +548,7 @@ struct MainNavigator: View {
         .onChange(of: deps.auth.accounts) { _, _ in
             boardLoader?.refresh()
             teamLoader?.refresh()
+            shareTargets?.refresh()
         }
         // Defense-in-depth against a split binding. `.id(activeAccountId)` on
         // this navigator (AppNavigator) normally recreates the whole view on an

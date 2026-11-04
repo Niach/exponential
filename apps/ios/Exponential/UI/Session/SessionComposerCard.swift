@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 // ring) and the round send glyph; a send is ONE `sessions.send({sessionId,
 // text, attachmentIds})` after every pick uploaded to the session once.
 // S-3 (composer-menu.json, surface session | agent): with `controls` the `+`
-// opens THE "+" sheet (`ThreadComposerPlusMenu`): Photo or file (THE Photo
+// opens THE "+" sheet (`ThreadComposerPlusMenu`): Photo or file (THE Camera | Photos
 // | File sub-choice), Issue › (a pick inserts `#IDENT` at the caret),
 // Account › (#EXP-1535: the usage wall's session account switch), Model ›
 // (`/model <alias>`). A bare box's `+` is Photo | File.
@@ -234,13 +234,15 @@ extension SessionComposerDraft {
 struct SessionComposerAttach: Equatable {
     var photoPicker = false
     var fileImporter = false
+    /// EXP-1635: the system camera.
+    var camera = false
     var menu = false
     /// S-3: THE "+" sheet (composer-menu.json) is up.
     var plusMenu = false
     var photoItems: [PhotosPickerItem] = []
 
     /// A picker, the menu or a photo load is up.
-    var busy: Bool { photoPicker || fileImporter || menu || plusMenu || !photoItems.isEmpty }
+    var busy: Bool { photoPicker || fileImporter || camera || menu || plusMenu || !photoItems.isEmpty }
 }
 
 struct SessionComposerCard<Draft: SessionComposerDraft>: View {
@@ -319,6 +321,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
             SessionComposerFooter(
                 controls: controls,
                 attachEnabled: !draft.attachFull && !draft.steerSending,
+                onCamera: { attach.camera = true },
                 onPhoto: { attach.photoPicker = true },
                 onFile: { attach.fileImporter = true },
                 attachMenuOpen: $attach.menu,
@@ -351,6 +354,11 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 .sheet(isPresented: $attach.plusMenu, onDismiss: promotePlusPick) {
                     if let controls { plusMenu(controls) }
                 }
+        }
+        .background {
+            // EXP-1635: a shot lands as a paste does.
+            Color.clear
+                .systemCamera(isPresented: $attach.camera) { image in draft.ingestPastedImage(image) }
         }
         .background {
             Color.clear
@@ -395,7 +403,8 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
         )
     }
 
-    /// With controls the `+` opens THE "+" sheet; a bare box's is Photo | File.
+    /// With controls the `+` opens THE "+" sheet; a bare box's is the
+    /// Camera | Photos | File sub-choice.
     private var plusAction: (() -> Void)? {
         guard controls != nil else { return nil }
         return { openPlusMenu() }
@@ -407,7 +416,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
     }
 
     /// The row the "+" closed on opens its picker now the sheet is gone:
-    /// Photo or file = THE Photo | File sub-choice.
+    /// Photo or file = THE Camera | Photos | File sub-choice.
     private func promotePlusPick() {
         guard let pick = plusPick else { return }
         plusPick = nil

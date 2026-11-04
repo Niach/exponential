@@ -271,7 +271,7 @@ public actor TreeKeyHolder {
         // own wrap, from our own derived key.
         if !readers.contains(where: { $0.installId == installId }) {
             guard let key = installKey() else { throw TreeKeyError.noInstall }
-            readers.insert(InstallEntry(installId: installId, userId: nil, kind: InstallRegistration.kind, endpointId: "", x25519Public: key.publicKey), at: 0)
+            readers.insert(InstallEntry(installId: installId, userId: nil, kind: InstallEntry.iosKind, endpointId: "", x25519Public: key.publicKey), at: 0)
         }
         readers = readers.filter { !$0.x25519Public.isEmpty }
         return try readers.map { TreeKeyWrap(installId: $0.installId, wrapped: try crypto.wrap(installPublic: $0.x25519Public, treeSecret: secret)) }

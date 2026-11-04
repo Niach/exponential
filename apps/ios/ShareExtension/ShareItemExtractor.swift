@@ -2,12 +2,16 @@ import Foundation
 import UIKit
 import UniformTypeIdentifiers
 
-/// Pulls images / text / URLs out of a share invocation's `NSExtensionItem`s and
+/// Pulls images / files / text / URLs out of a share invocation's `NSExtensionItem`s and
 /// shapes them into a [SharedPayload]. Runs on the main actor so the
 /// (non-Sendable) `NSExtensionItem`s never cross an isolation boundary.
 @MainActor
 enum ShareItemExtractor {
     private static let maxImages = 10
+    /// The composer's and the issue page's file cap (`SteerImageMessage.maxFiles`).
+    private static let maxFiles = 4
+    /// The server's file limit (composer-menu.json `add-file`).
+    private static let maxFileBytes = 50 * 1024 * 1024
     // The server's attachment endpoint only accepts these; anything else
     // (notably HEIC from Photos) is transcoded to JPEG before upload.
     private static let acceptedMime: Set<String> = ["image/png", "image/jpeg", "image/gif", "image/webp"]
@@ -16,29 +20,52 @@ enum ShareItemExtractor {
         var texts: [String] = []
         var webURL: URL?
         var images: [SharedImage] = []
+        var files: [SharedFile] = []
+        var subject: String?
 
         for item in items {
+            if subject == nil {
+                subject = [item.attributedTitle?.string, item.attributedContentText?.string]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first { !$0.isEmpty }
+            }
             for provider in item.attachments ?? [] {
                 if images.count < maxImages, provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                     if let image = await loadImage(provider) { images.append(image) }
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     if let url = await loadURL(provider) {
                         if url.isFileURL {
-                            if images.count < maxImages, let image = loadImageFromFile(url) { images.append(image) }
+                            if UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+                                if images.count < maxImages, let image = loadImageFromFile(url) { images.append(image) }
+                            } else if files.count < maxFiles, let file = loadFile(url) {
+                                files.append(file)
+                            }
                         } else {
                             webURL = url
                         }
                     }
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
                     if let text = await loadText(provider) { texts.append(text) }
+                } else if files.count < maxFiles,
+                          !provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
+                          provider.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
+                    if let file = await loadFile(provider) { files.append(file) }
                 }
             }
         }
 
-        if texts.isEmpty, webURL == nil, images.isEmpty { return nil }
+        if texts.isEmpty, webURL == nil, images.isEmpty, files.isEmpty { return nil }
 
         let (title, description) = composeText(texts: texts, webURL: webURL)
-        return SharedPayload(title: title, descriptionText: description, images: images)
+        return SharedPayload(
+            title: title,
+            descriptionText: description,
+            images: images,
+            files: files,
+            text: texts.joined(separator: "\n"),
+            subject: subject,
+            url: webURL?.absoluteString
+        )
     }
 
     // MARK: - Title / description
@@ -95,6 +122,34 @@ enum ShareItemExtractor {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let utType = UTType(filenameExtension: url.pathExtension) ?? .image
         return normalizeImage(data: data, utType: utType, suggestedName: url.lastPathComponent)
+    }
+
+    private static func loadFile(_ url: URL) -> SharedFile? {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard size <= maxFileBytes, let data = try? Data(contentsOf: url) else { return nil }
+        return sharedFile(data: data, utType: UTType(filenameExtension: url.pathExtension), filename: url.lastPathComponent)
+    }
+
+    private static func loadFile(_ provider: NSItemProvider) async -> SharedFile? {
+        let typeId = provider.registeredTypeIdentifiers.first {
+            UTType($0)?.conforms(to: .data) == true
+        } ?? UTType.data.identifier
+        let data: Data? = await withCheckedContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
+                continuation.resume(returning: data)
+            }
+        }
+        guard let data, data.count <= maxFileBytes else { return nil }
+        let utType = UTType(typeId)
+        let name = provider.suggestedName ?? "shared-file"
+        let filename = (name as NSString).pathExtension.isEmpty
+            ? [name, utType?.preferredFilenameExtension].compactMap(\.self).joined(separator: ".")
+            : name
+        return sharedFile(data: data, utType: utType, filename: filename)
+    }
+
+    private static func sharedFile(data: Data, utType: UTType?, filename: String) -> SharedFile {
+        SharedFile(data: data, filename: filename, contentType: utType?.preferredMIMEType ?? "application/octet-stream")
     }
 
     private static func loadURL(_ provider: NSItemProvider) async -> URL? {

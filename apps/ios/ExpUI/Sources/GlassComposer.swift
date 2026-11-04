@@ -1,4 +1,6 @@
+#if !SHARE_EXTENSION
 import ExpCore
+#endif
 import SwiftUI
 
 // The ONE composer card (EXP-698 round 2). iOS grew three of them — the issue

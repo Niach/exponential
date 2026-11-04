@@ -37,10 +37,11 @@ struct AgentComposerCard: View {
     @Environment(\.accountId) private var accountId
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
-    /// Wave D: "Add file or image" = the Photo | File sub-choice, floated
-    /// from the "+" once its sheet closed.
+    /// EXP-1635: "Add file or image" = the Camera | Photos | File sub-choice,
+    /// floated from the "+" once its sheet closed.
     @State private var showAttachMenu = false
     @State private var showFileImporter = false
+    @State private var showCamera = false
     @State private var plusAnchor: CGRect = .zero
     /// EXP-1249: the "+" sheet, and the row it closed on — promoted to its
     /// picker once the sheet finished dismissing.
@@ -142,9 +143,15 @@ struct AgentComposerCard: View {
                     .steerAttachChoiceMenu(
                         isPresented: $showAttachMenu,
                         anchor: plusAnchor,
+                        onCamera: { showCamera = true },
                         onPhoto: { showPhotoPicker = true },
                         onFile: { showFileImporter = true }
                     )
+            }
+            .background {
+                // EXP-1635: a shot lands as a paste does.
+                Color.clear
+                    .systemCamera(isPresented: $showCamera) { image in ingestPastedImage(image) }
             }
             .background {
                 Color.clear

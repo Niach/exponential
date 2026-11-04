@@ -137,22 +137,27 @@ struct PendingStripItem: PendingAttachmentItem {
 
 // MARK: - The "Add file or image" sub-choice (wave D, iOS only)
 
-/// iOS's one sub-choice ×4 parity note (fixture `composer-menu.json`): web,
-/// desktop and Android open ONE system chooser for "Add file or image"; a
-/// phone's photo library and its Files app are two pickers, so the row opens
-/// this two-entry glass menu — Photo (the photo picker) | File
-/// (`fileImporter(.item)`). Floats from `anchor` (the trigger's global frame).
+/// EXP-1635 (composer-menu.json `addFile.phoneChoices`, the same glass menu
+/// ×3 on phones): Camera (the system camera, one shot; only with `onCamera`
+/// on a device that has one) | Photos (the photo picker, many) | File
+/// (`fileImporter(.item)`, many). Floats from `anchor` (the trigger's global
+/// frame).
 struct SteerAttachChoiceMenu: ViewModifier {
     @Binding var isPresented: Bool
     let anchor: CGRect
+    let onCamera: (() -> Void)?
     let onPhoto: () -> Void
     let onFile: () -> Void
 
     func body(content: Content) -> some View {
         content.glassMenuOverlay(isPresented: $isPresented, anchor: anchor) {
-            GlassMenuItem("Photo", icon: AppIcons.editorImage) { Self.afterDismiss(onPhoto) }
+            if let onCamera, SystemCamera.isAvailable {
+                GlassMenuItem(ComposerMenu.AddFileChoice.camera.label, icon: AppIcons.uiCamera) { Self.afterDismiss(onCamera) }
+                    .accessibilityIdentifier("composer-attach-camera")
+            }
+            GlassMenuItem(ComposerMenu.AddFileChoice.photos.label, icon: AppIcons.uiPhotos) { Self.afterDismiss(onPhoto) }
                 .accessibilityIdentifier("composer-attach-photo")
-            GlassMenuItem("File", icon: AppIcons.uiAttach) { Self.afterDismiss(onFile) }
+            GlassMenuItem(ComposerMenu.AddFileChoice.file.label, icon: AppIcons.uiFile) { Self.afterDismiss(onFile) }
                 .accessibilityIdentifier("composer-attach-file")
         }
     }
@@ -171,12 +176,68 @@ extension View {
     func steerAttachChoiceMenu(
         isPresented: Binding<Bool>,
         anchor: CGRect,
+        onCamera: (() -> Void)? = nil,
         onPhoto: @escaping () -> Void,
         onFile: @escaping () -> Void
     ) -> some View {
         modifier(SteerAttachChoiceMenu(
-            isPresented: isPresented, anchor: anchor, onPhoto: onPhoto, onFile: onFile
+            isPresented: isPresented, anchor: anchor, onCamera: onCamera, onPhoto: onPhoto, onFile: onFile
         ))
+    }
+
+    /// EXP-1635: the system camera, one shot; the photo lands in `onCapture`.
+    func systemCamera(isPresented: Binding<Bool>, onCapture: @escaping (UIImage) -> Void) -> some View {
+        fullScreenCover(isPresented: isPresented) {
+            SystemCamera(onCapture: onCapture)
+                .ignoresSafeArea()
+        }
+    }
+}
+
+// MARK: - The system camera (EXP-1635)
+
+/// `UIImagePickerController` on `.camera`: one shot, then it closes. No
+/// SwiftUI camera exists; the picker's own UI (and its permission prompt,
+/// `NSCameraUsageDescription`) is the whole screen.
+struct SystemCamera: UIViewControllerRepresentable {
+    let onCapture: (UIImage) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    /// A simulator has no camera: `-uiTestingCameraRow` forces the row for
+    /// the capture specimen.
+    static var isAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
+            || ProcessInfo.processInfo.arguments.contains("-uiTestingCameraRow")
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        if UIImagePickerController.isSourceTypeAvailable(.camera) { picker.sourceType = .camera }
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        private let parent: SystemCamera
+
+        init(_ parent: SystemCamera) { self.parent = parent }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = info[.originalImage] as? UIImage { parent.onCapture(image) }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
     }
 }
 

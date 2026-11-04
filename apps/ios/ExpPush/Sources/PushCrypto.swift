@@ -65,6 +65,46 @@ public enum PushCrypto {
     }
 }
 
+// EXP-1635: the sealed-content writes the share extension needs (it links
+// ExpPush, not ExpCore's full node). The push binding carries them too.
+extension PushCrypto {
+    public enum TreeKeyError: Error { case unavailable }
+
+    /// A fresh tree keypair (secret, public), or nil without the binding.
+    public static func generateTree() -> (secret: Data, publicKey: String)? {
+        #if ENET_PUSH
+        let key = generateTreeKey()
+        return (key.secret, key.publicKey)
+        #else
+        return nil
+        #endif
+    }
+
+    public static func wrapTree(installPublic: String, treeSecret: Data) throws -> String {
+        #if ENET_PUSH
+        return try wrapTreeKey(installPublic: installPublic, treeSecret: treeSecret)
+        #else
+        throw TreeKeyError.unavailable
+        #endif
+    }
+
+    public static func unwrapTree(installSecret: Data, wrapped: String) throws -> Data {
+        #if ENET_PUSH
+        return try unwrapTreeKey(installSecret: installSecret, wrapped: wrapped)
+        #else
+        throw TreeKeyError.unavailable
+        #endif
+    }
+
+    public static func sealTreeBody(treePublicKey: String, epoch: UInt32, text: String) throws -> String {
+        #if ENET_PUSH
+        return try sealBody(treePublicKey: treePublicKey, epoch: epoch, text: text)
+        #else
+        throw TreeKeyError.unavailable
+        #endif
+    }
+}
+
 /// RFC 4648 §5 base64url, unpadded on encode, padding-tolerant on decode.
 public enum Base64Url {
     public static func encode(_ data: Data) -> String {

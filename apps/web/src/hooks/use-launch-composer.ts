@@ -470,12 +470,14 @@ export function useLaunchComposer({
 
   // ── Seed ──────────────────────────────────────────────────────────────────
 
+  const appliedSeed = useRef<LaunchSeed | null>(null)
   useEffect(() => {
-    if (!seed) return
+    if (!seed || appliedSeed.current === seed) return
+    appliedSeed.current = seed
     // S-3 (`agentRow.seedCases`): a seeded launch starts on Temporary
     // session, so the send is a launch with the subject, never a message to
-    // the Assistant.
-    const seedPicked = seedPick(seed)
+    // the Assistant. EXP-1635: a share names its pick.
+    const seedPicked = seed.pick ?? seedPick(seed)
     if (seedPicked) setPicked(seedPicked)
     if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
@@ -483,10 +485,11 @@ export function useLaunchComposer({
     // EXP-836: an explicit machine is a REQUEST that outranks the default.
     if (seed.deviceId) launch.requestDevice(seed.deviceId)
     // The text lands only in an EMPTY draft: a seed never stomps typing.
-    if (seed.text) {
-      const seeded = seed.text
-      setText((current) => (current.trim() ? current : seeded))
-    }
+    const seededText = seed.text && !text.trim() ? seed.text : text
+    setText(seededText)
+    // EXP-1635: a share's files are ordinary pending attachments (their
+    // markers behind the text, the composer's own caps and toasts).
+    if (seed.files?.length) stageFiles(seed.files, seededText, seededText.length)
     onSeedConsumed()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed])
@@ -518,18 +521,20 @@ export function useLaunchComposer({
 
   // ── Images and files ──────────────────────────────────────────────────────
 
+  const stageFiles = (files: File[], draft: string, caret: number) => {
+    const staged = stagePendingImages(imagesRef.current, files, draft, caret)
+    if (staged.added > 0) {
+      setImages(staged.images)
+      setText(staged.text)
+    }
+    if (staged.rejected > 0) toast.error(ATTACHMENT_REJECTED_TOAST)
+    if (staged.overflow > 0) toast.error(IMAGE_CAP_TOAST)
+    if (staged.fileOverflow > 0) toast.error(FILE_CAP_TOAST)
+    return staged.caret
+  }
+
   const addFiles = useCallback(
-    (files: File[], caret: number) => {
-      const staged = stagePendingImages(imagesRef.current, files, text, caret)
-      if (staged.added > 0) {
-        setImages(staged.images)
-        setText(staged.text)
-      }
-      if (staged.rejected > 0) toast.error(ATTACHMENT_REJECTED_TOAST)
-      if (staged.overflow > 0) toast.error(IMAGE_CAP_TOAST)
-      if (staged.fileOverflow > 0) toast.error(FILE_CAP_TOAST)
-      return staged.caret
-    },
+    (files: File[], caret: number) => stageFiles(files, text, caret),
     [text]
   )
 

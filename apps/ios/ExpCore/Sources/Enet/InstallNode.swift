@@ -61,7 +61,7 @@ extension InstallNodeDriver {
 }
 
 public enum InstallRegistration {
-    public static let kind = "ios"
+    public static let kind = InstallEntry.iosKind
 
     /// The UTF-8 string the install identity signs (#VAPP-37 wire contract).
     public static func message(userId: String, endpointId: String, x25519Public: String, signedAt: String) -> String {

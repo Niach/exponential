@@ -377,6 +377,8 @@
     "ui-usage": "chart-line",
     "ui-download": "download",
     "ui-attach": "paperclip",
+    "ui-camera": "camera",
+    "ui-photos": "images",
 
     "support-open": "circle-dot",
     "support-resolved": "circle-check",

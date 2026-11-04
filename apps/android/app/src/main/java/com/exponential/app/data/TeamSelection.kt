@@ -100,7 +100,33 @@ class TeamSelection @Inject constructor(
         _pendingShare.value = null
         return value
     }
+
+    // EXP-1635: a share headed for a composer (share-targets.json step 2): the
+    // Agent tab's, or one chat's. The composer takes it once, as a prefill;
+    // nothing is sent until the viewer taps Send.
+    private val _pendingChatShare = MutableStateFlow<ChatShare?>(null)
+    val pendingChatShare: StateFlow<ChatShare?> = _pendingChatShare.asStateFlow()
+
+    fun setPendingChatShare(share: ChatShare) {
+        _pendingChatShare.value = share
+    }
+
+    /** The waiting share when [share] is still it (a composer takes its own once). */
+    fun takePendingChatShare(share: ChatShare): Boolean =
+        _pendingChatShare.compareAndSet(share, null)
 }
+
+/** Where a sharing shortcut leads: its team, then an agent pick or a chat. */
+data class ChatShareRoute(val teamId: String, val pick: String? = null, val sessionId: String? = null)
+
+/** A share on its way into a composer. */
+data class ChatShare(
+    val share: DeepLinkBus.Target.ShareContent,
+    /** The Agent tab's agent row pick (an agent id or `temporary`); null = a chat's composer. */
+    val pick: String? = null,
+    /** The chat whose composer takes it; null = the Agent tab's. */
+    val sessionId: String? = null,
+)
 
 /** A team switch, planned off the target account's boards ([planTeamSwitch]). */
 data class TeamSwitch(val accountId: String, val teamId: String, val rememberBoardId: String?)

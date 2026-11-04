@@ -1,4 +1,6 @@
+#if !SHARE_EXTENSION
 import ExpCore
+#endif
 import SwiftUI
 
 /// (4) THE MARK (EXP-1271, EXP-1259 D8.4): the logo disc whose three cut

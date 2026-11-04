@@ -21,6 +21,11 @@ object Routes {
      *  link); absent = the Conversation. `plan` = the plan card the plan tab
      *  opens on (#EXP-1662; absent = `planTabTarget`). */
     const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}&plan={plan}"
+
+    /** EXP-1635 (share-targets.json): STEP 1 of a share; New issue pushes [SHARE_COMPOSE]. */
+    const val SHARE_TO = "share-to"
+    const val SHARE_COMPOSE = "share-compose"
+
     const val THREAD_TAB_GUIDE = "guide"
     const val THREAD_TAB_PLAN = "plan"
     fun thread(rootSessionId: String, tab: String? = null): String =

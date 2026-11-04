@@ -298,17 +298,10 @@ fun AgentConversationScreen(
         val toaster = com.exponential.app.ui.components.LocalToaster.current
         LaunchedEffect(message) { toaster.error(message) }
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris: List<android.net.Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            for (uri in uris) when (val picked = com.exponential.app.ui.agent.readComposerPick(context, uri)) {
-                is com.exponential.app.ui.agent.ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
-                is com.exponential.app.ui.agent.ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
-            }
+    val attach = com.exponential.app.ui.agent.rememberComposerAttachPicker { picked ->
+        when (picked) {
+            is com.exponential.app.ui.agent.ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+            is com.exponential.app.ui.agent.ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
         }
     }
 
@@ -400,7 +393,7 @@ fun AgentConversationScreen(
                             onInterrupt = {},
                             expanded = expanded,
                             onExpandedChange = { expanded = it },
-                            onPickImages = { filePicker.launch(arrayOf("*/*")) },
+                            attach = attach,
                             menu = com.exponential.app.ui.session.SessionComposerMenu(
                                 agent = row.cli?.takeIf { it.isNotBlank() } ?: com.exponential.app.ui.components.DEFAULT_AGENT,
                                 effort = "",

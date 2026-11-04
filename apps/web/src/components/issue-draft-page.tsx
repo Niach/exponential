@@ -20,6 +20,11 @@ import {
 } from "@/hooks/use-issue-draft-editor"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import {
+  clearPendingShare,
+  shareIssuePrefill,
+  type PendingShare,
+} from "@/lib/share/pending-share"
+import {
   draftExitPrompt,
   draftLandingNavigation,
   ISSUE_DRAFT_COPY,
@@ -33,6 +38,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   MarkdownEditor,
+  partitionUploadFiles,
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
 import { FilesSectionView } from "@/components/issue-files-section"
@@ -87,6 +93,11 @@ export interface IssueDraftPageProps {
   from?: string
   /** EXP-1284: `New issue in this thread` — Create links the issue into it. */
   threadId?: string
+  /** EXP-1635: opened from the Share to page: Back returns there, a filed
+   *  issue ends the share. */
+  fromShare?: boolean
+  /** EXP-1635: the pending share, the prefill of a FRESH draft. */
+  share?: PendingShare | null
 }
 
 export function IssueDraftPage({
@@ -101,6 +112,8 @@ export function IssueDraftPage({
   initialStatusId,
   from,
   threadId,
+  fromShare = false,
+  share = null,
 }: IssueDraftPageProps) {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
@@ -114,6 +127,7 @@ export function IssueDraftPage({
   // editor is created below.
   const threadIdRef = useRef<string | null>(threadId ?? null)
   const land = (landing: ReturnType<typeof draftLandingNavigation>) => {
+    if (fromShare) void clearPendingShare()
     void navigate({ ...landing, replace: true, ignoreBlocker: true })
   }
   const openIssue = (issue: Pick<Issue, `id` | `identifier` | `boardId`>) => {
@@ -139,11 +153,14 @@ export function IssueDraftPage({
     toast.message(ISSUE_DRAFT_COPY.discardedElsewhere)
     goBackRef.current(true)
   }
+  const [prefill] = useState(() => (share && !draft ? shareIssuePrefill(share) : null))
   const editor = useIssueDraftEditor({
     draftId,
     teamId,
     initialBoardId,
     initialStatusId,
+    initialTitle: prefill?.title,
+    initialDescription: prefill?.description,
     threadId,
     draft,
     boards,
@@ -175,6 +192,10 @@ export function IssueDraftPage({
   // pass the leave blocker unasked; Back goes through it.
   const goBack = useCallback(
     (ignoreBlocker = false) => {
+      if (fromShare) {
+        void navigate({ to: `/share`, ignoreBlocker })
+        return
+      }
       void navigate({
         ...((originListNavigation(teamSlug, parseOrigin(from)) ?? {
           to: `/t/$teamSlug/boards/$boardSlug`,
@@ -184,7 +205,7 @@ export function IssueDraftPage({
         ignoreBlocker,
       } as never)
     },
-    [navigate, teamSlug, from, board?.slug]
+    [navigate, teamSlug, from, board?.slug, fromShare]
   )
 
   const goBackRef = useRef(goBack)
@@ -428,6 +449,21 @@ export function IssueDraftPage({
 
   const handleAttachFiles = (files: File[]) =>
     handlePlainFiles(files, { asFile: true })
+
+  // EXP-1635: the share lands through the page's own upload path (images
+  // inline, video as media, the rest as files), once; the prefill autosaves
+  // like anything typed.
+  const sharePrefilled = useRef(false)
+  useEffect(() => {
+    if (!prefill || !share || sharePrefilled.current) return
+    sharePrefilled.current = true
+    if (prefill.title) editor.setTitle(prefill.title)
+    const { images, media, others } = partitionUploadFiles(share.files)
+    if (images.length > 0) void handleImageFiles(images)
+    if (media.length > 0) void handleMediaFiles(media)
+    if (others.length > 0) void handlePlainFiles(others)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const disabled = editor.creating
 

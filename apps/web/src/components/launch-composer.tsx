@@ -219,7 +219,7 @@ export function LaunchComposer({
             <ComposerPlusMenu
               model={model}
               disabled={busy}
-              onAttach={() => toolsRef.current?.attach()}
+              onAttach={(choice) => toolsRef.current?.attach(choice)}
             />
             <ComposerInlineTools ref={toolsRef} onFiles={addFiles} />
           </>

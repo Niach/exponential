@@ -58,6 +58,7 @@ import {
   type AgentSearch,
   type LaunchSeed,
 } from "@/lib/launch-seed"
+import { clearPendingShare, loadPendingShare, shareChatSeed } from "@/lib/share/pending-share"
 import { pageTitle } from "@/lib/page-title"
 import { isProductionBuild } from "@/lib/production-build"
 
@@ -82,6 +83,8 @@ const str = (value: unknown): string | undefined =>
 //   issues  csv of issue ids (chips; 2+ = a batch)
 //   device  the machine to pre-pick
 //   text    inserted into the empty draft
+//   share   EXP-1635: the pending share (`lib/share/pending-share.ts`) lands
+//           in the composer, the agent row on this pick; nothing is sent
 
 // EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
 // feedback kinds side by side, for the view catalog's `feedback-states`
@@ -138,10 +141,11 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   validateSearch: (
     search: Record<string, unknown>
-  ): AgentSearch & { from?: string; dev?: DevView } => ({
+  ): AgentSearch & { from?: string; dev?: DevView; share?: string } => ({
     issues: str(search.issues),
     device: str(search.device),
     text: str(search.text),
+    share: str(search.share),
     // The origin a play button names (`lib/detail-origin.ts`); kept so its
     // links stay valid, nothing on this page reads it any more.
     from: str(search.from),
@@ -269,17 +273,40 @@ function AgentPage() {
   // The layout viewport does not shrink under a phone keyboard: the pinned
   // card rides above it.
   const { inset: keyboard } = useKeyboardInset()
-  const onSeedConsumed = useCallback(() => setSeed(null), [])
-  useEffect(() => {
-    if (!urlSeed) return
-    setSeed(urlSeed)
+  const onSeedConsumed = useCallback(() => {
+    setSeed((current) => {
+      if (current?.pick) void clearPendingShare()
+      return null
+    })
+  }, [])
+  const stripSeedKeys = useCallback(() => {
     void navigate({
       to: `/t/$teamSlug/agent`,
       params: { teamSlug },
       search: search.from ? { from: search.from } : {},
       replace: true,
     })
-  }, [urlSeed, navigate, teamSlug, search.from])
+  }, [navigate, teamSlug, search.from])
+  useEffect(() => {
+    if (!urlSeed) return
+    setSeed(urlSeed)
+    stripSeedKeys()
+  }, [urlSeed, stripSeedKeys])
+  // EXP-1635: the Share to page's pick. The share stays pending until the
+  // composer took it, so a reload before that still lands it.
+  useEffect(() => {
+    if (!search.share) return
+    const pick = search.share
+    let current = true
+    void loadPendingShare().then((share) => {
+      if (!current) return
+      if (share) setSeed(shareChatSeed(share, pick))
+      stripSeedKeys()
+    })
+    return () => {
+      current = false
+    }
+  }, [search.share, stripSeedKeys])
 
   if (!team || !currentUserId) {
     return <SkeletonRows className="mx-auto w-full max-w-2xl px-4 py-6" />

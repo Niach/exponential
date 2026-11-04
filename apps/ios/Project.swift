@@ -1,7 +1,15 @@
 import Foundation
 import ProjectDescription
 
-let sharedSources: SourceFilesList = ["Exponential/**"]
+// EXP-1635: the share pages also compile into the app for their capture-only
+// specimens (`ThreadCardsScreen`, `-uiTestingStyleguide share-to`): the
+// extension cannot be driven by a test.
+let sharedSources: SourceFilesList = [
+    "Exponential/**",
+    "ShareExtension/ShareModels.swift",
+    "ShareExtension/ShareToPage.swift",
+    "ShareExtension/ShareChatComposerPage.swift",
+]
 // VAPP-110: the app host's app-extension catalog, bundled straight from
 // packages/ui/exponential-ui (the bytes the web and desktop hosts install;
 // `AppHostResources` loads it by name). Exponential ships no built-in apps.
@@ -177,6 +185,38 @@ let shareExtensionSources: SourceFilesList = [
     "ExpCore/Sources/API/TrpcErrorInfo.swift",
     "ExpCore/Sources/API/IssuesApi.swift",
     "ExpCore/Sources/API/AttachmentsApi.swift",
+    // EXP-1635: a chat started from a share: the targets model, the send and
+    // its sealing (ExpPush carries the crypto).
+    "ExpCore/Sources/Domain/DomainContract.generated.swift",
+    "ExpCore/Sources/Domain/AgentOrdering.swift",
+    "ExpCore/Sources/Domain/ShareTargets.swift",
+    "ExpCore/Sources/Domain/ComposerAgentRow.swift",
+    "ExpCore/Sources/Domain/ComposerMenu.swift",
+    "ExpCore/Sources/Domain/AgentComposerPrompt.swift",
+    "ExpCore/Sources/Domain/HomeGreeting.swift",
+    "ExpCore/Sources/Domain/FeedbackStates.swift",
+    "ExpCore/Sources/SteerImageMessage.swift",
+    "ExpCore/Sources/API/SessionsSendInput.swift",
+    "ExpCore/Sources/API/SessionKeysApi.swift",
+    "ExpCore/Sources/API/InstallsApi.swift",
+    "ExpCore/Sources/API/RepositoriesApi.swift",
+    "ExpCore/Sources/Sealed/SealedContent.swift",
+    "ExpCore/Sources/Sealed/SealedKeyRing.swift",
+    "ExpCore/Sources/Sealed/TreeKeyHolder.swift",
+    "ExpCore/Sources/Sealed/SendSealing.swift",
+    // THE composer card and agent row, ExpUI's own files: the extension links
+    // no ExpUI, these compile under `SHARE_EXTENSION` (no `import ExpCore`).
+    "ExpUI/Sources/AppIcon.swift",
+    "ExpUI/Sources/AppIcons.generated.swift",
+    "ExpUI/Sources/ColorHex.swift",
+    "ExpUI/Sources/DesignTokens.generated.swift",
+    "ExpUI/Sources/GlassTokens.swift",
+    "ExpUI/Sources/Motion.swift",
+    "ExpUI/Sources/GlassComposer.swift",
+    "ExpUI/Sources/AgentBubbleCircle.swift",
+    "ExpUI/Sources/ComposerAgentRowView.swift",
+    "ExpUI/Sources/Feedback/FeedbackMark.swift",
+    "ExpUI/Sources/Feedback/Spinner.swift",
     "ShareExtension/**",
 ]
 
@@ -187,7 +227,10 @@ let shareExtensionSources: SourceFilesList = [
 // name/email capture, no Firebase push token). Both extension targets share it.
 let shareExtensionResources: ResourceFileElements = [
     "ShareExtension/PrivacyInfo.xcprivacy",
+    // EXP-1635: the registry glyphs (an agent's icon can be any of them).
+    "Exponential/Assets.xcassets",
 ]
+let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? " ENET_PUSH" : "")
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
@@ -207,10 +250,14 @@ let shareExtensionInfoPlist: [String: Plist.Value] = [
         "NSExtensionPointIdentifier": .string("com.apple.share-services"),
         "NSExtensionPrincipalClass": .string("$(PRODUCT_MODULE_NAME).ShareViewController"),
         "NSExtensionAttributes": .dictionary([
+            // EXP-1635: direct share, the donated agents and chats
+            // (`DirectShareDonations`) open this extension.
+            "IntentsSupported": .array([.string("INSendMessageIntent")]),
             "NSExtensionActivationRule": .dictionary([
                 "NSExtensionActivationSupportsImageWithMaxCount": .integer(20),
                 "NSExtensionActivationSupportsText": .boolean(true),
                 "NSExtensionActivationSupportsWebURLWithMaxCount": .integer(1),
+                "NSExtensionActivationSupportsFileWithMaxCount": .integer(4),
             ]),
         ]),
     ]),
@@ -232,6 +279,8 @@ let sharedInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": .string(appMarketingVersion),
     "CFBundleVersion": .string(appBuildVersion),
     "UILaunchScreen": .dictionary([:]),
+    // EXP-1635: the direct-share donations.
+    "NSUserActivityTypes": .array([.string("INSendMessageIntent")]),
     "CFBundleURLTypes": .array([
         .dictionary([
             "CFBundleURLSchemes": .array([.string("exponential")]),
@@ -245,6 +294,8 @@ let sharedInfoPlist: [String: Plist.Value] = [
     // NEW-69: a call with an agent streams the microphone to the member's
     // voice device.
     "NSMicrophoneUsageDescription": .string("Exponential uses the microphone for calls with your agents."),
+    // EXP-1635: the composer's + Camera row.
+    "NSCameraUsageDescription": .string("Exponential uses the camera to attach a photo to your message."),
     // Self-hosted instances are a product feature and commonly live on plain
     // HTTP inside a LAN (and http://localhost:5173 in dev/screenshot runs) —
     // allow local networking only; everything else stays ATS-default (HTTPS).
@@ -410,8 +461,10 @@ let project = Project(
             sources: shareExtensionSources,
             resources: shareExtensionResources,
             entitlements: "Exponential.entitlements",
-            dependencies: [],
-            settings: .settings(base: baseSettings)
+            dependencies: expPushDependencies,
+            settings: .settings(base: baseSettings.merging([
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string(shareExtensionConditions),
+            ]) { _, new in new })
         ),
         .target(
             name: "ShareExtension-Staging",
@@ -426,9 +479,9 @@ let project = Project(
             sources: shareExtensionSources,
             resources: shareExtensionResources,
             entitlements: "ExponentialStaging.entitlements",
-            dependencies: [],
+            dependencies: expPushDependencies,
             settings: .settings(base: baseSettings.merging([
-                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string("\(shareExtensionConditions) STAGING"),
             ]) { _, new in new })
         ),
         .target(

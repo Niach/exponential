@@ -408,6 +408,41 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.text).toBe(`do it`)
     expect(onSeedConsumed).toHaveBeenCalledTimes(1)
   })
+
+  describe(`EXP-1635: a share's seed (share-targets.json step 2)`, () => {
+    const png = (name: string) => new File([`x`], name, { type: `image/png` })
+
+    beforeEach(() => {
+      URL.createObjectURL = vi.fn((file: Blob) => `blob:${(file as File).name}`)
+      URL.revokeObjectURL = vi.fn()
+    })
+
+    it(`the agent row lands on the picked agent, the text and files are pending, nothing is sent`, () => {
+      const { result, onSeedConsumed } = mount(
+        { issueIds: [], text: `look`, files: [png(`a.png`)], pick: `ag-1` },
+        [device],
+        true
+      )
+      expect(result.current.recipient?.id).toBe(`ag-1`)
+      expect(result.current.images.map((image) => image.file.name)).toEqual([`a.png`])
+      expect(result.current.text).toContain(`look`)
+      expect(result.current.text).toContain(`[Image #1]`)
+      expect(onSeedConsumed).toHaveBeenCalledTimes(1)
+      expect(mockState.send).not.toHaveBeenCalled()
+    })
+
+    it(`New chat lands on Temporary session`, () => {
+      const { result } = mount({ issueIds: [], text: `hi`, pick: `temporary` }, [device], true)
+      expect(result.current.agentRow?.selected).toBe(`temporary`)
+      expect(result.current.recipient).toBeNull()
+    })
+
+    it(`the composer's own cap applies`, () => {
+      const files = [`a`, `b`, `c`, `d`, `e`].map((name) => png(`${name}.png`))
+      const { result } = mount({ issueIds: [], files, pick: `temporary` }, [device], true)
+      expect(result.current.images).toHaveLength(4)
+    })
+  })
 })
 
 describe(`useLaunchComposer start`, () => {

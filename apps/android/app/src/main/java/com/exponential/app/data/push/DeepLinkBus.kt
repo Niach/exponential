@@ -56,6 +56,11 @@ class DeepLinkBus @Inject constructor() {
             val text: String?,
             val subject: String?,
             val imageUris: List<android.net.Uri>,
+            // EXP-1635: non-image files (the chat path's file attachments), a
+            // file refused unread for its size, the sharing shortcut's id.
+            val files: List<com.exponential.app.data.share.SharedFile> = emptyList(),
+            val oversizeFiles: Boolean = false,
+            val directShareId: String? = null,
         ) : Target
     }
 
@@ -108,8 +113,15 @@ class DeepLinkBus @Inject constructor() {
         _githubConnected.value = GithubConnected(_githubConnected.value.seq + 1, error)
     }
 
-    fun openShare(text: String?, subject: String?, imageUris: List<android.net.Uri>) {
-        _target.value = Target.ShareContent(text, subject, imageUris)
+    fun openShare(payload: com.exponential.app.data.share.SharedPayload) {
+        _target.value = Target.ShareContent(
+            text = payload.text,
+            subject = payload.subject,
+            imageUris = payload.imageUris,
+            files = payload.files,
+            oversizeFiles = payload.oversizeFiles,
+            directShareId = payload.directShareId,
+        )
     }
 
     fun consume() {

@@ -10,7 +10,7 @@ import SwiftUI
 /// row (THE usage wall's session account switch); a running session never
 /// moves device here. With `controls` the `+` opens THE "+" sheet
 /// (`ThreadComposerPlusMenu`, presented by `SessionComposerCard`); a bare
-/// box (no controls) opens the Photo | File sub-choice directly. The ring
+/// box (no controls) opens the Camera | Photos | File sub-choice directly. The ring
 /// hides until context data lands and opens the Usage sheet (EXP-1150).
 /// Rides `GlassComposer`'s `tools:` slot, so the send button stays the
 /// card's own.
@@ -70,11 +70,13 @@ struct SessionComposerFooter: View {
         let onPick: (String) -> Void
     }
 
-    /// nil = the bare box (the `+` = Photo | File).
+    /// nil = the bare box (the `+` = Camera | Photos | File).
     let controls: Controls?
     let attachEnabled: Bool
-    /// Wave D: the `+` opens the Photo | File sub-choice (iOS only, see
-    /// `SteerAttachChoiceMenu`): the photo picker or the Files importer.
+    /// EXP-1635: the `+` opens the Camera | Photos | File sub-choice (see
+    /// `SteerAttachChoiceMenu`): the camera, the photo picker or the Files
+    /// importer.
+    let onCamera: () -> Void
     let onPhoto: () -> Void
     let onFile: () -> Void
     /// Owned by the host so an open menu (its cover resigns the field's
@@ -108,6 +110,7 @@ struct SessionComposerFooter: View {
             .steerAttachChoiceMenu(
                 isPresented: $attachMenuOpen,
                 anchor: attachAnchor,
+                onCamera: onCamera,
                 onPhoto: onPhoto,
                 onFile: onFile
             )

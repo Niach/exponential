@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.IntentCompat
 import androidx.core.net.toUri
+import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
+import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -19,7 +21,16 @@ data class SharedPayload(
     val text: String?,
     val subject: String?,
     val imageUris: List<Uri>,
+    /** EXP-1635: the non-image files, the chat path's file attachments. */
+    val files: List<SharedFile> = emptyList(),
+    /** A shared file over the upload cap: left unread, the composer refuses it. */
+    val oversizeFiles: Boolean = false,
+    /** EXP-1635: the sharing shortcut the share arrived on (`EXTRA_SHORTCUT_ID`). */
+    val directShareId: String? = null,
 )
+
+/** A shared non-image file, cached under its own name (a cached Uri has no provider to ask). */
+data class SharedFile(val uri: Uri, val filename: String, val mime: String)
 
 /**
  * Turns a system share intent into a [SharedPayload].
@@ -48,10 +59,18 @@ object ShareIntentParser {
     private val STALE_AGE_MS = 24L * 60 * 60 * 1000 // prune cache entries older than a day
 
     fun isShareIntent(intent: Intent?): Boolean =
-        intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE
+        intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE ||
+            intent?.action == Intent.ACTION_PROCESS_TEXT
 
     suspend fun parse(context: Context, intent: Intent): SharedPayload? {
         if (!isShareIntent(intent)) return null
+
+        // EXP-1635: text selected in any app, the same flow with `text` only.
+        if (intent.action == Intent.ACTION_PROCESS_TEXT) {
+            val selected = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+                ?.takeIf { it.isNotBlank() } ?: return null
+            return SharedPayload(text = selected, subject = null, imageUris = emptyList())
+        }
 
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
         val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() }
@@ -74,17 +93,32 @@ object ShareIntentParser {
         // Everything past here talks to ContentResolver or the disk — even
         // getType() is a binder round-trip into the sending app's provider —
         // so it all rides IO (same rule as the markdown image picker).
-        val imageUris = withContext(Dispatchers.IO) {
+        var oversizeFiles = false
+        val (imageUris, files) = withContext(Dispatchers.IO) {
             pruneStaleInbox(context)
-            (rawUris + clipUris)
-                .distinct()
-                .filter { isImage(context, it) }
-                .take(MAX_IMAGES)
-                .mapNotNull { copyToCache(context, it) }
+            val (images, others) = (rawUris + clipUris).distinct().partition { isImage(context, it) }
+            val cachedImages = images.take(MAX_IMAGES).mapNotNull { copyToCache(context, it) }
+            val cachedFiles = others.take(MAX_IMAGES).mapNotNull { uri ->
+                val size = MarkdownMediaUtils.querySize(context, uri)
+                if (size != null && size > MAX_FILE_UPLOAD_BYTES) {
+                    oversizeFiles = true
+                    null
+                } else {
+                    copyFileToCache(context, uri)
+                }
+            }
+            cachedImages to cachedFiles
         }
 
-        if (text == null && imageUris.isEmpty()) return null
-        return SharedPayload(text = text, subject = subject, imageUris = imageUris)
+        if (text == null && imageUris.isEmpty() && files.isEmpty() && !oversizeFiles) return null
+        return SharedPayload(
+            text = text,
+            subject = subject,
+            imageUris = imageUris,
+            files = files,
+            oversizeFiles = oversizeFiles,
+            directShareId = intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID),
+        )
     }
 
     private fun isImage(context: Context, uri: Uri): Boolean =
@@ -106,13 +140,31 @@ object ShareIntentParser {
         if (copied) dest.toUri() else null
     }.getOrNull()
 
+    /**
+     * Copy a non-image [src] under its own display name (each in its own UUID
+     * dir, the name is what the composer tile and the upload show). The name
+     * comes from the sending app, so only its last path segment is used.
+     */
+    private fun copyFileToCache(context: Context, src: Uri): SharedFile? = runCatching {
+        val filename = File(MarkdownMediaUtils.guessFilename(context, src)).name
+            .takeIf { it.isNotBlank() && it != "." && it != ".." } ?: "file"
+        val mime = MarkdownMediaUtils.guessMimeType(context, src, fallback = "application/octet-stream")
+        val dir = File(File(context.cacheDir, INBOX_DIR), UUID.randomUUID().toString()).apply { mkdirs() }
+        val dest = File(dir, filename)
+        val copied = context.contentResolver.openInputStream(src)?.use { input ->
+            dest.outputStream().use { input.copyTo(it) }
+            true
+        } ?: false
+        if (copied) SharedFile(dest.toUri(), filename, mime) else null
+    }.getOrNull()
+
     private fun pruneStaleInbox(context: Context) {
         runCatching {
             val dir = File(context.cacheDir, INBOX_DIR)
             if (!dir.isDirectory) return
             val cutoff = System.currentTimeMillis() - STALE_AGE_MS
             dir.listFiles()?.forEach { file ->
-                if (file.lastModified() < cutoff) file.delete()
+                if (file.lastModified() < cutoff) file.deleteRecursively()
             }
         }
     }

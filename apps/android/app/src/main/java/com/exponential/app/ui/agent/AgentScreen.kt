@@ -6,10 +6,7 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.threads.ThreadListRow
 import com.exponential.app.ui.threads.ThreadRowMeta
-import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.unit.sp
@@ -519,22 +516,40 @@ fun AgentScreen(
     val uploadFailure by viewModel.uploadFailure.collectAsStateWithLifecycle()
     FailedActionToast(uploadFailure, "upload", "the attachment", onShown = viewModel::clearUploadFailure, retry = { retryStart() })
 
-    // ── Attachments (EXP-511, wave D): the system document picker, ANY type
-    // (images included), feeds the pending list ─────────────────────────────
+    // ── Attachments (EXP-511, wave D; EXP-1635 Camera | Photos | File): every
+    // pick, ANY type, feeds the pending list ────────────────────────────────
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            // ContentResolver reads can stream from a cloud-backed provider —
-            // [readComposerPick] stays off the main thread. One pick at a time
-            // through the VM, so its caps (4 images, 4 files) + toasts apply.
-            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
-                is ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
-                is ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
+    val addPick: (ComposerPick) -> Unit = { picked ->
+        when (picked) {
+            is ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+            is ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
+        }
+    }
+    val attach = rememberComposerAttachPicker(addPick)
+
+    // EXP-1635 (share-targets.json STEP 2): a share picked for a new chat or an
+    // agent lands HERE, on the tab: the row seeded, the composer prefilled,
+    // nothing sent until Send.
+    if (onBack == null) {
+        val selection = remember(context) { com.exponential.app.ui.share.shareSelection(context) }
+        val chatShare by selection.pendingChatShare.collectAsStateWithLifecycle()
+        LaunchedEffect(chatShare) {
+            val waiting = chatShare?.takeIf { it.sessionId == null } ?: return@LaunchedEffect
+            if (!selection.takePendingChatShare(waiting)) return@LaunchedEffect
+            waiting.pick?.let { pick ->
+                agentPick = pick
+                viewModel.applyRowPick(pick)
             }
+            com.exponential.app.ui.share.deliverChatShare(
+                context = context,
+                share = waiting.share,
+                currentDraft = composerField.text,
+                onText = { text ->
+                    composerField = TextFieldValue(text, TextRange(text.length))
+                    viewModel.setDraft(text)
+                },
+                onPick = addPick,
+            )
         }
     }
 
@@ -692,6 +707,7 @@ fun AgentScreen(
                             sending = sending || starting != null,
                             starting = starting,
                             onOpenMenu = { plusMenuOpen = true },
+                            attachMenu = { ComposerAttachMenu(attach) },
                             onRemoveImage = viewModel::removeImage,
                             submitLabel = submitLabel,
                             canSubmit = canSubmit,
@@ -811,7 +827,7 @@ fun AgentScreen(
             onRow = { row ->
                 plusMenuOpen = false
                 when (row) {
-                    ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
+                    ComposerMenuRowId.AddFile -> attach.open = true
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.McpServers -> mcpPickerOpen = true
                     ComposerMenuRowId.Skills -> skillPickerOpen = true

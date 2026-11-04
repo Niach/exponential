@@ -24,6 +24,7 @@ import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-pas
 import { Route as AuthDeviceRouteImport } from './routes/auth/device'
 import { Route as AuthConsentRouteImport } from './routes/auth/consent'
 import { Route as ApiVersionRouteImport } from './routes/api/version'
+import { Route as ApiShareTargetRouteImport } from './routes/api/share-target'
 import { Route as ApiMobileOauthStartRouteImport } from './routes/api/mobile-oauth-start'
 import { Route as ApiMobileOauthReturnRouteImport } from './routes/api/mobile-oauth-return'
 import { Route as ApiMobileOauthExchangeRouteImport } from './routes/api/mobile-oauth-exchange'
@@ -31,6 +32,7 @@ import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
+import { Route as AuthenticatedShareRouteImport } from './routes/_authenticated/share'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedExponentialUiKitchenSinkRouteImport } from './routes/_authenticated/exponential-ui-kitchen-sink'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
@@ -233,6 +235,11 @@ const ApiVersionRoute = ApiVersionRouteImport.update({
   path: '/api/version',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShareTargetRoute = ApiShareTargetRouteImport.update({
+  id: '/api/share-target',
+  path: '/api/share-target',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMobileOauthStartRoute = ApiMobileOauthStartRouteImport.update({
   id: '/api/mobile-oauth-start',
   path: '/api/mobile-oauth-start',
@@ -267,6 +274,11 @@ const ApiAuthConfigRoute = ApiAuthConfigRouteImport.update({
   id: '/api/auth-config',
   path: '/api/auth-config',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedShareRoute = AuthenticatedShareRouteImport.update({
+  id: '/share',
+  path: '/share',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
   id: '/onboarding',
@@ -969,6 +981,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/share': typeof AuthenticatedShareRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
@@ -976,6 +989,7 @@ export interface FileRoutesByFullPath {
   '/api/mobile-oauth-exchange': typeof ApiMobileOauthExchangeRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/api/share-target': typeof ApiShareTargetRoute
   '/api/version': typeof ApiVersionRoute
   '/auth/consent': typeof AuthConsentRoute
   '/auth/device': typeof AuthDeviceRoute
@@ -1117,6 +1131,7 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/share': typeof AuthenticatedShareRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
@@ -1124,6 +1139,7 @@ export interface FileRoutesByTo {
   '/api/mobile-oauth-exchange': typeof ApiMobileOauthExchangeRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/api/share-target': typeof ApiShareTargetRoute
   '/api/version': typeof ApiVersionRoute
   '/auth/consent': typeof AuthConsentRoute
   '/auth/device': typeof AuthDeviceRoute
@@ -1268,6 +1284,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
+  '/_authenticated/share': typeof AuthenticatedShareRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
   '/api/health': typeof ApiHealthRoute
@@ -1275,6 +1292,7 @@ export interface FileRoutesById {
   '/api/mobile-oauth-exchange': typeof ApiMobileOauthExchangeRoute
   '/api/mobile-oauth-return': typeof ApiMobileOauthReturnRoute
   '/api/mobile-oauth-start': typeof ApiMobileOauthStartRoute
+  '/api/share-target': typeof ApiShareTargetRoute
   '/api/version': typeof ApiVersionRoute
   '/auth/consent': typeof AuthConsentRoute
   '/auth/device': typeof AuthDeviceRoute
@@ -1420,6 +1438,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
+    | '/share'
     | '/api/auth-config'
     | '/api/contact'
     | '/api/health'
@@ -1427,6 +1446,7 @@ export interface FileRouteTypes {
     | '/api/mobile-oauth-exchange'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/api/share-target'
     | '/api/version'
     | '/auth/consent'
     | '/auth/device'
@@ -1570,6 +1590,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
+    | '/share'
     | '/api/auth-config'
     | '/api/contact'
     | '/api/health'
@@ -1577,6 +1598,7 @@ export interface FileRouteTypes {
     | '/api/mobile-oauth-exchange'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/api/share-target'
     | '/api/version'
     | '/auth/consent'
     | '/auth/device'
@@ -1722,6 +1744,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/_authenticated/exponential-ui-kitchen-sink'
     | '/_authenticated/onboarding'
+    | '/_authenticated/share'
     | '/api/auth-config'
     | '/api/contact'
     | '/api/health'
@@ -1729,6 +1752,7 @@ export interface FileRouteTypes {
     | '/api/mobile-oauth-exchange'
     | '/api/mobile-oauth-return'
     | '/api/mobile-oauth-start'
+    | '/api/share-target'
     | '/api/version'
     | '/auth/consent'
     | '/auth/device'
@@ -1880,6 +1904,7 @@ export interface RootRouteChildren {
   ApiMobileOauthExchangeRoute: typeof ApiMobileOauthExchangeRoute
   ApiMobileOauthReturnRoute: typeof ApiMobileOauthReturnRoute
   ApiMobileOauthStartRoute: typeof ApiMobileOauthStartRoute
+  ApiShareTargetRoute: typeof ApiShareTargetRoute
   ApiVersionRoute: typeof ApiVersionRoute
   AuthConsentRoute: typeof AuthConsentRoute
   AuthDeviceRoute: typeof AuthDeviceRoute
@@ -2059,6 +2084,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiVersionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/share-target': {
+      id: '/api/share-target'
+      path: '/api/share-target'
+      fullPath: '/api/share-target'
+      preLoaderRoute: typeof ApiShareTargetRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mobile-oauth-start': {
       id: '/api/mobile-oauth-start'
       path: '/api/mobile-oauth-start'
@@ -2107,6 +2139,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/auth-config'
       preLoaderRoute: typeof ApiAuthConfigRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/share': {
+      id: '/_authenticated/share'
+      path: '/share'
+      fullPath: '/share'
+      preLoaderRoute: typeof AuthenticatedShareRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/onboarding': {
       id: '/_authenticated/onboarding'
@@ -3034,6 +3073,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedExponentialUiKitchenSinkRoute: typeof AuthenticatedExponentialUiKitchenSinkRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
+  AuthenticatedShareRoute: typeof AuthenticatedShareRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -3041,6 +3081,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedExponentialUiKitchenSinkRoute:
     AuthenticatedExponentialUiKitchenSinkRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
+  AuthenticatedShareRoute: AuthenticatedShareRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -3204,6 +3245,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMobileOauthExchangeRoute: ApiMobileOauthExchangeRoute,
   ApiMobileOauthReturnRoute: ApiMobileOauthReturnRoute,
   ApiMobileOauthStartRoute: ApiMobileOauthStartRoute,
+  ApiShareTargetRoute: ApiShareTargetRoute,
   ApiVersionRoute: ApiVersionRoute,
   AuthConsentRoute: AuthConsentRoute,
   AuthDeviceRoute: AuthDeviceRoute,

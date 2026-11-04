@@ -89,6 +89,8 @@ const PINNED_RECIPES = [
   `typeIssueRef`,
   `openComposerMenuTemporary`,
   `openComposerSkillsMenu`,
+  `openComposerAddFile`,
+  `openShareTargets`,
   `typeSlashInComposer`,
   `typeSlashInSessionComposer`,
   `scrollToWorkCards`,

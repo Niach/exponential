@@ -517,6 +517,7 @@ private struct ThreadStripSpecimens: View {
                     usageFraction: 0.42, usageSeverity: .normal, onUsage: {}
                 ),
                 attachEnabled: true,
+                onCamera: {},
                 onPhoto: {},
                 onFile: {},
                 attachMenuOpen: .constant(false),

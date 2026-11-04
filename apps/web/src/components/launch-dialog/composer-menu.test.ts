@@ -4,7 +4,9 @@ import searchList from "@exp/domain-contract/fixtures/search-list.json"
 import icons from "@exp/icons/icons.json"
 import { contract } from "@exp/domain-contract"
 import {
+  COMPOSER_FILE_CHOICES,
   COMPOSER_MENU_TEST_IDS,
+  composerFileChoiceTestId,
   composerMenuLayout,
   composerMenuRowTestId,
   implementButtonLabel,
@@ -14,6 +16,19 @@ import {
 
 // EXP-1249: the "+" menu layout replays composer-menu.json — the same case
 // names the desktop, iOS and Android suites run.
+
+describe(`add-file's phone choices (EXP-1635)`, () => {
+  it(`Camera, Photos, File, on concepts that exist`, () => {
+    expect(COMPOSER_FILE_CHOICES.map((choice) => choice.label)).toEqual([`Camera`, `Photos`, `File`])
+    for (const choice of COMPOSER_FILE_CHOICES) {
+      expect(icons.semantic).toHaveProperty(choice.icon)
+    }
+  })
+
+  it(`each carries its own test id under the row template`, () => {
+    expect(composerFileChoiceTestId(`camera`)).toBe(`agent-composer-menu-add-file-camera`)
+  })
+})
 
 describe(`composerMenuLayout`, () => {
   for (const testCase of fixture.cases) {

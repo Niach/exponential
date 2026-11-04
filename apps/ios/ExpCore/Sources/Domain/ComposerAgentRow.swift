@@ -42,7 +42,7 @@ public enum ComposerAgentRow {
     }
 
     public struct State<Agent: AgentRoleOrdered> {
-        /// The circles in order (`AgentSettings.orderedAgents`); the dotted
+        /// The circles in order (`AgentOrdering.orderedAgents`); the dotted
         /// circle follows them.
         public let agents: [Agent]
         /// Option ids in order, `temporaryPick` last.
@@ -63,9 +63,9 @@ public enum ComposerAgentRow {
     public static func composerAgentRow<Agent: AgentRoleOrdered>(
         agents: [Agent], me: String?, picked: String?
     ) -> State<Agent> {
-        let ordered = AgentSettings.orderedAgents(agents, me: me)
+        let ordered = AgentOrdering.orderedAgents(agents, me: me)
         let options = ordered.map(\.agentId) + [temporaryPick]
-        let fallback = ordered.first { AgentSettings.isAssistant(role: $0.agentRole) }?.agentId ?? temporaryPick
+        let fallback = ordered.first { AgentOrdering.isAssistant(role: $0.agentRole) }?.agentId ?? temporaryPick
         let selected: String
         if let picked, !picked.isEmpty, options.contains(picked) {
             selected = picked

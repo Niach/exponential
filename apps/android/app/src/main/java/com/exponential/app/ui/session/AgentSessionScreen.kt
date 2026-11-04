@@ -4917,23 +4917,16 @@ internal fun SessionComposer(
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
     // document picker feeds the VM's pending list; the upload rides the
     // SESSION route (EXP-698), so every kind of run accepts one.
+    // EXP-1635: Camera | Photos | File, all through the same pending list.
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            // ContentResolver reads can stream from a cloud-backed provider —
-            // [readComposerPick] stays off the main thread. One pick at a time
-            // through the VM, so its caps (4 images, 4 files) + toasts apply.
-            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
-                is ComposerPick.Read ->
-                    viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
-                is ComposerPick.Refused -> viewModel.refusePendingAttachment(picked.message)
-            }
+    val addPick: (ComposerPick) -> Unit = { picked ->
+        when (picked) {
+            is ComposerPick.Read ->
+                viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+            is ComposerPick.Refused -> viewModel.refusePendingAttachment(picked.message)
         }
     }
+    val attach = com.exponential.app.ui.agent.rememberComposerAttachPicker(addPick)
 
     // EXP-724: the `/` command menu. `slashSelected` is the highlighted row
     // (↑/↓ wrap); `slashDismissedFor` is the draft Escape/Back was pressed on
@@ -4977,6 +4970,26 @@ internal fun SessionComposer(
     // on an outside rewrite (ComposerDraftSync).
     val draftSync = remember(viewModel) { ComposerDraftSync(viewModel.draft) }
     var composerField by draftSync
+    // EXP-1635 (share-targets.json): a share into THIS chat: its composer
+    // opens prefilled, nothing sent until Send.
+    val shareSelection = remember(context) { com.exponential.app.ui.share.shareSelection(context) }
+    val chatShare by shareSelection.pendingChatShare.collectAsStateWithLifecycle()
+    val shareSessionId = session?.id
+    LaunchedEffect(chatShare, shareSessionId) {
+        val waiting = chatShare?.takeIf { it.sessionId != null && it.sessionId == shareSessionId } ?: return@LaunchedEffect
+        if (!shareSelection.takePendingChatShare(waiting)) return@LaunchedEffect
+        onExpandedChange(true)
+        com.exponential.app.ui.share.deliverChatShare(
+            context = context,
+            share = waiting.share,
+            currentDraft = composerField.text,
+            onText = { text ->
+                composerField = TextFieldValue(text, TextRange(text.length))
+                viewModel.setDraft(text)
+            },
+            onPick = addPick,
+        )
+    }
     promptCaret[0] = composerField.selection.min
     promptCaret[1] = composerField.selection.max
     // The ARMED latch (BlockTextField parity, EXP-322): only a TEXT change may
@@ -5270,7 +5283,7 @@ internal fun SessionComposer(
                 onInterrupt = viewModel::interrupt,
                 expanded = expanded,
                 onExpandedChange = onExpandedChange,
-                onPickImages = { filePicker.launch(arrayOf("*/*")) },
+                attach = attach,
                 menu = plusMenu,
                 onRemoveImage = viewModel::removePendingImage,
                 // EXP-724: a command that discards the conversation is
@@ -5387,7 +5400,8 @@ internal fun SteerComposer(
     /** EXP-790: expanded (the card with its field) or folded to the bar. */
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
-    onPickImages: () -> Unit,
+    /** EXP-1635: the "+"'s add-file row, hosted above the folding card. */
+    attach: com.exponential.app.ui.agent.ComposerAttachPicker,
     /** EXP-1334: the "+" menu's rows and the live picks. */
     menu: SessionComposerMenu,
     onRemoveImage: (Int) -> Unit,
@@ -5442,7 +5456,7 @@ internal fun SteerComposer(
             live = live,
             working = working,
             onInterrupt = onInterrupt,
-            onPickImages = onPickImages,
+            attach = attach,
             menu = menu,
             onRemoveImage = onRemoveImage,
             onSend = onSend,
@@ -5459,6 +5473,7 @@ internal fun SteerComposer(
 
 /** EXP-931: the expanded composer's own menus, as the keys of its open set. */
 private const val COMPOSER_MENU_PLUS = "plus"
+private const val COMPOSER_MENU_ATTACH = "attach"
 
 /**
  * EXP-1334: what THE session composer's "+" offers in a running session —
@@ -5517,7 +5532,7 @@ private fun ExpandedSteerComposer(
     live: Boolean,
     working: Boolean,
     onInterrupt: () -> Unit,
-    onPickImages: () -> Unit,
+    attach: com.exponential.app.ui.agent.ComposerAttachPicker,
     menu: SessionComposerMenu,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
@@ -5603,16 +5618,21 @@ private fun ExpandedSteerComposer(
         // · spacer · send; the model, the Plan switch and the ring sit UNDER
         // the card (the options line).
         footer = {
-            ComposerToolButton(
-                ExpIcons.uiAdd,
-                contentDescription = com.exponential.app.domain.ComposerMenu.PLUS_LABEL,
-                onClick = {
-                    plusOpen = true
-                    onMenuOpenChange(COMPOSER_MENU_PLUS, true)
-                },
-                enabled = !sending,
-                modifier = Modifier.testTag(com.exponential.app.domain.ComposerMenu.PLUS_TEST_ID),
-            )
+            Box {
+                ComposerToolButton(
+                    ExpIcons.uiAdd,
+                    contentDescription = com.exponential.app.domain.ComposerMenu.PLUS_LABEL,
+                    onClick = {
+                        plusOpen = true
+                        onMenuOpenChange(COMPOSER_MENU_PLUS, true)
+                    },
+                    enabled = !sending,
+                    modifier = Modifier.testTag(com.exponential.app.domain.ComposerMenu.PLUS_TEST_ID),
+                )
+                com.exponential.app.ui.agent.ComposerAttachMenu(attach) {
+                    onMenuOpenChange(COMPOSER_MENU_ATTACH, false)
+                }
+            }
             // S-3 (composer-menu.json): the "+" is the card's ONLY tool;
             // the model is its Model › row, the device never moves here.
             Spacer(Modifier.weight(1f).testTag("steer-options-line"))
@@ -5690,7 +5710,10 @@ private fun ExpandedSteerComposer(
             onRow = { row ->
                 closePlus()
                 when (row) {
-                    ComposerMenuRowId.AddFile -> onPickImages()
+                    ComposerMenuRowId.AddFile -> {
+                        onMenuOpenChange(COMPOSER_MENU_ATTACH, true)
+                        attach.open = true
+                    }
                     else -> Unit
                 }
             },

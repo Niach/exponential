@@ -9,4 +9,6 @@
     <cache-path name="attachments" path="attachments/" />
     <!-- VAPP-121: an exported `<slug>.app.json`, handed to the share intent. -->
     <cache-path name="app_exports" path="app-exports/" />
+    <!-- EXP-1635: the composer's Camera row, written by the system camera. -->
+    <cache-path name="composer_camera" path="composer-camera/" />
 </paths>

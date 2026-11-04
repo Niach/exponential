@@ -61,6 +61,7 @@ import androidx.navigation.navArgument
 import com.exponential.app.AppConstants
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
+import com.exponential.app.data.ChatShare
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.domain.SettingsNav
@@ -131,6 +132,7 @@ import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.settings.ThirdPartyLicensesScreen
 import com.exponential.app.ui.share.ShareTargetPickerViewModel
+import com.exponential.app.ui.share.ShareToScreen
 import com.exponential.app.ui.share.buildSharePrefill
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.DesignTokens
@@ -276,11 +278,27 @@ fun AppNavHost() {
             is DeepLinkBus.Target.WebUrl ->
                 CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
             is DeepLinkBus.Target.ShareContent -> {
-                // Stash the shared content for the single-screen share composer
-                // to consume (it carries its own inline board selector).
+                // EXP-1635 (share-targets.json): a sharing shortcut skips Share
+                // to; an id this viewer can no longer follow lands on it.
+                val direct = target.directShareId?.let { viewModel.resolveDirectShare(it) }
+                val teamSwitch = direct?.let { viewModel.planTeamSwitch(null, it.teamId) }
                 guarded {
-                    teamSelection.setPendingShare(target)
-                    navController.navigate("share-compose") { launchSingleTop = true }
+                    teamSwitch?.let(viewModel::applyTeamSwitch)
+                    when {
+                        direct?.sessionId != null -> {
+                            teamSelection.setPendingChatShare(ChatShare(target, sessionId = direct.sessionId))
+                            navController.navigateDeepLink(Routes.thread(direct.sessionId))
+                        }
+                        direct?.pick != null -> {
+                            teamSelection.setPendingChatShare(ChatShare(target, pick = direct.pick))
+                            navController.selectTab(MainTabs.AGENT, tabSwitch)
+                        }
+                        else -> {
+                            // The pending share lives in the TeamSelection singleton.
+                            teamSelection.setPendingShare(target)
+                            navController.navigate(Routes.SHARE_TO) { launchSingleTop = true }
+                        }
+                    }
                 }
             }
         }
@@ -942,7 +960,38 @@ private fun AuthenticatedNav(
             }
             }
         }
-        composable("share-compose") {
+        composable(Routes.SHARE_TO) {
+            // EXP-1635 (share-targets.json STEP 1): where the share goes.
+            val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
+            val shareVm: ShareTargetPickerViewModel = hiltViewModel()
+            val shareTo by shareVm.shareTo.collectAsStateWithLifecycle()
+            // New issue discarded its share: nothing left to place.
+            val share = pendingShare
+            LaunchedEffect(share == null) {
+                if (share == null && navController.currentBackStackEntry?.destination?.route == Routes.SHARE_TO) {
+                    navController.popBackStack()
+                }
+            }
+            if (share != null) {
+                ShareToScreen(
+                    state = shareTo,
+                    imageUris = share.imageUris,
+                    onBack = {
+                        teamSelection.consumePendingShare()
+                    },
+                    onSelectTeam = shareVm::selectTeam,
+                    onNewIssue = { navController.navigate(Routes.SHARE_COMPOSE) { launchSingleTop = true } },
+                    onPick = { pick ->
+                        teamSelection.consumePendingShare()?.let {
+                            teamSelection.setPendingChatShare(ChatShare(it, pick = pick))
+                        }
+                        navController.popBackStack(Routes.SHARE_TO, inclusive = true)
+                        navController.selectTab(MainTabs.AGENT, tabSwitch)
+                    },
+                )
+            }
+        }
+        composable(Routes.SHARE_COMPOSE) {
             // Single-screen share composer: the prefilled create form with the
             // "Share to" destination selector on top (EXP-60). The pending
             // share lives in the TeamSelection singleton (not route
@@ -956,7 +1005,12 @@ private fun AuthenticatedNav(
             // EXP-1170: the New issue page in share mode (no draft row).
             IssueDraftScreen(
                 onBack = { navController.popBackStack() },
-                onCreated = { issueId -> navController.openCreatedIssue(issueId) },
+                // The share is placed: Share to goes with the form.
+                onCreated = { issueId ->
+                    navController.navigate("issue/$issueId") {
+                        popUpTo(Routes.SHARE_TO) { inclusive = true }
+                    }
+                },
                 sharePrefill = sharePrefill,
                 onSharePrefillConsumed = { teamSelection.consumePendingShare() },
                 shareMode = true,

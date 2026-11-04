@@ -810,6 +810,8 @@ pub const UI_AVATAR_PLACEHOLDER: ExpIcon = ExpIcon::User;
 pub const UI_BACK: ExpIcon = ExpIcon::ArrowLeft;
 /// Registry concept `ui-branch` -> Lucide `git-branch`.
 pub const UI_BRANCH: ExpIcon = ExpIcon::GitBranch;
+/// Registry concept `ui-camera` -> Lucide `camera`.
+pub const UI_CAMERA: ExpIcon = ExpIcon::Camera;
 /// Registry concept `ui-check` -> Lucide `check`.
 pub const UI_CHECK: ExpIcon = ExpIcon::Check;
 /// Registry concept `ui-checklist` -> Lucide `list-checks`.
@@ -926,6 +928,8 @@ pub const UI_ORGANIZATION: ExpIcon = ExpIcon::Building2;
 pub const UI_OWNER: ExpIcon = ExpIcon::Crown;
 /// Registry concept `ui-permission` -> Lucide `shield-question-mark`.
 pub const UI_PERMISSION: ExpIcon = ExpIcon::ShieldQuestionMark;
+/// Registry concept `ui-photos` -> Lucide `images`.
+pub const UI_PHOTOS: ExpIcon = ExpIcon::Images;
 /// Registry concept `ui-pin` -> Lucide `pin`.
 pub const UI_PIN: ExpIcon = ExpIcon::Pin;
 /// Registry concept `ui-print` -> Lucide `printer`.
@@ -1222,6 +1226,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-avatar-placeholder" => UI_AVATAR_PLACEHOLDER,
         "ui-back" => UI_BACK,
         "ui-branch" => UI_BRANCH,
+        "ui-camera" => UI_CAMERA,
         "ui-check" => UI_CHECK,
         "ui-checklist" => UI_CHECKLIST,
         "ui-chevron-down" => UI_CHEVRON_DOWN,
@@ -1280,6 +1285,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-organization" => UI_ORGANIZATION,
         "ui-owner" => UI_OWNER,
         "ui-permission" => UI_PERMISSION,
+        "ui-photos" => UI_PHOTOS,
         "ui-pin" => UI_PIN,
         "ui-print" => UI_PRINT,
         "ui-private" => UI_PRIVATE,

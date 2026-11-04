@@ -2,6 +2,7 @@ package com.exponential.app.ui.share
 
 import android.net.Uri
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.data.share.SharedFile
 import com.exponential.app.ui.markdown.draftUrl
 
 /**
@@ -14,6 +15,10 @@ data class SharePrefill(
     val title: String,
     val description: String,
     val pendingImages: Map<String, Uri>,
+    /** EXP-1635: non-image files, held for the Files section like a pick. */
+    val files: List<SharedFile> = emptyList(),
+    /** A shared file refused unread for its size. */
+    val oversizeFiles: Boolean = false,
 )
 
 /**
@@ -57,5 +62,5 @@ fun buildSharePrefill(share: DeepLinkBus.Target.ShareContent): SharePrefill {
         sb.append("![](").append(placeholder).append(")")
     }
 
-    return SharePrefill(title = title, description = sb.toString(), pendingImages = pendingImages)
+    return SharePrefill(title = title, description = sb.toString(), pendingImages = pendingImages, files = share.files, oversizeFiles = share.oversizeFiles)
 }

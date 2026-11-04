@@ -7364,6 +7364,53 @@
         "desktop": "APP-14's thread opened on its Stories tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=stories`.",
         "web-mobile": "Inherits web: the phone pager's last page (the icon-only Stories tab)."
       }
+    },
+    {
+      "id": "share-targets",
+      "group": "coding",
+      "title": "Share to",
+      "blurb": "Step 1 of sharing into Exponential (EXP-1635, share-targets.json): the shared images' preview line, New issue, New chat, then the agents in the agent row's order.",
+      "order": 62,
+      "web": {
+        "route": "/share",
+        "anchor": {
+          "testId": "share-targets-preview",
+          "timeoutMs": 20000
+        },
+        "recipe": "openShareTargets",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "The route resolves home with nothing pending: the recipe writes a two-image share where the service worker stashes one, then opens `/share`.",
+        "web-mobile": "Inherits web.",
+        "desktop": "No capture: the desktop has no share surface (share-targets.json).",
+        "ios": "No capture yet: the share extension runs outside the app's UI tests.",
+        "android": "No capture yet: the share flow enters through a system intent."
+      }
+    },
+    {
+      "id": "composer-add-file",
+      "group": "coding",
+      "title": "Composer add file (phone)",
+      "blurb": "On a phone the + menu's Photo or file pushes Camera, Photos and File (EXP-1635, composer-menu.json `addFile`); a pointer goes straight to the file chooser.",
+      "order": 63,
+      "webMobile": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "agent-composer-menu-add-file-camera",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerAddFile",
+        "settleMs": 600
+      },
+      "notes": {
+        "web-mobile": "The sheet's pushed page.",
+        "web": "No capture: a pointer goes straight to the file chooser.",
+        "desktop": "No capture: a pointer goes straight to the file chooser.",
+        "ios": "No capture yet: the composer's GlassMenu sub-choice, covered by `composer-menu`'s surface.",
+        "android": "No capture yet: the composer's GlassMenu sub-choice, covered by `composer-menu`'s surface."
+      }
     }
   ]
 }
