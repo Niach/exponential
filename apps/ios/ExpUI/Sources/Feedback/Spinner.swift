@@ -1,4 +1,6 @@
+#if !SHARE_EXTENSION
 import ExpCore
+#endif
 import SwiftUI
 
 // EXP-1275 (EXP-1259 D8): THE feedback states on iOS, the low-level three —

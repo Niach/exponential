@@ -2,11 +2,13 @@ import SwiftUI
 import UIKit
 
 /// Root SwiftUI surface for the extension: extracts the shared payload, then
-/// shows the compose form (or a guidance message when not signed in / nothing
+/// shows the Share to flow (or a guidance message when not signed in / nothing
 /// to share).
 struct ShareRootView: View {
     let deps: ShareDependencies
     let extensionItems: [NSExtensionItem]
+    /// EXP-1635: the `conversationIdentifier` of a direct share.
+    let directShareId: String?
     let onComplete: () -> Void
     let onCancel: () -> Void
 
@@ -18,15 +20,163 @@ struct ShareRootView: View {
             if loading {
                 ProgressView().controlSize(.large)
             } else if let payload {
-                ShareComposeView(deps: deps, payload: payload, onComplete: onComplete, onCancel: onCancel)
+                ShareFlowView(
+                    deps: deps, payload: payload, directShareId: directShareId,
+                    onComplete: onComplete, onCancel: onCancel
+                )
             } else {
                 ShareMessageView(message: "Nothing to share here.", onCancel: onCancel)
             }
         }
+        .preferredColorScheme(.dark)
         .task {
             payload = await ShareItemExtractor.extract(from: extensionItems)
             loading = false
         }
+    }
+}
+
+/// EXP-1635 (share-targets.json): step 1 under one navigation stack, with
+/// step 2 pushed over it (Back returns to Share to). A direct share opens with
+/// step 2 already pushed; an id the viewer no longer sees stays on step 1.
+struct ShareFlowView: View {
+    let deps: ShareDependencies
+    let payload: SharedPayload
+    let onComplete: () -> Void
+    let onCancel: () -> Void
+
+    @State private var path: [ShareRoute]
+    @State private var teamKey: String?
+    /// Retained across Send attempts, like `ShareSubmitter`.
+    @State private var submitter: ShareChatSubmitter?
+
+    private let teams: [ShareTeam]
+    private let mirrors: [String: MirroredShareTargets]
+
+    init(
+        deps: ShareDependencies,
+        payload: SharedPayload,
+        directShareId: String?,
+        onComplete: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.deps = deps
+        self.payload = payload
+        self.onComplete = onComplete
+        self.onCancel = onCancel
+        // Only accounts that still hold a token (see `ShareComposeView`).
+        let signedIn = deps.auth.authenticatedAccountIds
+        let boards = SharedBoardMirror.readBoards().filter { signedIn.contains($0.accountId) }
+        var seen = Set<String>()
+        let teams = boards
+            .map { ShareTeam(accountId: $0.accountId, teamId: $0.teamId, name: $0.teamName) }
+            .filter { seen.insert($0.id).inserted }
+        self.teams = teams
+        var mirrors: [String: MirroredShareTargets] = [:]
+        for accountId in signedIn {
+            mirrors[accountId] = SharedShareMirror.read(accountId: accountId)
+        }
+        self.mirrors = mirrors
+
+        let lastUsed = SharedBoardMirror.readLastUsed()
+            .flatMap { last in boards.first { $0.accountId == last.accountId && $0.boardId == last.boardId } }
+        var team = lastUsed.flatMap { board in teams.first { $0.accountId == board.accountId && $0.teamId == board.teamId } }
+            ?? teams.first
+        var route: ShareRoute?
+        switch directShareId.flatMap(ShareTargets.parseDirectShareId) {
+        case let .agent(id)?:
+            for (accountId, mirror) in mirrors {
+                guard let agent = mirror.agents.first(where: { $0.id == id }),
+                      AgentOrdering.visibleAgent(agent, me: mirror.userId),
+                      let home = teams.first(where: { $0.accountId == accountId && $0.teamId == agent.teamId }) else { continue }
+                team = home
+                route = .compose(pick: id)
+            }
+        case let .chat(id)?:
+            for (accountId, mirror) in mirrors {
+                guard let chat = mirror.chats.first(where: { $0.id == id }),
+                      let home = teams.first(where: { $0.accountId == accountId && $0.teamId == chat.root.teamId }) else { continue }
+                team = home
+                route = .chat(id: id)
+            }
+        case nil:
+            break
+        }
+        _teamKey = State(initialValue: team?.id)
+        _path = State(initialValue: route.map { [$0] } ?? [])
+    }
+
+    private var team: ShareTeam? { teams.first { $0.id == teamKey } }
+    private var mirror: MirroredShareTargets? { team.flatMap { mirrors[$0.accountId] } }
+
+    private var agents: [MirroredAgent] {
+        guard let team, let mirror else { return [] }
+        let inTeam = mirror.agents.filter { $0.teamId == team.teamId }
+        return ShareTargets.shareTargets(agents: inTeam, me: mirror.userId).agents
+    }
+
+    var body: some View {
+        // Any signed-in account can receive a share (the same rule the app's
+        // nav gate uses); the ACTIVE account is routinely tokenless after a
+        // per-server sign-out and says nothing about the others.
+        if !deps.auth.hasAuthenticatedAccount {
+            ShareMessageView(
+                message: "Sign in to Exponential first, then try sharing again.",
+                onCancel: onCancel
+            )
+        } else if teams.isEmpty {
+            ShareMessageView(
+                message: "Open Exponential and let it sync once, then try sharing again.",
+                onCancel: onCancel
+            )
+        } else {
+            NavigationStack(path: $path) {
+                ShareToPage(teams: teams, teamKey: $teamKey, agents: agents, images: payload.images)
+                    .navigationTitle(ShareTargets.Copy.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel", action: onCancel)
+                        }
+                    }
+                    .navigationDestination(for: ShareRoute.self, destination: page)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func page(_ route: ShareRoute) -> some View {
+        switch route {
+        case .newIssue:
+            ShareComposeView(deps: deps, payload: payload, onComplete: onComplete, onCancel: onCancel)
+        case let .compose(pick):
+            composer(pick: pick, chat: nil)
+        case let .chat(id):
+            composer(pick: ComposerAgentRow.temporaryPick, chat: mirror?.chats.first { $0.id == id })
+        }
+    }
+
+    private func composer(pick: String, chat: MirroredChat?) -> some View {
+        ShareChatComposerPage(
+            context: ShareComposerContext(
+                teamId: team?.teamId,
+                agents: agents,
+                me: mirror?.userId,
+                devices: team.flatMap { mirror?.startDevices(teamId: $0.teamId) } ?? [],
+                chat: chat
+            ),
+            pick: pick,
+            payload: payload,
+            onSend: { destination, text, attachments in
+                guard let accountId = team?.accountId else { return }
+                let submitter = submitter ?? ShareChatSubmitter(deps: deps)
+                self.submitter = submitter
+                try await submitter.send(
+                    accountId: accountId, destination: destination, text: text, attachments: attachments
+                )
+            },
+            onComplete: onComplete
+        )
     }
 }
 
@@ -76,42 +226,28 @@ struct ShareComposeView: View {
     }
 
     var body: some View {
-        // The guidance states render OUTSIDE the compose NavigationStack:
-        // ShareMessageView brings its own stack + Cancel, and nesting it under
-        // the compose chrome doubled the Cancel button and showed a disabled
-        // Post on a screen with nothing to post (EXP-405).
-        // Any signed-in account can receive a share (the same rule the app's nav
-        // gate uses); the ACTIVE account is routinely tokenless after a
-        // per-server sign-out and says nothing about the others.
-        if !deps.auth.hasAuthenticatedAccount {
-            ShareMessageView(
-                message: "Sign in to Exponential first, then try sharing again.",
-                onCancel: onCancel
-            )
-        } else if boards.isEmpty {
+        // Pushed over Share to: Back (no Cancel) leaves the page, and the
+        // guidance is the stack's page, no second stack (EXP-405).
+        if boards.isEmpty {
             ShareMessageView(
                 message: "Open Exponential and let it sync once, then try sharing again.",
-                onCancel: onCancel
+                onCancel: onCancel,
+                embedded: true
             )
         } else {
-            NavigationStack {
-                content
-                    .navigationTitle("New Issue")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel", action: onCancel)
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            if submitting {
-                                ProgressView()
-                            } else {
-                                Button("Post", action: post)
-                                    .disabled(!canPost)
-                            }
+            content
+                .navigationTitle("New Issue")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        if submitting {
+                            ProgressView()
+                        } else {
+                            Button("Post", action: post)
+                                .disabled(!canPost)
                         }
                     }
-            }
+                }
         }
     }
 
@@ -197,29 +333,36 @@ struct ShareComposeView: View {
 struct ShareMessageView: View {
     let message: String
     let onCancel: () -> Void
+    /// Pushed inside the flow's stack: no stack of its own.
+    var embedded = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                // Stays an SF Symbol: the extension links neither ExpUI nor the
-                // app's asset catalog, so the shared Lucide registry (EXP-273)
-                // isn't reachable from here.
-                Image(systemName: "tray")
-                    .font(.largeTitle)
-                    .foregroundStyle(.secondary)
-                Text(message)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 32)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Exponential")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                }
+        if embedded {
+            page
+        } else {
+            NavigationStack {
+                page
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel", action: onCancel)
+                        }
+                    }
             }
         }
+    }
+
+    private var page: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "tray")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text(message)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Exponential")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

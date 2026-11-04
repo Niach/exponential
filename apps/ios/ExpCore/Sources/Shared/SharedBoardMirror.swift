@@ -119,6 +119,7 @@ public enum SharedBoardMirror {
             defaults.removeObject(forKey: lastUsedKey)
         }
         clearActiveTeam(accountId: accountId)
+        SharedShareMirror.remove(accountId: accountId)
     }
 
     /// Forget the picker default once its account is no longer signed in.

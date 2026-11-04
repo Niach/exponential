@@ -108,3 +108,11 @@ public enum GlassTokens {
         return (Double(red), Double(green), Double(blue), Double(alpha))
     }
 }
+
+/// The text emphasis ladder — tokens.json `type.emphasis` (SLOP-18).
+public enum TextOpacity {
+    public static let primary: Double = DesignTokens.Typography.Emphasis.primary
+    public static let secondary: Double = DesignTokens.Typography.Emphasis.secondary
+    public static let tertiary: Double = DesignTokens.Typography.Emphasis.tertiary
+    public static let quaternary: Double = DesignTokens.Typography.Emphasis.quaternary
+}

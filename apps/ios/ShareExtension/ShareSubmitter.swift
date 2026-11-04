@@ -26,6 +26,9 @@ final class ShareSubmitter {
     private var createdIssueId: String?
     /// Uploaded attachment URLs, keyed by index into `payload.images`.
     private var uploadedUrls: [Int: String] = [:]
+    /// EXP-1635: the `payload.files` already on the issue (its Files section,
+    /// no markdown).
+    private var uploadedFiles: Set<Int> = []
     /// The description already written to the server, so a resumed submit skips
     /// a patch that has already landed.
     private var patchedDescription: String?
@@ -43,6 +46,7 @@ final class ShareSubmitter {
             destination = target
             createdIssueId = nil
             uploadedUrls = [:]
+            uploadedFiles = []
             patchedDescription = nil
         }
 
@@ -83,6 +87,22 @@ final class ShareSubmitter {
             }
         }
 
+        for (index, file) in payload.files.enumerated() where !uploadedFiles.contains(index) {
+            do {
+                _ = try await attachmentsApi.upload(
+                    accountId: accountId,
+                    issueId: issueId,
+                    data: file.data,
+                    filename: file.filename,
+                    contentType: file.contentType
+                )
+                uploadedFiles.insert(index)
+            } catch {
+                failedCount += 1
+                if firstFailure == nil { firstFailure = error }
+            }
+        }
+
         // Embed everything that landed, in payload order, BEFORE reporting a
         // failure — an uploaded attachment missing from the description is
         // invisible in the app.
@@ -117,7 +137,7 @@ enum ShareSubmitError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .imagesFailed(count, underlying):
-            let noun = count == 1 ? "image" : "images"
+            let noun = count == 1 ? "attachment" : "attachments"
             return "\(underlying.trpcUserMessage) The issue was created. Tap Post to retry \(count) \(noun)."
         }
     }

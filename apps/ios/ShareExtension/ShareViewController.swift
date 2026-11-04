@@ -1,3 +1,4 @@
+import Intents
 import SwiftUI
 import UIKit
 
@@ -15,6 +16,7 @@ final class ShareViewController: UIViewController {
         let root = ShareRootView(
             deps: deps,
             extensionItems: items,
+            directShareId: (extensionContext?.intent as? INSendMessageIntent)?.conversationIdentifier,
             onComplete: { [weak self] in
                 self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
             },

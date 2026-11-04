@@ -1,4 +1,6 @@
+#if !SHARE_EXTENSION
 import ExpCore
+#endif
 import SwiftUI
 
 /// S-3 (composer-home.json `agentRow`, ×4: web `ComposerAgentRow`, desktop
