@@ -1,11 +1,11 @@
 // EXP-1343 / #EXP-1433 (session-thread.json STRIP): phones page through the
-// strip by swipe AND tap — Conversation · (chips: the ONE issue | group: the
+// strip by swipe AND tap — Conversation · (#EXP-1662: the plan) · (chips: the ONE issue | group: the
 // item opened from the group's menu, only while it is open) · Stories
 // (stories.json STORIES TAB: always the last page). The `+` and the group
 // tab are never pages. A page is a string key so the pager (`useFaceSwipe`)
 // can compare them by value.
 
-export type ThreadPage = `conversation` | `stories` | `issue:${string}` | `session:${string}`
+export type ThreadPage = `conversation` | `plan` | `stories` | `issue:${string}` | `session:${string}`
 
 /** The thread's pages: `single` = the chips mode's one issue (its id), else
  *  null; `open` = the issue / session page open from the group (null when
@@ -13,16 +13,19 @@ export type ThreadPage = `conversation` | `stories` | `issue:${string}` | `sessi
 export function threadPages({
   single,
   open,
+  plan = false,
 }: {
   single: string | null
   open: ThreadPage | null
+  /** #EXP-1662: the thread holds a plan (its page follows Conversation). */
+  plan?: boolean
 }): ThreadPage[] {
   const middle: ThreadPage[] = single
     ? [`issue:${single}`]
-    : open && open !== `conversation` && open !== `stories`
+    : open && open !== `conversation` && open !== `stories` && open !== `plan`
       ? [open]
       : []
-  return [`conversation`, ...middle, `stories`]
+  return [`conversation`, ...(plan ? ([`plan`] as const) : []), ...middle, `stories`]
 }
 
 /** The page a thread tab shows. */
@@ -30,6 +33,7 @@ export function threadPageOf(
   tab:
     | { kind: `conversation` }
     | { kind: `stories` }
+    | { kind: `plan` }
     | { kind: `issue`; issueId: string }
     | { kind: `session`; sessionId: string }
 ): ThreadPage {
@@ -41,9 +45,10 @@ export function threadPageOf(
 /** The thread route's search for a page (`?tab=`). */
 export function threadPageSearch(
   page: ThreadPage
-): { tab?: `issue` | `stories` | `session`; issue?: string; session?: string } {
+): { tab?: `issue` | `stories` | `session` | `plan`; issue?: string; session?: string } {
   if (page === `conversation`) return {}
   if (page === `stories`) return { tab: `stories` }
+  if (page === `plan`) return { tab: `plan` }
   if (page.startsWith(`issue:`)) return { tab: `issue`, issue: page.slice(`issue:`.length) }
   return { tab: `session`, session: page.slice(`session:`.length) }
 }

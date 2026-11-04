@@ -18,11 +18,12 @@ describe(`PlanPage`, () => {
     expect(screen.getByTestId(`plan-rail`).textContent).toContain(PLAN_PAGE_SPECIMEN.card.questions[0]!.prompt)
   })
 
-  it(`phone: the group = THE Carousel, the foot = THE Dock's plan card (no composer), ☰ opens the outline`, () => {
+  it(`phone: the group = THE Carousel, the questions float (no Dock, no composer), ☰ opens the outline`, () => {
     render(<PlanPageSpecimen size="phone" />)
     expect(screen.getByTestId(PLAN_PAGE_TEST_IDS.carousel)).toBeTruthy()
     expect(screen.queryByTestId(PLAN_PAGE_TEST_IDS.mosaic)).toBeNull()
-    expect(screen.getByTestId(`dock-card`)).toBeTruthy()
+    expect(document.querySelector(`[data-slot=plan-questions-panel]`)).toBeTruthy()
+    expect(screen.queryByTestId(`dock-card`)).toBeNull()
     expect(document.querySelector(`textarea`)).toBeNull()
     fireEvent.click(screen.getByTestId(PLAN_PAGE_TEST_IDS.outlineToggle))
     expect(screen.getAllByTestId(`outline`).length).toBeGreaterThan(0)
@@ -52,7 +53,7 @@ describe(`PlanPage`, () => {
         })}
       </p>
     )
-    render(<PlanPage row={row} chatName="Chat" mobile={false} renderText={renderText} busy={false} />)
+    render(<PlanPage row={row} mobile={false} renderText={renderText} busy={false} />)
     fireEvent.click(screen.getByAltText(`bar`))
     expect(ownPreview).not.toHaveBeenCalled()
     expect(within(screen.getByRole(`dialog`)).getByAltText(`bar`)).toBeTruthy()

@@ -21,7 +21,8 @@ import SwiftUI
 ///   private; an agent's icon in its color before its name) and, for a
 ///   thread, THE strip — Conversation · one chip per linked issue · "+" ·
 ///   the session chips — as the pager (`FacePager`). Nothing else:
-///   no caption, no device, no Show work.
+///   no caption, no device, no Show work. #EXP-1662: a thread holding a plan
+///   adds the plan chip + page right after Conversation (`PlanPageBody`).
 /// * Conversation = `ThreadConversationView` over `buildSessionThread`, with
 ///   THE session composer box under it (`ThreadComposer` →
 ///   `SessionComposerCard`), sending
@@ -67,6 +68,9 @@ struct ThreadScreen: View {
     @Environment(TeamState.self) private var teamState
     @Environment(\.threadLanding) private var threadLanding
     @State private var page: ThreadPage
+    /// #EXP-1662: the plan a way in named (`.plan(id)`), while the tab shows
+    /// it; nil = `PlanPage.planTabTarget`.
+    @State private var planPick: String?
     /// A requested issue tab that has not synced into the strip yet (a
     /// just-filed issue): the page shows the Conversation and switches the
     /// moment the tab arrives; a tab tap drops the request.
@@ -143,6 +147,8 @@ struct ThreadScreen: View {
     @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
     /// EXP-1347: the innermost outlet for issue pills inside this thread.
     @State private var issueOutlet = ThreadIssueOutlet()
+    /// #EXP-1662: a plan's ways in inside this thread land on its tab.
+    @State private var planOutlet = ThreadPlanOutlet()
     /// EXP-1373 (chats.json MENUS): the header `…` = the chat's menu sheet
     /// (S-3: Delete, the Guide's Close PR; an agent chat's Compact · New
     /// conversation · Agent settings), its pick
@@ -160,7 +166,11 @@ struct ThreadScreen: View {
         self.editor = editor
         // An issue or session tab may not be in the strip yet: hold it
         // (`pendingPage`).
-        if initialPage != .conversation, initialPage != .stories {
+        if case let .plan(messageId) = initialPage {
+            _page = State(initialValue: .conversation)
+            _pendingPage = State(initialValue: .plan(nil))
+            _planPick = State(initialValue: messageId)
+        } else if initialPage != .conversation, initialPage != .stories {
             _page = State(initialValue: .conversation)
             _pendingPage = State(initialValue: initialPage)
         } else {
@@ -170,8 +180,22 @@ struct ThreadScreen: View {
 
     private var rows: ThreadRows? { model?.rows }
 
-    /// EVERY page the strip reaches (the Conversation, each issue of the
-    /// tree, each session under the root, Stories): what a pill, a landing
+    /// #EXP-1662 (plan-page.json): the plan the tab shows: the one a way in
+    /// named, else `planTabTarget` over the thread's plan cards; nil = no tab.
+    /// An app editor's chat has no strip to hold it.
+    private func shownPlan(_ view: SessionThreadView) -> ThreadPlanRow? {
+        guard editor == nil else { return nil }
+        let plans = view.rows.compactMap { row -> ThreadPlanRow? in
+            if case let .plan(card) = row { return card }
+            return nil
+        }
+        if let planPick, let picked = plans.first(where: { $0.id == planPick }) { return picked }
+        let target = PlanPage.planTabTarget(plans.map { (id: $0.id, decision: $0.decision) })
+        return plans.first { $0.id == target }
+    }
+
+    /// EVERY page the strip reaches (the Conversation, the plan, each issue of
+    /// the tree, each session under the root, Stories): what a pill, a landing
     /// or a pick may open in place. An app editor's chat has the
     /// Conversation alone (its band replaces the strip), and so has an
     /// agent's chat (EXP-1686, chats.json AGENT CHAT). NEW-46: on a
@@ -180,7 +204,8 @@ struct ThreadScreen: View {
     private func reachable(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard editor == nil, !rows.isAgent else { return [.conversation] }
         let main = rows.chatMode == .transcript ? view.mainSessionId : nil
-        return view.tabs.flatMap { tab -> [ThreadPage] in
+        let plan: [ThreadPage] = shownPlan(view) == nil ? [] : [.plan(nil)]
+        return plan + view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
             case .conversation: [main.map { .session($0) } ?? .conversation]
             case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
@@ -191,8 +216,8 @@ struct ThreadScreen: View {
         } + [.stories]
     }
 
-    /// EXP-1343 / #EXP-1433: the pager's pages = Conversation · (chips: the
-    /// one issue | group: the item opened from the group, only while it is
+    /// EXP-1343 / #EXP-1433: the pager's pages = Conversation · (#EXP-1662:
+    /// the plan) · (chips: the one issue | group: the item opened from the group, only while it is
     /// the shown page) · Stories; `+` and the group tab are never pages.
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard editor == nil, !rows.isAgent else { return [.conversation] }
@@ -205,7 +230,8 @@ struct ThreadScreen: View {
         } else {
             []
         }
-        return [conversation] + middle + [.stories]
+        let plan: [ThreadPage] = shownPlan(view) == nil ? [] : [.plan(nil)]
+        return [conversation] + plan + middle + [.stories]
     }
 
     private var currentPages: [ThreadPage] {
@@ -251,6 +277,7 @@ struct ThreadScreen: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environment(\.threadIssueOutlet, issueOutlet)
+                .environment(\.threadPlanOutlet, planOutlet)
                 .environment(\.waitingFocus, waitingFocus)
                 // EXP-1316 (detail-chrome.json): THE detail chrome band on
                 // every tab — the nav row (‹ · title + lock · …) over the
@@ -504,6 +531,8 @@ struct ThreadScreen: View {
             isFresh: { model?.isFresh(issueId: $0) ?? false },
             onSelect: { next in
                 pendingPage = nil
+                // #EXP-1662: the chip = the tab's own plan, never an older pick.
+                if case .plan = next { planPick = nil }
                 selectPage(next)
             },
             onIssueMenu: { issueId in openMenu(issueId: issueId) },
@@ -517,15 +546,17 @@ struct ThreadScreen: View {
             onOpenWaiting: {
                 UIApplication.endEditing()
                 waitingOpen = true
-            }
+            },
+            planWaiting: shownPlan(view).map { $0.decision == nil }
         )
     }
 
     /// #EXP-1562 (waiting-cards.json CHIPS): the Conversation's WAITING
-    /// cards (`threadPendingAsks`); a phone = ONE button.
+    /// cards (`threadPendingAsks`); a phone = ONE button. #EXP-1662: a plan's
+    /// chip is the plan tab; these are the questions.
     private var waitingChips: WaitingCards.Chips {
         let rows = model?.view?.rows ?? []
-        return WaitingCards.chips(AskDock.threadPendingAsks(rows, sessionName: { _ in nil }), phone: true)
+        return WaitingCards.chips(AskDock.threadPendingAsks(rows, sessionName: { _ in nil }).filter { $0.kind != .plan }, phone: true)
     }
 
     /// #EXP-1562: a waiting row's pick shows the Conversation (if another
@@ -583,6 +614,20 @@ struct ThreadScreen: View {
         return true
     }
 
+    /// #EXP-1662: a plan of this thread shows in its tab; false = not ours
+    /// (the caller pushes that plan's thread).
+    private func openPlanTab(_ messageId: String) -> Bool {
+        guard editor == nil, let view = model?.view,
+              view.rows.contains(where: { row in
+                  if case let .plan(card) = row { return card.id == messageId }
+                  return false
+              })
+        else { return false }
+        pendingPage = nil
+        selectPage(.plan(messageId))
+        return true
+    }
+
     /// A member may link and file here (`resolveTeamAccess`: every member
     /// comments and creates issues).
     private var canEdit: Bool {
@@ -601,6 +646,19 @@ struct ThreadScreen: View {
             issuePage(issueId)
         case let .session(sessionId):
             sessionPage(sessionId, rows: rows)
+        case .plan:
+            if let plan = shownPlan(view) {
+                PlanPageBody(
+                    card: plan,
+                    pictureSizes: TreeMessageCard.parse(
+                        rows.messages.first { $0.id == plan.id }?.card
+                    )?.pictures ?? [],
+                    canAnswer: canEdit,
+                    busy: answeringId == plan.id,
+                    onSubmit: submitAnswer
+                )
+                .id(plan.id)
+            }
         case .stories:
             ThreadStoriesPage(
                 rootId: rows.root.id,
@@ -1422,6 +1480,7 @@ struct ThreadScreen: View {
 
     private func appear() {
         issueOutlet.setHandler { issueId in openIssueTab(issueId) }
+        planOutlet.setHandler { messageId in openPlanTab(messageId) }
         if model == nil {
             model = ThreadScreenModel(rootId: rootId, accountId: accountId, db: deps.db)
         }
@@ -1504,7 +1563,11 @@ struct ThreadScreen: View {
 
     /// Show `target` now, or hold it until it reaches the strip.
     private func land(on request: ThreadPage) {
-        let target = resolved(request)
+        var target = resolved(request)
+        if case let .plan(messageId) = target {
+            planPick = messageId
+            target = .plan(nil)
+        }
         menuTarget = nil
         if reachablePages.contains(target) {
             pendingPage = nil
@@ -1520,7 +1583,13 @@ struct ThreadScreen: View {
     }
 
     private func switchPage(_ request: ThreadPage) {
-        let next = resolved(request)
+        var next = resolved(request)
+        if case let .plan(messageId) = next {
+            if let messageId { planPick = messageId }
+            next = .plan(nil)
+        } else if case .plan = page, next != page {
+            planPick = nil
+        }
         guard next != page else { return }
         UIApplication.endEditing()
         page = next

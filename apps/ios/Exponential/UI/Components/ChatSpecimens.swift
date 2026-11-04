@@ -877,9 +877,7 @@ struct StorySpecimensScreen: View {
                         .accessibilityIdentifier("story-tab-specimen")
                 }
             } else if kind == "plan-page" {
-                // EXP-1553: PUSHED one page deep (the system back control,
-                // as in the app), never a root without one.
-                PlanPagePushedSpecimen(card: Self.planPageCard)
+                PlanPageSpecimen(card: Self.planPageCard)
             } else if kind == "story-viewer-plan" || kind == "story-viewer-gallery" {
                 StoryViewer(
                     rings: Self.planRings, startKey: Self.planRings[0].key,
@@ -915,25 +913,48 @@ struct StorySpecimensScreen: View {
     }
 }
 
-/// The plan page one page deep in its own navigation stack (the bare back
-/// arrow the app's push draws).
-private struct PlanPagePushedSpecimen: View {
+/// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): the thread's
+/// title + strip with the plan chip active, the tab's body under them, waiting.
+private struct PlanPageSpecimen: View {
     let card: TreeMessageCard?
-    @State private var path: [Int] = []
+
+    private var row: ThreadPlanRow? {
+        let message = TreeMessage(
+            id: "plan-specimen", sessionId: "plan-specimen-session", authorKind: "agent", authorId: nil, body: "",
+            card: card, answeredAt: nil, consumedAt: nil, createdAt: "1970-01-01T00:00:00.000Z",
+            authorSessionId: "plan-specimen-session"
+        )
+        if case let .plan(row)? = ThreadRow.askCard(message) { return row }
+        return nil
+    }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        ZStack {
             AppBackground()
-                .navigationDestination(for: Int.self) { _ in
-                    PlanPageScreen(
-                        sessionId: "apps", messageId: "plan", specimen: card,
-                        specimenChatName: PlanPage.Specimen.chatName
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(PlanPage.Specimen.chatName)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                    ThreadStripTabs(
+                        tabs: [.conversation],
+                        selection: .plan(nil),
+                        onSelect: { _ in },
+                        storiesDot: false,
+                        planWaiting: true
                     )
-                    // The app's push draws the bare back arrow (EXP-1554).
-                    .bareBackButton()
                 }
+                Rectangle()
+                    .fill(GlassTokens.strokeCard)
+                    .frame(height: GlassTokens.hairline)
+                if let row {
+                    PlanPageBody(card: row, pictureSizes: card?.pictures ?? [], onSubmit: { _ in })
+                }
+            }
         }
-        .onAppear { if path.isEmpty { path = [1] } }
     }
 }
 

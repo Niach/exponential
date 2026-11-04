@@ -5,6 +5,7 @@ import fixture from "@exp/domain-contract/fixtures/session-thread.json"
 import { buildSessionThread, type ThreadRow } from "@exp/domain-contract/session-tree"
 import {
   suggestionKey,
+  PlanRail,
   ThreadConversation,
   ThreadIssueTab,
   ThreadSessionTree,
@@ -167,7 +168,7 @@ describe(`ThreadConversation`, () => {
   })
 
   it(`renders every row kind and answers in the card`, () => {
-    const { onAnswer, onDecide, onOpenSession } = renderRows()
+    const { onAnswer, onOpenSession } = renderRows()
     expect(screen.getByText(`Do it`)).toBeTruthy()
     expect(screen.getByText(`queued`)).toBeTruthy()
     expect(screen.getByText(`On it`)).toBeTruthy()
@@ -180,12 +181,20 @@ describe(`ThreadConversation`, () => {
     fireEvent.click(question.querySelectorAll(`[data-testid="plan-card-option"]`)[1]!)
     fireEvent.click(answer)
     expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `B`, answers: [`B`] })
-    // FEED-140 (chats.json): a waiting plan decides INLINE too (the dock's
-    // sheet holds the same decision).
+    // #EXP-1662 (plan-page.json): a plan in the Conversation is ONE row.
     const plan = document.querySelector(`[data-slot="thread-plan"]`)!
-    const approve = plan.querySelector(`[data-slot="plan-card-decide"][data-decision="approved"]`)!
-    fireEvent.click(approve)
-    expect(onDecide).toHaveBeenCalledWith(`p1`, expect.objectContaining({ decision: `approved` }))
+    expect(plan.querySelector(`[data-slot="plan-card-decide"]`)).toBeNull()
+    expect(plan.querySelector(`[data-testid="plan-card-option"]`)).toBeNull()
+    expect(plan.textContent).toContain(`Plan: Step 1`)
+    expect(plan.textContent).toContain(`Needs you`)
+  })
+
+  it(`#EXP-1662: a plan row opens the plan tab on that plan`, () => {
+    const onOpenPlan = vi.fn()
+    const plan = ROWS.find((row) => row.type === `plan`)!
+    renderRows([plan], { onOpenPlan })
+    fireEvent.click(screen.getByTestId(`plan-row`))
+    expect(onOpenPlan).toHaveBeenCalledWith(plan)
   })
 
   it(`#EXP-1464: a Needs you card expands into its waiting card, answers there, then reads Answered`, () => {
@@ -376,7 +385,6 @@ describe(`ThreadConversation`, () => {
     expect(screen.queryAllByTestId(`plan-card-custom`)).toHaveLength(0)
     expect(screen.getByText(`Use C`)).toBeTruthy()
     expect(screen.getByText(`Yes, and start with a fresh context`)).toBeTruthy()
-    expect(screen.getByTestId(`plan-card-feedback`).textContent).toBe(`Feedback: Ship it`)
   })
 
   it(`puts the X only on the viewer's own queued row, and its tooltip leaves with it`, async () => {
@@ -936,20 +944,15 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
     expect(screen.queryByTestId(`plan-card-custom`)).toBeNull()
   })
 
-  it(`an answered plan is closed: the picks, the decision label and the feedback`, () => {
+  it(`a decided plan's row reads its decision; a malformed surface never paints`, () => {
     renderRich([`n3`])
     expect(screen.queryAllByTestId(`ask-option`)).toHaveLength(0)
     expect(screen.queryByTestId(`plan-card-decision`)).toBeNull()
-    expect(screen.queryByTestId(`plan-card-step`)).toBeNull()
-    const option = screen.getByTestId(`plan-card-option`)
-    expect(option.dataset.picked).toBe(`true`)
-    expect(screen.getByText(`Yes`, { selector: `[data-slot="ask-answered"] span` })).toBeTruthy()
-    expect(screen.getByTestId(`plan-card-feedback`).textContent).toBe(`Feedback: Go.`)
-    // A malformed surface never paints.
+    expect(screen.getByTestId(`plan-card`).textContent).toContain(`Yes`)
     expect(screen.queryByTestId(`plan-card-surface`)).toBeNull()
   })
 
-  it(`a decided plan lists every question closed, no stepper; a single-question plan has no step chrome`, () => {
+  it(`a decided plan's panel lists every question closed, no stepper; one question has no step chrome`, () => {
     const q = (id: string) => ({
       id,
       prompt: id,
@@ -957,31 +960,19 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
       custom: false,
       options: [{ label: `x`, description: null, attachmentId: null }],
     })
-    const base = { type: `plan` as const, sessionId: `s1`, plan: `P`, surface: null, fresh: false, feedback: null, surfaceData: null }
-    render(
-      <ThreadConversation
-        rows={[
-          { ...base, id: `d1`, questions: [q(`a`), q(`b`)], decision: `approved` as const, answers: { a: [`x`], b: [`x`] } },
-          { ...base, id: `d2`, questions: [q(`c`)], decision: null, answers: null },
-        ]}
-        renderText={(text) => <p>{text}</p>}
-        attachmentSrc={(id) => id}
-        onDecide={vi.fn()}
-      />
+    const base = { type: `plan` as const, sessionId: `s1`, plan: `P`, surface: null, fresh: false, feedback: `Go.`, surfaceData: null }
+    const closed = render(
+      <PlanRail row={{ ...base, id: `d1`, questions: [q(`a`), q(`b`)], decision: `approved` as const, answers: { a: [`x`], b: [`x`] } }} busy={false} />
     )
-    const [closed, single] = screen.getAllByTestId(`plan-card`)
-    expect(within(closed!).getAllByTestId(`plan-card-question`)).toHaveLength(2)
-    expect(within(closed!).queryByTestId(`plan-card-step`)).toBeNull()
-    expect(within(single!).getAllByTestId(`plan-card-question`)).toHaveLength(1)
-    expect(within(single!).queryByTestId(`plan-card-step`)).toBeNull()
-    expect(within(single!).queryByTestId(`plan-card-step-next`)).toBeNull()
-    // N-12: a single question sits under the plan on the one page; the
-    // sheet's footer is the decision.
-    const { sheet } = renderSheet([{ ...base, id: `d3`, questions: [q(`c`)], decision: null, answers: null }], `d3`)
-    expect(within(sheet).getAllByTestId(`plan-card-question`)).toHaveLength(1)
-    expect(within(sheet).queryByTestId(`plan-card-step`)).toBeNull()
-    expect(within(sheet).queryByTestId(`plan-card-step-next`)).toBeNull()
-    expect(within(sheet).getByTestId(`plan-card-decision`)).toBeTruthy()
+    expect(within(closed.container).getAllByTestId(`plan-card-question`)).toHaveLength(2)
+    expect(within(closed.container).queryByTestId(`plan-card-step`)).toBeNull()
+    expect(within(closed.container).getByTestId(`plan-card-feedback`).textContent).toBe(`Feedback: Go.`)
+    closed.unmount()
+    const single = render(<PlanRail row={{ ...base, id: `d2`, questions: [q(`c`)], decision: null, answers: null }} busy={false} onDecide={vi.fn()} />)
+    expect(within(single.container).getAllByTestId(`plan-card-question`)).toHaveLength(1)
+    expect(within(single.container).queryByTestId(`plan-card-step`)).toBeNull()
+    expect(within(single.container).queryByTestId(`plan-card-step-next`)).toBeNull()
+    expect(within(single.container).getByTestId(`plan-card-decision`)).toBeTruthy()
   })
 
   it(`a pending question with a surface answers with its data model`, () => {

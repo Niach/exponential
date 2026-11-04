@@ -6,9 +6,11 @@
 // `domain/PlanPage.kt`.
 
 import fixture from "../fixtures/plan-page.json" with { type: "json" }
+import { askDockTitle } from "./ask-dock"
 
 export const PLAN_PAGE_COPY = fixture.copy
 export const PLAN_PAGE_LAYOUT = fixture.layout
+export const PLAN_PAGE_PANEL = fixture.panel
 export const PLAN_PAGE_MOSAIC = fixture.mosaic
 export const PLAN_PAGE_TEST_IDS = fixture.testIds
 export const PLAN_PAGE_ROUTE = fixture.route
@@ -20,6 +22,7 @@ export interface PlanPicture {
 }
 
 export type PlanBlock =
+  | { kind: `title`; text: string }
   | { kind: `markdown`; text: string }
   | { kind: `section`; id: string; title: string }
   | { kind: `pictures`; pictures: PlanPicture[] }
@@ -39,6 +42,7 @@ export interface PlanCounts {
 
 const PICTURE_LINE = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/
 const PICTURE_ANY = /!\[[^\]]*\]\(([^)\s]+)\)/g
+const H1 = /^#\s+(.+?)\s*#*\s*$/
 const H2 = /^##\s+(.+?)\s*#*\s*$/
 const FENCE = /^\s*(```|~~~)/
 const PENDING = `upload:`
@@ -60,6 +64,24 @@ const plainTitle = (raw: string) =>
     .replaceAll("`", ``)
     .trim()
 
+/** #EXP-1662: the plan a thread's tab shows (`tabCases`): the newest waiting
+ *  card, else the newest approved or rejected one. `plans` = oldest first. */
+export function planTabTarget(plans: readonly { id: string; decision: string | null }[]): string | null {
+  const newest = (pick: (decision: string | null) => boolean) => [...plans].reverse().find((plan) => pick(plan.decision))
+  return (
+    newest((decision) => decision === null)?.id ??
+    newest((decision) => decision === `approved` || decision === `rejected`)?.id ??
+    null
+  )
+}
+
+/** #EXP-1662: `Plan: title`, the row's and the wide tab's label
+ *  (`rowLabelCases`). */
+export function planRowLabel(plan: string): string {
+  const title = askDockTitle(plan).replace(/^plan:\s*/i, ``)
+  return title ? `${fixture.copy.rowPrefix}${title}` : fixture.copy.title
+}
+
 /** THE plan page's blocks (`blockCases`): the markdown in order, every `## `
  *  line outside a code fence = a `section` block (its anchor deduped `-2`,
  *  `-3`…), a run of two or more picture-only lines (blank lines between
@@ -68,6 +90,14 @@ const plainTitle = (raw: string) =>
  *  are trimmed of blank edge lines; an empty one is dropped. */
 export function planBlocks(markdown: string): PlanBlock[] {
   const blocks: PlanBlock[] = []
+  // #EXP-1662: a leading `# ` line = the document's title.
+  const lines = markdown.split(`\n`)
+  const first = lines.findIndex((line) => line.trim() !== ``)
+  const heading = first >= 0 ? H1.exec(lines[first]!) : null
+  if (heading) {
+    blocks.push({ kind: `title`, text: plainTitle(heading[1]!) })
+    lines.splice(first, 1)
+  }
   const seen = new Map<string, number>()
   let prose: string[] = []
   let run: PlanPicture[] = []
@@ -91,7 +121,7 @@ export function planBlocks(markdown: string): PlanBlock[] {
     runLines = []
   }
 
-  for (const line of markdown.split(`\n`)) {
+  for (const line of lines) {
     if (FENCE.test(line)) {
       flushRun()
       fenced = !fenced

@@ -99,6 +99,9 @@ pub(crate) enum ThreadChildSel {
     Issue(String),
     /// stories.json STORIES TAB: the strip's last tab.
     Stories,
+    /// #EXP-1662 THE plan tab: the plan a row opened, else (`None`, the
+    /// chip) `plan_tab_target`.
+    Plan(Option<String>),
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +165,20 @@ pub(crate) fn in_thread_label(title: &str) -> String {
 /// issue filed into it lands on its child).
 #[derive(Default)]
 struct PendingThreadChild(HashMap<String, String>);
+
+/// #EXP-1662: the plan a way in wants its thread's plan tab on (root id →
+/// plan card id), read by that thread's view on its next frame.
+#[derive(Default)]
+struct PendingThreadPlan(HashMap<String, String>);
+
+impl gpui::Global for PendingThreadPlan {}
+
+/// #EXP-1662: select the plan tab of the thread `root_id` on `message_id`
+/// (the caller navigates there; on that thread already, this alone does it).
+pub(crate) fn request_thread_plan(root_id: &str, message_id: &str, cx: &mut App) {
+    cx.default_global::<PendingThreadPlan>().0.insert(root_id.to_string(), message_id.to_string());
+    cx.refresh_windows();
+}
 
 impl gpui::Global for PendingThreadChild {}
 
@@ -1314,83 +1331,114 @@ pub(crate) fn question_card(
         .into_any_element()
 }
 
-/// EXP-1316 → EXP-1280 — a plan card IN THE CONVERSATION = THE plan card
-/// ×4: `Plan ready`, the plan (pictures inline; a pending `upload:` embed
-/// renders nothing), the inline surface, one block per question; once
-/// decided, CLOSED (the picks, `planDecisionLabel`, the feedback). N-12: a
-/// pending card the viewer may decide lives in THE Dock ([`ask_row_sheet`]);
-/// FEED-140: it stays inline too, with its decision when `answer`. A
-/// `superseded` card (the agent replaced it with a newer plan) paints closed
-/// and COLLAPSED to `copy.superseded`.
-pub(crate) fn plan_card(
-    plan: MarkdownView,
-    facts: crate::plan_card::PlanFacts,
-    answer: bool,
-    meta: Option<AnyElement>,
+/// #EXP-1662 (plan-page.json): a plan in the Conversation = ONE row (THE
+/// session card's box, `layout.rowHeight`): the glyph (amber while waiting,
+/// emerald check when approved, muted otherwise), `plan_row_label`, the status
+/// word, flex, the chevron; a press opens the thread's plan tab on it
+/// (`opens`: only where a team reads it, the styleguide's are inert). The ×
+/// while it waits sits beside the press. A superseded plan keeps its closed
+/// card ([`plan_superseded_card`]), a dismissed one its line.
+#[allow(clippy::too_many_arguments)] // the row's facts + the painter's
+pub(crate) fn plan_row(
+    message_id: &str,
+    session_id: &str,
+    plan: &str,
+    decision: Option<&str>,
+    fresh: bool,
+    opens: bool,
     dismiss: Option<AnyElement>,
-    images: &Entity<ImageCache>,
-    window: &Window,
-    cx: &mut App,
+    cx: &App,
 ) -> AnyElement {
-    if facts.decision == Some("superseded") {
-        // Web `session-thread-view.tsx`: the muted close glyph + the muted
-        // line, the card at 80 %.
-        let label = domain::ask_dock::plan_decision_label("superseded", false);
-        let muted = cx.theme().muted_foreground;
-        let line = h_flex()
-            .gap_1p5()
-            .items_center()
-            .mt_1()
-            .text_xs()
-            .text_color(muted)
-            .child(Icon::new(registry::UI_CLOSE).xsmall().text_color(muted))
-            .child(div().min_w_0().truncate().child(SharedString::from(label)));
-        return crate::steer_viewer::ask_card_chrome(
-            true,
-            Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())),
-            None,
-            None,
-            v_flex().w_full().min_w_0().child(line),
-            cx,
+    let copy = &domain::plan_page::PLAN_PAGE.copy;
+    let (foreground, muted, success) = {
+        let theme = cx.theme();
+        (theme.foreground, theme.muted_foreground, theme.success)
+    };
+    let needs_you = theme::tokens::YELLOW.to_hsla();
+    let (glyph, tint) = match decision {
+        None => (registry::CODING_PLAN, needs_you),
+        Some("approved") => (registry::UI_CHECK, success),
+        Some(_) => (registry::CODING_PLAN, muted),
+    };
+    let status = match decision {
+        None => copy.needs_you.clone(),
+        Some(decision) => domain::ask_dock::plan_decision_label(decision, fresh),
+    };
+    let press = h_flex()
+        .id(SharedString::from(format!("plan-row-{message_id}")))
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .px_3()
+        .gap_2()
+        .items_center()
+        .when(opens, |row| {
+            let (session_id, id) = (session_id.to_string(), message_id.to_string());
+            row.cursor_pointer().on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                crate::plan_page::open(&session_id, &id, window, cx);
+            })
+        })
+        .child(Icon::new(glyph).small().flex_shrink_0().text_color(tint))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(foreground)
+                .child(SharedString::from(domain::plan_page::plan_row_label(plan))),
         )
-        .opacity(0.8)
-        .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
-        .into_any_element();
-    }
-    let (content, controls) = crate::plan_card::plan_parts(&facts, answer, images, window, cx);
-    let column = card_column(plan, content, controls, cx);
-    let card = crate::steer_viewer::ask_card_chrome_with(
-        true,
-        Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())),
-        label_meta(meta),
-        None,
-        dismiss,
-        column,
-        cx,
-    );
-    crate::waiting_cards::ringed(card, facts.message_id, cx)
-        .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(if decision.is_none() { needs_you } else { muted })
+                .child(SharedString::from(status)),
+        )
+        .child(div().flex_1())
+        .child(Icon::new(registry::UI_CHEVRON_RIGHT).small().flex_shrink_0().text_color(muted));
+    h_flex()
+        .id(SharedString::from(format!("{}-{message_id}", domain::plan_card::test_ids().card)))
+        .w_full()
+        .min_w_0()
+        .h(px(domain::plan_page::PLAN_PAGE.layout.row_height))
+        .items_center()
+        .overflow_hidden()
+        .rounded(px(theme::tokens::radius::LG))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
+        .hover(|row| row.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+        .child(press)
+        .when_some(dismiss, |row, dismiss| row.child(div().flex_shrink_0().mr_2().child(dismiss)))
         .into_any_element()
 }
 
-/// #EXP-1493: a plan card's `Open plan` (plan-page.json `copy.openPlan`,
-/// testIds.openPlan): the ghost button with the `ui-fullscreen` concept
-/// that opens THE plan page.
-pub(crate) fn open_plan_button(session_id: &str, message_id: &str, cx: &App) -> AnyElement {
-    let page = &domain::plan_page::PLAN_PAGE;
-    let (session_id, id) = (session_id.to_string(), message_id.to_string());
-    gpui_component::button::Button::new(SharedString::from(format!("{}-{message_id}", page.test_ids.open_plan)))
-        .ghost()
-        .web_xs()
-        .cursor_pointer()
-        .icon(Icon::new(registry::UI_FULLSCREEN).xsmall().text_color(cx.theme().muted_foreground))
-        .label(page.copy.open_plan.clone())
-        .text_color(cx.theme().muted_foreground)
-        .on_click(move |_, window, cx| {
-            cx.stop_propagation();
-            crate::plan_page::open(&session_id, &id, window, cx);
-        })
-        .into_any_element()
+/// FEED-140: a plan the agent replaced paints closed, never its body (web
+/// `ThreadPlanRow`): the muted close glyph + the muted line, the card at 80 %.
+fn plan_superseded_card(message_id: &str, cx: &App) -> AnyElement {
+    let label = domain::ask_dock::plan_decision_label("superseded", false);
+    let muted = cx.theme().muted_foreground;
+    let line = h_flex()
+        .gap_1p5()
+        .items_center()
+        .mt_1()
+        .text_xs()
+        .text_color(muted)
+        .child(Icon::new(registry::UI_CLOSE).xsmall().text_color(muted))
+        .child(div().min_w_0().truncate().child(SharedString::from(label)));
+    crate::steer_viewer::ask_card_chrome(
+        true,
+        Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())),
+        None,
+        None,
+        v_flex().w_full().min_w_0().child(line),
+        cx,
+    )
+    .opacity(0.8)
+    .id(SharedString::from(format!("{}-{message_id}", domain::plan_card::test_ids().card)))
+    .into_any_element()
 }
 
 /// #EXP-1464: a trailing element of a card's label line (`Open chat`),
@@ -1482,33 +1530,12 @@ pub(crate) fn ask_row_card_with(
     );
     let dismiss = (waiting && text.dismisses() && !answering(row.id(), cx))
         .then(|| crate::waiting_cards::dismiss_button(row.id(), cx));
-    if let Some((id, plan, facts)) = plan_facts(row) {
-        let markdown = message_markdown(
-            SharedString::from(format!("thread-plan-{id}")),
-            &crate::plan_card::strip_pending_uploads(plan),
-            text,
-            images,
-        );
-        // #EXP-1493 (plan-page.json WAYS IN): the card's header action
-        // `Open plan` (a superseded card has none), before the row's own
-        // meta (an expanded Needs-you row's `Open chat`). Only where a team
-        // reads it (the styleguide's cards carry none).
-        let meta = match (text.team_id(), facts.decision) {
-            (Some(_), decision) if decision != Some("superseded") => {
-                let open = open_plan_button(facts.session_id, id, cx);
-                Some(
-                    h_flex()
-                        .flex_shrink_0()
-                        .gap_3()
-                        .items_center()
-                        .child(open)
-                        .children(meta)
-                        .into_any_element(),
-                )
-            }
-            _ => meta,
-        };
-        return Some(plan_card(markdown, facts, text.answers(), meta, dismiss, images, window, cx));
+    // #EXP-1662: a plan = ONE row, also under an expanded session row.
+    if let SessionThreadRow::Plan { id, session_id, plan, decision, fresh, .. } = row {
+        if decision.as_deref() == Some("superseded") {
+            return Some(plan_superseded_card(id, cx));
+        }
+        return Some(plan_row(id, session_id, plan, decision.as_deref(), *fresh, text.team_id().is_some(), dismiss, cx));
     }
     let (id, question, facts) = question_facts(row)?;
     let markdown = message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images);
@@ -2360,6 +2387,41 @@ pub(crate) enum StripPick {
     Issue(String),
     Session(String),
     Stories,
+    /// #EXP-1662: the plan tab.
+    Plan,
+}
+
+/// #EXP-1662: the strip's plan chip.
+#[derive(Clone)]
+pub(crate) struct StripPlan {
+    /// `plan_row_label`.
+    pub(crate) label: String,
+    /// Its plan waits: the needs-you dot.
+    pub(crate) waiting: bool,
+}
+
+/// #EXP-1662: a plan row as the strip's chip (a non-plan row = `None`).
+pub(crate) fn strip_plan_of(row: &SessionThreadRow) -> Option<StripPlan> {
+    match row {
+        SessionThreadRow::Plan { plan, decision, .. } => {
+            Some(StripPlan { label: domain::plan_page::plan_row_label(plan), waiting: decision.is_none() })
+        }
+        _ => None,
+    }
+}
+
+/// #EXP-1662: the plan the thread's tab targets (`plan_tab_target` over its
+/// plan rows, oldest first).
+pub(crate) fn tab_plan(rows: &[SessionThreadRow]) -> Option<&SessionThreadRow> {
+    let plans: Vec<(&str, Option<&str>)> = rows
+        .iter()
+        .filter_map(|row| match row {
+            SessionThreadRow::Plan { id, decision, .. } => Some((id.as_str(), decision.as_deref())),
+            _ => None,
+        })
+        .collect();
+    let target = domain::plan_page::plan_tab_target(&plans)?;
+    rows.iter().find(|row| row.id() == target)
 }
 
 /// One linked issue as the strip paints it.
@@ -2397,6 +2459,9 @@ pub(crate) struct ThreadStrip {
     /// no chips.
     pub(crate) waiting: Vec<domain::waiting_cards::WaitingCardInput>,
     pub(crate) on_waiting: Option<crate::waiting_cards::OnWaitingPick>,
+    /// #EXP-1662: the plan chip, right after Conversation (`None` = the
+    /// thread holds no plan the tab targets).
+    pub(crate) plan: Option<StripPlan>,
 }
 
 /// One row of the strip's group menu (#EXP-1433).
@@ -2626,9 +2691,11 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
     }
     // NEW-6 (N-1): a thread with ONE session has no Conversation tab (its
     // raw work IS the body); the tab comes back with the first child.
-    // The Stories tab open on a one-session thread brings the Conversation
-    // tab back (the way home, web draws it always).
-    if spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Conversation)) || spec.open == StripPick::Stories {
+    // The Stories or plan tab open on a one-session thread brings the
+    // Conversation tab back (the way home, web draws it always).
+    if spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Conversation))
+        || matches!(spec.open, StripPick::Stories | StripPick::Plan)
+    {
         lead.push(
             strip_tab(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
                 .child(Icon::new(registry::ACTION_CHAT).xsmall())
@@ -2636,6 +2703,19 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
                 .on_click(pick(StripPick::Conversation))
                 .into_any_element(),
         );
+    }
+    // #EXP-1662 (plan-page.json): THE plan chip, right after Conversation.
+    if let Some(plan) = spec.plan.clone() {
+        let mut chip = strip_chip(SharedString::from(domain::plan_page::PLAN_PAGE.test_ids.tab.clone()), spec.open == StripPick::Plan, cx)
+            .max_w(px(domain::plan_page::PLAN_PAGE.layout.tab_max_width))
+            .child(Icon::new(registry::CODING_PLAN).xsmall().flex_shrink_0())
+            .child(div().min_w_0().truncate().child(SharedString::from(plan.label)))
+            .when(plan.waiting, |chip| {
+                chip.child(div().flex_shrink_0().size(px(6.)).rounded_full().bg(theme::tokens::YELLOW.to_hsla()))
+            })
+            .on_click(pick(StripPick::Plan));
+        chip.style().flex_shrink = Some(1.);
+        lead.push(chip.into_any_element());
     }
     // #EXP-1562: the WAITING chips, right after Conversation (none = the
     // first of the tablist), before the issue / group zone.
@@ -2990,6 +3070,10 @@ pub(crate) struct ThreadScreenView {
     /// #EXP-1562: a waiting chip's card to scroll to (and ring) once the
     /// Conversation shows.
     reveal: Option<String>,
+    /// #EXP-1662: the plan tab's body state and the plan it last painted (a
+    /// new plan opens from its top).
+    plan_state: crate::plan_page::PlanPageState,
+    plan_painted: Option<String>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -3084,6 +3168,8 @@ impl ThreadScreenView {
             closed_queue_reads: HashMap::new(),
             probe_timer: None,
             reveal: None,
+            plan_state: Default::default(),
+            plan_painted: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
         };
@@ -3360,6 +3446,7 @@ impl ThreadScreenView {
             (None, ThreadChildSel::Conversation) => StripPick::Conversation,
             (None, ThreadChildSel::Issue(id)) => StripPick::Issue(id.clone()),
             (None, ThreadChildSel::Stories) => StripPick::Stories,
+            (None, ThreadChildSel::Plan(_)) => StripPick::Plan,
         };
         let issues: HashMap<String, StripIssue> = model
             .issues
@@ -3392,9 +3479,17 @@ impl ThreadScreenView {
                 let child = match other {
                     StripPick::Issue(id) => ThreadChildSel::Issue(id),
                     StripPick::Stories => ThreadChildSel::Stories,
+                    StripPick::Plan => ThreadChildSel::Plan(None),
                     _ => ThreadChildSel::Conversation,
                 };
-                let _ = this.update(cx, |this, cx| this.select_child(child, window, cx));
+                let _ = this.update(cx, |this, cx| {
+                    // The chip of the open plan tab keeps the plan it shows.
+                    let child = match (&child, &this.child) {
+                        (ThreadChildSel::Plan(_), open @ ThreadChildSel::Plan(_)) => open.clone(),
+                        _ => child,
+                    };
+                    this.select_child(child, window, cx);
+                });
             }
         });
         let stories_dot = crate::story_ring::root_story_tab(&self.root_id, cx).as_ref().as_ref().is_some_and(|ring| ring.unseen);
@@ -3402,6 +3497,7 @@ impl ThreadScreenView {
             ThreadStrip {
                 prefix: "thread",
                 stories: Some(stories_dot),
+                plan: self.shown_plan(model, cx).or_else(|| tab_plan(&model.view.rows).cloned()).as_ref().and_then(strip_plan_of),
                 waiting: crate::waiting_cards::thread_waiting_cards(&model.view.rows),
                 on_waiting: Some({
                     let this = cx.entity().downgrade();
@@ -4016,6 +4112,44 @@ impl ThreadScreenView {
         ))
     }
 
+    /// #EXP-1662: the plan the open plan tab shows: the one a row opened (a
+    /// grandchild's card is not among the root's rows), else the tab's target.
+    fn shown_plan(&self, model: &ThreadModel, cx: &App) -> Option<SessionThreadRow> {
+        let ThreadChildSel::Plan(opened) = &self.child else {
+            return None;
+        };
+        let opened = opened.as_deref().and_then(|id| {
+            model.view.rows.iter().find(|row| row.id() == id).cloned().or_else(|| {
+                let store = Store::try_global(cx)?;
+                let message = store.collections().messages.read(cx).get(id).cloned()?;
+                domain::session_tree::ask_card_row(&message).filter(|row| matches!(row, SessionThreadRow::Plan { .. }))
+            })
+        });
+        opened.or_else(|| tab_plan(&model.view.rows).cloned())
+    }
+
+    /// #EXP-1662: THE plan tab's body: only the content swaps, on the thread's
+    /// own ground, no composer.
+    fn render_plan_child(&mut self, row: &SessionThreadRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        if self.plan_painted.as_deref() != Some(row.id()) {
+            self.plan_painted = Some(row.id().to_string());
+            self.plan_state.scroll.set_offset(gpui::point(px(0.), px(0.)));
+        }
+        let page = crate::plan_page::plan_page(
+            crate::plan_page::PlanPageProps {
+                row,
+                text: &self.text,
+                images: &self.images,
+                state: &self.plan_state,
+                active: None,
+                answer: self.text.answers(),
+            },
+            window,
+            cx,
+        );
+        div().flex_1().min_h_0().w_full().child(page).into_any_element()
+    }
+
     fn render_issue_child(&mut self) -> AnyElement {
         match &self.issue_view {
             Some(view) => div().flex_1().min_h_0().w_full().child(view.clone()).into_any_element(),
@@ -4081,6 +4215,16 @@ impl Render for ThreadScreenView {
         if let Some(issue_id) = pending {
             cx.global_mut::<PendingThreadChild>().0.remove(&self.root_id);
             self.set_child(ThreadChildSel::Issue(issue_id), window, cx);
+        }
+        // #EXP-1662: a way in asked for this thread's plan tab on a plan.
+        let pending_plan = cx.try_global::<PendingThreadPlan>().and_then(|pending| pending.0.get(&self.root_id).cloned());
+        if let Some(message_id) = pending_plan {
+            cx.global_mut::<PendingThreadPlan>().0.remove(&self.root_id);
+            self.set_child(ThreadChildSel::Plan(Some(message_id)), window, cx);
+        }
+        // Nothing left to show on the plan tab: the Conversation.
+        if matches!(self.child, ThreadChildSel::Plan(_)) && self.shown_plan(&model, cx).is_none() {
+            self.set_child(ThreadChildSel::Conversation, window, cx);
         }
         // EXP-1346: ONE memoised chip resolver per frame for every text.
         self.text = ThreadText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()))
@@ -4155,6 +4299,10 @@ impl Render for ThreadScreenView {
             ThreadChildSel::Conversation => self.render_conversation(&model, window, cx),
             ThreadChildSel::Issue(_) => self.render_issue_child(),
             ThreadChildSel::Stories => self.render_stories_child(&model, window, cx),
+            ThreadChildSel::Plan(_) => match self.shown_plan(&model, cx) {
+                Some(row) => self.render_plan_child(&row, window, cx),
+                None => div().flex_1().into_any_element(),
+            },
         };
         // EXP-1686: the call panel covers an agent chat's body while it runs.
         let child = match agent_chat {
@@ -4189,6 +4337,34 @@ mod tests {
 
     /// The "+" offers Link an issue and New issue; an issue chip adds its
     /// Unlink after a separator. No "start a session" row any more.
+    fn plan_row_of(id: &str, decision: Option<&str>) -> SessionThreadRow {
+        SessionThreadRow::Plan {
+            id: id.into(),
+            session_id: "s".into(),
+            plan: format!("# {id}"),
+            questions: Vec::new(),
+            surface: None,
+            decision: decision.map(Into::into),
+            fresh: false,
+            answers: None,
+            feedback: None,
+            surface_data: None,
+        }
+    }
+
+    /// #EXP-1662: the chip targets `plan_tab_target` over the thread's rows and
+    /// wears the dot while that plan waits.
+    #[test]
+    fn the_plan_chip_follows_the_tab_target() {
+        let rows = [plan_row_of("old", Some("approved")), plan_row_of("new", None), plan_row_of("done", Some("rejected"))];
+        let target = tab_plan(&rows).unwrap();
+        assert_eq!(target.id(), "new");
+        let chip = strip_plan_of(target).unwrap();
+        assert_eq!(chip.label, "Plan: new");
+        assert!(chip.waiting);
+        assert!(tab_plan(&[plan_row_of("gone", Some("superseded"))]).is_none());
+    }
+
     #[test]
     fn the_thread_menu_rows() {
         assert_eq!(thread_menu_rows(None), vec![ThreadMenuRow::LinkIssue, ThreadMenuRow::NewIssue]);

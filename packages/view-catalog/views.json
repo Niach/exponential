@@ -6284,7 +6284,7 @@
       "id": "plan-page",
       "group": "coding",
       "title": "Plan page",
-      "blurb": "THE plan page ×4 (#EXP-1493, plan-page.json): the expanded form of THE plan card. Wide: header, THE Outline (scroll-spy), the document (THE markdown, picture groups as THE Mosaic), the sticky rail (the stepper + the decision). Phones: the same document, groups as THE Carousel, the outline in a sheet, THE Dock's plan card opening the questions-only sheet; no composer.",
+      "blurb": "THE plan tab ×4 (#EXP-1662, plan-page.json): the thread's header and strip stay, the plan replaces the content. Wide: THE Outline (scroll-spy), the document (THE markdown, picture groups as THE Mosaic), the sticky rail (the stepper + the decision). Phones: the same document, groups as THE Carousel, the outline in a sheet, THE Dock's plan card opening the questions-only sheet; no composer.",
       "order": 6,
       "web": {
         "route": "/t/$teamSlug/agent?dev=plan-page",

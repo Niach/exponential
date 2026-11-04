@@ -1,21 +1,23 @@
-//! `plan-page` (Special components): THE plan page (#EXP-1493,
-//! `fixtures/plan-page.json` ×4), the IDE half of the entry the web page
-//! draws (`PlanPageSpecimen`). It paints `specimen` WIDE at 1280 × 720 with
-//! the REAL page ([`crate::plan_page::plan_page`]): the header (the chat's
-//! name = `specimen.chatName`, the kind badge, the waiting dot, the counts
-//! line), THE Outline with `specimen.activeSection` active, the document
-//! from its top (pictures = the committed samples, EXP-1654:
-//! [`crate::specimen_pictures`] seeds the entry's cache) and the rail on
-//! question 1. `EXP_DEV_SCREEN=styleguide:plan-page` draws it full-window.
+//! `plan-page` (Special components): #EXP-1662 THE plan tab
+//! (`fixtures/plan-page.json` ×4), the IDE half of the entry the web page
+//! draws (`PlanPageSpecimen`). It paints `specimen` WIDE at 1280 × 720 with the
+//! REAL parts: the thread's title (`specimen.chatName`) + THE strip with the
+//! plan chip active ([`crate::thread_screen::thread_strip`]) over the REAL body
+//! ([`crate::plan_page::plan_page`]): THE Outline with `specimen.activeSection`
+//! active, the document from its top (pictures = the committed samples,
+//! EXP-1654: [`crate::specimen_pictures`] seeds the entry's cache) and the
+//! floating questions on question 1.
+//! `EXP_DEV_SCREEN=styleguide:plan-page` draws it full-window.
 
 use domain::plan_page::PLAN_PAGE;
 use domain::rows::MessageRow;
-use domain::session_tree::SessionThreadRow;
-use gpui::{div, px, App, Div, ParentElement as _, ScrollHandle, SharedString, Styled as _, Window};
-use gpui_component::ActiveTheme as _;
+use domain::session_tree::{SessionThreadRow, ThreadTab};
+use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::markdown::ImageCache;
-use crate::thread_screen::ThreadText;
+use crate::plan_page::PlanPageState;
+use crate::thread_screen::{StripPick, ThreadStrip, ThreadText};
 
 pub(crate) const ID: &str = "plan-page";
 pub(crate) const OWNER: &str = "EXP-1493";
@@ -49,27 +51,49 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             cache
         })
         .clone();
-    let scroll = window.use_keyed_state("sg-plan-page-scroll", cx, |_, _| ScrollHandle::new()).read(cx).clone();
+    let state = window.use_keyed_state("sg-plan-page-state", cx, |_, _| PlanPageState::default()).read(cx).clone();
     let row = row();
-    let noop = || -> Option<crate::plan_page::PageAction> { Some(std::rc::Rc::new(|_, _| {})) };
-    let page = crate::plan_page::plan_page(
-        crate::plan_page::PlanPageProps {
-            row: &row,
-            chat_name: SharedString::from(PLAN_PAGE.specimen.chat_name.clone()),
-            text: &ThreadText::default(),
-            images: &images,
-            scroll: &scroll,
-            active: Some(PLAN_PAGE.specimen.active_section.clone()),
-            on_back: noop(),
-            on_close: noop(),
-            on_open_chat: noop(),
+    let strip = crate::thread_screen::thread_strip(
+        ThreadStrip {
+            prefix: "sg-plan-page",
+            tabs: vec![ThreadTab::Conversation],
+            issues: Default::default(),
+            clis: Default::default(),
+            open: StripPick::Plan,
+            menu: None,
+            on_pick: std::rc::Rc::new(|_, _, _| {}),
+            stories: Some(false),
+            waiting: Vec::new(),
+            on_waiting: None,
+            plan: crate::thread_screen::strip_plan_of(&row),
         },
         window,
         cx,
     );
-    div()
+    let header = v_flex()
+        .flex_shrink_0()
+        .w_full()
+        .px_10()
+        .pt_6()
+        .gap_4()
+        .child(crate::thread_screen::title_row(&PLAN_PAGE.specimen.chat_name, false, cx))
+        .child(strip)
+        .child(div().w_full().h(px(1.)).bg(cx.theme().border));
+    let page = crate::plan_page::plan_page(
+        crate::plan_page::PlanPageProps {
+            row: &row,
+            text: &ThreadText::default(),
+            images: &images,
+            state: &state,
+            active: Some(PLAN_PAGE.specimen.active_section.clone()),
+            answer: true,
+        },
+        window,
+        cx,
+    );
+    v_flex()
         // At most the specimen's width: a narrower pane (the IDE window
-        // beside its sidebar) shrinks it, never clips the header and rail.
+        // beside its sidebar) shrinks it, never clips the header and panel.
         .w_full()
         .max_w(px(WIDE.0))
         .h(px(WIDE.1))
@@ -77,8 +101,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .rounded(px(24.))
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(cx.theme().background)
-        .child(page)
+        .bg(crate::dock::card_fill())
+        .child(header)
+        .child(div().flex_1().min_h_0().w_full().child(page))
 }
 
 #[cfg(test)]
@@ -97,7 +122,7 @@ mod tests {
         assert!(outline.iter().any(|section| section.id == PLAN_PAGE.specimen.active_section));
     }
 
-    /// The entry paints twice in a window (the rail's fields are built
+    /// The entry paints twice in a window (the panel's fields are built
     /// between the frames) and settles.
     #[gpui::test]
     async fn the_plan_page_entry_paints_and_settles(cx: &mut gpui::TestAppContext) {

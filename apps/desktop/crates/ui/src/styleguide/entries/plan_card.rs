@@ -3,13 +3,10 @@
 //! entry the web page draws. The rows ARE the fixture's: the
 //! `session-thread.json` case "EXP-1280: a rich plan card…" built through
 //! the domain mirror (`domain::session_tree::ask_card_row`) and painted by
-//! the thread's REAL cards (`crate::thread_screen::ask_row_card`): the
-//! pending plan (pictures inline, a pending upload that renders nothing,
-//! the inline Exponential UI surface, a picture-tile question and a
-//! multi-choice list question; N-12: in the transcript a pending card is
-//! read-only, its pages and decision live in THE Dock's sheet, see the
-//! `ask-dock` entry), the answered multi question closed with its picks,
-//! and a decided plan.
+//! the thread's REAL cards (`crate::thread_screen::ask_row_card`): #EXP-1662:
+//! a plan = its ONE row (pending with its ×, decided, dismissed; the document
+//! and the questions are the `plan-page` entry), the answered multi question
+//! closed with its picks.
 //! The fixture's attachments are local stand-in pictures (no backend).
 
 use domain::rows::MessageRow;
@@ -130,22 +127,8 @@ fn demo(label: &str, rows: &[SessionThreadRow], images: &Entity<ImageCache>, win
     // #EXP-1561: a waiting card carries its × (the web specimen's
     // `onDismiss`); its decision stays in THE Dock.
     let text = ThreadText::default().dismissing(true);
-    // plan-page.json WAYS IN: every plan card wears its header `Open plan`,
-    // as in the chat (web specimen `onOpenPlan`); a dismissed one is a line.
-    let cards: Vec<_> = rows
-        .iter()
-        .filter_map(|row| {
-            let open = match row {
-                SessionThreadRow::Plan { id, session_id, decision, .. }
-                    if !matches!(decision.as_deref(), Some("superseded" | "dismissed")) =>
-                {
-                    Some(crate::thread_screen::open_plan_button(session_id, id, cx))
-                }
-                _ => None,
-            };
-            crate::thread_screen::ask_row_card_with(row, &text, images, open, window, cx)
-        })
-        .collect();
+    // #EXP-1662: a plan = ONE row; a dismissed one a line.
+    let cards: Vec<_> = rows.iter().filter_map(|row| crate::thread_screen::ask_row_card(row, &text, images, window, cx)).collect();
     v_flex().w_full().gap_2().child(caption(label, cx)).child(v_flex().w_full().gap_3().children(cards))
 }
 

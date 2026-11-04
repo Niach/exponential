@@ -6,11 +6,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * #EXP-1493 THE PLAN PAGE ×4 (`packages/domain-contract/fixtures/plan-page.json`,
+ * #EXP-1493 → #EXP-1662 THE PLAN TAB ×4 (`packages/domain-contract/fixtures/plan-page.json`,
  * TS reference `src/plan-page.ts`, iOS ExpCore `PlanPage.swift`, desktop
- * `domain::plan_page`): the expanded form of THE plan card. A plan's
- * markdown split into blocks (prose, h2 sections, picture groups), its
- * outline, its counts line and where a session's waiting plan opens.
+ * `domain::plan_page`): the expanded form of THE plan card, a tab of its
+ * thread. A plan's markdown split into blocks (the title, prose, h2 sections,
+ * picture groups), its outline, its counts line, the plan the tab shows, its
+ * row label and where a session's waiting plan opens.
  * `PlanPageTest` replays every `*Cases` array.
  */
 object PlanPage {
@@ -26,19 +27,31 @@ object PlanPage {
         val SECTIONS = listOf("section", "sections")
         val PICTURES = listOf("picture", "pictures")
         val QUESTIONS_COUNT = listOf("question", "questions")
+        const val NEEDS_YOU = "Needs you"
+        const val ROW_PREFIX = "Plan: "
     }
 
     /** dp; Android = the `phone` form factor. */
     object Layout {
         const val OUTLINE_WIDTH = 240f
         const val COLUMN_MAX_WIDTH = 720f
-        const val RAIL_WIDTH = 360f
         const val COLUMN_PADDING_WIDE = 28f
         const val COLUMN_PADDING_PHONE = 18f
-        const val HEADER_HEIGHT = 48f
         const val BLOCK_GAP = 14f
         const val OUTLINE_ROW_HEIGHT = 32f
         const val OUTLINE_ACTIVE_BAR = 2f
+        const val TITLE_SIZE = 28f
+        const val ROW_HEIGHT = 44f
+        const val TAB_MAX_WIDTH = 260f
+    }
+
+    /** #EXP-1662: THE questions, floating over the document's foot. */
+    object Panel {
+        const val MAX_WIDTH = 720f
+        const val GAP = 16f
+        const val PADDING = 16f
+        const val RADIUS = 16f
+        const val MAX_HEIGHT_FRACTION = 0.4f
     }
 
     object Mosaic {
@@ -58,6 +71,7 @@ object PlanPage {
         const val CAROUSEL = "plan-carousel"
         const val OPEN_PLAN = "open-plan"
         const val OUTLINE_TOGGLE = "plan-outline-toggle"
+        const val TAB = "thread-tab-plan"
     }
 
     const val ROUTE = "/t/\$teamSlug/sessions/\$sessionId/plan/\$messageId"
@@ -74,6 +88,8 @@ object PlanPage {
     data class Picture(val alt: String, val src: String)
 
     sealed interface Block {
+        /** #EXP-1662: a leading `# ` line, the document's big title. */
+        data class Title(val text: String) : Block
         data class Markdown(val text: String) : Block
         data class Section(val id: String, val title: String) : Block
         data class Pictures(val pictures: List<Picture>) : Block
@@ -85,6 +101,7 @@ object PlanPage {
 
     private val PICTURE_LINE = Regex("""^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$""")
     private val PICTURE_ANY = Regex("""!\[([^\]]*)\]\(([^)\s]+)\)""")
+    private val H1 = Regex("""^#\s+(.+?)\s*#*\s*$""")
     private val H2 = Regex("""^##\s+(.+?)\s*#*\s*$""")
     private val FENCE = Regex("""^\s*(```|~~~)""")
     private val LINK = Regex("""\[([^\]]*)\]\([^)]*\)""")
@@ -105,13 +122,21 @@ object PlanPage {
             .replace("`", "")
             .trim()
 
-    /** THE plan page's blocks (`blockCases`): every `## ` line outside a code
-     *  fence = a `section` (anchor deduped `-2`, `-3`…), a run of two or more
+    /** THE plan page's blocks (`blockCases`): a leading `# ` line = the `title`
+     *  (#EXP-1662; every other `# ` stays in the prose), every `## ` line
+     *  outside a code fence = a `section` (anchor deduped `-2`, `-3`…), a run of two or more
      *  picture-only lines (blank lines between allowed) = ONE `pictures`
      *  block; a lone picture stays in the prose; a pending `upload:` picture
      *  is dropped. Prose blocks are trimmed of blank edge lines; empty = dropped. */
     fun blocks(markdown: String): List<Block> {
         val blocks = mutableListOf<Block>()
+        val lines = markdown.split("\n").toMutableList()
+        val first = lines.indexOfFirst { it.isNotBlank() }
+        val title = if (first >= 0) H1.matchEntire(lines[first]) else null
+        if (title != null) {
+            blocks += Block.Title(plainTitle(title.groupValues[1]))
+            lines.removeAt(first)
+        }
         val seen = HashMap<String, Int>()
         var prose = mutableListOf<String>()
         var run = mutableListOf<Picture>()
@@ -135,7 +160,7 @@ object PlanPage {
             runLines = mutableListOf()
         }
 
-        for (line in markdown.split("\n")) {
+        for (line in lines) {
             if (isFence(line)) {
                 flushRun()
                 fenced = !fenced
@@ -195,7 +220,7 @@ object PlanPage {
     /** The pictures a block shows (a fenced code block shows none). */
     private fun picturesIn(block: Block): List<Picture> = when (block) {
         is Block.Pictures -> block.pictures
-        is Block.Section -> emptyList()
+        is Block.Title, is Block.Section -> emptyList()
         is Block.Markdown -> inlinePictures(block.text)
     }
 
@@ -286,7 +311,25 @@ object PlanPage {
         return best?.id
     }
 
-    /** The web path; natives push the same page. */
+    /** A thread's plan card, as the tab reads it. */
+    data class TabPlan(val id: String, val decision: String?)
+
+    /** #EXP-1662 (`tabCases`): the plan the thread's tab shows ([plans] oldest
+     *  first): the newest waiting one, else the newest approved or rejected
+     *  one, else none. */
+    fun planTabTarget(plans: List<TabPlan>): String? =
+        plans.lastOrNull { it.decision == null }?.id
+            ?: plans.lastOrNull { it.decision == "approved" || it.decision == "rejected" }?.id
+
+    private val PLAN_PREFIX = Regex("""^plan:\s*""", RegexOption.IGNORE_CASE)
+
+    /** #EXP-1662 (`rowLabelCases`): `Plan: title`, the Conversation row's label. */
+    fun planRowLabel(plan: String): String {
+        val title = PLAN_PREFIX.replaceFirst(AskDock.askDockTitle(plan), "")
+        return if (title.isEmpty()) Copy.TITLE else "${Copy.ROW_PREFIX}$title"
+    }
+
+    /** The web path, which redirects to the thread's tab. */
     fun path(teamSlug: String, sessionId: String, messageId: String): String =
         ROUTE.replace("\$teamSlug", teamSlug)
             .replace("\$sessionId", sessionId)

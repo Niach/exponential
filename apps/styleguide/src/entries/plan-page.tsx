@@ -10,13 +10,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1493`,
   title: `Plan page`,
-  blurb: `THE plan page (fixture \`plan-page.json\` ×4; Exponential-specific, not eUI): the expanded form of THE plan card, deep-linkable (\`/t/$teamSlug/sessions/$sessionId/plan/$messageId\`), opened by a story's Open plan, the plan card's header link, an inbox row or a Needs-you row. Wide (web md+, the IDE): one header row (back, the chat's name, Plan, THE kind badge, the counts line, Open chat, close) over three columns: THE Outline (the h2 sections with their picture counts, scroll-spy, the Questions row), the document (THE markdown in a 720 px column, h2 anchors, two or more adjacent pictures as THE Mosaic), the sticky rail (the plan card's stepper, one question at a time, and the decision). Phones: the badge and counts lead the same document; picture groups are THE Carousel (i / n, dots, swipe); ☰ opens the outline in a sheet; the foot is THE Dock's plan card opening the questions-only sheet; no composer. Any picture opens THE lightbox over every picture of the plan.`,
+  blurb: `#EXP-1662 THE plan tab (fixture \`plan-page.json\` ×4; Exponential-specific, not eUI): a thread's plan is a tab of its strip; selecting it replaces only the content, on the thread's own ground, with no page header. Wide (web md+, the IDE): THE Outline (the h2 sections with their picture counts, scroll-spy, the Questions row) + the document (a big title, THE markdown in a 720 px column, h2 anchors, two or more adjacent pictures as THE Mosaic). Phones: the same document, picture groups as THE Carousel (i / n, dots, swipe), ☰ opens the outline in a sheet. The questions float over the document's foot: THE stepper, one question at a time, Back / Next, the decision on the last step; the panel hugs its content up to 40% of the body. In the Conversation a plan is ONE row, \`Plan: title\`, that opens the tab. Any picture opens THE lightbox over every picture of the plan.`,
   status: {
     web: {
       state: `ok`,
       symbol: `PlanPage`,
       file: `packages/ui/src/plan-page.tsx`,
-      note: `route: apps/web/src/routes/t/$teamSlug/sessions/$sessionId_.plan.$messageId.tsx; rail: session-thread-view.tsx PlanRail`,
+      note: `host: thread-screen.tsx ThreadPlanBody; panel: session-thread-view.tsx PlanRail, the deep link route redirects to the tab`,
     },
     desktop: {
       state: `ok`,

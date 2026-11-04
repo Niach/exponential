@@ -230,6 +230,7 @@ struct ThreadStoriesPage: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
+    @Environment(\.threadPlanOutlet) private var planOutlet
 
     @State private var opened: StoryTabTarget?
     @State private var pendingSession: Stories.Story?
@@ -257,7 +258,7 @@ struct ThreadStoriesPage: View {
                     ) { story, picture in
                         opened = StoryTabTarget(storyId: story.id, picture: picture)
                     } onOpenPlan: { story in
-                        pushRoute(.planPage(accountId: accountId, sessionId: story.sessionId, messageId: story.id))
+                        openPlan(story)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 24)
@@ -477,10 +478,16 @@ struct ThreadStoriesPage: View {
 
     // MARK: - The viewer
 
+    /// #EXP-1662: a plan story opens the thread's plan tab.
+    private func openPlan(_ story: Stories.Story) {
+        if planOutlet?.open(story.id) == true { return }
+        pushRoute(.thread(accountId: accountId, threadId: story.rootId, child: .plan(story.id)))
+    }
+
     private func openPendingSession() {
         if let plan = pendingPlan {
             pendingPlan = nil
-            pushRoute(.planPage(accountId: accountId, sessionId: plan.sessionId, messageId: plan.id))
+            openPlan(plan)
             return
         }
         guard let story = pendingSession else { return }

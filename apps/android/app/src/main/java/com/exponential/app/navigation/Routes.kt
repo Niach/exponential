@@ -18,19 +18,21 @@ object Routes {
     const val CHATS_ARCHIVED = "threads-archived"
 
     /** `tab` = the tab the thread opens on (`guide` for a `?view=guide`
-     *  link); absent = the Conversation. */
-    const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}"
+     *  link); absent = the Conversation. `plan` = the plan card the plan tab
+     *  opens on (#EXP-1662; absent = `planTabTarget`). */
+    const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}&plan={plan}"
     const val THREAD_TAB_GUIDE = "guide"
+    const val THREAD_TAB_PLAN = "plan"
     fun thread(rootSessionId: String, tab: String? = null): String =
         if (tab == null) "thread/$rootSessionId" else "thread/$rootSessionId?tab=$tab"
 
     const val SESSION_PATTERN = "session/{sessionId}"
     fun session(sessionId: String): String = "session/$sessionId"
 
-    /** #EXP-1493: THE plan page (plan-page.json) of one plan card
-     *  (`messageId`) a session posted, a pushed page. */
-    const val PLAN_PAGE_PATTERN = "plan/{sessionId}/{messageId}"
-    fun planPage(sessionId: String, messageId: String): String = "plan/$sessionId/$messageId"
+    /** #EXP-1662 (plan-page.json WAYS IN): the thread [rootSessionId] open on
+     *  its plan tab, on the plan card [messageId]. */
+    fun threadPlan(rootSessionId: String, messageId: String): String =
+        "thread/$rootSessionId?tab=$THREAD_TAB_PLAN&plan=$messageId"
 
     /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,
      *  `section` = a `SettingsNav` row id (General, Members, Labels, Boards,

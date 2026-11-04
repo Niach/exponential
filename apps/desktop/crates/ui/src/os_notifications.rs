@@ -620,9 +620,10 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
             crate::device_settings::open(window, cx, device_id);
         }
         // EXP-1294: beside the Inbox, like an issue the toast opens.
-        // #EXP-1493: a session waiting on its own plan = THE plan page.
+        // #EXP-1662: a session waiting on its own plan = its thread's plan tab.
         Route::Session { session_id } => {
             let screen = crate::plan_page::screen_for_session(&session_id, cx);
+            crate::plan_page::prime_session(&session_id, cx);
             match inbox_origin() {
                 Some(origin) => navigation::navigate_from(window, cx, screen, origin),
                 None => navigation::navigate(window, cx, screen),

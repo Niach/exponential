@@ -138,6 +138,9 @@ class ThreadViewModel @Inject constructor(
      *  Conversation. */
     val initialTab: String? = savedStateHandle["tab"]
 
+    /** #EXP-1662: the plan card a way in opened the plan tab on. */
+    val initialPlan: String? = savedStateHandle["plan"]
+
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     /** The synced root row; null while loading or once it is gone. */

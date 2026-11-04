@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
-import { dockRows } from "@exp/domain-contract/dock"
 import {
   PLAN_PAGE_COPY,
   PLAN_PAGE_LAYOUT,
+  PLAN_PAGE_PANEL,
   PLAN_PAGE_TEST_IDS,
   planBlocks,
-  planCountsLine,
   planOutline,
   type PlanPicture,
 } from "@exp/domain-contract/plan-page"
@@ -13,28 +12,23 @@ import { askDockTitle } from "@exp/domain-contract/ask-dock"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
 import { Button } from "./button"
 import { cn } from "./cn"
-import { Dock } from "./dock"
 import { conceptIcon } from "./icons.generated"
 import { ImagePreviewDialog } from "./image-preview-dialog"
 import { Outline } from "./outline"
 import { Mosaic, PictureCarousel } from "./picture-group"
 import { PlanCardSurface } from "./plan-card"
-import { PlanRail, ThreadPlanSheet, type ThreadPlanDecision } from "./session-thread-view"
+import { PlanRail, type ThreadPlanDecision } from "./session-thread-view"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
-import { StoryKindBadge } from "./stories"
 
-// #EXP-1493: THE plan page ×web (fixtures/plan-page.json; desktop crates/ui
-// plan_page, iOS ExpUI PlanPage, Android ui/plan/PlanPage): the expanded
-// form of THE plan card. Wide (md+) = the header row over three columns:
-// THE Outline (scroll-spy), the document (THE markdown, h2 anchors, picture
-// groups as THE Mosaic), THE rail (the plan card's stepper + decision,
-// sticky). Phones = the same document in one scroll (groups as THE
-// Carousel), the outline in a sheet (☰), THE Dock's plan card at the foot
-// opening the questions-only sheet; no composer. Every picture opens THE
+// #EXP-1493 → #EXP-1662: THE plan ×web (fixtures/plan-page.json; desktop
+// crates/ui plan_page, iOS ExpUI PlanPage, Android ui/plan/PlanPage): the BODY
+// of a thread's plan tab, under the thread's own header + strip, on its ground.
+// Wide (md+) = THE Outline (scroll-spy) + the document (the big title, THE
+// markdown, h2 anchors, picture groups as THE Mosaic). Phones = the document
+// (groups as THE Carousel), the outline in a sheet (☰). The questions float
+// over the document's foot: THE stepper + the decision. Every picture opens THE
 // lightbox over all of the plan's pictures.
 
-const BackIcon = conceptIcon(`ui-back`)
-const CloseIcon = conceptIcon(`ui-close`)
 const MenuIcon = conceptIcon(`ui-menu`)
 
 type PlanRow = Extract<ThreadRow, { type: `plan` }>
@@ -59,29 +53,23 @@ function documentPictures(blocks: ReturnType<typeof planBlocks>): PlanPicture[] 
 
 export function PlanPage({
   row,
-  chatName,
   mobile,
   renderText,
   attachmentSrc = (id) => `/api/attachments/${id}`,
   busy,
   onDecide,
-  onBack,
-  onClose,
-  onOpenChat,
+  topInset = 0,
   initialActive = null,
   className,
 }: {
   row: PlanRow
-  /** The chat's name (the wide breadcrumb; the Dock card's caption). */
-  chatName: string
   mobile: boolean
   renderText: (text: string) => ReactNode
   attachmentSrc?: (attachmentId: string) => string
   busy: boolean
   onDecide?: (input: ThreadPlanDecision) => void
-  onBack?: () => void
-  onClose?: () => void
-  onOpenChat?: () => void
+  /** The phone header band over the body. */
+  topInset?: number
   /** The outline's active row before any scroll (the styleguide's). */
   initialActive?: string | null
   className?: string
@@ -89,12 +77,6 @@ export function PlanPage({
   const blocks = useMemo(() => planBlocks(row.plan), [row.plan])
   const outline = useMemo(() => planOutline(row.plan), [row.plan])
   const pictures = useMemo(() => documentPictures(blocks), [blocks])
-  const counts = planCountsLine({
-    sections: outline.length,
-    pictures: pictures.length,
-    questions: row.questions.length,
-  })
-  const waiting = row.decision === null
 
   // ── the lightbox over every picture ──
   const [lightbox, setLightbox] = useState<number | null>(null)
@@ -164,18 +146,17 @@ export function PlanPage({
       className="mx-auto flex w-full min-w-0 flex-col"
       style={{ maxWidth: PLAN_PAGE_LAYOUT.columnMaxWidth + 2 * padding, padding, gap: PLAN_PAGE_LAYOUT.blockGap }}
     >
-      {mobile && (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <StoryKindBadge kind="plan" />
-            {/* #EXP-1553: the phones' waiting dot after the chip (iOS, Android). */}
-            {waiting && <span aria-hidden className="size-1.5 rounded-full bg-yellow-400" />}
-          </div>
-          {counts && <div className="text-xs text-muted-foreground">{counts}</div>}
-        </div>
-      )}
       {blocks.map((block, at) =>
-        block.kind === `section` ? (
+        block.kind === `title` ? (
+          <h1
+            key={at}
+            data-slot="plan-title"
+            className={cn(`font-semibold leading-tight`, mobile && hasOutline && `pr-8`)}
+            style={{ fontSize: PLAN_PAGE_LAYOUT.titleSize }}
+          >
+            {block.text}
+          </h1>
+        ) : block.kind === `section` ? (
           <h2 key={`${block.id}-${at}`} data-section={block.id} id={block.id} className="mt-2 text-base font-semibold">
             {block.title}
           </h2>
@@ -202,96 +183,74 @@ export function PlanPage({
     </div>
   )
 
-  const dock = useMemo(
-    () =>
-      dockRows([
-        {
-          kind: `plan`,
-          id: row.id,
-          text: row.plan,
-          sessionName: chatName || null,
-          questions: row.questions.length,
-          createdAt: 0,
-        },
-      ]),
-    [row.id, row.plan, row.questions.length, chatName]
-  )
-  const [sheetOpen, setSheetOpen] = useState<string | null>(null)
-  const [dockHeight, setDockHeight] = useState(0)
+  // The document scrolls clear of the floating panel.
+  const [panelHeight, setPanelHeight] = useState(0)
+  const panel = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const node = panel.current
+    if (!node || typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(() => setPanelHeight(node.offsetHeight))
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
 
   return (
-    <div data-testid={PLAN_PAGE_TEST_IDS.page} data-decision={row.decision ?? undefined} className={cn(`flex h-full min-h-0 flex-col`, className)}>
-      {mobile ? (
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
-          <Button variant="ghost" size="icon-sm" aria-label={PLAN_PAGE_COPY.title} onClick={onBack ?? onClose}>
-            <BackIcon />
-          </Button>
-          {/* #EXP-1553: the natives' centred navigation title; the trailing
-              slot keeps its width without an outline so the title stays centred. */}
-          <span className="min-w-0 flex-1 truncate text-center text-[15px] font-semibold">{PLAN_PAGE_COPY.title}</span>
-          {!hasOutline && <span aria-hidden className="size-8 shrink-0" />}
-          {hasOutline && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={PLAN_PAGE_COPY.outline}
-              data-testid={PLAN_PAGE_TEST_IDS.outlineToggle}
-              onClick={() => setOutlineOpen(true)}
-            >
-              <MenuIcon />
-            </Button>
-          )}
-        </div>
-      ) : (
+    <div data-testid={PLAN_PAGE_TEST_IDS.page} data-decision={row.decision ?? undefined} className={cn(`flex h-full min-h-0`, className)}>
+      {!mobile && hasOutline && (
         <div
-          className="flex shrink-0 items-center gap-3 border-b border-border px-4"
-          style={{ height: PLAN_PAGE_LAYOUT.headerHeight }}
+          data-testid={PLAN_PAGE_TEST_IDS.outline}
+          className="min-h-0 shrink-0 overflow-y-auto border-r border-border px-3 py-5"
+          style={{ width: PLAN_PAGE_LAYOUT.outlineWidth }}
         >
-          {onBack && (
-            <Button variant="ghost" size="icon-sm" aria-label={PLAN_PAGE_COPY.openChat} onClick={onBack}>
-              <BackIcon />
-            </Button>
-          )}
-          <span className="min-w-0 truncate text-xs text-muted-foreground">{chatName}</span>
-          <span className="text-xs text-muted-foreground">/</span>
-          <span className="text-sm font-semibold">{PLAN_PAGE_COPY.title}</span>
-          <StoryKindBadge kind="plan" />
-          {waiting && <span aria-hidden className="size-1.5 rounded-full bg-yellow-400" />}
-          <span className="flex-1" />
-          {counts && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{counts}</span>}
-          {onOpenChat && (
-            <Button variant="ghost" size="sm" onClick={onOpenChat}>
-              {PLAN_PAGE_COPY.openChat}
-            </Button>
-          )}
-          {onClose && (
-            <Button variant="ghost" size="icon-sm" aria-label={PLAN_PAGE_COPY.openChat} onClick={onClose}>
-              <CloseIcon />
-            </Button>
-          )}
+          <Outline caption={PLAN_PAGE_COPY.outline} entries={entries} active={active} onSelect={jump} footer={questionsRow} />
         </div>
       )}
-      {mobile ? (
-        <div className="relative min-h-0 flex-1">
-          <div ref={scroller} className="absolute inset-0 overflow-y-auto overscroll-contain" style={{ paddingBottom: dockHeight }}>
-            {document}
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <div
+          ref={scroller}
+          className="absolute inset-0 overflow-y-auto overscroll-contain"
+          style={{ paddingTop: topInset, paddingBottom: panelHeight + 2 * PLAN_PAGE_PANEL.gap }}
+        >
+          {document}
+        </div>
+        {mobile && hasOutline && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="absolute right-2 text-muted-foreground"
+            style={{ top: topInset + 8 }}
+            aria-label={PLAN_PAGE_COPY.outline}
+            data-testid={PLAN_PAGE_TEST_IDS.outlineToggle}
+            onClick={() => setOutlineOpen(true)}
+          >
+            <MenuIcon />
+          </Button>
+        )}
+        <div
+          className="pointer-events-none absolute inset-0 flex items-end justify-center"
+          style={{ padding: PLAN_PAGE_PANEL.gap, paddingTop: topInset + PLAN_PAGE_PANEL.gap }}
+        >
+          <div
+            ref={panel}
+            data-slot="plan-questions-panel"
+            className="pointer-events-auto flex w-full flex-col overflow-hidden border border-glass-stroke-card bg-glass-card-opaque shadow-lg"
+            style={{
+              maxWidth: PLAN_PAGE_PANEL.maxWidth,
+              maxHeight: `${PLAN_PAGE_PANEL.maxHeightFraction * 100}%`,
+              padding: PLAN_PAGE_PANEL.padding,
+              borderRadius: PLAN_PAGE_PANEL.radius,
+            }}
+          >
+            <PlanRail
+              row={row}
+              attachmentSrc={attachmentSrc}
+              busy={busy}
+              onDecide={onDecide}
+              className="min-h-0 flex-auto"
+            />
           </div>
-          <Dock
-            rows={dock}
-            openId={sheetOpen}
-            onOpenChange={setSheetOpen}
-            onHeight={setDockHeight}
-            renderSheet={() => (
-              <ThreadPlanSheet
-                row={row}
-                renderText={renderText}
-                attachmentSrc={attachmentSrc}
-                busy={busy}
-                onDecide={onDecide}
-                questionsOnly
-              />
-            )}
-          />
+        </div>
+        {mobile && (
           <Sheet open={outlineOpen} onOpenChange={setOutlineOpen}>
             <SheetContent side="bottom" showGrabber className="gap-0 p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
               <SheetTitle className="sr-only">{PLAN_PAGE_COPY.outline}</SheetTitle>
@@ -305,34 +264,8 @@ export function PlanPage({
               />
             </SheetContent>
           </Sheet>
-        </div>
-      ) : (
-        <div
-          className="grid min-h-0 flex-1"
-          style={{
-            gridTemplateColumns: `${hasOutline ? `${PLAN_PAGE_LAYOUT.outlineWidth}px ` : ``}minmax(0, 1fr) ${PLAN_PAGE_LAYOUT.railWidth}px`,
-          }}
-        >
-          {hasOutline && (
-            <div data-testid={PLAN_PAGE_TEST_IDS.outline} className="min-h-0 overflow-y-auto border-r border-border px-3 py-5">
-              <Outline caption={PLAN_PAGE_COPY.outline} entries={entries} active={active} onSelect={jump} footer={questionsRow} />
-            </div>
-          )}
-          <div ref={scroller} className="min-h-0 overflow-y-auto overscroll-contain">
-            {document}
-          </div>
-          <div className="flex min-h-0 flex-col border-l border-border bg-sidebar px-4 py-5">
-            <PlanRail
-              row={row}
-              attachmentSrc={attachmentSrc}
-              busy={busy}
-              onDecide={onDecide}
-              heading={PLAN_PAGE_COPY.questions}
-              className="h-full"
-            />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
       <ImagePreviewDialog
         open={shown !== null}
         onOpenChange={(open) => (open ? undefined : setLightbox(null))}

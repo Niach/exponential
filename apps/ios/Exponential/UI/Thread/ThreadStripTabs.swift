@@ -76,7 +76,8 @@ struct ThreadStripGroup: Equatable {
 
 /// EXP-1295/1316/1334/#EXP-1433: the thread header's ONE strip as the
 /// phone's pager tabs, and it NEVER scrolls: the "+" (link or file an issue)
-/// and `Conversation` (ICON-ONLY on phones, `action-chat`) pinned left;
+/// and `Conversation` (ICON-ONLY on phones, `action-chat`) pinned left,
+/// #EXP-1662 the plan chip right after it while the thread holds a plan;
 /// stories.json: the Stories tab (icon-only, `thread-stories`, a dot while
 /// `storyTab.unseen`) pinned right. Between them `threadStripMode`: at most
 /// ONE issue and no session = that issue's chip (status glyph + mono
@@ -115,6 +116,9 @@ struct ThreadStripTabs: View {
     var waiting: WaitingCards.Chips?
     /// The waiting button's tap: the host presents THE Menu's sheet.
     var onOpenWaiting: () -> Void = {}
+    /// #EXP-1662 (plan-page.json): the thread holds a plan (nil = no chip);
+    /// true = its plan waits (the needs-you dot).
+    var planWaiting: Bool?
 
     /// entity-chip.json `tab` size: every chip in the strip is one height —
     /// web `STRIP_TAB_CLASS` `h-8 rounded-md`: 32pt tall, the 10pt row radius
@@ -136,6 +140,9 @@ struct ThreadStripTabs: View {
             if tabs.contains(.conversation) {
                 pageTab(.conversation)
                     .fixedSize()
+            }
+            if let planWaiting {
+                planChip(waiting: planWaiting)
             }
             if let waiting, waiting.layout == .button {
                 waitingButton(waiting.count)
@@ -197,6 +204,32 @@ struct ThreadStripTabs: View {
         .accessibilityLabel("\(single.identifier) \(issue(issueId)?.title ?? "")")
         .accessibilityAction(named: "More") { onIssueMenu(issueId) }
         .accessibilityIdentifier("thread-tab-\(single.identifier)")
+    }
+
+    /// #EXP-1662: the plan tab on a phone: the `coding-plan` glyph, `copy.title`
+    /// and the 6 pt needs-you dot while its plan waits.
+    private func planChip(waiting: Bool) -> some View {
+        var selected = false
+        if case .plan = selection { selected = true }
+        return ThreadStripTab(selected: selected, bordered: true, fresh: false) {
+            HStack(spacing: ThreadStripMetrics.innerSpacing) {
+                AppIcon(AppIcons.codingPlan, size: AppIcon.Size.small, weight: .medium)
+                Text(PlanPage.Copy.title)
+                    .font(ThreadStripMetrics.nameFont)
+                    .lineLimit(1)
+                if waiting {
+                    Circle()
+                        .fill(DesignTokens.Semantic.yellow)
+                        .frame(width: 6, height: 6)
+                }
+            }
+        }
+        .fixedSize()
+        .onTapGesture { onSelect(.plan(nil)) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(waiting ? "\(PlanPage.Copy.title), \(PlanPage.Copy.needsYou)" : PlanPage.Copy.title)
+        .accessibilityIdentifier(PlanPage.TestIds.tab)
     }
 
     /// #EXP-1562: THE waiting button — ONE icon-only chip, the question
@@ -262,7 +295,7 @@ struct ThreadStripTabs: View {
     private func pageTab(_ page: ThreadPage) -> some View {
         let selected = page == selection
         switch page {
-        case .issue, .session:
+        case .issue, .session, .plan:
             EmptyView()
         case .stories:
             // Phones: icon-only like Conversation (the word = the label),

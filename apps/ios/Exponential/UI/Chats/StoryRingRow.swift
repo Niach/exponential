@@ -74,7 +74,7 @@ struct ChatStoriesHost<Content: View>: View {
     private func openPendingSession() {
         if let plan = pendingPlan {
             pendingPlan = nil
-            pushRoute(.planPage(accountId: accountId, sessionId: plan.sessionId, messageId: plan.id))
+            pushRoute(.thread(accountId: accountId, threadId: plan.rootId, child: .plan(plan.id)))
             return
         }
         guard let story = pendingSession else { return }

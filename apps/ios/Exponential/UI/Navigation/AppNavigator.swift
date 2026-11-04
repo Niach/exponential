@@ -63,12 +63,9 @@ enum AppRoute: Hashable {
     case agentSession(accountId: String, sessionId: String)
     /// EXP-1291: a THREAD = a root session (`threadId` = its id): a thread,
     /// or a team agent's channel — `ThreadScreen`, its strip as the pager.
-    /// `child` opens it on one page (nil = the Conversation).
+    /// `child` opens it on one page (nil = the Conversation; #EXP-1662
+    /// `.plan(messageId)` = its plan tab on that plan).
     case thread(accountId: String, threadId: String, child: ThreadPage? = nil)
-    /// #EXP-1493: THE plan page (plan-page.json) of one plan card
-    /// (`messageId`) a session posted: a story's Open plan, the chat card's
-    /// header action, an inbox / Needs-you row of a waiting plan.
-    case planPage(accountId: String, sessionId: String, messageId: String)
     /// EXP-825: Home's composer pushed with a preselection (a play button's
     /// `seed`); an empty seed IS the Home tab.
     case agent(accountId: String, seed: AgentComposerSeed)
@@ -113,14 +110,31 @@ extension AppRoute {
         }
     }
 
-    /// #EXP-1493 (plan-page.json WAYS IN): an inbox row / push naming a
-    /// session with a waiting plan of its own (`PlanPage.planPageFor`) opens
-    /// THE plan page; else `openingSession`.
+    /// #EXP-1493 → #EXP-1662 (plan-page.json WAYS IN): an inbox row / push
+    /// naming a session with a waiting plan of its own
+    /// (`PlanPage.planPageFor`) opens its thread's plan tab; else
+    /// `openingSession`.
     @MainActor static func openingInbox(_ sessionId: String, accountId: String, deps: AppDependencies) -> AppRoute {
         if let messageId = planPageTarget(sessionId, accountId: accountId, deps: deps) {
-            return .planPage(accountId: accountId, sessionId: sessionId, messageId: messageId)
+            return openingPlan(sessionId, messageId: messageId, accountId: accountId, deps: deps)
         }
         return openingSession(sessionId, accountId: accountId, deps: deps)
+    }
+
+    /// #EXP-1662: a plan opens as a tab of its session's root (a thread or an
+    /// agent's conversation); an unsynced session opens by `openingSession`.
+    @MainActor static func openingPlan(
+        _ sessionId: String, messageId: String, accountId: String, deps: AppDependencies
+    ) -> AppRoute {
+        let session = try? deps.db.pool(forAccountId: accountId).read { db in
+            try SessionEntity.fetchOne(db, key: sessionId)
+        }
+        guard let session else { return openingSession(sessionId, accountId: accountId, deps: deps) }
+        return .thread(
+            accountId: accountId,
+            threadId: session.rootId.isEmpty ? session.id : session.rootId,
+            child: .plan(messageId)
+        )
     }
 
     /// The session's waiting plan message (`PlanPage.planPageFor`), else nil.
@@ -1237,10 +1251,6 @@ extension MainNavigator {
                 }
             )
             .environment(\.accountId, accountId)
-        case let .planPage(accountId, sessionId, messageId):
-            PlanPageScreen(sessionId: sessionId, messageId: messageId)
-                .id(messageId)
-                .environment(\.accountId, accountId)
         case let .agentSession(accountId, sessionId):
             AgentSessionScreen(sessionId: sessionId)
                 .id(sessionId)

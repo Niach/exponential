@@ -6,18 +6,20 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,16 +27,18 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,34 +46,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import com.exponential.app.ui.components.LocalSpecimenPicture
-import com.exponential.app.domain.AskDock
-import com.exponential.app.domain.Dock
-import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.Stories
 import com.exponential.app.ui.components.CircleIconButton
-import com.exponential.app.ui.components.DockCard
-import com.exponential.app.ui.components.DockSheet
-import com.exponential.app.ui.components.DockSheetBody
-import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.DockSheetScope
 import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.StoryKindBadge
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
+import com.exponential.app.ui.components.LocalSpecimenPicture
+import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.LocalInlineCodeStyle
 import com.exponential.app.ui.markdown.LocalMarkdownBodyStyle
@@ -82,6 +78,8 @@ import com.exponential.app.ui.session.TranscriptBodyStyle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.thread.CardSurfaceHandle
+import com.exponential.app.ui.thread.CardSurfaceView
 import com.exponential.app.ui.thread.PlanAskCard
 import com.exponential.app.ui.thread.ThreadPlanDecision
 import com.exponential.app.ui.work.PictureViewer
@@ -92,202 +90,193 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 
-/**
- * #EXP-1493 THE PLAN PAGE, phone form (fixtures/plan-page.json; web
- * packages/ui plan-page.tsx, iOS PlanPageScreen.swift): THE plan card's
- * expanded form, a pushed page. ONE scroll under the page header (back,
- * `copy.title`, the `ui-menu` outline toggle when the outline has a row):
- * the kind badge + the h1 title + the counts line lead the column, then the
- * blocks ([PlanPage.blocks]): prose through THE chat markdown renderer, a
- * section = its h2 (the outline's anchor), a picture group = THE carousel.
- * A press on a picture opens THE lightbox (`‹ i / n ›`) over every plan
- * picture in document order. The outline opens in a bottom sheet (THE eUI
- * Drawer's phone form). The bottom = THE DockCard (dock.json, kind plan)
- * opening THE Dock sheet QUESTIONS-ONLY with THE decision (decided = the
- * closed card); no composer.
- */
-@Composable
-fun PlanPageScreen(
-    onBack: () -> Unit,
-    @Suppress("UNUSED_PARAMETER") onOpenSession: (String) -> Unit,
-    viewModel: PlanPageViewModel = hiltViewModel(),
-) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    val failure by viewModel.failure.collectAsStateWithLifecycle()
-    FailedActionToast(failure, onShown = viewModel::clearFailure)
-    PlanPageContent(state = state, onBack = onBack, onDecidePlan = viewModel::decidePlan)
-}
+/** What THE plan tab draws: the plan card as THE thread row the questions
+ *  answer, [card] raw (its probed picture sizes). */
+data class PlanPageState(
+    val row: SessionTree.ThreadRow.Plan,
+    val card: JsonObject? = null,
+)
 
-/** The page over its [state] (the live screen and the styleguide's specimen). */
+/**
+ * #EXP-1493 → #EXP-1662 THE PLAN TAB, phone form (fixtures/plan-page.json; web
+ * packages/ui plan-page.tsx, iOS PlanPageScreen.swift): the BODY of a thread's
+ * plan tab, under the thread's own header + strip, on its ground; no own header,
+ * no composer. ONE scroll: the blocks ([PlanPage.blocks]): the big title, prose
+ * through THE chat markdown renderer, a section = its h2 (the outline's anchor),
+ * a picture group = THE carousel. A press on a picture opens THE lightbox
+ * (`‹ i / n ›`) over every plan picture in document order. The `ui-menu` ghost
+ * button at the document's top right opens the outline in a bottom sheet (THE
+ * eUI Drawer's phone form). THE questions float over the document's foot
+ * ([PlanQuestionsPanel]).
+ */
 @Composable
 fun PlanPageContent(
     state: PlanPageState,
-    onBack: () -> Unit,
     onDecidePlan: ThreadPlanDecision,
     modifier: Modifier = Modifier,
-    /** The specimen's chat name (`specimen.chatName`) over the synced one. */
-    chatName: String? = null,
+    /** The header band over the body / the bar under it. */
+    topInset: Dp = 0.dp,
+    bottomInset: Dp = 0.dp,
     /** The specimen's still: this outline row active. */
     activeSection: String? = null,
 ) {
-    val card = state.card
-    val plan = (card?.get("plan") as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+    val row = state.row
+    val plan = row.plan
+    val blocks = remember(plan) { PlanPage.blocks(plan) }
     val outline = remember(plan) { PlanPage.outline(plan) }
+    val pictures = remember(plan) { PlanPage.pictures(plan) }
+    val hasOutline = outline.isNotEmpty() || row.questions.isNotEmpty()
     var outlineOpen by remember { mutableStateOf(false) }
-    var dockOpen by remember { mutableStateOf(false) }
     var lightbox by remember { mutableStateOf<Int?>(null) }
+    var panelHeightPx by remember { mutableIntStateOf(0) }
+    val panelHeight = with(LocalDensity.current) { panelHeightPx.toDp() }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val gap = PlanPage.Panel.GAP.dp
+    val openPicture: (String) -> Unit = { src ->
+        lightbox = pictures.indexOfFirst { it.src == src }.coerceAtLeast(0)
+    }
 
-    Box(modifier.fillMaxSize().testTag(PlanPage.TestIds.PAGE)) {
-        Column(Modifier.fillMaxSize()) {
-            PlanPageHeader(
-                onBack = onBack,
-                onOutline = if (outline.isNotEmpty()) ({ outlineOpen = true }) else null,
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            // The bar's inset is the panel's own; the keyboard lifts it.
+            .consumeWindowInsets(PaddingValues(bottom = bottomInset))
+            .imePadding()
+            .testTag(PlanPage.TestIds.PAGE),
+    ) {
+        PlanDocument(
+            state = state,
+            blocks = blocks,
+            hasOutline = hasOutline,
+            listState = listState,
+            topInset = topInset,
+            // The document scrolls clear of the floating panel.
+            bottomPadding = panelHeight + gap * 2 + bottomInset,
+            onOpenPicture = openPicture,
+        )
+        if (hasOutline) {
+            CircleIconButton(
+                ExpIcons.uiMenu,
+                PlanPage.Copy.OUTLINE,
+                onClick = { outlineOpen = true },
+                borderless = true,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = topInset + 8.dp, end = 8.dp)
+                    .testTag(PlanPage.TestIds.OUTLINE_TOGGLE),
             )
-            when {
-                card != null && state.row != null -> Box(Modifier.weight(1f)) {
-                    val blocks = remember(plan) { leadTrimmed(PlanPage.blocks(plan)) }
-                    val pictures = remember(plan) { PlanPage.pictures(plan) }
-                    val openPicture: (String) -> Unit = { src ->
-                        lightbox = pictures.indexOfFirst { it.src == src }.coerceAtLeast(0)
-                    }
-                    PlanDocument(
-                        plan = plan,
-                        card = card,
-                        blocks = blocks,
-                        decided = state.row.decision != null,
-                        listState = listState,
-                        onOpenPicture = openPicture,
-                    )
-                    // THE DockCard (dock.json's plan card UNCHANGED) floating over the foot.
-                    val dockRow = planDockRow(state, chatName)
-                    DockCard(
-                        row = dockRow,
-                        onOpen = { dockOpen = true },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                    if (dockOpen) {
-                        DockSheet(row = dockRow, onDismiss = { dockOpen = false }) { sheetScope ->
-                            CompositionLocalProvider(LocalAskCardPlain provides true) {
-                                if (state.row.decision == null) {
-                                    PlanAskCard(
-                                        row = state.row,
-                                        onAnswer = { _, _, settled -> settled(false) },
-                                        onDecidePlan = onDecidePlan,
-                                        sheet = sheetScope,
-                                        questionsOnly = true,
-                                    )
-                                } else {
-                                    // Decided: the same sheet shows the closed card (no
-                                    // "Question n of m" left over from the stepper).
-                                    androidx.compose.runtime.SideEffect { sheetScope.meta = null }
-                                    DockSheetBody {
-                                        PlanAskCard(
-                                            row = state.row,
-                                            onAnswer = { _, _, settled -> settled(false) },
-                                            onDecidePlan = onDecidePlan,
-                                            questionsOnly = true,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    lightbox?.let { start ->
-                        PlanLightbox(pictures = pictures, start = start, onDismiss = { lightbox = null })
-                    }
-                }
-                state.loading -> SkeletonRows(modifier = Modifier.padding(16.dp))
-                else -> EmptyState(
-                    title = "Not found",
-                    description = "It may still be syncing, or it was deleted.",
-                    icon = ExpIcons.codingPlan,
-                )
-            }
         }
-        if (outlineOpen) {
-            // Scroll-spy: the last section whose heading passed the top.
-            val active = activeSection ?: activeOutlineRow(plan, listState)
-            GlassSheet(title = null, onDismiss = { outlineOpen = false }) {
-                PlanOutlineList(
-                    sections = outline,
-                    active = active,
-                    questions = (card?.get("questions") as? JsonArray)?.size ?: 0,
-                    onSelect = { id ->
-                        outlineOpen = false
-                        val index = sectionItemIndex(plan, id)
-                        if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
-                    },
-                    onQuestions = {
-                        outlineOpen = false
-                        dockOpen = true
-                    },
-                    modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 12.dp),
-                )
-            }
+        PlanQuestionsPanel(
+            row = row,
+            onDecidePlan = onDecidePlan,
+            maxHeight = (maxHeight - topInset) * PlanPage.Panel.MAX_HEIGHT_FRACTION,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = gap, end = gap, bottom = gap + bottomInset)
+                .onSizeChanged { if (it.height != panelHeightPx) panelHeightPx = it.height },
+        )
+    }
+    if (outlineOpen) {
+        // Scroll-spy: the last section whose heading passed the top.
+        val active = activeSection ?: activeOutlineRow(blocks, listState)
+        GlassSheet(title = null, onDismiss = { outlineOpen = false }) {
+            PlanOutlineList(
+                sections = outline,
+                active = active,
+                questions = row.questions.size,
+                onSelect = { id ->
+                    outlineOpen = false
+                    val index = blocks.indexOfFirst { it is PlanPage.Block.Section && it.id == id }
+                    if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
+                },
+                modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 12.dp),
+            )
         }
+    }
+    lightbox?.let { start ->
+        PlanLightbox(pictures = pictures, start = start, onDismiss = { lightbox = null })
     }
     BackHandler(enabled = lightbox != null) { lightbox = null }
 }
 
-/** The page header: the back chevron, `copy.title`, the outline toggle. */
+/**
+ * THE questions (plan-page.json `panel`): the menu surface fill + hairline +
+ * `panel.radius`, hugging its content up to [maxHeight], scrolling inside past
+ * that, the footer pinned. Inside = plan-card `stepper`: the step label top right
+ * (more than one question), one question at a time, Back / Next bottom right, the
+ * decision on the last step, the feedback field after the reject pick; a plan
+ * without questions = the decision alone; decided or superseded = the closed card.
+ */
 @Composable
-private fun PlanPageHeader(onBack: () -> Unit, onOutline: (() -> Unit)?) {
-    Box(
-        Modifier
+private fun PlanQuestionsPanel(
+    row: SessionTree.ThreadRow.Plan,
+    onDecidePlan: ThreadPlanDecision,
+    maxHeight: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(PlanPage.Panel.RADIUS.dp)
+    val steps = remember(row.id) { DockSheetScope() }
+    Column(
+        modifier
+            .widthIn(max = PlanPage.Panel.MAX_WIDTH.dp)
             .fillMaxWidth()
-            .statusBarsPadding()
-            .height(PlanPage.Layout.HEADER_HEIGHT.dp + 8.dp)
-            .padding(horizontal = 8.dp),
+            .heightIn(max = maxHeight)
+            .shadow(12.dp, shape)
+            .clip(shape)
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+            // The document under it never takes a press on the panel.
+            .pointerInput(Unit) {}
+            .padding(PlanPage.Panel.PADDING.dp)
+            .testTag(PlanPage.TestIds.RAIL),
     ) {
-        Box(Modifier.align(Alignment.CenterStart)) { TopBarBackButton(onClick = onBack) }
-        TopBarTitle(PlanPage.Copy.TITLE, modifier = Modifier.align(Alignment.Center))
-        if (onOutline != null) {
-            CircleIconButton(
-                ExpIcons.uiMenu,
-                PlanPage.Copy.OUTLINE,
-                onClick = onOutline,
-                modifier = Modifier.align(Alignment.CenterEnd).testTag(PlanPage.TestIds.OUTLINE_TOGGLE),
-            )
+        CompositionLocalProvider(LocalAskCardPlain provides true) {
+            if (row.decision == null) {
+                steps.meta?.let { meta ->
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        modifier = Modifier.align(Alignment.End).padding(bottom = 12.dp).testTag("plan-card-step"),
+                    )
+                }
+                PlanAskCard(
+                    row = row,
+                    onAnswer = { _, _, settled -> settled(false) },
+                    onDecidePlan = onDecidePlan,
+                    sheet = steps,
+                    questionsOnly = true,
+                    panel = true,
+                )
+            } else {
+                Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    PlanAskCard(
+                        row = row,
+                        onAnswer = { _, _, settled -> settled(false) },
+                        onDecidePlan = onDecidePlan,
+                        questionsOnly = true,
+                    )
+                }
+            }
         }
     }
 }
 
-/** dock.json's plan DockCard UNCHANGED (`Plan ready`, the asking session's
- *  name, `n questions`, the plan's title). */
-private fun planDockRow(state: PlanPageState, chatName: String?): Dock.Row {
-    val row = state.row!!
-    return Dock.dockRows(
-        listOf(
-            Dock.Source.Ask(
-                id = state.messageId,
-                kind = AskDock.Kind.Plan,
-                text = row.plan,
-                sessionName = chatName ?: state.sessionName,
-                questions = row.questions.size,
-                createdAt = 0L,
-            ),
-        ),
-    ).first()
-}
-
-/** The document: the lead (badge, h1 title, counts) then the blocks, ONE scroll. */
+/** The document: the blocks, ONE scroll. */
 @Composable
 private fun PlanDocument(
-    plan: String,
-    card: JsonObject,
+    state: PlanPageState,
     blocks: List<PlanPage.Block>,
-    decided: Boolean,
+    hasOutline: Boolean,
     listState: LazyListState,
+    topInset: Dp,
+    bottomPadding: Dp,
     onOpenPicture: (String) -> Unit,
 ) {
     val padding = PlanPage.Layout.COLUMN_PADDING_PHONE.dp
-    val counts = PlanPage.countsLine(PlanPage.counts(card))
-    val title = AskDock.askDockTitle(plan).ifEmpty { PlanPage.Copy.TITLE }
+    val surface = state.row.surface
     CompositionLocalProvider(
         LocalMarkdownBodyStyle provides TranscriptBodyStyle,
         LocalInlineCodeStyle provides MdStyle.Chat,
@@ -295,73 +284,54 @@ private fun PlanDocument(
     ) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().testTag(PlanPage.TestIds.DOCUMENT),
-            contentPadding = PaddingValues(start = padding, end = padding, top = padding, bottom = 120.dp),
+            modifier = Modifier.fillMaxSize().detailHazeSource().testTag(PlanPage.TestIds.DOCUMENT),
+            contentPadding = PaddingValues(start = padding, end = padding, top = topInset + padding, bottom = bottomPadding),
             verticalArrangement = Arrangement.spacedBy(PlanPage.Layout.BLOCK_GAP.dp),
         ) {
-            item(key = "lead") {
-                Column(
-                    Modifier.widthIn(max = PlanPage.Layout.COLUMN_MAX_WIDTH.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    StoryKindBadge(kind = Stories.Kind.Plan, waiting = !decided)
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (counts.isNotEmpty()) {
-                        Text(
-                            counts,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    }
-                }
-            }
             blocks.forEachIndexed { index, block ->
                 item(key = (block as? PlanPage.Block.Section)?.id ?: "block-$index") {
                     Box(Modifier.widthIn(max = PlanPage.Layout.COLUMN_MAX_WIDTH.dp)) {
                         when (block) {
+                            is PlanPage.Block.Title -> Text(
+                                block.text,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = PlanPage.Layout.TITLE_SIZE.sp,
+                                    lineHeight = (PlanPage.Layout.TITLE_SIZE * 1.25f).sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                // Clear of the outline's ghost button.
+                                modifier = Modifier.padding(end = if (hasOutline) 32.dp else 0.dp),
+                            )
                             is PlanPage.Block.Markdown -> MarkdownView(block.text)
                             is PlanPage.Block.Section -> MarkdownView("## ${block.title}")
                             is PlanPage.Block.Pictures -> PlanPictureCarousel(
                                 pictures = block.pictures,
-                                aspect = groupAspect(block.pictures.firstOrNull(), card),
+                                aspect = groupAspect(block.pictures.firstOrNull(), state.card),
                                 onOpen = { onOpenPicture(block.pictures[it].src) },
                             )
                         }
                     }
                 }
             }
+            if (surface != null) {
+                item(key = "surface") {
+                    val handle = remember { CardSurfaceHandle() }
+                    CardSurfaceView(surface, handle, inert = true)
+                }
+            }
         }
     }
 }
 
-/** The h1 the page already leads with ([AskDock.askDockTitle]) is not said twice. */
-private fun leadTrimmed(blocks: List<PlanPage.Block>): List<PlanPage.Block> {
-    val first = blocks.firstOrNull() as? PlanPage.Block.Markdown ?: return blocks
-    val lines = first.text.split("\n")
-    if (!lines.first().startsWith("# ")) return blocks
-    val rest = lines.drop(1).joinToString("\n").trim()
-    return (if (rest.isEmpty()) emptyList() else listOf(PlanPage.Block.Markdown(rest))) + blocks.drop(1)
-}
-
-/** A section's LazyColumn item index (the lead is item 0). */
-private fun sectionItemIndex(plan: String, id: String): Int {
-    val at = leadTrimmed(PlanPage.blocks(plan)).indexOfFirst { it is PlanPage.Block.Section && it.id == id }
-    return if (at < 0) -1 else at + 1
-}
-
 /** Scroll-spy: the last section whose heading passed the top; none yet = null. */
 @Composable
-private fun activeOutlineRow(plan: String, listState: LazyListState): String? {
-    val active by remember(plan) {
+private fun activeOutlineRow(blocks: List<PlanPage.Block>, listState: LazyListState): String? {
+    val active by remember(blocks) {
         derivedStateOf {
-            val blocks = leadTrimmed(PlanPage.blocks(plan))
             val top = listState.firstVisibleItemIndex
             blocks.withIndex()
-                .lastOrNull { (at, block) -> block is PlanPage.Block.Section && at + 1 <= top }
+                .lastOrNull { (at, block) -> block is PlanPage.Block.Section && at <= top }
                 ?.let { (it.value as PlanPage.Block.Section).id }
         }
     }
@@ -369,9 +339,9 @@ private fun activeOutlineRow(plan: String, listState: LazyListState): String? {
 }
 
 /** The group's box = the first picture's probed aspect (unknown = 16:10). */
-private fun groupAspect(picture: PlanPage.Picture?, card: JsonObject): Float {
+private fun groupAspect(picture: PlanPage.Picture?, card: JsonObject?): Float {
     val id = picture?.src?.substringBefore('?')?.substringAfterLast('/') ?: return 1.6f
-    val entry = (card["pictures"] as? JsonArray).orEmpty().firstOrNull {
+    val entry = (card?.get("pictures") as? JsonArray).orEmpty().firstOrNull {
         ((it as? JsonObject)?.get("attachmentId") as? JsonPrimitive)?.content == id
     } as? JsonObject ?: return 1.6f
     val width = (entry["width"] as? JsonPrimitive)?.doubleOrNull
@@ -451,7 +421,8 @@ fun PlanPictureCarousel(pictures: List<PlanPage.Picture>, aspect: Float, onOpen:
 /**
  * THE outline (eUI `Outline`): the caption, one row per section (the title
  * one line, a muted `· n` with pictures; the active row = the accent
- * background + the leading bar), then a separator and the questions row.
+ * background + the leading bar), then a separator and the questions row,
+ * which scrolls nothing (the panel already shows them).
  */
 @Composable
 fun PlanOutlineList(
@@ -459,7 +430,6 @@ fun PlanOutlineList(
     active: String?,
     questions: Int,
     onSelect: (String) -> Unit,
-    onQuestions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val rowHeight = PlanPage.Layout.OUTLINE_ROW_HEIGHT.dp
@@ -516,8 +486,6 @@ fun PlanOutlineList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .clip(rowShape)
-                    .clickable(onClick = onQuestions)
                     .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
