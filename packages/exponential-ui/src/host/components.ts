@@ -7,6 +7,8 @@
 // names it (`children/<j>`, `children/componentId`, `slots/<name>`). The
 // Rust core's `host::components` mirrors it (fixtures/host-router.json).
 
+import { fillRecordMacros, usesRecordMacros } from "./record-macros"
+import type { RecordKind } from "./records"
 import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID } from "../catalog"
 import { reduceSurface } from "../reducer"
 import type { ExtensionDef, FlatComponent } from "../types"
@@ -83,6 +85,14 @@ export function validatePackageComponents(pkg: Record<string, unknown>, catalogI
       continue
     }
     const index = new Map(list.map((c, i) => [c.id as string, i]))
+    // VAPP-217: the record macros reduce FILLED, as templateMessages sends
+    // them; an issue on a filled-in row (`<id>__row`) lands on its macro.
+    const records = isObject(pkg.records) ? (pkg.records as Record<string, RecordKind>) : undefined
+    const reduced = usesRecordMacros(list) ? fillRecordMacros(list, [], records).components : list
+    for (const c of reduced) {
+      const owner = typeof c.id === `string` && c.id.endsWith(`__row`) ? index.get(c.id.slice(0, -5)) : undefined
+      if (owner !== undefined && !index.has(c.id as string)) index.set(c.id as string, owner)
+    }
     const seen = new Set<string>()
     const push = (path: string, message: string) => {
       const key = `${path}\n${message}`
@@ -90,7 +100,7 @@ export function validatePackageComponents(pkg: Record<string, unknown>, catalogI
       seen.add(key)
       issues.push({ path, message })
     }
-    for (const issue of reduceSurface(list as FlatComponent[], { catalogId: reduceAs, extensions: defs }).issues) {
+    for (const issue of reduceSurface(reduced as FlatComponent[], { catalogId: reduceAs, extensions: defs }).issues) {
       if (open && issue.message.startsWith(`unknown component `)) continue
       const i = index.get(issue.id)
       if (i !== undefined) {

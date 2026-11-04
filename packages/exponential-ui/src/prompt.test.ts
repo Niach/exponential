@@ -30,7 +30,11 @@ describe(`catalog prompt`, () => {
         continue
       }
       expect(full).toContain(`\n${name}: ${def.description}`)
-      for (const prop of Object.keys(def.props)) expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${prop}[*~^]*: `))
+      for (const [prop, schema] of Object.entries(def.props)) {
+        // VAPP-217: a host-filled prop (the record macros') is never authored.
+        if (schema.host) expect(full, `${name}.${prop}`).not.toMatch(new RegExp(`\\n${name}: [^\\n]*(\\n  [^\\n]*)*\\n  ${prop}[*~^]*: `))
+        else expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${prop}[*~^]*: `))
+      }
     }
     // Round 4: every function with its arguments, the action shapes, updateDataModel, filter, token-only colours.
     for (const needle of [`Functions ({call, args}`, `regex(value:str,pattern:str)→bool`, `filter(items:array,query:str,fields:array,where:obj)→array`, `set(path:str,value:any)→void`, `{event: {name, context?}}`, `{functionCall: {call, args}}`, `updateDataModel{surfaceId, path, value}`, `never #hex`, `closes the Dialog or Drawer`, `app.toast`])

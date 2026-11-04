@@ -45,7 +45,19 @@ pub(crate) struct ChangelogEntry {
 
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
-pub(crate) const LATEST:ChangelogEntry = ChangelogEntry {
+pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-04-app-record-macros",
+    date: "2026-11-04",
+    title: "Record forms and tables in apps",
+    summary: "An app can show a kind's records as a sortable table and its add/edit form from one building block each.",
+    body: r#"- **Record table**: the records of one kind with a count, Add, sortable typed columns and Edit and Delete per row; phones show the same records as a list.
+- **Record form**: one field per field of the kind, checked as you type; saving adds or updates the record.
+- **CRM template**: the Contacts screen uses the record table."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_202: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-plan-is-a-tab",
     date: "2026-11-04",
     title: "The plan is a tab",

@@ -163,7 +163,11 @@ describe(`kitchen-sink.json`, () => {
     // baseline rewrite (a browser run). template-items.json `macro-template-*`
     // locks their expansion meanwhile.
     const later = [`Calendar`, `Timeline`]
-    for (const name of componentNames()) expect(seen.has(name) || later.includes(name), name).toBe(true)
+    // VAPP-217: a macro the HOST fills (RecordForm, RecordTable: props marked
+    // `host`) paints only once filled; its catalog specimen shows it (the
+    // styleguide entries) and it expands into natives the sink already has.
+    const hostFilled = (name: string) => Object.values(coreCatalog.components[name]!.props).some((p) => (p as { host?: boolean }).host)
+    for (const name of componentNames()) expect(seen.has(name) || later.includes(name) || hostFilled(name), name).toBe(true)
   })
 
   test(`reduces to the committed expansion with no issues and unique ids`, () => {

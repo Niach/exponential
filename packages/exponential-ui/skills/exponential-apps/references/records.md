@@ -1,6 +1,6 @@
-# Records: kinds, policies, queries, writes
+# Records: kinds, policies, queries, writes, RecordForm / RecordTable
 
-> Generated from packages/exponential-ui/docs/package-format.md (Records) and docs/spec/apps.md §3.4 (eUI 0.13.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Records, Record macros) and docs/spec/apps.md §3.4 (eUI 0.13.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Records
 
@@ -321,6 +321,50 @@ of whatever store the host has.
 Records have ONE spelling on every host: read `records:<kind>?q`, write
 `records.upsert` / `records.delete` / `records.batch` (Exponential's former
 `exp:records?kind=` and `harness.records.*` are gone).
+
+## Record macros
+
+VAPP-217 (eApps U2, `src/host/record-macros.ts`, Rust `host::record_macros`,
+`fixtures/record-macros.json`; the expansion: `catalog/macros.json`,
+`fixtures/catalog-macros.json` `RecordForm/*` + `RecordTable/*`). Two catalog
+macros put a kind's whole form or table on a screen as ONE node:
+
+```jsonc
+{ "id": "deals", "component": "RecordTable", "kind": "deal", "query": "sort=close&order=asc", "columns": ["title", "amount", "stage"] },
+{ "id": "newDeal", "component": "RecordForm", "kind": "deal", "submitLabel": "Add deal" }
+```
+
+- **RecordForm** `{kind, recordId?, submitLabel?, readOnly?, cancel?, path?}`:
+  a Form with one field per schema field (required first, then by name;
+  files are left out): `date` → DatePicker, `time` → TimePicker,
+  number / integer → NumberField (integer: step 1), boolean → Switch, a
+  string enum → Select, an enum list → a multiple Select, another list →
+  ChipInput, a `member` / `issue` ref → a searchable Select over
+  `exp:members` / `exp:issues`, a string without `maxLength` or longer
+  than 200 → Textarea, else Input (`date-time` with the placeholder
+  `YYYY-MM-DDTHH:MM`). Labels are the field names humanized, placeholders
+  the schema `description`. Checks come from the schema: required,
+  `maxLength`, `minimum` / `maximum`. Short fields pair in a two-column
+  FieldGroup on wide frames. The draft lives at `path` (default
+  `/recordForm/<id>`; seed it to edit); submit = `records.upsert {kind,
+  id: recordId, data}` unless the node has its own `on.submit`.
+  `readOnly` disables the form and drops the submit.
+- **RecordTable** `{kind, query?, columns?, add?, editable?}`: a toolbar
+  (the count, Add) over the stock Table (compact, sticky header, sortable)
+  with the Data tab's typed widths, a relative Updated column and an
+  Edit / Delete cell; phones show the same rows as a List of Row. Add,
+  Edit or a row press opens a RecordForm in a Drawer; Delete asks first,
+  then `records.delete`. Rows follow `records:<kind>?<query>` (default
+  newest first) at `/recordTable/<id>/rows`. States: loading (Skeleton),
+  empty (`No records yet`), an undeclared kind (the unknown state),
+  `editable: false` or a read-only viewer (no Add, no Edit / Delete).
+- **The host fills them.** A macro sees only its own props, so before a
+  template is sent (`templateMessages`) or checked at install, the host
+  fills every RecordForm / RecordTable from the package's `records`: the
+  fields, columns, bindings and actions (catalog props marked `host`,
+  never written by hand and left out of the model's prompt). Install
+  needs `records.upsert` (a table also `records.delete`) in `functions`
+  and `records:<kind>` in `sources` when `sources` is set.
 
 ### 3.4 Permissions
 

@@ -4452,6 +4452,146 @@
           "type": "style"
         }
       }
+    },
+    "RecordForm": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "kind": {
+          "type": "string",
+          "required": true
+        },
+        "recordId": {
+          "type": "string",
+          "bindable": true
+        },
+        "submitLabel": {
+          "type": "string",
+          "default": "$string.save"
+        },
+        "readOnly": {
+          "type": "boolean",
+          "default": false
+        },
+        "cancel": {
+          "type": "boolean",
+          "default": false
+        },
+        "path": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "host": true
+        },
+        "missing": {
+          "type": "boolean",
+          "default": false,
+          "host": true
+        }
+      },
+      "events": [
+        "submit",
+        "cancel"
+      ]
+    },
+    "RecordTable": {
+      "kind": "macro",
+      "group": "data",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "kind": {
+          "type": "string",
+          "required": true
+        },
+        "query": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "add": {
+          "type": "boolean",
+          "default": true
+        },
+        "editable": {
+          "type": "boolean",
+          "default": true
+        },
+        "title": {
+          "type": "string",
+          "host": true
+        },
+        "cols": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "column"
+          },
+          "host": true
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "bindable": true,
+          "host": true
+        },
+        "count": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "loading": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "host": true
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "host": true
+        },
+        "path": {
+          "type": "string",
+          "host": true
+        },
+        "editorOpen": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "host": true
+        },
+        "editorId": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "deleteOpen": {
+          "type": "boolean",
+          "default": false,
+          "bindable": true,
+          "host": true
+        },
+        "missing": {
+          "type": "boolean",
+          "default": false,
+          "host": true
+        }
+      }
     }
   }
 }

@@ -18570,6 +18570,5081 @@
       }
     ]
   },
+  "RecordForm\/cancel=false" : {
+    "height" : 324,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          324
+        ],
+        "id" : "record-form"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          276
+        ],
+        "id" : "record-form.fields"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.0.text.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.0.text.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1"
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1.number"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          72,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          96,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.1.number.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          47,
+          104,
+          296,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.increment",
+        "part" : "increment",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2"
+      },
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2.select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          144,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.2.select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          168,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.2.select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3"
+      },
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3.date"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          216,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.3.date.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          240,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.3.date.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          292,
+          390,
+          32
+        ],
+        "id" : "record-form.actions"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          334,
+          292,
+          56,
+          32
+        ],
+        "id" : "record-form.actions.submit",
+        "radius" : 10
+      }
+    ]
+  },
+  "RecordForm\/cancel=true" : {
+    "height" : 324,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          324
+        ],
+        "id" : "record-form"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          276
+        ],
+        "id" : "record-form.fields"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.0.text.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.0.text.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1"
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1.number"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          72,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          96,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.1.number.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          47,
+          104,
+          296,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.increment",
+        "part" : "increment",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2"
+      },
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2.select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          144,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.2.select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          168,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.2.select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3"
+      },
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3.date"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          216,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.3.date.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          240,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.3.date.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          292,
+          390,
+          32
+        ],
+        "id" : "record-form.actions"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          254,
+          292,
+          72,
+          32
+        ],
+        "id" : "record-form.actions.cancel",
+        "radius" : 10
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          334,
+          292,
+          56,
+          32
+        ],
+        "id" : "record-form.actions.submit",
+        "radius" : 10
+      }
+    ]
+  },
+  "RecordForm\/example" : {
+    "height" : 324,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          324
+        ],
+        "id" : "record-form"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          276
+        ],
+        "id" : "record-form.fields"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.0.text.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.0.text.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1"
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1.number"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          72,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          96,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.1.number.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          47,
+          104,
+          296,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.increment",
+        "part" : "increment",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2"
+      },
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2.select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          144,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.2.select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          168,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.2.select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3"
+      },
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3.date"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          216,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.3.date.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          240,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.3.date.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          292,
+          390,
+          32
+        ],
+        "id" : "record-form.actions"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          334,
+          292,
+          56,
+          32
+        ],
+        "id" : "record-form.actions.submit",
+        "radius" : 10
+      }
+    ]
+  },
+  "RecordForm\/missing=false" : {
+    "height" : 324,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          324
+        ],
+        "id" : "record-form"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          276
+        ],
+        "id" : "record-form.fields"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.0.text.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.0.text.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1"
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1.number"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          72,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          96,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.1.number.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          47,
+          104,
+          296,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.increment",
+        "part" : "increment",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2"
+      },
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2.select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          144,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.2.select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          168,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.2.select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3"
+      },
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3.date"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          216,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.3.date.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          240,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.3.date.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          292,
+          390,
+          32
+        ],
+        "id" : "record-form.actions"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          334,
+          292,
+          56,
+          32
+        ],
+        "id" : "record-form.actions.submit",
+        "radius" : 10
+      }
+    ]
+  },
+  "RecordForm\/missing=true" : {
+    "height" : 92,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          92
+        ],
+        "id" : "record-form"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          92
+        ],
+        "id" : "record-form.unknown"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          185,
+          24,
+          20,
+          20
+        ],
+        "id" : "record-form.unknown.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          67,
+          48,
+          256,
+          20
+        ],
+        "id" : "record-form.unknown.title"
+      }
+    ]
+  },
+  "RecordForm\/readOnly=false" : {
+    "height" : 324,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          324
+        ],
+        "id" : "record-form"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          276
+        ],
+        "id" : "record-form.fields"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.0.text.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.0.text.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1"
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1.number"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          72,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          96,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.1.number.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          47,
+          104,
+          296,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.increment",
+        "part" : "increment",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2"
+      },
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2.select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          144,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.2.select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          168,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.2.select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3"
+      },
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3.date"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          216,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.3.date.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          240,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.3.date.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          292,
+          390,
+          32
+        ],
+        "id" : "record-form.actions"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          334,
+          292,
+          56,
+          32
+        ],
+        "id" : "record-form.actions.submit",
+        "radius" : 10
+      }
+    ]
+  },
+  "RecordForm\/readOnly=true" : {
+    "height" : 276,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          276
+        ],
+        "id" : "record-form",
+        "opacity" : 0.5
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          276
+        ],
+        "id" : "record-form.fields"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.0.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.0.text.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.0.text.field",
+        "opacity" : 0.5,
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1"
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          72,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.1.number"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          72,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          96,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.1.number.field",
+        "opacity" : 0.5,
+        "part" : "field",
+        "radius" : 10,
+        "states" : [
+          "disabled"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.decrement",
+        "opacity" : 0.5,
+        "part" : "decrement",
+        "radius" : 8,
+        "states" : [
+          "disabled"
+        ]
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          47,
+          104,
+          296,
+          20
+        ],
+        "id" : "record-form.fields.field.1.number.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          98,
+          32,
+          32
+        ],
+        "id" : "record-form.fields.field.1.number.increment",
+        "opacity" : 0.5,
+        "part" : "increment",
+        "radius" : 8,
+        "states" : [
+          "disabled"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2"
+      },
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          144,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.2.select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          144,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.2.select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          168,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.2.select.trigger",
+        "opacity" : 0.5,
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3"
+      },
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          216,
+          390,
+          60
+        ],
+        "id" : "record-form.fields.field.3.date"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          216,
+          390,
+          20
+        ],
+        "id" : "record-form.fields.field.3.date.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          240,
+          390,
+          36
+        ],
+        "id" : "record-form.fields.field.3.date.trigger",
+        "opacity" : 0.5,
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "RecordTable\/add=false" : {
+    "height" : 56,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          56
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          20,
+          318,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          32,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          44,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          56,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/add=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/deleteOpen=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/deleteOpen=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          8,
+          319,
+          374,
+          162
+        ],
+        "id" : "record-table.confirm.content",
+        "part" : "content",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          344,
+          324,
+          28
+        ],
+        "id" : "record-table.confirm.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          388,
+          324,
+          20
+        ],
+        "id" : "record-table.confirm.description",
+        "part" : "description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          424,
+          324,
+          32
+        ],
+        "id" : "record-table.confirm.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Form",
+        "frame" : [
+          33,
+          424,
+          324,
+          32
+        ],
+        "id" : "record-table.confirm.confirmForm"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          424,
+          324,
+          32
+        ],
+        "id" : "record-table.confirm.confirmForm.confirmActions"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          205,
+          424,
+          72,
+          32
+        ],
+        "id" : "record-table.confirm.confirmForm.confirmActions.cancel",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          285,
+          424,
+          72,
+          32
+        ],
+        "id" : "record-table.confirm.confirmForm.confirmActions.submit",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          341,
+          328,
+          32,
+          32
+        ],
+        "id" : "record-table.confirm.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "RecordTable\/editable=false" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      }
+    ]
+  },
+  "RecordTable\/editable=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/editorOpen=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/editorOpen=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          180,
+          0,
+          210,
+          800
+        ],
+        "id" : "record-table.editor.content",
+        "part" : "content",
+        "radius" : 24,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          205,
+          25,
+          160,
+          28
+        ],
+        "id" : "record-table.editor.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          205,
+          69,
+          160,
+          324
+        ],
+        "id" : "record-table.editor.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Form",
+        "frame" : [
+          205,
+          69,
+          160,
+          324
+        ],
+        "id" : "record-table.editor.form"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          205,
+          69,
+          160,
+          276
+        ],
+        "id" : "record-table.editor.form.fields"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          205,
+          69,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.0"
+      },
+      {
+        "component" : "Input",
+        "frame" : [
+          205,
+          69,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.0.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          205,
+          69,
+          160,
+          20
+        ],
+        "id" : "record-table.editor.form.fields.field.0.text.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          205,
+          93,
+          160,
+          36
+        ],
+        "id" : "record-table.editor.form.fields.field.0.text.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          205,
+          141,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.1"
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          205,
+          141,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.1.number"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          205,
+          141,
+          160,
+          20
+        ],
+        "id" : "record-table.editor.form.fields.field.1.number.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          205,
+          165,
+          160,
+          36
+        ],
+        "id" : "record-table.editor.form.fields.field.1.number.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          218,
+          167,
+          32,
+          32
+        ],
+        "id" : "record-table.editor.form.fields.field.1.number.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          252,
+          173,
+          66,
+          20
+        ],
+        "id" : "record-table.editor.form.fields.field.1.number.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          320,
+          167,
+          32,
+          32
+        ],
+        "id" : "record-table.editor.form.fields.field.1.number.increment",
+        "part" : "increment",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          205,
+          213,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.2"
+      },
+      {
+        "component" : "Select",
+        "frame" : [
+          205,
+          213,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.2.select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          205,
+          213,
+          160,
+          20
+        ],
+        "id" : "record-table.editor.form.fields.field.2.select.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          205,
+          237,
+          160,
+          36
+        ],
+        "id" : "record-table.editor.form.fields.field.2.select.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          205,
+          285,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.3"
+      },
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          205,
+          285,
+          160,
+          60
+        ],
+        "id" : "record-table.editor.form.fields.field.3.date"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          205,
+          285,
+          160,
+          20
+        ],
+        "id" : "record-table.editor.form.fields.field.3.date.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          205,
+          309,
+          160,
+          36
+        ],
+        "id" : "record-table.editor.form.fields.field.3.date.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          205,
+          361,
+          160,
+          32
+        ],
+        "id" : "record-table.editor.form.actions"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          229,
+          361,
+          72,
+          32
+        ],
+        "id" : "record-table.editor.form.actions.cancel",
+        "radius" : 10
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          309,
+          361,
+          56,
+          32
+        ],
+        "id" : "record-table.editor.form.actions.submit",
+        "radius" : 10
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/loading=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/loading=true" : {
+    "height" : 156,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          156
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Skeleton",
+        "frame" : [
+          0,
+          36,
+          390,
+          96
+        ],
+        "id" : "record-table.loading"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          36,
+          390,
+          32
+        ],
+        "id" : "record-table.loading.row.0",
+        "part" : "row"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          12,
+          46,
+          12,
+          12
+        ],
+        "id" : "record-table.loading.dot.0",
+        "part" : "dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          36,
+          48,
+          56,
+          8
+        ],
+        "id" : "record-table.loading.bar.0.0",
+        "part" : "bar",
+        "radius" : 4
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          104,
+          48,
+          168,
+          8
+        ],
+        "id" : "record-table.loading.bar.0.1",
+        "part" : "bar",
+        "radius" : 4
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          68,
+          390,
+          32
+        ],
+        "id" : "record-table.loading.row.1",
+        "part" : "row"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          12,
+          78.5,
+          12,
+          12
+        ],
+        "id" : "record-table.loading.dot.1",
+        "part" : "dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          36,
+          80.5,
+          56,
+          8
+        ],
+        "id" : "record-table.loading.bar.1.0",
+        "part" : "bar",
+        "radius" : 4
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          104,
+          80.5,
+          120,
+          8
+        ],
+        "id" : "record-table.loading.bar.1.1",
+        "part" : "bar",
+        "radius" : 4
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          100,
+          390,
+          32
+        ],
+        "id" : "record-table.loading.row.2",
+        "part" : "row"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          12,
+          110.5,
+          12,
+          12
+        ],
+        "id" : "record-table.loading.dot.2",
+        "part" : "dot",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          36,
+          112.5,
+          56,
+          8
+        ],
+        "id" : "record-table.loading.bar.2.0",
+        "part" : "bar",
+        "radius" : 4
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Skeleton",
+        "frame" : [
+          104,
+          112.5,
+          192,
+          8
+        ],
+        "id" : "record-table.loading.bar.2.1",
+        "part" : "bar",
+        "radius" : 4
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          144,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          156,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/missing=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "record-table.toolbar"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          4,
+          64,
+          20
+        ],
+        "id" : "record-table.toolbar.count"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          24,
+          262,
+          0
+        ],
+        "id" : "record-table.toolbar.spacer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          342,
+          0,
+          48,
+          24
+        ],
+        "id" : "record-table.toolbar.add",
+        "radius" : 10
+      },
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.row.d1",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.cell.d1.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.d1"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.edit.d1",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "record-table.table.menu.delete.d1",
+        "radius" : 10
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          0
+        ],
+        "id" : "record-table.list"
+      },
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          48,
+          0,
+          0
+        ],
+        "id" : "record-table.editor"
+      },
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          60,
+          0,
+          0
+        ],
+        "id" : "record-table.confirm"
+      }
+    ]
+  },
+  "RecordTable\/missing=true" : {
+    "height" : 92,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          92
+        ],
+        "id" : "record-table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          92
+        ],
+        "id" : "record-table.unknown"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          185,
+          24,
+          20,
+          20
+        ],
+        "id" : "record-table.unknown.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          67,
+          48,
+          256,
+          20
+        ],
+        "id" : "record-table.unknown.title"
+      }
+    ]
+  },
   "Resizable\/direction=horizontal" : {
     "height" : 20,
     "nodes" : [

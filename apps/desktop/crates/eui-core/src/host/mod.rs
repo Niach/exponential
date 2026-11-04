@@ -20,6 +20,7 @@ pub mod package;
 pub mod policy;
 pub mod calendar;
 pub mod query;
+pub mod record_macros;
 pub mod record_migrations;
 pub mod record_policy;
 pub mod record_transitions;

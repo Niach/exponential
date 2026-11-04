@@ -77,6 +77,8 @@ import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
 import { entry as outline } from "./outline.tsx"
+import { entry as recordForm } from "./record-form.tsx"
+import { entry as recordTable } from "./record-table.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
 import { entry as motion } from "./motion.tsx"
@@ -127,6 +129,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   motion,
   calendar,
   timeline,
+  recordForm,
+  recordTable,
   composerDialog,
   issueContextMenu,
   sessionRow,
