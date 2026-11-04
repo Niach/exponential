@@ -25,6 +25,18 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-share-into-chats`,
+    date: `2026-11-04`,
+    title: `Share into a chat or to an agent`,
+    summary: `Sharing into Exponential now asks where it goes, and the + menu takes photos directly.`,
+    body: `- **Share to**: a share opens New issue, New chat or any agent, and nothing is sent until you tap Send
+- **Share sheet**: agents and recent chats appear in the system share sheet on iOS and Android
+- **Files**: the Android and iOS apps now accept shared files as well as images and text
+- **Selected text**: on Android, select text in any app and share it to Exponential
+- **Camera**: the + menu on phones offers Camera, Photos and File, and Photos and File let you pick several at once
+- **Web app**: an installed Exponential web app can receive shares too`,
+  },
+  {
     id: `2026-11-04-app-public-links`,
     date: `2026-11-04`,
     title: `Public links for apps`,
