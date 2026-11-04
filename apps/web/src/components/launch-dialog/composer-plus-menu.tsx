@@ -45,10 +45,13 @@ import { ISSUE_SEARCH_NO_RESULTS, ISSUE_SEARCH_PLACEHOLDER } from "@/lib/issue-s
 import { filterSlashPrompts, promptSlashName, type SlashPrompt } from "@/lib/steer-commands"
 import {
   COMPOSER_MENU_TEST_IDS,
+  COMPOSER_FILE_CHOICES,
   COMPOSER_PLUS_LABEL,
+  composerFileChoiceTestId,
   composerMenuLayout,
   composerMenuRowTestId,
   implementButtonLabel,
+  type ComposerFileChoiceId,
   type ComposerMenuRow,
   type ComposerMenuSurface,
 } from "@/components/launch-dialog/composer-menu"
@@ -178,8 +181,9 @@ export function ComposerOptionsMenu({
   issues?: ComposerIssueBinding
   /** Prompts ›, shown while the team has a prompt. */
   prompts?: ComposerPromptsBinding
-  /** Opens the file chooser (the composer owns the hidden input). */
-  onAttach: () => void
+  /** Opens a file chooser (the composer owns the hidden inputs); no
+   *  choice = any file. */
+  onAttach: (choice?: ComposerFileChoiceId) => void
   disabled?: boolean
   /** The rows read but cannot change (an ended session). */
   rowsDisabled?: boolean
@@ -187,6 +191,7 @@ export function ComposerOptionsMenu({
   highlighted?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const isPhone = useIsMobile()
   const ultracodeOn = options !== undefined && options.ultracode && agentSupportsUltracode(agent)
   const checkedCount = issues?.kind === `implement` ? issues.checkedCount : 0
   const work = surface === `launch` && temporary && options !== undefined
@@ -234,7 +239,21 @@ export function ComposerOptionsMenu({
     }
     switch (row.id) {
       case `add-file`:
-        return { ...base, kind: `item`, onSelect: onAttach }
+        // EXP-1635: a phone picks Camera | Photos | File, a pointer goes
+        // straight to the chooser.
+        if (!isPhone) return { ...base, kind: `item`, onSelect: () => onAttach() }
+        return {
+          ...base,
+          kind: `submenu`,
+          entries: COMPOSER_FILE_CHOICES.map((choice) => ({
+            id: choice.id,
+            kind: `item`,
+            label: choice.label,
+            icon: conceptIcon(choice.icon as IconConcept),
+            "data-testid": composerFileChoiceTestId(choice.id),
+            onSelect: () => onAttach(choice.id),
+          })),
+        }
       case `implement-issue`:
         if (!issues) return null
         if (issues.kind === `insert`) {
@@ -632,8 +651,8 @@ export function ComposerPlusMenu({
   disabled,
 }: {
   model: LaunchComposerModel
-  /** Opens the file chooser (the composer owns the hidden input). */
-  onAttach: () => void
+  /** Opens a file chooser (the composer owns the hidden inputs). */
+  onAttach: (choice?: ComposerFileChoiceId) => void
   disabled?: boolean
 }) {
   const { launch, subject, candidateDevices } = model

@@ -552,7 +552,7 @@ export function SessionComposer({
                   ),
               }}
               prompts={{ prompts, onPick: insertPrompt }}
-              onAttach={() => toolsRef.current?.attach()}
+              onAttach={(choice) => toolsRef.current?.attach(choice)}
               rowsDisabled={row !== null && ended}
               highlighted={files.length > 0}
             />
