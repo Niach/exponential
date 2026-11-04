@@ -211,7 +211,9 @@
     "Motion": {
       "role": "img",
       "notes": "img named by label; decorative (hidden) without one; with on.press it is a button (focusable, named by label) and its state machine gets the click",
-      "keys": ["Enter/Space: press (with on.press)"]
+      "keys": [
+        "Enter/Space: press (with on.press)"
+      ]
     },
     "Image": {
       "role": "img",
@@ -221,7 +223,12 @@
     "ZoomableImage": {
       "role": "img",
       "notes": "img (alt = name), focusable; the zoom pill's buttons are named `$string.zoomOut`, `$string.zoomIn`, `$string.zoomToFit` (pressed while at rest) and the percent button `$string.zoomLevel` (its value = the percent, opening a menu whose first row is `$string.zoomFit`)",
-      "keys": ["+ / =: zoom in a step", "-: zoom out a step", "0: back to the opening zoom", "1: 100%"]
+      "keys": [
+        "+ / =: zoom in a step",
+        "-: zoom out a step",
+        "0: back to the opening zoom",
+        "1: 100%"
+      ]
     },
     "Icon": {
       "role": "img",
@@ -724,6 +731,20 @@
       "role": "group",
       "notes": "group labelled by its label; the sparkline is an img with the generated summary",
       "keys": []
+    },
+    "Calendar": {
+      "role": "table",
+      "notes": "table of the month or week; each day a button named by its date (aria-selected on the selected day) that fires `select` in the day's scope; each bar a button that fires `open` in its scope; the phone agenda a list of rows.",
+      "keys": [
+        "Tab through the days and the bars; Enter, Space: select a day, open a bar"
+      ]
+    },
+    "Timeline": {
+      "role": "table",
+      "notes": "table of rows over time columns; each bar a button named by its label that fires `open` in its scope.",
+      "keys": [
+        "Tab through the bars; Enter, Space: open"
+      ]
     }
   }
 }

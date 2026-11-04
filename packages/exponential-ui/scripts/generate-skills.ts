@@ -36,7 +36,7 @@ export const SKILLS_DIR = join(EUI, `skills`)
 /** The Motion gallery, in the guide page's order (the drift test checks the page imports exactly these). */
 export const MOTION_GALLERY = [`pulse-dot`, `progress-ring`, `typing-dots`, `heartbeat`, `equalizer`, `error-x`, `sun`, `wifi`] as const
 
-const SAMPLE_APPS = [`crm`, `standup`, `time-tracker`] as const
+const SAMPLE_APPS = [`crm`, `leave-planner`, `standup`, `time-tracker`] as const
 
 const DESCRIPTIONS: Record<string, string> = {
   "exponential-apps": `Build or change an Exponential app (eApps): the package format (formatVersion 3), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.`,

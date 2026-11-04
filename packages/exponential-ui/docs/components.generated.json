@@ -7324,6 +7324,159 @@
         ]
       },
       "macro": null
+    },
+    {
+      "name": "Calendar",
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "specimenId": "exponential-ui-calendar",
+      "description": "A month or week of records: spans as chart-coloured bars in lanes; on phones dots and the day's agenda.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "select",
+        "open"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "source",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Where a records `by` binding lands (reads `month` or `week`)."
+        },
+        {
+          "name": "view",
+          "type": "month | week",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "month",
+          "description": "Month grid or one week."
+        },
+        {
+          "name": "labelField",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "title",
+          "description": "The row field a bar shows."
+        },
+        {
+          "name": "detailField",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "detail",
+          "description": "The agenda subtitle field."
+        },
+        {
+          "name": "metaField",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "status",
+          "description": "The agenda meta field."
+        },
+        {
+          "name": "style",
+          "type": "style",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Frame styles."
+        }
+      ],
+      "accessibility": {
+        "role": "table",
+        "notes": "table of the month or week; each day a button named by its date (aria-selected on the selected day) that fires `select` in the day's scope; each bar a button that fires `open` in its scope; the phone agenda a list of rows.",
+        "keys": [
+          "Tab through the days and the bars; Enter, Space: select a day, open a bar"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Calendar",
+        "view": "month"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Calendar/<part>."
+    },
+    {
+      "name": "Timeline",
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "specimenId": "exponential-ui-timeline",
+      "description": "Records over time: rows of chart-coloured bars across week, month or quarter columns.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "open"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "source",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Where a records `view=timeline` binding lands."
+        },
+        {
+          "name": "labelField",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "title",
+          "description": "The row field a bar shows."
+        },
+        {
+          "name": "rowTitle",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The row labels' heading."
+        },
+        {
+          "name": "showCount",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Each row's count under its label."
+        },
+        {
+          "name": "style",
+          "type": "style",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Frame styles."
+        }
+      ],
+      "accessibility": {
+        "role": "table",
+        "notes": "table of rows over time columns; each bar a button named by its label that fires `open` in its scope.",
+        "keys": [
+          "Tab through the bars; Enter, Space: open"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Timeline",
+        "rowTitle": "Workstream"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Timeline/<part>."
     }
   ]
 }

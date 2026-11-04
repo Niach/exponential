@@ -46,6 +46,8 @@ struct Expansion<'a> {
     claimed: HashSet<String>,
     /// Expansion problems (an author function that replaces a `$set` write).
     issues: Vec<ReduceIssue>,
+    /// eApps U3: the item nodes `$template` parts built (expanded later).
+    built: Vec<UiNode>,
 }
 
 /// `{base, sm?, md?, lg?, xl?}`: an object with `base` and only breakpoint
@@ -372,6 +374,22 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
             }
         }
     }
+    if let Some(data) = &tpl.template {
+        // eApps U3: a data template: the item is built now, lifted into the
+        // reducer's `templates` (expand_macro expands it like any tree).
+        let path = eval_value(&data.path, ctx);
+        let key = data.key.as_ref().and_then(|k| eval_value(k, ctx));
+        if let Some(Value::String(path)) = path.filter(|p| p.as_str().is_some_and(|s| !s.is_empty())) {
+            if let Some(item) = expand_template(&data.item, exp, ctx, &id).into_iter().next() {
+                let key = match key {
+                    Some(Value::String(k)) if !k.is_empty() => Some(k),
+                    _ => None,
+                };
+                node.template = Some(crate::types::Template { component: item.id.clone(), path, key });
+                exp.built.push(item);
+            }
+        }
+    }
     for child in tpl.children.iter().flatten() {
         match child {
             TemplateChild::Splice(s) if s == "$children" => {
@@ -400,7 +418,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
 /// Never inlined: its large frame stays off [`expand_tree`]'s recursion
 /// (VAPP-103: nested macros otherwise cost ~12 KB of stack per level).
 #[inline(never)]
-fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>) -> Result<UiNode, String> {
+fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>, templates: &mut Vec<UiNode>) -> Result<UiNode, String> {
     if depth > MAX_DEPTH {
         return Err(format!("macro {macro_}: expansion deeper than {MAX_DEPTH}"));
     }
@@ -410,13 +428,14 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
         base_props.insert("pressable".into(), Value::Bool(true));
     }
     let variants = responsive_variants(&node.props);
-    let mut exp = Expansion { view, macro_, def, source: &node, base_props: base_props.clone(), variants, claimed: HashSet::new(), issues: Vec::new() };
+    let mut exp = Expansion { view, macro_, def, source: &node, base_props: base_props.clone(), variants, claimed: HashSet::new(), issues: Vec::new(), built: Vec::new() };
     let ctx = ExprContext { id: &node.id, props: &base_props, vars: IndexMap::new() };
     let mut root = expand_template(&def.root, &mut exp, &ctx, &node.id)
         .into_iter()
         .next()
         .ok_or_else(|| format!("macro {macro_}: the root template produced no node"))?;
     let claimed = exp.claimed;
+    let built = exp.built;
     for issue in exp.issues {
         if !issues.contains(&issue) {
             issues.push(issue);
@@ -458,7 +477,12 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
         }
     }
     root.on = (!remaining.is_empty()).then_some(remaining);
-    expand_tree(&mut root, view, depth + 1, issues)?;
+    expand_tree(&mut root, view, depth + 1, issues, templates)?;
+    // eApps U3: the data-template items, expanded like the root, in build order.
+    for mut item in built {
+        expand_tree(&mut item, view, depth + 1, issues, templates)?;
+        templates.push(item);
+    }
     Ok(root)
 }
 
@@ -475,24 +499,24 @@ fn js_truthy(value: &Value) -> bool {
 
 /// Expand IN PLACE, children and slots first (VAPP-103: no clone per
 /// level, a small frame per level: nested macros recurse through here).
-fn expand_tree(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>) -> Result<(), String> {
-    crate::deep(|| expand_node(node, view, depth, issues))
+fn expand_tree(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>, templates: &mut Vec<UiNode>) -> Result<(), String> {
+    crate::deep(|| expand_node(node, view, depth, issues, templates))
 }
 
-fn expand_node(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>) -> Result<(), String> {
+fn expand_node(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>, templates: &mut Vec<UiNode>) -> Result<(), String> {
     for child in &mut node.children {
-        expand_tree(child, view, depth, issues)?;
+        expand_tree(child, view, depth, issues, templates)?;
     }
     if let Some(slots) = &mut node.slots {
         for child in slots.values_mut() {
-            expand_tree(child, view, depth, issues)?;
+            expand_tree(child, view, depth, issues, templates)?;
         }
     }
     if let Some(def) = view.macros.get(&node.component) {
         if view.components.get(&node.component).is_some_and(|d| d.is_macro()) {
             let component = node.component.clone();
             let source = std::mem::replace(node, UiNode::new("", ""));
-            *node = expand_macro(source, &component, def, view, depth, issues)?;
+            *node = expand_macro(source, &component, def, view, depth, issues, templates)?;
         }
     }
     Ok(())
@@ -510,17 +534,27 @@ pub fn expand_macros(root: &UiNode, view: &CatalogView) -> Result<UiNode, String
 /// replaces a `$set` write-back), deduplicated per node: the TS
 /// `expandMacros(root, {issues})`.
 pub fn expand_macros_with_issues(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>), String> {
+    expand_macros_with_templates(root, view).map(|(node, issues, _)| (node, issues))
+}
+
+/// [`expand_macros_with_issues`] plus the items a macro's `$template` parts
+/// built (eApps U3: native, guides filled), for the reducer's `templates`.
+pub fn expand_macros_with_templates(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>, Vec<UiNode>), String> {
     crate::roomy(|| expand_all(root, view))
 }
 
-fn expand_all(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>), String> {
+fn expand_all(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>, Vec<UiNode>), String> {
     let mut issues = Vec::new();
+    let mut templates = Vec::new();
     let mut node = root.clone();
-    expand_tree(&mut node, view, 0, &mut issues)?;
+    expand_tree(&mut node, view, 0, &mut issues, &mut templates)?;
     // Round 3: the tree guides of nested Rows come from their siblings, so
     // they are filled AFTER the whole tree is native (`tree_guides`).
     crate::tree_guides::apply_tree_guides(&mut node);
-    Ok((node, issues))
+    for t in &mut templates {
+        crate::tree_guides::apply_tree_guides(t);
+    }
+    Ok((node, issues, templates))
 }
 
 #[cfg(test)]

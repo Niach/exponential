@@ -266,7 +266,7 @@ const CYCLE_CASES: { name: string; nested?: NestedNode; components?: FlatCompone
 
 function templateItemsFixture() {
   return {
-    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §4). \`keys\`: a template's item keys (src/list.ts templateItemKeys: the value at \`key\` — a pointer relative to the item — as a string, objects as JSON; \`#<index>\` when missing, null, empty or a DUPLICATE of an earlier key, more \`#\`s until unique; no key = the index). \`rowKeys\`: Table rows by their \`rowKey\` FIELD, same rules. \`instances\`: the items a template renders in a scope and the instance SUFFIX each item's nodes wear (\`<node id><suffix>\`; suffix = \`.<key>\` with \`~\` → \`~0\` and \`.\` → \`~1\`; it ACCUMULATES through nested templates: \`issue.ops.1\`). \`reduce\`: a node a \`template\` names is LIFTED out of the tree into \`templates\` (never also rendered in place), on the nested and the flat path; an unknown template id is an issue; a template that would instantiate itself (its owner, an ancestor of its owner, the root, or through other templates) is an issue (\`template: cycle through this id\`) and is NOT lifted: it stays in place and its owner renders no items. VAPP-103 (\`limit-*\`, catalog/limits.json): an id placed a second time (two parents, one parent twice, or the main tree and a template) renders at its FIRST place only (\`id used twice; only its first place renders\`), a node deeper than \`maxDepth\` levels (the root = 1) is the Unknown placeholder (\`nesting deeper than N levels\`).`,
+    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §4). \`keys\`: a template's item keys (src/list.ts templateItemKeys: the value at \`key\` — a pointer relative to the item — as a string, objects as JSON; \`#<index>\` when missing, null, empty or a DUPLICATE of an earlier key, more \`#\`s until unique; no key = the index). \`rowKeys\`: Table rows by their \`rowKey\` FIELD, same rules. \`instances\`: the items a template renders in a scope and the instance SUFFIX each item's nodes wear (\`<node id><suffix>\`; suffix = \`.<key>\` with \`~\` → \`~0\` and \`.\` → \`~1\`; it ACCUMULATES through nested templates: \`issue.ops.1\`). \`reduce\`: a node a \`template\` names is LIFTED out of the tree into \`templates\` (never also rendered in place), on the nested and the flat path; an unknown template id is an issue; a template that would instantiate itself (its owner, an ancestor of its owner, the root, or through other templates) is an issue (\`template: cycle through this id\`) and is NOT lifted: it stays in place and its owner renders no items. VAPP-103 (\`limit-*\`, catalog/limits.json): an id placed a second time (two parents, one parent twice, or the main tree and a template) renders at its FIRST place only (\`id used twice; only its first place renders\`), a node deeper than \`maxDepth\` levels (the root = 1) is the Unknown placeholder (\`nesting deeper than N levels\`). VAPP-232 (\`macro-template-*\`): a macro's \`$template\` parts (catalog/macros.json) build template items too: lifted into \`templates\` after the authored ones, in build order.`,
     keys: KEY_CASES.map((c) => ({ ...c, expected: templateItemKeys(c.items, c.key) })),
     rowKeys: ROW_KEY_CASES.map((c) => ({ ...c, expected: tableRowKeys(c.rows, c.rowKey) })),
     instances: instanceCases(),
@@ -275,9 +275,19 @@ function templateItemsFixture() {
       { name: `flat-lifted-and-built`, catalogId: CORE_CATALOG_ID, components: LIFT_FLAT, expected: reduceSurface(LIFT_FLAT, { catalogId: CORE_CATALOG_ID }) },
       ...CYCLE_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: c.nested ? reduceNested(c.nested, { catalogId: CORE_CATALOG_ID }) : reduceSurface(c.components!, { catalogId: CORE_CATALOG_ID }) })),
       ...LIMIT_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: reduceSurface(c.components, { catalogId: CORE_CATALOG_ID }) })),
+      ...MACRO_TEMPLATE_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: reduceNested(c.nested, { catalogId: CORE_CATALOG_ID }) })),
     ],
   }
 }
+
+/** VAPP-232 (eApps U3): a macro's `$template` parts build data-template
+ *  items, lifted into `templates` after the authored ones (the Calendar's
+ *  month and week, the Timeline; their handlers routed into the items). */
+const MACRO_TEMPLATE_CASES: { name: string; nested: NestedNode }[] = [
+  { name: `macro-template-calendar-month`, nested: { id: `cal`, component: `Calendar`, props: { source: `/leave`, labelField: `label` }, on: { select: { event: { name: `day` } }, open: { event: { name: `open` } } } } },
+  { name: `macro-template-calendar-week`, nested: { id: `week`, component: `Calendar`, props: { source: `/week`, view: `week` } } },
+  { name: `macro-template-timeline`, nested: { id: `tl`, component: `Timeline`, props: { source: `/road`, rowTitle: `Workstream`, showCount: true }, on: { open: { event: { name: `open` } } } } },
+]
 
 /** VAPP-103: the reducer's refusals (catalog/limits.json), on the flat
  *  path every core replays: an id placed twice renders at its FIRST place

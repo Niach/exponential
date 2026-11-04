@@ -78,6 +78,8 @@ pub(crate) mod mosaic;
 // EXP-1586: the lightbox picture (the eUI zoom view).
 pub(crate) mod zoomable_image;
 pub(crate) mod motion;
+pub(crate) mod calendar;
+pub(crate) mod timeline;
 pub(crate) mod nav_rail;
 pub(crate) mod sidebar_rows;
 pub(crate) mod voice_level;
@@ -163,6 +165,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: mosaic::ID, owner: mosaic::OWNER, render: mosaic::render },
     Entry { id: zoomable_image::ID, owner: zoomable_image::OWNER, render: zoomable_image::render },
     Entry { id: motion::ID, owner: motion::OWNER, render: motion::render },
+    Entry { id: calendar::ID, owner: calendar::OWNER, render: calendar::render },
+    Entry { id: timeline::ID, owner: timeline::OWNER, render: timeline::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },

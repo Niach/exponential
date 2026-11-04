@@ -1361,7 +1361,8 @@ function promptBudget() {
     // EXP-1495 (a named budget exception): Outline, Mosaic + Carousel counter/thumbnails: +134 tokens after trimming the new descriptions; the measured total (8,034), no slack.
     // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
     // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
-    budgetTokens: 8750,
+    // VAPP-232 (eApps U3, a named budget exception, approved with the U3 design): Calendar + Timeline, +198 tokens after trimming every new description; the measured total (8,948), no slack.
+    budgetTokens: 8948,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

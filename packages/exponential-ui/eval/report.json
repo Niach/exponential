@@ -455,7 +455,9 @@
       "DatePicker",
       "QrScanner",
       "MessageBubble",
-      "Motion"
+      "Motion",
+      "Calendar",
+      "Timeline"
     ]
   },
   "rows": [

@@ -19,6 +19,8 @@ name: record-compose-fixtures
 # web baseline rewrite's gpui budget).
 # EXP-1604 (2026-11-01): re-recorded for the core catalog's Motion (the
 # kitchen sink's motion node: the Compose goldens + `Motion.png`).
+# VAPP-232 (2026-11-03): re-recorded for the core catalog's Calendar and
+# Timeline (their component images `Calendar.png` + `Timeline.png`).
 
 on:
   workflow_dispatch: {}

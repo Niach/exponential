@@ -178,10 +178,14 @@ function finish(root: UiNode, lifted: Map<string, UiNode>, expand: boolean, exte
   // R8 F51: ONE budget over the expanded trees (the root's, then every
   // lifted template's): a macro's `$each` parts count.
   const budget = { left: MAX_COMPONENTS, reported: issues.some((i) => i.message === LIMIT_ISSUES.components) }
-  root = capComponents(capDepth(expand ? expandMacros(root, { extensions, issues }) : root, catalogId, issues), budget, issues)
-  if (lifted.size === 0) return { root, issues }
+  // eApps U3: the items a macro's `$template` parts built join the lifted
+  // templates (after them, in build order: the root's first).
+  const built: UiNode[] = []
+  root = capComponents(capDepth(expand ? expandMacros(root, { extensions, issues, templates: built }) : root, catalogId, issues), budget, issues)
+  if (lifted.size === 0 && built.length === 0) return { root, issues }
   const templates: Record<string, UiNode> = {}
-  for (const [id, node] of lifted) templates[id] = capComponents(capDepth(expand ? expandMacros(node, { extensions, issues }) : node, catalogId, issues), budget, issues)
+  for (const [id, node] of lifted) templates[id] = capComponents(capDepth(expand ? expandMacros(node, { extensions, issues, templates: built }) : node, catalogId, issues), budget, issues)
+  for (const node of built) if (!(node.id in templates)) templates[node.id] = capComponents(capDepth(node, catalogId, issues), budget, issues)
   return { root, issues, templates }
 }
 

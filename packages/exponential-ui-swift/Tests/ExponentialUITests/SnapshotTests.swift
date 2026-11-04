@@ -55,7 +55,13 @@ final class SnapshotTests: XCTestCase {
         if stored != text {
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("components.snapshot.json")
             try text.write(to: tmp, atomically: true, encoding: .utf8)
-            XCTFail("component snapshot drifted; compare \(tmp.path) with \(Self.path.path) (EXPONENTIAL_UI_RECORD=1 swift test rewrites it)")
+            // VAPP-232: CI's temp file is out of reach, so name the first difference.
+            let storedLines = stored.components(separatedBy: "\n")
+            let textLines = text.components(separatedBy: "\n")
+            let at = zip(storedLines, textLines).enumerated().first { $0.element.0 != $0.element.1 }?.offset ?? min(storedLines.count, textLines.count)
+            let want = at < storedLines.count ? storedLines[at] : "<end>"
+            let got = at < textLines.count ? textLines[at] : "<end>"
+            XCTFail("component snapshot drifted at line \(at + 1): stored `\(want)`, painted `\(got)`; compare \(tmp.path) with \(Self.path.path) (EXPONENTIAL_UI_RECORD=1 swift test rewrites it)")
         }
     }
 

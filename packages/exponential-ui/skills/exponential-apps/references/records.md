@@ -276,7 +276,19 @@ marker in lane `lanes`. The JSON form spells the views `month: {field,
 key?, until?, day?, lanes?, tone?}`, `week: {field, key?, until?, lanes?,
 tone?}` and `timeline: {field, until?, row?, scale?, start?, columns?,
 tone?}`, one per query. The `Calendar` and `Timeline` components draw them
-(catalog macros).
+(catalog macros): bind the view to a path and name it in `source`:
+
+```json
+{"bindings": [{"path": "/leave", "source": "records:leave?query=month&month=${month}&day=${day}"}],
+ "components": [{"id": "cal", "component": "Calendar", "source": "/leave", "labelField": "label",
+   "on": {"select": {"functionCall": {"call": "bind", "args": {"path": "/leave",
+     "source": "records:leave?query=month", "params": {"month": {"path": "/leave/month/key"}, "day": {"path": "date"}}}}}}}]}
+```
+
+A day's `select` and a bar's `open` run in the pressed item's scope: a
+relative `{"path": "date"}` reads the day, `{"path": "id"}` the record (a
+bar's row is under `row`). `Timeline` takes `source` (a `view=timeline`
+binding), `labelField`, `rowTitle` and `showCount`.
 
 **Named queries:** `queries: {<name>: <JSON query>}` (names
 `^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).

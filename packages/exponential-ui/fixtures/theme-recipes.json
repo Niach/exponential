@@ -65620,6 +65620,61 @@
       }
     },
     {
+      "component": "Timeline",
+      "part": "root",
+      "props": {},
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#ffffff1a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "borderColor": "#e9d5ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#4c3a7a"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "borderColor": "#e5e5e5"
+            }
+          },
+          "dark": {
+            "default": {
+              "borderColor": "#ffffff1a"
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "Section",
       "part": "count",
       "props": {

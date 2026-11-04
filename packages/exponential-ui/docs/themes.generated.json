@@ -3707,6 +3707,85 @@
       "props": [
         "fit"
       ]
+    },
+    {
+      "name": "Calendar",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "frame",
+        "head",
+        "weekday",
+        "weekdayName",
+        "weekdayInitial",
+        "weeks",
+        "week",
+        "shade",
+        "shadeCell",
+        "cells",
+        "day",
+        "number",
+        "numberText",
+        "compact",
+        "compactNumber",
+        "compactNumberText",
+        "dots",
+        "dot",
+        "bars",
+        "segment",
+        "label",
+        "more",
+        "agenda",
+        "entry",
+        "entryTone"
+      ],
+      "props": [
+        "view",
+        "weekend",
+        "inMonth",
+        "today",
+        "selected",
+        "tone",
+        "marker",
+        "contL",
+        "contR"
+      ]
+    },
+    {
+      "name": "Timeline",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "bandsRow",
+        "corner",
+        "cornerLabel",
+        "bands",
+        "band",
+        "bandLabel",
+        "columnsRow",
+        "columnsCorner",
+        "columns",
+        "column",
+        "columnLabel",
+        "rows",
+        "row",
+        "rowHead",
+        "rowLabel",
+        "rowCount",
+        "track",
+        "cells",
+        "cell",
+        "bars",
+        "bar",
+        "barLabel",
+        "now"
+      ],
+      "props": [
+        "today",
+        "tone",
+        "contL",
+        "contR"
+      ]
     }
   ]
 }

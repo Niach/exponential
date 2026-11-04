@@ -40,5 +40,6 @@ public enum AppTemplates {
         Template(id: "time-tracker", name: "Time tracker", icon: "clock", color: "#10b981", description: "Hours per day and week against a monthly target"),
         Template(id: "crm", name: "CRM", icon: "briefcase", color: "#6366f1", description: "Companies, contacts and the deal pipeline"),
         Template(id: "standup", name: "Standup", icon: "users", color: "#f59e0b", description: "The async daily standup"),
+        Template(id: "leave-planner", name: "Leave planner", icon: "calendar", color: "#0ea5e9", description: "Who is out: a leave calendar and timeline"),
     ]
 }
