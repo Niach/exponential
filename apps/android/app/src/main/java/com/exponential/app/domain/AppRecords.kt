@@ -206,7 +206,7 @@ object AppRecords {
     /** Fixture `dataTab.columns` (the WIDE table's widths, px; phones do not use them). */
     object DataColumns {
         const val BY_WIDTH = 96
-        const val UPDATED_WIDTH = 88
+        const val UPDATED_WIDTH = 112
         const val MENU_WIDTH = 40
         const val MIN_WIDTH = 64
         const val GAP = 8

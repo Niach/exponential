@@ -28,8 +28,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.issue.relativeTime
@@ -81,6 +79,8 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.userMessageTime
+import com.exponential.app.ui.components.ChatMenuItem
+import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.EmptyState
@@ -229,6 +229,7 @@ fun AppEditorScreen(
                     menu = if (entry != null) {
                         {
                             AppEditorMenu(
+                                title = entry.name,
                                 canPublish = canWrite && Apps.canPublish(entry.versions),
                                 onPublish = { viewModel.publish(entry.headVersion) },
                                 versionCount = versions.size,
@@ -383,12 +384,14 @@ fun AppEditorScreen(
     }
 }
 
-/** VAPP-177: the phone header's `…` (`editorTabs.menu`): eApps V1 Publish
+/** VAPP-177: the phone header's `…` (`editorTabs.menu`, THE Menu's bottom
+ *  sheet titled by the app): eApps V1 Publish
  *  first (`Apps.canPublish` + write access), Versions (the count as trailing
  *  meta), Settings, Export (a version exists), Delete app (destructive; the
  *  creator or an owner). */
 @Composable
 private fun AppEditorMenu(
+    title: String,
     canPublish: Boolean,
     onPublish: () -> Unit,
     versionCount: Int,
@@ -400,7 +403,6 @@ private fun AppEditorMenu(
     onDelete: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Box {
         CircleIconButton(
             ExpIcons.uiMore,
@@ -409,66 +411,72 @@ private fun AppEditorMenu(
             borderless = true,
             modifier = Modifier.padding(end = 8.dp).testTag(Apps.TestIds.MENU),
         )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (canPublish) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiSubmit, contentDescription = null) },
-                    text = { Text(Apps.Copy.PUBLISH) },
-                    onClick = {
-                        open = false
-                        onPublish()
-                    },
-                    modifier = Modifier.testTag(Apps.TestIds.PUBLISH),
+    }
+    if (open) {
+        ChatMenuSheet(
+            title = title,
+            onDismiss = { open = false },
+            testTag = "app-menu-sheet",
+            items = buildList {
+                if (canPublish) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.PUBLISH,
+                        icon = ExpIcons.uiSubmit,
+                        onClick = {
+                            open = false
+                            onPublish()
+                        },
+                        testTag = Apps.TestIds.PUBLISH,
+                    ),
                 )
-            }
-            GlassMenuItem(
-                leadingIcon = { Icon(ExpIcons.uiHistory, contentDescription = null) },
-                text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(Apps.Copy.MENU_VERSIONS, modifier = Modifier.weight(1f, fill = false))
-                        Spacer(Modifier.width(16.dp))
-                        Text(versionCount.toString(), color = muted)
-                    }
-                },
-                onClick = {
-                    open = false
-                    onVersions()
-                },
-                modifier = Modifier.testTag("app-editor-menu-versions"),
-            )
-            GlassMenuItem(
-                leadingIcon = { Icon(ExpIcons.navSettings, contentDescription = null) },
-                text = { Text(Apps.Copy.MENU_SETTINGS) },
-                onClick = {
-                    open = false
-                    onSettings()
-                },
-                modifier = Modifier.testTag("app-editor-menu-settings"),
-            )
-            if (canExport) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
-                    text = { Text(Apps.Copy.MENU_EXPORT) },
-                    onClick = {
-                        open = false
-                        onExport()
-                    },
-                    modifier = Modifier.testTag("app-editor-export"),
+                add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_VERSIONS,
+                        icon = ExpIcons.uiHistory,
+                        onClick = {
+                            open = false
+                            onVersions()
+                        },
+                        testTag = "app-editor-menu-versions",
+                        meta = versionCount.toString(),
+                    ),
                 )
-            }
-            if (canDelete) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                    text = { Text(Apps.Copy.MENU_DELETE) },
-                    destructive = true,
-                    onClick = {
-                        open = false
-                        onDelete()
-                    },
-                    modifier = Modifier.testTag("app-editor-delete"),
+                add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_SETTINGS,
+                        icon = ExpIcons.navSettings,
+                        onClick = {
+                            open = false
+                            onSettings()
+                        },
+                        testTag = "app-editor-menu-settings",
+                    ),
                 )
-            }
-        }
+                if (canExport) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_EXPORT,
+                        icon = ExpIcons.uiShare,
+                        onClick = {
+                            open = false
+                            onExport()
+                        },
+                        testTag = "app-editor-export",
+                    ),
+                )
+                if (canDelete) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_DELETE,
+                        icon = ExpIcons.uiDelete,
+                        onClick = {
+                            open = false
+                            onDelete()
+                        },
+                        destructive = true,
+                        testTag = "app-editor-delete",
+                    ),
+                )
+            },
+        )
     }
 }
 

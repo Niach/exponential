@@ -428,6 +428,19 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    /// `teamMetaCases`: the Team tab's line, singular at exactly 1.
+    func testTeamMetaCases() throws {
+        for testCase in try cases("teamMetaCases") {
+            XCTAssertEqual(
+                Chats.Copy.Team.metaLine(
+                    members: try XCTUnwrap(testCase["members"] as? Int),
+                    boards: try XCTUnwrap(testCase["boards"] as? Int)
+                ),
+                try XCTUnwrap(testCase["expected"] as? String)
+            )
+        }
+    }
+
     /// #EXP-1388 `dotCases`: the Chats nav dot.
     func testDotCases() throws {
         for testCase in try cases("dotCases") {
@@ -501,8 +514,10 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(copy["boardChips"] as? [String: String], [
             "all": C.BoardChips.all, "mine": C.BoardChips.mine, "drafts": C.BoardChips.drafts,
         ])
-        XCTAssertEqual(copy["team"] as? [String: String], ["meta": C.Team.meta, "switch": C.Team.`switch`])
-        XCTAssertEqual(C.Team.metaLine(members: 8, boards: 3), "8 members · 3 boards")
+        XCTAssertEqual(copy["team"] as? [String: String], [
+            "meta": C.Team.meta, "member": C.Team.member, "members": C.Team.members,
+            "board": C.Team.board, "boards": C.Team.boards, "switch": C.Team.`switch`,
+        ])
         XCTAssertEqual(copy["inbox"] as? String, C.inbox)
         XCTAssertEqual(copy["loadEarlier"] as? String, C.loadEarlier)
         XCTAssertEqual(copy["working"] as? String, C.working)

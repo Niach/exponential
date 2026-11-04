@@ -248,6 +248,31 @@ export function validateMcpServerDraft(draft: McpServerDraft): string | null {
   return null
 }
 
+export type McpDialogField = `name` | `url` | `command`
+
+/** settings-mcp.json `dialogLineCases`: the line the add / edit dialog shows.
+ * A problem that is only a still-empty required field waits until that field
+ * was touched or a submit was tried; anything else shows at once. */
+export function mcpDialogLine(
+  draft: McpServerDraft,
+  touched: ReadonlySet<McpDialogField>,
+  attempted: boolean
+): string | null {
+  const problem = validateMcpServerDraft(draft)
+  if (problem === null || attempted) return problem
+  const empty: McpDialogField | null =
+    draft.name.trim().length === 0
+      ? `name`
+      : draft.transport === `http`
+        ? draft.url.trim().length === 0
+          ? `url`
+          : null
+        : draft.command.trim().length === 0
+          ? `command`
+          : null
+  return empty !== null && !touched.has(empty) ? null : problem
+}
+
 /** The one-line "how do members get in" the dialog and rows say. */
 export function mcpAuthLine(auth: McpAuth): string {
   if (auth === `oauth`) return `Members sign in with their own account (OAuth)`

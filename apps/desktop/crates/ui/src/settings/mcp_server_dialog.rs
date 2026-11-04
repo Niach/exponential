@@ -22,6 +22,8 @@
 //! own sentence.
 
 use crate::controls::PointerMenuButtonExt as _;
+use std::collections::HashSet;
+
 use gpui::{
     div, px, size, App, AppContext as _, Div, Entity, InteractiveElement as _, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
@@ -32,12 +34,13 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 
 use api::mcp_servers::{McpServerConfig, McpServerDevice, McpServerFields};
 
-use crate::controls::{glass_input, WebControl as _};
+use crate::icons::{registry, ExpIcon};
+use crate::controls::{disclosure_header, glass_input, ChevronSide, WebControl as _};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 use crate::surface;
@@ -189,7 +192,7 @@ fn validate(draft: &Draft) -> Option<String> {
     let http = draft.is_http();
     if http {
         if draft.url.trim().is_empty() {
-            return Some("An HTTP server needs a URL.".to_string());
+            return Some("Paste the server's URL.".to_string());
         }
         if let Err(message) = check_url(draft.url.trim()) {
             return Some(message.to_string());
@@ -207,33 +210,47 @@ fn validate(draft: &Draft) -> Option<String> {
     }
     if draft.auth == "secret" && draft.names().len() != 1 {
         return Some(if http {
-            "A secret server declares exactly one header name: the one that \
-             carries the secret."
+            "An API-key server declares exactly one header name (Advanced): the one \
+             that carries the key."
                 .to_string()
         } else {
-            "A secret server declares exactly one variable name: the one that \
-             carries the secret."
+            "An API-key server declares exactly one variable name (Advanced): the one \
+             that carries the key."
                 .to_string()
         });
     }
     None
 }
 
-/// The muted line under the group — what "names only" means for the auth kind
-/// on screen (web parity, string for string).
-fn hint(draft: &Draft) -> &'static str {
-    match (draft.auth.as_str(), draft.is_http()) {
-        ("secret", true) => {
-            "Declare the one header that carries the key. Each member sets \
-             their own; it is stored encrypted, never shown again."
-        }
-        ("secret", false) => {
-            "Declare the one variable that carries the key. Each member sets \
-             their own; it is stored encrypted, never shown again."
-        }
-        ("oauth", _) => "Each member connects their own account from this page.",
-        (_, true) => "Names only: no header value is stored for this server.",
-        (_, false) => "Names only: no variable value is stored for this server.",
+/// settings-mcp.json `dialogLineCases` (web `mcpDialogLine`): the line the
+/// dialog shows. A problem that is only a still-empty required field waits
+/// until that field was touched or a submit was tried; anything else shows at
+/// once.
+fn dialog_line(draft: &Draft, touched: &HashSet<&'static str>, attempted: bool) -> Option<String> {
+    let problem = validate(draft)?;
+    if attempted {
+        return Some(problem);
+    }
+    let empty = if draft.name.trim().is_empty() {
+        Some("name")
+    } else if draft.is_http() {
+        draft.url.trim().is_empty().then_some("url")
+    } else {
+        draft.command.trim().is_empty().then_some("command")
+    };
+    match empty {
+        Some(field) if !touched.contains(field) => None,
+        _ => Some(problem),
+    }
+}
+
+/// How members get in (web `mcpAuthLine`): the glyph and the line under the
+/// form's first group.
+fn auth_line(draft: &Draft) -> (ExpIcon, &'static str) {
+    match draft.auth.as_str() {
+        "oauth" => (registry::UI_SIGN_IN, "Members sign in with their own account (OAuth)"),
+        "secret" => (registry::UI_PRIVATE, "Members paste their own API key"),
+        _ => (registry::UI_SUCCESS, "No sign-in needed"),
     }
 }
 
@@ -281,8 +298,33 @@ pub struct McpServerDialogView {
     initial_device: Option<McpServerDevice>,
     busy: bool,
     error: Option<SharedString>,
+    /// `dialogLineCases`: the fields the person touched, and a tried submit.
+    touched: HashSet<&'static str>,
+    attempted: bool,
+    /// The Advanced disclosure (web alike: open from the start for a command
+    /// server).
+    advanced: bool,
     body_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
+}
+
+/// `dialogLineCases`: an edit or a leave touches the field, Enter tries a submit.
+fn subscriptions_touch(
+    subscriptions: &mut Vec<Subscription>,
+    field: &'static str,
+    input: &Entity<InputState>,
+    cx: &mut gpui::Context<McpServerDialogView>,
+) {
+    subscriptions.push(cx.subscribe(input, move |this, _, event: &InputEvent, cx| {
+        match event {
+            InputEvent::Change | InputEvent::Blur => {
+                this.touched.insert(field);
+            }
+            InputEvent::PressEnter { .. } => this.attempted = true,
+            _ => return,
+        }
+        cx.notify();
+    }));
 }
 
 impl McpServerDialogView {
@@ -302,6 +344,7 @@ impl McpServerDialogView {
             }
         }
         let http = seed.is_http();
+        let mut touch_subscriptions = Vec::new();
         let mut field = |placeholder: &'static str, value: String, cx: &mut gpui::Context<Self>| {
             cx.new(|cx| {
                 let mut state = InputState::new(window, cx).placeholder(placeholder);
@@ -326,8 +369,11 @@ impl McpServerDialogView {
         );
         let scopes = field("read", format_list(&seed.scopes), cx);
 
+        for (field, input) in [("name", &name), ("url", &url), ("command", &command)] {
+            subscriptions_touch(&mut touch_subscriptions, field, input, cx);
+        }
         // The validation line and the submit gate re-evaluate per keystroke.
-        let mut subscriptions = Vec::new();
+        let mut subscriptions = touch_subscriptions;
         for input in [&name, &url, &command, &args, &names, &scopes] {
             subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -356,11 +402,15 @@ impl McpServerDialogView {
             } else {
                 "none".to_string()
             },
-            enabled_by_default: seed.enabled_by_default,
+            // A new server starts pre-selected (web `EMPTY_MCP_SERVER_DRAFT`).
+            enabled_by_default: initial.is_none() || seed.enabled_by_default,
             device_id: device.as_ref().map(|d| d.id.clone()),
             initial_device: device,
             busy: false,
             error: None,
+            touched: HashSet::new(),
+            attempted: false,
+            advanced: !http,
             body_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
@@ -390,6 +440,8 @@ impl McpServerDialogView {
         }
         let draft = self.draft(cx);
         if validate(&draft).is_some() {
+            self.attempted = true;
+            cx.notify();
             return;
         }
         let verb = if self.editing.is_some() { "save" } else { "add" };
@@ -539,18 +591,26 @@ impl McpServerDialogView {
                     })),
             )
             .child(
-                Button::new("mcp-edit-save")
-                    .primary()
-                    .cursor_pointer()
-                    .web_sm()
-                    .label(if self.editing.is_some() {
-                        "Save"
-                    } else {
-                        "Add server"
-                    })
-                    .loading(self.busy)
-                    .disabled(blocked || self.busy)
-                    .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                // A press on the disabled button counts as trying to submit.
+                div()
+                    .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
+                        this.attempted = true;
+                        cx.notify();
+                    }))
+                    .child(
+                        Button::new("mcp-edit-save")
+                            .primary()
+                            .cursor_pointer()
+                            .web_sm()
+                            .label(if self.editing.is_some() {
+                                "Save"
+                            } else {
+                                "Add server"
+                            })
+                            .loading(self.busy)
+                            .disabled(blocked || self.busy)
+                            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                    ),
             )
     }
 }
@@ -626,55 +686,16 @@ impl Render for McpServerDialogView {
         let validation = validate(&draft);
         let muted = cx.theme().muted_foreground;
 
-        let mut rows: Vec<Div> = vec![
-            self.input_row("Name", &self.name, window, cx),
-            self.choice_row(
-                "Transport",
-                "mcp-edit-transport",
-                TRANSPORT_OPTIONS.to_vec(),
-                &self.transport,
-                |this, value, _cx| {
-                    this.transport = value.to_string();
-                    // OAuth is an HTTP-only kind; a stdio row falls back.
-                    if this.transport == "stdio" && this.auth == "oauth" {
-                        this.auth = "none".to_string();
-                    }
-                },
-                cx,
-            ),
-        ];
+        // The form's rows, web alike: what every server needs first, the
+        // transport and its details behind Advanced.
+        let mut rows: Vec<Div> = vec![self.input_row("Name", &self.name, window, cx)];
         if http {
             rows.push(self.input_row("URL", &self.url, window, cx));
-        } else {
-            rows.push(self.input_row("Command", &self.command, window, cx));
-            rows.push(self.input_row("Arguments", &self.args, window, cx));
-        }
-        rows.push(self.input_row(
-            if http { "Header names" } else { "Variable names" },
-            &self.names,
-            window,
-            cx,
-        ));
-        let auth_options = if http {
-            vec![AUTH_NONE, AUTH_OAUTH, AUTH_SECRET]
-        } else {
-            vec![AUTH_NONE, AUTH_SECRET]
-        };
-        rows.push(self.choice_row(
-            "Auth",
-            "mcp-edit-auth",
-            auth_options,
-            &self.auth,
-            |this, value, _cx| this.auth = value.to_string(),
-            cx,
-        ));
-        if draft.auth == "oauth" {
-            rows.push(self.input_row("Scopes", &self.scopes, window, cx));
         }
         rows.push(self.runs_on_row(cx));
         rows.push(surface::glass_toggle_row(
-            "Enabled by default",
-            Some("Preselected in the start-coding dialog.".into()),
+            domain::skills::DEFAULT_LABEL,
+            None,
             crate::controls::web_switch("mcp-edit-default")
                 .checked(self.enabled_by_default)
                 .on_click(cx.listener(|this, on: &bool, _, cx| {
@@ -685,23 +706,91 @@ impl Render for McpServerDialogView {
             cx,
         ));
 
+        let (auth_icon, auth_text) = auth_line(&draft);
         let mut body = v_flex()
             .w_full()
             .gap_2()
             .child(surface::glass_group_rows(rows))
             .child(
-                div()
+                h_flex()
                     .px_1()
+                    .gap_1p5()
+                    .items_center()
                     .text_xs()
                     .text_color(muted)
-                    .child(hint(&draft)),
+                    .child(gpui_component::Icon::from(auth_icon).with_size(px(14.)))
+                    .child(auth_text),
+            )
+            .child(
+                disclosure_header(
+                    "mcp-edit-advanced",
+                    self.advanced,
+                    ChevronSide::Leading,
+                    div().text_xs().child("Advanced"),
+                    cx,
+                )
+                .px_1()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.advanced = !this.advanced;
+                    cx.notify();
+                })),
             );
+        if self.advanced {
+            let auth_options = if http {
+                vec![AUTH_NONE, AUTH_OAUTH, AUTH_SECRET]
+            } else {
+                vec![AUTH_NONE, AUTH_SECRET]
+            };
+            let mut advanced: Vec<Div> = vec![
+                self.choice_row(
+                    "Sign-in",
+                    "mcp-edit-auth",
+                    auth_options,
+                    &self.auth,
+                    |this, value, _cx| this.auth = value.to_string(),
+                    cx,
+                ),
+                self.choice_row(
+                    "Transport",
+                    "mcp-edit-transport",
+                    TRANSPORT_OPTIONS.to_vec(),
+                    &self.transport,
+                    |this, value, _cx| {
+                        this.transport = value.to_string();
+                        // OAuth is an HTTP-only kind; a stdio row falls back.
+                        if this.transport == "stdio" && this.auth == "oauth" {
+                            this.auth = "none".to_string();
+                        }
+                    },
+                    cx,
+                ),
+            ];
+            if !http {
+                advanced.push(self.input_row("Command", &self.command, window, cx));
+                advanced.push(self.input_row("Arguments", &self.args, window, cx));
+            }
+            advanced.push(self.input_row(
+                match (draft.auth == "secret", http) {
+                    (true, true) => "Header that carries the key",
+                    (true, false) => "Variable that carries the key",
+                    (false, true) => "Header names",
+                    (false, false) => "Variable names",
+                },
+                &self.names,
+                window,
+                cx,
+            ));
+            if draft.auth == "oauth" {
+                advanced.push(self.input_row("Scopes", &self.scopes, window, cx));
+            }
+            body = body.child(surface::glass_group_rows(advanced));
+        }
         // The server's refusal wins over the client-side rule: it is the one
         // the person has not seen yet.
         if let Some(message) = self
             .error
             .clone()
-            .or_else(|| validation.clone().map(SharedString::from))
+            .or_else(|| dialog_line(&draft, &self.touched, self.attempted).map(SharedString::from))
         {
             body = body.child(crate::action_error::field_error(message, cx).px_1());
         }
@@ -814,7 +903,7 @@ mod tests {
         };
         assert_eq!(
             validate(&no_url).as_deref(),
-            Some("An HTTP server needs a URL.")
+            Some("Paste the server's URL.")
         );
 
         let no_command = Draft {
@@ -913,22 +1002,47 @@ mod tests {
     /// The hint under the group names what the auth kind means for the
     /// transport on screen (web parity).
     #[test]
-    fn hint_follows_auth_and_transport() {
-        assert!(hint(&http_draft()).starts_with("Names only: no header"));
-        let stdio = Draft {
-            transport: "stdio".into(),
-            ..http_draft()
-        };
-        assert!(hint(&stdio).starts_with("Names only: no variable"));
+    fn auth_line_follows_auth() {
+        assert_eq!(auth_line(&http_draft()).1, "No sign-in needed");
         let oauth = Draft {
             auth: "oauth".into(),
             ..http_draft()
         };
-        assert!(hint(&oauth).starts_with("Each member connects"));
+        assert_eq!(auth_line(&oauth).1, "Members sign in with their own account (OAuth)");
         let secret = Draft {
             auth: "secret".into(),
             ..http_draft()
         };
-        assert!(hint(&secret).starts_with("Declare the one header"));
+        assert_eq!(auth_line(&secret).1, "Members paste their own API key");
+    }
+
+    /// settings-mcp.json `dialogLineCases`.
+    #[test]
+    fn dialog_line_replays_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/settings-mcp.json"
+        ))
+        .unwrap();
+        let text = |value: &serde_json::Value, key: &str| value[key].as_str().unwrap().to_string();
+        for case in fixture["dialogLineCases"].as_array().unwrap() {
+            let raw = &case["draft"];
+            let draft = Draft {
+                name: text(raw, "name"),
+                transport: text(raw, "transport"),
+                url: text(raw, "url"),
+                command: text(raw, "command"),
+                ..http_draft()
+            };
+            let touched: HashSet<&'static str> = ["name", "url", "command"]
+                .into_iter()
+                .filter(|field| case["touched"].as_array().unwrap().iter().any(|t| t == field))
+                .collect();
+            assert_eq!(
+                dialog_line(&draft, &touched, case["attempted"].as_bool().unwrap()).is_some(),
+                case["shows"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
     }
 }

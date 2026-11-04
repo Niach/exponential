@@ -122,7 +122,11 @@ object Chats {
         const val BOARD_CHIP_MINE = "My issues"
         const val BOARD_CHIP_DRAFTS = "Drafts"
 
-        const val TEAM_META = "{members} members · {boards} boards"
+        const val TEAM_META = "{members} · {boards}"
+        const val TEAM_MEMBER = "member"
+        const val TEAM_MEMBERS = "members"
+        const val TEAM_BOARD = "board"
+        const val TEAM_BOARDS = "boards"
         const val TEAM_SWITCH = "Teams"
 
         const val INBOX = "Inbox"
@@ -134,9 +138,11 @@ object Chats {
         /** A divider kind's words (`copy.dividers`). */
         fun divider(kind: String): String = if (kind == DIVIDER_KIND_COMPACT) DIVIDER_COMPACT else DIVIDER_NEW
 
-        /** `copy.team.meta` filled. */
+        /** `copy.team.meta` filled (`teamMetaCases`). */
         fun teamMeta(members: Int, boards: Int): String =
-            TEAM_META.replace("{members}", members.toString()).replace("{boards}", boards.toString())
+            TEAM_META
+                .replace("{members}", "$members ${if (members == 1) TEAM_MEMBER else TEAM_MEMBERS}")
+                .replace("{boards}", "$boards ${if (boards == 1) TEAM_BOARD else TEAM_BOARDS}")
     }
 
     /** `shell`: the phone tab order and their icon CONCEPTS (the Team tab's

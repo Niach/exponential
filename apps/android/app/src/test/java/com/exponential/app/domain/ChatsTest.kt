@@ -342,6 +342,12 @@ class ChatsTest {
                 ),
             )
         }
+        for (case in cases("teamMetaCases")) {
+            assertEquals(
+                case.str("expected"),
+                Chats.Copy.teamMeta(case.getValue("members").jsonPrimitive.int, case.getValue("boards").jsonPrimitive.int),
+            )
+        }
         for (case in cases("dotCases")) {
             val input = case.getValue("input").jsonObject
             assertEquals(
@@ -523,6 +529,10 @@ class ChatsTest {
         assertEquals(chips.str("drafts"), Chats.Copy.BOARD_CHIP_DRAFTS)
         val team = copy.getValue("team").jsonObject
         assertEquals(team.str("meta"), Chats.Copy.TEAM_META)
+        assertEquals(team.str("member"), Chats.Copy.TEAM_MEMBER)
+        assertEquals(team.str("members"), Chats.Copy.TEAM_MEMBERS)
+        assertEquals(team.str("board"), Chats.Copy.TEAM_BOARD)
+        assertEquals(team.str("boards"), Chats.Copy.TEAM_BOARDS)
         assertEquals(team.str("switch"), Chats.Copy.TEAM_SWITCH)
         assertEquals(copy.str("inbox"), Chats.Copy.INBOX)
         assertEquals(copy.str("loadEarlier"), Chats.Copy.LOAD_EARLIER)

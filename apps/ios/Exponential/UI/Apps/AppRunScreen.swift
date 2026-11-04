@@ -56,7 +56,8 @@ struct AppRunScreen: View {
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .workHeaderBand { EmptyView() }
+                // An empty band: the page's own ground, no material over it.
+                .workHeaderBand(ground: true) { EmptyView() }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .ownChromeToolbarItem(placement: .topBarTrailing, enabled: hasMenu(app)) { menuButton }

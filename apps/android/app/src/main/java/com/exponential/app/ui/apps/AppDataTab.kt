@@ -42,13 +42,13 @@ import com.exponential.app.domain.AppRecords.DataTestIds
 import com.exponential.app.domain.AppRecords.HistoryCopy
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.ChatMenuItem
+import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
@@ -297,28 +297,39 @@ private fun DataRow(row: AppRecords.Row, columns: List<String>, canEdit: Boolean
                 borderless = true,
                 modifier = Modifier.testTag(DataTestIds.MENU),
             )
-            GlassDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                if (canEdit) GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                    text = { Text(DataCopy.EDIT) },
-                    onClick = {
-                        menu = false
-                        onEdit()
-                    },
-                    modifier = Modifier.testTag("app-data-row-edit"),
-                )
-                if (canDelete) GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                    text = { Text(DataCopy.DELETE) },
-                    destructive = true,
-                    onClick = {
-                        menu = false
-                        onDelete()
-                    },
-                    modifier = Modifier.testTag("app-data-row-delete"),
-                )
-            }
         }
+    }
+    if (menu) {
+        ChatMenuSheet(
+            title = AppRecords.rowTitle(columns, row),
+            onDismiss = { menu = false },
+            testTag = "app-menu-sheet",
+            items = buildList {
+                if (canEdit) add(
+                    ChatMenuItem(
+                        label = DataCopy.EDIT,
+                        icon = ExpIcons.uiEdit,
+                        onClick = {
+                            menu = false
+                            onEdit()
+                        },
+                        testTag = "app-data-row-edit",
+                    ),
+                )
+                if (canDelete) add(
+                    ChatMenuItem(
+                        label = DataCopy.DELETE,
+                        icon = ExpIcons.uiDelete,
+                        onClick = {
+                            menu = false
+                            onDelete()
+                        },
+                        destructive = true,
+                        testTag = "app-data-row-delete",
+                    ),
+                )
+            },
+        )
     }
 }
 

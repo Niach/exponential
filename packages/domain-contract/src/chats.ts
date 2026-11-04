@@ -18,6 +18,14 @@ import {
 import { SEALED_BODY_PREFIX, SEALED_PLACEHOLDER, type LockedReason } from "./sealed-content"
 
 export const CHATS_COPY = fixture.copy
+
+/** The Team tab's `copy.team.meta` (`teamMetaCases`): singular at exactly 1. */
+export function teamMeta(members: number, boards: number): string {
+  const { team } = fixture.copy
+  return team.meta
+    .replace(`{members}`, `${members} ${members === 1 ? team.member : team.members}`)
+    .replace(`{boards}`, `${boards} ${boards === 1 ? team.board : team.boards}`)
+}
 export const CHATS_TEST_IDS = fixture.testIds
 export const CHATS_SHELL = fixture.shell
 /** #EXP-1380: the transcript window, its step and the follow slack (px). */
