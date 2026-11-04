@@ -83,7 +83,16 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_relations FOR
 -- `sessions.shared` re-stamps (an agent moved to another device) fan out to
 -- messages without a bump: messages carry no updated_at semantics beyond the
 -- answer/consume writes, which go through this trigger.
-CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- #EXP-1406: a write of last_activity_at alone (the heartbeat's activity, an
+-- MCP call, a push) is no sync traffic: last_activity_at sits outside the shape
+-- and Electric drops such a change, but a bumped updated_at would reach every
+-- member once per session per beat. A writer that means a bump sets it itself.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON sessions FOR EACH ROW
+  WHEN (
+    OLD.last_activity_at IS NOT DISTINCT FROM NEW.last_activity_at
+    OR (to_jsonb(OLD) - 'last_activity_at' - 'updated_at') IS DISTINCT FROM (to_jsonb(NEW) - 'last_activity_at' - 'updated_at')
+  )
+  EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON messages FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON pull_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- EXP-1610: CI check rows.

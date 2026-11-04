@@ -762,6 +762,42 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(background)).toMatchObject({ busy: false, background: false })
   })
 
+  it(`#EXP-1406: a sign of life never bumps updated_at (no sync traffic); a reply and any other write do`, async () => {
+    const w = await world()
+    const rootId = await w.child(await w.root(), `signs of life`)
+    await w.host.claim({ sessionId: rootId, deviceId: w.deviceId })
+    await w.host.report({ sessionId: rootId, busy: true })
+    await backdateSession(rootId, `updated_at`, ago(10 * MIN))
+    const stale = ago(10 * MIN)
+
+    await db.transaction((tx) =>
+      recordSessionActivityInTx(
+        tx,
+        { deviceId: w.deviceId, userId: w.owner, activity: [{ sessionId: rootId, at: ago(2 * MIN).toISOString() }] },
+        NOW
+      )
+    )
+    expect(await row(rootId)).toMatchObject({ lastActivityAt: ago(2 * MIN), updatedAt: stale })
+    await touchSessionActivity(eq(sessions.id, rootId), NOW)
+    expect(await row(rootId)).toMatchObject({ lastActivityAt: NOW, updatedAt: stale })
+
+    // Another device's beat moves nothing, in a batch with its own session or not.
+    const moved = await db.transaction((tx) =>
+      recordSessionActivityInTx(
+        tx,
+        { deviceId: crypto.randomUUID(), userId: w.owner, activity: [{ sessionId: rootId, at: NOW.toISOString() }] },
+        new Date(NOW.getTime() + MIN)
+      )
+    )
+    expect(moved).toBe(0)
+
+    await w.host.reply({ sessionId: rootId, body: `still here` })
+    expect((await row(rootId)).updatedAt.getTime()).toBeGreaterThan(stale.getTime())
+    await backdateSession(rootId, `updated_at`, ago(10 * MIN))
+    await db.update(sessions).set({ lastActivityAt: new Date(), title: `renamed` }).where(eq(sessions.id, rootId))
+    expect((await row(rootId)).updatedAt.getTime()).toBeGreaterThan(stale.getTime())
+  })
+
   // The exemption has a cap: the flag is written on a state edge and nothing
   // resets it when the run dies with its tasks, so past BACKGROUND_STUCK_MINUTES
   // a background row is measured like any busy one.

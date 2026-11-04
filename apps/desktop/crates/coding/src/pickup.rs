@@ -2769,6 +2769,11 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
     };
     let brief = fetch_brief(&deps.coding.trpc, session_id)
         .map_err(|err| format!("brief of session {session_id}: {err}"))?;
+    // #EXP-1406: as [`continue_interrupted`]'s: the caller idles the row.
+    if !crate::continue_attempts::note(&deps.coding.data_dir, session_id) {
+        log::warn!("pickup: session {session_id} was continued too often lately — not continued");
+        return Ok(false);
+    }
     spawn_continuation(row, record, claim, brief, RESTART_CONTINUATION.to_string(), deps).map(|()| true)
 }
 
@@ -2824,6 +2829,13 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), W
     // Settled before the spawn: a refusal is replied and idled, never
     // retried; a spawned engine settles it anyway.
     deps.live.settle_revive(session_id);
+    // #EXP-1406: the settle above dies with this process. A Continue that
+    // takes the daemon down must not loop across restarts: past the cap the
+    // row is left alone (the server's `resumeMinutes` rule hands it to a person).
+    if !crate::continue_attempts::note(&deps.coding.data_dir, session_id) {
+        log::warn!("pickup: interrupted session {session_id} was continued too often lately — not continued");
+        return Ok(());
+    }
     spawn_continuation(row, record, claim, brief, continue_prompt(kind), deps)
         .map(|()| log::info!("pickup: continued interrupted session {session_id} ({kind})"))
         .map_err(WakeError::from)
