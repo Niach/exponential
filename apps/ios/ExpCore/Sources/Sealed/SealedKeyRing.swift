@@ -231,16 +231,3 @@ public struct SealedMessage {
         return a.isReadable ? b : a
     }
 }
-
-extension SessionEntity {
-    /// The display title: the opened `sealed_title`, else the clear `title`.
-    public var openedTitle: String? {
-        SealedOpener.shared.title(sealedTitle: sealedTitle, title: title, rootId: rootId)
-    }
-
-    /// The key a writer seals to, when this root row carries one.
-    public var sealKey: TreeSealKey? {
-        guard let sealPublicKey, let sealEpoch, sealEpoch > 0 else { return nil }
-        return TreeSealKey(publicKey: sealPublicKey, epoch: UInt32(sealEpoch))
-    }
-}

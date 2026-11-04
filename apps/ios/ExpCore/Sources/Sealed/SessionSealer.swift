@@ -17,60 +17,6 @@ import os
 
 private let logger = Logger(subsystem: "at.exponential", category: "SessionSealer")
 
-/// `sessions.send`'s input plus the sealed-content fields.
-public struct SealedSendInput: Encodable, Equatable, Sendable {
-    public let input: SessionsSendInput
-    public let seal: NewThreadSeal?
-    public let mentionUserIds: [String]?
-
-    public init(input: SessionsSendInput, seal: NewThreadSeal? = nil, mentionUserIds: [String]? = nil) {
-        self.input = input
-        self.seal = seal
-        self.mentionUserIds = mentionUserIds
-    }
-
-    private enum Keys: String, CodingKey { case seal, mentionUserIds }
-
-    public func encode(to encoder: Encoder) throws {
-        try input.encode(to: encoder)
-        var c = encoder.container(keyedBy: Keys.self)
-        try c.encodeIfPresent(seal, forKey: .seal)
-        try c.encodeIfPresent(mentionUserIds, forKey: .mentionUserIds)
-    }
-}
-
-extension SessionsSendInput {
-    /// The message text this form carries (nil for the no-text forms).
-    public var text: String? {
-        switch self {
-        case let .newThread(_, _, _, text, _, _, _, _): text
-        case let .agent(_, text, _, _): text
-        case let .app(_, _, text, _): text
-        case let .child(_, _, _, text): text
-        case let .message(_, text, _): text
-        case .switchAccount, .moveDevice: nil
-        }
-    }
-
-    /// The same form with `text` replaced.
-    public func with(text: String?) -> SessionsSendInput {
-        switch self {
-        case let .newThread(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId):
-            .newThread(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
-        case let .agent(agentId, _, attachmentIds, issueIds):
-            .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds)
-        case let .app(appId, deviceId, _, attachmentIds):
-            .app(appId: appId, deviceId: deviceId, text: text, attachmentIds: attachmentIds)
-        case let .child(parentId, deviceId, options, _):
-            .child(parentId: parentId, deviceId: deviceId, options: options, text: text)
-        case let .message(sessionId, _, attachmentIds):
-            .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds)
-        case .switchAccount, .moveDevice:
-            self
-        }
-    }
-}
-
 /// `sessions.answer` with the card sealed: only the clear part is checked
 /// server-side.
 struct SealedAnswerInput: Encodable {
@@ -78,12 +24,6 @@ struct SealedAnswerInput: Encodable {
     let decision: PlanDecision?
     let fresh: Bool?
     let sealedCard: CardJSON
-}
-
-/// A send the sealer prepared, plus the key a new root starts with.
-public struct PreparedSend: Sendable {
-    public let input: SealedSendInput
-    let newKey: GeneratedTreeKey?
 }
 
 /// Pure: the `@email` mentions of a text, lowercased, in order, once each
@@ -105,19 +45,11 @@ public enum SealedMentions {
     }
 }
 
-/// The root a send lands in, as the local database knows it.
-struct SealRoot: Equatable {
-    let id: String
-    let teamId: String
-    let deviceId: String
-    let shared: Bool
-    let key: TreeSealKey?
-}
-
 public final class SessionSealer: @unchecked Sendable {
     private let holder: TreeKeyHolder
     private let crypto: SealedCrypto
     private let opener: SealedOpener
+    private let sending: SendSealing
     private let db: DatabaseManager
     private let userId: @Sendable (String) -> String?
 
@@ -125,6 +57,7 @@ public final class SessionSealer: @unchecked Sendable {
         self.holder = holder
         self.crypto = opener.crypto
         self.opener = opener
+        self.sending = SendSealing(holder: holder, crypto: opener.crypto)
         self.db = db
         self.userId = userId
     }
@@ -188,67 +121,18 @@ public final class SessionSealer: @unchecked Sendable {
 
     /// Seals the text of a send (and keys the root when it has no key).
     public func prepare(accountId: String, _ input: SessionsSendInput) async -> PreparedSend {
-        let mentions = mentionUserIds(accountId: accountId, text: input.text)
-        guard crypto.isAvailable else { return PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil) }
-        switch input {
-        case .switchAccount, .moveDevice:
-            return PreparedSend(input: SealedSendInput(input: input), newKey: nil)
-        default:
-            break
-        }
-        if let root = root(accountId: accountId, for: input) {
-            let key = await holder.sealKey(
-                accountId: accountId,
-                rootId: root.id,
-                known: root.key,
-                teamId: root.teamId,
-                deviceIds: deviceIds(accountId: accountId, steerDeviceId: root.deviceId),
-                shared: root.shared
-            )
-            return PreparedSend(input: SealedSendInput(input: seal(input, to: key), mentionUserIds: mentions), newKey: nil)
-        }
-        // A root that does not exist yet: it starts with our key, inline.
-        var teamId: String?
-        var steerDevice: String?
-        switch input {
-        case let .newThread(team, device, _, _, _, _, _, _):
-            teamId = team
-            steerDevice = device
-        case let .app(_, device, _, _):
-            steerDevice = device
-        default:
-            break
-        }
-        do {
-            let (seal, key) = try await holder.newThreadSeal(
-                accountId: accountId,
-                teamId: teamId,
-                deviceIds: deviceIds(accountId: accountId, steerDeviceId: steerDevice),
-                shared: false
-            )
-            let sealed = self.seal(input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1))
-            return PreparedSend(input: SealedSendInput(input: sealed, seal: seal, mentionUserIds: mentions), newKey: key)
-        } catch {
-            logger.error("No key for a new root (\(String(describing: error), privacy: .public)): sending plaintext")
-            return PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil)
-        }
+        await sending.prepare(
+            accountId: accountId,
+            input,
+            root: root(accountId: accountId, for: input),
+            mentions: mentionUserIds(accountId: accountId, text: input.text),
+            deviceIds: { deviceIds(accountId: accountId, steerDeviceId: $0) }
+        )
     }
 
     /// The server answered a send: a root started with our key holds it now.
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
-        // A new thread / first conversation answers with its new root.
-        guard let key = prepared.newKey else { return }
-        await holder.adopt(rootId: result.sessionId, key: key)
-    }
-
-    private func seal(_ input: SessionsSendInput, to key: TreeSealKey?) -> SessionsSendInput {
-        guard let key, let text = input.text, !text.isEmpty else { return input }
-        do {
-            return input.with(text: try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: text))
-        } catch {
-            logger.error("Sealing failed: \(String(describing: error), privacy: .public)")
-            return input
-        }
+        await sending.completed(prepared, result: result)
     }
 
     // MARK: answers
@@ -347,5 +231,18 @@ public final class SessionSealerSlot: @unchecked Sendable {
     public var sealer: SessionSealer? {
         get { lock.withLock { value } }
         set { lock.withLock { value = newValue } }
+    }
+}
+
+extension SessionEntity {
+    /// The display title: the opened `sealed_title`, else the clear `title`.
+    public var openedTitle: String? {
+        SealedOpener.shared.title(sealedTitle: sealedTitle, title: title, rootId: rootId)
+    }
+
+    /// The key a writer seals to, when this root row carries one.
+    public var sealKey: TreeSealKey? {
+        guard let sealPublicKey, let sealEpoch, sealEpoch > 0 else { return nil }
+        return TreeSealKey(publicKey: sealPublicKey, epoch: UInt32(sealEpoch))
     }
 }

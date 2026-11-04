@@ -32,6 +32,9 @@ public struct RegisterInstallResult: Decodable, Equatable, Sendable {
 
 /// One row of `installs.list` / `installs.mine` (the fields a node needs).
 public struct InstallEntry: Decodable, Equatable, Sendable {
+    /// This client's `installs.kind`.
+    public static let iosKind = "ios"
+
     public let installId: String
     public let userId: String?
     public let kind: String
