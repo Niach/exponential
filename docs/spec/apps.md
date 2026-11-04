@@ -879,10 +879,10 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 3: Multi-screen apps** (unblocks CRM, hiring, approvals)
 
 - ✅ **U1** (#VAPP-218) `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
-- **U2** `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
+- **U2** ✅ #VAPP-217 `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
 - **R5** Refs + `expand` (✅ #VAPP-219). **R6** Transitions (✅ #VAPP-222). **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
 - **V1** ✅ #VAPP-210 / #VAPP-211 Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)
-- **R8** Declarative migrations + the sweep. (§3.6)
+- **R8** ✅ #VAPP-233 Declarative migrations + the sweep. (§3.6)
 
 **Phase 4: Data in, and testing**
 
@@ -908,7 +908,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 **Phase 7: Sharing**
 
-- **P1** Public links (`submit` / `view`). (C21)
+- **P1** ✅ #VAPP-241 Public links (`submit` / `view`). (C21)
 - **P2** ✅ #VAPP-234 Template gallery: Time tracker, CRM and Standup ship as signed `.app.json` app files in `samples/apps` (the package-format signature, verified server-side against the pinned key in `fixtures/app-templates.json`; `bun packages/domain-contract/scripts/sign-app-templates.ts` re-signs them with `EXP_APP_TEMPLATES_SEED`). The import dialog/sheet opens with a "Start from a template" list (glyph, name, one line) and an "Include sample records" switch; a draft's starters add a "Start from a template" pill opening it. A pick = `apps.importTemplate` = the import (v1 published, sample records optional), then its editor ×4. Leave and On-call follow. (C28)
 - **P3** A signed catalog shared with Spezl (#YO-18). (C30)
 
