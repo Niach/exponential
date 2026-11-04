@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.UsageCard
@@ -61,10 +62,10 @@ internal fun UsageWindows(usage: AgentUsage, modifier: Modifier = Modifier) {
 
     Column(
         modifier = modifier.fillMaxWidth().alpha(if (age != null) 0.5f else 1f),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         groups.forEach { group ->
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 // EXP-909: no group headings ×4 — every window names itself
                 // ("Current session" / "All models" / "<Label> only", or its
                 // wire label), so the groups only order the rows.
@@ -101,8 +102,7 @@ private fun UsageWindowRow(card: UsageCard) {
             // takes its full width and the weighted caption gets the rest.
             Text(
                 card.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.bodySmall.copy(letterSpacing = 0.sp),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 softWrap = false,
@@ -111,7 +111,7 @@ private fun UsageWindowRow(card: UsageCard) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     card.caption,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal, letterSpacing = 0.sp),
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -120,7 +120,7 @@ private fun UsageWindowRow(card: UsageCard) {
                 )
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             UsageTrack(
                 percent = card.percent.toDouble(),
@@ -189,7 +189,7 @@ internal fun AgentUsageMini(
                 ) {
                     Text(
                         window.label,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = usageMiniTextStyle(),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -202,7 +202,7 @@ internal fun AgentUsageMini(
                     )
                     Text(
                         "${window.percent}%",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = usageMiniTextStyle(),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,
                     )
@@ -212,7 +212,7 @@ internal fun AgentUsageMini(
                 if (reset != null) {
                     Text(
                         reset,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = usageMiniTextStyle(),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -224,6 +224,15 @@ internal fun AgentUsageMini(
         }
     }
 }
+
+/** `devices-list.json`: every text of the mini form is 10, regular. */
+@Composable
+private fun usageMiniTextStyle() = MaterialTheme.typography.labelSmall.copy(
+    fontSize = 10.sp,
+    lineHeight = 12.sp,
+    fontWeight = FontWeight.Normal,
+    letterSpacing = 0.sp,
+)
 
 /**
  * A wall clock the countdowns re-read on. The synced snapshot itself doesn't

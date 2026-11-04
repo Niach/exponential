@@ -73,7 +73,7 @@ describe(`AgentRunMark`, () => {
 
   it(`parked states wear their badge`, () => {
     for (const [state, cls] of [
-      [`needs_input`, `bg-amber-500`],
+      [`needs_input`, `bg-yellow-400`],
       [`review`, `bg-emerald-500`],
       [`done`, `bg-sky-500`],
     ] as const) {

@@ -266,7 +266,7 @@ function DeviceAccountIcon({
       <AgentRunMark
         agent={row.agent}
         state={item ? `needs_input` : undefined}
-        ringClassName="ring-glass-card-opaque"
+        ringClassName="ring-card-opaque"
         className="size-4 [&>svg]:size-4"
       />
     </Button>

@@ -67,6 +67,12 @@ describe(`@exp/ui styles.css`, () => {
     expect(css).toContain(`.emoji-picker-section {`)
   })
 
+  // #EXP-1691: `bg-glass-card-opaque` is a two-layer utility, not a colour, so
+  // a ring on the card's ground needs this one or it paints currentColor.
+  it(`owns the card's ground as a colour`, () => {
+    expect(css).toContain(`--color-card-opaque:`)
+  })
+
   // EXP-895: the diff view moved into the package, so the `.diff-code` scope
   // its per-line lowlight output renders under has to move with it — an app
   // that kept only the tiptap block would draw an uncoloured diff.

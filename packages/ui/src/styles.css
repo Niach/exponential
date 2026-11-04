@@ -72,6 +72,10 @@ html {
   --color-glass-section: var(--glass-fill-section);
   --color-glass-row: var(--glass-fill-row);
   --color-glass-card: var(--glass-fill-card);
+  /* A real colour for what `bg-glass-card-opaque` paints in two layers: a ring
+     cannot take a background-image, and `ring-glass-card-opaque` names no
+     colour, so it fell back to currentColor (a white ring). */
+  --color-card-opaque: color-mix(in srgb, oklch(1 0 0) 6%, var(--popover));
   --color-glass-panel: var(--glass-fill-panel);
   --color-glass-active: var(--glass-fill-active);
   --color-glass-stroke: var(--glass-stroke-row);

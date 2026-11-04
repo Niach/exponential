@@ -262,8 +262,8 @@ struct DeviceLoginIcon: View {
                                 Circle()
                                     .fill(DesignTokens.Semantic.yellow)
                                     .frame(width: 6, height: 6)
-                                    .overlay(
-                                        Circle().stroke(GlassTokens.opaqueCardFill, lineWidth: 2)
+                                    .background(
+                                        Circle().fill(GlassTokens.opaqueCardFill).padding(-2)
                                     )
                                     .offset(x: 2, y: -2)
                                     .accessibilityIdentifier(badgeId)

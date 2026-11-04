@@ -40,6 +40,12 @@ export function usageTone(percent: number): MeterTone {
   return `normal`
 }
 
+/** The warning tone wears `semantic.yellow` here (`yellow-400` IS #FACC15), as on
+ *  the natives (`devices-list.json`); `Meter`'s own recipe stays for its other callers. */
+function meterToneClass(tone: MeterTone) {
+  return tone === `warning` ? `[&_[data-slot=progress-indicator]]:bg-yellow-400` : undefined
+}
+
 export function UsageWindows({
   windows,
   density = `full`,
@@ -70,7 +76,7 @@ export function UsageWindows({
             <span className="w-8 shrink-0 truncate text-[10px] leading-none text-muted-foreground">
               {window.label}
             </span>
-            <Meter value={window.percent} tone={tone(window)} className="h-1 min-w-8 flex-1" />
+            <Meter value={window.percent} tone={tone(window)} className={cn(`h-1 min-w-8 flex-1`, meterToneClass(tone(window)))} />
           </div>
         ))}
       </div>
@@ -88,7 +94,7 @@ export function UsageWindows({
           <div key={window.key} className="flex min-w-0 flex-1 flex-col gap-0.5">
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="shrink-0 text-[10px] text-muted-foreground">{window.label}</span>
-              <Meter value={window.percent} tone={tone(window)} className="h-1 min-w-4 flex-1" />
+              <Meter value={window.percent} tone={tone(window)} className={cn(`h-1 min-w-4 flex-1`, meterToneClass(tone(window)))} />
               <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
                 {`${window.percent}%`}
               </span>
@@ -122,7 +128,7 @@ export function UsageWindows({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Meter value={window.percent} tone={tone(window)} className="min-w-0 flex-1" />
+            <Meter value={window.percent} tone={tone(window)} className={cn(`min-w-0 flex-1`, meterToneClass(tone(window)))} />
             <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
               {`${window.percent}%`}
             </span>
