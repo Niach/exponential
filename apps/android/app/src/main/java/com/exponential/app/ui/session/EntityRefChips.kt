@@ -520,7 +520,7 @@ private fun TeamCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         return
     }
     EntityPreviewCard(
-        icon = { TeamAvatar(row, size = 24.dp) },
+        icon = { TeamAvatar(row.iconUrl, size = 24.dp) },
         eyebrow = "Team",
         title = row.name,
         onOpen = { open(teamSettingsTarget("team")) },

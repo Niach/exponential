@@ -106,6 +106,8 @@ pub mod agent_settings;
 pub mod apps;
 /// VAPP-201: the team time zone app hosts read dates in.
 pub mod team_zone;
+/// #EXP-1645: the team mark + team image.
+pub mod team_image;
 // VAPP-120: typed host actions (`exponential.<noun>.<op>`), fixture-locked ×4.
 pub mod app_actions;
 // VAPP-121: an app as one JSON file (export name + file), fixture-locked ×4.

@@ -1,25 +1,40 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import at.exponential.ui.primitives.AvatarView
-import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.TeamImage
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 
@@ -156,53 +171,119 @@ fun MemberAvatar(
 }
 
 /**
- * Rounded-square team monogram (iOS `TeamAvatar`). Shows the
- * `iconUrl` image when set, else the first letter of the team name on a
- * tinted chip. Replaces the copy that lived in the now-deleted AppDrawer.
+ * #EXP-1645 (team-image.json): THE team mark. The team's image in a square of
+ * [size], cropped, clipped at `radiusFraction` of the side, no border and no
+ * fill behind it, so a transparent image stays transparent; no image, a still
+ * loading one or a failed one = the group glyph at the side in the surrounding
+ * text colour (a provided [LocalContentColor]). There are no team letters.
  */
 @Composable
 fun TeamAvatar(
-    team: TeamEntity?,
+    /** `teams.icon_url`: a relative `/api/attachments/{id}` resolves through
+     *  the app's signed-in image loader ([InstanceUrlInterceptor]). */
+    iconUrl: String?,
     modifier: Modifier = Modifier,
     size: Dp = 28.dp,
 ) {
-    val initial = (team?.name?.firstOrNull()?.toString() ?: "?").uppercase()
-    val url = team?.iconUrl?.takeIf { it.isNotBlank() }
-    // EXP-698 r5: the FULL primary, on every client — a white square with a
-    // black initial. Drawn by the SDK's `AvatarView` as a rounded square
-    // (VAPP-89); the icon image is its picture.
-    AvatarView(
-        name = team?.name.orEmpty(),
-        modifier = modifier,
-        size = size,
-        fill = MaterialTheme.colorScheme.primary,
-        ink = MaterialTheme.colorScheme.onPrimary,
-        // Thread 58cb32df: the Team tab's 84 avatar scales its initial.
-        fontSize = if (size > 32.dp) (size.value * 0.42f).sp else MaterialTheme.typography.labelMedium.fontSize,
-        initials = initial,
-        cornerRadius = size / 4,
-        textStyle = if (size > 32.dp) {
-            MaterialTheme.typography.labelMedium.copy(fontSize = (size.value * 0.42f).sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        } else {
-            MaterialTheme.typography.labelMedium
-        },
-        contentDescription = null,
-        picture = url?.let {
-            {
-                Box(
-                    Modifier
-                        .size(size)
-                        .background(MaterialTheme.colorScheme.primary),
-                ) {
-                    AsyncImage(
-                        model = it,
-                        contentDescription = null,
-                        modifier = Modifier.size(size),
-                    )
-                }
+    val src = (TeamImage.teamMark(iconUrl) as? TeamImage.Mark.Image)?.src
+    var loaded by remember(src) { mutableStateOf(false) }
+    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+        if (!loaded) {
+            Icon(ExpIcons.uiTeam, contentDescription = null, modifier = Modifier.size(size), tint = LocalContentColor.current)
+        }
+        if (src != null) {
+            AsyncImage(
+                model = src,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onSuccess = { loaded = true },
+                onError = { loaded = false },
+                modifier = Modifier
+                    .size(size)
+                    .clip(RoundedCornerShape(size * TeamImage.RADIUS_FRACTION)),
+            )
+        }
+    }
+}
+
+/**
+ * #EXP-1645: the Settings › General row: the label, the mark, the Upload pill
+ * (photo library + files on a phone), and with an image the icon-only Remove.
+ * [enabled] = the viewer owns the team (the time zone row's rule); [busy] =
+ * an upload or a removal in flight, the pill spinning.
+ */
+@Composable
+fun TeamImageRow(
+    iconUrl: String?,
+    onPickPhoto: () -> Unit,
+    onPickFile: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+    busy: Boolean = false,
+    enabled: Boolean = true,
+) {
+    var pickerOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(TeamImage.TestIds.ROW)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            TeamImage.Copy.ROW,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            TeamAvatar(iconUrl, size = TeamImage.ROW_MARK_SIZE.dp)
+        }
+        Box {
+            GlassPill(
+                TeamImage.Copy.UPLOAD,
+                size = PillSize.Sm,
+                onClick = { pickerOpen = true },
+                enabled = enabled && !busy,
+                loading = busy,
+                modifier = Modifier.testTag(TeamImage.TestIds.UPLOAD),
+            )
+            GlassDropdownMenu(expanded = pickerOpen, onDismissRequest = { pickerOpen = false }) {
+                // The markdown toolbar's attach menu: the same two rows.
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiAttach, contentDescription = null) },
+                    text = { Text("Files") },
+                    onClick = {
+                        pickerOpen = false
+                        onPickFile()
+                    },
+                )
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.editorImage, contentDescription = null) },
+                    text = { Text("Photo library") },
+                    onClick = {
+                        pickerOpen = false
+                        onPickPhoto()
+                    },
+                )
             }
-        },
-    )
+        }
+        if (TeamImage.teamMark(iconUrl) is TeamImage.Mark.Image) {
+            CircleIconButton(
+                ExpIcons.uiDelete,
+                contentDescription = TeamImage.Copy.REMOVE,
+                onClick = onRemove,
+                enabled = enabled && !busy,
+                glyphSize = 16.dp,
+                borderless = true,
+                size = 28.dp,
+                modifier = Modifier.testTag(TeamImage.TestIds.REMOVE),
+            )
+        }
+    }
 }
 
 /**

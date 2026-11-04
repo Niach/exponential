@@ -14,7 +14,7 @@ struct ThreadCardsScreen: View {
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks", "session-row", "device-attention", "device-attention-menu"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks", "session-row", "device-attention", "device-attention-menu"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -47,12 +47,12 @@ struct ThreadCardsScreen: View {
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("thread-cards-screen")
-        } else if kind == "phone-board-menu" {
+        } else if kind == "phone-board-menu" || kind == "phone-team-menu" {
             // EXP-1554: a whole phone screen, so the panel grows from the
             // bottom strip where the live one does (Android's shot).
             ZStack {
                 AppBackground()
-                PhoneBoardMenuSpecimens()
+                PhoneBoardMenuSpecimens(teamMenu: kind == "phone-team-menu")
             }
             .preferredColorScheme(.dark)
             .accessibilityElement(children: .contain)
@@ -77,6 +77,7 @@ struct ThreadCardsScreen: View {
                     case "dock-card": DockCardSpecimens()
                     case "plan-card": PlanCardSpecimens()
                     case "phone-tab-bar": PhoneTabBarSpecimens()
+                    case "team-avatar": TeamAvatarSpecimens()
                     case "phone-page-header": PhonePageHeaderSpecimens()
                     case "chat-transcript": ChatTranscriptSpecimens()
                     case "chat-menus": ChatMenuSpecimens()

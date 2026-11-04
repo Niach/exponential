@@ -82,7 +82,14 @@ vi.mock(`@/hooks/use-cross-team-scope`, () => ({
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useBoardsForTeams: () => ({ boards: [], boardsReady: true }),
+  useTeamMemberships: () => ({
+    myTeams: [
+      { id: `t1`, name: `Acme`, slug: `acme`, iconUrl: null },
+      { id: `t2`, name: `Globex`, slug: `globex`, iconUrl: null },
+    ],
+  }),
 }))
+vi.mock(`@/components/create-team-dialog`, () => ({ CreateTeamDialog: () => null }))
 const perms = vi.hoisted(() => ({ canCreate: true }))
 vi.mock(`@/hooks/use-team-permissions`, () => ({
   useTeamPermissions: () => perms,
@@ -246,7 +253,7 @@ describe(`MobileTabBar tabs (chats.json shell.tabs)`, () => {
       `Apps`,
       `Acme`,
     ])
-    expect(tabs.map((el) => el.textContent)).toEqual([`Web`, `Chats`, `Apps`, `AAcme`]) // the avatar initial, then the name
+    expect(tabs.map((el) => el.textContent)).toEqual([`Web`, `Chats`, `Apps`, `Acme`]) // the avatar initial, then the name
     expect(screen.getByTestId(`tab-team`).getAttribute(`href`)).toBe(`/t/$teamSlug/team`)
     expect(screen.getByTestId(`tab-apps`).getAttribute(`href`)).toBe(`/t/$teamSlug/apps`)
     expect(screen.queryByTestId(`tab-devices`)).toBeNull()
@@ -303,6 +310,28 @@ describe(`MobileTabBar tabs (chats.json shell.tabs)`, () => {
       to: `/t/$teamSlug/boards/$boardSlug`,
       params: { teamSlug: `acme`, boardSlug: `ios` },
     })
+  })
+
+  it(`keeps the caret out of the label row, so a tab's width never changes`, () => {
+    route.value = `/t/$teamSlug/boards/$boardSlug`
+    renderBar()
+    const tab = screen.getByTestId(`tab-board`)
+    const caret = tab.querySelector(`[data-slot=phone-tab-caret]`) as HTMLElement
+    expect(caret.className).toContain(`absolute`)
+    expect(screen.getByTestId(`tab-team`).querySelector(`[data-slot=phone-tab-caret]`)).toBeNull()
+  })
+
+  it(`opens the team menu from the Team tab on the Team page only`, () => {
+    route.value = `/t/$teamSlug/team`
+    navigate.mockReset()
+    renderBar()
+    const tab = screen.getByTestId(`tab-team`)
+    expect(tab.getAttribute(`aria-haspopup`)).toBe(`menu`)
+    expect(tab.querySelector(`[data-slot=phone-tab-caret]`)).not.toBeNull()
+    fireEvent.click(tab)
+    const rows = screen.getAllByTestId(`board-menu-row`)
+    expect(rows.map((row) => row.textContent)).toEqual([`Acme`, `Globex`, `New team`])
+    expect(rows[0].getAttribute(`aria-checked`)).toBe(`true`)
   })
 
   it(`offers New board only to a viewer who may create boards`, () => {

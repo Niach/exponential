@@ -6,7 +6,8 @@
 //! and bottom edges, `radius` corners) over a dimmed board page: the team's
 //! boards in sidebar order, `rowHeight` each, the board glyph + name, the
 //! active one on the glass-active pill with `ui-check`; then the muted New
-//! board row (`ui-add`).
+//! board row (`ui-add`). #EXP-1645 (`shell.teamTab`): the Team tab's team
+//! switcher is this same panel over the member's teams.
 
 use gpui::{div, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};

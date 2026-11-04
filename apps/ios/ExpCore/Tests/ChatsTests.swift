@@ -449,7 +449,7 @@ final class ChatsTests: XCTestCase {
             "chats": C.Headers.chats, "apps": C.Headers.apps, "devices": C.Headers.devices,
             "agent": C.Headers.agent,
         ])
-        XCTAssertEqual(copy["boardMenu"] as? [String: String], ["newBoard": C.BoardMenu.newBoard])
+        XCTAssertEqual(copy["boardMenu"] as? [String: String], ["newBoard": C.BoardMenu.newBoard, "newTeam": C.BoardMenu.newTeam])
         XCTAssertEqual(copy["filters"] as? [String: String], [
             "all": C.Filters.all, "needs_you": C.Filters.needsYou, "running": C.Filters.running,
             "unread": C.Filters.unread,
@@ -550,7 +550,8 @@ final class ChatsTests: XCTestCase {
         let boardTab = try XCTUnwrap(shell["boardTab"] as? [String: Any])
         XCTAssertEqual(boardTab["caret"] as? String, Sh.BoardTab.caret)
         XCTAssertEqual(boardTab["caretSize"] as? Double, Sh.BoardTab.caretSize)
-        XCTAssertEqual(Set(boardTab.keys), ["caret", "caretSize"])
+        XCTAssertEqual(boardTab["caretGap"] as? Double, Sh.BoardTab.caretGap)
+        XCTAssertEqual(Set(boardTab.keys), ["$comment", "caret", "caretSize", "caretGap"])
         let boardMenu = try XCTUnwrap(shell["boardMenu"] as? [String: Any])
         XCTAssertEqual(boardMenu["rowHeight"] as? Double, Sh.BoardMenu.rowHeight)
         XCTAssertEqual(boardMenu["maxVisibleRows"] as? Int, Sh.BoardMenu.maxVisibleRows)
@@ -566,7 +567,7 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(header["circle"] as? Double, Sh.Header.circle)
         XCTAssertEqual(Set(header.keys), ["pages", "buttons", "circle"])
         XCTAssertEqual(Set(shell.keys), [
-            "tabs", "tabIcons", "bar", "boardTab", "boardMenu", "header", "boardChips", "leadDisc",
+            "tabs", "tabIcons", "bar", "boardTab", "teamTab", "boardMenu", "header", "boardChips", "leadDisc",
             "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "selectBadgeRadius", "archivedGlyph",
             "bubble", "bubbleRing", "dimOpacity", "chatLead",
         ])

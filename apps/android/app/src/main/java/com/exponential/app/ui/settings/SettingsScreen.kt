@@ -411,7 +411,7 @@ private fun TeamGroupBlock(
                         .clickable { onTeamTap(team.id) }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
-                    TeamAvatar(team, size = 22.dp)
+                    TeamAvatar(team.iconUrl, size = 22.dp)
                     Spacer(Modifier.width(12.dp))
                     Text(
                         team.name,
@@ -513,7 +513,7 @@ class TeamTabViewModel @Inject constructor(
 }
 
 /**
- * Thread 58cb32df: the TEAM tab (chats.json `shell`): the active team's avatar
+ * Thread 58cb32df: the TEAM tab (chats.json `shell`): the active team's mark
  * (84) + name + `copy.team.meta`, a glass group of the viewer's teams (the
  * active one checked, a team with an unread notification an amber dot; a tap
  * SWITCHES — the only place a phone switches its team), then the team's
@@ -573,7 +573,7 @@ fun TeamTabScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                TeamAvatar(state.team, size = 84.dp)
+                TeamAvatar(state.team?.iconUrl, size = 84.dp)
                 Spacer(Modifier.size(12.dp))
                 Text(
                     com.exponential.app.domain.Chats.Copy.teamMeta(state.members, state.boards),
@@ -594,7 +594,7 @@ fun TeamTabScreen(
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                                 .testTag("team-switch-row"),
                         ) {
-                            TeamAvatar(team, size = 24.dp)
+                            TeamAvatar(team.iconUrl, size = 24.dp)
                             Spacer(Modifier.width(12.dp))
                             Text(
                                 team.name,
