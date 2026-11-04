@@ -195,6 +195,22 @@ export function linkOpenOutcome(input: { member: boolean; activeTeam: boolean; f
   return input.activeTeam ? `open` : `switchTeam`
 }
 
+/** #EXP-1674: markdown leaving the app (a PR body): every `](~/x)` link target
+ *  made absolute. Code spans and fences stay as written, like any code. */
+export function expandTeamLinksInMarkdown(markdown: string, team: string, origin: string): string {
+  return markdown
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part.replace(/\]\((~\/[^)\s]*)\)/g, (whole, href: string) => {
+            const path = expandTeamLink(href, team)
+            return path ? `](${origin}${path})` : whole
+          })
+    )
+    .join(``)
+}
+
 // ── Web-only: the route of a classified in-app link ─────────────────────────
 
 /** The team of a web path (`/t/<team>/…`), or null outside a team. */

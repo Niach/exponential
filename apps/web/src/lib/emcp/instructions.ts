@@ -65,6 +65,7 @@ export function mcpServerInstructions(gates: {
   // (`exponential_show`, always loaded), edited in place.
   if (gates.inSession) {
     paragraphs.push(SHOW_SENTENCE)
+    paragraphs.push(LINKS_SENTENCE)
   }
   // S-3: LAST, so it is what a truncating client keeps least; the PR body
   // is server-written (a summary + the story pictures by platform).
@@ -78,6 +79,9 @@ export function mcpServerInstructions(gates: {
 
 /** S-3: the one sentence every launched session gets about showing. */
 export const SHOW_SENTENCE = `Show, don't tell: results, questions (ask) and plans (plan) go in ONE exponential_show card per turn; replace: true updates it. Never a Card root (the chat draws the card); text only = a plain message.`
+
+/** #EXP-1674: how an agent links into the app, in prose and in cards. */
+export const LINKS_SENTENCE = `Link inside the app with ~/: [text](~/issues/EXP-12), ~/sessions/<id>, ~/sessions/<id>/plan/<messageId>, ~/boards/<slug>, ~/settings/<id>, ~/inbox, ~/apps/<slug>/<screen>?k=v (exponential_apps get lists them); elsewhere use a reply's url.`
 
 /** The full variant — what the context budget measures. */
 export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({

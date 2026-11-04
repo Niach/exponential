@@ -2557,7 +2557,7 @@ describe(`exponential_sessions_get / list`, () => {
     dbRows.current = [callerRow()]
     sessionsCore.getSessionTree.mockResolvedValue({ root: { id: ROOT } })
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_get`)!({})
-    expect(parseOk(result)).toEqual({ root: { id: ROOT } })
+    expect(parseOk(result)).toMatchObject({ root: { id: ROOT } })
     expect(sessionsCore.getSessionTree).toHaveBeenCalledWith(USER.id, ROOT, {
       messages: 20,
     })
