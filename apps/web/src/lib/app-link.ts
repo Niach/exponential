@@ -150,6 +150,12 @@ export function linkOpenOutcome(input: { member: boolean; activeTeam: boolean; f
 
 // ── Web-only: the route of a classified in-app link ─────────────────────────
 
+/** The team of a web path (`/t/<team>/…`), or null outside a team. */
+export function teamSlugOfPath(pathname: string): string | null {
+  const [t, team] = pathname.split(`/`).filter((segment) => segment.length > 0)
+  return t === `t` && team ? decodeSegment(team) : null
+}
+
 /** The web path an in-app link navigates to (null: not an in-app link). */
 export function appLinkPath(link: AppLink): string | null {
   const t = `teamSlug` in link ? `/t/${encodeURIComponent(link.teamSlug)}` : ``

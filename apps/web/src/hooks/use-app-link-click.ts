@@ -1,6 +1,6 @@
 import { useCallback, type MouseEvent } from "react"
-import { useNavigate, useParams } from "@tanstack/react-router"
-import { appLinkPath, classifyAppLink, isRoutedAppPath } from "@/lib/app-link"
+import { useNavigate } from "@tanstack/react-router"
+import { appLinkPath, classifyAppLink, isRoutedAppPath, teamSlugOfPath } from "@/lib/app-link"
 
 /** EXP-1188: the click handler for a container of agent prose. A link into
  *  this instance (an issue, a run, any app page) routes in-app instead of
@@ -12,8 +12,6 @@ import { appLinkPath, classifyAppLink, isRoutedAppPath } from "@/lib/app-link"
  *  anchor says (same tab, or its own `target`), never the SPA not-found. */
 export function useAppLinkClick() {
   const navigate = useNavigate()
-  // #EXP-1674: `~/x` resolves against the team on screen.
-  const team = useParams({ strict: false }).teamSlug
   return useCallback(
     (event: MouseEvent<HTMLElement>) => {
       const anchor = (event.target as Element | null)?.closest?.(`a[href]`)
@@ -21,7 +19,8 @@ export function useAppLinkClick() {
       const link = classifyAppLink(
         anchor.getAttribute(`href`) ?? ``,
         window.location.origin,
-        team
+        // #EXP-1674: `~/x` resolves against the team on screen.
+        teamSlugOfPath(window.location.pathname)
       )
       const modified =
         event.button !== 0 ||
@@ -43,6 +42,6 @@ export function useAppLinkClick() {
       const path = appLinkPath(link)
       if (path) void navigate({ href: path })
     },
-    [navigate, team]
+    [navigate]
   )
 }
