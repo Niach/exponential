@@ -1,11 +1,10 @@
 //! EXP-1489: WHEN a pending update restarts its host — the one policy the
-//! CLI daemon and the desktop app share. A live session never holds an
-//! update for long: its agent is a child of the host speaking ACP over
-//! pipes, so it cannot outlive the restart and be re-adopted; instead the
-//! host waits for the next pause between turns, at most [`MAX_WAIT`], then
-//! suspends every run. A run cut mid-turn reads `restarted` (resume) and the
-//! new process continues it by itself (pickup `Continue` / NEW-5's
-//! re-claim), so nothing waits for a person.
+//! CLI daemon and the desktop app share. A session's agent is a child of the
+//! host speaking ACP over pipes, so it cannot outlive the restart and be
+//! re-adopted; instead the host waits for the next pause between turns, at
+//! most [`MAX_WAIT`], then suspends every run. A run cut mid-turn reads
+//! `restarted` (resume) and the new process continues it by itself (pickup
+//! `Continue` / NEW-5's re-claim), so nothing waits for a person.
 
 use std::time::Duration;
 
@@ -16,7 +15,11 @@ pub const TURN_GAP: Duration = Duration::from_secs(60);
 
 /// The longest a live turn may hold a ready update. Past it the host
 /// restarts anyway and the cut turns continue on the new version.
-pub const MAX_WAIT: Duration = Duration::from_secs(10 * 60);
+/// EXP-1675: an hour (was 10 minutes). A continuation loses the turn's live
+/// tool state, and a machine running long turns rarely pauses all of them at
+/// once, so the cap was what restarted it, mid-turn, on most releases. A
+/// person's "Update now" and a build the server refuses still go at once.
+pub const MAX_WAIT: Duration = Duration::from_secs(60 * 60);
 
 /// What a ready update may do now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,7 +81,7 @@ mod tests {
 
     #[test]
     fn a_turn_holds_it_at_most_the_cap() {
-        assert!(MAX_WAIT <= Duration::from_secs(10 * 60));
+        assert_eq!(MAX_WAIT, Duration::from_secs(60 * 60));
         assert_eq!(restart_gate([None], MAX_WAIT - SEC, false), RestartGate::Wait);
         assert_eq!(restart_gate([None, None], MAX_WAIT, false), RestartGate::Now);
     }

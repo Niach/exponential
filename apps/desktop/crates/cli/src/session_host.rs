@@ -131,6 +131,13 @@ impl RunningSession {
         self.session.turn_signal().is_idle()
     }
 
+    /// EXP-1675: a pause an update may land in: no turn AND no background
+    /// task ([`Self::is_idle`] alone reads "between turns" while a build the
+    /// last turn started still runs).
+    pub fn at_rest(&self) -> bool {
+        !self.session.agent_busy()
+    }
+
     /// EXP-1374: the engine's last activity, wall clock (the heartbeat's
     /// `sessionActivity`).
     pub fn last_activity_at(&self) -> std::time::SystemTime {
