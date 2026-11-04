@@ -117,7 +117,7 @@ function appsSkill(): Files {
     `${formatPath} (Versions, The package, The package file) and docs/spec/apps.md §2.3`,
     [section(format, `Versions`), section(format, `The package`), section(format, `The package file`), demote(section(spec, `2.3 Versions and channels`), 0)].join(`\n`)
   )
-  ref(`references/records.md`, `Records: kinds, policies, queries, writes, RecordForm / RecordTable`, `${formatPath} (Records, Record macros) and docs/spec/apps.md §3.4`, [section(format, `Records`), section(format, `Record macros`), section(spec, `3.4 Permissions`)].join(`\n`))
+  ref(`references/records.md`, `Records: kinds, policies, queries, writes, RecordForm / RecordTable`, `${formatPath} (Records, Record macros, Public links) and docs/spec/apps.md §3.4`, [section(format, `Records`), section(format, `Record macros`), section(format, `Public links`), section(spec, `3.4 Permissions`)].join(`\n`))
   ref(`references/import.md`, `Importing a spreadsheet (CSV, TSV, xlsx) into records`, `docs/spec/apps.md §10`, section(spec, `10. Import and export`))
   ref(`references/expressions.md`, `Expressions (CEL), functions and optional values`, `${formatPath} (Expressions)`, section(format, `Expressions`))
   ref(`references/actions.md`, `Actions: all-or-nothing writes, require`, `${formatPath} (Actions)`, section(format, `Actions`))

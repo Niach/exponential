@@ -1,6 +1,6 @@
 # Records: kinds, policies, queries, writes, RecordForm / RecordTable
 
-> Generated from packages/exponential-ui/docs/package-format.md (Records, Record macros) and docs/spec/apps.md §3.4 (eUI 0.13.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Records, Record macros, Public links) and docs/spec/apps.md §3.4 (eUI 0.13.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Records
 
@@ -365,6 +365,33 @@ macros put a kind's whole form or table on a screen as ONE node:
   never written by hand and left out of the model's prompt). Install
   needs `records.upsert` (a table also `records.delete`) in `functions`
   and `records:<kind>` in `sources` when `sources` is set.
+
+## Public links
+
+VAPP-241 (eApps P1, `src/host/share.ts`, Rust `host::share`,
+`fixtures/package-share.json`; the links themselves:
+`packages/domain-contract/fixtures/app-share.json`). `share` declares the
+links an owner can turn on; nothing is public until one does.
+
+```jsonc
+"share": [
+  { "name": "signup", "mode": "submit", "kind": "lead", "fields": ["email", "note"], "expires": 30 },
+  { "name": "wall", "mode": "view", "kind": "lead", "fields": ["note"], "query": "recent" }
+]
+```
+
+- At most **5**. `name` = a lowercase letter, then lowercase letters, digits
+  and underscores (24 at most), unique. `mode` = `submit` or `view`. `kind` =
+  a declared kind.
+- `fields` = the fields the link exposes, in order; default every field but
+  files. A file field is refused; a `submit` link must name every required
+  field, and cannot fill a required file field.
+- `query` (view only) = a package query of the kind. `expires` = whole days
+  from enabling, 1 to 3650; default never.
+- **submit:** a guest fills one RecordForm and creates exactly one record,
+  validated like any write. **view:** a read-only RecordTable of a snapshot
+  the host computes per request, only the named fields, no live data.
+- A host offers no other kind, no member data and no `exp:` source to a guest.
 
 ### 3.4 Permissions
 

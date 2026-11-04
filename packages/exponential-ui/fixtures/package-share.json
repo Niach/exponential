@@ -1,0 +1,342 @@
+{
+  "$comment": "VAPP-241 (eApps P1, docs/package-format.md \"Public links\"): a package's `share`, validated by the TS reference (src/host/share.ts validatePackageShares) and the Rust core (host::share::validate_package_shares). Each case = `share` over the `package` below, `issues` = what validatePackage adds. The links themselves (tokens, caps, the guest pages) = packages/domain-contract/fixtures/app-share.json.",
+  "package": {
+    "records": {
+      "signup": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "email"
+          ],
+          "properties": {
+            "email": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "cv": {
+              "type": "string",
+              "format": "attachment"
+            }
+          }
+        }
+      },
+      "photo": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "format": "attachment"
+            }
+          }
+        }
+      }
+    },
+    "queries": {
+      "recent": {
+        "from": "signup",
+        "sort": "createdAt"
+      },
+      "other": {
+        "from": "photo"
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "a submit and a view link",
+      "share": [
+        {
+          "name": "join",
+          "mode": "submit",
+          "kind": "signup",
+          "fields": [
+            "email",
+            "note"
+          ],
+          "expires": 30
+        },
+        {
+          "name": "wall",
+          "mode": "view",
+          "kind": "signup",
+          "fields": [
+            "note"
+          ],
+          "query": "recent"
+        }
+      ],
+      "issues": []
+    },
+    {
+      "name": "no links at all",
+      "share": [],
+      "issues": []
+    },
+    {
+      "name": "not a list",
+      "share": {
+        "name": "join"
+      },
+      "issues": [
+        {
+          "path": "/share",
+          "message": "share is a list of {name, mode, kind, fields?, query?, expires?}"
+        }
+      ]
+    },
+    {
+      "name": "an entry that is no object",
+      "share": [
+        "join"
+      ],
+      "issues": [
+        {
+          "path": "/share/0",
+          "message": "a public link is {name, mode, kind, fields?, query?, expires?}"
+        }
+      ]
+    },
+    {
+      "name": "six links",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup"
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "signup"
+        },
+        {
+          "name": "c",
+          "mode": "view",
+          "kind": "signup"
+        },
+        {
+          "name": "d",
+          "mode": "view",
+          "kind": "signup"
+        },
+        {
+          "name": "e",
+          "mode": "view",
+          "kind": "signup"
+        },
+        {
+          "name": "f",
+          "mode": "view",
+          "kind": "signup"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share",
+          "message": "at most 5 public links, got 6"
+        }
+      ]
+    },
+    {
+      "name": "a template is not a key yet, a bad name, an unknown mode and kind",
+      "share": [
+        {
+          "name": "Join",
+          "mode": "edit",
+          "kind": "nope",
+          "template": "x"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "unknown public link key template"
+        },
+        {
+          "path": "/share/0/name",
+          "message": "a name is a lowercase letter, then lowercase letters, digits and underscores (24 at most)"
+        },
+        {
+          "path": "/share/0/mode",
+          "message": "mode is submit or view"
+        },
+        {
+          "path": "/share/0/kind",
+          "message": "nope names no declared kind"
+        }
+      ]
+    },
+    {
+      "name": "a duplicate name",
+      "share": [
+        {
+          "name": "join",
+          "mode": "view",
+          "kind": "signup"
+        },
+        {
+          "name": "join",
+          "mode": "submit",
+          "kind": "signup"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/1/name",
+          "message": "duplicate public link join"
+        }
+      ]
+    },
+    {
+      "name": "fields: unknown, a file, a required one left out",
+      "share": [
+        {
+          "name": "join",
+          "mode": "submit",
+          "kind": "signup",
+          "fields": [
+            "note",
+            "nope",
+            "cv"
+          ]
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/fields/1",
+          "message": "nope is not a field of signup"
+        },
+        {
+          "path": "/share/0/fields/2",
+          "message": "a public link cannot carry the file field cv"
+        },
+        {
+          "path": "/share/0/fields",
+          "message": "a submit link needs the required field email"
+        }
+      ]
+    },
+    {
+      "name": "fields is not a list of names",
+      "share": [
+        {
+          "name": "join",
+          "mode": "view",
+          "kind": "signup",
+          "fields": []
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/fields",
+          "message": "fields is a non-empty list of field names"
+        }
+      ]
+    },
+    {
+      "name": "a required file cannot be submitted",
+      "share": [
+        {
+          "name": "pic",
+          "mode": "submit",
+          "kind": "photo"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/kind",
+          "message": "a submit link cannot fill a required file field"
+        }
+      ]
+    },
+    {
+      "name": "a query on a submit link",
+      "share": [
+        {
+          "name": "join",
+          "mode": "submit",
+          "kind": "signup",
+          "query": "recent"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/query",
+          "message": "only a view link has a query"
+        }
+      ]
+    },
+    {
+      "name": "a query that is none, and one of another kind",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "query": "nope"
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "signup",
+          "query": "other"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/query",
+          "message": "nope names no package query"
+        },
+        {
+          "path": "/share/1/query",
+          "message": "query other reads records:photo, the link's kind is signup"
+        }
+      ]
+    },
+    {
+      "name": "expires out of range and fractional",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "expires": 0
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "signup",
+          "expires": 1.5
+        },
+        {
+          "name": "c",
+          "mode": "view",
+          "kind": "signup",
+          "expires": 3651
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/expires",
+          "message": "expires is a whole number of days, 1 to 3650"
+        },
+        {
+          "path": "/share/1/expires",
+          "message": "expires is a whole number of days, 1 to 3650"
+        },
+        {
+          "path": "/share/2/expires",
+          "message": "expires is a whole number of days, 1 to 3650"
+        }
+      ]
+    }
+  ]
+}

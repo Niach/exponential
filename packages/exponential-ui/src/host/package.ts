@@ -23,6 +23,8 @@ import { validatePackageActions, validatePackageEffects } from "./actions"
 import { packageTestIssues, validatePackageTests } from "./tests"
 import { validatePackageComponents } from "./components"
 import { fillScreenParams, validatePackageScreens } from "./screens"
+import { validatePackageShares } from "./share"
+import type { PackageShare } from "./share"
 import { fillRecordMacros, usesRecordMacros, type RecordMacroOptions } from "./record-macros"
 import type { PackageScreen } from "./screens"
 
@@ -108,6 +110,8 @@ export interface AppPackage {
    *  templates a person can open, painted by the host as a sidebar or the
    *  phone bottom bar; `navigate {screen, params?}` opens one. */
   screens?: PackageScreen[]
+  /** VAPP-241: the public link definitions an owner can turn on (`host/share.ts`). */
+  share?: PackageShare[]
 }
 
 /** A package query's name. */
@@ -303,6 +307,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   issues.push(...validatePackageActions(pkg))
   // VAPP-218: the screens, and every literal navigate target.
   issues.push(...validatePackageScreens(pkg))
+  // VAPP-241: the public link definitions.
+  issues.push(...validatePackageShares(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))

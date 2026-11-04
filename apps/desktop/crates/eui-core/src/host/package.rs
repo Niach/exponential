@@ -363,6 +363,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
     issues.extend(super::actions::validate_package_actions(p));
     // VAPP-218: the screens, and every literal navigate target.
     issues.extend(super::screens::validate_package_screens(p));
+    // VAPP-241: the public link definitions.
+    issues.extend(super::share::validate_package_shares(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }
