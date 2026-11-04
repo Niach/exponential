@@ -2,7 +2,8 @@ import Foundation
 
 /// #FEED-191 NEEDS YOU ×4 (`packages/domain-contract/fixtures/needs-you.json`,
 /// TS reference `src/needs-you.ts`, desktop `domain::needs_you`, Android
-/// `domain/NeedsYou.kt`): every plan and question waiting on the viewer.
+/// `domain/NeedsYou.kt`): every plan and question waiting on the viewer, plus
+/// (#EXP-1699) the PRs ready to merge.
 /// `NeedsYouTests` replays every fixture case.
 public enum NeedsYou {
     // MARK: - Fixture constants
@@ -24,6 +25,12 @@ public enum NeedsYou {
         public static let list = "needs-you"
     }
 
+    /// The neutral copy of a mirror's origin the viewer may not read.
+    public enum Private {
+        public static let plan = "Plan in a private chat"
+        public static let question = "Question in a private chat"
+    }
+
     // MARK: - Input
 
     public struct SessionInput: Equatable, Sendable {
@@ -34,14 +41,20 @@ public enum NeedsYou {
         public let status: String
         public let agentId: String?
         public let userId: String?
+        /// #EXP-1699: the session works now (a PR row waits on a person only when none does).
+        public let busy: Bool
 
-        public init(id: String, rootId: String, name: String, status: String, agentId: String?, userId: String?) {
+        public init(
+            id: String, rootId: String, name: String, status: String, agentId: String?, userId: String?,
+            busy: Bool = false
+        ) {
             self.id = id
             self.rootId = rootId
             self.name = name
             self.status = status
             self.agentId = agentId
             self.userId = userId
+            self.busy = busy
         }
     }
 
@@ -69,19 +82,50 @@ public enum NeedsYou {
         }
     }
 
+    /// #EXP-1699: the pull requests shape's row, as far as the fold reads it.
+    public struct PullRequestInput: Equatable, Sendable {
+        public let id: String
+        public let rootSessionId: String?
+        public let number: Int
+        public let title: String
+        public let state: String
+        public let checksState: String?
+        public let basePullRequestId: String?
+        public let createdAt: String
+
+        public init(
+            id: String, rootSessionId: String?, number: Int, title: String, state: String, checksState: String?,
+            basePullRequestId: String?, createdAt: String
+        ) {
+            self.id = id
+            self.rootSessionId = rootSessionId
+            self.number = number
+            self.title = title
+            self.state = state
+            self.checksState = checksState
+            self.basePullRequestId = basePullRequestId
+            self.createdAt = createdAt
+        }
+    }
+
     // MARK: - Output
 
-    /// `plan` = the chat's Plan tab; `card` = its card in the Conversation.
+    public enum Kind: String, Equatable, Sendable {
+        case plan, question, pr
+    }
+
+    /// `plan` = the chat's Plan tab; `card` = its card in the Conversation;
+    /// `results` = its Results tab; `chat` = an agent conversation.
     public enum Opens: String, Equatable, Sendable {
-        case plan, card
+        case plan, card, results, chat
     }
 
     public struct Row: Equatable, Sendable, Identifiable {
-        /// The waiting card's message: the origin's for a mirror it may read.
+        /// The waiting card's message (the origin's for a mirror it may read), or the PR's id.
         public let messageId: String
         public let sessionId: String
         public let rootId: String
-        public let kind: AskDock.Kind
+        public let kind: Kind
         public let opens: Opens
         public let title: String
         public let chat: String
@@ -91,7 +135,7 @@ public enum NeedsYou {
         public var id: String { messageId }
 
         public init(
-            messageId: String, sessionId: String, rootId: String, kind: AskDock.Kind, opens: Opens, title: String,
+            messageId: String, sessionId: String, rootId: String, kind: Kind, opens: Opens, title: String,
             chat: String, meta: String, age: String, createdAt: String
         ) {
             self.messageId = messageId
@@ -111,7 +155,11 @@ public enum NeedsYou {
 
     private static func ms(_ wire: String) -> Double { SessionTree.ms(wire) ?? 0 }
 
-    private static func rowOf(_ message: MessageInput, sessions: [String: SessionInput], now: Double) -> Row? {
+    private static func rowOf(
+        _ message: MessageInput, sessions: [String: SessionInput],
+        /// Every session the viewer may read, ended ones included.
+        readable: [String: SessionInput], now: Double
+    ) -> Row? {
         guard let card = message.card, let session = sessions[message.sessionId],
               let root = sessions[session.rootId]
         else { return nil }
@@ -128,70 +176,103 @@ public enum NeedsYou {
                 opens: plan ? .plan : .card,
                 title: plan ? PlanPage.planRowLabel(card.plan ?? "") : question.isEmpty ? AskDock.label(.question) : question,
                 chat: root.name,
-                meta: plan ? PlanPage.countsLine(PlanPage.counts(card)) : "",
+                meta: "",
                 age: age,
                 createdAt: message.createdAt
             )
         }
         guard card.kind == "ask", message.answeredAt == nil else { return nil }
         // A mirror: the origin's own ids where the viewer may read it, else the
-        // mirror's, with the neutral copy (chats.json `askPreview`).
-        let originSession = (card.sessionId ?? message.authorSessionId).flatMap { sessions[$0] }
+        // mirror's, with the neutral copy (chats.json `askPreview`). A digest from
+        // before it kept `messageId` opens the origin's chat, no card to reach.
+        let originSession = (card.sessionId ?? message.authorSessionId).flatMap { readable[$0] }
         let preview = Chats.askPreview(
             TreeMessage(
                 id: message.id, sessionId: message.sessionId, authorKind: "agent", authorId: nil, body: message.body,
                 card: card, answeredAt: message.answeredAt, consumedAt: nil, createdAt: message.createdAt,
                 authorSessionId: message.authorSessionId
             ),
-            visible: Set(sessions.keys)
+            visible: Set(readable.keys)
         )
+        let opaque = preview.text == Private.plan || preview.text == Private.question
+        let target = opaque ? nil : originSession
+        let named = target == nil ? nil : card.messageId
         let plan = preview.kind == .plan
         let title = preview.text.hasPrefix(Prefix.question)
             ? String(preview.text.dropFirst(Prefix.question.count))
             : preview.text
-        if let originSession, let messageId = card.messageId {
-            return Row(
-                messageId: messageId,
-                sessionId: originSession.id,
-                rootId: originSession.rootId,
-                kind: plan ? .plan : .question,
-                opens: plan ? .plan : .card,
-                title: title,
-                chat: sessions[originSession.rootId]?.name ?? root.name,
-                meta: "",
-                age: age,
-                createdAt: message.createdAt
-            )
-        }
         return Row(
-            messageId: message.id,
-            sessionId: session.id,
-            rootId: root.id,
+            messageId: named ?? message.id,
+            sessionId: target?.id ?? session.id,
+            rootId: target?.rootId ?? root.id,
             kind: plan ? .plan : .question,
-            opens: .card,
+            opens: plan && named != nil ? .plan : .card,
             title: title,
-            chat: root.name,
+            chat: target.flatMap { readable[$0.rootId]?.name } ?? root.name,
             meta: "",
             age: age,
             createdAt: message.createdAt
         )
     }
 
-    /// THE fold: one row per waiting card, once, newest first.
+    /// #EXP-1699: the PRs ready to merge (`prCases`).
+    private static func pullRequestRows(
+        now: Double, me: String?, sessions: [SessionInput], pullRequests: [PullRequestInput]
+    ) -> [Row] {
+        let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let open = Set(pullRequests.filter { $0.state == "open" }.map(\.id))
+        let working = Set(sessions.filter(\.busy).map(\.rootId))
+        return pullRequests.compactMap { pr in
+            guard let root = pr.rootSessionId.flatMap({ sessionsById[$0] }), pr.state == "open",
+                  pr.checksState == "success"
+            else { return nil }
+            if root.agentId != nil, root.userId != me { return nil }
+            if working.contains(root.id) { return nil }
+            if let base = pr.basePullRequestId, open.contains(base) { return nil }
+            return Row(
+                messageId: pr.id,
+                sessionId: root.id,
+                rootId: root.id,
+                kind: .pr,
+                opens: root.agentId == nil ? .results : .chat,
+                title: pr.title,
+                chat: root.name,
+                meta: "#\(pr.number)",
+                age: ResultsTab.age(ms(pr.createdAt), now: now),
+                createdAt: pr.createdAt
+            )
+        }
+    }
+
+    /// THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready
+    /// to merge, newest first.
     public static func rows(
-        now: Double, me: String?, sessions: [SessionInput], messages: [MessageInput]
+        now: Double, me: String?, sessions: [SessionInput], messages: [MessageInput],
+        pullRequests: [PullRequestInput] = []
     ) -> [Row] {
         // Another member's agent conversation is theirs (chats.json `listAgents`).
-        let live = sessions.filter { $0.status != "ended" && ($0.agentId == nil || $0.userId == me) }
-        let sessionsById = Dictionary(live.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let mayRead = sessions.filter { $0.agentId == nil || $0.userId == me }
+        let readable = Dictionary(mayRead.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let live = readable.filter { $0.value.status != "ended" }
         var rows: [String: Row] = [:]
         var seen = Set<String>()
+        var unnamed: [Row] = []
         for message in messages where seen.insert(message.id).inserted {
-            guard let row = rowOf(message, sessions: sessionsById, now: now) else { continue }
-            // The card itself beats its mirror's copy of it.
-            if message.id == row.messageId || rows[row.messageId] == nil { rows[row.messageId] = row }
+            guard let row = rowOf(message, sessions: live, readable: readable, now: now) else { continue }
+            if message.id == row.messageId, row.sessionId != message.sessionId {
+                // An older digest's mirror naming only a session waits until every card is known.
+                unnamed.append(row)
+            } else if message.id == row.messageId || rows[row.messageId] == nil {
+                // The card itself beats its mirror's copy of it.
+                rows[row.messageId] = row
+            }
         }
-        return rows.values.sorted { a, b in
+        var waitingIn = Set(rows.values.map(\.sessionId))
+        for row in unnamed where waitingIn.insert(row.sessionId).inserted {
+            rows[row.messageId] = row
+        }
+        let all = Array(rows.values) + pullRequestRows(now: now, me: me, sessions: sessions, pullRequests: pullRequests)
+        return all.sorted { a, b in
             let at = ms(a.createdAt), bt = ms(b.createdAt)
             return at != bt ? at > bt : a.messageId > b.messageId
         }

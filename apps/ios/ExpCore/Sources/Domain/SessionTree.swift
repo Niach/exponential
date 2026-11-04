@@ -281,9 +281,6 @@ public struct TreeMessageCard: Equatable, Sendable {
     /// EXP-1280 plan: the choice questions, the picked labels per question,
     /// the note.
     public let questions: [ThreadPlanQuestion]
-    /// `card.questions.length` in the reference (plan-page `planCounts`): an
-    /// entry `questions` drops still counts.
-    public let questionCount: Int
     public let planAnswers: [String: [String]]?
     public let feedback: String?
     /// EXP-1280 plan + question: the inline Exponential UI surface, and its
@@ -340,7 +337,6 @@ public struct TreeMessageCard: Equatable, Sendable {
         decision: String? = nil,
         fresh: Bool = false,
         questions: [ThreadPlanQuestion] = [],
-        questionCount: Int? = nil,
         planAnswers: [String: [String]]? = nil,
         feedback: String? = nil,
         surface: CardSurface? = nil,
@@ -369,7 +365,6 @@ public struct TreeMessageCard: Equatable, Sendable {
         self.dismissed = dismissed
         self.story = story
         self.result = result
-        self.questionCount = questionCount ?? questions.count
         self.pictures = pictures
         self.description = description
         self.eventName = eventName
@@ -453,7 +448,6 @@ public struct TreeMessageCard: Equatable, Sendable {
             // `card.fresh === true` in the reference.
             fresh: (object["fresh"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false,
             questions: ThreadPlanQuestion.list(object["questions"], pictures: pictures),
-            questionCount: (object["questions"] as? [Any])?.count,
             planAnswers: (object["answers"] as? [String: Any]).map { raw in
                 var answers: [String: [String]] = [:]
                 for (id, labels) in raw {
