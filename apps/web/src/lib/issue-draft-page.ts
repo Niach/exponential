@@ -35,6 +35,8 @@ export interface IssueDraftSearch {
   from?: string
   /** EXP-1284: `New issue in this thread` — the created issue joins it. */
   thread?: string
+  /** EXP-1635: the pending share prefills the page, Back returns to Share to. */
+  share?: string
 }
 
 export function parseIssueDraftSearch(
@@ -47,6 +49,7 @@ export function parseIssueDraftSearch(
     status: pick(search.status),
     from: pick(search.from),
     thread: pick(search.thread),
+    share: pick(search.share),
   }
 }
 
@@ -63,6 +66,7 @@ export function newDraftNavigation({
   status,
   from,
   threadId,
+  share,
   draftId = crypto.randomUUID(),
 }: {
   teamSlug: string
@@ -71,6 +75,8 @@ export function newDraftNavigation({
   from?: string
   /** EXP-1284: file the issue into this thread. */
   threadId?: string
+  /** EXP-1635: opened from the Share to page. */
+  share?: boolean
   draftId?: string
 }) {
   const search: IssueDraftSearch = {}
@@ -78,6 +84,7 @@ export function newDraftNavigation({
   if (status && !isFallbackStatusOption(status)) search.status = status.id
   if (from) search.from = from
   if (threadId) search.thread = threadId
+  if (share) search.share = `1`
   return {
     to: `/t/$teamSlug/drafts/$draftId` as const,
     params: { teamSlug, draftId },

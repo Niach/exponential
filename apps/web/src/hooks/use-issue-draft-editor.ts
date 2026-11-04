@@ -63,6 +63,9 @@ export interface IssueDraftEditorOptions {
   initialBoardId: string
   /** The group status a "+" seeded (`?status=`). */
   initialStatusId?: string | null
+  /** EXP-1635: a share's prefill of a FRESH draft. */
+  initialTitle?: string
+  initialDescription?: string
   /** EXP-1284: `New issue in this thread` (`?thread=`, a root session id) —
    *  the created issue is linked into that thread
    *  (`issues.create({sessionId})`, EXP-1291). */
@@ -96,6 +99,8 @@ export function useIssueDraftEditor({
   teamId,
   initialBoardId,
   initialStatusId = null,
+  initialTitle = ``,
+  initialDescription = ``,
   threadId: requestedThreadId = null,
   draft,
   boards,
@@ -112,8 +117,8 @@ export function useIssueDraftEditor({
   const [seed] = useState(() =>
     draft ? toDialogSeed(draft, { boards, labels, users }) : null
   )
-  const [title, setTitleState] = useState(seed?.title ?? ``)
-  const [description, setDescriptionState] = useState(seed?.description ?? ``)
+  const [title, setTitleState] = useState(seed?.title ?? initialTitle)
+  const [description, setDescriptionState] = useState(seed?.description ?? initialDescription)
   const [boardId, setBoardIdState] = useState(seed?.boardId ?? initialBoardId)
   const [statusId, setStatusId] = useState<string | null>(
     seed ? seed.statusId : initialStatusId

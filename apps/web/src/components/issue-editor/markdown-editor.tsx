@@ -193,7 +193,7 @@ function getEditorMarkdown(editor: Editor | null) {
  * media (`video/*` + `audio/*`, EXP-824 — embedded as plain-link blocks) and
  * everything else, which routes to the Files-section flow via onOtherFiles.
  */
-export function partitionUploadFiles(fileList: FileList | null | undefined) {
+export function partitionUploadFiles(fileList: FileList | readonly File[] | null | undefined) {
   const files = Array.from(fileList ?? [])
   return {
     images: files.filter((file) => isAcceptedImageContentType(file.type)),

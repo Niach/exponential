@@ -9,6 +9,11 @@ export interface LaunchSeed {
   deviceId?: string
   /** Text inserted into an EMPTY draft (a suggestion's description). */
   text?: string
+  /** EXP-1635: a share's files, staged as the composer's pending attachments. */
+  files?: File[]
+  /** EXP-1635: the agent row's pick (an agent id or `TEMPORARY_PICK`); absent
+   *  = `seedPick`. */
+  pick?: string
 }
 
 /** The route's validated search params (all optional strings). */

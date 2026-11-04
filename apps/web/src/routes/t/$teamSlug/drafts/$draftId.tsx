@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { createFileRoute, Navigate, redirect } from "@tanstack/react-router"
 import { SkeletonRows, useIsMobile } from "@exp/ui"
 import { IssueDraftPage } from "@/components/issue-draft-page"
@@ -16,12 +17,14 @@ import {
   parseIssueDraftSearch,
 } from "@/lib/issue-draft-page"
 import { pageTitle } from "@/lib/page-title"
+import { loadPendingShare, type PendingShare } from "@/lib/share/pending-share"
 
 // EXP-1170: the New issue PAGE. Every "New issue" opener mints a draft id at
 // tap time and lands here (`newDraftNavigation`); a Drafts row reopens its
 // own id. `?board=` = the board it files onto (absent: the team's default),
 // `?status=` = the group status a "+" seeded, `?from=` = the origin list
-// (md+ keeps it beside the page, Back returns to it).
+// (md+ keeps it beside the page, Back returns to it), EXP-1635 `?share=` = the
+// pending share prefills it and Back returns to Share to.
 export const Route = createFileRoute(`/t/$teamSlug/drafts/$draftId`)({
   head: () => ({ meta: [{ title: pageTitle(ISSUE_DRAFT_COPY.header) }] }),
   beforeLoad: async ({ context, location }) => {
@@ -54,9 +57,25 @@ function IssueDraftRoute() {
   // `members` empty = still syncing (a member always sees themselves).
   const membersReady = members.length > 0 && users.length > 0
 
+  // undefined = still loading; the page seeds from it once.
+  const [share, setShare] = useState<PendingShare | null | undefined>(
+    search.share ? undefined : null
+  )
+  useEffect(() => {
+    if (!search.share) return
+    let current = true
+    void loadPendingShare().then((pending) => {
+      if (current) setShare(pending)
+    })
+    return () => {
+      current = false
+    }
+  }, [search.share])
+
   // Seeding happens ONCE, on mount, so the page waits for everything a seed
   // resolves against.
   if (
+    share === undefined ||
     !team ||
     !boardsReady ||
     !draftsReady ||
@@ -110,6 +129,8 @@ function IssueDraftRoute() {
       initialStatusId={search.status}
       from={search.from}
       threadId={search.thread}
+      fromShare={Boolean(search.share)}
+      share={share}
     />
   )
 }
