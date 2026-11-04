@@ -25,3 +25,4 @@
 - „Coden starten“ an einen Agenten kommt jetzt an; Agenten-Chats bleiben reine Unterhaltungen
 - Teams können ein eigenes Bild haben
 - Der Plan einer Sitzung öffnet sich als eigener Tab
+- Apps können Einträge als Formulare, Tabellen, Kalender und Zeitleisten zeigen

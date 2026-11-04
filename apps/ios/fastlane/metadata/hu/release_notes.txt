@@ -25,3 +25,4 @@
 - A kódolás indítása egy ügynöknek most célba ér; az ügynökcsevegések egyszerű beszélgetések
 - A csapatoknak saját képük lehet
 - A munkamenet terve saját lapon nyílik meg
+- Az appok űrlapként, táblázatként, naptárként és idővonalként mutatják a rekordokat

@@ -25,3 +25,4 @@
 - Start coding to an agent now reaches it; agent chats stay a plain conversation
 - Teams can have their own image
 - A session's plan opens as its own tab
+- Apps can show records as forms, tables, calendars and timelines

@@ -1,6 +1,6 @@
 # Records: kinds, policies, queries, writes, RecordForm / RecordTable
 
-> Generated from packages/exponential-ui/docs/package-format.md (Records, Record macros, Public links) and docs/spec/apps.md §3.4 (eUI 0.13.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Records, Record macros, Public links) and docs/spec/apps.md §3.4 (eUI 0.14.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Records
 
