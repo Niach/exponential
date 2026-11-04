@@ -1,0 +1,51 @@
+name: seed-cargo-registry
+
+# #EXP-1692: test.yml never runs on master, and a PR can restore only its own
+# ref's caches and master's, so every PR's first hosted cargo job downloaded
+# every crate. This seeds the crates alone at master scope, restored by
+# .github/actions/cargo-fetch. Registry only: ~/.cargo/git holds the zed
+# checkout, and the Actions cache already sits at its size limit. One entry at
+# a time: Cargo.lock moves often.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/desktop/Cargo.lock
+      - .github/workflows/seed-cargo-registry.yml
+      - .github/actions/cargo-fetch/action.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write # delete the entry this one replaces
+
+concurrency:
+  group: seed-cargo-registry
+  cancel-in-progress: true
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The cache key
+        run: echo "KEY=Linux-cargo-registry-${{ hashFiles('apps/desktop/Cargo.lock') }}" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: 'false'
+      - uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+          key: ${{ env.KEY }}
+      - name: Delete the replaced entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/master --key Linux-cargo-registry- --limit 100 --json key --jq '.[].key' \
+            | { grep -vxF "$KEY" || true; } \
+            | while read -r old; do gh cache delete --repo "$GITHUB_REPOSITORY" "$old"; done
+          du -sh ~/.cargo/registry/cache ~/.cargo/registry/index

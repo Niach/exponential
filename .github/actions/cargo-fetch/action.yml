@@ -8,10 +8,21 @@ inputs:
   dir:
     description: The directory of the Cargo.lock to fetch. Empty = only set the network settings.
     default: apps/desktop
+  restore:
+    description: Restore the crates seed-cargo-registry.yml saves on master (#EXP-1692). Only a hosted Linux job can use them.
+    default: 'true'
 
 runs:
   using: composite
   steps:
+    - uses: actions/cache/restore@v4
+      if: inputs.restore == 'true' && inputs.dir != '' && runner.environment == 'github-hosted' && runner.os == 'Linux'
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+        key: Linux-cargo-registry-${{ hashFiles('apps/desktop/Cargo.lock') }}
+        restore-keys: Linux-cargo-registry-
     - shell: bash
       env:
         DIR: ${{ inputs.dir }}

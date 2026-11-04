@@ -16,7 +16,7 @@ the CALLER, so it cannot reach the scripts it needs; an action carries them
 | `apple-signing` | p12 → temp keychain, outputs the identity (iOS) | `build-ios.yml` |
 | `testflight-upload` | `.ipa` → TestFlight (internal by default) | `build-ios.yml` |
 | `play-upload` | signed `.aab` → a Play track (never production), changelogs from fastlane metadata | `build-android.yml` |
-| `cargo-fetch` | sets cargo's network settings, then `cargo fetch --locked` with retries (EXP-1689) | every job that runs cargo |
+| `cargo-fetch` | restores the crates `seed-cargo-registry.yml` saves on master (hosted Linux, #EXP-1692), sets cargo's network settings, then `cargo fetch --locked` with retries (EXP-1689) | every job that runs cargo |
 | `bump-versions` | config-driven version + build-number bump, prints the release tags | `bump-versions.yml` |
 
 Each action's README lists its inputs. The secrets and variables they read
