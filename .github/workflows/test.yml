@@ -147,6 +147,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
         working-directory: apps/desktop
         # EXP-519: --locked is load-bearing (Cargo.lock is the one pin of the
@@ -179,6 +180,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: The scope wrap keeps secrets off the argv
         working-directory: apps/desktop
         env:
@@ -212,6 +214,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p exponential-net-ffi --release --features cli --locked
@@ -258,6 +261,9 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
       - name: Cargo test
         working-directory: apps/ede
         run: cargo test --workspace --locked

@@ -65,6 +65,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (eMCP)
         working-directory: apps/desktop
         run: cargo test --no-fail-fast --locked -p emcp --features codemode

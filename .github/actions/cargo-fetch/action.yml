@@ -1,0 +1,40 @@
+name: cargo-fetch
+description: >-
+  EXP-1689: download a job's crates up front, retried, so a crates.io blip costs
+  seconds instead of a failed job. Also sets cargo's network settings for the
+  rest of the job. Goes after the toolchain and rust-cache steps.
+
+inputs:
+  dir:
+    description: The directory of the Cargo.lock to fetch. Empty = only set the network settings.
+    default: apps/desktop
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DIR: ${{ inputs.dir }}
+      run: |
+        # HTTP/2 to index.crates.io is what breaks ([16] framing layer), and
+        # one bad stream fails the whole cargo command. Over HTTP/1.1, cargo
+        # opens at most two connections per host: slower on a cold run, never
+        # a dead job.
+        export CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10
+        {
+          echo "CARGO_HTTP_MULTIPLEXING=$CARGO_HTTP_MULTIPLEXING"
+          echo "CARGO_NET_RETRY=$CARGO_NET_RETRY"
+        } >> "$GITHUB_ENV"
+        [ -n "$DIR" ] || exit 0
+        cd "$DIR"
+        # The fatal errors came without one "spurious network error" retry
+        # line from cargo, so CARGO_NET_RETRY alone is not trusted: this loop
+        # is the real retry. A stale lockfile fails at once, retrying is no use.
+        err="$(mktemp)"
+        for attempt in 1 2 3 4 5; do
+          if cargo fetch --locked 2>&1 | tee "$err"; then exit 0; fi
+          if grep -q 'lock file' "$err"; then exit 1; fi
+          echo "::warning title=cargo fetch::attempt $attempt of 5 failed"
+          [ "$attempt" = 5 ] || sleep $((attempt * 15))
+        done
+        exit 1

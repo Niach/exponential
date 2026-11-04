@@ -96,6 +96,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Build the Exponential UI xcframework
         working-directory: ${{ github.workspace }}
         # EXP-1364: the App Store archive links the device slice only.

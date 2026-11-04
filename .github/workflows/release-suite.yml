@@ -333,6 +333,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests
         working-directory: apps/desktop
         # EXP-519: --locked is load-bearing — the workspace manifest FLOATS the zed
@@ -370,6 +371,7 @@ jobs:
         with:
           workspaces: apps/desktop
           key: enet-wasm-smoke
+      - uses: ./.github/actions/cargo-fetch
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
@@ -406,6 +408,7 @@ jobs:
         with:
           workspaces: apps/desktop
           key: eagent-wasm-replay
+      - uses: ./.github/actions/cargo-fetch
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}
@@ -433,6 +436,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (engine confine, macOS)
         working-directory: apps/desktop
         run: cargo test --locked -p engine --lib adapters::confine
@@ -449,6 +453,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (worktree removal, Windows long paths)
         working-directory: apps/desktop
         run: 'cargo test --locked -p coding --lib leftover::'
@@ -471,6 +476,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/fuzz
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: ''
       - name: cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: Fuzz each target for 3 minutes (opus-rs)
@@ -502,6 +510,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Facade tests
         working-directory: apps/desktop
         run: cargo test --locked -p etalk-ffi
@@ -537,6 +546,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Swift binding suite (the committed binding vs the host dylib)
         run: bash apps/desktop/crates/etalk-ffi/run-binding-tests.sh swift
 
@@ -562,6 +572,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p exponential-net-ffi --release --features cli

@@ -52,6 +52,7 @@ jobs:
         with:
           workspaces: apps/desktop
           key: enet-wasm
+      - uses: ./.github/actions/cargo-fetch
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN_VERSION }}

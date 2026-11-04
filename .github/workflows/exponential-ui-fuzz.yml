@@ -39,6 +39,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/crates/eui-core/fuzz
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: ''
       - name: cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: Fuzz ${{ matrix.target }}

@@ -42,6 +42,7 @@ jobs:
         with:
           workspaces: apps/desktop
           key: ${{ matrix.channel }}
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo features for channel
         id: feat
         shell: bash
