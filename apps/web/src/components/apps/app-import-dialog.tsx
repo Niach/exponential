@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, type ImportIssue } from "@exp/domain-contract/app-export"
 import { APP_TEMPLATES, APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
+import { APPS_COPY, APPS_TEST_IDS, UPSTREAM_PICKER_NONE } from "@exp/domain-contract/apps"
 import {
   BoardGlyph,
   Button,
@@ -20,6 +21,9 @@ import {
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { UpstreamPickerSelect } from "./upstream-picker-select"
+
+type ImportCheck = Awaited<ReturnType<typeof trpc.apps.validateImport.mutate>>
 
 // VAPP-121 (fixtures/app-export.json): the IMPORT step. VAPP-176: its own
 // dialog, opened from the Apps list band's Import pill (New app has no
@@ -28,6 +32,8 @@ import { trpc } from "@/lib/trpc-client"
 // VAPP-234 (fixtures/app-templates.json): the TEMPLATES step above it: a
 // tap on a signed template imports it at once (v1 published, the sample
 // records only with the switch on) and opens its editor.
+// #VAPP-254 (apps.json `upstreamPickerCases`): an owner picks which team
+// server fills each upstream the file declares.
 
 export function AppImportDialog({
   open,
@@ -43,6 +49,8 @@ export function AppImportDialog({
   const navigate = useNavigate()
   const [text, setText] = useState(``)
   const [issues, setIssues] = useState<ImportIssue[] | null>(null)
+  const [check, setCheck] = useState<Pick<ImportCheck, `upstreams` | `servers`>>({ upstreams: [], servers: [] })
+  const [picks, setPicks] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [withRecords, setWithRecords] = useState(false)
   const [picking, setPicking] = useState<string | null>(null)
@@ -51,12 +59,19 @@ export function AppImportDialog({
   // The server is the one authority: a debounced check as the text changes.
   useEffect(() => {
     if (!open) return
-    if (!text.trim()) return void setIssues(null)
+    if (!text.trim()) {
+      setCheck({ upstreams: [], servers: [] })
+      return void setIssues(null)
+    }
     let live = true
     const timer = setTimeout(() => {
       trpc.apps.validateImport
         .mutate({ teamId, text }, SKIP_ERROR_TOAST)
-        .then((result) => live && setIssues(result.issues))
+        .then((result) => {
+          if (!live) return
+          setIssues(result.issues)
+          setCheck(result)
+        })
         .catch(() => live && setIssues([{ path: `/`, message: `could not be checked` }]))
     }, 300)
     return () => {
@@ -68,6 +83,8 @@ export function AppImportDialog({
   const reset = () => {
     setText(``)
     setIssues(null)
+    setCheck({ upstreams: [], servers: [] })
+    setPicks({})
     setWithRecords(false)
   }
 
@@ -95,7 +112,8 @@ export function AppImportDialog({
     if (submitting || !issues || issues.length > 0) return
     setSubmitting(true)
     try {
-      const result = await trpc.apps.import.mutate({ teamId, text }, SKIP_ERROR_TOAST)
+      const upstreamMappings = check.upstreams.flatMap(({ name }) => (picks[name] && picks[name] !== UPSTREAM_PICKER_NONE ? [{ upstream: name, serverId: picks[name] }] : []))
+      const result = await trpc.apps.import.mutate({ teamId, text, upstreamMappings }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
       opened(result.app.slug)
     } catch (error) {
@@ -172,6 +190,24 @@ export function AppImportDialog({
                   <li>{APP_EXPORT_COPY.moreIssues.replace(`{n}`, String(issues.length - APP_EXPORT_LIMITS.issuesShown))}</li>
                 )}
               </ul>
+            )}
+            {issues?.length === 0 && check.upstreams.length > 0 && check.servers.length > 0 && (
+              <div className="space-y-1" data-testid={APPS_TEST_IDS.importUpstreams}>
+                <GlassSectionHeader label={APPS_COPY.accounts.title} />
+                <GlassGroup>
+                  {check.upstreams.map((upstream) => {
+                    const picked = picks[upstream.name]
+                    const server = picked ? (check.servers.find((s) => s.id === picked) ?? null) : null
+                    const row = picked ? { name: upstream.name, serverId: server?.id ?? null, serverName: server?.name ?? null } : upstream
+                    return (
+                      <div key={upstream.name} className="flex items-center gap-3 px-4 py-2.5" data-testid={`${APPS_TEST_IDS.importUpstream}-${upstream.name}`}>
+                        <div className="min-w-0 flex-1 truncate text-sm">{upstream.name}</div>
+                        <UpstreamPickerSelect row={row} servers={check.servers} disabled={submitting} testId={`${APPS_TEST_IDS.importUpstream}-${upstream.name}-picker`} onPick={(value) => setPicks((prev) => ({ ...prev, [upstream.name]: value }))} />
+                      </div>
+                    )
+                  })}
+                </GlassGroup>
+              </div>
             )}
           </DialogBody>
           <DialogFooter>

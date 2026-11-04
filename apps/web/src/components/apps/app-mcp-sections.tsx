@@ -3,9 +3,10 @@ import { useNavigate } from "@tanstack/react-router"
 import { Button, conceptIcon, GlassGroup, Menu, Pill, Prompt, Switch, toast } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, automationSponsor, webhookRow } from "@exp/domain-contract/apps"
+import { accountCaption, accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, automationSponsor, UPSTREAM_PICKER_NONE, webhookRow } from "@exp/domain-contract/apps"
 import { APP_SHARE, APP_SHARE_COPY, shareRowSubtitle, shareSwitchOn } from "@exp/domain-contract/app-share"
 import { promptActions, rotateWebhookSecretPrompt } from "@/lib/prompts"
+import { UpstreamPickerSelect } from "./upstream-picker-select"
 
 // #VAPP-183: an app's MCP side on its settings page (web + desktop, the
 // draft `web-editor-settings`): ACCOUNTS = the upstreams the app's tools
@@ -66,6 +67,19 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
     } catch (e) {
       setData(before)
       failedAction(`save`, `the tool`, e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // #VAPP-254: an owner picks which team server fills the upstream.
+  const pickServer = async (upstream: string, value: string) => {
+    setBusy(`upstream:${upstream}`)
+    try {
+      await trpc.appAccess.setUpstreamMapping.mutate({ appId, upstream, serverId: value === UPSTREAM_PICKER_NONE ? null : value }, SKIP_ERROR_TOAST)
+      setData(await trpc.appAccess.appTools.query({ appId }))
+    } catch (e) {
+      failedAction(`save`, `the server`, e)
     } finally {
       setBusy(null)
     }
@@ -145,9 +159,14 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
           <GlassGroup>
             {data.upstreams.map((u) => {
               const row = accountRow(u)
+              const caption = accountCaption(u)
               return (
-                <div key={u.name} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.accountRow}-${u.name}`}>
-                  <div className="min-w-0 truncate text-sm">{u.name}</div>
+                <div key={u.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.accountRow}-${u.name}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">{u.name}</div>
+                    {caption && <div className="truncate text-xs text-muted-foreground">{caption}</div>}
+                  </div>
+                  <UpstreamPickerSelect row={u} servers={data.servers} disabled={busy !== null} testId={`${APPS_TEST_IDS.accountRow}-${u.name}-picker`} onPick={(value) => void pickServer(u.name, value)} />
                   {row.status === `notSetUp` && data.canToggle ? (
                     <Button
                       size="sm"
