@@ -84,7 +84,7 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.flowOn
 
 /** A pick held in memory until the create (parent / share mode). */
-data class HeldFile(val key: String, val uri: Uri, val filename: String)
+data class HeldFile(val key: String, val uri: Uri, val filename: String, val mime: String? = null)
 
 /** The New issue page's form (EXP-1170) — everything a draft row carries + the page's flags. */
 data class IssueDraftUiState(
@@ -565,10 +565,25 @@ class IssueDraftViewModel @Inject constructor(
         onChipChange { it.copy(boardId = boardId) }
     }
 
+    private var oversizeReported = false
+
     fun applySharePrefill(prefill: SharePrefill) {
         if (!shareMode || userEdited) return
         pendingImages.putAll(prefill.pendingImages)
-        _state.update { it.copy(title = prefill.title, description = prefill.description) }
+        if (prefill.oversizeFiles && !oversizeReported) {
+            oversizeReported = true
+            reportFailed(listOf("a file over ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB"))
+        }
+        _state.update { s ->
+            s.copy(
+                title = prefill.title,
+                description = prefill.description,
+                // EXP-1635: re-applied on a recomposition, so never doubled.
+                heldFiles = s.heldFiles.ifEmpty {
+                    prefill.files.map { HeldFile(UUID.randomUUID().toString(), it.uri, sanitizeFilename(it.filename), it.mime) }
+                },
+            )
+        }
     }
 
     suspend fun createLabel(name: String, color: String): LabelEntity? {
@@ -1120,7 +1135,8 @@ class IssueDraftViewModel @Inject constructor(
             try {
                 // EXP-1247: every held pick came through the Files path, so
                 // an image uploads `asFile` too (it is never inlined).
-                val contentType = canonicalContentType(resolver.getType(file.uri))
+                // A shared file sits in the cache as `file://`, which has no type.
+                val contentType = canonicalContentType(file.mime ?: resolver.getType(file.uri))
                 val bytes = withContext(Dispatchers.IO) { resolver.openInputStream(file.uri)?.use { it.readBytes() } }
                 if (bytes == null) {
                     failed += file.filename
