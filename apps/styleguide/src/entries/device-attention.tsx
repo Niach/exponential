@@ -86,7 +86,7 @@ function Card({ name, version, outdated, status, preview }: {
       </div>
       {preview && (
         <DeviceAccountPanel
-          name="danny@yourev.at"
+          name="alex@acme.example"
           plan="Max"
           status={DEVICES_LIST_COPY.status.needs_relogin}
           windows={WINDOWS}

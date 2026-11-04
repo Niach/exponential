@@ -143,7 +143,14 @@ impl Surface {
         }
         self.needs_build = true;
         let mut out = vec![];
-        out.extend(self.write_through(id, "open", Value::Bool(open)));
+        let written = self.write_through(id, "open", Value::Bool(open));
+        // A bound `open` now holds the value: the local copy would outlive it
+        // and shadow the next `set` from the data model (a dismissed Drawer
+        // that never reopens).
+        if !written.is_empty() {
+            self.local.open.remove(id);
+        }
+        out.extend(written);
         out.extend(self.fire(id, "change", Some(json!({"open": open}))));
         out.push(OutEvent::Relayout);
         out
@@ -293,9 +300,10 @@ impl Surface {
                 if let Some(url) = call.args.get("url").and_then(Value::as_str) {
                     out.push(OutEvent::OpenUrl { url: url.to_string() });
                 }
-            } else if !call.call.is_empty() && !crate::host::is_builtin_function(&call.call) {
+            } else if !call.call.is_empty() && (call.call == "bind" || !crate::host::is_builtin_function(&call.call)) {
                 // A host function: the host's registry + policy gate decide
-                // (VAPP-91). The other built-ins are value functions: no effect.
+                // (VAPP-91). `bind` is a built-in the HOST runs (it re-follows
+                // a source). The other built-ins are value functions: no effect.
                 out.push(OutEvent::FunctionCall { component_id: id.to_string(), name: call.call, args: Value::Object(call.args) });
             }
         }

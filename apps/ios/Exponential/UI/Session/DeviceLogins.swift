@@ -664,7 +664,7 @@ struct DeviceAttentionSpecimens: View {
                 }
                 if preview {
                     DeviceAccountPanel(
-                        name: "danny@yourev.at",
+                        name: "alex@acme.example",
                         plan: "Max",
                         status: DevicesList.Copy.status(.needsRelogin),
                         usage: Self.usage,

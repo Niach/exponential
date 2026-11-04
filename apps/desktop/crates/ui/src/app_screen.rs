@@ -196,6 +196,29 @@ fn dev_frame(shows: impl Fn(&str) -> bool) -> Option<PreviewFrame> {
     Some(frame)
 }
 
+/// DEV-ONLY: split a run drive's `<slug>[/<screen>]`
+/// (`run:crm/contacts`, `run:leave-planner/timeline`; slugs carry no `/`).
+pub(crate) fn split_run_spec(spec: &str) -> (&str, Option<&str>) {
+    match spec.split_once('/') {
+        Some((app, screen)) if !screen.is_empty() => (app, Some(screen)),
+        Some((app, _)) => (app, None),
+        None => (spec, None),
+    }
+}
+
+/// DEV-ONLY: the screen `EXP_DEV_SCREEN=run:<slug>/<screen>` asks of the first
+/// run view that shows that app (once).
+fn dev_run_screen(shows: impl Fn(&str) -> bool) -> Option<String> {
+    static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
+    let (app, screen) = split_run_spec(spec.trim().strip_prefix("run:")?);
+    let screen = screen?;
+    if !shows(app) || TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    Some(screen.to_string())
+}
+
 fn ide_mode(cx: &App) -> Mode {
     if cx.theme().mode.is_dark() {
         Mode::Dark
@@ -403,6 +426,8 @@ impl AppScreenView {
             this.frame = PreviewFrame::Desktop;
             if let Some((screen, params)) = take_screen_request(|app| this.shows(app), cx) {
                 this.request_screen(screen, params, cx);
+            } else if let Some(screen) = dev_run_screen(|app| this.shows(app)) {
+                this.request_screen(screen, serde_json::Map::new(), cx);
             }
             return this;
         }
@@ -1210,9 +1235,12 @@ impl AppScreenView {
                             .items_center()
                             .gap_2()
                             .rounded_md()
+                            .border_1()
+                            .border_color(theme.warning.opacity(0.4))
                             .px_3()
                             .py_1()
-                            .bg(theme.warning.opacity(0.14))
+                            .bg(theme.warning.opacity(0.10))
+                            .text_color(theme.warning)
                             .child(Icon::new(registry::UI_WARNING).size_4().text_color(theme.warning))
                             .child(div().flex_1().text_sm().child(banner.text))
                             .when(connect, |row| row.child(
@@ -1220,6 +1248,7 @@ impl AppScreenView {
                                     .ghost()
                                     .small()
                                     .cursor_pointer()
+                                    .text_color(theme.warning)
                                     .label(api::apps::upstream_binding::CONNECT)
                                     .on_click(|_, window, cx| {
                                         crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
@@ -1272,8 +1301,16 @@ impl AppScreenView {
             .bg(theme.background)
             .map(|frame| {
                 if !framed {
-                    // VAPP-242: edge to edge, no border or radius.
-                    return frame.size_full().min_w_0();
+                    // VAPP-242: edge to edge, no frame of its own. gpui's content
+                    // mask is rectangular and a child paints over its parent's
+                    // border, so the fill keeps the cutout panel's arc and stroke
+                    // (shell.rs, the panel), or it squares the panel off.
+                    return frame
+                        .size_full()
+                        .min_w_0()
+                        .rounded(px(theme::tokens::radius::LG))
+                        .border_1()
+                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla());
                 }
                 let frame = match self.frame.width() {
                     // VAPP-179: Phone = `phoneWidth` px, centred (never wider

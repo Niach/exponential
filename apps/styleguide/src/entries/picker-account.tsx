@@ -15,7 +15,7 @@ const LIMITS = {
 }
 
 const OPTIONS = [
-  { key: `claude:system`, agent: `claude`, email: `danny@yourev.at`, limits: LIMITS },
+  { key: `claude:system`, agent: `claude`, email: `alex@acme.example`, limits: LIMITS },
   { key: `codex:system`, agent: `codex`, email: `ops@yourev.at` },
   {
     key: `claude:alt`,
@@ -57,7 +57,7 @@ export const entry: StyleguideEntry = {
       </div>
       {/* The preview a row carries, at the size it draws inside the surface. */}
       <div className="flex items-center gap-3">
-        <PickerTrigger variant="pill" label="Account" value="danny@yourev.at" />
+        <PickerTrigger variant="pill" label="Account" value="alex@acme.example" />
         <UsageWindows density="hover" windows={accountLimitWindows(LIMITS)} />
       </div>
     </div>

@@ -281,6 +281,7 @@ private struct TeamGeneralPage: View {
                     }
                     .glassSection()
                 }
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("team-settings-identity")
 
                 GlassToggleRow("Yolo mode", isOn: Binding(

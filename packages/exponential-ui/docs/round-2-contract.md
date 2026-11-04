@@ -174,7 +174,7 @@ Rounding = half away from zero on the shortest round-trip decimal.
 through the surface Formatter (`ResolveOptions.formatter`, `now`). A node
 using `formatRelativeTime` without `now` re-binds at least once a minute.
 `pluralize`: value 0 with a `zero` arm → it, else the CLDR category, else
-`other`.
+`other`; `{count}` in the chosen arm reads the value through the formatter.
 
 **Where renderers format**: Table `number`/`currency`/`percent`/`date`/
 `relativeTime` cells (`column.currency`, `column.decimals`), NumberField

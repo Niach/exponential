@@ -918,8 +918,11 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 let (app, _, _) = crate::app_screen::split_app_spec(app);
                 return Some(Screen::App { app: app.to_string() });
             }
-            // VAPP-242: one app's RUN VIEW, by id or by slug.
+            // VAPP-242: one app's RUN VIEW, by id or by slug; `run:<slug>/<screen>`
+            // opens it on that screen (the view reads it off the env itself:
+            // `app_screen::dev_run_screen`).
             if let Some(app) = spec.strip_prefix("run:") {
+                let (app, _) = crate::app_screen::split_run_spec(app);
                 return Some(Screen::AppRun { app: app.to_string() });
             }
             if let Some(id) = spec.strip_prefix("agent:") {
@@ -2202,6 +2205,7 @@ mod tests {
         assert!(!Screen::App { app: "a".into() }.is_detail());
         // VAPP-242: one app's run view (by slug or id).
         assert_eq!(parse_dev_screen("run:working-hours"), Some(Screen::AppRun { app: "working-hours".into() }));
+        assert_eq!(parse_dev_screen("run:crm/contacts"), Some(Screen::AppRun { app: "crm".into() }));
         assert!(!Screen::AppRun { app: "a".into() }.is_detail());
         // VAPP-93: every specimen id of the site (view `exponential-ui-<x>`).
         assert_eq!(

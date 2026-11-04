@@ -47,6 +47,10 @@ struct AppPreview: View {
     /// VAPP-242: the run view's empty state (`copy.runEmpty`, the app's glyph).
     var emptyTitle = Apps.Copy.previewEmpty
     var emptyIcon = AppIcons.navApps
+    /// The scroller's visible height: the surface's viewport, what its
+    /// Dialogs and Drawers size against (`setViewport`); the surface itself
+    /// is as tall as its content.
+    @State private var visibleHeight: CGFloat = 0
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: framed ? Apps.Preview.radius : 0)
@@ -58,6 +62,7 @@ struct AppPreview: View {
                         AppPackageSurface(
                             packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly,
                             migrateFrom: migrateFrom, shown: screens.shown,
+                            viewportHeight: max(0, visibleHeight - Apps.Preview.padding * 2),
                             onNavigate: { request in screen.wrappedValue = request }
                         )
                         .id("\(grants):\(readOnly):\(migrateFrom ?? ""):\(screens.shownKey):\(packageJSON)")
@@ -70,6 +75,7 @@ struct AppPreview: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .scrollContentBackground(.hidden)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleHeight = $0 }
             if Apps.screenShell(screenCount: screens.tabs.count, phone: true) == .bar {
                 PhoneTabCapsule(
                     tabs: screens.tabs.map(\.screen),
@@ -155,6 +161,8 @@ private struct AppPackageSurface: View {
     let migrateFrom: String?
     /// VAPP-218: the shown screen (nil = no screens).
     let shown: Apps.ScreenRequest?
+    /// The height the surface's overlay layers size against.
+    let viewportHeight: CGFloat
     /// VAPP-218: the package's `app.navigate` (the request it names).
     let onNavigate: (Apps.ScreenRequest) -> Void
 
@@ -174,6 +182,8 @@ private struct AppPackageSurface: View {
                     }
                     HostSurface(host: appHost.host, surfaceId: Apps.Preview.surfaceId)
                 }
+                .onChange(of: appHost.host.surfaces[Apps.Preview.surfaceId] != nil, initial: true) { _, _ in syncViewport() }
+                .onChange(of: viewportHeight) { _, _ in syncViewport() }
             } else {
                 Color.clear.frame(height: 1)
             }
@@ -186,6 +196,11 @@ private struct AppPackageSurface: View {
         }
     }
 
+    private func syncViewport() {
+        guard let model = appHost?.host.surfaces[Apps.Preview.surfaceId] else { return }
+        model.setViewport(width: model.width, height: viewportHeight, maxHeight: model.maxHeight)
+    }
+
     /// #VAPP-230: the viewer has no connection to an upstream the app reads
     /// (`AppUpstream.bannerServers`): "Connect <server>" as the amber notice
     /// of ×4 (upstream.json `binding`: `SyncHealthBanner`'s tone, the
@@ -195,23 +210,23 @@ private struct AppPackageSurface: View {
         HStack(spacing: 6) {
             AppIcon(AppIcons.uiWarning, size: 11)
             Text(banner.text)
-                .font(.caption2)
+                .font(.caption)
             Spacer(minLength: 8)
             if let teamId, banner.connect {
                 Button(AppUpstream.connect) {
                     pushRoute(.teamSettingsSection(accountId: accountId, teamId: teamId, section: .mcp))
                 }
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .buttonStyle(.plain)
             }
         }
-        .foregroundStyle(.white.opacity(0.9))
+        .foregroundStyle(DesignTokens.Semantic.yellow)
         .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .background(.orange.opacity(0.35))
-        .background(.ultraThinMaterial)
+        .background(DesignTokens.Semantic.yellow.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(DesignTokens.Semantic.yellow.opacity(0.4), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AppUpstream.bannerTestId)
     }

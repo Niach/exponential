@@ -520,7 +520,8 @@ internal fun AppSettingsBody(
                                 automationSponsors[automation.name]?.let { "${row.trigger} · $it" } ?: row.trigger,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = muted,
-                                maxLines = 1,
+                                // The pause reason sits after the trigger: one line cut it off.
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }

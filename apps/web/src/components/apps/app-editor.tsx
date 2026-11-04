@@ -173,7 +173,7 @@ function VersionRows({
             <Pill size="sm" className="shrink-0 tabular-nums">{versionLabel(version.number)}</Pill>
             <span className={cn(`min-w-0 truncate`, note ? `font-medium` : `text-muted-foreground`)}>{note || APPS_COPY.noNote}</span>
           </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+          <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
             {author?.name ?? APPS_COPY.byAgent} · {relativeTime(version.createdAt)}
             {/* eApps R8 (apps.json migrationCases): the record sweep's line. */}
             {migration ? ` · ${migration}` : ``}

@@ -288,8 +288,10 @@ internal fun BooleanCellLeaf(cx: LeafContext) {
 /** A `badge` Table cell: the value in a Badge look (`Badge/root` + `Badge/label`), one line. */
 @Composable
 internal fun BadgeCellLeaf(cx: LeafContext) {
-    val root = cx.part("Badge", "root", cx.props)
-    val label = cx.part("Badge", "label", cx.props)
+    // The secondary Badge, as the React and SwiftUI renderers draw a badge cell.
+    val badge = cx.props + ("variant" to JsonValue.Str("secondary"))
+    val root = cx.part("Badge", "root", badge)
+    val label = cx.part("Badge", "label", badge)
     val ink = label.color ?: root.color ?: cx.ink
     val ts = cx.textStyle.copy(fontSize = max(cx.textStyle.fontSize - 2f, 10f))
     InnerBox(cx, Alignment.CenterStart) {

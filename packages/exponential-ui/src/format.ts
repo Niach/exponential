@@ -488,9 +488,11 @@ export function formatFunctions(formatter: Formatter, now: () => number = () => 
     pluralize: (args) => {
       const n = toNum(args.value)
       if (!Number.isFinite(n)) return args.other
-      if (n === 0 && args.zero !== undefined) return args.zero
+      // An arm's `{count}` reads the value through the same formatter.
+      const arm = (value: unknown) => (typeof value === `string` ? value.replaceAll(`{count}`, formatter.number(n)) : value)
+      if (n === 0 && args.zero !== undefined) return arm(args.zero)
       const category = formatter.plural(n)
-      return args[category] ?? args.other
+      return arm(args[category] ?? args.other)
     },
   }
 }
