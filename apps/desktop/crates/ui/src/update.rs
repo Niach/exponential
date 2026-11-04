@@ -380,15 +380,49 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
             });
             if let Some(restart_path) = restart {
                 log::info!("[ui] update: restarting on the new version");
-                cx.update(|cx| {
-                    if let Some(path) = restart_path {
-                        cx.set_restart_path(path);
-                    }
-                    cx.restart();
-                });
+                cx.update(|cx| relaunch(restart_path, cx));
                 return;
             }
         }
+    })
+    .detach();
+}
+
+/// Quit and come back on `restart_path` (`None` = this exe). FEED-189: on
+/// Windows gpui's restart hands the relaunch to a PowerShell script, and a
+/// script that fails to run or start the app leaves the machine with no app
+/// and nothing logged. There the new exe is started directly and waits for
+/// this process itself ([`coding::process::await_relaunch`]). gpui's restart
+/// stays the fallback, and the path everywhere else.
+pub(crate) fn relaunch(restart_path: Option<PathBuf>, cx: &mut App) {
+    let exe = cfg!(target_os = "windows")
+        .then(|| restart_path.clone().or_else(|| std::env::current_exe().ok()))
+        .flatten();
+    let Some(exe) = exe else {
+        if let Some(path) = restart_path {
+            cx.set_restart_path(path);
+        }
+        cx.restart();
+        return;
+    };
+    let pid = std::process::id();
+    cx.spawn(async move |cx| {
+        // Off the foreground: `CreateProcessW` can pump the Win32 message loop
+        // and re-enter the app while it is borrowed (gpui's own note).
+        let spawned = cx
+            .background_executor()
+            .spawn(async move { coding::process::spawn_after_exit(&exe, pid) })
+            .await;
+        cx.update(|cx| match spawned {
+            Ok(()) => {
+                log::info!("[ui] update: relaunch started, quitting");
+                cx.quit();
+            }
+            Err(err) => {
+                log::warn!("[ui] update: relaunch failed to start ({err}), using gpui's restart");
+                cx.restart();
+            }
+        });
     })
     .detach();
 }

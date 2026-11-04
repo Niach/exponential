@@ -535,19 +535,20 @@ fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Apply the verified download. Returns the path to hand to gpui's
-/// `set_restart_path` (`None` = relaunch the current exe path, which is
-/// correct after a Windows in-place swap). The staged file is consumed
-/// (Linux) or deleted (Windows/macOS) on success.
+/// Apply the verified download. Returns the path to relaunch: on Windows the
+/// exe's path read BEFORE the swap (FEED-189: the swap renames the running
+/// file, so nothing asked afterwards can be trusted to name the new one). The
+/// staged file is consumed (Linux) or deleted (Windows/macOS) on success.
 pub fn install(strategy: &Strategy, staged: &Path) -> Result<Option<PathBuf>> {
     match strategy {
         Strategy::AppImage { appimage } => {
             install_appimage(appimage, staged).map(|()| Some(appimage.clone()))
         }
         Strategy::ReplaceExe => {
+            let exe = std::env::current_exe().ok();
             install_exe(staged)?;
             let _ = fs::remove_file(staged);
-            Ok(None)
+            Ok(exe)
         }
         Strategy::ReplaceBundle { bundle } => {
             install_bundle(bundle, staged)?;
