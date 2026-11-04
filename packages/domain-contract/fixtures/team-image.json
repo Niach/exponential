@@ -1,0 +1,33 @@
+{
+  "$comment": "#EXP-1645 THE TEAM MARK + TEAM IMAGE ×4 (web packages/ui team-avatar.tsx + general-section, desktop user_avatar::team_avatar + settings/team_general.rs, iOS ExpUI TeamAvatar + TeamSettingsPages, Android components/Avatars.kt + TeamSettingsScreen). The team letter is GONE on every platform. `teamMark(iconUrl)` (`markCases`, every mirror replays them whole): `teams.icon_url` non-blank = {kind: image, src} (the image in a square of the requested side, clipped to a rounded rectangle at `mark.radiusFraction` of the side, cover, NO border, NO fill behind it, so a transparent image stays transparent; a relative `/api/attachments/{id}` is fetched like any attachment, through the platform's signed-in image loader); blank = {kind: glyph} (`mark.glyph`, the group icon, at the side in the surrounding text colour: no chip, no fill). While an image loads or after it fails: the glyph. SETTINGS › GENERAL: one row `copy.row` in the General group, directly under Name: the label, then the mark at `row.markSize`, then an action pill `copy.upload` opening the platform's image picker (phones: photo library + files; `upload.accept`), then, only with an image, the icon-only ghost `copy.remove` (`ui-delete`, no confirm; `teams.update {iconUrl: null}`). Owners only (the same page guard / disabled rule as the time zone); while uploading the pill is busy; a failure = the failed-action toast (`upload the team image`). UPLOAD: one multipart part `file` to `upload.path` (owner only, `upload.maxBytes`). The SERVER normalises every accepted type (SVG included, never served inline) to ONE transparent PNG, `upload.side` square, `contain` (nothing is cropped, the rest is transparent), stores it as an owner-less attachment and sets `teams.icon_url` to its `/api/attachments/{id}`, answering {iconUrl}; the shape delivers it. The orphan sweep keeps an attachment a team's `icon_url` names, and reclaims the replaced or removed one after its window.",
+  "copy": {
+    "row": "Team image",
+    "upload": "Upload",
+    "remove": "Remove image"
+  },
+  "testIds": {
+    "row": "team-image",
+    "upload": "team-image-upload",
+    "remove": "team-image-remove"
+  },
+  "mark": {
+    "radiusFraction": 0.25,
+    "glyph": "ui-team"
+  },
+  "row": {
+    "markSize": 28
+  },
+  "upload": {
+    "path": "/api/teams/{teamId}/icon",
+    "maxBytes": 10485760,
+    "side": 512,
+    "accept": ["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"]
+  },
+  "markCases": [
+    { "iconUrl": null, "mark": { "kind": "glyph" } },
+    { "iconUrl": "", "mark": { "kind": "glyph" } },
+    { "iconUrl": "   ", "mark": { "kind": "glyph" } },
+    { "iconUrl": "/api/attachments/4c9f", "mark": { "kind": "image", "src": "/api/attachments/4c9f" } },
+    { "iconUrl": "https://example.com/logo.png", "mark": { "kind": "image", "src": "https://example.com/logo.png" } }
+  ]
+}

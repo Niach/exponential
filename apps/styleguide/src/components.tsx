@@ -108,6 +108,7 @@ import {
   SessionResultsView,
   StatusGlyph,
   TeamAvatar,
+  TeamImageRow,
   Textarea,
   Composer,
   ComposerSubmit,
@@ -161,6 +162,9 @@ import {
 } from "./html.ts"
 
 export type ComponentPlatform = `web` | `desktop` | `ios` | `android`
+
+// A transparent vector mark (the team-avatar entry: no border, no fill).
+const TEAM_SAMPLE_IMAGE = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#f97316" d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 16.5 5.5 21l2-7.5L2 9h7z"/></svg>`)}`
 
 export const COMPONENT_PLATFORMS: readonly ComponentPlatform[] = [
   `web`,
@@ -1673,7 +1677,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `team-avatar`,
     title: `Team avatar`,
     kind: `Buttons & chips`,
-    blurb: `A team is a single accent SQUARE — the primary fill under its foreground, corners at a quarter of the side, the first letter at 44% — so it never reads as a person: user avatars are hashed-hue circles and there is no hue here to hash, because a team has one identity, not one of eight. 28 in the sidebar header, 20 in its menu, 18 in the switcher sheet.`,
+    blurb: `THE team mark (fixture \`team-image.json\` ×4): the team's image in a rounded rectangle at a quarter of its side, no border and no fill, so a transparent image stays transparent; no image = the group glyph in the surrounding text colour. There are no team letters. 28 in the sidebar header, 20 in its menu, 18 in the switcher sheet.`,
     status: {
       web: ok(`TeamAvatar`, `packages/ui/src/team-avatar.tsx`),
       desktop: ok(`user_avatar::team_avatar`, `apps/desktop/crates/ui/src/user_avatar.rs`),
@@ -1681,10 +1685,18 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       android: ok(`TeamAvatar`, `${ANDROID_COMPONENTS}/Avatars.kt`),
     },
     island: () => (
-      <div className="flex items-center gap-3">
-        <TeamAvatar name="Exponential" size={28} />
-        <TeamAvatar name="Acme" size={20} />
-        <TeamAvatar name="Mobile" size={18} />
+      <div className="flex max-w-md flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <TeamAvatar iconUrl={TEAM_SAMPLE_IMAGE} size={28} />
+          <TeamAvatar iconUrl={TEAM_SAMPLE_IMAGE} size={20} />
+          <TeamAvatar iconUrl={null} size={28} />
+          <TeamAvatar iconUrl={null} size={20} />
+          <TeamAvatar iconUrl={null} size={18} />
+        </div>
+        <GlassGroup>
+          <TeamImageRow iconUrl={TEAM_SAMPLE_IMAGE} onUpload={() => {}} onRemove={() => {}} />
+          <TeamImageRow iconUrl={null} onUpload={() => {}} onRemove={() => {}} />
+        </GlassGroup>
       </div>
     ),
   },
