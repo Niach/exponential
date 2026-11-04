@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-04-agent-keys-off-argv",
+    date: "2026-11-04",
+    title: "Agent keys stay off the command line on Linux",
+    summary: "On Linux machines with a recent systemd, the key that lets an agent reach Exponential no longer shows up in the agent's command line.",
+    body: r#"- **Security fix (Linux)**: on systemd 258 and newer, the agent's Exponential key was expanded into its command line, where other processes on the machine could read it. It now stays in the environment only. Update the desktop app or the CLI on Linux machines.
+- **Forwarded images**: the agent's run playbook tells it to forward pasted images when it hands work on."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_198: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-pasted-images",
     date: "2026-11-04",
     title: "Pasted images reach the agent and show in chats",
