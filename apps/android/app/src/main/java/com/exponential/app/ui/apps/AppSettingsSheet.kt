@@ -453,7 +453,7 @@ internal fun AppSettingsBody(
                                 },
                                 modifier = Modifier.testTag("${Apps.TestIds.ACCOUNT_ROW}-${account.name}-${row.action.wire}"),
                             )
-                        } else if (row.label != null) {
+                        } else if (row.label != null && (row.status != "notSetUp" || upstreamServers.isEmpty())) {
                             Text(row.label, style = MaterialTheme.typography.bodyMedium, color = muted)
                         }
                     }

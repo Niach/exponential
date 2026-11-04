@@ -1019,7 +1019,7 @@ struct AppSettingsSheet: View {
                               mode: .action { connect(serverId) })
                         .fixedSize()
                         .accessibilityIdentifier("\(Apps.TestIds.accountRow)-\(account.name)-\(row.action?.rawValue ?? "")")
-                } else if let label = row.label {
+                } else if let label = row.label, row.status != "notSetUp" || servers.isEmpty {
                     Text(label)
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
