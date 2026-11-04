@@ -68,6 +68,7 @@ public enum Apps {
         public static let preview = "Preview"
         /// VAPP-242: THE RUN VIEW of an app with nothing published.
         public static let runEmpty = "Not published yet"
+        public static let needsUpdate = "This app needs an update"
 
         /// VAPP-177: the list row's `…` and the phone editor's `…` menu.
         public enum Menu {
@@ -806,6 +807,18 @@ public enum Apps {
         let list = previewTemplates(packageJSON: packageJSON)
         if let picked, list.contains(picked) { return picked }
         return list.first
+    }
+
+    /// #VAPP-251 (`surfaceStateCases`): what an app's pane shows.
+    public enum SurfaceState: String {
+        case empty, surface, needsUpdate
+    }
+
+    /// Nothing to run, the surface, or once the host had its chance and
+    /// holds no surface (it refused the package), `copy.needsUpdate`.
+    public static func surfaceState(hasPackage: Bool, applied: Bool, hasSurface: Bool) -> SurfaceState {
+        guard hasPackage else { return .empty }
+        return applied && !hasSurface ? .needsUpdate : .surface
     }
 
     // MARK: - VAPP-218 screens (fixture `screens`, TS `screenShell` …)

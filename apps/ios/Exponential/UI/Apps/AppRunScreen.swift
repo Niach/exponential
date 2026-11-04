@@ -13,7 +13,8 @@ import SwiftUI
 /// `…` (`runMenu`, THE Menu's sheet, `run.menu`): Edit app (the creator or
 /// an owner) → THE EDITOR, Export (published > 0), Delete app (the creator
 /// or an owner) → the delete prompt. Nothing published = the page-size
-/// EmptyState `copy.runEmpty` with the app's glyph. `app.navigate` keeps
+/// EmptyState `copy.runEmpty` with the app's glyph; a package the host refuses
+/// (#VAPP-251) = `copy.needsUpdate`, `AppPreview`'s. `app.navigate` keeps
 /// the screen in memory; a new published version keeps it when it exists.
 struct AppRunScreen: View {
     let appId: String
@@ -50,7 +51,8 @@ struct AppRunScreen: View {
                         screen: $screenRequest,
                         framed: false,
                         emptyTitle: Apps.Copy.runEmpty,
-                        emptyIcon: app.glyph
+                        emptyIcon: app.glyph,
+                        glyph: app.glyph
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

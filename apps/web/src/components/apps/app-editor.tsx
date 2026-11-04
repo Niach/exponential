@@ -26,6 +26,7 @@ import {
   Button,
   conceptIcon,
   EmptyState,
+  getActionIcon,
   GlassGroup,
   JumpToBottomButton,
   ListRow,
@@ -653,7 +654,7 @@ export function AppEditor({
         </div>
       )}
       {/* A grant is about the version it was made on (`grantVersion`): any other previews asking for everything. */}
-      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} phone={isMobile} screen={screenRequest} onScreen={openScreen} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} migrateFrom={shown !== app.publishedVersion && app.publishedVersion > 0 ? ((app.row?.package as { version?: string } | null)?.version ?? null) : null} />
+      <AppPreview pkg={shownPackage} glyph={getActionIcon({ icon: app.icon })} template={pickedTemplate} frame={isMobile ? `desktop` : frame} phone={isMobile} screen={screenRequest} onScreen={openScreen} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} migrateFrom={shown !== app.publishedVersion && app.publishedVersion > 0 ? ((app.row?.package as { version?: string } | null)?.version ?? null) : null} />
     </div>
   )
 

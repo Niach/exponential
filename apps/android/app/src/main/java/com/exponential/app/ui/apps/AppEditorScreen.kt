@@ -1,5 +1,6 @@
 package com.exponential.app.ui.apps
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,6 +55,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -275,6 +277,7 @@ fun AppEditorScreen(
                 EditorTab.Preview -> {
                     val shown = Apps.shownVersion(entry.versions, editing, viewing?.number)
                     AppPreviewPane(
+                        appIcon = entry.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.navApps,
                         packageJson = when (shown) {
                             0 -> null
                             entry.headVersion -> entry.headPackageJson
@@ -473,6 +476,7 @@ private fun AppEditorMenu(
  *  the package's first template through the app host, or the empty state. */
 @Composable
 private fun AppPreviewPane(
+    appIcon: ImageVector,
     packageJson: String?,
     viewing: Int?,
     grants: Boolean,
@@ -533,7 +537,7 @@ private fun AppPreviewPane(
                 // A new package = a new host (the key): every synced upsert
                 // repaints; the screen request outlives it (VAPP-218).
                 androidx.compose.runtime.key(pkg, viewing, migrateFrom) {
-                    AppPackageSurface(pkg, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly, migrateFrom = migrateFrom, screen = screen, onScreen = onScreen)
+                    AppPackageSurface(pkg, appIcon, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly, migrateFrom = migrateFrom, screen = screen, onScreen = onScreen)
                 }
             } else {
                 EmptyState(
@@ -550,10 +554,13 @@ private fun AppPreviewPane(
 /** One package on the app host (`applyTemplate`): its default template
  *  (`Apps.previewTemplate`), or with `screens` (VAPP-218) the resolved
  *  screen's template with `{params}`, the phone tab bar under it (phones
- *  always take `Apps.screenShell`'s bar). */
+ *  always take `Apps.screenShell`'s bar). #VAPP-251: a package the host
+ *  refuses (applied, no surface) = the page-size `copy.needsUpdate` alone;
+ *  the validator's issues go to the log. */
 @Composable
 internal fun AppPackageSurface(
     packageJson: String,
+    appIcon: ImageVector,
     onOpenTeamSettings: (teamId: String, section: String) -> Unit,
     appId: String,
     teamId: String?,
@@ -597,6 +604,7 @@ internal fun AppPackageSurface(
     )
     // A new screen = a fresh surface (the template change's rule).
     var applied by remember(host) { mutableStateOf(false) }
+    var asked by remember(host) { mutableStateOf(false) }
     LaunchedEffect(host, packageId, templateId, resolved) {
         if (packageId != null && templateId != null) {
             if (applied) {
@@ -626,6 +634,23 @@ internal fun AppPackageSurface(
             )
             applied = true
         }
+        asked = true
+    }
+    val hasSurface = host.surfaces.containsKey(Apps.Preview.SURFACE_ID)
+    if (Apps.surfaceState(hasPackage = true, applied = asked, hasSurface = hasSurface) == Apps.SurfaceState.NeedsUpdate) {
+        LaunchedEffect(packageJson) {
+            val issues = runCatching { host.installPackage(packageJson) }.getOrNull()
+            Log.w("AppHost", "app $appId: the package paints nothing: $issues")
+        }
+        Box(Modifier.fillMaxSize()) {
+            EmptyState(
+                title = Apps.Copy.NEEDS_UPDATE,
+                icon = appIcon,
+                size = EmptyStateSize.Page,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        return
     }
     Column(Modifier.fillMaxSize()) {
         Column(

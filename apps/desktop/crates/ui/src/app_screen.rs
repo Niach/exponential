@@ -79,8 +79,8 @@ use eui_core::host::{nav_screens, package_screens, resolve_screen, screen_data, 
 use sync::Store;
 
 use domain::apps::{
-    editor_tab, is_draft, preview_template, preview_templates, screen_shell, version_label, version_row, viewing_label, EditorTab,
-    PreviewFrame, ScreenShell, VersionRowKind,
+    editor_tab, is_draft, preview_template, preview_templates, screen_shell, surface_state, version_label, version_row, viewing_label, EditorTab,
+    PreviewFrame, ScreenShell, SurfaceState, VersionRowKind,
     APPS,
 };
 use domain::rows::AppVersionRow;
@@ -1267,17 +1267,27 @@ impl AppScreenView {
         // EXP-1557 (web parity): `No version yet` is CENTRED in the frame,
         // so it fills the frame itself (a scroll pane's content has no
         // height to centre in).
-        let preview_empty = surface.is_none() && self.viewing.is_none();
+        // #VAPP-251: a preview exists and its host holds no surface = the host
+        // refused the package (its issues are in the log): `copy.needsUpdate`.
+        let has_preview = self.preview.is_some();
+        let needs_update = surface_state(has_preview, has_preview, surface.is_some()) == SurfaceState::NeedsUpdate;
+        let preview_empty = surface.is_none() && (needs_update || self.viewing.is_none());
         let frame_body = match surface {
             Some(surface) => v_flex().w_full().gap_3().children(host_banner).child(surface).into_any_element(),
-            None if self.viewing.is_some() => div().into_any_element(),
+            None if !needs_update && self.viewing.is_some() => div().into_any_element(),
             None => div()
                 .flex_1()
+                .w_full()
                 .min_h(px(192.))
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(if framed {
+                // A sized cell: the state's own `w_full` + `max_w` + `mx_auto`
+                // lands at the row's end in a flex row wider than its cap.
+                .child(div().w(px(448.)).max_w_full().child(if needs_update {
+                    let glyph = self.app.as_ref().map_or_else(|| Icon::new(registry::NAV_APPS), AppEntry::icon);
+                    crate::controls::empty_state(glyph, APPS.copy.needs_update.clone(), None, cx)
+                } else if framed {
                     crate::controls::empty_state(
                         Icon::new(registry::NAV_APPS),
                         APPS.copy.preview_empty.clone(),
@@ -1288,7 +1298,7 @@ impl AppScreenView {
                     // VAPP-242: never published = `copy.runEmpty`, the app glyph.
                     let glyph = self.app.as_ref().map_or_else(|| Icon::new(registry::NAV_APPS), AppEntry::icon);
                     crate::controls::empty_state(glyph, APPS.copy.run_empty.clone(), None, cx)
-                })
+                }))
                 .into_any_element(),
         };
         let frame = div()

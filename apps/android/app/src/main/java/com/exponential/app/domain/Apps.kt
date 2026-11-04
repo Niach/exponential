@@ -60,6 +60,7 @@ object Apps {
         const val MENU_EDIT = "Edit app"
         // VAPP-242: THE RUN VIEW of an app with nothing published.
         const val RUN_EMPTY = "Not published yet"
+        const val NEEDS_UPDATE = "This app needs an update"
         const val TAB_CHAT = "Chat"
         const val TAB_PREVIEW = "Preview"
         // VAPP-178: the Data tab (app-records.json `dataTab`).
@@ -565,6 +566,17 @@ object Apps {
     }
 
     enum class ScreenShell(val wire: String) { Sidebar("sidebar"), Bar("bar") }
+
+    /** #VAPP-251 (`surfaceStateCases`): what an app's pane shows. */
+    enum class SurfaceState { Empty, Surface, NeedsUpdate }
+
+    /** Nothing to run, the surface, or once the host had its chance and holds
+     *  no surface (it refused the package), [Copy.NEEDS_UPDATE]. */
+    fun surfaceState(hasPackage: Boolean, applied: Boolean, hasSurface: Boolean): SurfaceState = when {
+        !hasPackage -> SurfaceState.Empty
+        applied && !hasSurface -> SurfaceState.NeedsUpdate
+        else -> SurfaceState.Surface
+    }
 
     /** Which navigation the preview frame paints (`screenShellCases`): none
      *  without screens, the phone bottom bar on a phone, else the sidebar. */
