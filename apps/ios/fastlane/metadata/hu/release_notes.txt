@@ -29,3 +29,4 @@
 - Képek, linkek és szöveg megosztása más appokból csevegésbe vagy ügynöknek
 - A csevegések és kártyák linkjei a megfelelő képernyőt nyitják meg az appban
 - A bezárt űrlap zárva marad; egy sorra koppintva megnyílik a rekord
+- Az idővonalak és széles táblázatok keskeny telefonon is olvashatók

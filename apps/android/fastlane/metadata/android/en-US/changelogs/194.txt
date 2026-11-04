@@ -1,0 +1,3 @@
+- App timelines and wide tables read well on narrow phones
+- An app that fails to load keeps its shell and says what is wrong
+- #issue references in app text link to the issue

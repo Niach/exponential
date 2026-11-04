@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.2 (2026-11-04)
+
 - #VAPP-252: `SurfaceOptions.liftsLayers` / `HostOptions.liftsLayers` (default off) + `ExponentialSurfaceLayers` + `SurfaceModel.liftedLayersOpen`: a host can show a surface's Dialog and Drawer layers where the scrim should reach (a clear `fullScreenCover`) instead of inside the surface and its scroller.
 - VAPP-250: a scroll container reports its offset through `onScrollGeometryChange` where the platform has it (the geometry preference stayed silent on current iOS, so the core never saw a native scroll: `position: sticky` nodes did not pin), a reported scroll lays out when the surface has sticky nodes, and a scroller clips at its padding box.
 

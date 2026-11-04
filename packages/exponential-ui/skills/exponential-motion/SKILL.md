@@ -5,7 +5,7 @@ description: "Animate with eUI Motion: the readable Motion dialect that compiles
 
 # eUI Motion
 
-> Generated from docs/spec/motion.md and the Motion guide (eUI 0.15.1) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from docs/spec/motion.md and the Motion guide (eUI 0.15.2) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 `Motion` is the eUI component for vector animation. **Lottie JSON is the
 stored and rendered format.** Models and people write a readable **dialect**

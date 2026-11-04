@@ -29,3 +29,4 @@
 - Deel afbeeldingen, links en tekst uit andere apps in een chat of met een agent
 - Links in chats en kaarten openen het juiste scherm in de app
 - Een gesloten formulier blijft dicht; een tik op een rij opent het record
+- Tijdlijnen en brede tabellen zijn goed leesbaar op smalle telefoons

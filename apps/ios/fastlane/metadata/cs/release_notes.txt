@@ -29,3 +29,4 @@
 - Sdílejte obrázky, odkazy a text z jiných aplikací do chatu nebo agentovi
 - Odkazy v chatech a kartách otevírají správnou obrazovku v aplikaci
 - Zavřený formulář aplikace zůstane zavřený; klepnutí na řádek otevře záznam
+- Časové osy a široké tabulky v aplikacích jsou na úzkých telefonech čitelné
