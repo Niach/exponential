@@ -435,17 +435,24 @@ function DeviceCard({
     })
   }
   const shared = mine && (device.sharedTeamIds?.length ?? 0) > 0
+  const DeviceIcon = getDeviceIcon({ icon: device.icon, kind: device.kind })
   return (
     <GlassCard
       data-testid={`device-row-${device.deviceId}`}
       className={cn(
-        `flex min-w-0 flex-col justify-between gap-3`,
+        `flex min-w-0 flex-col gap-3`,
         !online && `opacity-60`,
         online && !runnable && `opacity-60`
       )}
       style={{ padding: DEVICE_CARD.padding }}
     >
       <div className="flex min-w-0 items-start gap-2">
+        {/* #EXP-1643: the device's own icon leads the card. */}
+        <DeviceIcon
+          aria-hidden
+          className="mt-px shrink-0 text-muted-foreground"
+          style={{ width: DEVICE_CARD.deviceIconSize, height: DEVICE_CARD.deviceIconSize }}
+        />
         {/* FEED-15: name + version (+ star) on top, live/last-seen state and
             the tags beneath. */}
         <div className="min-w-0 flex-1">

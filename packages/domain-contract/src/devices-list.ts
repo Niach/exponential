@@ -27,6 +27,18 @@ export function deviceCardAccountIcons(
   return { visible: DEVICE_CARD.maxAccountIcons - 1, more: true }
 }
 
+/** #EXP-1643: the login a card's panel shows (`accountPanelCases`).
+ *  `remembered`: undefined = this device was never touched here, null = closed
+ *  by hand, a key = the login opened last. */
+export function openDeviceAccount(
+  loginKeys: readonly string[],
+  remembered: string | null | undefined
+): string | null {
+  if (remembered === null) return null
+  if (remembered !== undefined && loginKeys.includes(remembered)) return remembered
+  return loginKeys.length === 1 ? loginKeys[0]! : null
+}
+
 export type DeviceLoginHealth = `ok` | `needs_relogin` | `signed_out` | `unknown`
 
 export interface DeviceListLogin {
