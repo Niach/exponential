@@ -5317,6 +5317,108 @@
         "mainSessionId": "r6",
         "origin": null
       }
+    },
+    {
+      "name": "EXP-1686: an agent's chat is the conversation only: no add, no issue or session chips, a child's rows or not",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "userId": "u-dana",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "guide": null,
+          "startedAt": "2026-10-28T09:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-28T09:00:00.000Z",
+          "updatedAt": "2026-10-28T09:00:00.000Z",
+          "id": "ac9",
+          "rootId": "ac9",
+          "parentId": null,
+          "status": "idle",
+          "title": "Big Brother",
+          "agentId": "a1"
+        },
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "userId": "u-dana",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "guide": null,
+            "startedAt": "2026-10-28T09:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T09:00:00.000Z",
+            "updatedAt": "2026-10-28T09:00:00.000Z",
+            "id": "ac9",
+            "rootId": "ac9",
+            "parentId": null,
+            "status": "idle",
+            "title": "Big Brother",
+            "agentId": "a1"
+          },
+          {
+            "teamId": "t-team-1",
+            "userId": "u-dana",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "guide": null,
+            "startedAt": "2026-10-28T09:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-28T09:05:00.000Z",
+            "updatedAt": "2026-10-28T09:00:00.000Z",
+            "id": "c9",
+            "rootId": "ac9",
+            "parentId": "ac9",
+            "status": "running",
+            "title": "Sub-task"
+          }
+        ],
+        "sessionIssues": [
+          {
+            "sessionId": "c9",
+            "issueId": "i9",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i9",
+            "identifier": "EXP-9",
+            "title": "Held by the child"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-28T10:30:00.000Z",
+        "messages": []
+      },
+      "expected": {
+        "rootId": "ac9",
+        "title": "Big Brother",
+        "private": false,
+        "focusId": null,
+        "tabs": [
+          {
+            "kind": "conversation"
+          }
+        ],
+        "rows": [],
+        "composer": {
+          "sessionId": "ac9",
+          "placeholder": "Type / for commands"
+        },
+        "live": true,
+        "liveSessionId": "ac9",
+        "busy": false,
+        "needsYou": false,
+        "mainSessionId": null,
+        "origin": null
+      }
     }
   ],
   "guidePullRequestCases": [

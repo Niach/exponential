@@ -255,6 +255,35 @@ fn forwarded_issue_ids(subject: &Subject) -> Vec<String> {
     }
 }
 
+/// EXP-1686: the forwarded issues' identifiers, in [`forwarded_issue_ids`]' order.
+fn forwarded_issue_identifiers(subject: &Subject) -> Vec<String> {
+    match subject {
+        Subject::Issues(issues) => issues
+            .rows
+            .iter()
+            .filter(|row| issues.checked.contains(&row.issue_id))
+            .map(|row| row.identifier.clone())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// EXP-1686: the `sessions.send` a to-agent start makes: the chipped issues
+/// ride as `issueIds` and their refs lead the text BEFORE it seals
+/// (`session-brief.json` `forwardTextCases`); an empty text stays omitted.
+fn agent_forward_input(
+    team_id: &str,
+    agent_id: &str,
+    subject: &Subject,
+    text: &str,
+    attachment_ids: Vec<String>,
+) -> api::sessions::SendInput {
+    let body = domain::session_kind::agent_forward_text(text, &forwarded_issue_identifiers(subject));
+    let mut input = chat_launch::agent_send_input(team_id, agent_id, &body, attachment_ids);
+    input.issue_ids = Some(forwarded_issue_ids(subject)).filter(|ids| !ids.is_empty());
+    input
+}
+
 /// EXP-696: the machine the run starts on.
 #[derive(Default)]
 struct DevicePick {
@@ -1704,9 +1733,7 @@ impl ChatScreenView {
         // into the viewer's conversation with it; EXP-1450: the chipped
         // issues are forwarded as its `issueIds` (web `buildSendInput`).
         if let Some(agent) = self.selected_agent(cx) {
-            let issue_ids = forwarded_issue_ids(&self.subject);
-            let mut input = chat_launch::agent_send_input(&team_id, &agent.id, text, attachment_ids);
-            input.issue_ids = Some(issue_ids).filter(|ids| !ids.is_empty());
+            let input = agent_forward_input(&team_id, &agent.id, &self.subject, text, attachment_ids);
             return Ok((input, StartRoute::Agent(agent.id)));
         }
         let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
@@ -3954,6 +3981,23 @@ mod tests {
         assert!(forwarded_issue_ids(&Subject::None).is_empty());
         let prompt = Subject::Action(ActionSubject { action_id: "p-1".into() });
         assert!(forwarded_issue_ids(&prompt).is_empty());
+    }
+
+    /// EXP-1686: the refs lead the text of a to-agent send (before it seals);
+    /// an empty text with no issues stays omitted from the wire.
+    #[test]
+    fn a_to_agent_send_writes_the_refs_into_the_text() {
+        let subject = issue_subject(&["i-2", "i-1"]);
+        let bare = agent_forward_input("t", "a", &subject, "  ", Vec::new());
+        assert_eq!(bare.text.as_deref(), Some("#APP-i-2 #APP-i-1"));
+        assert_eq!(bare.issue_ids, Some(vec!["i-2".to_string(), "i-1".to_string()]));
+        let worded = agent_forward_input("t", "a", &subject, "Please look.\n", Vec::new());
+        assert_eq!(worded.text.as_deref(), Some("#APP-i-2 #APP-i-1\n\nPlease look."));
+        let none = agent_forward_input("t", "a", &Subject::None, "  ", Vec::new());
+        assert_eq!(none.text, None);
+        assert_eq!(none.issue_ids, None);
+        let plain = agent_forward_input("t", "a", &Subject::None, " Hello ", Vec::new());
+        assert_eq!(plain.text.as_deref(), Some("Hello"));
     }
 
     #[test]
