@@ -337,6 +337,8 @@ pub struct SurfaceView {
     sticky: HashMap<u32, (f32, f32)>,
     /// Round 2: when each animated node entered the tree (by painted id).
     anim_start: RefCell<HashMap<SharedString, Instant>>,
+    /// When the pending repaint of the `shimmer` Texts fires (they share one).
+    shimmer_armed_until: Cell<Option<Instant>>,
     /// A host-driven entrance ([`SurfaceView::set_entrance`]).
     entrance: Option<NodeEntrance>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
@@ -550,6 +552,7 @@ impl SurfaceView {
             resize_drag: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
+            shimmer_armed_until: Cell::new(None),
             entrance: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
             holding: None,

@@ -906,7 +906,7 @@ impl SurfaceView {
             owner_props: &owner_props,
             rtl: style.rtl.unwrap_or(self.rtl),
             reduced_motion: self.surface.settings().reduced_motion,
-            shimmer: self.text_shimmer(index, n, style, ink, window),
+            shimmer: self.text_shimmer(index, n, style, ink, window, cx),
             radii,
             formatter: self.surface.formatter().as_ref(),
             scale,
@@ -994,9 +994,9 @@ impl SurfaceView {
         })
     }
 
-    /// EXP-1324: a `shimmer` Text's gradient now, asking for the next frame
-    /// while it shows (reduced motion = the plain text, no frames).
-    fn text_shimmer(&self, index: u32, n: &PlacedNode, style: &PaintStyle, ink: Hsla, window: &mut Window) -> Option<natives::ShimmerPaint> {
+    /// EXP-1324: a `shimmer` Text's gradient now, repainting on the next step
+    /// line while it shows (reduced motion = the plain text, no frames).
+    fn text_shimmer(&self, index: u32, n: &PlacedNode, style: &PaintStyle, ink: Hsla, window: &mut Window, cx: &mut Context<Self>) -> Option<natives::ShimmerPaint> {
         if n.component != "Text" || n.props.get("shimmer").and_then(Value::as_bool) != Some(true) || self.surface.settings().reduced_motion || self.ghosting.get() {
             return None;
         }
@@ -1004,7 +1004,7 @@ impl SurfaceView {
         let id = self.cache.ids.get(index as usize)?.clone();
         let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
         let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
-        window.request_animation_frame();
+        crate::controls::repaint_on_next_step(&self.shimmer_armed_until, crate::controls::SMOOTH_STEP, window, cx);
         Some(natives::ShimmerPaint::new(ink, self.surface.mode() == eui_core::theme::Mode::Dark, natives::ShimmerPaint::progress_at(elapsed), style.rtl.unwrap_or(self.rtl)))
     }
 

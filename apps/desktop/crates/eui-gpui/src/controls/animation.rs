@@ -11,9 +11,9 @@
 //!
 //! [`SteppedAnimationExt::with_stepped_animation`] is gpui's element with
 //! ONE difference: instead of the next frame it schedules its next repaint
-//! on a timer, at the next multiple of `step` since the animation started.
-//! A hard-cut sprite (Claude's spark, 90 ms frames) repaints exactly when
-//! its frame changes; a smooth loop at [`SMOOTH_STEP`] (30 fps, the rate an
+//! on a timer, at the next multiple of `step` on a grid the whole app shares.
+//! A hard-cut sprite (Claude's spark, 90 ms frames) repaints at its frame
+//! rate; a smooth loop at [`SMOOTH_STEP`] (30 fps, the rate an
 //! unfocused window already ran at) — the same look at a fraction of the
 //! draws, focused or not. Everything else matches gpui's element: the
 //! animation's clock, easing and `repeat`, and `reduce_motion` (a static
@@ -24,6 +24,7 @@
 //! sprite, a skeleton, a ping); one-shot enters and exits keep gpui's
 //! `with_animation` — they end within a few hundred milliseconds.
 
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -155,7 +156,7 @@ impl<E: IntoElement + 'static> Element for SteppedAnimationElement<E> {
             let mut element = (self.animator)(element, delta).into_any_element();
 
             if !done {
-                arm(&mut state, now, elapsed, self.step, window, cx);
+                arm(&mut state.armed_until, now, self.step, window, cx);
             }
 
             ((element.request_layout(window, cx), element), state)
@@ -188,23 +189,38 @@ impl<E: IntoElement + 'static> Element for SteppedAnimationElement<E> {
     }
 }
 
+/// The one origin every step line in the app counts from.
+struct StepEpoch(Instant);
+
+impl gpui::Global for StepEpoch {}
+
+/// Each frame redraws the whole window, so loops on private grids would add
+/// up (three marks started at different moments = 90 redraws a second, not
+/// 30). On one shared grid, loops with the same step wake together and share
+/// a single frame, however many are running.
+fn step_epoch(now: Instant, cx: &mut App) -> Instant {
+    if !cx.has_global::<StepEpoch>() {
+        cx.set_global(StepEpoch(now));
+    }
+    cx.global::<StepEpoch>().0
+}
+
 /// Schedule the repaint for the next step line, unless one is already
 /// pending (a repaint for another reason between two lines must not add a
 /// second timer). The timer notifies the view the element renders in; a
 /// view gone by then notifies nothing.
 fn arm(
-    state: &mut SteppedAnimationState,
+    armed_until: &mut Option<Instant>,
     now: Instant,
-    elapsed: Duration,
     step: Duration,
     window: &Window,
     cx: &mut App,
 ) {
-    if state.armed_until.is_some_and(|until| now < until) {
+    if armed_until.is_some_and(|until| now < until) {
         return;
     }
-    let wait = until_next_step(elapsed, step);
-    state.armed_until = Some(now + wait);
+    let wait = until_next_step(now.saturating_duration_since(step_epoch(now, cx)), step);
+    *armed_until = Some(now + wait);
     let view = window.current_view();
     cx.spawn(async move |cx| {
         cx.background_executor().timer(wait).await;
@@ -213,9 +229,23 @@ fn arm(
     .detach();
 }
 
+/// The same budget for a loop painted by hand: call it while painting a frame
+/// that needs a successor, in place of `window.request_animation_frame()`.
+/// `armed_until` is the caller's per-view memory of the pending timer.
+pub fn repaint_on_next_step(
+    armed_until: &Cell<Option<Instant>>,
+    step: Duration,
+    window: &Window,
+    cx: &mut App,
+) {
+    let now = cx.background_executor().now();
+    let mut until = armed_until.get();
+    arm(&mut until, now, step, window, cx);
+    armed_until.set(until);
+}
+
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
     use std::rc::Rc;
 
     use gpui::{div, px, size, Context, Render, Styled as _, TestAppContext, WindowHandle};
@@ -312,6 +342,64 @@ mod tests {
         cx.executor().advance_clock(STEP / 3);
         cx.run_until_parked();
         assert_eq!(renders.get(), 3, "no second timer from the unrelated repaint");
+    }
+
+    struct Staggered {
+        renders: Rc<Cell<usize>>,
+        shown: usize,
+    }
+
+    impl Render for Staggered {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            self.renders.set(self.renders.get() + 1);
+            div().size_full().children((0..self.shown).map(|i| {
+                div().with_stepped_animation(
+                    ElementId::Integer(i as u64),
+                    Animation::new(Duration::from_millis(720)).repeat(),
+                    STEP,
+                    |this, _| this,
+                )
+            }))
+        }
+    }
+
+    /// Loops started at different moments share their step lines, so every
+    /// timer lands on the same instant and gpui's dirty flag folds them into
+    /// one frame. (The test platform draws per notify, so this pins WHEN
+    /// redraws happen, not how many.)
+    #[gpui::test]
+    async fn staggered_loops_only_redraw_on_the_shared_step_lines(cx: &mut TestAppContext) {
+        let renders = Rc::new(Cell::new(0));
+        let window = cx.open_window(size(px(100.), px(100.)), {
+            let renders = renders.clone();
+            move |_, _| Staggered { renders, shown: 1 }
+        });
+        cx.run_until_parked();
+
+        // Two more loops join mid-step, each at its own moment.
+        for shown in [2, 3] {
+            cx.executor().advance_clock(STEP / 3);
+            window
+                .update(cx, |view, _, cx| {
+                    view.shown = shown;
+                    cx.notify();
+                })
+                .unwrap();
+            cx.run_until_parked();
+        }
+        cx.executor().advance_clock(STEP / 3);
+        cx.run_until_parked();
+
+        for line in 0..10 {
+            let before = renders.get();
+            cx.executor().advance_clock(STEP - Duration::from_millis(1));
+            cx.run_until_parked();
+            assert_eq!(renders.get(), before, "step {line}: nothing between the lines");
+
+            cx.executor().advance_clock(Duration::from_millis(1));
+            cx.run_until_parked();
+            assert!(renders.get() > before, "step {line}: the line repaints");
+        }
     }
 
     /// Reduce motion: the start frame, nothing scheduled — as gpui's element.

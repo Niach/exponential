@@ -18,6 +18,7 @@ use gpui::{
     Rgba, SharedString, StatefulInteractiveElement as _, Styled as _, StyledText, TextRun,
     Transformation, Window,
 };
+use eui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui::prelude::FluentBuilder as _;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
 use steer::trace::{geometry, TraceGeometry, TraceStatus};
@@ -499,7 +500,7 @@ pub(crate) fn shimmer_text(
         return paint(0.).into_any_element();
     }
     paint(0.)
-        .with_animation(id, Animation::new(duration).repeat(), move |_, delta| paint(delta))
+        .with_stepped_animation(id, Animation::new(duration).repeat(), SMOOTH_STEP, move |_, delta| paint(delta))
         .into_any_element()
 }
 
