@@ -6,9 +6,9 @@
 // policy. `grantApps` writes the `apps` row of `mcp_grants`.
 import { and, asc, eq, inArray } from "drizzle-orm"
 import { type GrantAccess, type Level } from "@exp/emcp/access"
-import type { UpstreamState } from "@exp/emcp/upstream"
+import { resolveUpstreamServer, type UpstreamState } from "@exp/emcp/upstream"
 import { db } from "@/db/connection"
-import { mcpCredentials, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
+import { appUpstreamBindings, mcpCredentials, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
 import { brokerTools } from "@/lib/emcp/apps-broker"
 import { connectionFor, type McpConnectionStatus } from "@/lib/emcp/upstream/credentials"
 
@@ -23,8 +23,10 @@ export function upstreamState(status: McpConnectionStatus): UpstreamState {
 
 export interface ConsentUpstream {
   name: string
-  /** The team's MCP server of that name; null = the team has none. */
+  /** The team server filling it (#VAPP-254: the app's mapping, else exactly
+   * that name); null = none does. */
   serverId: string | null
+  serverName: string | null
   /** How the member connects: an OAuth sign-in here, else Settings › MCP. */
   auth: string | null
   state: UpstreamState | null
@@ -52,6 +54,15 @@ export interface ConsentTeam {
   apps: ConsentApp[]
 }
 
+/** #VAPP-254: the teams' per-app mappings, `<appId>\n<upstream>` → server id. */
+async function upstreamBindings(teamIds: string[]): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ appId: appUpstreamBindings.appId, upstream: appUpstreamBindings.upstream, serverId: appUpstreamBindings.serverId })
+    .from(appUpstreamBindings)
+    .where(inArray(appUpstreamBindings.teamId, teamIds))
+  return new Map(rows.map((row) => [`${row.appId}\n${row.upstream}`, row.serverId]))
+}
+
 /** The member's teams with the apps they could grant (apps without a tool
  * the member could see are left out). */
 export async function appsConsentTree(userId: string): Promise<ConsentTeam[]> {
@@ -74,6 +85,7 @@ export async function appsConsentTree(userId: string): Promise<ConsentTeam[]> {
         .where(and(eq(mcpCredentials.userId, userId), inArray(mcpCredentials.serverId, servers.map((s) => s.id))))
     : []
   const credentialOf = new Map(credentials.map((c) => [c.serverId, c]))
+  const bindings = await upstreamBindings(teamIds)
 
   const out: ConsentTeam[] = []
   for (const team of memberTeams) {
@@ -94,10 +106,11 @@ export async function appsConsentTree(userId: string): Promise<ConsentTeam[]> {
         continue
       }
       const upstreams = [...tool.app.upstreams].sort().map((name): ConsentUpstream => {
-        const server = servers.find((s) => s.teamId === team.id && s.name === name)
-        if (!server) return { name, serverId: null, auth: null, state: null }
+        const teamServers = servers.filter((s) => s.teamId === team.id)
+        const server = resolveUpstreamServer(name, bindings.get(`${tool.app.id}\n${name}`) ?? null, teamServers)?.server
+        if (!server) return { name, serverId: null, serverName: null, auth: null, state: null }
         const status = connectionFor(server, credentialOf.get(server.id)).status
-        return { name, serverId: server.id, auth: server.auth, state: upstreamState(status) }
+        return { name, serverId: server.id, serverName: server.name, auth: server.auth, state: upstreamState(status) }
       })
       byApp.set(tool.app.id, { id: tool.app.id, slug: tool.app.slug, name: tool.app.name, icon: tool.app.icon, color: tool.app.color, toolCount: 1, level: tool.app.level, upstreams })
     }

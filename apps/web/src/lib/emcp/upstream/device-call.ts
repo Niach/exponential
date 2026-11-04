@@ -8,7 +8,7 @@
 // and seals its answer to the reply key whose secret lives only here, in the
 // awaiting request.
 import { randomBytes, randomUUID } from "node:crypto"
-import { and, eq, gt, isNull, lt, sql } from "drizzle-orm"
+import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm"
 import {
   UPSTREAM_DEVICE,
   UPSTREAM_ERRORS,
@@ -18,9 +18,10 @@ import {
   type DeviceCallOutcome,
   type DeviceRelayOutcome,
   type UpstreamRoute,
+  resolveUpstreamServer,
 } from "@exp/emcp/upstream"
 import { db as defaultDb } from "@/db/connection"
-import { devices, mcpDeviceCalls, mcpServers, type McpDeviceCall, type McpServer } from "@/db/schema"
+import { appUpstreamBindings, devices, mcpDeviceCalls, mcpServers, type McpDeviceCall, type McpServer } from "@/db/schema"
 import { resolveForLaunch, type ResolvedMcpServer } from "@/lib/emcp/upstream/credentials"
 import { pushOpen, pushPublicKey } from "@/lib/push-seal"
 import { getSteerRelayConfig, relayPostUpstreamCall, type RelayUpstreamOutcome } from "@/lib/steer"
@@ -38,9 +39,17 @@ export interface ServerDevice {
 
 export type RoutedServerRow = Pick<McpServer, `id` | `name` | `transport` | `teamId`> & { device: ServerDevice | null }
 
-/** The team's server `name` with the device it names, or null. */
-export async function loadRoutedServer(teamId: string, name: string, db: Db = defaultDb): Promise<RoutedServerRow | null> {
-  const [row] = await db
+/** #VAPP-254: the team server filling an upstream the app declares (its
+ *  mapping, else exactly that name) with the device it names, or null. */
+export async function loadRoutedServer(teamId: string, name: string, appId: string | null, db: Db = defaultDb): Promise<RoutedServerRow | null> {
+  const [binding] = appId
+    ? await db
+        .select({ serverId: appUpstreamBindings.serverId })
+        .from(appUpstreamBindings)
+        .where(and(eq(appUpstreamBindings.appId, appId), eq(appUpstreamBindings.upstream, name)))
+        .limit(1)
+    : []
+  const rows = await db
     .select({
       id: mcpServers.id,
       name: mcpServers.name,
@@ -53,8 +62,8 @@ export async function loadRoutedServer(teamId: string, name: string, db: Db = de
     })
     .from(mcpServers)
     .leftJoin(devices, eq(devices.id, mcpServers.deviceId))
-    .where(and(eq(mcpServers.teamId, teamId), eq(mcpServers.name, name)))
-    .limit(1)
+    .where(and(eq(mcpServers.teamId, teamId), binding ? or(eq(mcpServers.name, name), eq(mcpServers.id, binding.serverId)) : eq(mcpServers.name, name)))
+  const row = resolveUpstreamServer(name, binding?.serverId ?? null, rows)?.server
   if (!row) return null
   const device =
     row.deviceId && row.ownerId && row.steerDeviceId

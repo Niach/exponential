@@ -31,6 +31,7 @@ import { actingAgentSlug } from "@/lib/apps/agent-handoff"
 import { automationsOf, runInAutomation, type RecordTriggerOp } from "@/lib/apps/automation-scope"
 import { classifyAppToolResponse, runBrokerTool, type BrokerApp, type BrokerTool } from "@/lib/emcp/apps-broker"
 import { recordMcpCalls } from "@/lib/emcp/audit"
+import { loadRoutedServer } from "@/lib/emcp/upstream/device-call"
 import { notifyAutomationPaused } from "@/lib/integrations/notifications"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 
@@ -92,13 +93,16 @@ async function patchState(appId: string, name: string, patch: Record<string, unk
 
 export async function auditAutomation(app: AutomationApp, automation: Automation, userId: string | null, status: CallStatus, error: string | null, startedAt: number, input: unknown) {
   if (!userId) return
+  // #VAPP-254: an upstream run's row names the REAL server (the app's mapping).
+  const run = automation.run as { upstream?: string; tool?: string }
+  const real = run.upstream ? await loadRoutedServer(app.teamId, run.upstream, app.id) : null
   await recordMcpCalls([
     {
       teamId: app.teamId,
       userId,
       clientId: automationClientId(automation.name),
       appId: app.id,
-      tool: automationTool(automation.run).slice(0, 128),
+      tool: (real ? `${real.name}/${run.tool}` : automationTool(automation.run)).slice(0, 128),
       status,
       error,
       latencyMs: Math.max(0, Math.floor(Date.now() - startedAt)),

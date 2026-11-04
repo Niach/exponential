@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { appAccess, appRecordEvents, appRecords, appVersions, apps, boards, devices, issues, sessions, teamMembers, teams } from "@/db/schema"
+import { appAccess, appRecordEvents, appRecords, appUpstreamBindings, appVersions, apps, boards, devices, issues, mcpServers, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { grantVersion } from "@exp/domain-contract/apps"
 
@@ -784,6 +784,33 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
   // VAPP-121: an app file round-trips: the import lists issues as rows, then
   // creates the app as v1 "Imported" with its records as the importer's and
   // no grants; a bare package imports under its own name.
+  it(`#VAPP-254: an import keeps the declared names, an owner's picks map them, the file carries no mapping`, async () => {
+    const w = await world()
+    const { appExportText, buildAppExport } = await import(`@exp/domain-contract/app-export`)
+    const [hubspot] = await db.insert(mcpServers).values({ teamId: w.teamId, name: `hubspot`, transport: `http`, url: `https://hubspot.example/mcp`, auth: `none` }).returning({ id: mcpServers.id })
+    const declaring = { ...RECORDS_PACKAGE, upstreams: [`crm`] }
+    const text = appExportText(buildAppExport({ app: { name: `Sales`, icon: null, color: null, description: `` }, package: declaring, records: [], includeRecords: false }))
+
+    const checked = await caller(w.owner).validateImport({ teamId: w.teamId, text })
+    expect(checked.upstreams).toEqual([{ name: `crm`, serverId: null, serverName: null }])
+    expect(checked.servers).toEqual([{ id: hubspot!.id, name: `hubspot` }])
+    expect((await caller(w.mate).validateImport({ teamId: w.teamId, text })).servers).toEqual([])
+
+    const picks = [{ upstream: `crm`, serverId: hubspot!.id }]
+    await expect(caller(w.mate).import({ teamId: w.teamId, text, upstreamMappings: picks })).rejects.toThrow(/owner/)
+    await expect(caller(w.owner).import({ teamId: w.teamId, text, upstreamMappings: [{ upstream: `stripe`, serverId: hubspot!.id }] })).rejects.toThrow(/declare/)
+    const imported = await caller(w.owner).import({ teamId: w.teamId, text, upstreamMappings: picks })
+    expect(await db.select({ serverId: appUpstreamBindings.serverId }).from(appUpstreamBindings).where(eq(appUpstreamBindings.appId, imported.app.id))).toEqual([{ serverId: hubspot!.id }])
+    const [row] = await db.select({ pkg: apps.package }).from(apps).where(eq(apps.id, imported.app.id))
+    expect((row!.pkg as { upstreams: string[] }).upstreams).toEqual([`crm`])
+    expect(JSON.stringify(buildAppExport({ app: imported.app, package: row!.pkg as never, records: [], includeRecords: false }))).not.toContain(`hubspot`)
+
+    // A member's import keeps the default and stays editable; a new unknown name is still refused.
+    const plain = await caller(w.mate).import({ teamId: w.teamId, text })
+    await caller(w.mate).upsertPackage({ id: plain.app.id, package: declaring })
+    await expect(caller(w.mate).upsertPackage({ id: plain.app.id, package: { ...declaring, upstreams: [`crm`, `typo`] } })).rejects.toThrow(/typo/)
+  })
+
   it(`import: issues as rows, an exported file round-trips, a bare package imports`, async () => {
     const w = await world()
     const { buildAppExport, appExportText } = await import(`@exp/domain-contract/app-export`)
@@ -816,7 +843,7 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await expect(caller(w.mate).import({ teamId: w.teamId, text: JSON.stringify(nul) })).rejects.toMatchObject({ code: `BAD_REQUEST` })
 
     // The round trip: a member imports; the name's slug is taken, so `-2`.
-    expect(await caller(w.mate).validateImport({ teamId: w.teamId, text })).toEqual({ issues: [], name: `Hours`, records: 1 })
+    expect(await caller(w.mate).validateImport({ teamId: w.teamId, text })).toEqual({ issues: [], name: `Hours`, records: 1, upstreams: [], servers: [] })
     const imported = await caller(w.mate).import({ teamId: w.teamId, text })
     expect(imported.app).toMatchObject({ slug: `hours-2`, name: `Hours`, icon: `clock`, color: `#10b981`, description: `Mine`, headVersion: 1, createdBy: w.mate, grantedTools: [] })
     const [v1] = await db.select().from(appVersions).where(eq(appVersions.appId, imported.app.id))

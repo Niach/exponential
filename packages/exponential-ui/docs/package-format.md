@@ -776,7 +776,9 @@ with `tools` (an app reaches tools through `exponential.<noun>.<op>` and
 the broker lists them as `<app>__<name>` and runs them as the CALLING person,
 so no device has to be online and nothing is hosted. `upstreams: [name]`
 names the MCP servers the package's upstream bindings call; the host provides
-them (Exponential: the team's MCP servers, Settings › MCP).
+them (Exponential: the team's server of exactly that name, or the one a team
+owner picks for this app at install or on its Settings). The package always
+keeps the declared name, so a shared package works with any server name.
 
 A template can also READ an upstream: a binding source
 `upstream:<server>/<tool>?<args>` (the name splits at its last `/`; each

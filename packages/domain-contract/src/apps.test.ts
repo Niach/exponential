@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { accountRow, automationSponsor, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
+import { accountCaption, accountRow, automationSponsor, upstreamPicker, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
 import { screenParamsFromQuery, screenPath, screenShell, surfaceState } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
@@ -25,6 +25,10 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.accountRowCases.cases)(`accountRow (#VAPP-243) $name`, (c) => {
     expect(accountRow(c.row)).toEqual(c.expected as never)
+  })
+  test.each(fixture.upstreamPickerCases.cases)(`upstreamPicker (#VAPP-254) $name`, (c) => {
+    expect(upstreamPicker(c.row, c.servers)).toEqual(c.expected)
+    expect(accountCaption(c.row)).toBe(c.caption)
   })
   test.each(fixture.policyRowCases.cases)(`policyCaption (#VAPP-243) $name`, (c) => {
     expect(policyCaption(c.policy as Record<PolicyOp, PolicyLevel>)).toBe(c.expected)

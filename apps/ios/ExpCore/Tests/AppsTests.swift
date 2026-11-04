@@ -283,6 +283,30 @@ final class AppsTests: XCTestCase {
         }
     }
 
+    // #VAPP-254: `upstreamPicker` + `accountCaption` replay `upstreamPickerCases`.
+    func testUpstreamPickerCases() throws {
+        let block = try XCTUnwrap(try fixture()["upstreamPickerCases"] as? [String: Any])
+        XCTAssertEqual(block["none"] as? String, Apps.upstreamPickerNone)
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let name = item["name"] as? String ?? ""
+            let row = try XCTUnwrap(item["row"] as? [String: Any])
+            let upstream = try XCTUnwrap(row["name"] as? String)
+            let servers = try XCTUnwrap(item["servers"] as? [[String: String]]).map { (id: $0["id"]!, name: $0["name"]!) }
+            let got = Apps.upstreamPicker(name: upstream, serverId: row["serverId"] as? String, servers: servers)
+            if let expected = item["expected"] as? [String: Any] {
+                XCTAssertEqual(got?.value, expected["value"] as? String, name)
+                let options = try XCTUnwrap(expected["options"] as? [[String: String]])
+                XCTAssertEqual(got?.options.map(\.value), options.map { $0["value"]! }, name)
+                XCTAssertEqual(got?.options.map(\.label), options.map { $0["label"]! }, name)
+            } else {
+                XCTAssertNil(got, name)
+            }
+            XCTAssertEqual(Apps.accountCaption(name: upstream, serverName: row["serverName"] as? String), item["caption"] as? String, name)
+        }
+    }
+
     // #VAPP-243: `accountRow` replays `accountRowCases`; the copy and the
     // test ids pin to the fixture.
     func testAccountRowCases() throws {
@@ -309,6 +333,7 @@ final class AppsTests: XCTestCase {
             "title": Apps.Copy.Accounts.title, "connect": Apps.Copy.Accounts.connect,
             "reconnect": Apps.Copy.Accounts.reconnect, "connected": Apps.Copy.Accounts.connected,
             "notSetUp": Apps.Copy.Accounts.notSetUp, "addServer": Apps.Copy.Accounts.addServer,
+            "usesServer": Apps.Copy.Accounts.usesServer,
         ])
         XCTAssertEqual(copy["mcpTools"] as? [String: String], [
             "title": Apps.Copy.McpTools.title, "read": Apps.Copy.McpTools.read, "write": Apps.Copy.McpTools.write,
