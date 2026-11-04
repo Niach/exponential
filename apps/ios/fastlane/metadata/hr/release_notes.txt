@@ -22,3 +22,5 @@
 - Plutajuća oznaka drži poziv nadohvat ruke
 - Aplikacije se iz bočne trake otvaraju preko cijelog zaslona; uređivač je iza zupčanika
 - Zalijepljene slike prikazuju se kao sličice
+- Pokretanje kodiranja prema agentu sada stiže do njega; razgovori s agentima ostaju obični
+- Timovi mogu imati vlastitu sliku

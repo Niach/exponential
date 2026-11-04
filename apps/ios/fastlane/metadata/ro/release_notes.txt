@@ -22,3 +22,5 @@
 - O pastilă plutitoare îți ține apelul la îndemână
 - Aplicațiile se deschid pe tot ecranul din bara laterală; editorul e în spatele rotiței
 - Imaginile lipite apar ca miniaturi în chat
+- Pornirea codării către un agent ajunge acum la el; chaturile cu agenți rămân simple
+- Echipele pot avea propria imagine

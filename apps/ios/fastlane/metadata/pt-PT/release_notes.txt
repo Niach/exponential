@@ -22,3 +22,5 @@
 - Uma pílula flutuante mantém a chamada à mão
 - As apps abrem em ecrã inteiro a partir da barra lateral; o editor está atrás da roda dentada
 - As imagens coladas aparecem como miniaturas
+- Começar a programar com um agente agora chega a ele; os chats de agentes são uma conversa simples
+- As equipas podem ter a sua própria imagem

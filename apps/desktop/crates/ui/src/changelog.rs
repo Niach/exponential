@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-04-agent-chats-reach-agents",
+    date: "2026-11-04",
+    title: "Start coding to an agent now reaches it",
+    summary: "Start coding to an agent now reaches it; agent chats stay a plain conversation.",
+    body: r#"- **Agents get the issue**: Start coding (and any send) to an agent now always reaches it, with the issue as a message.
+- **Plain agent chats**: an agent's chat is just the conversation; it no longer collects linked issues."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_199: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-agent-keys-off-argv",
     date: "2026-11-04",
     title: "Agent keys stay off the command line on Linux",

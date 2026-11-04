@@ -22,3 +22,5 @@
 - En flytende pille holder samtalen innen rekkevidde
 - Apper åpnes i fullskjerm fra sidepanelet; redigeringen ligger bak tannhjulet
 - Innlimte bilder vises som miniatyrer i chatter
+- Start koding til en agent når nå frem; agentchatter forblir en vanlig samtale
+- Team kan ha sitt eget bilde

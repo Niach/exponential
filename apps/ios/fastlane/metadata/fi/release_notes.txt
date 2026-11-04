@@ -22,3 +22,5 @@
 - Kelluva painike pitää puhelun käden ulottuvilla
 - Sovellukset avautuvat sivupalkista koko näytölle; muokkain on rattaan takana
 - Liitetyt kuvat näkyvät keskusteluissa pikkukuvina
+- Koodauksen aloitus agentille tavoittaa sen nyt; agenttikeskustelut pysyvät tavallisina
+- Tiimeillä voi olla oma kuva

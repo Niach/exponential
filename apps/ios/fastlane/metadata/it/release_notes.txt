@@ -22,3 +22,5 @@
 - Una pillola fluttuante tiene la chiamata a portata di mano
 - Le app si aprono a schermo intero dalla barra laterale; l'editor è dietro l'ingranaggio
 - Le immagini incollate appaiono come miniature nelle chat
+- Avviare il coding verso un agente ora lo raggiunge; le chat con gli agenti restano semplici
+- I team possono avere una propria immagine

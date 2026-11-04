@@ -22,3 +22,5 @@
 - En flytande knapp håller samtalet nära till hands
 - Appar öppnas i helskärm från sidofältet; redigeraren ligger bakom kugghjulet
 - Inklistrade bilder visas som miniatyrer i chattar
+- Starta kodning till en agent når nu fram; agentchattar förblir ett vanligt samtal
+- Team kan ha en egen bild

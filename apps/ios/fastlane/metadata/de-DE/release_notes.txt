@@ -22,3 +22,5 @@
 - Eine schwebende Leiste hält deinen Anruf griffbereit, während du die App nutzt
 - Apps öffnen sich aus der Seitenleiste im Vollbild; der Editor liegt hinter dem Zahnrad
 - Eingefügte Bilder erscheinen im Chat als Vorschaubilder
+- „Coden starten“ an einen Agenten kommt jetzt an; Agenten-Chats bleiben reine Unterhaltungen
+- Teams können ein eigenes Bild haben

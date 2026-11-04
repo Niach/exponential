@@ -22,3 +22,5 @@
 - Plávajúca lišta drží hovor poruke
 - Aplikácie sa z bočného panela otvárajú na celú obrazovku; editor je pod ozubeným kolieskom
 - Vložené obrázky sa v chate zobrazujú ako náhľady
+- Spustenie kódovania u agenta ho teraz zastihne; chaty s agentmi zostávajú obyčajnou konverzáciou
+- Tímy môžu mať vlastný obrázok

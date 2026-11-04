@@ -22,3 +22,5 @@
 - Egy lebegő gomb kéznél tartja a hívást
 - Az appok az oldalsávból teljes képernyőn nyílnak; a szerkesztő a fogaskerék mögött van
 - A beillesztett képek bélyegképként jelennek meg
+- A kódolás indítása egy ügynöknek most célba ér; az ügynökcsevegések egyszerű beszélgetések
+- A csapatoknak saját képük lehet

@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-agent-chats-reach-agents`,
+    date: `2026-11-04`,
+    title: `Start coding to an agent now reaches it`,
+    summary: `Start coding to an agent now reaches it; agent chats stay a plain conversation.`,
+    body: `- **Agents get the issue**: Start coding (and any send) to an agent now always reaches it, with the issue as a message.
+- **Plain agent chats**: an agent's chat is just the conversation; it no longer collects linked issues.`,
+  },
+  {
     id: `2026-11-04-agent-keys-off-argv`,
     date: `2026-11-04`,
     title: `Agent keys stay off the command line on Linux`,
