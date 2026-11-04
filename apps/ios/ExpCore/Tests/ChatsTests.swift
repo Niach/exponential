@@ -6,7 +6,7 @@ import XCTest
 // desktop `domain::chats`) against fixtures/chats.json: every case group
 // (previewCases, timeCases, listCases, bubbleCases, menuCases,
 // agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
-// selectionCases, rangeCases, dotCases) plus the copy, test
+// selectionCases, rangeCases, dotCases, sectionCases) plus the copy, test
 // ids, shell and surface-card constants. Whole expected objects are compared
 // as JSON values.
 final class ChatsTests: XCTestCase {
@@ -475,6 +475,36 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    /// #FEED-191 `sectionCases`: the list's sections, the WHOLE expected array.
+    func testSectionCases() throws {
+        for testCase in try cases("sectionCases") {
+            let name = string(testCase["name"]) ?? ""
+            let rows = try XCTUnwrap(testCase["rows"] as? [[String: Any]], name).map { raw in
+                Chats.ChatRow(
+                    sessionId: string(raw["sessionId"]) ?? "",
+                    teamId: "",
+                    title: "",
+                    deviceId: nil,
+                    group: string(raw["group"]) ?? "",
+                    lead: .waiting,
+                    preview: Chats.ChatPreview(kind: .empty, text: ""),
+                    activityAt: "",
+                    time: "",
+                    unreadCount: raw["unreadCount"] as? Int ?? 0,
+                    needsYou: false,
+                    busy: false,
+                    word: nil,
+                    dim: false
+                )
+            }
+            let got = Chats.chatSections(rows).map { section -> [String: Any] in
+                ["key": section.key.rawValue, "ids": section.rows.map(\.sessionId)]
+            }
+            assertJSON(got, testCase["expected"], name)
+        }
+        XCTAssertEqual(Chats.Copy.Sections.title(.needsYou), Chats.Copy.Sections.needsYou)
+    }
+
     func testDeleteTitles() {
         XCTAssertEqual(Chats.chatDeleteTitle(1), Chats.Copy.ConfirmDelete.title)
         XCTAssertEqual(Chats.chatDeleteTitle(3), "Delete 3 chats?")
@@ -557,7 +587,8 @@ final class ChatsTests: XCTestCase {
             "sections",
         ])
         XCTAssertEqual(copy["sections"] as? [String: String], [
-            "agents": C.Sections.agents, "chats": C.Sections.chats,
+            "agents": C.Sections.agents, "needs_you": C.Sections.needsYou, "working": C.Sections.working,
+            "unread": C.Sections.unread, "chats": C.Sections.chats,
         ])
         XCTAssertEqual(AskDock.Copy.superseded, C.superseded)
     }

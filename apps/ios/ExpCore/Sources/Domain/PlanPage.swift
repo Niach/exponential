@@ -309,7 +309,7 @@ public enum PlanPage {
         Counts(
             sections: outline(card?.plan ?? "").count,
             pictures: card?.pictures.filter { $0.attachmentId != nil }.count ?? 0,
-            questions: card?.questions.count ?? 0
+            questions: card?.questionCount ?? 0
         )
     }
 

@@ -136,7 +136,20 @@ public enum Chats {
         /// (`agentChatRows`) exists.
         public enum Sections {
             public static let agents = "Agents"
+            /// #FEED-191: the list's sections (`chatSections`).
+            public static let needsYou = "Needs you"
+            public static let working = "Working"
+            public static let unread = "Unread"
             public static let chats = "Chats"
+
+            public static func title(_ key: ChatSectionKey) -> String {
+                switch key {
+                case .needsYou: needsYou
+                case .working: working
+                case .unread: unread
+                case .chats: chats
+                }
+            }
         }
     }
 
@@ -895,6 +908,32 @@ public enum Chats {
             group.rows.contains { row in
                 row.depth == 0 && row.unread && (row.needsYou || !archived.contains(row.sessionId))
             }
+        }
+    }
+
+    /// #FEED-191: a chat list section (`sectionCases`).
+    public enum ChatSectionKey: String, CaseIterable, Equatable, Sendable {
+        case needsYou = "needs_you"
+        case working, unread, chats
+    }
+
+    public struct ChatSection: Equatable, Sendable, Identifiable {
+        public let key: ChatSectionKey
+        public let rows: [ChatRow]
+        public var id: String { key.rawValue }
+    }
+
+    /// #FEED-191: `chatList`'s rows grouped: needs you, working, unread, the
+    /// rest by activity; empty sections absent.
+    public static func chatSections(_ rows: [ChatRow]) -> [ChatSection] {
+        func keyOf(_ row: ChatRow) -> ChatSectionKey {
+            if row.group == ThreadsListGroup.Key.needsYou.rawValue { return .needsYou }
+            if row.group == ThreadsListGroup.Key.running.rawValue { return .working }
+            return row.unreadCount > 0 ? .unread : .chats
+        }
+        return ChatSectionKey.allCases.compactMap { key in
+            let own = rows.filter { keyOf($0) == key }
+            return own.isEmpty ? nil : ChatSection(key: key, rows: own)
         }
     }
 

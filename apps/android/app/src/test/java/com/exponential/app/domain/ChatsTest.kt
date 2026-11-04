@@ -22,7 +22,7 @@ import org.junit.Test
  * Thread 58cb32df: Chats is fixture-locked ×4 — every case group of
  * `chats.json` (previewCases, timeCases, listCases, bubbleCases, menuCases,
  * agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
- * selectionCases, rangeCases, dotCases) runs here (TS
+ * selectionCases, rangeCases, dotCases, sectionCases) runs here (TS
  * `chats.test.ts`, iOS `ChatsTests`, desktop `domain::chats`). Outputs are
  * re-encoded in the fixture's JSON shape and compared WHOLE; the embedded
  * copy is proved equal to the fixture's.
@@ -273,6 +273,9 @@ class ChatsTest {
         }
         val copy = fixture.getValue("copy").jsonObject.getValue("sections").jsonObject
         assertEquals(copy.str("agents"), Chats.Copy.SECTION_AGENTS)
+        assertEquals(copy.str("needs_you"), Chats.Copy.SECTION_NEEDS_YOU)
+        assertEquals(copy.str("working"), Chats.Copy.SECTION_WORKING)
+        assertEquals(copy.str("unread"), Chats.Copy.SECTION_UNREAD)
         assertEquals(copy.str("chats"), Chats.Copy.SECTION_CHATS)
         assertEquals(fixture.getValue("shell").jsonObject.str("chatLead"), Chats.Shell.CHAT_LEAD)
     }
@@ -360,6 +363,41 @@ class ChatsTest {
         assertEquals("Delete 3 chats?", Chats.chatDeleteTitle(3))
         assertEquals("2 of 5 chats couldn't be updated", Chats.chatSelectionFailedTitle(2, 5))
         assertEquals(Chats.Copy.TOAST_SELECTION_FAILED, Chats.chatSelectionFailedTitle(5, 5))
+    }
+
+    /** #FEED-191 `sectionCases`: the list's sections, the WHOLE expected array. */
+    @Test
+    fun `every section case matches the fixture`() {
+        for (case in cases("sectionCases")) {
+            val rows = case.list("rows").map {
+                Chats.ChatRow(
+                    sessionId = it.str("sessionId")!!,
+                    teamId = "",
+                    title = "",
+                    deviceId = null,
+                    group = groupKey(it.str("group")!!),
+                    lead = Chats.ChatLead.Waiting,
+                    preview = Chats.ChatPreview("empty", ""),
+                    activityAt = "",
+                    time = "",
+                    unreadCount = it.getValue("unreadCount").jsonPrimitive.int,
+                    needsYou = false,
+                    busy = false,
+                    word = null,
+                )
+            }
+            val encoded = JsonArray(
+                Chats.chatSections(rows).map { section ->
+                    buildJsonObject {
+                        put("key", section.key.wire)
+                        put("ids", JsonArray(section.rows.map { JsonPrimitive(it.sessionId) }))
+                    }
+                },
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), encoded)
+        }
+        val copy = fixture.getValue("copy").jsonObject.getValue("sections").jsonObject
+        for (key in Chats.ChatSectionKey.entries) assertEquals(copy.str(key.wire), key.title)
     }
 
     @Test
