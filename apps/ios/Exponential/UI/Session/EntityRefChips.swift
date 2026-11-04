@@ -244,7 +244,7 @@ struct EntityRefPreviewSheet: View {
                 image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size + 6
             )
         case let .team(team):
-            TeamAvatar(team: team, size: size + 6)
+            TeamAvatar(iconUrl: team.iconUrl, size: size + 6)
         case let .sessionDot(state, pulsing):
             SessionStateDot(state: state, pulsing: pulsing, size: size * 0.6)
         case let .dot(color):

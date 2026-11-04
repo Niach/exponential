@@ -8,8 +8,23 @@ import androidx.compose.ui.graphics.graphicsLayer
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PageHeaderActions
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import coil3.SingletonImageLoader
+import coil3.asImage
+import coil3.memory.MemoryCache
+import com.exponential.app.domain.TeamImage
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PhoneBoardMenu
+import com.exponential.app.ui.components.TeamAvatar
+import com.exponential.app.ui.components.TeamImageRow
+import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.glassRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -76,6 +91,7 @@ import kotlinx.serialization.json.jsonObject
 const val ChatListSpecimenTestId = "chat-list-specimen"
 const val PhoneTabBarSpecimenTestId = "phone-tab-bar-specimen"
 const val PhoneBoardMenuSpecimenTestId = "phone-board-menu-specimen"
+const val TeamAvatarSpecimenTestId = "team-avatar-specimen"
 const val PhonePageHeaderSpecimenTestId = "phone-page-header-specimen"
 const val ChatTranscriptSpecimenTestId = "chat-transcript-specimen"
 const val ChatMenusSpecimenTestId = "chat-menus-specimen"
@@ -319,6 +335,7 @@ private fun SpecimenTabBar(
         board = SPECIMEN_BOARDS.first(),
         onBoardView = selected == "board",
         team = ACME,
+        onTeamPage = selected == "team",
         chatsRunning = false,
         chatsNeedYou = true,
         composeEnabled = true,
@@ -326,7 +343,7 @@ private fun SpecimenTabBar(
         onCompose = {},
         onChat = {},
         modifier = modifier,
-        boardMenu = PhoneBoardMenu(
+        boardMenu = PhoneBoardMenu.boards(
             boards = SPECIMEN_BOARDS,
             activeBoardId = SPECIMEN_BOARDS.first().id,
             onSelect = {},
@@ -367,6 +384,71 @@ fun PhoneTabBarSpecimenScreen() {
             SpecimenTabBar(selected = "chats", dragging = true)
         }
     }
+}
+
+/** The styleguide `team-avatar` entry (#EXP-1645, team-image.json): the marks
+ *  with an image and without, then the General row both ways (shot
+ *  `sg_team-avatar`). */
+@Composable
+fun TeamAvatarSpecimenScreen() {
+    val context = LocalContext.current
+    remember(context) {
+        seedTeamSampleImage(context)
+        true
+    }
+    AppBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(16.dp)
+                .testTag(TeamAvatarSpecimenTestId),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                TeamAvatar(TEAM_SAMPLE_IMAGE, size = 28.dp)
+                TeamAvatar(TEAM_SAMPLE_IMAGE, size = 20.dp)
+                TeamAvatar(null, size = 28.dp)
+                TeamAvatar(null, size = 20.dp)
+                TeamAvatar(null, size = 18.dp)
+            }
+            Column(Modifier.fillMaxWidth().glassGroup()) {
+                TeamImageRow(iconUrl = TEAM_SAMPLE_IMAGE, onPickPhoto = {}, onPickFile = {}, onRemove = {})
+                GroupDivider()
+                TeamImageRow(iconUrl = null, onPickPhoto = {}, onPickFile = {}, onRemove = {})
+            }
+        }
+    }
+}
+
+private const val TEAM_SAMPLE_IMAGE = "/api/attachments/team-sample"
+
+/** The web specimen's transparent star (`TEAM_SAMPLE_IMAGE`) at the server's
+ *  stored side, in the app ImageLoader's memory cache (no server here). */
+private fun seedTeamSampleImage(context: Context) {
+    val cache = SingletonImageLoader.get(context).memoryCache ?: return
+    val side = TeamImage.Upload.SIDE
+    val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    canvas.scale(side / 24f, side / 24f)
+    val star = Path().apply {
+        moveTo(12f, 2f)
+        lineTo(15f, 9f)
+        lineTo(22f, 9f)
+        lineTo(16.5f, 13.5f)
+        lineTo(18.5f, 21f)
+        lineTo(12f, 16.5f)
+        lineTo(5.5f, 21f)
+        lineTo(7.5f, 13.5f)
+        lineTo(2f, 9f)
+        lineTo(9f, 9f)
+        close()
+    }
+    canvas.drawPath(star, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF97316.toInt() })
+    cache[MemoryCache.Key(TEAM_SAMPLE_IMAGE)] = MemoryCache.Value(bitmap.asImage())
 }
 
 /** THE board menu, OPEN over the strip it grew from (shot `sg_phone-board-menu`). */

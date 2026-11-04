@@ -114,7 +114,7 @@ struct TeamTabView: View {
         if let team = teamState.activeTeam {
             VStack(spacing: 10) {
                 // The team's name is the page header's title now.
-                TeamAvatar(team: team, size: 84)
+                TeamAvatar(iconUrl: team.iconUrl, size: 84)
                 Text(Chats.Copy.Team.metaLine(members: counts.members, boards: counts.boards))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -155,7 +155,9 @@ struct TeamTabView: View {
             onSwitchTeam(accountId, team.id)
         } label: {
             HStack(spacing: 12) {
-                TeamAvatar(team: team, size: 24)
+                // A row of another server loads its image with that account.
+                TeamAvatar(iconUrl: team.iconUrl, size: 24)
+                    .environment(\.accountId, accountId)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(team.name)
                         .font(.body)

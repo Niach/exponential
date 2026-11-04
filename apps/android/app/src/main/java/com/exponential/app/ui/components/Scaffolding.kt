@@ -195,7 +195,7 @@ fun IssueGroupBand(
 
 /** The band title's emphasis — web `text-foreground/85`, desktop
  *  `foreground.opacity(0.85)`. */
-private const val SectionBandTitleAlpha = 0.85f
+internal const val SectionBandTitleAlpha = 0.85f
 
 /**
  * THE empty state (EXP-1274, `empty-state.json` ×4), drawn by the SDK's

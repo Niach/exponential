@@ -77,6 +77,10 @@ private struct AttachmentIdInput: Encodable {
 
 private struct EmptyResult: Decodable {}
 
+private struct TeamImageUploadResult: Decodable {
+    let iconUrl: String
+}
+
 public final class AttachmentsApi: Sendable {
     /// A 50 MB body over a phone uplink outlives the shared 30 s request budget
     /// by a wide margin — give upload and download their own five-minute window.
@@ -182,6 +186,27 @@ public final class AttachmentsApi: Sendable {
         )
     }
 
+    /// #EXP-1645 (team-image.json `upload`): the team image. Same multipart
+    /// part as every upload; the owner-only route normalises it to one PNG and
+    /// answers the `teams.icon_url` it set (the shape delivers the row too).
+    public func uploadTeamImage(
+        accountId: String,
+        teamId: String,
+        data: Data,
+        filename: String,
+        contentType: String
+    ) async throws -> String {
+        let responseData = try await post(
+            accountId: accountId,
+            path: TeamImage.uploadPath(teamId: teamId),
+            data: data,
+            filename: filename,
+            contentType: contentType,
+            media: nil
+        )
+        return try JSONDecoder().decode(TeamImageUploadResult.self, from: responseData).iconUrl
+    }
+
     /// The draft upload route. Internal so the path contract is unit-tested —
     /// it is the ONE thing that distinguishes a draft upload from an issue one
     /// (the multipart body is byte-identical).
@@ -204,6 +229,26 @@ public final class AttachmentsApi: Sendable {
         contentType: String,
         media: MediaUploadParts? = nil
     ) async throws -> UploadedAttachment {
+        let responseData = try await post(
+            accountId: accountId,
+            path: path,
+            data: data,
+            filename: filename,
+            contentType: contentType,
+            media: media
+        )
+        return try JSONDecoder().decode(UploadedAttachment.self, from: responseData)
+    }
+
+    /// The authed multipart POST every upload route shares; answers the 2xx body.
+    private func post(
+        accountId: String,
+        path: String,
+        data: Data,
+        filename: String,
+        contentType: String,
+        media: MediaUploadParts?
+    ) async throws -> Data {
         guard let baseUrl = instanceUrl(for: accountId) else {
             throw AttachmentsError.noInstanceUrl
         }
@@ -235,7 +280,7 @@ public final class AttachmentsApi: Sendable {
             let text = String(data: responseData, encoding: .utf8) ?? ""
             throw AttachmentsError.httpError(response.statusCode, text)
         }
-        return try JSONDecoder().decode(UploadedAttachment.self, from: responseData)
+        return responseData
     }
 
     /// The multipart body of an upload. Hand-rolled: the quoted `name="file"`

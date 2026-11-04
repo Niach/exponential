@@ -286,6 +286,20 @@ impl HttpAttachmentTransport {
         self.post_multipart(&url, filename, content_type, bytes)
     }
 
+    /// #EXP-1645 (team-image.json `upload`): the team image → `POST
+    /// /api/teams/{teamId}/icon`, the same single-part multipart `file`. The
+    /// answer's `{iconUrl}` is not read: the shape delivers it.
+    pub fn upload_team_image(
+        &self,
+        team_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<()> {
+        let url = format!("{}{}", self.base_url, domain::team_image::upload_path(team_id));
+        self.post_multipart_text(&url, "image", filename, content_type, bytes).map(|_| ())
+    }
+
     /// One multipart POST to the issue upload route. The user-facing error
     /// label follows the payload: an inline image is an "image", every other
     /// content type a "file".
@@ -301,6 +315,19 @@ impl HttpAttachmentTransport {
         } else {
             "file"
         };
+        let text = self.post_multipart_text(url, what, filename, content_type, bytes)?;
+        serde_json::from_str(&text).with_context(|| format!("decode upload response: {text}"))
+    }
+
+    /// The POST itself: the 2xx body as text.
+    fn post_multipart_text(
+        &self,
+        url: &str,
+        what: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<String> {
         let boundary = format!("----ExpMarkdownEditor{}", new_draft_url().len() as u64 + rand_ish());
         let body = build_multipart(&boundary, filename, content_type, bytes);
         let response = self
@@ -327,7 +354,7 @@ impl HttpAttachmentTransport {
                 upload_error_message(status, &text)
             ));
         }
-        serde_json::from_str(&text).with_context(|| format!("decode upload response: {text}"))
+        Ok(text)
     }
 }
 
@@ -952,6 +979,25 @@ mod tests {
         fn token(&self) -> Option<String> {
             Some("tok-9".to_string())
         }
+    }
+
+    /// #EXP-1645: the team image is one `file` part to the fixture's route,
+    /// with the account's bearer; a refusal surfaces the server's message.
+    #[test]
+    fn the_team_image_posts_one_file_part_to_the_team_route() {
+        let (base, rx) = one_shot_server(200, r#"{"iconUrl":"/api/attachments/a-1"}"#);
+        let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
+        transport.upload_team_image("t-1", "logo.svg", "image/svg+xml", b"<svg/>").unwrap();
+        let request = rx.recv().unwrap();
+        assert!(request.starts_with("POST /api/teams/t-1/icon "), "{request}");
+        assert!(request.to_lowercase().contains("authorization: bearer tok-9"), "{request}");
+        assert!(request.contains("name=\"file\"; filename=\"logo.svg\""), "{request}");
+        assert!(request.contains("Content-Type: image/svg+xml"), "{request}");
+
+        let (base, _rx) = one_shot_server(400, r#"{"error":"That image could not be read"}"#);
+        let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
+        let error = transport.upload_team_image("t-1", "x.png", "image/png", b"x").unwrap_err();
+        assert!(error.to_string().contains("That image could not be read"), "{error}");
     }
 
     /// One-shot canned HTTP server (same pattern as `api::trpc` tests).

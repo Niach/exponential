@@ -270,8 +270,9 @@ enum PhoneShellSpecimen {
 }
 
 /// `phone-tab-bar` (#EXP-1384): Board · Chats · Apps · Team beside the
-/// launcher — the board view (the caret), Chats and Team selected, the lens
-/// mid-drag between Chats and Apps; the amber dot on Chats.
+/// launcher — the board view (the caret), Chats selected, the Team page (the
+/// caret, #EXP-1645), the lens mid-drag between Chats and Apps; the amber dot
+/// on Chats.
 struct PhoneTabBarSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -279,8 +280,8 @@ struct PhoneTabBarSpecimens: View {
             bar(.board, onBoardView: true)
             PhoneShellSpecimen.caption("Chats selected")
             bar(.chats)
-            PhoneShellSpecimen.caption("Team selected")
-            bar(.team)
+            PhoneShellSpecimen.caption("On the Team page (the caret opens the team menu)")
+            bar(.team, onTeamPage: true)
             PhoneShellSpecimen.caption("Dragging: the lens between Chats and Apps")
             bar(.chats, specimen: .lens(candidate: .apps, offset: -10))
         }
@@ -289,12 +290,16 @@ struct PhoneTabBarSpecimens: View {
     }
 
     private func bar(
-        _ selected: Chats.Shell.Tab, onBoardView: Bool = false, specimen: MobileTabBar.Specimen? = nil
+        _ selected: Chats.Shell.Tab,
+        onBoardView: Bool = false,
+        onTeamPage: Bool = false,
+        specimen: MobileTabBar.Specimen? = nil
     ) -> some View {
         MobileTabBar(
             selected: selected,
             board: PhoneShellSpecimen.activeBoard,
             onBoardView: onBoardView,
+            onTeamPage: onTeamPage,
             team: PhoneShellSpecimen.team,
             chatsNeedYou: true,
             specimen: specimen
@@ -305,14 +310,18 @@ struct PhoneTabBarSpecimens: View {
 /// `phone-board-menu` (#EXP-1384): the board view's Board tab morphed the
 /// whole strip into the glass board menu, shown OPEN over a dimmed page:
 /// the team's boards (the active one lit with the check) then New board.
+/// `teamMenu` (#EXP-1645, `phone-team-menu`): the same panel over the member's
+/// teams, from the Team page's Team tab.
 struct PhoneBoardMenuSpecimens: View {
+    var teamMenu = false
+
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 10) {
                 // The page header behind the menu, its search + inbox
                 // circles included (dimmed with the page).
                 HStack(spacing: 8) {
-                    Text(PhoneShellSpecimen.activeBoard.name)
+                    Text(teamMenu ? PhoneShellSpecimen.team.name : PhoneShellSpecimen.activeBoard.name)
                         .font(.largeTitle.weight(.bold))
                         .foregroundStyle(.white)
                     Spacer(minLength: 8)
@@ -332,17 +341,82 @@ struct PhoneBoardMenuSpecimens: View {
             .padding(16)
             .opacity(0.4)
             MobileTabBar(
-                selected: .board,
+                selected: teamMenu ? .team : .board,
                 board: PhoneShellSpecimen.activeBoard,
-                onBoardView: true,
+                onBoardView: !teamMenu,
+                onTeamPage: teamMenu,
                 team: PhoneShellSpecimen.team,
                 boards: PhoneShellSpecimen.boards,
                 onNewBoard: {},
-                specimen: .menuOpen
+                teams: [
+                    PhoneShellSpecimen.team,
+                    TeamEntity(
+                        id: "t2", name: "Launch Studio", slug: "launch-studio", iconUrl: TeamAvatarSpecimens.sampleUrl,
+                        createdAt: "", updatedAt: ""
+                    ),
+                ].map { MobileTabBar.TeamRow(team: $0, accountId: "") },
+                onNewTeam: {},
+                specimen: teamMenu ? .teamMenuOpen : .menuOpen
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.teamImageLoader, TeamAvatarSpecimens.sampleLoader)
         .accessibilityIdentifier("phone-board-menu-specimen")
+    }
+}
+
+/// `team-avatar` (#EXP-1645, team-image.json): the marks (a transparent image
+/// at 28 and 20, the glyph at 28, 20 and 18) and the Settings › General row with
+/// and without an image. No border and no fill: the star's transparency shows
+/// the page.
+struct TeamAvatarSpecimens: View {
+    /// Any non-blank `icon_url`; `sampleLoader` answers it with the star.
+    static let sampleUrl = "/api/attachments/team-avatar-specimen"
+
+    /// The styleguide entry's transparent vector mark.
+    private static let star: UIImage = {
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { context in
+            let scale: CGFloat = 4
+            let points: [(CGFloat, CGFloat)] = [
+                (12, 2), (15, 9), (22, 9), (16.5, 13.5), (18.5, 21), (12, 16.5), (5.5, 21), (7.5, 13.5), (2, 9), (9, 9),
+            ]
+            let path = UIBezierPath()
+            for (index, point) in points.enumerated() {
+                let at = CGPoint(x: point.0 * scale, y: point.1 * scale)
+                if index == 0 { path.move(to: at) } else { path.addLine(to: at) }
+            }
+            path.close()
+            UIColor(red: 0xF9 / 255, green: 0x73 / 255, blue: 0x16 / 255, alpha: 1).setFill()
+            context.cgContext.addPath(path.cgPath)
+            context.cgContext.fillPath()
+        }
+    }()
+
+    static let sampleLoader = TeamImageLoader(cached: { _, _ in star }, load: { _, _ in star })
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                TeamAvatar(iconUrl: Self.sampleUrl, size: 28)
+                TeamAvatar(iconUrl: Self.sampleUrl, size: 20)
+                TeamAvatar(iconUrl: nil, size: 28)
+                TeamAvatar(iconUrl: nil, size: 20)
+                TeamAvatar(iconUrl: nil, size: 18)
+            }
+            .foregroundStyle(.white)
+            VStack(spacing: 0) {
+                TeamImageRow(iconUrl: Self.sampleUrl)
+                Rectangle()
+                    .fill(GlassTokens.strokeCard)
+                    .frame(height: GlassTokens.hairline)
+                TeamImageRow(iconUrl: nil)
+            }
+            .glassSection()
+        }
+        .environment(\.teamImageLoader, Self.sampleLoader)
+        .accessibilityIdentifier("team-avatar-specimen")
     }
 }
 

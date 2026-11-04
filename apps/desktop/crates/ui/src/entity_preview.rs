@@ -649,7 +649,7 @@ fn team_card(team_id: &str, cx: &mut App) -> Option<AnyElement> {
         .count();
     Some(
         card_frame(cx)
-            .child(header(crate::user_avatar::team_avatar(&team.name, 20.), team.name.clone()))
+            .child(header(crate::user_avatar::team_avatar(team.icon_url.as_deref(), 20., cx), team.name.clone()))
             .child(muted_line(
                 match members {
                     1 => "1 member".to_string(),

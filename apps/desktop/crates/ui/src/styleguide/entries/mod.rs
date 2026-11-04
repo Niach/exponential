@@ -104,6 +104,8 @@ pub(crate) mod story_ring;
 pub(crate) mod story_viewer;
 // STORIES TAB.
 pub(crate) mod story_tab;
+// #EXP-1645: the team mark + the Team image row.
+pub(crate) mod team_avatar;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is left since NEW-77 filled `voice-call-overlay`.
@@ -127,8 +129,14 @@ pub(crate) struct Entry {
 /// The entry registered as `id` (EXP-1259: `EXP_DEV_SCREEN=styleguide:<id>`
 /// draws it full-window for a capture).
 pub(crate) fn find(id: &str) -> Option<&'static Entry> {
-    ENTRIES.iter().find(|entry| entry.id == id)
+    ENTRIES.iter().chain(COMPONENT_TWINS).find(|entry| entry.id == id)
 }
+
+/// Twins of the web's `apps/styleguide` COMPONENTS catalog entries, which the
+/// section index does not list: reachable by id, not on the sectioned page.
+pub(crate) const COMPONENT_TWINS: &[Entry] = &[
+    Entry { id: team_avatar::ID, owner: team_avatar::OWNER, render: team_avatar::render },
+];
 
 /// Every entry, in the section index's order.
 pub(crate) const ENTRIES: &[Entry] = &[

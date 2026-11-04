@@ -37,6 +37,7 @@ object Chats {
         )
 
         const val BOARD_MENU_NEW_BOARD = "New board"
+        const val BOARD_MENU_NEW_TEAM = "New team"
 
         /** `copy.filters` by [FILTERS]. */
         val FILTERS: Map<ChatFilter, String> = linkedMapOf(
@@ -194,10 +195,13 @@ object Chats {
             }
         }
 
-        /** `shell.boardTab`: the caret on the board view. */
+        /** `shell.boardTab`: the caret beside the tab's glyph, out of flow
+         *  (#EXP-1645: the Board tab on the board view, the Team tab on the
+         *  Team page, `shell.teamTab`). */
         object BoardTab {
             const val CARET = "nav-team-switcher"
             const val CARET_SIZE = 10
+            const val CARET_GAP = 2
         }
 
         /** `shell.boardMenu`: the strip morph (durations / eases name the

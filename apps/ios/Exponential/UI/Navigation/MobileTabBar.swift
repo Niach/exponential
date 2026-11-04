@@ -16,7 +16,11 @@ import SwiftUI
 /// `nav-issues` concept + "Board" while the team has none); on the board
 /// view it wears the `nav-team-switcher` caret and a tap opens THE BOARD
 /// MENU: the whole strip MORPHS into one glass panel listing the team's
-/// boards (then New board), the phone's only board switch. DRAG
+/// boards (then New board), the phone's only board switch. THE TEAM TAB =
+/// the active team's mark + name; on the Team page itself (`shell.teamTab`,
+/// #EXP-1645) it wears the same caret and a tap opens the same panel over the
+/// member's teams (then New team), the phone's team switcher. The caret hangs
+/// beside the glyph out of flow, so a tab's width never changes with it. DRAG
 /// (`shell.bar.drag`, the native tab bar's behaviour): a press lifts the
 /// LENS under the finger (iOS 26: interactive Liquid Glass), it follows the
 /// finger along the bar, the tab under its centre is the candidate, a lift
@@ -35,7 +39,10 @@ struct MobileTabBar: View {
     var board: BoardEntity?
     /// The board view is up: the Board tab wears the caret and opens the menu.
     var onBoardView = false
-    /// The active team (the Team tab's avatar and label); nil = none yet.
+    /// The Team page is up (never the pages pushed from it): the Team tab
+    /// wears the caret and opens the team menu.
+    var onTeamPage = false
+    /// The active team (the Team tab's mark and label); nil = none yet.
     var team: TeamEntity?
     /// The Chats dot: amber = a chat needs me, green = one runs, primary =
     /// one holds news I have not read.
@@ -48,16 +55,36 @@ struct MobileTabBar: View {
     var boards: [BoardEntity] = []
     /// The viewer may create boards: the muted New board row.
     var onNewBoard: (() -> Void)?
+    /// The team menu's rows: the member's teams, every server's.
+    var teams: [TeamRow] = []
+    /// The muted New team row.
+    var onNewTeam: (() -> Void)?
     var onSelect: (Chats.Shell.Tab) -> Void = { _ in }
     var onSelectBoard: (BoardEntity) -> Void = { _ in }
+    var onSelectTeam: (TeamRow) -> Void = { _ in }
     var onCompose: () -> Void = {}
     var onChat: () -> Void = {}
     /// Styleguide only: a static state the specimen photographs.
     var specimen: Specimen?
 
+    /// A row of the team menu: a team and the account it lives on.
+    struct TeamRow: Identifiable {
+        let team: TeamEntity
+        let accountId: String
+
+        var id: String { "\(accountId)/\(team.id)" }
+    }
+
+    /// What the strip's panel lists.
+    private enum Menu {
+        case board, team
+    }
+
     enum Specimen: Equatable {
         /// The board menu drawn open over the strip it grew from.
         case menuOpen
+        /// The team menu, likewise.
+        case teamMenuOpen
         /// The lens lifted mid-drag over `candidate`, `offset` pt off its centre.
         case lens(candidate: Chats.Shell.Tab, offset: CGFloat)
     }
@@ -69,6 +96,7 @@ struct MobileTabBar: View {
     /// the morph (false = the strip's frame, true = the menu's).
     @State private var menuMounted = false
     @State private var menuExpanded = false
+    @State private var menu = Menu.board
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -84,13 +112,15 @@ struct MobileTabBar: View {
         }
         .onChange(of: onBoardView) { _, onBoard in
             // Leaving the board view folds the menu.
-            if !onBoard {
-                menuMounted = false
-                menuExpanded = false
-            }
+            if !onBoard && menu == .board { foldMenu() }
+        }
+        .onChange(of: onTeamPage) { _, onTeam in
+            // Leaving the Team page likewise.
+            if !onTeam && menu == .team { foldMenu() }
         }
         .onAppear {
-            if specimen == .menuOpen {
+            if specimen == .menuOpen || specimen == .teamMenuOpen {
+                menu = specimen == .teamMenuOpen ? .team : .board
                 menuMounted = true
                 menuExpanded = true
             }
@@ -108,7 +138,7 @@ struct MobileTabBar: View {
         .allowsHitTesting(!menuExpanded)
         .accessibilityHidden(menuExpanded)
         .overlay(alignment: .bottom) {
-            if menuMounted { boardMenu }
+            if menuMounted { menuPanel }
         }
         .padding(.horizontal, MobileTabBarMetrics.inset)
         .padding(.top, 8)
@@ -155,7 +185,14 @@ struct MobileTabBar: View {
         }
     }
 
-    private var showsCaret: Bool { onBoardView && board != nil }
+    /// The tab can open its menu here (`shell.boardTab`, `shell.teamTab`).
+    private func showsCaret(_ tab: Chats.Shell.Tab) -> Bool {
+        switch tab {
+        case .board: onBoardView && board != nil
+        case .team: onTeamPage && team != nil
+        default: false
+        }
+    }
 
     /// A tab's icon over its label (the capsule lights, pads and frames it).
     private func tabContent(_ tab: Chats.Shell.Tab) -> some View {
@@ -172,17 +209,19 @@ struct MobileTabBar: View {
                             .offset(x: 5, y: -1)
                     }
                 }
-            HStack(spacing: MobileTabBarMetrics.caretGap) {
-                Text(label(tab))
-                    .font(.system(size: MobileTabBarMetrics.labelSize, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if tab == .board && showsCaret {
-                    AppIcon(AppIcons.navTeamSwitcher, size: MobileTabBarMetrics.caretSize, weight: .semibold)
-                        .fixedSize()
-                        .layoutPriority(1)
+                // An overlay, so it takes no room: the tab's width (and the
+                // label's) is the same with it or without it.
+                .overlay(alignment: .trailing) {
+                    if showsCaret(tab) {
+                        AppIcon(AppIcons.navTeamSwitcher, size: MobileTabBarMetrics.caretSize, weight: .semibold)
+                            .fixedSize()
+                            .offset(x: MobileTabBarMetrics.caretOffset)
+                    }
                 }
-            }
+            Text(label(tab))
+                .font(.system(size: MobileTabBarMetrics.labelSize, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 
@@ -197,11 +236,7 @@ struct MobileTabBar: View {
                 AppIcon(AppIcons.navIssues, size: AppIcon.Size.large)
             }
         case .team:
-            if let team {
-                TeamAvatar(team: team, size: 20)
-            } else {
-                AppIcon(AppIcons.navSettings, size: AppIcon.Size.large)
-            }
+            TeamAvatar(iconUrl: team?.iconUrl, size: 20)
         case .chats:
             AppIcon(AppIcons.navThreads, size: AppIcon.Size.large)
         case .apps:
@@ -209,19 +244,29 @@ struct MobileTabBar: View {
         }
     }
 
-    /// A tab's selection — a tap, a lift, a VoiceOver activation. On the board
-    /// view the Board tab opens the board menu instead (`shell.boardTab`).
+    /// A tab's selection — a tap, a lift, a VoiceOver activation. A tab
+    /// wearing the caret opens its menu instead (`shell.boardTab`,
+    /// `shell.teamTab`).
     private func activate(_ tab: Chats.Shell.Tab) {
-        if tab == .board && showsCaret {
+        if showsCaret(tab) {
+            menu = tab == .team ? .team : .board
             menuMounted ? closeMenu() : openMenu()
         } else {
             onSelect(tab)
         }
     }
 
-    // MARK: - Board menu
+    // MARK: - Board menu + team menu (one panel, `shell.boardMenu`)
 
-    private var menuRowCount: Int { boards.count + (onNewBoard == nil ? 0 : 1) }
+    private var newRowAction: (() -> Void)? { menu == .team ? onNewTeam : onNewBoard }
+
+    private var newRowLabel: String {
+        menu == .team ? Chats.Copy.BoardMenu.newTeam : Chats.Copy.BoardMenu.newBoard
+    }
+
+    private var menuRowCount: Int {
+        (menu == .team ? teams.count : boards.count) + (newRowAction == nil ? 0 : 1)
+    }
 
     private var openAnimation: Animation {
         motion.decelerate(DesignTokens.Motion.Duration.slow)
@@ -241,6 +286,11 @@ struct MobileTabBar: View {
         }
     }
 
+    private func foldMenu() {
+        menuMounted = false
+        menuExpanded = false
+    }
+
     private func closeMenu(then follow: (() -> Void)? = nil) {
         withAnimation(closeAnimation) {
             menuExpanded = false
@@ -253,7 +303,7 @@ struct MobileTabBar: View {
     /// The panel grows from the strip's frame (same left, right and bottom
     /// edges; the corner radius from the strip's to `radius`) while the
     /// strip fades out and the rows fade in. Reduce Motion: a cross-fade.
-    private var boardMenu: some View {
+    private var menuPanel: some View {
         let open = reduceMotion || menuExpanded
         let height = open
             ? MobileTabBarMetrics.menuHeight(rows: menuRowCount)
@@ -262,17 +312,24 @@ struct MobileTabBar: View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return ScrollView {
             VStack(spacing: 0) {
-                ForEach(boards, id: \.id) { row in
-                    boardRow(row)
+                switch menu {
+                case .board:
+                    ForEach(boards, id: \.id) { row in
+                        boardRow(row)
+                    }
+                case .team:
+                    ForEach(teams) { row in
+                        teamRow(row)
+                    }
                 }
-                if let onNewBoard {
+                if let newRowAction {
                     Button {
-                        closeMenu(then: onNewBoard)
+                        closeMenu(then: newRowAction)
                     } label: {
                         HStack(spacing: 12) {
                             AppIcon(AppIcons.uiAdd, size: 16)
                                 .frame(width: 20, height: 20)
-                            Text(Chats.Copy.BoardMenu.newBoard)
+                            Text(newRowLabel)
                                 .font(.system(size: 15))
                                 .lineLimit(1)
                             Spacer(minLength: 0)
@@ -302,15 +359,39 @@ struct MobileTabBar: View {
 
     private func boardRow(_ row: BoardEntity) -> some View {
         let active = row.id == board?.id
-        return Button {
+        return menuRow(name: row.name, active: active) {
             closeMenu()
             if !active { onSelectBoard(row) }
-        } label: {
+        } glyph: {
+            AppIcon(BoardTypeDisplay.iconName(for: row), size: 20)
+                .foregroundStyle(Color(hex: row.color ?? "#888888") ?? .gray)
+        }
+    }
+
+    private func teamRow(_ row: TeamRow) -> some View {
+        let active = row.team.id == team?.id
+        return menuRow(name: row.team.name, active: active) {
+            closeMenu()
+            if !active { onSelectTeam(row) }
+        } glyph: {
+            TeamAvatar(iconUrl: row.team.iconUrl, size: 20)
+                .foregroundStyle(.white)
+                // A row of another server loads its image with that account.
+                .environment(\.accountId, row.accountId)
+        }
+    }
+
+    private func menuRow<Glyph: View>(
+        name: String,
+        active: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder glyph: () -> Glyph
+    ) -> some View {
+        Button(action: action) {
             HStack(spacing: 12) {
-                AppIcon(BoardTypeDisplay.iconName(for: row), size: 20)
-                    .foregroundStyle(Color(hex: row.color ?? "#888888") ?? .gray)
+                glyph()
                     .frame(width: 20, height: 20)
-                Text(row.name)
+                Text(name)
                     .font(.system(size: 15))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -329,7 +410,7 @@ struct MobileTabBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(row.name)
+        .accessibilityLabel(name)
         .accessibilityAddTraits(active ? .isSelected : [])
         .accessibilityIdentifier(Chats.TestIds.boardMenuRow)
     }
