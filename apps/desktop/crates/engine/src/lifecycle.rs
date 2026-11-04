@@ -553,6 +553,24 @@ pub(crate) fn lost_reason(
     (!asked && started).then_some(LostReason::ProcessLost)
 }
 
+/// EXP-1675: is this run's turn being cut by its host's suspend (an app
+/// quit, a daemon restart)? The suspend's cancel settles the turn BEFORE the
+/// end sequence judges the run lost, so the ticker would read that as a
+/// normal turn end and write `busy: false` + `idle`. A quit that exits before
+/// the `lost` report lands then leaves a row reading plain idle with no
+/// interruption, which nobody continues and nobody hears about. Held back,
+/// the row stays busy: the `lost` report, the next process's re-claim or the
+/// watchdog's offline rule each still sees a cut run.
+fn suspend_cut_turn(ctx: &SessionCtx) -> bool {
+    let outcome = ctx.outcome.lock().map(|slot| *slot).unwrap_or(None);
+    suspend_cuts_turn(outcome, ctx.busy_at_shutdown.load(Ordering::SeqCst))
+}
+
+/// [`suspend_cut_turn`]'s rule. Pure.
+pub(crate) fn suspend_cuts_turn(outcome: Option<&str>, busy_at_shutdown: bool) -> bool {
+    busy_at_shutdown && outcome == Some(SUSPEND_OUTCOME)
+}
+
 /// Does this exit END the row? A thread session's does, unless the host
 /// only suspended it; a PERSISTENT session's (`domain::session_kind`, an
 /// agent root) never does.
@@ -1050,7 +1068,8 @@ fn spawn_tickers(
                 }
                 // NEW-17: the child is gone — its run's last word is the end
                 // sequence's (`lost`), never this dying turn's idle edge.
-                if ctx.child_exit.get().is_some() {
+                // EXP-1675: so is a turn the host's own suspend is cutting.
+                if ctx.child_exit.get().is_some() || suspend_cut_turn(&ctx) {
                     continue;
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
@@ -1290,6 +1309,17 @@ mod tests {
             Ok(EngineCommand::Steer(text)) => assert_eq!(text, "hello world"),
             _ => panic!("expected one steer message"),
         }
+    }
+
+    /// EXP-1675: only a suspend that caught a live turn holds the ticker's
+    /// row writes; every other end keeps its turn-end edge.
+    #[test]
+    fn only_a_suspend_cutting_a_live_turn_holds_the_ticker() {
+        assert!(suspend_cuts_turn(Some(SUSPEND_OUTCOME), true));
+        assert!(!suspend_cuts_turn(Some(SUSPEND_OUTCOME), false), "an idle suspend just idles");
+        assert!(!suspend_cuts_turn(Some("killed"), true), "a person's stop settles its turn");
+        assert!(!suspend_cuts_turn(Some(RELEASED_OUTCOME), true));
+        assert!(!suspend_cuts_turn(None, true), "no shutdown asked yet");
     }
 
     /// EXP-758: the reason is a phase of its own, and it comes BEFORE the

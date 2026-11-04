@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn the_live_sessions_notice_names_the_idle_rule_and_the_queue() {
         let queued = live_sessions_notice(42, 3, true, "systemctl --user restart exponential-daemon");
-        assert!(queued.starts_with("The daemon (pid 42) still runs the previous version and has 3 live session(s); it restarts at their next pause between turns, within 10 minutes, and they continue on the new version."), "{queued}");
+        assert!(queued.starts_with("The daemon (pid 42) still runs the previous version and has 3 live session(s); it restarts at their next pause between turns, within 60 minutes, and they continue on the new version."), "{queued}");
         assert!(queued.contains("The update is queued"), "{queued}");
         assert!(queued.contains("\"Update now\""), "{queued}");
         assert!(queued.ends_with("To restart it by hand now: systemctl --user restart exponential-daemon"), "{queued}");

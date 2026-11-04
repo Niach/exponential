@@ -699,7 +699,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         {
             let now = Instant::now();
             for live in lock_sessions(&sessions).iter_mut() {
-                live.idle_since = match (live.session.is_idle(), live.idle_since) {
+                live.idle_since = match (live.session.at_rest(), live.idle_since) {
                     (true, Some(since)) => Some(since),
                     (true, None) => Some(now),
                     (false, _) => None,

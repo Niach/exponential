@@ -355,7 +355,9 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
                     .unwrap_or_default();
                 let live: Vec<_> = engines.iter().filter(|engine| !engine.is_done()).collect();
                 let now = Instant::now();
-                if live.iter().any(|engine| !engine.turn_signal().is_idle()) {
+                // EXP-1675: a background task (a build, a test run) is work
+                // in flight too, not a pause between turns.
+                if live.iter().any(|engine| engine.agent_busy()) {
                     last_busy = now;
                 }
                 let state = model.read(cx);
