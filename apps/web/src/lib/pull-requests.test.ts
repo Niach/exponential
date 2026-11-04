@@ -403,6 +403,47 @@ describe(`openPullRequest`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
+  it(`#NEW-20: a defaulted head never takes over another session's PR`, async () => {
+    h.selectQueue.push(
+      [{ id: `root-1`, teamId: `team-1` }],
+      [{ id: `sess-1`, parentId: `root-1`, continuedFromId: null, status: `running`, branch: `exp/chat-abcd1234` }]
+    )
+    vi.mocked(sync.loadLivePullRequestByHead).mockResolvedValueOnce(
+      pr({ head: `exp/chat-abcd1234`, sessionId: `sess-parent` }) as never
+    )
+    await expect(openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Other` })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: expect.stringMatching(/head of PR #7, opened by another session.*'head'/),
+    })
+    expect(patchPullDescription).not.toHaveBeenCalled()
+    expect(sync.recordPullRequestOpened).not.toHaveBeenCalled()
+  })
+
+  it(`#NEW-20: a continuation keeps its ended predecessor's PR with a defaulted head`, async () => {
+    h.selectQueue.push(
+      [{ id: `root-1`, teamId: `team-1` }],
+      [
+        { id: `sess-old`, parentId: `root-1`, continuedFromId: null, status: `ended`, branch: `exp/chat-abcd1234` },
+        { id: `sess-1`, parentId: `root-1`, continuedFromId: `sess-old`, status: `running`, branch: `exp/chat-abcd1234` },
+      ],
+      [{ slug: `acme` }]
+    )
+    vi.mocked(sync.loadLivePullRequestByHead).mockResolvedValueOnce(
+      pr({ head: `exp/chat-abcd1234`, sessionId: `sess-old` }) as never
+    )
+    await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Same` })
+    expect(patchPullDescription).toHaveBeenCalledTimes(1)
+  })
+
+  it(`#NEW-20: a named head on another thread's PR updates it, but its body stays that thread's`, async () => {
+    h.selectQueue.push([{ id: `root-1`, teamId: `team-1` }], [{ slug: `acme` }])
+    vi.mocked(sync.loadLivePullRequestByHead).mockResolvedValueOnce(
+      pr({ head: `exp/other`, sessionId: `sess-9`, rootSessionId: `root-9` }) as never
+    )
+    await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, head: `exp/other`, title: `Follow-up` })
+    expect(vi.mocked(patchPullDescription).mock.calls[0]![0].fields).toEqual({ title: `Follow-up` })
+  })
+
   it(`is idempotent: a live PR on the head is updated and gains the issues`, async () => {
     h.selectQueue.push(
       [{ id: `root-1`, teamId: `team-1` }],

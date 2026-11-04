@@ -20,6 +20,7 @@ import { PR_BODY_MAX, prBodyFromStories } from "@/lib/pr-body"
 import { expandTeamLinksInMarkdown } from "@/lib/app-link"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { compareCommitMessages, linkedIssuesOfPullRequest, loadStoryPictures, storiesUrlFor } from "@/lib/pr-stories"
+import { logicalSessionIds } from "@/lib/sessions/guide-entries"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import {
   compareChangedPaths,
@@ -171,6 +172,22 @@ async function loadRoot(rootId: string): Promise<{ id: string; teamId: string } 
     .where(eq(sessions.id, rootId))
     .limit(1)
   return row ?? null
+}
+
+/** #NEW-20: whether `openerId` is `callerId` or a session it continues. */
+async function isSameLogicalSession(rootId: string, callerId: string, openerId: string): Promise<boolean> {
+  if (callerId === openerId) return true
+  const tree = await db
+    .select({
+      id: sessions.id,
+      parentId: sessions.parentId,
+      continuedFromId: sessions.continuedFromId,
+      status: sessions.status,
+      branch: sessions.branch,
+    })
+    .from(sessions)
+    .where(eq(sessions.rootId, rootId))
+  return logicalSessionIds(callerId, tree).includes(openerId)
 }
 
 /** The footer link of every PR body: the thread (root session). */
@@ -362,6 +379,20 @@ export async function openPullRequest(args: {
   const linkedIdentifiers = linked.map((issue) => issue.identifier)
   const token = await repoToken(repo)
   const existing = await loadLivePullRequestByHead(repo.id, head!)
+  // #NEW-20: a head that only DEFAULTED to the session's recorded branch never
+  // takes over another session's PR (its title, links and body); naming
+  // `head` is how a session says it means that PR.
+  if (
+    existing?.sessionId &&
+    caller &&
+    !args.head &&
+    !(await isSameLogicalSession(caller.rootId, caller.id, existing.sessionId))
+  ) {
+    fail(
+      `PRECONDITION_FAILED`,
+      `Your session's branch ${head} is the head of PR #${existing.number}, opened by another session. Pass 'head': the branch you pushed.`
+    )
+  }
   // S-3: `notRun` lives on the PR row (`pull_requests.not_run`), so every
   // later body render and the next pr_open keep it.
   const notRun = args.notRun?.replace(/\s+/g, ` `).trim() || existing?.notRun || null
@@ -411,7 +442,10 @@ export async function openPullRequest(args: {
     })
 
   if (existing) {
-    const body = args.body ?? (root ? await storyBody(existing.base) : undefined)
+    // #NEW-20: a PR's body comes from its own thread: another thread's
+    // session may update it, but its stories never replace that body.
+    const ownThread = root && (!existing.rootSessionId || existing.rootSessionId === root.id)
+    const body = args.body ?? (ownThread ? await storyBody(existing.base) : undefined)
     await patchPullDescription({
       repoFullName: repo.fullName,
       prNumber: existing.number,
