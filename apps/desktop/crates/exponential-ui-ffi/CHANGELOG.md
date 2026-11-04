@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.14.0 (2026-11-04)
+
+- No API of its own; carries the core's U2/U3 macros and the record fill (VAPP-217, VAPP-232).
+
 ## 0.13.0 (2026-11-03)
 
 - No API of its own; carries the core's calendar views (VAPP-232).

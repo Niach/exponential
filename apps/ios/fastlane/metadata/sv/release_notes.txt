@@ -25,3 +25,4 @@
 - Starta kodning till en agent når nu fram; agentchattar förblir ett vanligt samtal
 - Team kan ha en egen bild
 - En sessions plan öppnas i en egen flik
+- Appar visar poster som formulär, tabeller, kalendrar och tidslinjer

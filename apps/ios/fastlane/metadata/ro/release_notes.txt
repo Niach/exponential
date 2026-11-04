@@ -25,3 +25,4 @@
 - Pornirea codării către un agent ajunge acum la el; chaturile cu agenți rămân simple
 - Echipele pot avea propria imagine
 - Planul unei sesiuni se deschide în propria filă
+- Aplicațiile arată înregistrări ca formulare, tabele, calendare și cronologii

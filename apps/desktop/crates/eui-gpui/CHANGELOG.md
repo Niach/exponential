@@ -5,6 +5,11 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.14.0 (2026-11-04)
+
+- Repeating animations share one 30 fps redraw grid instead of each scheduling its own frames (#1874).
+- EXP-1674: `Row.href` / `Button.href` presses open the URL.
+
 ## 0.13.0 (2026-11-03)
 
 - Switch gains `size` (`default` | `compact`): the compact switch is a 28×16 track under a 12px thumb, as on the other renderers (#1853).

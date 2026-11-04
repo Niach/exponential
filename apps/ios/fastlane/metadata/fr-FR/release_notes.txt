@@ -25,3 +25,4 @@
 - Lancer le codage vers un agent l'atteint désormais ; ses discussions restent simples
 - Les équipes peuvent avoir leur propre image
 - Le plan d'une session s'ouvre dans son propre onglet
+- Les apps affichent les éléments en formulaires, tableaux, calendriers et frises
