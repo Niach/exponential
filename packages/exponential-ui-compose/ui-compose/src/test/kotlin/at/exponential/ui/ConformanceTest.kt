@@ -559,6 +559,20 @@ class ConformanceTest {
             val pkg = packages[s(c, "package")]!!
             out.add(case("navigate: ${s(c, "name")}") { same(navigateTargetJson(pkg.json, c["args"]!!.json), c["expected"]!!) })
         }
+        // #EXP-1674: what a link from another app may open.
+        for (c in list(f, "crossApp")) {
+            val pkg = packages[s(c, "package")]!!
+            val params = c["params"]?.obj?.mapNotNull { (k, v) -> v.string?.let { k to it } }?.toMap()
+            out.add(
+                case("crossApp: ${s(c, "name")}") {
+                    val got = at.exponential.ui.host.Screens.crossAppTarget(pkg, c["screen"]?.string, params).fold(
+                        { (screen, merged) -> JsonValue.Obj(mapOf("screen" to JsonValue.Str(screen), "params" to JsonValue.Obj(merged.mapValues { JsonValue.Str(it.value) }))) },
+                        { JsonValue.Obj(mapOf("error" to JsonValue.Str(it.message ?: ""))) },
+                    )
+                    same(got.json, c["expected"]!!)
+                },
+            )
+        }
         for (flow in list(f, "flows")) {
             out.add(
                 case("flow: ${s(flow, "name")}") {

@@ -361,8 +361,10 @@ fn ensure_closed_surface(message_id: &str, surface: Option<&CardSurface>, surfac
 pub(crate) struct CardSurfaceHost {
     instance: Option<String>,
     token: Option<Arc<dyn api::TokenProvider>>,
-    /// The card's team, for `~/` and `#IDENT` links (`None` = the active team).
+    /// The card's team, for `#IDENT` links (`None` = the active team).
     team_id: Option<String>,
+    /// #EXP-1674: what `~/x` expands against: the card's team.
+    link_base: Option<String>,
 }
 
 impl CardSurfaceHost {
@@ -376,13 +378,15 @@ impl CardSurfaceHost {
             instance: account.map(|account| account.instance_url),
             token,
             team_id: None,
+            link_base: crate::links::team_link_base(None, cx),
         }
     }
 
     /// The host of a card in `session_id`: that session's team.
     pub(crate) fn for_session(session_id: &str, cx: &App) -> Self {
         let team_id = crate::session_data::session(session_id, cx).and_then(|row| row.team_id.clone());
-        Self { team_id, ..Self::new(cx) }
+        let link_base = crate::links::team_link_base(team_id.as_deref(), cx);
+        Self { team_id, link_base, ..Self::new(cx) }
     }
 
     /// https, plus the instance's own scheme (a local http stack).
@@ -438,6 +442,7 @@ impl HostPlugin for CardSurfaceHost {
             schemes: Some(self.schemes()),
             base_url: self.instance.clone(),
             allow_private: self.own_private_host(),
+            link_base: self.link_base.clone(),
             ..Default::default()
         })
     }
@@ -1535,7 +1540,7 @@ mod tests {
     /// do nothing.
     #[gpui::test]
     async fn the_card_host_is_inert_for_media_and_uploads(cx: &mut gpui::TestAppContext) {
-        let host = CardSurfaceHost { instance: None, token: None, team_id: None };
+        let host = CardSurfaceHost { instance: None, token: None, team_id: None, link_base: None };
         let request = eui_gpui::host::FilePickRequest {
             surface_id: "s".into(),
             component_id: "upload".into(),
@@ -1641,7 +1646,7 @@ mod tests {
     #[test]
     fn a_lan_instance_opts_exactly_its_own_host_in() {
         use eui_core::host::decide_url;
-        let host = CardSurfaceHost { instance: Some("http://192.168.1.20:3000".into()), token: None, team_id: None };
+        let host = CardSurfaceHost { instance: Some("http://192.168.1.20:3000".into()), token: None, team_id: None, link_base: None };
         let media = |src: &str| media_request(src, &host.options()).map(|request| request.url);
         assert_eq!(media("/api/attachments/a1").as_deref(), Some("http://192.168.1.20:3000/api/attachments/a1"));
         assert_eq!(media("http://192.168.1.21:3000/api/attachments/a1"), None, "a neighbour on the LAN stays denied");
@@ -1649,9 +1654,9 @@ mod tests {
         let policy = host.url_policy();
         assert!(decide_url(policy.as_ref(), "/api/attachments/a1").allowed);
         assert!(!decide_url(policy.as_ref(), "http://10.0.0.1/").allowed);
-        let local = CardSurfaceHost { instance: Some("http://localhost:3000".into()), token: None, team_id: None };
+        let local = CardSurfaceHost { instance: Some("http://localhost:3000".into()), token: None, team_id: None, link_base: None };
         assert_eq!(local.own_private_host(), Some(vec!["localhost".to_string()]));
-        let cloud = CardSurfaceHost { instance: Some("https://app.exponential.at".into()), token: None, team_id: None };
+        let cloud = CardSurfaceHost { instance: Some("https://app.exponential.at".into()), token: None, team_id: None, link_base: None };
         assert!(!decide_url(cloud.url_policy().as_ref(), "http://192.168.1.20/").allowed);
     }
 }

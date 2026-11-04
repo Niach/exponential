@@ -3,11 +3,10 @@
 //! PUBLIC gpui host API (`eui_gpui::runtime::ExponentialHost`),
 //! like a third party's host would; no private hook:
 //!
-//! - functions: `harness.toast` (the IDE toast stack), `harness.openIssue`
-//!   (the synced issue's detail, else an error toast), `harness.openDevice`
-//!   (the device settings dialog for an OWN row, else a toast with its
-//!   name), `harness.mcp` (a `tools/call` on the instance's own `/api/mcp`
-//!   with the signed-in account's credentials, `api::TrpcClient::post_json`);
+//! - functions: `harness.toast` (the IDE toast stack), `harness.mcp` (a
+//!   `tools/call` on the instance's own `/api/mcp` with the signed-in account's
+//!   credentials, `api::TrpcClient::post_json`); a link goes through the URL
+//!   policy (`~/` = the app's team) and THE opener ([`crate::links`]);
 //! - bindings: the `exp:` scheme over the synced store (`exp:devices` →
 //!   `{rows, count, online}`, derived exactly as the web derives it;
 //!   VAPP-119 `exp:issues` / `exp:boards` / `exp:members` / `exp:sessions`
@@ -849,59 +848,6 @@ fn toast_fn() -> HostFunction {
             Toast::info(text)
         };
         crate::toast::show_in_active_window(toast, cx);
-        Ok(Value::Null)
-    })
-}
-
-fn open_issue_fn() -> HostFunction {
-    eui_gpui::runtime::sync_function(|args, _, cx| {
-        let identifier = arg_str(&args, "identifier");
-        let hit = sync::Store::try_global(cx).and_then(|store| {
-            store
-                .collections()
-                .issues
-                .read(cx)
-                .iter()
-                .find(|i| i.identifier == identifier)
-                .map(|i| (i.id.clone(), i.board_id.clone()))
-        });
-        match hit {
-            Some((issue_id, board_id)) => crate::navigation::on_active_window(cx, move |window, cx| {
-                crate::navigation::open_issue_scoped(window, cx, issue_id, board_id, None)
-            }),
-            None => crate::action_error::failed_action(
-                "open",
-                &identifier,
-                Some("It is not synced here.".into()),
-                cx,
-            ),
-        }
-        Ok(Value::Null)
-    })
-}
-
-fn open_device_fn() -> HostFunction {
-    eui_gpui::runtime::sync_function(|args, _, cx| {
-        let id = arg_str(&args, "id");
-        let me = crate::queries::active_account(cx).map(|a| a.user_id);
-        // The settings dialog edits OWN rows only (the machines menu never
-        // offers it on a teammate's); anything else gets the web's toast.
-        let own = sync::Store::try_global(cx).is_some_and(|store| {
-            store
-                .collections()
-                .devices
-                .read(cx)
-                .get(&id)
-                .is_some_and(|row| row.user_id.is_some() && row.user_id == me)
-        });
-        if own {
-            crate::navigation::on_active_window(cx, move |window, cx| {
-                crate::device_settings::open(window, cx, id)
-            });
-        } else {
-            let label = arg_str(&args, "label");
-            crate::toast::show_in_active_window(Toast::info(if label.is_empty() { id } else { label }), cx);
-        }
         Ok(Value::Null)
     })
 }
@@ -1912,8 +1858,6 @@ impl IdeHost {
         let uploads = app_uploads(scope.as_ref());
         let mut functions: HashMap<String, HostFunction> = HashMap::new();
         functions.insert("harness.toast".into(), toast_fn());
-        functions.insert("harness.openIssue".into(), open_issue_fn());
-        functions.insert("harness.openDevice".into(), open_device_fn());
         functions.insert("harness.mcp".into(), mcp_fn());
         functions.insert("records.upsert".into(), records_upsert_fn(scope.clone()));
         functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
@@ -1926,10 +1870,10 @@ impl IdeHost {
                 functions.insert(name.clone(), action_fn(target));
             }
         }
-        // VAPP-198: under Run as only the toast and navigation run.
+        // VAPP-198: under Run as only the toast runs.
         if let Some(run_as) = scope.as_ref().and_then(|s| s.run_as.clone()) {
             for (name, function) in functions.iter_mut() {
-                if !matches!(name.as_str(), "harness.toast" | "harness.openIssue" | "harness.openDevice") {
+                if name != "harness.toast" {
                     *function = run_as_refused_fn(run_as.name.clone());
                 }
             }
@@ -1967,10 +1911,13 @@ impl IdeHost {
                 urls: Some(UrlPolicy {
                     base_url: instance.clone(),
                     allow_private: allow_private.clone(),
+                    // #EXP-1674: `~/x` = the app's team.
+                    link_base: scope.as_ref().and_then(|s| crate::links::team_link_base(s.team_id.as_deref(), cx)),
                     ..Default::default()
                 }),
-                // #EXP-1674: a `Link` to this instance opens in-app.
-                open_url: Some(crate::links::app_url_opener(scope.as_ref().and_then(|s| s.team_id.clone()))),
+                // #EXP-1674: a `Link` to this instance opens in-app; one at
+                // another app's screen passes that app's `exposed` contract.
+                open_url: Some(crate::links::app_url_opener(scope.as_ref().map(|s| s.app_id.clone()))),
                 // #EXP-1674: a Row subtitle's `#IDENT` refs that resolve in the app's team.
                 text_links: Some({
                     let team_id = scope.as_ref().and_then(|s| s.team_id.clone());
@@ -2472,7 +2419,7 @@ mod tests {
     }
 
     /// A row press (a list TEMPLATE instance, `row.0`) reaches
-    /// `harness.openDevice` through the host.
+    /// `harness.toast` through the host.
     #[gpui::test]
     fn a_row_press_reaches_the_host_function(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
@@ -2483,7 +2430,7 @@ mod tests {
             let ide = IdeHost::with_packages(Mode::Dark, &[pkg], None, None, cx);
             ide.host.update(cx, |h, _| {
                 h.register_function(
-                    "harness.openDevice",
+                    "harness.toast",
                     eui_gpui::runtime::sync_function(move |args, _, _| {
                         c.borrow_mut().push(args);
                         Ok(Value::Null)
@@ -2514,7 +2461,7 @@ mod tests {
         let index = pressable[0].0;
         vcx.update(|window, cx| view.update(cx, |v, cx| v.press(index, window, cx)));
         vcx.run_until_parked();
-        assert_eq!(*calls.borrow(), vec![json!({"id": "d1", "label": "Mac"})], "{pressable:?}");
+        assert_eq!(*calls.borrow(), vec![json!({"message": "Mac"})], "{pressable:?}");
     }
 
     #[test]
@@ -2561,8 +2508,8 @@ mod tests {
         assert_eq!(consent_prompt(&delete), domain::prompts::exponential_ui_consent_destructive("exponential_issues"));
         let none = FunctionCallInfo { args: json!({"tool": "exponential_devices"}), ..get.clone() };
         assert_eq!(consent_words(&none).args, None);
-        let own = FunctionCallInfo { name: "harness.openIssue".into(), args: json!({"identifier": "EXP-1"}), ..get.clone() };
-        assert_eq!(consent_words(&own).args.as_deref(), Some(r#"{"identifier":"EXP-1"}"#));
+        let own = FunctionCallInfo { name: "harness.toast".into(), args: json!({"message": "EXP-1"}), ..get.clone() };
+        assert_eq!(consent_words(&own).args.as_deref(), Some(r#"{"message":"EXP-1"}"#));
         let long = "x".repeat(400);
         assert_eq!(consent_args_preview(&long), format!("{}…", "x".repeat(160)));
         assert_eq!(consent_args_preview("short"), "short");
@@ -2572,8 +2519,8 @@ mod tests {
         assert_eq!(prompt.focused().label, "Deny");
         assert_eq!(prompt.focused().role, domain::prompts::Role::Cancel);
         assert_eq!(prompt.action("allow").role, domain::prompts::Role::Default);
-        let named = FunctionCallInfo { name: "harness.openIssue".into(), args: json!({}), ..call };
-        assert_eq!(consent_prompt(&named).title, "Allow this surface to run harness.openIssue?");
+        let named = FunctionCallInfo { name: "harness.toast".into(), args: json!({}), ..call };
+        assert_eq!(consent_prompt(&named).title, "Allow this surface to run harness.toast?");
     }
 
     #[test]

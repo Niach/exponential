@@ -186,7 +186,7 @@ describe(`prompts (contract fixture)`, () => {
     expect(destructiveTool(`acme.closeAccount`)).toBe(false)
     expect(destructiveTool(`acme.close_account`)).toBe(true)
     expect(destructiveTool(`exponential_issues`, `list`)).toBe(false)
-    expect(destructiveTool(`harness.openIssue`)).toBe(false)
+    expect(destructiveTool(`harness.toast`)).toBe(false)
     expect(destructiveTool(`exponential_issues`, { op: `delete` })).toBe(false)
     expect(exponentialUiConsentPrompt(`t`, true).actions.map((a) => a.role)).toEqual([`cancel`, `destructive`])
   })

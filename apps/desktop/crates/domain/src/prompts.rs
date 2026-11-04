@@ -808,7 +808,7 @@ mod tests {
         assert!(destructive_tool("acme.close_account", None));
         assert!(!destructive_tool("acme.closeAccount", None));
         assert!(!destructive_tool("exponential_issues", Some("list")));
-        assert!(!destructive_tool("harness.openIssue", None));
+        assert!(!destructive_tool("harness.toast", None));
         assert_eq!(exponential_ui_consent_destructive("t").actions[1].role, Role::Destructive);
         assert_eq!(exponential_ui_consent_destructive("t").focused().role, Role::Cancel);
     }

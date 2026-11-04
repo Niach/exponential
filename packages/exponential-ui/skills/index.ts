@@ -47,7 +47,7 @@ export const BUILTIN_SKILLS_VERSION = "0.13.0"
 export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
   {
     name: "exponential-apps",
-    description: "Build or change an Exponential app (eApps): the package format (formatVersion 3), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.",
+    description: "Build or change an Exponential app (eApps): the package format (formatVersion 4), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.",
     skillMd: s0,
     files: [
       { path: "examples/crm.app.json", content: s0f0 },

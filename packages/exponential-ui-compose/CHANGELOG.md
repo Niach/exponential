@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking** (over the core) #EXP-1674: `installPackage` refuses a package without `formatVersion: 4`. `Screens.nav`, `Screens.crossAppTarget`, `UrlPolicy.linkBase`.
 ## 0.13.0 (2026-11-03)
 
 - Switch gains `size` (`default` | `compact`): the compact switch is a 28×16 track under a 12px thumb, as on the other renderers (#1853).

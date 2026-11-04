@@ -7,7 +7,7 @@
     "description": "Plan the team's time off: request leave, see the month as a calendar (who is out, every day) and the next twelve weeks per person as a timeline. On phones the calendar is a compact month with the selected day's list. Agents read who is out over MCP."
   },
   "package": {
-    "formatVersion": 3,
+    "formatVersion": 4,
     "id": "exponential.leave-planner",
     "name": "Leave planner",
     "version": "1.0.0",
@@ -928,9 +928,5 @@
   "author": {
     "name": "Exponential",
     "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs"
-  },
-  "signature": {
-    "alg": "ed25519",
-    "value": "yxmfw4YsX5Af6Dc6SBLqlq1bck5iMei8OIHSg39RRTbJnYyQXVwtsv-OwJ5cpb_szCMybCtAjFvhOBkfeQQxBA"
   }
 }

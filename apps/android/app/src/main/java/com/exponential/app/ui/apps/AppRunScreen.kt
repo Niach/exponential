@@ -55,7 +55,6 @@ import dev.chrisbanes.haze.rememberHazeState
 fun AppRunScreen(
     onBack: () -> Unit,
     onEdit: (appId: String) -> Unit,
-    onOpenIssue: (issueId: String) -> Unit,
     onOpenTeamSettings: (teamId: String, section: String) -> Unit = { _, _ -> },
     // The editor's view model reads the app, access and screen request; the
     // run view never calls `leave()` (it starts no editor session).
@@ -126,7 +125,6 @@ fun AppRunScreen(
                     else -> key(pkg) {
                         AppPackageSurface(
                             packageJson = pkg,
-                            onOpenIssue = onOpenIssue,
                             onOpenTeamSettings = onOpenTeamSettings,
                             appId = viewModel.appId,
                             teamId = entry.teamId,

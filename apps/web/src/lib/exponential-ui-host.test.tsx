@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => {
       { id: `d1`, label: `MacBook`, kind: `desktop`, platform: `macos`, version: `0.14.40`, icon: null, lastSeenAt: now },
     ],
     listeners: [] as (() => void)[],
+    teams: [] as unknown[],
+    apps: [] as unknown[],
     toast: vi.fn(),
     upstreamRead: vi.fn(async (_input: { source: string }): Promise<unknown> => ({ ok: true, value: { mrr: 1200 } })),
   }
@@ -34,9 +36,9 @@ vi.mock(`@/lib/collections`, () => {
     deviceCollection: collection(() => mocks.devices),
     issueCollection: collection(() => []),
     boardCollection: collection(() => []),
-    teamCollection: collection(() => []),
+    teamCollection: collection(() => mocks.teams),
     // VAPP-122 / VAPP-119: the records and the team sources read these too.
-    appCollection: collection(() => []),
+    appCollection: collection(() => mocks.apps),
     appRecordCollection: collection(() => []),
     userCollection: collection(() => []),
     teamMemberCollection: collection(() => []),
@@ -298,9 +300,9 @@ describe(`the consent card`, () => {
     expect(document.activeElement).toBe(view.getByRole(`button`, { name: `Deny` }))
     // No arguments: no block. A plain host function shows its own args.
     act(() => {
-      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.openIssue`, args: { identifier: `EXP-1` } } as never)
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.toast`, args: { message: `EXP-1` } } as never)
     })
-    expect((await view.findByTestId(`exponential-ui-consent-arguments`)).textContent).toBe(`{"identifier":"EXP-1"}`)
+    expect((await view.findByTestId(`exponential-ui-consent-arguments`)).textContent).toBe(`{"message":"EXP-1"}`)
     act(() => {
       gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_devices` } } as never)
     })
@@ -343,6 +345,38 @@ describe(`VAPP-157: the app host's media rule`, () => {
     }
   })
 
+  // #EXP-1674: `~/x` = the app's team; a link at another app needs its contract.
+  it(`expands ~/ against the app's team and gates a link at another app`, () => {
+    mocks.teams = [{ id: `t1`, slug: `acme team` }]
+    mocks.apps = [
+      { id: `a1`, teamId: `t1`, slug: `hours`, publishedVersion: 1, package: {} },
+      { id: `a2`, teamId: `t1`, slug: `crm`, publishedVersion: 1, package: { screens: [{ template: `home`, title: `Home` }, { template: `deal`, title: `Deal`, nav: false, exposed: { description: `A deal`, params: { id: { required: true } } } }] } },
+      { id: `a3`, teamId: `t1`, slug: `draft`, publishedVersion: 0, package: null },
+    ]
+    try {
+      const pushed: string[] = []
+      const origin = `https://app.exponential.at`
+      const host = createAppHost({ consent: createConsentGate(), navigate: (href) => void pushed.push(href), origin, appId: `a1`, teamId: `t1` })
+      mocks.toast.mockClear()
+      expect(host.openUrl(`~/issues/EXP-1`)).toBe(true)
+      expect(host.openUrl(`~/../x`)).toBe(false)
+      expect(host.openUrl(`~/apps/crm/deal?id=a%20b&admin=1`)).toBe(true)
+      expect(host.openUrl(`~/apps/hours/anything`)).toBe(true)
+      expect(pushed).toEqual([`/t/acme%20team/issues/EXP-1`, `/t/acme%20team/apps/crm/deal?id=a%20b`, `/t/acme%20team/apps/hours/anything`])
+      expect(mocks.toast).not.toHaveBeenCalled()
+      for (const refused of [`~/apps/crm/deal`, `~/apps/crm/home`, `~/apps/gone/x`, `~/apps/draft`]) {
+        host.openUrl(refused)
+        expect(mocks.toast).toHaveBeenLastCalledWith(`Not found or no access`)
+      }
+      expect(pushed).toHaveLength(3)
+      const noTeam = createAppHost({ consent: createConsentGate(), navigate: () => {}, origin })
+      expect(noTeam.openUrl(`~/issues/EXP-1`)).toBe(false)
+    } finally {
+      mocks.teams = []
+      mocks.apps = []
+    }
+  })
+
   it(`a plain host sharing the SDK keeps its default (an https image loads)`, () => {
     const plain = new ExponentialHost({ policy: { media: { baseUrl: `https://app.exponential.at` } } })
     expect(plain.mediaRequest(`https://images.example/cat.png`)).not.toBeNull()
@@ -352,7 +386,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
 
   it(`#VAPP-230: an upstream binding reads through the broker; disconnected keeps the default and shows Connect <server>`, async () => {
     const pkg = {
-      formatVersion: 3,
+      formatVersion: 4,
       id: `acme.console`,
       name: `Console`,
       version: `1.0.0`,
@@ -389,7 +423,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
 
   it(`#VAPP-239: an offline device keeps the default and shows its banner without Connect`, async () => {
     const pkg = {
-      formatVersion: 3,
+      formatVersion: 4,
       id: `acme.console`,
       name: `Console`,
       version: `1.0.0`,

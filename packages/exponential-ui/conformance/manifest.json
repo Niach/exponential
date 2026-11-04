@@ -127,7 +127,7 @@
         "fixtures/host-policy.json"
       ],
       "unit": "case",
-      "cases": 120,
+      "cases": 142,
       "check": "Decide the function / combine / url, build the media request, parse the source, append the bind action's params to a source, negotiate the catalog ids: each equals `expected`."
     },
     {
@@ -136,8 +136,8 @@
         "fixtures/host-router.json"
       ],
       "unit": "package, screen or flow",
-      "cases": 57,
-      "check": "Validate each package; validate each record against its kind's schema; resolve each screen (`resolveScreen`) and navigate target (`navigateTarget`, VAPP-218); for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
+      "cases": 77,
+      "check": "Validate each package; validate each record against its kind's schema; resolve each screen (`resolveScreen`) and navigate target (`navigateTarget`, VAPP-218); decide each link from another app (`crossAppTarget`, #EXP-1674); for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
       "id": "bind",

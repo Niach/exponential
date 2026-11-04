@@ -26,7 +26,32 @@ object Screens {
     fun list(pkg: JsonValue): List<Resolved> =
         (pkg["screens"]?.array ?: emptyList()).mapNotNull { s -> s["template"]?.string?.let { resolve(pkg, it, null) } }
 
-    /** The screen a host opens for a request (a deep link, a navigate, the default): the requested one, else the first; null without screens. */
+    /** #EXP-1674: the screens the host's navigation paints (no `nav: false`). */
+    fun nav(pkg: JsonValue): List<Resolved> =
+        (pkg["screens"]?.array ?: emptyList()).filter { it["nav"]?.bool != false }.mapNotNull { s -> s["template"]?.string?.let { resolve(pkg, it, null) } }
+
+    /**
+     * #EXP-1674: what a link FROM ANOTHER APP may open in this package, or why it is refused
+     * (`host-router.json` `crossApp`). The target ([screen], else the first in the navigation) must be
+     * `exposed`; its params = the screen's own, then the request's params the contract declares; a
+     * `required` one must be present and non-empty.
+     */
+    fun crossAppTarget(pkg: JsonValue, screen: String?, params: Map<String, String>?): Result<Pair<String, Map<String, String>>> {
+        val screens = (pkg["screens"]?.array ?: emptyList()).filter { it["template"]?.string != null }
+        val picked = (if (!screen.isNullOrEmpty()) screens.firstOrNull { it["template"]?.string == screen } else screens.firstOrNull { it["nav"]?.bool != false })
+            ?: return Result.failure(IllegalArgumentException("no such screen"))
+        val template = picked["template"]?.string ?: ""
+        val exposed = picked["exposed"]?.takeIf { it.obj != null } ?: return Result.failure(IllegalArgumentException("$template is not exposed"))
+        val declared = exposed["params"]?.obj ?: emptyMap()
+        val merged = strings(picked["params"]).toMutableMap()
+        params?.forEach { (k, v) -> if (declared.containsKey(k)) merged[k] = v }
+        for (k in declared.keys.sorted()) {
+            if (declared[k]?.get("required")?.bool == true && merged[k].isNullOrEmpty()) return Result.failure(IllegalArgumentException("$template needs $k"))
+        }
+        return Result.success(template to merged)
+    }
+
+    /** The screen a host opens for a request (a deep link, a navigate, the default): the requested one (a `nav: false` one too), else the first in the navigation; null without screens. */
     fun resolve(pkg: JsonValue, screen: String?, params: Map<String, String>?): Resolved? {
         val paramsJson = params?.let { p -> JsonValue.Obj(p.mapValues { JsonValue.Str(it.value) }).json }
         val out = JsonValue.parse(runCatching { resolveScreenJson(pkg.json, screen, paramsJson) }.getOrNull() ?: "null")

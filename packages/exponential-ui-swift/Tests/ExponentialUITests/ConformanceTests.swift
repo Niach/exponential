@@ -525,6 +525,19 @@ final class ConformanceTests: XCTestCase {
             let pkg = packages[c["package"]!.string!]!
             out.append(run("navigate: \(c["name"]?.string ?? "")") { same(try navigateTargetJson(packageJson: pkg.json, argsJson: c["args"]!.json), c["expected"]!) })
         }
+        // #EXP-1674: what a link from another app may open.
+        for c in f["crossApp"]?.array ?? [] {
+            let pkg = packages[c["package"]!.string!]!
+            let params: [String: String]? = c["params"]?.object?.compactMapValues(\.string)
+            out.append(run("crossApp: \(c["name"]?.string ?? "")") {
+                let got: JSONValue
+                switch Screens.crossAppTarget(pkg, screen: c["screen"]?.string, params: params) {
+                case let .success(t): got = .object(["screen": .string(t.screen), "params": .object(t.params.mapValues { .string($0) })])
+                case let .failure(r): got = .object(["error": .string(r.message)])
+                }
+                return same(got.json, c["expected"]!)
+            })
+        }
         for flow in f["flows"]?.array ?? [] {
             out.append(run("flow: \(flow["name"]?.string ?? "")") {
                 let router = HostRouter(extensionIds: (flow["extensionIds"]?.array ?? []).compactMap(\.string))

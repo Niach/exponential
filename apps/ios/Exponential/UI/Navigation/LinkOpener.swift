@@ -55,7 +55,7 @@ enum LinkOpener {
     static func tapAction(
         _ tapped: URL, origin: String, accountId: String, teamId: String?, deps: AppDependencies
     ) -> (() -> Void)? {
-        let written = shorthand(tapped.absoluteString, origin: origin)
+        let written = tapped.absoluteString
         let team = written.hasPrefix("~") ? teamSlug(teamId: teamId, accountId: accountId, deps: deps) : nil
         let link = AppLink.classify(written, origin: origin, team: team)
         switch link {
@@ -103,9 +103,8 @@ enum LinkOpener {
     /// #EXP-1674 (plan-card.json): a chat card's link, in-app and https only,
     /// with the card's team for `~/` (nil = the active team).
     static func openCardLink(_ url: String, origin: String, accountId: String, teamId: String?, deps: AppDependencies) {
-        let written = shorthand(url, origin: origin)
         let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps)
-        guard AppLink.cardLinkOpens(written, origin: origin, team: team), let tapped = URL(string: url) else { return }
+        guard AppLink.cardLinkOpens(url, origin: origin, team: team), let tapped = URL(string: url) else { return }
         tapAction(tapped, origin: origin, accountId: accountId, teamId: teamId, deps: deps)?()
     }
 
@@ -136,6 +135,11 @@ enum LinkOpener {
     #endif
 
     /// The slug of `teamId`, else of the account's active team.
+    /// #EXP-1674: `~/x`'s base in a surface's URL policy (`/t/<team>/`).
+    static func linkBase(teamId: String?, accountId: String, deps: AppDependencies) -> String? {
+        AppLink.expandTeamLink("~/", team: teamSlug(teamId: teamId, accountId: accountId, deps: deps))
+    }
+
     static func teamSlug(teamId: String?, accountId: String, deps: AppDependencies) -> String? {
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return nil }
         let id = teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId)
@@ -385,16 +389,6 @@ enum LinkOpener {
     }
 
     // MARK: - Hrefs
-
-    /// A `~/` link that was resolved before it got here (a host's URL policy
-    /// joins it to the instance) back to the shorthand; `/~/` is no route.
-    private static func shorthand(_ href: String, origin: String) -> String {
-        if href.hasPrefix("/~/") { return String(href.dropFirst()) }
-        guard let base = WebLinks.normalizedBase(origin),
-              href.lowercased().hasPrefix(base.lowercased() + "/~/")
-        else { return href }
-        return String(href.dropFirst(base.count + 1))
-    }
 
     /// The URL a web-only page opens at; nil = a relative link with no instance.
     private static func absoluteURL(_ written: String, team: String?, origin: String) -> URL? {

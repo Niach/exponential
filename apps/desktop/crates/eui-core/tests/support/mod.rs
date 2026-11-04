@@ -215,6 +215,12 @@ pub fn router_cases() -> Vec<Case> {
         let got = eui_core::host::navigate_target_value(pkg, &c["args"]);
         out.push((format!("navigate: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
     }
+    // #EXP-1674: what a link from another app may open.
+    for c in list(&f, "crossApp") {
+        let pkg = &packages[c["package"].as_str().unwrap()];
+        let got = eui_core::host::cross_app_target_value(pkg, c["screen"].as_str(), Some(&c["params"]));
+        out.push((format!("crossApp: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
     for flow in list(&f, "flows") {
         let name = flow["name"].as_str().unwrap();
         let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();
@@ -311,7 +317,7 @@ pub fn package_cases() -> Vec<Case> {
         let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
         let available: Option<Vec<AvailableExtension>> = c.get("available").map(|a| serde_json::from_value(a.clone()).unwrap());
         let catalog_ids = supported_catalog_ids(&ids);
-        let pkg = serde_json::json!({"formatVersion": 3, "id": "x", "name": "X", "version": "1.0.0", "catalogId": catalog_ids[0], "templates": {"t": {"components": [{"id": "root", "component": "Text", "text": "Hi"}]}}, "extensions": c["extensions"]});
+        let pkg = serde_json::json!({"formatVersion": 4, "id": "x", "name": "X", "version": "1.0.0", "catalogId": catalog_ids[0], "templates": {"t": {"components": [{"id": "root", "component": "Text", "text": "Hi"}]}}, "extensions": c["extensions"]});
         let got = validate_package_with(&pkg, &catalog_ids, available.as_deref());
         out.push((format!("extensions: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
     }

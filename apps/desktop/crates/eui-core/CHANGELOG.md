@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking** #EXP-1674: `PACKAGE_FORMAT_VERSION` 4: a screen's `nav: false` and `exposed`; `host::nav_screens`, `host::cross_app_target`; `UrlPolicy::link_base` (`decide_url` expands `~/x` against it).
 ## 0.13.0 (2026-11-03)
 
 - VAPP-232 (eApps U3, 1/3): calendar views in the records query (`host::calendar`): month weeks + lanes for spanning rows, week and timeline.

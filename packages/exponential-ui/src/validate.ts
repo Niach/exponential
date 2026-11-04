@@ -139,7 +139,7 @@ function checkProps(
 }
 
 /** A function name a surface may call: a catalog function, or a HOST
- *  function, which is always namespaced (`app.toast`, `harness.openIssue`). */
+ *  function, which is always namespaced (`app.toast`, `harness.toast`). */
 export function isCallableName(name: string): boolean {
   return FUNCTIONS.has(name) || /^[A-Za-z_][\w-]*(\.[A-Za-z_][\w-]*)+$/.test(name)
 }

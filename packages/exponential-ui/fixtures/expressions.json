@@ -1963,7 +1963,7 @@
     {
       "name": "hours left: a records value and template data",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2041,7 +2041,7 @@
     {
       "name": "rows of a kind",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2116,7 +2116,7 @@
     {
       "name": "a typo in a field",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2196,7 +2196,7 @@
     {
       "name": "a typo in the records value",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2276,7 +2276,7 @@
     {
       "name": "a unit a date has not",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2356,7 +2356,7 @@
     {
       "name": "a timestamp field",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2431,7 +2431,7 @@
     {
       "name": "the Exponential spelling of a records binding",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2511,7 +2511,7 @@
     {
       "name": "a syntax error",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2586,7 +2586,7 @@
     {
       "name": "a name with no var",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2661,7 +2661,7 @@
     {
       "name": "a literal var",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2739,7 +2739,7 @@
     {
       "name": "a literal object var",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2815,7 +2815,7 @@
     {
       "name": "a relative path is open",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2890,7 +2890,7 @@
     {
       "name": "an unbound path is open",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2965,7 +2965,7 @@
     {
       "name": "a call var is open",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3044,7 +3044,7 @@
     {
       "name": "template data types",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3128,7 +3128,7 @@
     {
       "name": "expr is a string",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3203,7 +3203,7 @@
     {
       "name": "vars is an object",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3281,7 +3281,7 @@
     {
       "name": "too long",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3356,7 +3356,7 @@
     {
       "name": "an expression anywhere in a component",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3448,7 +3448,7 @@
     {
       "name": "E2: an unguarded optional field names its path",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3528,7 +3528,7 @@
     {
       "name": "E2: an optional field in arithmetic",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3608,7 +3608,7 @@
     {
       "name": "E2: has() guards a ternary",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3683,7 +3683,7 @@
     {
       "name": "E2: a null check guards",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3758,7 +3758,7 @@
     {
       "name": "E2: orElse narrows",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3833,7 +3833,7 @@
     {
       "name": "E2: a required field needs no guard",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3908,7 +3908,7 @@
     {
       "name": "E2: an expression binding needs a default",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3987,7 +3987,7 @@
     {
       "name": "VAPP-204: sum may be missing (no sum=)",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4067,7 +4067,7 @@
     {
       "name": "VAPP-204: a totals field may be missing",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4147,7 +4147,7 @@
     {
       "name": "VAPP-204: groups may be missing",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4227,7 +4227,7 @@
     {
       "name": "VAPP-204: a list index may be past the end",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4307,7 +4307,7 @@
     {
       "name": "VAPP-204: a row template types its relative paths",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4419,7 +4419,7 @@
     {
       "name": "VAPP-204: a typo in a row field",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4507,7 +4507,7 @@
     {
       "name": "VAPP-204: a typo in a records path",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4587,7 +4587,7 @@
     {
       "name": "VAPP-204: the query decides: sum= makes sum a number",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4665,7 +4665,7 @@
     {
       "name": "VAPP-204: a month view is typed",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4748,7 +4748,7 @@
     {
       "name": "VAPP-204: a typo in a month view",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4831,7 +4831,7 @@
     {
       "name": "VAPP-214: computed fields type-check against the kind and read as typed row fields (minutes a number, week a number, the row keys readable)",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -4899,7 +4899,7 @@
     {
       "name": "VAPP-214: a computed field shadowing a schema field or a row key, reading another computed field, not a string, or not checking (unknown name, an unguarded optional, a type error) is an install issue at its path",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5001,7 +5001,7 @@
     {
       "name": "VAPP-214: a template reading a computed field as the wrong type is an issue",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -5072,7 +5072,7 @@
     {
       "name": "VAPP-214: at most 16 computed fields per kind",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",

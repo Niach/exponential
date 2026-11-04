@@ -20,7 +20,7 @@ use crate::types::ExtensionDef;
 /// (catalog/host.json `package.formatVersion`; docs/package-format.md). A
 /// package names it, and it is exactly this one: no older format is read
 /// (eApps keeps no backwards compatibility).
-pub const PACKAGE_FORMAT_VERSION: u32 = 3;
+pub const PACKAGE_FORMAT_VERSION: u32 = 4;
 /// `package.extensions.versionPattern`.
 pub const EXTENSION_VERSION_PATTERN: &str = "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$";
 

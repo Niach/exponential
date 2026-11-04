@@ -8,6 +8,7 @@
  */
 
 import { screenPath } from "@exp/domain-contract/apps"
+import { crossAppTarget } from "@exponential_app/eui/host"
 import { splitIssueRefs } from "@/lib/issue-refs"
 
 export type AppLink =
@@ -143,11 +144,23 @@ export function cardLinkOpens(href: string, origin: string, team?: string | null
   return link.kind !== `external` || link.url.toLowerCase().startsWith(`https://`)
 }
 
-/** #EXP-1674: the eUI URL policy resolves a relative `~/x` against its base
- *  into `<origin>/~/x`: the shorthand back; anything else as given. */
-export function teamShorthandOf(url: string, origin: string): string {
-  const prefix = `${origin}/~/`
-  return url.toLowerCase().startsWith(prefix.toLowerCase()) ? `~/${url.slice(prefix.length)}` : url
+/** #EXP-1674: a link an app's surface opens: any target but another app's
+ *  screen as it is; another app's only through its `exposed` contract
+ *  (fixtures host-router.json `crossApp`), with the params it declares. Null =
+ *  the toast `LINK_NO_ACCESS`, the same for a missing app. A person's URL or an
+ *  agent's chat link never comes here. */
+export function crossAppLink(
+  link: AppLink,
+  sourceAppId: string,
+  findApp: (teamSlug: string, appSlug: string) => { id: string; package: { screens?: unknown } | null } | null
+): AppLink | null {
+  if (link.kind !== `appHome` && link.kind !== `appScreen`) return link
+  const target = findApp(link.teamSlug, link.appSlug)
+  if (!target) return null
+  if (target.id === sourceAppId) return link
+  const decided = crossAppTarget(target.package ?? {}, link.kind === `appScreen` ? link.screen : null, link.kind === `appScreen` ? link.params : null)
+  if (`error` in decided) return null
+  return { kind: `appScreen`, teamSlug: link.teamSlug, appSlug: link.appSlug, screen: decided.screen, params: decided.params }
 }
 
 /** #EXP-1674: a Row subtitle's `#IDENT` refs that `known` resolves, as a host's

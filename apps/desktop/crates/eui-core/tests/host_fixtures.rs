@@ -34,7 +34,7 @@ fn host_policy_every_function_url_media_source_and_negotiation_case_equals_the_r
 
 #[test]
 fn host_router_every_validation_and_flow_equals_the_reference() {
-    assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "screens", "navigate", "flows"]));
+    assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "screens", "navigate", "crossApp", "flows"]));
 }
 
 #[test]
@@ -268,6 +268,7 @@ fn the_screens_constants_are_catalog_host_json_s() {
     let s = &contract["package"]["screens"];
     assert_eq!(s["max"], json!(host::MAX_SCREENS));
     assert_eq!(s["titleMax"], json!(host::MAX_SCREEN_TITLE));
+    assert_eq!(s["exposedDescriptionMax"], json!(host::MAX_EXPOSED_DESCRIPTION));
     assert_eq!(s["navigateFunction"], json!(host::NAVIGATE_FUNCTION));
     assert_eq!(s["paramsKey"], json!(host::SCREEN_PARAMS_KEY));
 }

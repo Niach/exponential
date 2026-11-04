@@ -1,8 +1,9 @@
 // VAPP-91: the Exponential web app as an Exponential UI HOST. Everything the
 // app adds goes through the SDK's public host API (`ExponentialHost` +
 // `<HostSurface>`), like a third party's host would:
-//   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
-//     `harness.mcp` (a tools/call on the app's own /api/mcp as the viewer);
+//   - functions: `harness.toast`, `harness.mcp` (a tools/call on the app's own
+//     /api/mcp as the viewer); a link goes through the URL policy (`~/` = the
+//     app's team) and app-link.json's classifier;
 //   - bindings: the `exp:` scheme over the synced Electric collections
 //     (`exp:devices`; VAPP-119 `exp:issues`, `exp:boards`, `exp:members`,
 //     `exp:sessions`, `exp:comments`, `exp:attachments` off fixtures/app-sources.json);
@@ -25,7 +26,7 @@
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
 import { toastRecordUndo } from "@/lib/apps/record-undo"
-import { appLinkPath, classifyAppLink, isRoutedAppPath, issueTextLinks, teamShorthandOf } from "@/lib/app-link"
+import { appLinkPath, classifyAppLink, crossAppLink, isRoutedAppPath, issueTextLinks, LINK_NO_ACCESS } from "@/lib/app-link"
 import { useState, useSyncExternalStore } from "react"
 import { eq } from "@tanstack/react-db"
 import { ExponentialHost, isPrivateHost, readPointer } from "@exponential_app/eui"
@@ -505,10 +506,8 @@ export interface AppHostOptions {
   /** VAPP-120: the app's granted typed actions, read at call time (the
    *  settings page may change them while the host lives). */
   grantedTools?: () => readonly string[]
-  /** Router navigation for same-origin links and harness.openIssue. */
+  /** Router navigation for same-origin links (a push: back returns here). */
   navigate: (href: string) => void
-  /** harness.openDevice; defaults to a toast with the device's name. */
-  openDevice?: (id: string) => void
   /** VAPP-218: `app.navigate` opens one of the package's screens (the
    *  preview's shell); unset = the host refuses it. */
   navigateScreen?: HostOptions[`navigate`]
@@ -618,7 +617,7 @@ export function ownPrivateHosts(origin: string): string[] {
 
 /** VAPP-198: under Run as, every function but the toast and navigation is
  *  refused with `copy.runAs.writesOff` (a preview never acts as someone else). */
-const RUN_AS_ALLOWED = new Set([`harness.toast`, `harness.openIssue`, `harness.openDevice`])
+const RUN_AS_ALLOWED = new Set([`harness.toast`])
 function refuseAsOther(runAs: AppHostOptions[`runAs`], functions: Record<string, HostFunction>): Record<string, HostFunction> {
   if (!runAs) return functions
   const refused: HostFunction = () => {
@@ -627,6 +626,15 @@ function refuseAsOther(runAs: AppHostOptions[`runAs`], functions: Record<string,
     throw new Error(text)
   }
   return Object.fromEntries(Object.entries(functions).map(([name, fn]) => [name, RUN_AS_ALLOWED.has(name) ? fn : refused]))
+}
+
+/** #EXP-1674: the app a link names, as a link may open it: its id and its
+ *  PUBLISHED package (a draft runs for nobody); null = no such app here. */
+function targetApp(teamSlug: string, appSlug: string): { id: string; package: { screens?: unknown } | null } | null {
+  const team = teamCollection.toArray.find((t) => t.slug === teamSlug)
+  const app = team && appCollection.toArray.find((a) => a.teamId === team.id && a.slug === appSlug)
+  if (!app) return null
+  return { id: app.id, package: app.publishedVersion > 0 ? (app.package as { screens?: unknown } | null) : null }
 }
 
 export function createAppHost(options: AppHostOptions): AppHost {
@@ -682,6 +690,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
     return { ids: result.ids }
   }
   const upstreamAnswers = new UpstreamAnswers()
+  const createTeamSlug = teamCollection.toArray.find((t) => t.id === options.teamId)?.slug
   const host = new AppHost({
     transport: options.transport,
     me: scope.me,
@@ -707,12 +716,6 @@ export function createAppHost(options: AppHostOptions): AppHost {
         if (tone === `error`) toast.error(text)
         else toast(text)
       },
-      "harness.openIssue": ({ identifier }) => {
-        const href = issueHref(String(identifier ?? ``))
-        if (href) options.navigate(href)
-        else toast.error(`${String(identifier ?? ``)} is not synced here`)
-      },
-      "harness.openDevice": ({ id, label }) => (options.openDevice ? options.openDevice(String(id)) : toast(String(label ?? id ?? ``))),
       "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>),
       // VAPP-120: every MCP operation as a typed function (fixtures/app-actions.json):
       // the same tools/call as the viewer, `op` + the args. EXP-1657: the
@@ -733,12 +736,16 @@ export function createAppHost(options: AppHostOptions): AppHost {
       // A granted typed action runs without the card; anything else asks.
       onFunctionCall: (call) => (parseActionName(call.name) && grantAllows(grantableTools(options.grantedTools?.()), call.name, call.args) ? true : options.consent.ask(call)),
       media: { baseUrl: origin, allowPrivate },
-      urls: { baseUrl: origin, allowPrivate },
+      // #EXP-1674: `~/x` = the app's team.
+      urls: { baseUrl: origin, allowPrivate, ...(createTeamSlug ? { linkBase: `/t/${encodeURIComponent(createTeamSlug)}` } : {}) },
       // #EXP-1674: the ONE classifier: an in-app route navigates, a same-origin
-      // resource and an external link leave the app.
+      // resource and an external link leave the app. A link at another app's
+      // screen passes that app's `exposed` contract (crossAppLink).
       openUrl: (url) => {
-        const link = classifyAppLink(teamShorthandOf(url, origin), origin, teamCollection.toArray.find((t) => t.id === options.teamId)?.slug)
-        if (link.kind === `ignore`) return
+        const classified = classifyAppLink(url, origin)
+        if (classified.kind === `ignore`) return
+        const link = options.appId ? crossAppLink(classified, options.appId, targetApp) : classified
+        if (!link) return void toast.error(LINK_NO_ACCESS)
         const path = appLinkPath(link)
         if (path && (link.kind !== `app` || isRoutedAppPath(link.path))) options.navigate(path)
         else window.open(link.kind === `external` ? link.url : url, `_blank`, `noopener,noreferrer`)

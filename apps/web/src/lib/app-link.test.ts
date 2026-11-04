@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { cardLinkOpens, classifyAppLink, isRoutedAppPath, issueTextLinks, linkOpenOutcome, ROUTED_APP_PREFIXES, teamShorthandOf, type AppLink } from "./app-link"
+import { cardLinkOpens, classifyAppLink, isRoutedAppPath, crossAppLink, issueTextLinks, linkOpenOutcome, ROUTED_APP_PREFIXES, type AppLink } from "./app-link"
 import planCard from "@exp/domain-contract/fixtures/plan-card.json"
 
 // EXP-1188: the ×4 contract — desktop `domain::app_link`, iOS `AppLinkTests`,
@@ -96,12 +96,6 @@ describe(`#EXP-1674: a chat card's links`, () => {
     })
   }
 
-  it(`the shorthand survives the URL policy`, () => {
-    expect(teamShorthandOf(`https://App.Exponential.at/~/issues/EXP-1?x=1`, fixture.origin)).toBe(`~/issues/EXP-1?x=1`)
-    expect(teamShorthandOf(`${fixture.origin}/t/acme/inbox`, fixture.origin)).toBe(`${fixture.origin}/t/acme/inbox`)
-    expect(teamShorthandOf(`https://other.example/~/inbox`, fixture.origin)).toBe(`https://other.example/~/inbox`)
-  })
-
   it(`only refs that resolve become links, on the team's short route`, () => {
     const known = (id: string) => id !== `VAPP-203`
     const subtitle = `#VAPP-202 #VAPP-203 merged · V1 #1758`
@@ -111,5 +105,38 @@ describe(`#EXP-1674: a chat card's links`, () => {
     expect(issueTextLinks(`#VAPP-203`, `acme`, known)).toBeNull()
     expect(issueTextLinks(`no refs`, `acme`, known)).toBeNull()
     expect(issueTextLinks(`#VAPP-202`, null, known)).toBeNull()
+  })
+})
+
+describe(`#EXP-1674: crossAppLink`, () => {
+  const screen = (name: string, params: Record<string, string> = {}): AppLink => ({ kind: `appScreen`, teamSlug: `acme`, appSlug: `crm`, screen: name, params })
+  const pkg = {
+    screens: [
+      { template: `home`, title: `Home`, exposed: { description: `The list` } },
+      { template: `inner`, title: `Inner` },
+      { template: `deal`, title: `Deal`, nav: false, exposed: { description: `A deal`, params: { id: { required: true } } } },
+    ],
+  }
+  const find = (_team: string, slug: string) => (slug === `crm` ? { id: `a-crm`, package: pkg } : null)
+
+  it(`a link at another app needs an exposed screen and its required params`, () => {
+    expect(crossAppLink(screen(`deal`, { id: `d1`, admin: `1` }), `a-other`, find)).toEqual(screen(`deal`, { id: `d1` }))
+    expect(crossAppLink(screen(`deal`), `a-other`, find)).toBeNull()
+    expect(crossAppLink(screen(`inner`), `a-other`, find)).toBeNull()
+  })
+
+  it(`a missing app or an unpublished one refuses exactly the same`, () => {
+    expect(crossAppLink({ kind: `appHome`, teamSlug: `acme`, appSlug: `gone` }, `a-other`, find)).toBeNull()
+    expect(crossAppLink(screen(`deal`, { id: `d1` }), `a-other`, () => ({ id: `a-crm`, package: null }))).toBeNull()
+  })
+
+  it(`an app's own screens and every other link stay as they are`, () => {
+    expect(crossAppLink(screen(`inner`), `a-crm`, find)).toEqual(screen(`inner`))
+    const issue: AppLink = { kind: `issueRef`, teamSlug: `acme`, identifier: `EXP-1` }
+    expect(crossAppLink(issue, `a-other`, find)).toEqual(issue)
+  })
+
+  it(`the app's home goes to its first navigation screen, when exposed`, () => {
+    expect(crossAppLink({ kind: `appHome`, teamSlug: `acme`, appSlug: `crm` }, `a-other`, find)).toEqual(screen(`home`))
   })
 })

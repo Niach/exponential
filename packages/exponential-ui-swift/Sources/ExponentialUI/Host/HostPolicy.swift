@@ -38,12 +38,15 @@ public struct UrlPolicy: Sendable, Codable, Equatable {
     public var hosts: [String]?
     public var allowPrivate: [String]?
     public var baseUrl: String?
+    /// #EXP-1674: what `~/x` expands against; nil = `~/x` is denied.
+    public var linkBase: String?
 
-    public init(schemes: [String]? = nil, hosts: [String]? = nil, allowPrivate: [String]? = nil, baseUrl: String? = nil) {
+    public init(schemes: [String]? = nil, hosts: [String]? = nil, allowPrivate: [String]? = nil, baseUrl: String? = nil, linkBase: String? = nil) {
         self.schemes = schemes
         self.hosts = hosts
         self.allowPrivate = allowPrivate
         self.baseUrl = baseUrl
+        self.linkBase = linkBase
     }
 }
 

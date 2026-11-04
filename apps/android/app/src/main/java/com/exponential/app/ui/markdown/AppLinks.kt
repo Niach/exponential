@@ -21,7 +21,6 @@ import com.exponential.app.domain.ProseLinks
 import com.exponential.app.domain.cardLinkOpens
 import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.domain.expandTeamLink
-import com.exponential.app.domain.teamShorthandOf
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -98,14 +97,13 @@ internal fun appLinkAnnotation(
 
 /** Opens [href] as a tapped link would (an app's `openUrl`, say). */
 fun AppLinkHandler.openHref(href: String) {
-    val written = teamShorthandOf(href, origin)
-    val link = classifyAppLink(written, origin, team)
-    if (link != AppLink.Ignore) onOpen(link, linkUrl(written, link, this))
+    val link = classifyAppLink(href, origin, team)
+    if (link != AppLink.Ignore) onOpen(link, linkUrl(href, link, this))
 }
 
 /** #EXP-1674 (plan-card.json): a chat card's link: in-app and https only. */
 fun AppLinkHandler.openCardHref(href: String) {
-    if (cardLinkOpens(teamShorthandOf(href, origin), origin, team)) openHref(href)
+    if (cardLinkOpens(href, origin, team)) openHref(href)
 }
 
 /** The absolute URL of a classified [href]. */

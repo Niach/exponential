@@ -66,32 +66,68 @@ fn open_link_for_team_id(href: &str, team_id: Option<&str>, window: &mut Window,
     open_link(href, team_slug.as_deref(), window, cx);
 }
 
-/// `HostPolicy::open_url` of an eApp in `team_id`: the eUI URL policy already
-/// allowed `url` and made it absolute. In-app goes through the opener (on the
-/// active window: the host is mid-update here); anything else the policy
-/// allowed goes to the OS opener, as it always did.
-pub(crate) fn app_url_opener(team_id: Option<String>) -> Rc<dyn Fn(&str, &mut App)> {
+/// `HostPolicy::open_url` of the eApp `source_app`: the eUI URL policy already
+/// allowed `url` and made it absolute (`~/x` against the app's `link_base`).
+/// In-app goes through the opener (on the active window: the host is mid-update
+/// here), a link at another app's screen only through that app's `exposed`
+/// contract; anything else the policy allowed goes to the OS opener, as it
+/// always did.
+pub(crate) fn app_url_opener(source_app: Option<String>) -> Rc<dyn Fn(&str, &mut App)> {
     Rc::new(move |url: &str, cx: &mut App| {
         let origin = link_origin(cx);
-        let href = team_shorthand_of(url, &origin).unwrap_or_else(|| url.to_string());
-        let in_app = href.starts_with('~')
-            || !matches!(classify_app_link(&href, &origin), AppLink::External { .. } | AppLink::Ignore);
-        if in_app {
-            let team_id = team_id.clone();
-            navigation::on_active_window(cx, move |window, cx| {
-                open_link_for_team_id(&href, team_id.as_deref(), window, cx);
-            });
-        } else {
+        let link = classify_app_link(url, &origin);
+        if matches!(link, AppLink::External { .. } | AppLink::Ignore) {
             cx.open_url(url);
+            return;
         }
+        let url = url.to_string();
+        let source_app = source_app.clone();
+        navigation::on_active_window(cx, move |window, cx| {
+            let opened = match source_app.as_deref() {
+                Some(source) => cross_app_link(link, source, cx),
+                None => Some(link),
+            };
+            match opened {
+                Some(link) => open_in_app(link, absolute_url(&url, None, &origin), window, cx),
+                None => no_access(window, cx),
+            }
+        });
     })
 }
 
+/// #EXP-1674 (eUI `cross_app_target`, host-router.json `crossApp`): a link an
+/// app's surface opens: any target but another app's screen as it is; another
+/// app's only through its `exposed` contract, with the params it declares.
+/// `None` = `copy.noAccess`, the same for a missing app. A person's URL or an
+/// agent's chat link never comes here.
+fn cross_app_link(link: AppLink, source_app: &str, cx: &App) -> Option<AppLink> {
+    if !matches!(link, AppLink::AppHome { .. } | AppLink::AppScreen { .. }) {
+        return Some(link);
+    }
+    let (team_slug, app_slug, screen, params) = match &link {
+        AppLink::AppHome { team_slug, app_slug } => (team_slug.clone(), app_slug.clone(), None, None),
+        AppLink::AppScreen { team_slug, app_slug, screen, params } => (team_slug.clone(), app_slug.clone(), Some(screen.clone()), Some(params)),
+        _ => return None,
+    };
+    let team_id = team_id_by_slug(&team_slug, cx)?;
+    let app = crate::apps_view::find_app(&app_slug, Some(team_id.as_str()), cx)
+        .filter(|app| app.row.as_ref().is_none_or(|row| row.team_id.as_deref() == Some(team_id.as_str())))?;
+    if app.id == source_app {
+        return Some(link.clone());
+    }
+    let package = (app.published_version > 0).then(|| app.row.as_ref().and_then(|row| row.package.clone())).flatten().unwrap_or(Value::Null);
+    let asked = params.map(|params| Value::Object(params.iter().map(|(key, value)| (key.clone(), Value::String(value.clone()))).collect()));
+    let target = eui_core::host::cross_app_target(&package, screen.as_deref(), asked.as_ref()).ok()?;
+    let params = target.params.into_iter().filter_map(|(key, value)| value.as_str().map(|value| (key, value.to_string()))).collect();
+    Some(AppLink::AppScreen { team_slug, app_slug, screen: target.screen, params })
+}
+
 /// #EXP-1674 (plan-card.json): `HostPlugin::open_url` of a chat card in
-/// `team_id` (`None` = the active team): in-app and https only.
+/// `team_id` (`None` = the active team): in-app and https only. `url` is
+/// absolute: the URL policy expanded `~/x` against the card's `link_base`.
 pub(crate) fn open_card_url(url: &str, team_id: Option<String>, cx: &mut App) {
     let origin = link_origin(cx);
-    let href = team_shorthand_of(url, &origin).unwrap_or_else(|| url.to_string());
+    let href = url.to_string();
     navigation::on_active_window(cx, move |window, cx| {
         let team = team_id
             .and_then(|team_id| team_slug_by_id(&team_id, cx))
@@ -100,6 +136,20 @@ pub(crate) fn open_card_url(url: &str, team_id: Option<String>, cx: &mut App) {
             open_link(&href, team.as_deref(), window, cx);
         }
     });
+}
+
+/// #EXP-1674: the `link_base` (`/t/<team>/`) of a surface in `team_id` (`None` =
+/// the active team): what `~/x` expands against in the URL policy.
+pub(crate) fn team_link_base(team_id: Option<&str>, cx: &App) -> Option<String> {
+    let team_id = match team_id {
+        Some(team_id) => team_id.to_string(),
+        None => {
+            let window = cx.active_window()?;
+            navigation::active_team_id(&navigation::nav_for_window_id(window.window_id(), cx)?, cx)?
+        }
+    };
+    let team = team_slug_by_id(&team_id, cx)?;
+    expand_team_link("~/", Some(&team))
 }
 
 /// #EXP-1674: the `#IDENT` refs of `text` that resolve in `team_id` (`None` =
@@ -476,15 +526,6 @@ fn absolute_url(href: &str, team: Option<&str>, origin: &str) -> Option<String> 
     (!origin.is_empty()).then(|| format!("{origin}{path}"))
 }
 
-/// The eUI URL policy resolves a relative `~/x` against its base into
-/// `<origin>/~/x`: the shorthand back, `None` for any other URL.
-fn team_shorthand_of(url: &str, origin: &str) -> Option<String> {
-    if origin.is_empty() || !url.get(..origin.len())?.eq_ignore_ascii_case(origin) {
-        return None;
-    }
-    url[origin.len()..].strip_prefix("/~/").map(|rest| format!("~/{rest}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -506,17 +547,6 @@ mod tests {
             Some("https://app.exponential.at/admin")
         );
         assert_eq!(absolute_url("/admin", None, ""), None);
-    }
-
-    #[test]
-    fn the_shorthand_survives_the_url_policy() {
-        assert_eq!(
-            team_shorthand_of("https://App.Exponential.at/~/issues/EXP-1?x=1", ORIGIN).as_deref(),
-            Some("~/issues/EXP-1?x=1")
-        );
-        assert_eq!(team_shorthand_of("https://app.exponential.at/t/acme/inbox", ORIGIN), None);
-        assert_eq!(team_shorthand_of("https://other.example/~/inbox", ORIGIN), None);
-        assert_eq!(team_shorthand_of("/~/inbox", ""), None);
     }
 
     #[test]

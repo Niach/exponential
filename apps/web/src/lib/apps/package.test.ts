@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { APP_SOURCE_NAMES, appCatalogText, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
+import { APP_SOURCE_NAMES, appCatalogText, appPackageIssues, linkableScreens, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 
 // VAPP-110 / VAPP-107: what a stored app package may be.
 
 const pkg = (over: Record<string, unknown> = {}) => ({
-  formatVersion: 3,
+  formatVersion: 4,
   id: `acme.board`,
   name: `Board`,
   version: `1.0.0`,
@@ -48,10 +48,10 @@ describe(`validateAppPackage`, () => {
     expect(() => validateAppPackage(pkg({ sources: [`exp:issues`, `exp:records`] }))).toThrow(/exp:records/)
   })
 
-  it(`refuses a package without format version 3`, () => {
+  it(`refuses a package without format version 4`, () => {
     const { formatVersion: _omit, ...rest } = pkg()
-    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(3\)/)
-    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read: write 3/)
+    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(4\)/)
+    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read: write 4/)
   })
 
   it(`names the host sources and the sources rule in the catalog`, () => {
@@ -61,8 +61,8 @@ describe(`validateAppPackage`, () => {
   })
 })
 
-// VAPP-161: the package format version 3 on Exponential's hosts.
-describe(`validateAppPackage: format version 3`, () => {
+// VAPP-161: the package format version 4 on Exponential's hosts.
+describe(`validateAppPackage: format version 4`, () => {
   const records = { entry: { schema: { type: `object`, properties: { hours: { type: `number` } } } } }
   const neutral = (over: Record<string, unknown> = {}) =>
     pkg({
@@ -94,14 +94,14 @@ describe(`validateAppPackage: format version 3`, () => {
   })
 
   it(`refuses a newer format version`, () => {
-    expect(() => validateAppPackage(neutral({ formatVersion: 4 }))).toThrow(/format version 4 is newer than this host/)
+    expect(() => validateAppPackage(neutral({ formatVersion: 5 }))).toThrow(/format version 5 is newer than this host/)
   })
 
   it(`names the neutral spelling in the catalog`, () => {
     const text = appCatalogText()
     expect(text).toContain(`records:<kind>`)
     expect(text).toContain(`records.upsert`)
-    expect(text).toContain(`formatVersion: 3`)
+    expect(text).toContain(`formatVersion: 4`)
     expect(text).not.toContain(`exp:records`)
     expect(text).not.toContain(`harness.records`)
   })
@@ -167,5 +167,29 @@ describe(`validateAppPackage: automations (#VAPP-220)`, () => {
     const text = appCatalogText()
     expect(text).toContain(`# Automations`)
     for (const word of [`\${record.`, `\${event.`, `\${firedAt}`, `sponsor`]) expect(text).toContain(word)
+  })
+})
+
+// #EXP-1674: `apps get`'s link list and the reserved query keys.
+describe(`linkableScreens`, () => {
+  const screens = [
+    { template: `home`, title: `Home` },
+    { template: `deal`, title: `Deal`, nav: false, exposed: { description: `A deal`, params: { id: { required: true, description: `Its id` }, tab: {} } } },
+    { template: `hidden`, title: `Hidden`, nav: false },
+  ]
+
+  it(`lists navigation and exposed screens with a ready link`, () => {
+    expect(linkableScreens(`my crm`, { screens })).toEqual([
+      { screen: `home`, title: `Home`, nav: true, exposed: false, params: {}, link: `~/apps/my%20crm/home` },
+      { screen: `deal`, title: `Deal`, nav: false, exposed: true, description: `A deal`, params: { id: { required: true, description: `Its id` }, tab: { required: false } }, link: `~/apps/my%20crm/deal?id=<id>` },
+    ])
+    expect(linkableScreens(`x`, null)).toEqual([])
+  })
+
+  it(`refuses a contract naming a key a link's query never carries`, () => {
+    const template = Object.values(pkg().templates)[0]
+    const templates = { home: template, deal: template }
+    const reserved = [{ template: `home`, title: `Home` }, { template: `deal`, title: `Deal`, nav: false, exposed: { description: `A deal`, params: { tab: {} } } }]
+    expect(appPackageIssues(pkg({ templates, screens: reserved })).map((issue) => issue.path)).toContain(`/screens/1/exposed/params/tab`)
   })
 })

@@ -44,6 +44,7 @@ import {
   validateRecord,
   resolveScreen,
   navigateTarget,
+  crossAppTarget,
   sourceWithParams,
   DEFAULT_STRINGS,
   animationFrame,
@@ -324,6 +325,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of r.records) record(`host-router`, `records: ${c.name}`, () => canon(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)) === canon(c.expected))
       for (const c of r.screens) record(`host-router`, `screens: ${c.name}`, () => canon(resolveScreen(packages[c.package]!, c.screen, c.params as Record<string, unknown> | null)) === canon(c.expected))
       for (const c of r.navigate) record(`host-router`, `navigate: ${c.name}`, () => canon(navigateTarget(packages[c.package]!, c.args)) === canon(c.expected))
+      for (const c of r.crossApp) record(`host-router`, `crossApp: ${c.name}`, () => canon(crossAppTarget(packages[c.package]!, c.screen, c.params as Record<string, unknown> | null)), canon(c.expected))
       for (const flow of r.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
         record(`host-router`, `flow: ${flow.name}`, () => {
           const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })

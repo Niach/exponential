@@ -173,7 +173,7 @@ pub fn validate_props(def: &ComponentDef, props: &Props, path: &str, view: &Cata
 }
 
 /// A function name a surface may call: a catalog function, or a HOST
-/// function, which is always namespaced (`app.toast`, `harness.openIssue`).
+/// function, which is always namespaced (`app.toast`, `harness.toast`).
 pub fn is_callable_name(name: &str) -> bool {
     if crate::generated::catalog::FUNCTION_NAMES.contains(&name) {
         return true;

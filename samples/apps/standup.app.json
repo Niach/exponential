@@ -7,7 +7,7 @@
     "description": "The async daily standup: what you did yesterday, what you do today and what blocks you. Everyone reads every update; only its author (or an owner) edits or deletes it."
   },
   "package": {
-    "formatVersion": 3,
+    "formatVersion": 4,
     "id": "exponential.standup",
     "name": "Standup",
     "version": "1.0.0",
@@ -1730,9 +1730,5 @@
   "author": {
     "name": "Exponential",
     "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs"
-  },
-  "signature": {
-    "alg": "ed25519",
-    "value": "BaThyyT64bRne76HC_hHABrKsGj5ldqrr_kcpKTwSiZpmkSQEGSlRRPt9mf5FbkN-YYK6ZooNtYCA4kvqJthAw"
   }
 }

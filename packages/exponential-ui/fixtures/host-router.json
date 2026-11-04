@@ -1,8 +1,8 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team). VAPP-218 (eApps U1, src/host/screens.ts): `acme.screens` declares three screens (keyed by template; `settings` is a template that is no screen), a press and an action call step that navigate (`app.navigate`, the host function); `acme.badscreens` makes every screens mistake (a bad icon, a duplicate, an unknown template, a blank title, a non-string param, an unknown key, a too-long title, a screen that is no object, more than MAX_SCREENS = 5, a press and an action step navigating to no screen); `acme.screenslist` has screens that is no list. `screens` = resolveScreen(packages[package], screen, params) → {screen, title, icon, params} | null (the requested screen, else the first; its params, then the request's string params key by key); its `deals` template binds `${params.stage}` and `${params.q}` (templateMessages fills them from the data's params, percent-encoded, a missing one empty; the VAPP-218 flow); `navigate` = navigateTarget(packages[package], args) → {screen, params} | {error}.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team). VAPP-218 (eApps U1, src/host/screens.ts): `acme.screens` declares three screens (keyed by template; `settings` is a template that is no screen), a press and an action call step that navigate (`app.navigate`, the host function); `acme.badscreens` makes every screens mistake (a bad icon, a duplicate, an unknown template, a blank title, a non-string param, an unknown key, a too-long title, a screen that is no object, more than MAX_SCREENS = 5, a press and an action step navigating to no screen); `acme.screenslist` has screens that is no list. `screens` = resolveScreen(packages[package], screen, params) → {screen, title, icon, params} | null (the requested screen, else the first; its params, then the request's string params key by key); its `deals` template binds `${params.stage}` and `${params.q}` (templateMessages fills them from the data's params, percent-encoded, a missing one empty; the VAPP-218 flow); `navigate` = navigateTarget(packages[package], args) → {screen, params} | {error}. #EXP-1674 (format version 4): `acme.details` has seven screens, five in the navigation (nav: false ones do not count), one exposed nav screen and one exposed detail screen with a required and an optional param; `acme.closed` exposes nothing; `acme.onlydetails` has only nav: false screens (refused); `acme.baddetails` makes every nav and exposed mistake. `screens`: the fallback is the first in the NAVIGATION. `crossApp` = crossAppTarget(packages[package], screen, params) → {screen, params} | {error}: what a link from another app may open.",
   "packages": {
     "acme.devices": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.devices",
       "name": "Devices",
       "version": "1.0.0",
@@ -42,7 +42,7 @@
       ]
     },
     "broken": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "broken",
       "name": "",
       "version": "1",
@@ -80,7 +80,7 @@
       ]
     },
     "acme.scoped": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.scoped",
       "name": "Scoped",
       "version": "1.0.0",
@@ -113,7 +113,7 @@
       ]
     },
     "acme.leaky": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.leaky",
       "name": "Leaky",
       "version": "1.0.0",
@@ -144,7 +144,7 @@
       ]
     },
     "acme.hours": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.hours",
       "name": "Working hours",
       "version": "1.0.0",
@@ -251,7 +251,7 @@
       }
     },
     "acme.badrecords": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.badrecords",
       "name": "Bad records",
       "version": "1.0.0",
@@ -319,7 +319,7 @@
       }
     },
     "acme.v2": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.v2",
       "name": "Hours v2",
       "version": "2.0.0",
@@ -508,7 +508,7 @@
       ]
     },
     "acme.future": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.future",
       "name": "Future",
       "version": "1.0.0",
@@ -547,7 +547,7 @@
       ]
     },
     "acme.charts": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.charts",
       "name": "Charts",
       "version": "1.0.0",
@@ -589,7 +589,7 @@
       ]
     },
     "acme.exposes": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.exposes",
       "name": "Hours with tools",
       "version": "1.0.0",
@@ -739,7 +739,7 @@
       ]
     },
     "acme.badexposes": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.badexposes",
       "name": "Bad tools",
       "version": "1.0.0",
@@ -988,7 +988,7 @@
       ]
     },
     "acme.exposeslist": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.exposeslist",
       "name": "Tools not a list",
       "version": "1.0.0",
@@ -1012,7 +1012,7 @@
       }
     },
     "acme.queries": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.queries",
       "name": "Hours with queries",
       "version": "1.0.0",
@@ -1114,7 +1114,7 @@
       }
     },
     "acme.badqueries": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.badqueries",
       "name": "Bad queries",
       "version": "1.0.0",
@@ -1243,7 +1243,7 @@
       ]
     },
     "acme.querieslist": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.querieslist",
       "name": "Queries list",
       "version": "1.0.0",
@@ -1264,7 +1264,7 @@
       ]
     },
     "acme.badcomponents": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.badcomponents",
       "name": "Bad components",
       "version": "1.0.0",
@@ -1338,7 +1338,7 @@
       }
     },
     "acme.files": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.files",
       "name": "Expenses",
       "version": "1.0.0",
@@ -1406,7 +1406,7 @@
       }
     },
     "acme.crm": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.crm",
       "name": "CRM",
       "version": "1.0.0",
@@ -1486,7 +1486,7 @@
       }
     },
     "acme.badrefs": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.badrefs",
       "name": "CRM",
       "version": "1.0.0",
@@ -1584,7 +1584,7 @@
       }
     },
     "acme.expenses": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.expenses",
       "name": "CRM",
       "version": "1.0.0",
@@ -1645,7 +1645,7 @@
       }
     },
     "acme.hours2": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.hours2",
       "name": "Working hours",
       "version": "2.0.0",
@@ -1775,7 +1775,7 @@
       ]
     },
     "acme.screens": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.screens",
       "name": "Screens",
       "version": "1.0.0",
@@ -1909,7 +1909,7 @@
       }
     },
     "acme.badscreens": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.badscreens",
       "name": "Bad screens",
       "version": "1.0.0",
@@ -2022,7 +2022,7 @@
       }
     },
     "acme.screenslist": {
-      "formatVersion": 3,
+      "formatVersion": 4,
       "id": "acme.screenslist",
       "name": "Screens list",
       "version": "1.0.0",
@@ -2044,6 +2044,394 @@
               "id": "t",
               "component": "Text",
               "text": "A"
+            }
+          ]
+        }
+      }
+    },
+    "acme.details": {
+      "formatVersion": 4,
+      "id": "acme.details",
+      "name": "Details",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "screens": [
+        {
+          "template": "hidden",
+          "title": "Hidden",
+          "nav": false
+        },
+        {
+          "template": "pipeline",
+          "title": "Pipeline",
+          "exposed": {
+            "description": "The whole pipeline"
+          }
+        },
+        {
+          "template": "deal",
+          "title": "Deal",
+          "nav": false,
+          "params": {
+            "tab": "overview"
+          },
+          "exposed": {
+            "description": "One deal",
+            "params": {
+              "id": {
+                "required": true,
+                "description": "The deal's id"
+              },
+              "tab": {}
+            }
+          }
+        },
+        {
+          "template": "inner",
+          "title": "Inner"
+        },
+        {
+          "template": "a",
+          "title": "A"
+        },
+        {
+          "template": "b",
+          "title": "B"
+        },
+        {
+          "template": "c",
+          "title": "C"
+        }
+      ],
+      "templates": {
+        "a": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "a"
+            }
+          ]
+        },
+        "b": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "b"
+            }
+          ]
+        },
+        "c": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "c"
+            }
+          ]
+        },
+        "deal": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "deal"
+            }
+          ]
+        },
+        "hidden": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "hidden"
+            }
+          ]
+        },
+        "inner": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "inner"
+            }
+          ]
+        },
+        "pipeline": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "pipeline"
+            }
+          ]
+        }
+      }
+    },
+    "acme.closed": {
+      "formatVersion": 4,
+      "id": "acme.closed",
+      "name": "Details",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "screens": [
+        {
+          "template": "home",
+          "title": "Home"
+        }
+      ],
+      "templates": {
+        "home": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "home"
+            }
+          ]
+        }
+      }
+    },
+    "acme.onlydetails": {
+      "formatVersion": 4,
+      "id": "acme.onlydetails",
+      "name": "Details",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "screens": [
+        {
+          "template": "deal",
+          "title": "Deal",
+          "nav": false
+        }
+      ],
+      "templates": {
+        "deal": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "deal"
+            }
+          ]
+        }
+      }
+    },
+    "acme.baddetails": {
+      "formatVersion": 4,
+      "id": "acme.baddetails",
+      "name": "Details",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "screens": [
+        {
+          "template": "a",
+          "title": "A",
+          "nav": true
+        },
+        {
+          "template": "b",
+          "title": "B",
+          "exposed": "yes"
+        },
+        {
+          "template": "c",
+          "title": "C",
+          "exposed": {
+            "params": [],
+            "route": "x"
+          }
+        },
+        {
+          "template": "d",
+          "title": "D",
+          "exposed": {
+            "description": "   "
+          }
+        },
+        {
+          "template": "e",
+          "title": "E",
+          "exposed": {
+            "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        {
+          "template": "f",
+          "title": "F",
+          "nav": false,
+          "exposed": {
+            "description": "ok",
+            "params": {
+              "bad key": {},
+              "n": "x",
+              "o": {
+                "required": "yes",
+                "description": 1,
+                "default": "x"
+              }
+            }
+          }
+        }
+      ],
+      "templates": {
+        "a": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "a"
+            }
+          ]
+        },
+        "b": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "b"
+            }
+          ]
+        },
+        "c": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "c"
+            }
+          ]
+        },
+        "d": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "d"
+            }
+          ]
+        },
+        "e": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "e"
+            }
+          ]
+        },
+        "f": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "f"
             }
           ]
         }
@@ -3122,13 +3510,13 @@
         "acme.future": [
           {
             "path": "/formatVersion",
-            "message": "format version 4 is newer than this host (3)"
+            "message": "format version 5 is newer than this host (4)"
           }
         ],
         "acme.v1": [
           {
             "path": "/formatVersion",
-            "message": "format version 1 is no longer read: write 3"
+            "message": "format version 1 is no longer read: write 4"
           }
         ]
       },
@@ -3557,7 +3945,7 @@
       "expected": [
         {
           "path": "/formatVersion",
-          "message": "format version 4 is newer than this host (3)"
+          "message": "format version 5 is newer than this host (4)"
         }
       ]
     },
@@ -3566,7 +3954,7 @@
       "expected": [
         {
           "path": "/formatVersion",
-          "message": "format version 1 is no longer read: write 3"
+          "message": "format version 1 is no longer read: write 4"
         }
       ]
     },
@@ -3904,7 +4292,7 @@
       "expected": [
         {
           "path": "/screens",
-          "message": "at most 5 screens, got 6"
+          "message": "at most 5 screens in the navigation, got 6"
         },
         {
           "path": "/screens/0/icon",
@@ -3936,7 +4324,7 @@
         },
         {
           "path": "/screens/5",
-          "message": "a screen is {template, title, icon?, params?}"
+          "message": "a screen is {template, title, icon?, params?, nav?, exposed?}"
         },
         {
           "path": "/templates/a/components/2/on/press/functionCall/args/screen",
@@ -3953,7 +4341,77 @@
       "expected": [
         {
           "path": "/screens",
-          "message": "screens is a non-empty list of {template, title, icon?, params?}"
+          "message": "screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?}"
+        }
+      ]
+    },
+    {
+      "package": "acme.details",
+      "expected": []
+    },
+    {
+      "package": "acme.closed",
+      "expected": []
+    },
+    {
+      "package": "acme.onlydetails",
+      "expected": [
+        {
+          "path": "/screens",
+          "message": "at least one screen is in the navigation (not nav: false)"
+        }
+      ]
+    },
+    {
+      "package": "acme.baddetails",
+      "expected": [
+        {
+          "path": "/screens/0/nav",
+          "message": "nav is false or absent"
+        },
+        {
+          "path": "/screens/1/exposed",
+          "message": "exposed is {description, params?}"
+        },
+        {
+          "path": "/screens/2/exposed/route",
+          "message": "unknown exposed key route"
+        },
+        {
+          "path": "/screens/2/exposed/description",
+          "message": "description is a required string"
+        },
+        {
+          "path": "/screens/2/exposed/params",
+          "message": "params is an object of {required?, description?}"
+        },
+        {
+          "path": "/screens/3/exposed/description",
+          "message": "description is a required string"
+        },
+        {
+          "path": "/screens/4/exposed/description",
+          "message": "description is at most 200 characters"
+        },
+        {
+          "path": "/screens/5/exposed/params/bad key",
+          "message": "param bad key is letters, digits and _"
+        },
+        {
+          "path": "/screens/5/exposed/params/n",
+          "message": "a param is {required?, description?}"
+        },
+        {
+          "path": "/screens/5/exposed/params/o/default",
+          "message": "unknown param key default"
+        },
+        {
+          "path": "/screens/5/exposed/params/o/required",
+          "message": "required is a boolean"
+        },
+        {
+          "path": "/screens/5/exposed/params/o/description",
+          "message": "description is a string"
         }
       ]
     }
@@ -4249,6 +4707,47 @@
       "screen": "list",
       "params": null,
       "expected": null
+    },
+    {
+      "name": "a nav: false screen opens by name",
+      "package": "acme.details",
+      "screen": "deal",
+      "params": {
+        "id": "d1"
+      },
+      "expected": {
+        "screen": "deal",
+        "title": "Deal",
+        "icon": null,
+        "params": {
+          "tab": "overview",
+          "id": "d1"
+        }
+      }
+    },
+    {
+      "name": "no screen asked: the first in the navigation, not the first declared",
+      "package": "acme.details",
+      "screen": null,
+      "params": null,
+      "expected": {
+        "screen": "pipeline",
+        "title": "Pipeline",
+        "icon": null,
+        "params": {}
+      }
+    },
+    {
+      "name": "an unknown screen falls back to the first in the navigation",
+      "package": "acme.details",
+      "screen": "gone",
+      "params": null,
+      "expected": {
+        "screen": "pipeline",
+        "title": "Pipeline",
+        "icon": null,
+        "params": {}
+      }
     }
   ],
   "navigate": [
@@ -4328,6 +4827,157 @@
       },
       "expected": {
         "error": "navigate: list is not a screen"
+      }
+    },
+    {
+      "name": "a nav: false screen is a screen",
+      "package": "acme.details",
+      "args": {
+        "screen": "hidden"
+      },
+      "expected": {
+        "screen": "hidden",
+        "params": {}
+      }
+    }
+  ],
+  "crossApp": [
+    {
+      "name": "an exposed screen opens, its own params first",
+      "package": "acme.details",
+      "screen": "deal",
+      "params": {
+        "id": "d1"
+      },
+      "expected": {
+        "screen": "deal",
+        "params": {
+          "tab": "overview",
+          "id": "d1"
+        }
+      }
+    },
+    {
+      "name": "a declared param overrides the screen's own",
+      "package": "acme.details",
+      "screen": "deal",
+      "params": {
+        "id": "d1",
+        "tab": "notes"
+      },
+      "expected": {
+        "screen": "deal",
+        "params": {
+          "tab": "notes",
+          "id": "d1"
+        }
+      }
+    },
+    {
+      "name": "an undeclared or non-string param is dropped",
+      "package": "acme.details",
+      "screen": "deal",
+      "params": {
+        "id": "d1",
+        "admin": "1",
+        "tab": 7
+      },
+      "expected": {
+        "screen": "deal",
+        "params": {
+          "tab": "overview",
+          "id": "d1"
+        }
+      }
+    },
+    {
+      "name": "params are data, kept as written",
+      "package": "acme.details",
+      "screen": "deal",
+      "params": {
+        "id": "a&b=../c d"
+      },
+      "expected": {
+        "screen": "deal",
+        "params": {
+          "tab": "overview",
+          "id": "a&b=../c d"
+        }
+      }
+    },
+    {
+      "name": "a missing required param refuses",
+      "package": "acme.details",
+      "screen": "deal",
+      "params": null,
+      "expected": {
+        "error": "deal needs id"
+      }
+    },
+    {
+      "name": "an empty required param refuses",
+      "package": "acme.details",
+      "screen": "deal",
+      "params": {
+        "id": ""
+      },
+      "expected": {
+        "error": "deal needs id"
+      }
+    },
+    {
+      "name": "a screen that is not exposed refuses",
+      "package": "acme.details",
+      "screen": "inner",
+      "params": null,
+      "expected": {
+        "error": "inner is not exposed"
+      }
+    },
+    {
+      "name": "a nav: false screen that is not exposed refuses",
+      "package": "acme.details",
+      "screen": "hidden",
+      "params": null,
+      "expected": {
+        "error": "hidden is not exposed"
+      }
+    },
+    {
+      "name": "an unknown screen refuses, never the first",
+      "package": "acme.details",
+      "screen": "gone",
+      "params": null,
+      "expected": {
+        "error": "no such screen"
+      }
+    },
+    {
+      "name": "no screen asked: the first in the navigation, exposed",
+      "package": "acme.details",
+      "screen": null,
+      "params": null,
+      "expected": {
+        "screen": "pipeline",
+        "params": {}
+      }
+    },
+    {
+      "name": "no screen asked: the first in the navigation is not exposed",
+      "package": "acme.closed",
+      "screen": null,
+      "params": null,
+      "expected": {
+        "error": "home is not exposed"
+      }
+    },
+    {
+      "name": "a package without screens refuses",
+      "package": "acme.devices",
+      "screen": null,
+      "params": null,
+      "expected": {
+        "error": "no such screen"
       }
     }
   ]

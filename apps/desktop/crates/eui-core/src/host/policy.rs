@@ -135,6 +135,11 @@ pub struct UrlPolicy {
     pub allow_private: Option<Vec<String>>,
     #[serde(default, rename = "baseUrl", skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// #EXP-1674: what `~/x` expands against (a host's own link root, e.g. an
+    /// app's team: `/t/acme`, or an absolute url). `None` = `~/x` is denied,
+    /// so it paints as text.
+    #[serde(default, rename = "linkBase", skip_serializing_if = "Option::is_none")]
+    pub link_base: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -271,11 +276,40 @@ fn private_allowed(allow: Option<&Vec<String>>, host: &str) -> bool {
     allow.iter().flat_map(|l| l.iter()).any(|p| p == "*" || host_matches(p, host))
 }
 
-/// The decision for a url: it must parse (relative against `base_url`), use
+/// #EXP-1674: `~/x` against the host's `link_base`; `None` = denied: no base,
+/// `~//`, or a `.` or `..` path segment. Checked on what the URL parser will
+/// read (it drops tab and newline, takes `\\` as `/` and `%2e` as `.`), so a
+/// spelling never climbs out of the base.
+pub fn expand_link_base(url: &str, link_base: Option<&str>) -> Option<String> {
+    let link_base = link_base.filter(|base| !base.is_empty())?;
+    let clean: String = url.chars().filter(|c| !matches!(c, '\t' | '\n' | '\r')).collect();
+    if !clean.starts_with("~/") || clean.starts_with("~//") || clean.starts_with("~/\\") {
+        return None;
+    }
+    let rest = &clean[2..];
+    let path = &rest[..rest.find(['?', '#']).unwrap_or(rest.len())];
+    let dots = path.split(['/', '\\']).any(|segment| {
+        let segment = segment.replace("%2e", ".").replace("%2E", ".");
+        segment == "." || segment == ".."
+    });
+    if dots {
+        return None;
+    }
+    Some(format!("{}/{rest}", link_base.trim_end_matches('/')))
+}
+
+/// The decision for a url: `~/x` expands against `link_base` first
+/// ([`expand_link_base`]); it must parse (relative against `base_url`), use
 /// one of `schemes`, and for http(s) match `hosts` when set and not be a
 /// private host unless `allow_private` covers it.
 pub fn decide_url(policy: Option<&UrlPolicy>, url: &str) -> UrlDecision {
-    let Some(parsed) = absolute(js_trim(url), policy.and_then(|p| p.base_url.as_deref())) else {
+    let trimmed = js_trim(url);
+    let shorthand = trimmed.chars().filter(|c| !matches!(c, '\t' | '\n' | '\r')).take(2).eq("~/".chars());
+    let expanded = if shorthand { expand_link_base(trimmed, policy.and_then(|p| p.link_base.as_deref())) } else { Some(trimmed.to_string()) };
+    let Some(expanded) = expanded else {
+        return UrlDecision { allowed: false, url: None, reason: Some("invalid".into()) };
+    };
+    let Some(parsed) = absolute(&expanded, policy.and_then(|p| p.base_url.as_deref())) else {
         return UrlDecision { allowed: false, url: None, reason: Some("invalid".into()) };
     };
     let scheme = parsed.scheme().to_lowercase();
@@ -343,6 +377,7 @@ pub fn media_request(url: &str, options: &MediaOptions) -> Option<MediaRequest> 
         hosts: options.hosts.clone(),
         allow_private: options.allow_private.clone(),
         base_url: options.base_url.clone(),
+        link_base: None,
     };
     let decision = decide_url(Some(&policy), url);
     if !decision.allowed {

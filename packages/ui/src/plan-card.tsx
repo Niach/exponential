@@ -117,10 +117,11 @@ export function cardMediaAllowed(src: string): boolean {
   return src.startsWith(`/api/attachments/`) || src.startsWith(`https://`)
 }
 
-/** #EXP-1674: what the app gives a card: THE opener (the card's team for
- *  `~/`) and the Row subtitle's `#IDENT` links. No provider (the styleguide,
- *  a specimen) = links open nothing. */
+/** #EXP-1674: what the app gives a card: `~/x`'s base (the card's team), THE
+ *  opener and the Row subtitle's `#IDENT` links. No provider (the styleguide,
+ *  a specimen) = links open nothing, `~/x` paints as text. */
 export interface CardLinks {
+  linkBase?: string
   /** A link the URL policy allowed (plan-card.json `linkCases` still decides). */
   openUrl: (url: string) => void
   textLinks: (text: string) => { text: string; href?: string }[] | null
@@ -146,7 +147,7 @@ export function planCardHost(
     icons: CARD_ICONS,
     media: { baseUrl: origin },
     // #EXP-1674: https, plus the instance's own scheme (a local http stack).
-    urls: { baseUrl: origin, schemes: origin.startsWith(`http://`) ? [`https`, `http`] : [`https`] },
+    urls: { baseUrl: origin, schemes: origin.startsWith(`http://`) ? [`https`, `http`] : [`https`], ...(links?.linkBase ? { linkBase: links.linkBase } : {}) },
     mediaRequest: (src) => (cardMediaAllowed(src) ? { url: new URL(src, origin).href, headers: {} } : null),
     // No transport: events reach nobody, every host function is denied
     // (`set` runs inside the renderer). Links go through the app's opener.

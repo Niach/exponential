@@ -631,6 +631,11 @@ fn host_suite(id: &str) -> Vec<Case> {
                 let pkg = &packages[c["package"].as_str().unwrap()];
                 out.push((format!("navigate: {}", c["name"].as_str().unwrap()), same(&eui_core::host::navigate_target_value(pkg, &c["args"]), &c["expected"])));
             }
+            // #EXP-1674: what a link from another app may open.
+            for c in list(&f, "crossApp") {
+                let pkg = &packages[c["package"].as_str().unwrap()];
+                out.push((format!("crossApp: {}", c["name"].as_str().unwrap()), same(&eui_core::host::cross_app_target_value(pkg, c["screen"].as_str(), Some(&c["params"])), &c["expected"])));
+            }
             for flow in list(&f, "flows") {
                 let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();
                 let mut router = HostRouter::new(&ext);
