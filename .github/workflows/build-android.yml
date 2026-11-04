@@ -67,6 +67,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - run: cargo install cargo-ndk --locked
       - name: Build the Exponential UI facade for Android
         env:

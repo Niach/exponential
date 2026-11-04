@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: ''
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           manifest-path: apps/desktop/Cargo.toml
@@ -55,6 +58,7 @@ jobs:
       # Version from the cli-v* tag (0.0.0 on workflow_dispatch) — compiled
       # in via EXP_CLI_VERSION so `exponential version`, the x-client-version
       # header (`cli/<version>`) and the self-update compare all agree.
+      - uses: ./.github/actions/cargo-fetch
       - name: Derive version
         id: ver
         shell: bash

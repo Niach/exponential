@@ -77,6 +77,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (eTalk)
         working-directory: apps/desktop
         run: cargo test --no-fail-fast --locked -p etalk -p etalk-codec -p etalk-engine -p etalk-crispasr -p etalk-wakeword -p etalk-gpui -p etalk-ffi
@@ -116,6 +117,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Swift binding suite (the committed binding vs the host dylib)
         run: bash apps/desktop/crates/etalk-ffi/run-binding-tests.sh swift
       - name: Build the xcframework
@@ -142,6 +144,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: ./.github/actions/cargo-fetch
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:

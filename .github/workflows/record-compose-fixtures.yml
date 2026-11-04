@@ -42,6 +42,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Host build of the facade (the JVM tests load it through JNA)
         working-directory: apps/desktop
         run: cargo build --locked -p exponential-ui-ffi --release
@@ -97,6 +98,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Re-record the gpui ratchet
         working-directory: apps/desktop
         env:

@@ -107,6 +107,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/cargo-fetch
       - name: Publish eui-core (or dry-run)
         working-directory: apps/desktop
         env:
@@ -133,6 +134,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Build the xcframework
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
       - uses: oven-sh/setup-bun@v2
@@ -168,6 +170,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: ./.github/actions/cargo-fetch
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:

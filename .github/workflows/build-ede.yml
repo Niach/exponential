@@ -39,6 +39,9 @@ jobs:
         with:
           workspaces: apps/ede
           key: ede-deb
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
       - name: Build the .deb
         run: EDE_XWAYLAND=~/ede-xwayland apps/ede/packaging/build-deb.sh
       # A throwaway runner: the Depends must resolve on noble, and the

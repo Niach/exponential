@@ -65,6 +65,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
+      - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (eNet)
         working-directory: apps/desktop
         run: cargo test --no-fail-fast --locked -p enet-core
@@ -75,6 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/cargo-fetch
       - name: Publish enet-core (or dry-run)
         working-directory: apps/desktop
         env:
