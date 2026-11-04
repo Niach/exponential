@@ -24,3 +24,4 @@
 - Las imágenes pegadas se ven como miniaturas en los chats
 - Empezar a programar con un agente ya le llega; sus chats son una conversación normal
 - Los equipos pueden tener su propia imagen
+- El plan de una sesión se abre en su propia pestaña

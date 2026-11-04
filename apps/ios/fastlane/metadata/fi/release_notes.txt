@@ -24,3 +24,4 @@
 - Liitetyt kuvat näkyvät keskusteluissa pikkukuvina
 - Koodauksen aloitus agentille tavoittaa sen nyt; agenttikeskustelut pysyvät tavallisina
 - Tiimeillä voi olla oma kuva
+- Istunnon suunnitelma avautuu omaan välilehteensä

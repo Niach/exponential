@@ -24,3 +24,4 @@
 - Vložené obrázky se v chatu zobrazují jako náhledy
 - Spuštění kódování u agenta ho nyní zastihne; chaty s agenty zůstávají prostou konverzací
 - Týmy mohou mít vlastní obrázek
+- Plán relace se otevírá na vlastní kartě

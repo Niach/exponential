@@ -24,3 +24,4 @@
 - Indsatte billeder vises som miniaturer i chats
 - Start kodning til en agent når nu frem; agentchats forbliver en almindelig samtale
 - Teams kan have deres eget billede
+- En sessions plan åbner i sin egen fane

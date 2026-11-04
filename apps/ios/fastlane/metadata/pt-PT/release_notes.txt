@@ -24,3 +24,4 @@
 - As imagens coladas aparecem como miniaturas
 - Começar a programar com um agente agora chega a ele; os chats de agentes são uma conversa simples
 - As equipas podem ter a sua própria imagem
+- O plano de uma sessão abre no seu próprio separador

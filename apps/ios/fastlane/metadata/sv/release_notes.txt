@@ -24,3 +24,4 @@
 - Inklistrade bilder visas som miniatyrer i chattar
 - Starta kodning till en agent når nu fram; agentchattar förblir ett vanligt samtal
 - Team kan ha en egen bild
+- En sessions plan öppnas i en egen flik
