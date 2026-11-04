@@ -9209,6 +9209,7 @@ public object ExpIcons {
         "nav-inbox" -> `inbox`
         "nav-issues" -> `list`
         "nav-my-issues" -> `list`
+        "nav-needs-you" -> `triangle-alert`
         "nav-notifications" -> `bell`
         "nav-rail-collapse" -> `panel-left-close`
         "nav-rail-expand" -> `panel-left-open`
@@ -9290,6 +9291,7 @@ public object ExpIcons {
         "status-todo" -> `circle`
         "support-open" -> `circle-dot`
         "support-resolved" -> `circle-check`
+        "thread-results" -> `images`
         "thread-stories" -> `images`
         "tool-script" -> `braces`
         "trace-background" -> `repeat`
@@ -9599,6 +9601,8 @@ public object ExpIcons {
     public val navIssues: ImageVector get() = `list`
     /** Concept `nav-my-issues`. */
     public val navMyIssues: ImageVector get() = `list`
+    /** Concept `nav-needs-you`. */
+    public val navNeedsYou: ImageVector get() = `triangle-alert`
     /** Concept `nav-notifications`. */
     public val navNotifications: ImageVector get() = `bell`
     /** Concept `nav-rail-collapse`. */
@@ -9761,6 +9765,8 @@ public object ExpIcons {
     public val supportOpen: ImageVector get() = `circle-dot`
     /** Concept `support-resolved`. */
     public val supportResolved: ImageVector get() = `circle-check`
+    /** Concept `thread-results`. */
+    public val threadResults: ImageVector get() = `images`
     /** Concept `thread-stories`. */
     public val threadStories: ImageVector get() = `images`
     /** Concept `tool-script`. */

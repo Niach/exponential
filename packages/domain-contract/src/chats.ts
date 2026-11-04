@@ -357,6 +357,23 @@ export function chatList(input: {
 
 /** #EXP-1388: the Chats nav dot = an unread chat outside the archive (an
  *  archived chat never lights it; one that needs you is never archived). */
+/** #FEED-191: a chat list section (`sectionCases`). */
+export type ChatSectionKey = `needs_you` | `working` | `unread` | `chats`
+export const CHAT_SECTION_KEYS: readonly ChatSectionKey[] = [`needs_you`, `working`, `unread`, `chats`]
+
+/** #FEED-191: `chatList`'s rows grouped: needs you, working, unread, the rest
+ *  by activity; empty sections absent. */
+export function chatSections<R extends Pick<ChatRow, `group` | `unreadCount`>>(
+  rows: readonly R[]
+): { key: ChatSectionKey; rows: R[] }[] {
+  const keyOf = (row: R): ChatSectionKey =>
+    row.group === `needs_you` ? `needs_you` : row.group === `running` ? `working` : row.unreadCount > 0 ? `unread` : `chats`
+  return CHAT_SECTION_KEYS.flatMap((key) => {
+    const own = rows.filter((row) => keyOf(row) === key)
+    return own.length > 0 ? [{ key, rows: own }] : []
+  })
+}
+
 export function chatsUnread(groups: readonly ThreadsListGroup[], reads: readonly TreeSessionRead[] = []): boolean {
   const archived = new Set(reads.filter((r) => r.archivedAt).map((r) => r.sessionId))
   return groups.some((group) =>

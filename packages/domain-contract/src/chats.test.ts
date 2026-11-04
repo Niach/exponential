@@ -15,6 +15,7 @@ import {
   chatSelectionRange,
   chatsUnread,
   chatPreview,
+  chatSections,
   chatTimeLabel,
   commandDivider,
   conversationDigest,
@@ -179,4 +180,16 @@ describe(`conversation digest`, () => {
     expect(conversationDigest(`s1`, messages).agentTimes).toHaveLength(DIGEST_AGENT_TAIL)
     expect(viaDigest(messages).filter((m) => m.authorKind === `agent` && m.card === null)).toHaveLength(DIGEST_AGENT_TAIL)
   })
+})
+
+describe(`chatSections`, () => {
+  for (const entry of fixture.sectionCases) {
+    test(entry.name, () => {
+      const out = chatSections(entry.rows as never).map((section) => ({
+        key: section.key,
+        ids: section.rows.map((row) => (row as unknown as { sessionId: string }).sessionId),
+      }))
+      expect(out).toEqual(entry.expected)
+    })
+  }
 })

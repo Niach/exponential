@@ -1,0 +1,574 @@
+{
+  "$comment": "#FEED-191 (owner 2026-11-04: 'decisions (plan/questions) = new ... new menu entry when there are decisions (hidden otherwise, similar to drafts): Needs you ... opens in detail page view of the chat! but on the correct tab'). NEEDS YOU ×4: every waiting plan and question the viewer can act on. FOLD `needsYou({now, me, sessions, messages})` (every mirror replays `cases`, comparing the WHOLE array): `sessions` = the viewer's synced sessions {id, rootId, name (session-title; an agent conversation = the agent's name), status, agentId, userId}, minus `ended` ones and another member's agent conversation; `messages` = the conversations' DIGESTS (chats.json `digestMessages`; never a transcript: EXP-1380; so at most one waiting card per conversation until it is settled), a repeated id once. A ROW per waiting card: a `plan` / `question` whose waiting-cards.json `cardState` is `waiting`; an `ask` mirror with `answeredAt` null names its ORIGIN: when the origin session is synced and the card names a `messageId` the row carries the origin's ids (the origin's own card, when it is also in the digests, wins: one row); else the mirror's own ids and session, with the neutral copy (chats.json `askPreview`). A row: messageId, sessionId, rootId, kind, opens (`plan` = a plan the viewer can read: the chat's Plan tab on THAT plan; `card` = a question, or a private mirror: the chat's Conversation scrolled to the card, THE waiting chip's `selectWaiting`), title (a plan = plan-page `planRowLabel`; a question = ask-dock `askDockTitle`, blank = `askDockLabel`; a mirror = `askPreview`'s text less `prefix.question`), chat (the ROOT's name), meta (a plan card's plan-page `planCountsLine`, else ``), age (results-tab.json `resultAge`), createdAt. Order: NEWEST first (createdAt desc, then messageId desc). THE ENTRY (`copy.entry`, the concept `nav-needs-you`, a count Badge = the rows' length; none = NO entry; as Drafts): WIDE (web md+, the IDE) = a sidebar root entry right after Agent, the nav order Agent · Needs you · Chats · Devices · Drafts; PHONES (iOS, Android, web-mobile) = the FIRST row of the Chats list above the Agents section, as tall as the Archived row (chats.json): the glyph in the needs-you tone centred in the `leadDisc`-wide column, no disc, title `copy.entry`, the count Badge in the needs-you tone trailing, testId `testIds.entry`; a press pushes THE list. THE LIST (`route`; phones: pushed, the page header `copy.entry` with the back control; wide: the content card, no header) = one reading column of THE inbox page's ListRow (`list` density): the leading glyph in the needs-you tone (waiting-cards.json `icons`: plan `coding-plan`, question `ui-help`), line 1 the title (medium, truncated) then `age` muted trailing, line 2 `chat` then ` · meta` (when set), muted, truncated; testId `testIds.row`. No row = THE EmptyState (`copy.empty`, no subtitle; the route stays reachable, e.g. after the last answer). A press opens the chat by `opens`: the thread screen (`sessionId`'s own target, inbox-route.json `sessionTarget`) WITH its normal header and strip on the right tab; a `plan` = plan-page.json `route`'s redirect. AFTER A DECISION: plan-page.json (any decision on the Plan tab returns to the Conversation). Mirrors: desktop domain::needs_you, iOS ExpCore NeedsYou.swift, Android domain/NeedsYou.kt. Styleguide `needs-you` (Exponential-specific, not eUI) draws `cases[1]`'s rows and the phone entry row.",
+  "route": "/t/$teamSlug/needs-you",
+  "copy": {
+    "entry": "Needs you",
+    "empty": "Nothing needs you"
+  },
+  "prefix": {
+    "question": "Question: "
+  },
+  "testIds": {
+    "entry": "nav-needs-you",
+    "row": "needs-you-row",
+    "list": "needs-you"
+  },
+  "cases": [
+    {
+      "name": "nothing waits: no rows",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Chat",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          }
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": "2027-01-15T07:00:00.000Z",
+            "card": {
+              "kind": "question",
+              "question": "Done?",
+              "answer": "Yes"
+            }
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "a plan and a question: newest first; a plan opens its tab, a question its card",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Assignee groups",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          },
+          {
+            "id": "r2",
+            "rootId": "r2",
+            "name": "Palette",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          }
+        ],
+        "messages": [
+          {
+            "id": "p1",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:36:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "# Group by assignee\n\n## One\n\n## Two\n\n![a](/api/attachments/x)",
+              "pictures": [
+                {
+                  "label": "web a",
+                  "attachmentId": "x"
+                }
+              ],
+              "questions": [
+                {
+                  "id": "q",
+                  "question": "Ok?"
+                }
+              ]
+            }
+          },
+          {
+            "id": "q1",
+            "sessionId": "r2",
+            "authorSessionId": "r2",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Which palette?",
+              "options": [
+                "A",
+                "B"
+              ]
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "rootId": "r1",
+          "chat": "Assignee groups",
+          "age": "24m",
+          "createdAt": "2027-01-15T07:36:00.000Z",
+          "messageId": "p1",
+          "sessionId": "r1",
+          "kind": "plan",
+          "opens": "plan",
+          "title": "Plan: Group by assignee",
+          "meta": "2 sections · 1 picture · 1 question"
+        },
+        {
+          "rootId": "r2",
+          "chat": "Palette",
+          "age": "1h",
+          "createdAt": "2027-01-15T07:00:00.000Z",
+          "messageId": "q1",
+          "sessionId": "r2",
+          "kind": "question",
+          "opens": "card",
+          "title": "Which palette?",
+          "meta": ""
+        }
+      ]
+    },
+    {
+      "name": "settled cards never: superseded, decided, dismissed, answered",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Chat",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          }
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "x",
+              "decision": "superseded"
+            }
+          },
+          {
+            "id": "b",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "x",
+              "decision": "approved"
+            }
+          },
+          {
+            "id": "c",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "plan",
+              "plan": "x",
+              "dismissed": true,
+              "decision": "dismissed"
+            }
+          },
+          {
+            "id": "d",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "x",
+              "dismissed": true
+            }
+          },
+          {
+            "id": "e",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": "2027-01-15T07:59:00.000Z",
+            "card": {
+              "kind": "question",
+              "question": "x"
+            }
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "a child's card names its root chat; the root's mirror of it is the same row, once",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Parent chat",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          },
+          {
+            "id": "c1",
+            "rootId": "r1",
+            "name": "Child",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          }
+        ],
+        "messages": [
+          {
+            "id": "mirror",
+            "sessionId": "r1",
+            "authorSessionId": "c1",
+            "body": "Asks: Ship it?",
+            "createdAt": "2027-01-15T07:55:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "ask",
+              "sessionId": "c1",
+              "messageId": "q2"
+            }
+          },
+          {
+            "id": "q2",
+            "sessionId": "c1",
+            "authorSessionId": "c1",
+            "body": "",
+            "createdAt": "2027-01-15T07:55:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Ship it?"
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "rootId": "r1",
+          "chat": "Parent chat",
+          "age": "5m",
+          "createdAt": "2027-01-15T07:55:00.000Z",
+          "messageId": "q2",
+          "sessionId": "c1",
+          "kind": "question",
+          "opens": "card",
+          "title": "Ship it?",
+          "meta": ""
+        }
+      ]
+    },
+    {
+      "name": "a mirror whose origin card is not in the digests: a row with the origin ids",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "as",
+            "rootId": "as",
+            "name": "Assistant",
+            "status": "idle",
+            "agentId": "a1",
+            "userId": "me"
+          },
+          {
+            "id": "t1",
+            "rootId": "t1",
+            "name": "Thread",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          }
+        ],
+        "messages": [
+          {
+            "id": "mirror2",
+            "sessionId": "as",
+            "authorSessionId": "t1",
+            "body": "Proposes a plan:\n\nBatch edit\n\nMore",
+            "createdAt": "2027-01-15T06:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "ask",
+              "sessionId": "t1",
+              "messageId": "p9"
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "rootId": "t1",
+          "chat": "Thread",
+          "age": "2h",
+          "createdAt": "2027-01-15T06:00:00.000Z",
+          "messageId": "p9",
+          "sessionId": "t1",
+          "kind": "plan",
+          "opens": "plan",
+          "title": "Plan: Batch edit",
+          "meta": ""
+        }
+      ]
+    },
+    {
+      "name": "a mirror of a chat the viewer cannot see: the neutral copy, opening the mirror's own card",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "as",
+            "rootId": "as",
+            "name": "Assistant",
+            "status": "idle",
+            "agentId": "a1",
+            "userId": "me"
+          }
+        ],
+        "messages": [
+          {
+            "id": "mirror3",
+            "sessionId": "as",
+            "authorSessionId": "hidden",
+            "body": "Proposes a plan in a private chat.",
+            "createdAt": "2027-01-15T05:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "ask",
+              "sessionId": "hidden",
+              "messageId": "h1"
+            }
+          },
+          {
+            "id": "mirror4",
+            "sessionId": "as",
+            "authorSessionId": "hidden",
+            "body": "Asks a question in a private chat.",
+            "createdAt": "2027-01-15T04:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "ask",
+              "sessionId": "hidden",
+              "messageId": "h2"
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "rootId": "as",
+          "chat": "Assistant",
+          "age": "3h",
+          "createdAt": "2027-01-15T05:00:00.000Z",
+          "messageId": "mirror3",
+          "sessionId": "as",
+          "kind": "plan",
+          "opens": "card",
+          "title": "Plan in a private chat",
+          "meta": ""
+        },
+        {
+          "rootId": "as",
+          "chat": "Assistant",
+          "age": "4h",
+          "createdAt": "2027-01-15T04:00:00.000Z",
+          "messageId": "mirror4",
+          "sessionId": "as",
+          "kind": "question",
+          "opens": "card",
+          "title": "Question in a private chat",
+          "meta": ""
+        }
+      ]
+    },
+    {
+      "name": "ended sessions and another member's agent conversation never; a shared teammate chat does",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "e1",
+            "rootId": "e1",
+            "name": "Ended",
+            "status": "ended",
+            "agentId": null,
+            "userId": "me"
+          },
+          {
+            "id": "t1",
+            "rootId": "t1",
+            "name": "Their Assistant",
+            "status": "idle",
+            "agentId": "a9",
+            "userId": "them"
+          },
+          {
+            "id": "s1",
+            "rootId": "s1",
+            "name": "Shared",
+            "status": "idle",
+            "agentId": null,
+            "userId": "them"
+          }
+        ],
+        "messages": [
+          {
+            "id": "x1",
+            "sessionId": "e1",
+            "authorSessionId": "e1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Which palette?",
+              "options": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          {
+            "id": "x2",
+            "sessionId": "t1",
+            "authorSessionId": "t1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Which palette?",
+              "options": [
+                "A",
+                "B"
+              ]
+            }
+          },
+          {
+            "id": "x3",
+            "sessionId": "s1",
+            "authorSessionId": "s1",
+            "body": "",
+            "createdAt": "2027-01-15T07:00:00.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": "Which palette?",
+              "options": [
+                "A",
+                "B"
+              ]
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "rootId": "s1",
+          "chat": "Shared",
+          "age": "1h",
+          "createdAt": "2027-01-15T07:00:00.000Z",
+          "messageId": "x3",
+          "sessionId": "s1",
+          "kind": "question",
+          "opens": "card",
+          "title": "Which palette?",
+          "meta": ""
+        }
+      ]
+    },
+    {
+      "name": "a blank question reads the kind word; the same message twice = one row",
+      "input": {
+        "now": 1800000000000,
+        "me": "me",
+        "sessions": [
+          {
+            "id": "r1",
+            "rootId": "r1",
+            "name": "Chat",
+            "status": "idle",
+            "agentId": null,
+            "userId": "me"
+          }
+        ],
+        "messages": [
+          {
+            "id": "b1",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:59:30.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": ""
+            }
+          },
+          {
+            "id": "b1",
+            "sessionId": "r1",
+            "authorSessionId": "r1",
+            "body": "",
+            "createdAt": "2027-01-15T07:59:30.000Z",
+            "answeredAt": null,
+            "card": {
+              "kind": "question",
+              "question": ""
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "rootId": "r1",
+          "chat": "Chat",
+          "age": "now",
+          "createdAt": "2027-01-15T07:59:30.000Z",
+          "messageId": "b1",
+          "sessionId": "r1",
+          "kind": "question",
+          "opens": "card",
+          "title": "Question",
+          "meta": ""
+        }
+      ]
+    }
+  ]
+}
