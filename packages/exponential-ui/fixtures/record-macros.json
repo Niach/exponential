@@ -1,0 +1,2160 @@
+{
+  "$comment": "VAPP-217 (eApps U2; docs/package-format.md \"Record macros\"): THE HOST FILL of the RecordForm and RecordTable macros, replayed by the TS reference (src/host/record-macros.ts fillRecordMacros, called by templateMessages and validatePackage's component check) and the Rust core (host::record_macros::fill_record_macros, template_messages). A macro sees only its node's props, so the host fills every RecordForm / RecordTable of a template's flat component list from the package's records before the reducer runs; macros.json then expands them (fixtures/catalog-macros.json RecordForm/* + RecordTable/*). FIELDS (recordFormFields, in the Data tab's order: required in order, then the rest by name; files left out): label = the name humanized (closeDate / close_date → Close date), placeholder = the schema description; a member ref → Select source exp:members, an issue ref → Select source exp:issues (both searchable); boolean → switch; number → number (min/max from the schema), integer → number with step 1, precision 0; array of enum items → a multiple Select, other arrays → chips (wide, max = maxLength); string enum → select; format date → date, time → time, date-time → text with the placeholder YYYY-MM-DDTHH:MM; a string without maxLength or longer than 200 → textarea (wide); else text. value = {path: <draft path>/<name>}. CHECKS: required (not a switch) → required / $string.required; a free string's maxLength → length max / $string.invalidValue; a number's minimum/maximum → numeric / $string.invalidValue. RecordForm: path = the author's or /recordForm/<id>; on.submit (unless the author wrote one) = records.upsert {kind, id: the author's recordId when given, data: one binding per field}; a read-only viewer → readOnly. RecordTable (base = /recordTable/<id>): title = the kind's title or its name humanized; cols = the chosen columns (default every field, unknown names and files dropped), number/integer → type number align end, boolean → boolean, date → date, fixed widths by format/type (date 104, time 64, date-time 152, number/integer 64, boolean 56), else truncate; then updatedAt (relativeTime, 88) and, when editable, the menu slot column (80); rows = base/rows/rows, count = fill $string.recordCount {count}, loading = not(base/rows); children = the phone row template <id>__row (appended: a Row, title = the first column as text else —, subtitle = the second, meta = the relative updatedAt, press = open the editor on the row); the binding base/rows ← records:<kind>?<query without its ?, default sort=updatedAt&order=desc> appended to the template's. Editable (the author's editable !== false and not a read-only viewer): fields/path over base/editor/draft, editorOpen/editorId/deleteOpen bindings, on.add/edit/delete/submit/cancel/confirm/cancelDelete (each only when the author wrote none): add = set base/editor {open, draft: {}}, edit = set base/editor {open, draft: the row}, delete = set base/delete {open, id: the row's id}, submit = records.upsert with id = the draft's id, cancel / cancelDelete = close, confirm = records.delete {id: base/delete/id}. Not editable: add false. An undeclared kind fills only missing: true (the unknown state). INSTALL (validatePackage, at the macro's component): a writing RecordForm (not readOnly) or editable RecordTable needs records.upsert in functions; an editable RecordTable also records.delete; a RecordTable's records:<kind> must pass sources when sources is set.",
+  "records": {
+    "deal": {
+      "title": "Deal",
+      "schema": {
+        "type": "object",
+        "required": [
+          "title",
+          "amount"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "company": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "The company's name"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "open",
+              "won",
+              "lost"
+            ]
+          },
+          "close": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "entry": {
+      "schema": {
+        "type": "object",
+        "required": [
+          "hours"
+        ],
+        "properties": {
+          "hours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "billable": {
+            "type": "boolean"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxLength": 5
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mon",
+                "tue"
+              ]
+            }
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "time"
+          },
+          "loggedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "receipt": {
+            "type": "string",
+            "format": "attachment"
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "issue": {
+            "type": "string",
+            "maxLength": 32
+          }
+        }
+      },
+      "refs": {
+        "owner": "member",
+        "issue": "issue"
+      }
+    }
+  },
+  "fill": [
+    {
+      "name": "RecordForm over a kind: required first, then by name; checks from the schema",
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "f"
+          ]
+        },
+        {
+          "id": "f",
+          "component": "RecordForm",
+          "kind": "deal"
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "f"
+            ]
+          },
+          {
+            "id": "f",
+            "component": "RecordForm",
+            "kind": "deal",
+            "path": "/recordForm/f",
+            "fields": [
+              {
+                "name": "title",
+                "label": "Title",
+                "widget": "text",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/title"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/title"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/title"
+                        },
+                        "max": 160
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "amount",
+                "label": "Amount",
+                "widget": "number",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/amount"
+                },
+                "min": 0,
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/amount"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "numeric",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/amount"
+                        },
+                        "min": 0
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "close",
+                "label": "Close",
+                "widget": "date",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/close"
+                }
+              },
+              {
+                "name": "company",
+                "label": "Company",
+                "widget": "text",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/company"
+                },
+                "placeholder": "The company's name",
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/company"
+                        },
+                        "max": 120
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "stage",
+                "label": "Stage",
+                "widget": "select",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/stage"
+                },
+                "options": [
+                  {
+                    "label": "open",
+                    "value": "open"
+                  },
+                  {
+                    "label": "won",
+                    "value": "won"
+                  },
+                  {
+                    "label": "lost",
+                    "value": "lost"
+                  }
+                ]
+              }
+            ],
+            "on": {
+              "submit": {
+                "functionCall": {
+                  "call": "records.upsert",
+                  "args": {
+                    "kind": "deal",
+                    "data": {
+                      "title": {
+                        "path": "/recordForm/f/title"
+                      },
+                      "amount": {
+                        "path": "/recordForm/f/amount"
+                      },
+                      "close": {
+                        "path": "/recordForm/f/close"
+                      },
+                      "company": {
+                        "path": "/recordForm/f/company"
+                      },
+                      "stage": {
+                        "path": "/recordForm/f/stage"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "bindings": []
+      }
+    },
+    {
+      "name": "RecordForm: every field type (files left out, refs = member / issue selects)",
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "f"
+          ]
+        },
+        {
+          "id": "f",
+          "component": "RecordForm",
+          "kind": "entry"
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "f"
+            ]
+          },
+          {
+            "id": "f",
+            "component": "RecordForm",
+            "kind": "entry",
+            "path": "/recordForm/f",
+            "fields": [
+              {
+                "name": "hours",
+                "label": "Hours",
+                "widget": "number",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/hours"
+                },
+                "min": 0,
+                "max": 24,
+                "step": 1,
+                "precision": 0,
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/hours"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "numeric",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/hours"
+                        },
+                        "min": 0,
+                        "max": 24
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "billable",
+                "label": "Billable",
+                "widget": "switch",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/billable"
+                }
+              },
+              {
+                "name": "days",
+                "label": "Days",
+                "widget": "select",
+                "required": false,
+                "wide": true,
+                "value": {
+                  "path": "/recordForm/f/days"
+                },
+                "multiple": true,
+                "options": [
+                  {
+                    "label": "mon",
+                    "value": "mon"
+                  },
+                  {
+                    "label": "tue",
+                    "value": "tue"
+                  }
+                ]
+              },
+              {
+                "name": "issue",
+                "label": "Issue",
+                "widget": "select",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/issue"
+                },
+                "source": "exp:issues",
+                "searchable": true
+              },
+              {
+                "name": "loggedAt",
+                "label": "Logged at",
+                "widget": "text",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/loggedAt"
+                },
+                "placeholder": "YYYY-MM-DDTHH:MM"
+              },
+              {
+                "name": "notes",
+                "label": "Notes",
+                "widget": "textarea",
+                "required": false,
+                "wide": true,
+                "value": {
+                  "path": "/recordForm/f/notes"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/notes"
+                        },
+                        "max": 2000
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "owner",
+                "label": "Owner",
+                "widget": "select",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/owner"
+                },
+                "source": "exp:members",
+                "searchable": true
+              },
+              {
+                "name": "startsAt",
+                "label": "Starts at",
+                "widget": "time",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/startsAt"
+                }
+              },
+              {
+                "name": "tags",
+                "label": "Tags",
+                "widget": "chips",
+                "required": false,
+                "wide": true,
+                "value": {
+                  "path": "/recordForm/f/tags"
+                },
+                "max": 5
+              }
+            ],
+            "on": {
+              "submit": {
+                "functionCall": {
+                  "call": "records.upsert",
+                  "args": {
+                    "kind": "entry",
+                    "data": {
+                      "hours": {
+                        "path": "/recordForm/f/hours"
+                      },
+                      "billable": {
+                        "path": "/recordForm/f/billable"
+                      },
+                      "days": {
+                        "path": "/recordForm/f/days"
+                      },
+                      "issue": {
+                        "path": "/recordForm/f/issue"
+                      },
+                      "loggedAt": {
+                        "path": "/recordForm/f/loggedAt"
+                      },
+                      "notes": {
+                        "path": "/recordForm/f/notes"
+                      },
+                      "owner": {
+                        "path": "/recordForm/f/owner"
+                      },
+                      "startsAt": {
+                        "path": "/recordForm/f/startsAt"
+                      },
+                      "tags": {
+                        "path": "/recordForm/f/tags"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "bindings": []
+      }
+    },
+    {
+      "name": "RecordForm: an own path and record id; the author's submit wins",
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "f"
+          ]
+        },
+        {
+          "id": "f",
+          "component": "RecordForm",
+          "kind": "deal",
+          "path": "/draft",
+          "recordId": {
+            "path": "/draft/id"
+          },
+          "on": {
+            "submit": {
+              "event": {
+                "name": "saved"
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "f"
+            ]
+          },
+          {
+            "id": "f",
+            "component": "RecordForm",
+            "kind": "deal",
+            "path": "/draft",
+            "recordId": {
+              "path": "/draft/id"
+            },
+            "on": {
+              "submit": {
+                "event": {
+                  "name": "saved"
+                }
+              }
+            },
+            "fields": [
+              {
+                "name": "title",
+                "label": "Title",
+                "widget": "text",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/draft/title"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/draft/title"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/draft/title"
+                        },
+                        "max": 160
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "amount",
+                "label": "Amount",
+                "widget": "number",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/draft/amount"
+                },
+                "min": 0,
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/draft/amount"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "numeric",
+                      "args": {
+                        "value": {
+                          "path": "/draft/amount"
+                        },
+                        "min": 0
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "close",
+                "label": "Close",
+                "widget": "date",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/draft/close"
+                }
+              },
+              {
+                "name": "company",
+                "label": "Company",
+                "widget": "text",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/draft/company"
+                },
+                "placeholder": "The company's name",
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/draft/company"
+                        },
+                        "max": 120
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "stage",
+                "label": "Stage",
+                "widget": "select",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/draft/stage"
+                },
+                "options": [
+                  {
+                    "label": "open",
+                    "value": "open"
+                  },
+                  {
+                    "label": "won",
+                    "value": "won"
+                  },
+                  {
+                    "label": "lost",
+                    "value": "lost"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "bindings": []
+      }
+    },
+    {
+      "name": "RecordForm: a read-only viewer",
+      "options": {
+        "readOnly": true
+      },
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "f"
+          ]
+        },
+        {
+          "id": "f",
+          "component": "RecordForm",
+          "kind": "deal"
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "f"
+            ]
+          },
+          {
+            "id": "f",
+            "component": "RecordForm",
+            "kind": "deal",
+            "path": "/recordForm/f",
+            "fields": [
+              {
+                "name": "title",
+                "label": "Title",
+                "widget": "text",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/title"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/title"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/title"
+                        },
+                        "max": 160
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "amount",
+                "label": "Amount",
+                "widget": "number",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/amount"
+                },
+                "min": 0,
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/amount"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "numeric",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/amount"
+                        },
+                        "min": 0
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "close",
+                "label": "Close",
+                "widget": "date",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/close"
+                }
+              },
+              {
+                "name": "company",
+                "label": "Company",
+                "widget": "text",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/company"
+                },
+                "placeholder": "The company's name",
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/recordForm/f/company"
+                        },
+                        "max": 120
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "stage",
+                "label": "Stage",
+                "widget": "select",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordForm/f/stage"
+                },
+                "options": [
+                  {
+                    "label": "open",
+                    "value": "open"
+                  },
+                  {
+                    "label": "won",
+                    "value": "won"
+                  },
+                  {
+                    "label": "lost",
+                    "value": "lost"
+                  }
+                ]
+              }
+            ],
+            "readOnly": true,
+            "on": {
+              "submit": {
+                "functionCall": {
+                  "call": "records.upsert",
+                  "args": {
+                    "kind": "deal",
+                    "data": {
+                      "title": {
+                        "path": "/recordForm/f/title"
+                      },
+                      "amount": {
+                        "path": "/recordForm/f/amount"
+                      },
+                      "close": {
+                        "path": "/recordForm/f/close"
+                      },
+                      "company": {
+                        "path": "/recordForm/f/company"
+                      },
+                      "stage": {
+                        "path": "/recordForm/f/stage"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "bindings": []
+      }
+    },
+    {
+      "name": "RecordForm: an undeclared kind = missing",
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "f"
+          ]
+        },
+        {
+          "id": "f",
+          "component": "RecordForm",
+          "kind": "nope"
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "f"
+            ]
+          },
+          {
+            "id": "f",
+            "component": "RecordForm",
+            "kind": "nope",
+            "missing": true
+          }
+        ],
+        "bindings": []
+      }
+    },
+    {
+      "name": "RecordTable: the Data tab's columns, rows binding, phone row, editor and delete wiring",
+      "bindings": [
+        {
+          "path": "/x",
+          "source": "records:deal?limit=5"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "t"
+          ]
+        },
+        {
+          "id": "t",
+          "component": "RecordTable",
+          "kind": "deal"
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "t"
+            ]
+          },
+          {
+            "id": "t",
+            "component": "RecordTable",
+            "kind": "deal",
+            "title": "Deal",
+            "cols": [
+              {
+                "key": "title",
+                "label": "Title",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "amount",
+                "label": "Amount",
+                "sortable": true,
+                "type": "number",
+                "align": "end",
+                "width": 64
+              },
+              {
+                "key": "close",
+                "label": "Close",
+                "sortable": true,
+                "type": "date",
+                "width": 104
+              },
+              {
+                "key": "company",
+                "label": "Company",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "stage",
+                "label": "Stage",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "updatedAt",
+                "label": "Updated",
+                "type": "relativeTime",
+                "width": 88,
+                "sortable": true
+              },
+              {
+                "key": "menu",
+                "label": "",
+                "type": "slot",
+                "slot": "menu",
+                "width": 80
+              }
+            ],
+            "rows": {
+              "path": "/recordTable/t/rows/rows"
+            },
+            "count": {
+              "call": "fill",
+              "args": {
+                "template": "$string.recordCount",
+                "params": {
+                  "count": {
+                    "call": "coalesce",
+                    "args": {
+                      "values": [
+                        {
+                          "path": "/recordTable/t/rows/count"
+                        },
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "loading": {
+              "call": "not",
+              "args": {
+                "value": {
+                  "path": "/recordTable/t/rows"
+                }
+              }
+            },
+            "editable": true,
+            "children": {
+              "componentId": "t__row",
+              "path": "/recordTable/t/rows/rows",
+              "key": "id"
+            },
+            "fields": [
+              {
+                "name": "title",
+                "label": "Title",
+                "widget": "text",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/recordTable/t/editor/draft/title"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/recordTable/t/editor/draft/title"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/recordTable/t/editor/draft/title"
+                        },
+                        "max": 160
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "amount",
+                "label": "Amount",
+                "widget": "number",
+                "required": true,
+                "wide": false,
+                "value": {
+                  "path": "/recordTable/t/editor/draft/amount"
+                },
+                "min": 0,
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "required",
+                      "args": {
+                        "value": {
+                          "path": "/recordTable/t/editor/draft/amount"
+                        }
+                      }
+                    },
+                    "message": "$string.required"
+                  },
+                  {
+                    "condition": {
+                      "call": "numeric",
+                      "args": {
+                        "value": {
+                          "path": "/recordTable/t/editor/draft/amount"
+                        },
+                        "min": 0
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "close",
+                "label": "Close",
+                "widget": "date",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordTable/t/editor/draft/close"
+                }
+              },
+              {
+                "name": "company",
+                "label": "Company",
+                "widget": "text",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordTable/t/editor/draft/company"
+                },
+                "placeholder": "The company's name",
+                "checks": [
+                  {
+                    "condition": {
+                      "call": "length",
+                      "args": {
+                        "value": {
+                          "path": "/recordTable/t/editor/draft/company"
+                        },
+                        "max": 120
+                      }
+                    },
+                    "message": "$string.invalidValue"
+                  }
+                ]
+              },
+              {
+                "name": "stage",
+                "label": "Stage",
+                "widget": "select",
+                "required": false,
+                "wide": false,
+                "value": {
+                  "path": "/recordTable/t/editor/draft/stage"
+                },
+                "options": [
+                  {
+                    "label": "open",
+                    "value": "open"
+                  },
+                  {
+                    "label": "won",
+                    "value": "won"
+                  },
+                  {
+                    "label": "lost",
+                    "value": "lost"
+                  }
+                ]
+              }
+            ],
+            "path": "/recordTable/t/editor/draft",
+            "editorOpen": {
+              "path": "/recordTable/t/editor/open"
+            },
+            "editorId": {
+              "path": "/recordTable/t/editor/draft/id"
+            },
+            "deleteOpen": {
+              "path": "/recordTable/t/delete/open"
+            },
+            "on": {
+              "add": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/recordTable/t/editor",
+                    "value": {
+                      "open": true,
+                      "draft": {}
+                    }
+                  }
+                }
+              },
+              "edit": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/recordTable/t/editor",
+                    "value": {
+                      "open": true,
+                      "draft": {
+                        "path": ""
+                      }
+                    }
+                  }
+                }
+              },
+              "delete": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/recordTable/t/delete",
+                    "value": {
+                      "open": true,
+                      "id": {
+                        "path": "id"
+                      }
+                    }
+                  }
+                }
+              },
+              "submit": {
+                "functionCall": {
+                  "call": "records.upsert",
+                  "args": {
+                    "kind": "deal",
+                    "id": {
+                      "path": "/recordTable/t/editor/draft/id"
+                    },
+                    "data": {
+                      "title": {
+                        "path": "/recordTable/t/editor/draft/title"
+                      },
+                      "amount": {
+                        "path": "/recordTable/t/editor/draft/amount"
+                      },
+                      "close": {
+                        "path": "/recordTable/t/editor/draft/close"
+                      },
+                      "company": {
+                        "path": "/recordTable/t/editor/draft/company"
+                      },
+                      "stage": {
+                        "path": "/recordTable/t/editor/draft/stage"
+                      }
+                    }
+                  }
+                }
+              },
+              "cancel": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/recordTable/t/editor/open",
+                    "value": false
+                  }
+                }
+              },
+              "confirm": {
+                "functionCall": {
+                  "call": "records.delete",
+                  "args": {
+                    "id": {
+                      "path": "/recordTable/t/delete/id"
+                    }
+                  }
+                }
+              },
+              "cancelDelete": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/recordTable/t/delete/open",
+                    "value": false
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "t__row",
+            "component": "Row",
+            "title": {
+              "call": "coalesce",
+              "args": {
+                "values": [
+                  {
+                    "call": "text",
+                    "args": {
+                      "value": {
+                        "path": "title"
+                      }
+                    }
+                  },
+                  "—"
+                ]
+              }
+            },
+            "subtitle": {
+              "call": "coalesce",
+              "args": {
+                "values": [
+                  {
+                    "call": "text",
+                    "args": {
+                      "value": {
+                        "path": "amount"
+                      }
+                    }
+                  },
+                  ""
+                ]
+              }
+            },
+            "meta": {
+              "call": "formatRelativeTime",
+              "args": {
+                "value": {
+                  "path": "updatedAt"
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/recordTable/t/editor",
+                    "value": {
+                      "open": true,
+                      "draft": {
+                        "path": ""
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/x",
+            "source": "records:deal?limit=5"
+          },
+          {
+            "path": "/recordTable/t/rows",
+            "source": "records:deal?sort=updatedAt&order=desc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecordTable: chosen columns and query, not editable",
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "t"
+          ]
+        },
+        {
+          "id": "t",
+          "component": "RecordTable",
+          "kind": "deal",
+          "columns": [
+            "stage",
+            "title",
+            "nope"
+          ],
+          "query": "?sort=title&order=asc",
+          "editable": false
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "t"
+            ]
+          },
+          {
+            "id": "t",
+            "component": "RecordTable",
+            "kind": "deal",
+            "columns": [
+              "stage",
+              "title",
+              "nope"
+            ],
+            "query": "?sort=title&order=asc",
+            "editable": false,
+            "title": "Deal",
+            "cols": [
+              {
+                "key": "stage",
+                "label": "Stage",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "title",
+                "label": "Title",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "updatedAt",
+                "label": "Updated",
+                "type": "relativeTime",
+                "width": 88,
+                "sortable": true
+              }
+            ],
+            "rows": {
+              "path": "/recordTable/t/rows/rows"
+            },
+            "count": {
+              "call": "fill",
+              "args": {
+                "template": "$string.recordCount",
+                "params": {
+                  "count": {
+                    "call": "coalesce",
+                    "args": {
+                      "values": [
+                        {
+                          "path": "/recordTable/t/rows/count"
+                        },
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "loading": {
+              "call": "not",
+              "args": {
+                "value": {
+                  "path": "/recordTable/t/rows"
+                }
+              }
+            },
+            "children": {
+              "componentId": "t__row",
+              "path": "/recordTable/t/rows/rows",
+              "key": "id"
+            },
+            "add": false
+          },
+          {
+            "id": "t__row",
+            "component": "Row",
+            "title": {
+              "call": "coalesce",
+              "args": {
+                "values": [
+                  {
+                    "call": "text",
+                    "args": {
+                      "value": {
+                        "path": "stage"
+                      }
+                    }
+                  },
+                  "—"
+                ]
+              }
+            },
+            "subtitle": {
+              "call": "coalesce",
+              "args": {
+                "values": [
+                  {
+                    "call": "text",
+                    "args": {
+                      "value": {
+                        "path": "title"
+                      }
+                    }
+                  },
+                  ""
+                ]
+              }
+            },
+            "meta": {
+              "call": "formatRelativeTime",
+              "args": {
+                "value": {
+                  "path": "updatedAt"
+                }
+              }
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/recordTable/t/rows",
+            "source": "records:deal?sort=title&order=asc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecordTable: a read-only viewer",
+      "options": {
+        "readOnly": true
+      },
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "t"
+          ]
+        },
+        {
+          "id": "t",
+          "component": "RecordTable",
+          "kind": "entry"
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "t"
+            ]
+          },
+          {
+            "id": "t",
+            "component": "RecordTable",
+            "kind": "entry",
+            "title": "Entry",
+            "cols": [
+              {
+                "key": "hours",
+                "label": "Hours",
+                "sortable": true,
+                "type": "number",
+                "align": "end",
+                "width": 64
+              },
+              {
+                "key": "billable",
+                "label": "Billable",
+                "sortable": true,
+                "type": "boolean",
+                "width": 56
+              },
+              {
+                "key": "days",
+                "label": "Days",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "issue",
+                "label": "Issue",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "loggedAt",
+                "label": "Logged at",
+                "sortable": true,
+                "width": 152
+              },
+              {
+                "key": "notes",
+                "label": "Notes",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "owner",
+                "label": "Owner",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "startsAt",
+                "label": "Starts at",
+                "sortable": true,
+                "width": 64
+              },
+              {
+                "key": "tags",
+                "label": "Tags",
+                "sortable": true,
+                "truncate": true
+              },
+              {
+                "key": "updatedAt",
+                "label": "Updated",
+                "type": "relativeTime",
+                "width": 88,
+                "sortable": true
+              }
+            ],
+            "rows": {
+              "path": "/recordTable/t/rows/rows"
+            },
+            "count": {
+              "call": "fill",
+              "args": {
+                "template": "$string.recordCount",
+                "params": {
+                  "count": {
+                    "call": "coalesce",
+                    "args": {
+                      "values": [
+                        {
+                          "path": "/recordTable/t/rows/count"
+                        },
+                        0
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "loading": {
+              "call": "not",
+              "args": {
+                "value": {
+                  "path": "/recordTable/t/rows"
+                }
+              }
+            },
+            "add": false,
+            "editable": false,
+            "children": {
+              "componentId": "t__row",
+              "path": "/recordTable/t/rows/rows",
+              "key": "id"
+            }
+          },
+          {
+            "id": "t__row",
+            "component": "Row",
+            "title": {
+              "call": "coalesce",
+              "args": {
+                "values": [
+                  {
+                    "call": "text",
+                    "args": {
+                      "value": {
+                        "path": "hours"
+                      }
+                    }
+                  },
+                  "—"
+                ]
+              }
+            },
+            "subtitle": {
+              "call": "coalesce",
+              "args": {
+                "values": [
+                  {
+                    "call": "text",
+                    "args": {
+                      "value": {
+                        "path": "billable"
+                      }
+                    }
+                  },
+                  ""
+                ]
+              }
+            },
+            "meta": {
+              "call": "formatRelativeTime",
+              "args": {
+                "value": {
+                  "path": "updatedAt"
+                }
+              }
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/recordTable/t/rows",
+            "source": "records:entry?sort=updatedAt&order=desc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecordTable: an undeclared kind = missing",
+      "components": [
+        {
+          "id": "root",
+          "component": "Page",
+          "title": "T",
+          "children": [
+            "t"
+          ]
+        },
+        {
+          "id": "t",
+          "component": "RecordTable",
+          "kind": "nope"
+        }
+      ],
+      "expected": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "T",
+            "children": [
+              "t"
+            ]
+          },
+          {
+            "id": "t",
+            "component": "RecordTable",
+            "kind": "nope",
+            "missing": true
+          }
+        ],
+        "bindings": []
+      }
+    }
+  ],
+  "install": [
+    {
+      "name": "clean: functions and sources allow the writes and the rows",
+      "package": {
+        "formatVersion": 3,
+        "id": "acme.deals",
+        "name": "Deals",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "deal": {
+            "title": "Deal",
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "amount"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "company": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "description": "The company's name"
+                },
+                "amount": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "won",
+                    "lost"
+                  ]
+                },
+                "close": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "T",
+                "children": [
+                  "m"
+                ]
+              },
+              {
+                "id": "m",
+                "component": "RecordTable",
+                "kind": "deal"
+              }
+            ]
+          }
+        },
+        "functions": [
+          "records.*"
+        ],
+        "sources": [
+          "records:*"
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "RecordForm without records.upsert",
+      "package": {
+        "formatVersion": 3,
+        "id": "acme.deals",
+        "name": "Deals",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "deal": {
+            "title": "Deal",
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "amount"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "company": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "description": "The company's name"
+                },
+                "amount": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "won",
+                    "lost"
+                  ]
+                },
+                "close": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "T",
+                "children": [
+                  "m"
+                ]
+              },
+              {
+                "id": "m",
+                "component": "RecordForm",
+                "kind": "deal"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/main/components/1",
+          "message": "RecordForm writes with records.upsert: list it in functions"
+        }
+      ]
+    },
+    {
+      "name": "a read-only RecordForm writes nothing",
+      "package": {
+        "formatVersion": 3,
+        "id": "acme.deals",
+        "name": "Deals",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "deal": {
+            "title": "Deal",
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "amount"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "company": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "description": "The company's name"
+                },
+                "amount": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "won",
+                    "lost"
+                  ]
+                },
+                "close": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "T",
+                "children": [
+                  "m"
+                ]
+              },
+              {
+                "id": "m",
+                "component": "RecordForm",
+                "kind": "deal",
+                "readOnly": true
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "RecordTable without records.delete and outside sources",
+      "package": {
+        "formatVersion": 3,
+        "id": "acme.deals",
+        "name": "Deals",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "deal": {
+            "title": "Deal",
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "amount"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "company": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "description": "The company's name"
+                },
+                "amount": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "won",
+                    "lost"
+                  ]
+                },
+                "close": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "T",
+                "children": [
+                  "m"
+                ]
+              },
+              {
+                "id": "m",
+                "component": "RecordTable",
+                "kind": "deal"
+              }
+            ]
+          }
+        },
+        "functions": [
+          "records.upsert"
+        ],
+        "sources": [
+          "exp:*"
+        ]
+      },
+      "issues": [
+        {
+          "path": "/templates/main/components/1",
+          "message": "RecordTable deletes with records.delete: list it in functions"
+        },
+        {
+          "path": "/templates/main/components/1",
+          "message": "RecordTable reads records:deal: list it in sources"
+        }
+      ]
+    },
+    {
+      "name": "a RecordTable that is not editable needs only its source",
+      "package": {
+        "formatVersion": 3,
+        "id": "acme.deals",
+        "name": "Deals",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "deal": {
+            "title": "Deal",
+            "schema": {
+              "type": "object",
+              "required": [
+                "title",
+                "amount"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "company": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "description": "The company's name"
+                },
+                "amount": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "won",
+                    "lost"
+                  ]
+                },
+                "close": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "main": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "T",
+                "children": [
+                  "m"
+                ]
+              },
+              {
+                "id": "m",
+                "component": "RecordTable",
+                "kind": "deal",
+                "editable": false
+              }
+            ]
+          }
+        },
+        "sources": [
+          "records:deal"
+        ]
+      },
+      "issues": []
+    }
+  ]
+}

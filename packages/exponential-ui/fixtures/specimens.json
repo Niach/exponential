@@ -11989,6 +11989,405 @@
       }
     },
     {
+      "id": "exponential-ui-record-form",
+      "component": "RecordForm",
+      "title": "RecordForm",
+      "node": {
+        "id": "specimen-record-form",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-record-form-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-record-form-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-record-form",
+                "component": "RecordForm",
+                "props": {
+                  "kind": "deal",
+                  "fields": [
+                    {
+                      "name": "title",
+                      "label": "Title",
+                      "widget": "text",
+                      "required": true,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/title"
+                      },
+                      "checks": [
+                        {
+                          "condition": {
+                            "call": "required",
+                            "args": {
+                              "value": {
+                                "path": "/recordForm/deal/title"
+                              }
+                            }
+                          },
+                          "message": "$string.required"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "amount",
+                      "label": "Amount",
+                      "widget": "number",
+                      "required": true,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/amount"
+                      },
+                      "min": 0
+                    },
+                    {
+                      "name": "stage",
+                      "label": "Stage",
+                      "widget": "select",
+                      "required": false,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/stage"
+                      },
+                      "options": [
+                        {
+                          "label": "Open",
+                          "value": "open"
+                        },
+                        {
+                          "label": "Won",
+                          "value": "won"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "close",
+                      "label": "Close",
+                      "widget": "date",
+                      "required": false,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/close"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-record-table",
+      "component": "RecordTable",
+      "title": "RecordTable",
+      "node": {
+        "id": "specimen-record-table",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-record-table-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-record-table-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-record-table",
+                "component": "RecordTable",
+                "props": {
+                  "kind": "deal",
+                  "title": "Deal",
+                  "cols": [
+                    {
+                      "key": "title",
+                      "label": "Title",
+                      "sortable": true,
+                      "truncate": true
+                    },
+                    {
+                      "key": "amount",
+                      "label": "Amount",
+                      "type": "number",
+                      "width": 64,
+                      "align": "end",
+                      "sortable": true
+                    },
+                    {
+                      "key": "updatedAt",
+                      "label": "Updated",
+                      "type": "relativeTime",
+                      "width": 88,
+                      "sortable": true
+                    },
+                    {
+                      "key": "menu",
+                      "label": "",
+                      "type": "slot",
+                      "slot": "menu",
+                      "width": 80
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "id": "d1",
+                      "title": "Acme renewal",
+                      "amount": 1200,
+                      "updatedAt": "2026-11-03T10:00:00Z"
+                    }
+                  ],
+                  "count": "1 record",
+                  "fields": [
+                    {
+                      "name": "title",
+                      "label": "Title",
+                      "widget": "text",
+                      "required": true,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/title"
+                      },
+                      "checks": [
+                        {
+                          "condition": {
+                            "call": "required",
+                            "args": {
+                              "value": {
+                                "path": "/recordForm/deal/title"
+                              }
+                            }
+                          },
+                          "message": "$string.required"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "amount",
+                      "label": "Amount",
+                      "widget": "number",
+                      "required": true,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/amount"
+                      },
+                      "min": 0
+                    },
+                    {
+                      "name": "stage",
+                      "label": "Stage",
+                      "widget": "select",
+                      "required": false,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/stage"
+                      },
+                      "options": [
+                        {
+                          "label": "Open",
+                          "value": "open"
+                        },
+                        {
+                          "label": "Won",
+                          "value": "won"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "close",
+                      "label": "Close",
+                      "widget": "date",
+                      "required": false,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/close"
+                      }
+                    }
+                  ],
+                  "path": "/recordTable/deals/editor/draft",
+                  "editorOpen": false,
+                  "deleteOpen": false
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-record-table-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-record-table-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "loading · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-record-table",
+                "component": "RecordTable",
+                "props": {
+                  "kind": "deal",
+                  "title": "Deal",
+                  "cols": [
+                    {
+                      "key": "title",
+                      "label": "Title",
+                      "sortable": true,
+                      "truncate": true
+                    },
+                    {
+                      "key": "amount",
+                      "label": "Amount",
+                      "type": "number",
+                      "width": 64,
+                      "align": "end",
+                      "sortable": true
+                    },
+                    {
+                      "key": "updatedAt",
+                      "label": "Updated",
+                      "type": "relativeTime",
+                      "width": 88,
+                      "sortable": true
+                    },
+                    {
+                      "key": "menu",
+                      "label": "",
+                      "type": "slot",
+                      "slot": "menu",
+                      "width": 80
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "id": "d1",
+                      "title": "Acme renewal",
+                      "amount": 1200,
+                      "updatedAt": "2026-11-03T10:00:00Z"
+                    }
+                  ],
+                  "count": "1 record",
+                  "fields": [
+                    {
+                      "name": "title",
+                      "label": "Title",
+                      "widget": "text",
+                      "required": true,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/title"
+                      },
+                      "checks": [
+                        {
+                          "condition": {
+                            "call": "required",
+                            "args": {
+                              "value": {
+                                "path": "/recordForm/deal/title"
+                              }
+                            }
+                          },
+                          "message": "$string.required"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "amount",
+                      "label": "Amount",
+                      "widget": "number",
+                      "required": true,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/amount"
+                      },
+                      "min": 0
+                    },
+                    {
+                      "name": "stage",
+                      "label": "Stage",
+                      "widget": "select",
+                      "required": false,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/stage"
+                      },
+                      "options": [
+                        {
+                          "label": "Open",
+                          "value": "open"
+                        },
+                        {
+                          "label": "Won",
+                          "value": "won"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "close",
+                      "label": "Close",
+                      "widget": "date",
+                      "required": false,
+                      "wide": false,
+                      "value": {
+                        "path": "/recordForm/deal/close"
+                      }
+                    }
+                  ],
+                  "path": "/recordTable/deals/editor/draft",
+                  "editorOpen": false,
+                  "deleteOpen": false,
+                  "loading": true
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-demo",
       "component": null,
       "title": "Demo",

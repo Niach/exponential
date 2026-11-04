@@ -2723,6 +2723,269 @@
       "example": {
         "rowTitle": "Workstream"
       }
+    },
+    "RecordForm": {
+      "props": {
+        "kind": {
+          "description": "The package's record kind."
+        },
+        "recordId": {
+          "description": "The record to update; none = a new record."
+        },
+        "submitLabel": {
+          "description": "The submit label."
+        },
+        "readOnly": {
+          "description": "Shows the fields inert, no submit."
+        },
+        "cancel": {
+          "description": "An outline Cancel firing `cancel`."
+        },
+        "path": {
+          "description": "The draft's data path (default /recordForm/<id>); seed it to edit."
+        },
+        "fields": {
+          "description": "Filled by the host."
+        },
+        "missing": {
+          "description": "Filled by the host."
+        }
+      },
+      "description": "A form over one record kind: a field per schema field with its checks; submit saves the record.",
+      "example": {
+        "kind": "deal",
+        "fields": [
+          {
+            "name": "title",
+            "label": "Title",
+            "widget": "text",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/title"
+            },
+            "checks": [
+              {
+                "condition": {
+                  "call": "required",
+                  "args": {
+                    "value": {
+                      "path": "/recordForm/deal/title"
+                    }
+                  }
+                },
+                "message": "$string.required"
+              }
+            ]
+          },
+          {
+            "name": "amount",
+            "label": "Amount",
+            "widget": "number",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/amount"
+            },
+            "min": 0
+          },
+          {
+            "name": "stage",
+            "label": "Stage",
+            "widget": "select",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/stage"
+            },
+            "options": [
+              {
+                "label": "Open",
+                "value": "open"
+              },
+              {
+                "label": "Won",
+                "value": "won"
+              }
+            ]
+          },
+          {
+            "name": "close",
+            "label": "Close",
+            "widget": "date",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/close"
+            }
+          }
+        ]
+      }
+    },
+    "RecordTable": {
+      "props": {
+        "kind": {
+          "description": "The package's record kind."
+        },
+        "query": {
+          "description": "The records query (`sort=name&order=asc`, `query=<name>`); default newest first."
+        },
+        "columns": {
+          "description": "The fields shown, in order; default every schema field."
+        },
+        "add": {
+          "description": "Shows the Add button."
+        },
+        "editable": {
+          "description": "Rows open the form; Edit and Delete show."
+        },
+        "title": {
+          "description": "Filled by the host."
+        },
+        "cols": {
+          "description": "Filled by the host."
+        },
+        "rows": {
+          "description": "Filled by the host."
+        },
+        "count": {
+          "description": "Filled by the host."
+        },
+        "loading": {
+          "description": "Filled by the host."
+        },
+        "fields": {
+          "description": "Filled by the host."
+        },
+        "path": {
+          "description": "Filled by the host."
+        },
+        "editorOpen": {
+          "description": "Filled by the host."
+        },
+        "editorId": {
+          "description": "Filled by the host."
+        },
+        "deleteOpen": {
+          "description": "Filled by the host."
+        },
+        "missing": {
+          "description": "Filled by the host."
+        }
+      },
+      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "example": {
+        "kind": "deal",
+        "title": "Deal",
+        "cols": [
+          {
+            "key": "title",
+            "label": "Title",
+            "sortable": true,
+            "truncate": true
+          },
+          {
+            "key": "amount",
+            "label": "Amount",
+            "type": "number",
+            "width": 64,
+            "align": "end",
+            "sortable": true
+          },
+          {
+            "key": "updatedAt",
+            "label": "Updated",
+            "type": "relativeTime",
+            "width": 88,
+            "sortable": true
+          },
+          {
+            "key": "menu",
+            "label": "",
+            "type": "slot",
+            "slot": "menu",
+            "width": 80
+          }
+        ],
+        "rows": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "amount": 1200,
+            "updatedAt": "2026-11-03T10:00:00Z"
+          }
+        ],
+        "count": "1 record",
+        "fields": [
+          {
+            "name": "title",
+            "label": "Title",
+            "widget": "text",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/title"
+            },
+            "checks": [
+              {
+                "condition": {
+                  "call": "required",
+                  "args": {
+                    "value": {
+                      "path": "/recordForm/deal/title"
+                    }
+                  }
+                },
+                "message": "$string.required"
+              }
+            ]
+          },
+          {
+            "name": "amount",
+            "label": "Amount",
+            "widget": "number",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/amount"
+            },
+            "min": 0
+          },
+          {
+            "name": "stage",
+            "label": "Stage",
+            "widget": "select",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/stage"
+            },
+            "options": [
+              {
+                "label": "Open",
+                "value": "open"
+              },
+              {
+                "label": "Won",
+                "value": "won"
+              }
+            ]
+          },
+          {
+            "name": "close",
+            "label": "Close",
+            "widget": "date",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/close"
+            }
+          }
+        ],
+        "path": "/recordTable/deals/editor/draft",
+        "editorOpen": false,
+        "deleteOpen": false
+      }
     }
   },
   "defs": {

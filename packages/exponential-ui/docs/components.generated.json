@@ -7493,6 +7493,442 @@
         "rowTitle": "Workstream"
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Timeline/<part>."
+    },
+    {
+      "name": "RecordForm",
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "specimenId": "exponential-ui-record-form",
+      "description": "A form over one record kind: a field per schema field with its checks; submit saves the record.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "submit",
+        "cancel"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "kind",
+          "type": "string",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "The package's record kind."
+        },
+        {
+          "name": "recordId",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The record to update; none = a new record."
+        },
+        {
+          "name": "submitLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.save",
+          "description": "The submit label."
+        },
+        {
+          "name": "readOnly",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Shows the fields inert, no submit."
+        },
+        {
+          "name": "cancel",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "An outline Cancel firing `cancel`."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The draft's data path (default /recordForm/<id>); seed it to edit."
+        },
+        {
+          "name": "fields",
+          "type": "[object]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "missing",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Filled by the host."
+        }
+      ],
+      "accessibility": {
+        "role": "form",
+        "notes": "form: the expanded Form, one labelled field per schema field",
+        "keys": [
+          "Enter in a single-line field: submit",
+          "A failed submit focuses the first invalid field and announces `invalidFields`"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "RecordForm",
+        "kind": "deal",
+        "fields": [
+          {
+            "name": "title",
+            "label": "Title",
+            "widget": "text",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/title"
+            },
+            "checks": [
+              {
+                "condition": {
+                  "call": "required",
+                  "args": {
+                    "value": {
+                      "path": "/recordForm/deal/title"
+                    }
+                  }
+                },
+                "message": "$string.required"
+              }
+            ]
+          },
+          {
+            "name": "amount",
+            "label": "Amount",
+            "widget": "number",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/amount"
+            },
+            "min": 0
+          },
+          {
+            "name": "stage",
+            "label": "Stage",
+            "widget": "select",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/stage"
+            },
+            "options": [
+              {
+                "label": "Open",
+                "value": "open"
+              },
+              {
+                "label": "Won",
+                "value": "won"
+              }
+            ]
+          },
+          {
+            "name": "close",
+            "label": "Close",
+            "widget": "date",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/close"
+            }
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe RecordForm/<part>."
+    },
+    {
+      "name": "RecordTable",
+      "kind": "macro",
+      "group": "data",
+      "lite": false,
+      "specimenId": "exponential-ui-record-table",
+      "description": "The records of one kind: count + Add, a sortable table (phones: a list), edit in a drawer, delete with a confirm.",
+      "children": "none",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "kind",
+          "type": "string",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "The package's record kind."
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The records query (`sort=name&order=asc`, `query=<name>`); default newest first."
+        },
+        {
+          "name": "columns",
+          "type": "[string]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The fields shown, in order; default every schema field."
+        },
+        {
+          "name": "add",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": true,
+          "description": "Shows the Add button."
+        },
+        {
+          "name": "editable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": true,
+          "description": "Rows open the form; Edit and Delete show."
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "cols",
+          "type": "[column]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "rows",
+          "type": "[object]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "count",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "loading",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "fields",
+          "type": "[object]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "editorOpen",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "editorId",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "deleteOpen",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Filled by the host."
+        },
+        {
+          "name": "missing",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Filled by the host."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "group: the toolbar, the expanded Table (phones: the List), the editor drawer and the delete confirm (alertdialog)",
+        "keys": [
+          "Tab moves through Add, the headers and each row's Edit and Delete",
+          "Escape closes the drawer or the confirm"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "RecordTable",
+        "kind": "deal",
+        "title": "Deal",
+        "cols": [
+          {
+            "key": "title",
+            "label": "Title",
+            "sortable": true,
+            "truncate": true
+          },
+          {
+            "key": "amount",
+            "label": "Amount",
+            "type": "number",
+            "width": 64,
+            "align": "end",
+            "sortable": true
+          },
+          {
+            "key": "updatedAt",
+            "label": "Updated",
+            "type": "relativeTime",
+            "width": 88,
+            "sortable": true
+          },
+          {
+            "key": "menu",
+            "label": "",
+            "type": "slot",
+            "slot": "menu",
+            "width": 80
+          }
+        ],
+        "rows": [
+          {
+            "id": "d1",
+            "title": "Acme renewal",
+            "amount": 1200,
+            "updatedAt": "2026-11-03T10:00:00Z"
+          }
+        ],
+        "count": "1 record",
+        "fields": [
+          {
+            "name": "title",
+            "label": "Title",
+            "widget": "text",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/title"
+            },
+            "checks": [
+              {
+                "condition": {
+                  "call": "required",
+                  "args": {
+                    "value": {
+                      "path": "/recordForm/deal/title"
+                    }
+                  }
+                },
+                "message": "$string.required"
+              }
+            ]
+          },
+          {
+            "name": "amount",
+            "label": "Amount",
+            "widget": "number",
+            "required": true,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/amount"
+            },
+            "min": 0
+          },
+          {
+            "name": "stage",
+            "label": "Stage",
+            "widget": "select",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/stage"
+            },
+            "options": [
+              {
+                "label": "Open",
+                "value": "open"
+              },
+              {
+                "label": "Won",
+                "value": "won"
+              }
+            ]
+          },
+          {
+            "name": "close",
+            "label": "Close",
+            "widget": "date",
+            "required": false,
+            "wide": false,
+            "value": {
+              "path": "/recordForm/deal/close"
+            }
+          }
+        ],
+        "path": "/recordTable/deals/editor/draft",
+        "editorOpen": false,
+        "deleteOpen": false
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe RecordTable/<part>."
     }
   ]
 }

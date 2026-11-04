@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-app-record-macros`,
+    date: `2026-11-04`,
+    title: `Record forms and tables in apps`,
+    summary: `An app can show a kind's records as a sortable table and its add/edit form from one building block each.`,
+    body: `- **Record table**: the records of one kind with a count, Add, sortable typed columns and Edit and Delete per row; phones show the same records as a list.
+- **Record form**: one field per field of the kind, checked as you type; saving adds or updates the record.
+- **CRM template**: the Contacts screen uses the record table.`,
+  },
+  {
     id: `2026-11-04-plan-is-a-tab`,
     date: `2026-11-04`,
     title: `The plan is a tab`,

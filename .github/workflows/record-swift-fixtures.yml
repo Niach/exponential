@@ -1,0 +1,53 @@
+name: record-swift-fixtures
+
+# VAPP-217: the Swift painter's component snapshot
+# (`Tests/ExponentialUITests/__Snapshots__/components.json`) is a layout dump
+# that must be recorded where CI verifies it (the Mac runner). This re-records
+# it (`EXPONENTIAL_UI_RECORD=1 swift test --filter SnapshotTests`) and uploads
+# the `swift-fixtures` artifact to commit by hand: the twin of
+# record-compose-fixtures.yml (`workflow_dispatch`, or a push editing this file).
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/record-swift-fixtures.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
+  record:
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disk guard (self-hosted Mac, EXP-1396)
+        if: runner.environment == 'self-hosted'
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
+      - name: Select Xcode 27
+        run: bash .github/scripts/select-xcode.sh
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Build the xcframework (macOS slice)
+        env:
+          EXPONENTIAL_UI_APPLE_TARGETS: aarch64-apple-darwin
+        run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      - name: Re-record the Swift component snapshot
+        working-directory: packages/exponential-ui-swift
+        env:
+          EXPONENTIAL_UI_RECORD: '1'
+        run: swift test --filter SnapshotTests ${EXP_SWIFTPM_CACHE:+--cache-path "$EXP_SWIFTPM_CACHE"}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift-fixtures
+          path: packages/exponential-ui-swift/Tests/ExponentialUITests/__Snapshots__/components.json
+          retention-days: 7

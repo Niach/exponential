@@ -745,6 +745,22 @@
       "keys": [
         "Tab through the bars; Enter, Space: open"
       ]
+    },
+    "RecordForm": {
+      "role": "form",
+      "notes": "form: the expanded Form, one labelled field per schema field",
+      "keys": [
+        "Enter in a single-line field: submit",
+        "A failed submit focuses the first invalid field and announces `invalidFields`"
+      ]
+    },
+    "RecordTable": {
+      "role": "group",
+      "notes": "group: the toolbar, the expanded Table (phones: the List), the editor drawer and the delete confirm (alertdialog)",
+      "keys": [
+        "Tab moves through Add, the headers and each row's Edit and Delete",
+        "Escape closes the drawer or the confirm"
+      ]
     }
   }
 }

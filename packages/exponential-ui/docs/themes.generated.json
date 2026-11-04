@@ -3786,6 +3786,49 @@
         "contL",
         "contR"
       ]
+    },
+    {
+      "name": "RecordForm",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "unknown",
+        "fields",
+        "field",
+        "text",
+        "textarea",
+        "number",
+        "switch",
+        "select",
+        "date",
+        "time",
+        "chips",
+        "actions"
+      ],
+      "props": []
+    },
+    {
+      "name": "RecordTable",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "unknown",
+        "toolbar",
+        "count",
+        "add",
+        "loading",
+        "table",
+        "menu",
+        "edit",
+        "delete",
+        "list",
+        "editor",
+        "form",
+        "confirm",
+        "confirmForm",
+        "confirmActions"
+      ],
+      "props": []
     }
   ]
 }

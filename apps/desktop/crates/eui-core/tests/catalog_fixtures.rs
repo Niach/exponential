@@ -96,7 +96,7 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 615, "EXP-1674: + Button/href, Row/href; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic, Carousel counter; EXP-1548: + Table/wide; EXP-1586: + ZoomableImage; EXP-1604: + Motion; + Switch/size");
+    assert_eq!(cases.len(), 635, "VAPP-217: + RecordForm, RecordTable; EXP-1674: + Button/href, Row/href; VAPP-232: + Calendar, Timeline; EXP-1280: + ChoiceTiles; N-12: + DockCard; VAPP-126: + the six layout macros; NEW-77: + VoiceWave; VAPP-162: + the round-5 five; EXP-1495: + Outline, Mosaic, Carousel counter; EXP-1548: + Table/wide; EXP-1586: + ZoomableImage; EXP-1604: + Motion; + Switch/size");
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
     let mut names = component_names(false);
@@ -334,8 +334,13 @@ fn kitchen_sink_uses_every_visible_component_at_least_once() {
     // VAPP-232: Calendar and Timeline read a records calendar view (a data
     // model the kitchen sink has not); they join it with the next web baseline
     // rewrite (a browser run). template-items.json `macro-template-*` locks them.
+    // VAPP-217: a macro the HOST fills (props marked `host`) paints only once
+    // filled; its catalog specimen shows it and it expands into natives the
+    // sink already has.
+    let catalog = fixture("../catalog/core.catalog.json");
+    let host_filled = |name: &str| catalog["components"][name]["props"].as_object().is_some_and(|p| p.values().any(|s| s["host"] == json!(true)));
     for name in component_names(false) {
-        assert!(seen.contains(&name) || name == "Calendar" || name == "Timeline", "{name}");
+        assert!(seen.contains(&name) || name == "Calendar" || name == "Timeline" || host_filled(&name), "{name}");
     }
 }
 
