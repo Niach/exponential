@@ -26,3 +26,5 @@
 - Teams können ein eigenes Bild haben
 - Der Plan einer Sitzung öffnet sich als eigener Tab
 - Apps können Einträge als Formulare, Tabellen, Kalender und Zeitleisten zeigen
+- Bilder, Links und Text aus anderen Apps in einen Chat oder an einen Agenten teilen
+- Links in Chats und Karten öffnen den richtigen Bildschirm in der App

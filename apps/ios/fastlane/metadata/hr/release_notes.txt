@@ -26,3 +26,5 @@
 - Timovi mogu imati vlastitu sliku
 - Plan sesije otvara se na vlastitoj kartici
 - Aplikacije prikazuju zapise kao obrasce, tablice, kalendare i vremenske crte
+- Dijelite slike, poveznice i tekst iz drugih aplikacija u razgovor ili agentu
+- Poveznice u razgovorima i karticama otvaraju pravi zaslon u aplikaciji

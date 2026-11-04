@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.0 (2026-11-04)
+
 - **Breaking** (through `eui-core`) #EXP-1674: `validate_package_json` requires `formatVersion: 4`; `decide_url_json` reads `linkBase`.
 
 ## 0.14.0 (2026-11-04)

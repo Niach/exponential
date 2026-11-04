@@ -26,3 +26,5 @@
 - A csapatoknak saját képük lehet
 - A munkamenet terve saját lapon nyílik meg
 - Az appok űrlapként, táblázatként, naptárként és idővonalként mutatják a rekordokat
+- Képek, linkek és szöveg megosztása más appokból csevegésbe vagy ügynöknek
+- A csevegések és kártyák linkjei a megfelelő képernyőt nyitják meg az appban

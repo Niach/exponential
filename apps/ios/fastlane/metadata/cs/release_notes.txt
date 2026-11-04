@@ -26,3 +26,5 @@
 - Týmy mohou mít vlastní obrázek
 - Plán relace se otevírá na vlastní kartě
 - Aplikace mohou zobrazit záznamy jako formuláře, tabulky, kalendáře a časové osy
+- Sdílejte obrázky, odkazy a text z jiných aplikací do chatu nebo agentovi
+- Odkazy v chatech a kartách otevírají správnou obrazovku v aplikaci

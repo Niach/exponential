@@ -26,3 +26,5 @@
 - Les équipes peuvent avoir leur propre image
 - Le plan d'une session s'ouvre dans son propre onglet
 - Les apps affichent les éléments en formulaires, tableaux, calendriers et frises
+- Partagez images, liens et texte d'autres apps dans une discussion ou vers un agent
+- Les liens des discussions et cartes ouvrent le bon écran dans l'app

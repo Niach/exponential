@@ -26,3 +26,5 @@
 - Teams can have their own image
 - A session's plan opens as its own tab
 - Apps can show records as forms, tables, calendars and timelines
+- Share images, links and text from other apps into a chat or to an agent
+- Links in chats and cards open the right screen in the app

@@ -26,3 +26,5 @@
 - Zespoły mogą mieć własny obraz
 - Plan sesji otwiera się na własnej karcie
 - Aplikacje pokazują rekordy jako formularze, tabele, kalendarze i osie czasu
+- Udostępniaj obrazy, linki i tekst z innych aplikacji do czatu lub agentowi
+- Linki w czatach i kartach otwierają właściwy ekran w aplikacji

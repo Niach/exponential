@@ -26,3 +26,5 @@
 - Team kan ha en egen bild
 - En sessions plan öppnas i en egen flik
 - Appar visar poster som formulär, tabeller, kalendrar och tidslinjer
+- Dela bilder, länkar och text från andra appar till en chatt eller en agent
+- Länkar i chattar och kort öppnar rätt skärm i appen

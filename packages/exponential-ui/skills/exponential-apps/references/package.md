@@ -1,6 +1,6 @@
 # The package and its versions
 
-> Generated from packages/exponential-ui/docs/package-format.md (Versions, The package, The package file) and docs/spec/apps.md §2.3 (eUI 0.14.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Versions, The package, The package file) and docs/spec/apps.md §2.3 (eUI 0.15.0) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Versions
 

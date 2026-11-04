@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.0 (2026-11-04)
+
+- No changes of its own; released with the SDK (format 4 and in-app links landed in the core).
+
 ## 0.14.0 (2026-11-04)
 
 - Repeating animations share one 30 fps redraw grid instead of each scheduling its own frames (#1874).
