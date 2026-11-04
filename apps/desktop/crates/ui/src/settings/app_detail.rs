@@ -125,6 +125,8 @@ pub struct AppDetailPane {
     /// memory only, never refetched, gone with the pane or another app.
     hook_busy: Option<String>,
     hook_secrets: std::collections::HashMap<String, String>,
+    /// VAPP-241: the public link being written (every switch waits).
+    share_busy: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -166,6 +168,7 @@ impl AppDetailPane {
             connect_generation: 0,
             hook_busy: None,
             hook_secrets: std::collections::HashMap::new(),
+            share_busy: None,
             _subscriptions: subscriptions,
         }
     }
@@ -437,6 +440,43 @@ impl AppDetailPane {
                         this.hook_secrets.insert(out.name, out.secret);
                     }
                     Err(err) => crate::action_error::failed_action_err(verb, "the secret", &err, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// VAPP-241: `appAccess.setShareLink` (owners; `action` = `enable` |
+    /// `rotate` | `revoke`), then the rows re-read (the state and URL are the
+    /// server's); a failure = the failed-action toast.
+    pub(crate) fn set_share(&mut self, name: String, action: &'static str, cx: &mut gpui::Context<Self>) {
+        let Some((app_id, _)) = self.mcp_for.clone() else { return };
+        if self.share_busy.is_some() {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the link", None, cx);
+            return;
+        };
+        self.share_busy = Some(name.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let for_app = app_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::app_access::set_share_link(&trpc, &app_id, &name, action)
+                        .and_then(|()| api::app_access::app_tools(&trpc, &app_id))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.share_busy = None;
+                match result {
+                    // Another app on show by now: drop the answer.
+                    Ok(_) if this.mcp_for.as_ref().map(|(id, _)| id) != Some(&for_app) => {}
+                    Ok(data) => this.mcp = Some(data),
+                    Err(err) => crate::action_error::failed_action_err("save", "the link", &err, cx),
                 }
                 cx.notify();
             });
@@ -756,7 +796,9 @@ impl Render for AppDetailPane {
             // VAPP-183: Accounts + MCP tools, each hidden when empty.
             .when_some(self.mcp.clone(), |body, data| {
                 let busy = self.mcp_busy.clone();
-                body.children(super::app_mcp::accounts_group(&data, busy.as_deref(), cx))
+                // VAPP-241: the published package's public links first (the web's order).
+                body.children(super::app_mcp::shares_group(&data, self.share_busy.as_deref(), cx))
+                    .children(super::app_mcp::accounts_group(&data, busy.as_deref(), cx))
                     .children(super::app_mcp::tools_group(&data, busy.as_deref(), cx))
                     // #VAPP-220: the published package's automations, read-only.
                     .children(super::app_mcp::automations_group(&data, cx))

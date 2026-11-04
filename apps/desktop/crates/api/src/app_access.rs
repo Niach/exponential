@@ -6,9 +6,12 @@
 //!   title, access, via, enabled}], upstreams:[{name, serverId|null,
 //!   auth|null, state|null}], automations:[{name, on, tool, paused|null,
 //!   lastRunAt, lastStatus|null, lastError, lastFailureAt}], hooks:[{name,
-//!   url, hasSecret, rotatedAt|null}]}` (#VAPP-220, #VAPP-238);
+//!   url, hasSecret, rotatedAt|null}], shares:[{name, mode, kind, state,
+//!   url|null, expiresAt|null}]}` (#VAPP-220, #VAPP-238, VAPP-241);
 //! - #VAPP-238: `rotateHook {appId, name}` (mutation, owners) → `{name,
 //!   url, secret}` (the secret is shown once, never refetched);
+//! - VAPP-241: `setShareLink {appId, name, action: enable|rotate|revoke}`
+//!   (mutation, owners) → `{ok: true}`;
 //! - `setToolEnabled {appId, tool, enabled}` (mutation, owners) →
 //!   `{ok: true}`;
 //! - VAPP-185 (Settings › MCP › Access): `list {teamId}` (query) →
@@ -105,6 +108,30 @@ pub struct AppHook {
     pub rotated_at: Option<String>,
 }
 
+/// VAPP-241: one public link of the PUBLISHED package
+/// (`apps/web/src/lib/apps/share-links.ts` `ShareRow`). `mode` and `state`
+/// stay raw wire strings (read with `domain::app_share::{ShareMode,
+/// ShareLinkState}::parse`) so a newer value never fails the response.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppShare {
+    pub name: String,
+    /// `submit` | `view`.
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub kind: String,
+    /// `off` | `on` | `expired` | `orphaned`.
+    #[serde(default)]
+    pub state: String,
+    /// Owners only, while the link has a live token.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// The expiry day (`YYYY-MM-DD`).
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppToolsOut {
@@ -121,6 +148,9 @@ pub struct AppToolsOut {
     /// #VAPP-238 (absent on an older server), in package order.
     #[serde(default)]
     pub hooks: Vec<AppHook>,
+    /// VAPP-241 (absent on an older server), in package order.
+    #[serde(default)]
+    pub shares: Vec<AppShare>,
 }
 
 /// `appAccess.appTools` — query.
@@ -152,6 +182,26 @@ pub fn rotate_hook(trpc: &TrpcClient, app_id: &str, name: &str) -> Result<Rotate
         name: &'a str,
     }
     trpc.mutation("appAccess.rotateHook", &Input { app_id, name })
+}
+
+/// VAPP-241: `appAccess.setShareLink` — mutation (owners; the server
+/// checks). `action` = `enable` | `rotate` | `revoke`.
+pub fn set_share_link(trpc: &TrpcClient, app_id: &str, name: &str, action: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+        name: &'a str,
+        action: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Ok {
+        #[serde(default)]
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok = trpc.mutation("appAccess.setShareLink", &Input { app_id, name, action })?;
+    Ok(())
 }
 
 /// eApps R3: the caller's own level for an app (`appAccess.mine`).
@@ -338,6 +388,29 @@ mod tests {
         assert_eq!(out.hooks[1].rotated_at, None);
         let old: AppToolsOut = serde_json::from_str(r#"{"canToggle":false,"tools":[],"upstreams":[]}"#).unwrap();
         assert!(old.hooks.is_empty());
+    }
+
+    #[test]
+    fn app_tools_decodes_shares() {
+        let out: AppToolsOut = serde_json::from_str(
+            r#"{"canToggle":true,"tools":[],"upstreams":[],"automations":[],"hooks":[],"shares":[{"name":"signup","mode":"submit","kind":"lead","state":"on","url":"https://x.at/s/tok","expiresAt":"2026-12-01"},{"name":"old","mode":"submit","kind":"","state":"off","url":null,"expiresAt":null}]}"#,
+        )
+        .unwrap();
+        assert_eq!(out.shares.len(), 2);
+        assert_eq!(out.shares[0].url.as_deref(), Some("https://x.at/s/tok"));
+        assert_eq!(out.shares[0].expires_at.as_deref(), Some("2026-12-01"));
+        assert_eq!(out.shares[1].url, None);
+        let old: AppToolsOut = serde_json::from_str(r#"{"canToggle":false,"tools":[],"upstreams":[]}"#).unwrap();
+        assert!(old.shares.is_empty());
+    }
+
+    #[test]
+    fn set_share_link_posts_the_action() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set_share_link(&client(&base), "a-1", "signup", "rotate").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains("POST /api/trpc/appAccess.setShareLink"), "mutation: {request}");
+        assert!(request.contains(r#""appId":"a-1""#) && request.contains(r#""name":"signup""#) && request.contains(r#""action":"rotate""#), "{request}");
     }
 
     #[test]

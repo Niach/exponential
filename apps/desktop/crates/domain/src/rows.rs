@@ -1419,6 +1419,10 @@ pub struct AppRecordRow {
     /// Data tab's By cell reads `… · via <app>`.
     #[serde(default)]
     pub via_app_id: Option<String>,
+    /// VAPP-241: the public link that created it (app-share.json): the By
+    /// cell reads Guest. `None` on every other record.
+    #[serde(default)]
+    pub share_name: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

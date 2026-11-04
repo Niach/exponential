@@ -873,6 +873,9 @@ data class AppRecordEntity(
     // #VAPP-229 (via-app.json): the app whose tool created it (set on create
     // only; the Data tab's By cell reads "via <app>").
     @ColumnInfo(name = "via_app_id") @SerialName("via_app_id") @JsonNames("viaAppId") val viaAppId: String? = null,
+    // #VAPP-241 (app-share.json): the public link a guest created it through
+    // (a By cell reads Guest; phones have no By cell).
+    @ColumnInfo(name = "share_name") @SerialName("share_name") @JsonNames("shareName") val shareName: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

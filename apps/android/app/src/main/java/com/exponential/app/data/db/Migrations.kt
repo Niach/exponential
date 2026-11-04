@@ -225,3 +225,18 @@ val MIGRATION_116_117: Migration = object : Migration(116, 117) {
         )
     }
 }
+
+/**
+ * v118 (#VAPP-241): `app_records.share_name`, the public link a guest's record
+ * came through (app-share.json). Only the app_records shape refetches, so
+ * synced rows re-arrive carrying it.
+ */
+val MIGRATION_117_118: Migration = object : Migration(117, 118) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `app_records` ADD COLUMN `share_name` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'app_records'",
+        )
+    }
+}

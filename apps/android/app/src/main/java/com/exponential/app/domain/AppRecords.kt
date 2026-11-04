@@ -472,6 +472,7 @@ object AppRecords {
         val patch: Map<String, JsonValue>?,
         val actor: String? = null,
         val createdAt: String = "",
+        val via: String? = null,
     )
 
     /** The write that undoes an event: a delete ([data] null) or a restore of [data]. */
@@ -520,13 +521,14 @@ object AppRecords {
     data class HistoryRow(val id: String, val label: String, val who: String, val at: String, val restorable: Boolean)
 
     /** The History list (`rowsCases`): the events in the server's order
-     *  (newest first); Restore on every row but the newest, never on a delete. */
+     *  (newest first); Restore on every row but the newest, never on a delete.
+     *  VAPP-241: a `share:` via reads Guest as its actor (app-share.json `historyCases`). */
     fun historyRows(events: List<RecordEvent>, names: Map<String, String>, fallback: String): List<HistoryRow> =
         events.mapIndexed { i, event ->
             HistoryRow(
                 id = event.id,
                 label = eventLabel(event),
-                who = event.actor?.let { names[it] } ?: fallback,
+                who = if (isShareVia(event.via)) AppShare.Copy.GUEST else event.actor?.let { names[it] } ?: fallback,
                 at = event.createdAt,
                 restorable = i > 0 && event.op != "delete",
             )

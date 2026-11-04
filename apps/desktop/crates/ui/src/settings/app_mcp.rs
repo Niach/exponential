@@ -9,13 +9,14 @@
 use gpui::{div, FontWeight, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::{
     button::Button,
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
 use api::app_access::{AppToolsOut, AppUpstream};
 
 use super::app_detail::AppDetailPane;
-use crate::controls::WebControl as _;
+use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
+use crate::icons::registry;
 
 pub(crate) struct AppMcpCopy {
     pub accounts: &'static str,
@@ -260,6 +261,77 @@ pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDe
     )
 }
 
+/// VAPP-241 (app-share.json SETTINGS, `rowCases`): the Public links group
+/// (`app-settings-share-links`), `None` when the published package declares
+/// no shares. Everyone reads it: one row per share = the name over its
+/// subtitle; an owner's Switch (on = enable, off = revoke) and, while on, the
+/// `…` menu Copy link / New link.
+pub(crate) fn shares_group(
+    data: &AppToolsOut,
+    busy: Option<&str>,
+    cx: &mut gpui::Context<AppDetailPane>,
+) -> Option<gpui::Stateful<gpui::Div>> {
+    use domain::app_share::{share_row_subtitle, share_switch_on, ShareLinkState, ShareMode, APP_SHARE};
+    use gpui::InteractiveElement as _;
+    if data.shares.is_empty() {
+        return None;
+    }
+    let muted = cx.theme().muted_foreground;
+    let view = cx.entity().downgrade();
+    let mut rows = Vec::new();
+    for share in &data.shares {
+        // A newer server's value reads as a link that is not on.
+        let state = ShareLinkState::parse(&share.state).unwrap_or(ShareLinkState::Off);
+        let mode = ShareMode::parse(&share.mode).unwrap_or(ShareMode::Submit);
+        let on = state == ShareLinkState::On;
+        let mut row = crate::surface::glass_row_shell().justify_between().gap_3().child(
+            v_flex()
+                .id(SharedString::from(format!("{}-{}", APP_SHARE.test_ids.share_row, share.name)))
+                .flex_1()
+                .min_w_0()
+                .child(div().text_sm().truncate().child(share.name.clone()))
+                .child(div().text_xs().text_color(muted).truncate().child(share_row_subtitle(mode, state, share.expires_at.as_deref()))),
+        );
+        if let Some(url) = share.url.clone().filter(|_| data.can_toggle && on) {
+            let (name, view) = (share.name.clone(), view.clone());
+            row = row.child(
+                crate::controls::ghost_icon_button(SharedString::from(format!("app-share-menu-{}", share.name)), Icon::new(registry::UI_MORE), cx)
+                    .disabled(busy.is_some())
+                    .pointer_menu(move |menu, _, _| {
+                        let (url, name, view) = (url.clone(), name.clone(), view.clone());
+                        menu.item(crate::controls::pointer_label_item(APP_SHARE.copy.copy_link.clone(), false).on_click(move |_, window, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
+                            crate::toast::show(crate::toast::Toast::success(domain::apps::APPS.copy.webhooks.copied.clone()), window, cx);
+                        }))
+                        .item(crate::controls::pointer_label_item(APP_SHARE.copy.new_link.clone(), false).on_click(move |_, _, cx| {
+                            let name = name.clone();
+                            let _ = view.update(cx, |this, cx| this.set_share(name, "rotate", cx));
+                        }))
+                    }),
+            );
+        }
+        if data.can_toggle {
+            let name = share.name.clone();
+            row = row.child(
+                crate::controls::web_switch(SharedString::from(format!("app-share-switch-{}", share.name)))
+                    .checked(share_switch_on(state))
+                    .disabled(busy.is_some())
+                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                        this.set_share(name.clone(), if *checked { "enable" } else { "revoke" }, cx)
+                    })),
+            );
+        }
+        rows.push(row);
+    }
+    Some(
+        v_flex()
+            .id(SharedString::from(APP_SHARE.test_ids.share_links.clone()))
+            .gap_1()
+            .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(APP_SHARE.copy.title.clone()))
+            .child(crate::surface::glass_group_rows(rows)),
+    )
+}
+
 /// The copy pill of a URL or secret (Settings › MCP's endpoint row: the
 /// clipboard, then the success toast).
 fn copy_pill(id: SharedString, label: String, text: String, copied: String) -> Button {
@@ -424,7 +496,7 @@ mod tests {
     #[test]
     fn a_switch_flips_one_tool() {
         let tool = |name: &str| AppTool { name: name.into(), title: name.into(), access: "read".into(), via: None, enabled: true };
-        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![], automations: vec![], hooks: vec![] };
+        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![], automations: vec![], hooks: vec![], shares: vec![] };
         let next = with_tool_enabled(&data, "b", false);
         assert!(next.tools[0].enabled);
         assert!(!next.tools[1].enabled);

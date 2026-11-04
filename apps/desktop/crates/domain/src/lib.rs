@@ -115,6 +115,8 @@ pub mod app_export;
 pub mod app_templates;
 // VAPP-122: app records (the `records:<kind>` query + value), fixture-locked ×4.
 pub mod app_records;
+// VAPP-241: an app's public links (states, caps, Guest, the Settings row), fixture-locked ×4.
+pub mod app_share;
 // VAPP-119: the `exp:` binding sources (issues, boards, members, sessions,
 // comments, attachments), fixture-locked ×4.
 pub mod app_sources;

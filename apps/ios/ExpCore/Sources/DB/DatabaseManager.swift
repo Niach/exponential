@@ -3128,6 +3128,25 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v100 (#VAPP-241): `app_records.share_name`, the public link that
+        // created the record (app-share.json: the By/author label reads
+        // Guest). The app-records cursor resets only when the column was
+        // added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v100_app_record_share_name") { db in
+            guard try db.tableExists("app_records") else { return }
+            guard try db.columns(in: "app_records").contains(where: { $0.name == "share_name" }) == false else { return }
+            try db.alter(table: "app_records") { t in
+                t.add(column: "share_name", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'app-records'
+                    """)
+            }
+        }
+
         return migrator
     }
 

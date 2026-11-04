@@ -1701,6 +1701,9 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
     /// #VAPP-229: the app whose exposed tool CREATED it ("via <app>",
     /// via-app.json; an update keeps it). SET NULL when the app goes.
     public let viaAppId: String?
+    /// VAPP-241: the public link that created it (app-share.json): the
+    /// By/author label reads Guest. NULL on every other record.
+    public let shareName: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -1714,10 +1717,12 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
         authorId: String? = nil,
         updatedBy: String? = nil,
         viaAppId: String? = nil,
+        shareName: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
         self.viaAppId = viaAppId
+        self.shareName = shareName
         self.id = id
         self.appId = appId
         self.teamId = teamId
@@ -1738,6 +1743,7 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
         case authorId = "author_id"
         case updatedBy = "updated_by"
         case viaAppId = "via_app_id"
+        case shareName = "share_name"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -1756,6 +1762,8 @@ extension AppRecordEntity: Codable {
         updatedBy = try c.decodeIfPresent(String.self, forKey: .updatedBy)
         // #VAPP-229: absent on a pre-rotation snapshot.
         viaAppId = try? c.decodeIfPresent(String.self, forKey: .viaAppId)
+        // VAPP-241: absent on a pre-rotation snapshot.
+        shareName = try? c.decodeIfPresent(String.self, forKey: .shareName)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

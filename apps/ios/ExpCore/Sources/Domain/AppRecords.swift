@@ -678,17 +678,20 @@ public enum AppRecords {
         /// `create` | `update` | `delete` | `restore`.
         public let op: String
         public let actor: String?
+        /// Where the write came from (VAPP-241: `share:<name>` = a guest).
+        public let via: String?
         public let before: [String: CardJSON]?
         public let patch: [String: CardJSON]?
         public let createdAt: String
 
         public init(
-            id: String = "", op: String, actor: String? = nil,
+            id: String = "", op: String, actor: String? = nil, via: String? = nil,
             before: [String: CardJSON]?, patch: [String: CardJSON]?, createdAt: String = ""
         ) {
             self.id = id
             self.op = op
             self.actor = actor
+            self.via = via
             self.before = before
             self.patch = patch
             self.createdAt = createdAt
@@ -764,13 +767,14 @@ public enum AppRecords {
 
     /// The History list (TS `historyRows`, `rowsCases`): the events in the
     /// server's order (newest first); Restore on every row but the newest,
-    /// never on a delete.
+    /// never on a delete. VAPP-241: a guest's submission reads Guest
+    /// (app-share.json `historyCases`).
     public static func historyRows(_ events: [RecordEvent], names: [String: String], fallback: String) -> [HistoryRow] {
         events.enumerated().map { i, event in
             HistoryRow(
                 id: event.id,
                 label: eventLabel(event),
-                who: event.actor.flatMap { names[$0] } ?? fallback,
+                who: AppShare.isGuestVia(event.via) ? AppShare.Copy.guest : (event.actor.flatMap { names[$0] } ?? fallback),
                 at: event.createdAt,
                 restorable: i > 0 && event.op != "delete"
             )

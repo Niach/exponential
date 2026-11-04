@@ -75,7 +75,9 @@ import androidx.room.TypeConverters
     //      progress), explicit [MIGRATION_115_116]; app_versions refetches.
     // v117 (#EXP-1682): messages.attachment_ids (a message's clear files),
     //      explicit [MIGRATION_116_117]; only the messages shape refetches.
-    version = 117,
+    // v118 (#VAPP-241): app_records.share_name (public links), explicit
+    //      [MIGRATION_117_118]; only the app_records shape refetches.
+    version = 118,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

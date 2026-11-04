@@ -65,6 +65,8 @@ struct Record {
     author_id: Option<String>,
     /// #VAPP-229: the app whose tool created it (the By cell's `via <app>`).
     via_app_id: Option<String>,
+    /// VAPP-241: the public link that created it (the By cell reads Guest).
+    share_name: Option<String>,
     updated_at: String,
 }
 
@@ -129,6 +131,7 @@ fn app_state(app_id: &str, access: Option<String>, cx: &App) -> (Option<Value>, 
                     created_by: row.created_by.clone(),
                     author_id: row.author_id.clone(),
                     via_app_id: row.via_app_id.clone(),
+                    share_name: row.share_name.clone(),
                     updated_at: crate::exponential_ui_host::iso_millis(row.updated_at.as_deref().unwrap_or("")),
                 })
                 .collect()
@@ -439,6 +442,8 @@ impl Render for AppDataTab {
                         |id| users.as_ref()?.read(cx).get(id)?.name.clone().filter(|name| !name.trim().is_empty()),
                         &APPS.copy.by_agent,
                     );
+                    // VAPP-241 (app-share.json `bylineCases`): a guest's record.
+                    let by = domain::app_share::share_byline(record.share_name.as_deref(), &by);
                     // #VAPP-229 (via-app.json): `Ana · via Timesheet` while
                     // the creating app syncs; one truncated line.
                     let by = domain::via_app::with_via_app(

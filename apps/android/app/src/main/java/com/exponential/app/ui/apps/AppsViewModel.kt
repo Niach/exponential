@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AppCreateInput
 import com.exponential.app.data.api.AppHookDto
+import com.exponential.app.data.api.AppShareDto
 import com.exponential.app.data.api.AppToolsDto
 import com.exponential.app.data.api.AppUpdateInput
 import com.exponential.app.data.api.AppsApi
@@ -348,6 +349,11 @@ class AppEditorViewModel @Inject constructor(
         appTools.map { it?.hooks.orEmpty() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** VAPP-241: the published package's public links; empty = no group. */
+    val shares: StateFlow<List<AppShareDto>> =
+        appTools.map { it?.shares.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** #VAPP-238: `appTools.canToggle` (an owner): the hook rows' action pill. */
     val canManageHooks: StateFlow<Boolean> =
         appTools.map { it?.canToggle == true }
@@ -423,6 +429,29 @@ class AppEditorViewModel @Inject constructor(
                 _failure.value = FailedAction("rotate", "the secret", trpcErrorMessage(t, ""))
             } finally {
                 _hookBusy.value = null
+            }
+        }
+    }
+
+    private val _shareBusy = MutableStateFlow<String?>(null)
+    /** The public link whose change is in flight (the rows wait). */
+    val shareBusy: StateFlow<String?> = _shareBusy
+
+    /** VAPP-241: enable, rotate or revoke [name] (`appAccess.setShareLink`),
+     *  then re-read the rows; a failure = the failed-action toast. */
+    fun setShareLink(name: String, action: String) {
+        if (_shareBusy.value != null) return
+        val accountId = auth.activeAccountId.value ?: return
+        _shareBusy.value = name
+        viewModelScope.launch {
+            try {
+                accessApi.setShareLink(accountId, appId, name, action)
+                refreshTools()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("save", "the link", trpcErrorMessage(t, ""))
+            } finally {
+                _shareBusy.value = null
             }
         }
     }
@@ -793,6 +822,7 @@ class AppEditorViewModel @Inject constructor(
                     patch = e.patch?.let { runCatching { JsonValue.parse(it.toString()).obj }.getOrNull() },
                     actor = e.actor,
                     createdAt = e.createdAt,
+                    via = e.via,
                 )
             }
         } catch (t: Throwable) {

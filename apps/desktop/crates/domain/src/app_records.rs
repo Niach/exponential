@@ -780,6 +780,9 @@ pub struct RecordEvent {
     pub id: String,
     pub core: RecordEventCore,
     pub actor: Option<String>,
+    /// VAPP-241: what caused it; `share:<name>` = a guest's submission
+    /// (app-share.json `historyCases`).
+    pub via: Option<String>,
     pub created_at: String,
 }
 
@@ -795,6 +798,7 @@ impl RecordEvent {
                 patch: object("patch"),
             },
             actor: value.get("actor").and_then(Value::as_str).map(str::to_string),
+            via: value.get("via").and_then(Value::as_str).map(str::to_string),
             created_at: value.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string(),
         })
     }
@@ -893,7 +897,11 @@ pub fn history_rows(events: &[RecordEvent], names: impl Fn(&str) -> Option<Strin
         .map(|(i, event)| HistoryRow {
             id: event.id.clone(),
             label: event_label(&event.core),
-            who: event.actor.as_deref().and_then(&names).unwrap_or_else(|| fallback.to_string()),
+            who: if crate::app_share::is_share_via(event.via.as_deref()) {
+                crate::app_share::APP_SHARE.copy.guest.clone()
+            } else {
+                event.actor.as_deref().and_then(&names).unwrap_or_else(|| fallback.to_string())
+            },
             at: event.created_at.clone(),
             restorable: i > 0 && event.core.op != RecordEventOp::Delete,
         })

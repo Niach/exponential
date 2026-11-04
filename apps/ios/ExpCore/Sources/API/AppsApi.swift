@@ -485,13 +485,48 @@ public struct AppMcpToolWire: Decodable, Sendable, Equatable {
     }
 }
 
+/// VAPP-241: one public link on the wire (`appTools.shares`): `url` = the
+/// guest URL (owners only, while the row has a live token), `expiresAt` = its
+/// `yyyy-MM-dd` date.
+public struct AppShareWire: Decodable, Sendable, Equatable {
+    public let name: String
+    public let mode: AppShare.Mode
+    public let kind: String
+    public let state: AppShare.LinkState
+    public let url: String?
+    public let expiresAt: String?
+
+    private enum CodingKeys: String, CodingKey { case name, mode, kind, state, url, expiresAt }
+
+    public init(name: String, mode: AppShare.Mode, kind: String, state: AppShare.LinkState, url: String?, expiresAt: String?) {
+        self.name = name
+        self.mode = mode
+        self.kind = kind
+        self.state = state
+        self.url = url
+        self.expiresAt = expiresAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        mode = (try? c.decodeIfPresent(String.self, forKey: .mode)).flatMap(AppShare.Mode.init(rawValue:)) ?? .submit
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? ""
+        state = (try? c.decodeIfPresent(String.self, forKey: .state)).flatMap(AppShare.LinkState.init(rawValue:)) ?? .off
+        url = try? c.decodeIfPresent(String.self, forKey: .url)
+        expiresAt = try? c.decodeIfPresent(String.self, forKey: .expiresAt)
+    }
+}
+
 /// `appTools`' part the Settings sheet reads: the accounts, the exposed
-/// tools, automations, webhooks and `canToggle` (= a team owner).
+/// tools, automations, webhooks, public links and `canToggle` (= a team
+/// owner).
 public struct AppToolsSummary: Sendable, Equatable {
     public let upstreams: [AppAccountWire]
     public let tools: [AppMcpToolWire]
     public let automations: [AppAutomationWire]
     public let hooks: [AppHookWire]
+    public let shares: [AppShareWire]
     public let canToggle: Bool
 }
 
@@ -500,9 +535,10 @@ private struct AppToolsResult: Decodable {
     let tools: [AppMcpToolWire]
     let automations: [AppAutomationWire]
     let hooks: [AppHookWire]
+    let shares: [AppShareWire]
     let canToggle: Bool
 
-    private enum CodingKeys: String, CodingKey { case upstreams, tools, automations, hooks, canToggle }
+    private enum CodingKeys: String, CodingKey { case upstreams, tools, automations, hooks, shares, canToggle }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -510,6 +546,8 @@ private struct AppToolsResult: Decodable {
         tools = (try? c.decodeIfPresent([AppMcpToolWire].self, forKey: .tools)) ?? []
         automations = (try? c.decodeIfPresent([AppAutomationWire].self, forKey: .automations)) ?? []
         hooks = (try? c.decodeIfPresent([AppHookWire].self, forKey: .hooks)) ?? []
+        // VAPP-241: absent on a server before public links.
+        shares = (try? c.decodeIfPresent([AppShareWire].self, forKey: .shares)) ?? []
         canToggle = (try? c.decodeIfPresent(Bool.self, forKey: .canToggle)) ?? false
     }
 }
@@ -525,6 +563,17 @@ private struct AppToolEnabledInput: Encodable {
 private struct AppRotateHookInput: Encodable {
     let appId: String
     let name: String
+}
+
+/// VAPP-241 `appAccess.setShareLink {appId, name, action}`.
+public enum AppShareAction: String, Encodable, Sendable {
+    case enable, rotate, revoke
+}
+
+private struct AppSetShareLinkInput: Encodable {
+    let appId: String
+    let name: String
+    let action: AppShareAction
 }
 
 /// `appAccess.rotateHook`'s answer: the secret, shown ONCE.
@@ -693,6 +742,7 @@ public final class AppsApi: Sendable {
                 id: event.id,
                 op: event.op,
                 actor: event.actor,
+                via: event.via,
                 before: event.before?.value.objectValue,
                 patch: event.patch?.value.objectValue,
                 createdAt: AppRecords.isoTimestamp(event.createdAt)
@@ -737,7 +787,7 @@ public final class AppsApi: Sendable {
         )
         return AppToolsSummary(
             upstreams: result.upstreams, tools: result.tools,
-            automations: result.automations, hooks: result.hooks, canToggle: result.canToggle
+            automations: result.automations, hooks: result.hooks, shares: result.shares, canToggle: result.canToggle
         )
     }
 
@@ -755,6 +805,15 @@ public final class AppsApi: Sendable {
     public func rotateHook(accountId: String, appId: String, name: String) async throws -> AppHookSecret {
         try await trpc.mutation(
             accountId: accountId, path: "appAccess.rotateHook", input: AppRotateHookInput(appId: appId, name: name)
+        )
+    }
+
+    /// VAPP-241 `appAccess.setShareLink {appId, name, action}` (owners): turn
+    /// a public link on, give it a new token or turn it off.
+    public func setShareLink(accountId: String, appId: String, name: String, action: AppShareAction) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "appAccess.setShareLink",
+            input: AppSetShareLinkInput(appId: appId, name: name, action: action)
         )
     }
 
