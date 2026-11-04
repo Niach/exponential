@@ -194,6 +194,8 @@ object Apps {
         // #VAPP-243: the Accounts and MCP tools groups + one of their rows.
         const val ACCOUNTS = "app-settings-accounts"
         const val ACCOUNT_ROW = "app-account"
+        const val IMPORT_UPSTREAMS = "app-import-upstreams"
+        const val IMPORT_UPSTREAM = "app-import-upstream"
         const val MCP_TOOLS = "app-settings-mcp-tools"
         const val MCP_TOOL_ROW = "app-mcp-tool"
         // #VAPP-243: the Record access group + one of its rows.

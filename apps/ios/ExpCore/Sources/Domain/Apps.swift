@@ -233,6 +233,8 @@ public enum Apps {
         // #VAPP-243: the Settings tab's Accounts and MCP tools groups.
         public static let accounts = "app-settings-accounts"
         public static let accountRow = "app-account"
+        public static let importUpstreams = "app-import-upstreams"
+        public static let importUpstream = "app-import-upstream"
         public static let mcpTools = "app-settings-mcp-tools"
         public static let mcpToolRow = "app-mcp-tool"
         // #VAPP-243: the Settings tab's Record access group and its rows.
