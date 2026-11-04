@@ -562,7 +562,13 @@ impl Surface {
             let mut port: Option<(Frame, f32, f32)> = None;
             while let Some(p) = cur {
                 if let Some(s) = scrolls.iter().find(|s| s.index == p && ((s.scroll_y && s.content_height > frames[p as usize].h + 0.5) || (s.scroll_x && s.content_width > frames[p as usize].w + 0.5))) {
-                    port = Some((frames[p as usize], s.offset_x, s.offset_y));
+                    // The scrollport is the padding box (CSS): a pinned node
+                    // never covers the scroller's own border (VAPP-250).
+                    let pad = &self.node_state[p as usize].flat;
+                    let side = |k: &str| pad.get(k).or_else(|| pad.get("borderWidth")).and_then(style::px).unwrap_or(0.0);
+                    let (l, t, r, b) = (side("borderLeftWidth"), side("borderTopWidth"), side("borderRightWidth"), side("borderBottomWidth"));
+                    let f = frames[p as usize];
+                    port = Some((Frame { x: f.x + l, y: f.y + t, w: f.w - l - r, h: f.h - t - b }, s.offset_x, s.offset_y));
                     // A direct child of the scroller is bounded by its whole
                     // scrollable content (CSS: a sticky header in a scrolling
                     // pane stays pinned all the way down).

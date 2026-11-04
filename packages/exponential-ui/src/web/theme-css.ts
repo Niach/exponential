@@ -143,6 +143,8 @@ export function declarations(style: Record<string, unknown>, fonts: Record<strin
       if (v && !(`animation` in style)) out.push([`animation-duration`, `calc(${v} * var(--xui-anim-factor, 1))`])
       continue
     }
+    // VAPP-250: a pinned node paints above its siblings, as on the natives (every `.xui-el` is positioned, so tree order alone would run them over it).
+    if (key === `position` && value === `sticky`) out.push([`z-index`, `1`])
     const css = cssValue(key, value, fonts)
     if (css === null) continue
     for (const target of SHORTHANDS[key] ?? [kebab(key)]) {

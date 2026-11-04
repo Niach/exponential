@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-103: the data model the conformance dashboard (dashboard.json) lays out against: the Table's runs and selection, the activity template's items, the bound Tabs value, filter inputs and the (closed) invite Dialog's form.",
+  "$comment": "VAPP-103: the data model the conformance dashboard (dashboard.json) lays out against: the Table's runs and selection, the activity template's items, the bound Tabs value, filter inputs and the (closed) invite Dialog's form. VAPP-250: `road` = a records `view=timeline` value for the Timeline.",
   "team": "Platform team",
   "ui": {
     "tab": "runs",
@@ -70,5 +70,146 @@
     "email": "",
     "role": "member",
     "note": ""
+  },
+  "road": {
+    "timeline": {
+      "scale": "week",
+      "columns": [
+        {
+          "key": "w0",
+          "label": "2 Nov",
+          "end": "w0e",
+          "today": false
+        },
+        {
+          "key": "w1",
+          "label": "9 Nov",
+          "end": "w1e",
+          "today": true
+        },
+        {
+          "key": "w2",
+          "label": "16 Nov",
+          "end": "w2e",
+          "today": false
+        },
+        {
+          "key": "w3",
+          "label": "23 Nov",
+          "end": "w3e",
+          "today": false
+        },
+        {
+          "key": "w4",
+          "label": "30 Nov",
+          "end": "w4e",
+          "today": false
+        },
+        {
+          "key": "w5",
+          "label": "7 Dec",
+          "end": "w5e",
+          "today": false
+        },
+        {
+          "key": "w6",
+          "label": "14 Dec",
+          "end": "w6e",
+          "today": false
+        },
+        {
+          "key": "w7",
+          "label": "21 Dec",
+          "end": "w7e",
+          "today": false
+        }
+      ],
+      "bands": [
+        {
+          "label": "November",
+          "col": 1,
+          "span": 5
+        },
+        {
+          "label": "December",
+          "col": 6,
+          "span": 3
+        }
+      ],
+      "rows": [
+        {
+          "key": "Platform",
+          "index": 0,
+          "lanes": 2,
+          "count": 3,
+          "items": [
+            {
+              "id": "a",
+              "rowIndex": 0,
+              "col": 1,
+              "span": 3,
+              "lane": 0,
+              "contL": false,
+              "contR": false,
+              "tone": 0,
+              "row": {
+                "title": "Migration"
+              }
+            },
+            {
+              "id": "b",
+              "rowIndex": 0,
+              "col": 2,
+              "span": 2,
+              "lane": 1,
+              "contL": false,
+              "contR": false,
+              "tone": 1,
+              "row": {
+                "title": "Search"
+              }
+            },
+            {
+              "id": "c",
+              "rowIndex": 0,
+              "col": 6,
+              "span": 2,
+              "lane": 0,
+              "contL": false,
+              "contR": false,
+              "tone": 2,
+              "row": {
+                "title": "Billing"
+              }
+            }
+          ]
+        },
+        {
+          "key": "Mobile",
+          "index": 1,
+          "lanes": 1,
+          "count": 1,
+          "items": [
+            {
+              "id": "d",
+              "rowIndex": 0,
+              "col": 4,
+              "span": 1,
+              "lane": 0,
+              "contL": false,
+              "contR": false,
+              "tone": 3,
+              "row": {
+                "title": "Release"
+              }
+            }
+          ]
+        }
+      ],
+      "now": {
+        "col": 2,
+        "percent": 17.86
+      }
+    }
   }
 }

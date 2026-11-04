@@ -32703,7 +32703,12 @@
           "overflow": "hidden",
           "borderRadius": "$radius.lg",
           "borderWidth": "$border.hairline",
-          "minHeight": "$control.row"
+          "minHeight": "$control.row",
+          "@media (form-factor: phone)": {
+            "overflowX": "auto",
+            "overflowY": "hidden",
+            "backgroundColor": "$color.background"
+          }
         },
         "recipe": {
           "macro": "Timeline",
@@ -32737,7 +32742,12 @@
           "overflow": "hidden",
           "borderRadius": "$radius.lg",
           "borderWidth": "$border.hairline",
-          "minHeight": "$control.row"
+          "minHeight": "$control.row",
+          "@media (form-factor: phone)": {
+            "overflowX": "auto",
+            "overflowY": "hidden",
+            "backgroundColor": "$color.background"
+          }
         },
         "recipe": {
           "macro": "Timeline",
@@ -32771,7 +32781,12 @@
           "overflow": "hidden",
           "borderRadius": "$radius.lg",
           "borderWidth": "$border.hairline",
-          "minHeight": "$control.row"
+          "minHeight": "$control.row",
+          "@media (form-factor: phone)": {
+            "overflowX": "auto",
+            "overflowY": "hidden",
+            "backgroundColor": "$color.background"
+          }
         },
         "recipe": {
           "macro": "Timeline",

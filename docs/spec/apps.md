@@ -904,7 +904,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **S2 ★** `eapps` crate + release (`eapps-v*`). (C25)
 - **S3** Spezl runs eApps: #YO-32 on S2 (keychain vault, loopback, `exponential` upstream).
 - **S4** eDE widgets + apps on the crate. Depends on #VAPP-64 and NEW-107. (C26)
-- ✅ **U3** `Calendar` / `Timeline` (C29, #VAPP-232, design approved by Danny 2026-11-03): eUI macros (no new primitive, no new token) over the records query's calendar views: the month view's `weeks` (lanes, "+N more"), the selected day's `agenda`, `view=week`, `view=timeline` (columns, bands, rows, now); bars in the full chart colour (`tone=<field>`); phones get the compact month with dots and the agenda. The macro rule `$template` builds data-template items. Sample: the leave planner (`samples/apps/leave-planner.app.json`).
+- ✅ **U3** `Calendar` / `Timeline` (C29, #VAPP-232, design approved by Danny 2026-11-03): eUI macros (no new primitive, no new token) over the records query's calendar views: the month view's `weeks` (lanes, "+N more"), the selected day's `agenda`, `view=week`, `view=timeline` (columns, bands, rows, now); bars in the full chart colour (`tone=<field>`); phones get the compact month with dots and the agenda, and a Timeline whose columns keep a minimum width in one horizontal scroller with the label column pinned (#VAPP-250). The macro rule `$template` builds data-template items. Sample: the leave planner (`samples/apps/leave-planner.app.json`).
 
 **Phase 7: Sharing**
 

@@ -305,6 +305,40 @@ fn position_sticky_pins_inside_the_nearest_scroller_while_its_parent_is_in_view(
     assert_eq!(st.dy, 400.0, "clamped to the parent's bottom (420 − 20)");
 }
 
+/// VAPP-250: the Timeline's phone layout. One scroller, every column at least
+/// 72 wide, the label column pinned with its row; wide keeps the fr columns.
+#[test]
+fn a_phone_timeline_scrolls_as_one_with_its_labels_pinned() {
+    let columns: Vec<Value> = (0..12).map(|i| json!({"key": format!("w{i}"), "label": format!("{i} Nov"), "today": i == 0})).collect();
+    let data = json!({"road": {"timeline": {"columns": columns, "bands": [{"label": "November", "col": 1, "span": 12}], "now": {"col": 1, "percent": 5.0},
+        "rows": [{"key": "Anna", "index": 0, "lanes": 1, "count": 1, "items": [{"id": "a", "rowIndex": 0, "col": 2, "span": 2, "lane": 0, "tone": 0, "row": {"title": "Vacation"}}]}]}}});
+    let mut s = surface(json!({"id": "t", "component": "Timeline", "props": {"source": "/road", "rowTitle": "Person"}}));
+    s.set_data("", Some(data)).unwrap();
+    s.set_viewport(350.0, 0.0, None);
+    s.layout(&mut fixed());
+    let id_ending = |s: &mut Surface, end: &str| s.nodes().into_iter().find(|n| n.id.ends_with(end)).unwrap_or_else(|| panic!("no node {end}")).id;
+    let (head, track, corner) = (id_ending(&mut s, ".rowHead.Anna"), id_ending(&mut s, ".track.Anna"), id_ending(&mut s, ".corner"));
+    let out = s.layout(&mut fixed());
+    let root = s.index_of("t").unwrap();
+    let scroll = out.scrolls.iter().find(|x| x.index == root).expect("the root is the scroller");
+    assert!(scroll.scroll_x && !scroll.scroll_y);
+    assert!((scroll.content_width - (96.0 + 72.0 * 12.0)).abs() <= 1.0, "{}", scroll.content_width);
+    assert_eq!(frame(&s, &out, &head).w, 96.0);
+    assert_eq!(frame(&s, &out, &track).w, 72.0 * 12.0);
+    s.scroll_to("t", 200.0, 0.0);
+    let out = s.layout(&mut fixed());
+    for id in [&head, &corner] {
+        let i = s.index_of(id).unwrap();
+        assert_eq!(out.sticky.iter().find(|x| x.index == i).unwrap_or_else(|| panic!("{id} pinned")).dx, 200.0);
+    }
+    // Wide: no scroller, the fr columns share the width.
+    s.set_viewport(1000.0, 0.0, None);
+    let out = s.layout(&mut fixed());
+    assert!(!out.scrolls.iter().any(|x| x.index == root));
+    assert!(out.sticky.is_empty());
+    assert!((frame(&s, &out, &head).w - 180.0).abs() < 1.0, "18% of the box");
+}
+
 #[test]
 fn visuals_carry_direction_physical_align_and_animation_timing() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
