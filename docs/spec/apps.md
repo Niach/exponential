@@ -967,6 +967,37 @@ Rich apps continue in §17 order: R4 history, then U1 screens and the rest.
 - **Install checks:** 18 broken variants of the time tracker (unknown component, missing prop, dangling child, computed shadowing/chaining/typos/types, typos in a row template, unknown queries in bindings and tests, destructive exposes) are refused at the right path. Two gaps were fixed: a query on a field its kind lacks (or a sum of a text) and an exposes run naming no query (#VAPP-223, PR #1793).
 - **Team zone:** with the team on `Pacific/Kiritimati`, `today()` read the team's day, but the records month view's `today` and its default month read UTC's on every host and in the broker (the Log hours dialog opened on yesterday). Fixed: the records context takes the host's `today` (#VAPP-224, PR #1794; `records-query.json`, ×4 + the server).
 
+**Rich apps dogfood (2026-11-04, staging, the "eApps Dogfood" team: an owner and a member, over MCP, tRPC and HTTP, no browser).** Most of it ran on web 0.20.37, the rest on `76e297b`: migrations, the schedule, the hand-off, CSV, Calendar/Timeline, tools and public links ran after that deploy, on format 4.
+
+- **Worked:**
+  - **Templates:** all four gallery templates import.
+  - **Refs + expand:** an unknown record, member or issue is refused; `expand` follows record and member refs.
+  - **Transitions:** undeclared edges, a wrong start and `who` are refused. A member's undo or restore cannot take a refused edge.
+  - **History + undo:** history, undo of a write and of a delete, restore.
+  - **Files:** upload, a member's download, an anonymous 401, a file from outside the app refused.
+  - **Computed fields:** read and summed in queries.
+  - **Migrations:** a major bump without one is refused, a draft touches nothing, publish swept 321 records (rename, default, map), each with a `migration` history event.
+  - **Automations:** record, schedule and webhook triggers all write as the sponsor.
+  - **Webhooks:** a signed POST 202; replay 409; bad, stale or missing signature 401; not JSON 400; unknown hook 404.
+  - **`run.agent`:** the hand-off starts a session reading "via" the app, with the input stripped of backticks in the brief.
+  - **CSV:** a mapped import skips rows with issues, keeps the on-behalf author, records `via=import`, undoes. A member cannot import as someone else.
+  - **Leave planner:** the Calendar and Timeline queries, `who_is_out` for both users.
+  - **Public links:** the install refusal of a required ref, enable/rotate/revoke, a member sees no URL, submit with the fields narrowed, `via=share:<name>` as the sponsor, honeypot, 400/404/413, the view narrowed to the named fields, and the per-IP cap under 15 parallel requests (exactly 10 slots).
+- **Fixed:**
+  - **#VAPP-248, the serious one:** a 64-row batch on a kind with a record-create automation hung the whole server. The quota check took a second pool connection while holding the team's lock, so any parallel creates on a cloud instance could reach it. Fixed in `76e297b`; 3 × 64 now stays healthy. **The same bug ran on production until that deploy.**
+  - **#VAPP-249:** server reads dropped a row's `transitions`. Merged after `76e297b`, so not yet seen on staging.
+  - **`shareName` on server reads:** an agent's read could not tell a guest's record from its sponsor's. Merged after `76e297b`, so not yet seen on staging.
+- **Behaviour to know:**
+  - **Automation cap:** the 30 runs a minute cap drops the rest (audited `rateLimited`, not retried). Of 3 × 64 creates, 68 ran and 133 were refused, so a bulk write on a kind with a record automation loses runs.
+  - **Rollback:** it does not reverse data. After a rollback from v3 to v2, records kept v3's field, which v2's schema does not declare.
+  - **Hand-off device:** a member sees a hand-off tool whose agent runs on another member's unshared device, and calling it answers "This device is not yours and not shared with the team".
+- **Not exercised:**
+  - **Rendering:** nothing was looked at. The run view, screens, deep links, RecordTable, RecordForm, Calendar, Timeline, the import dialog and the guest page were only checked as packages, queries and HTTP. A deep link answers 200 even for a screen that does not exist, because the route is a client shell, so that 200 proves nothing about the screen.
+  - **Upstream read bindings:** the team has no test server, and staging cannot reach one on mint.
+  - **An agent actually running a hand-off:** the only device was offline, so the session stayed queued.
+  - **Link expiry and the per-link cap on staging:** these are covered by `share-links.real-db.test.ts` only.
+  - **Native clients:** every check ran against the server.
+
 ### 20.1 Readiness (batch 1, 2026-11-03)
 
 Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI (#1719), R3 per-kind policies + `app_access` everywhere (#VAPP-199), "Run as" (#VAPP-198), authors in `.app.json` exports (#VAPP-192), the eApps real-DB suites run against Postgres 17 (all green), the §15 limits measured, and three real apps dogfooded on staging (time tracker, CRM, standup; `samples/apps/`, #VAPP-209). The dogfood found and fixed a desktop crash on every package action and a web/desktop disagreement on missing fields.

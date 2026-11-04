@@ -280,6 +280,8 @@ const RECORD_COLUMNS = {
   data: appRecords.data,
   createdBy: appRecords.createdBy,
   authorId: appRecords.authorId,
+  // VAPP-241: a guest's record (a public link): the sponsor is only its author on paper.
+  shareName: appRecords.shareName,
   createdAt: appRecords.createdAt,
   updatedAt: appRecords.updatedAt,
 }

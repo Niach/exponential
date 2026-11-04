@@ -32,7 +32,7 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[share-links.real-db] skipped: ${ready.reason}`)
 
 const { enableShareLink, guestPage, handleSharePage, handleShareSubmit, revokeShareLink, rotateShareLink, shareRows } = await import(`@/lib/apps/share-links`)
-const { deleteRecord, upsertRecord } = await import(`@/lib/apps/records-service`)
+const { deleteRecord, listRecords, upsertRecord } = await import(`@/lib/apps/records-service`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -254,6 +254,9 @@ describe.skipIf(!ready.ok)(`public links (real db)`, () => {
     expect(record!.authorId).toBe(w.owner)
     expect(record!.createdBy).toBe(w.owner)
     expect(record!.shareName).toBe(`join`)
+    // A member's or agent's read can tell a guest's record from the sponsor's own.
+    const listed = await listRecords(w.member, { id: w.app.id }, { kind: `signup`, limit: 10, offset: 0 })
+    expect(listed.records[0]).toMatchObject({ authorId: w.owner, shareName: `join` })
     const [event] = await db.select().from(appRecordEvents).where(eq(appRecordEvents.recordId, record!.id))
     expect(event).toMatchObject({ via: `share:join`, actor: w.owner, op: `create` })
     const [row] = await audit(w)
