@@ -2,15 +2,18 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import { POLICY_LEVELS, memberPolicy, type Level } from "@exp/emcp/access"
+import { resolveUpstreamServer } from "@exp/emcp/upstream"
 import { runVia, type Expose } from "@exp/emcp/exposes"
 import { appAccess, apps, mcpCredentials, mcpServers, teamMembers } from "@/db/schema"
 import { users } from "@/db/auth-schema"
 import { getTeamMember } from "@/lib/auth/membership"
 import { upstreamState, type ConsentUpstream } from "@/lib/emcp/apps-consent"
+import { recordMcpCalls } from "@/lib/emcp/audit"
 import { connectionFor } from "@/lib/emcp/upstream/credentials"
 import { authedProcedure, router } from "@/lib/trpc"
 import { invalidateAppShapeRules } from "@/lib/apps/records-shape"
 import { automationRows } from "@/lib/apps/automations"
+import { bindingsOf, writeUpstreamMappings } from "@/lib/apps/upstream-mapping"
 import { hookRows, rotateHookSecret } from "@/lib/apps/webhooks"
 import { enableShareLink, revokeShareLink, rotateShareLink, shareRows } from "@/lib/apps/share-links"
 
@@ -148,8 +151,11 @@ export const appAccessRouter = router({
       ? await ctx.db
           .select({ id: mcpServers.id, name: mcpServers.name, auth: mcpServers.auth })
           .from(mcpServers)
-          .where(and(eq(mcpServers.teamId, app.teamId), inArray(mcpServers.name, names)))
+          .where(eq(mcpServers.teamId, app.teamId))
+          .orderBy(asc(mcpServers.name))
       : []
+    // #VAPP-254: the app's mapping, else exactly the upstream's name.
+    const bindings = names.length ? await bindingsOf(ctx.db, input.appId) : new Map<string, string>()
     const credentials = servers.length
       ? await ctx.db
           .select()
@@ -157,9 +163,9 @@ export const appAccessRouter = router({
           .where(and(eq(mcpCredentials.userId, ctx.session.user.id), inArray(mcpCredentials.serverId, servers.map((s) => s.id))))
       : []
     const upstreams: ConsentUpstream[] = names.map((name) => {
-      const server = servers.find((s) => s.name === name)
-      if (!server) return { name, serverId: null, auth: null, state: null }
-      return { name, serverId: server.id, auth: server.auth, state: upstreamState(connectionFor(server, credentials.find((c) => c.serverId === server.id)).status) }
+      const server = resolveUpstreamServer(name, bindings.get(name) ?? null, servers)?.server
+      if (!server) return { name, serverId: null, serverName: null, auth: null, state: null }
+      return { name, serverId: server.id, serverName: server.name, auth: server.auth, state: upstreamState(connectionFor(server, credentials.find((c) => c.serverId === server.id)).status) }
     })
     const disabled = new Set(app.disabled)
     return {
@@ -172,6 +178,8 @@ export const appAccessRouter = router({
         enabled: !disabled.has(e.name),
       })),
       upstreams,
+      // #VAPP-254: what an owner may pick (apps.json `upstreamPickerCases`).
+      servers: me.role === `owner` ? servers.map(({ id, name }) => ({ id, name })) : [],
       // #VAPP-220: the published package's automations with their last run
       // and last failure (their mcp_calls rows) and a live pause reason.
       automations: await automationRows(app),
@@ -181,6 +189,27 @@ export const appAccessRouter = router({
       shares: (await shareRows({ id: input.appId, package: app.package })).map((row) => (me.role === `owner` ? row : { ...row, url: null })),
     }
   }),
+
+  /** #VAPP-254 (@exp/emcp upstream.json `mapping`): which team server fills
+   * an upstream the app declares; owners. `serverId` null, or the server of
+   * exactly that name, = the automatic default. Audited. */
+  setUpstreamMapping: authedProcedure
+    .input(z.object({ appId: uuid, upstream: z.string().min(1).max(64), serverId: uuid.nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const [app] = await ctx.db
+        .select({ id: apps.id, teamId: apps.teamId, package: apps.package, draftPackage: apps.draftPackage })
+        .from(apps)
+        .where(and(eq(apps.id, input.appId), isNull(apps.deletedAt)))
+        .limit(1)
+      if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+      const me = await memberOrNotFound(ctx.session.user.id, app.teamId)
+      if (me.role !== `owner`) throw new TRPCError({ code: `FORBIDDEN`, message: `Only a team owner picks an app's servers` })
+      if (!upstreamsOf(app.package).includes(input.upstream) && !upstreamsOf(app.draftPackage).includes(input.upstream)) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `the app does not declare ${input.upstream}` })
+      }
+      await recordMcpCalls(await writeUpstreamMappings(ctx.db, app, ctx.session.user.id, [{ upstream: input.upstream, serverId: input.serverId }]))
+      return { ok: true as const }
+    }),
 
   /** #VAPP-237: mint (or rotate) a webhook's secret (owners); the secret
    *  is answered ONCE and stored only vault-sealed. */

@@ -23,6 +23,9 @@ import {
   type RoutedServer,
   type UpstreamEvent,
   type UpstreamState,
+  resolveUpstreamServer,
+  upstreamMappingTool,
+  upstreamMappingWrite,
 } from "./upstream"
 
 test(`every state has a label`, () => {
@@ -49,6 +52,21 @@ describe(`missingUpstreams`, () => {
     test(entry.name, () => {
       expect(missingUpstreams(entry.declared, entry.states as Record<string, UpstreamState>, entry.servers)).toEqual(entry.expected)
     })
+  }
+})
+
+describe(`VAPP-254: the per-app mapping`, () => {
+  for (const entry of fixture.mapping.resolveCases) {
+    test(entry.name, () => {
+      const got = resolveUpstreamServer(entry.upstream, entry.bound, entry.servers)
+      expect(got && { id: got.server.id, source: got.source as string }).toEqual(entry.expected)
+    })
+  }
+  for (const entry of fixture.mapping.writeCases) {
+    test(entry.name, () => expect(upstreamMappingWrite(entry.upstream, entry.serverId, entry.servers)).toEqual(entry.expected as never))
+  }
+  for (const entry of fixture.mapping.auditCases) {
+    test(entry.expected, () => expect(upstreamMappingTool(entry.upstream, entry.server)).toBe(entry.expected))
   }
 })
 

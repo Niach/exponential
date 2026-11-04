@@ -3,7 +3,7 @@
 // read-only check, the 60 s cache per member.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-type Row = { id: string; transport: string; device?: { id: string; ownerId: string; label: string; steerDeviceId: string } | null }
+type Row = { id: string; transport: string; realName?: string; device?: { id: string; ownerId: string; label: string; steerDeviceId: string } | null }
 const servers = vi.hoisted(() => ({ rows: [{ id: `s1`, transport: `http` }] as Row[] }))
 const device = vi.hoisted(() => ({ calls: [] as unknown[], out: { result: { structuredContent: { temp: 21 } } } as Record<string, unknown> }))
 const launch = vi.hoisted(() => ({ url: `https://crm.example/mcp` as string | null }))
@@ -15,7 +15,7 @@ vi.mock(`@/lib/emcp/upstream/device-call`, async () => {
   const { upstreamRoute } = await import(`@exp/emcp/upstream`)
   return {
     loadRoutedServer: async (teamId: string, name: string) =>
-      servers.rows[0] ? { ...servers.rows[0], name, teamId, device: servers.rows[0].device ?? null } : null,
+      servers.rows[0] ? { ...servers.rows[0], name: servers.rows[0].realName ?? name, teamId, device: servers.rows[0].device ?? null } : null,
     routeServer: (server: { name: string; transport: string; device: { id: string; ownerId: string; label: string } | null }, caller: string) =>
       upstreamRoute(server, caller),
     callOnDevice: async (input: unknown) => {
@@ -56,6 +56,14 @@ describe(`readUpstreamBinding`, () => {
   it(`answers the value with provenance`, async () => {
     const out = await readUpstreamBinding(`u1`, app, `upstream:crm/mrr`)
     expect(out).toMatchObject({ ok: true, value: { mrr: 1200 }, meta: { "at.exponential/app": `console`, "at.exponential/tool": `crm/mrr`, "at.exponential/via": `upstream`, "at.exponential/upstream": `crm` } })
+  })
+
+  it(`#VAPP-254: a mapped upstream names the real server, the tool the declared one`, async () => {
+    servers.rows = [{ id: `s2`, transport: `http`, realName: `hubspot` }]
+    expect(await readUpstreamBinding(`u1`, app, `upstream:crm/mrr`)).toMatchObject({ ok: true, meta: { "at.exponential/tool": `crm/mrr`, "at.exponential/upstream": `hubspot` } })
+    launch.url = null
+    clearUpstreamReadCache()
+    expect(await readUpstreamBinding(`u1`, app, `upstream:crm/mrr`)).toMatchObject({ ok: false, error: `upstreamDisconnected`, server: `hubspot` })
   })
 
   it(`caches 60 s per member, server, tool and args`, async () => {

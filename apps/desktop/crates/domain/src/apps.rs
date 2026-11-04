@@ -873,6 +873,36 @@ pub fn webhook_row(has_secret: bool, is_owner: bool) -> WebhookRowView {
     WebhookRowView { status, label: label.clone(), action, action_label }
 }
 
+/// #VAPP-254 (`upstreamPickerCases`): an Accounts or import row's Select.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpstreamPicker {
+    pub value: String,
+    /// `(value, label)` in order.
+    pub options: Vec<(String, String)>,
+}
+
+/// The Select's value when no server fills the upstream.
+pub const UPSTREAM_PICKER_NONE: &str = "none";
+
+/// `servers` = `(id, name)` in name order; empty = no Select. The clear
+/// option only when no server has exactly the upstream's name.
+pub fn upstream_picker(name: &str, server_id: Option<&str>, servers: &[(String, String)], not_set_up: &str) -> Option<UpstreamPicker> {
+    if servers.is_empty() {
+        return None;
+    }
+    let mut options = Vec::with_capacity(servers.len() + 1);
+    if !servers.iter().any(|(_, server)| server == name) {
+        options.push((UPSTREAM_PICKER_NONE.to_string(), not_set_up.to_string()));
+    }
+    options.extend(servers.iter().cloned());
+    Some(UpstreamPicker { value: server_id.unwrap_or(UPSTREAM_PICKER_NONE).to_string(), options })
+}
+
+/// The row's second line naming the real server, when it is not the name.
+pub fn account_caption(name: &str, server_name: Option<&str>, uses_server: &str) -> Option<String> {
+    server_name.filter(|server| *server != name).map(|server| uses_server.replace("{server}", server))
+}
+
 /// #VAPP-243 (`policyRowCases`): the record-policy ops in order.
 pub const POLICY_OPS: [&str; 4] = ["read", "create", "update", "delete"];
 
@@ -1315,6 +1345,37 @@ mod tests {
             let name = case["name"].as_str().unwrap();
             let got = automation_sponsor(case["paused"].as_str(), case["sponsorName"].as_str());
             assert_eq!(got.as_deref(), case["expected"].as_str(), "{name}");
+        }
+    }
+
+    #[test]
+    fn upstream_picker_cases_replay() {
+        let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).unwrap();
+        let block = &fixture["upstreamPickerCases"];
+        assert_eq!(block["none"].as_str().unwrap(), UPSTREAM_PICKER_NONE);
+        let accounts = &fixture["copy"]["accounts"];
+        let (not_set_up, uses) = (accounts["notSetUp"].as_str().unwrap(), accounts["usesServer"].as_str().unwrap());
+        for case in block["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let row = &case["row"];
+            let servers: Vec<(String, String)> = case["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| (s["id"].as_str().unwrap().to_string(), s["name"].as_str().unwrap().to_string()))
+                .collect();
+            let got = upstream_picker(row["name"].as_str().unwrap(), row["serverId"].as_str(), &servers, not_set_up);
+            let want = case["expected"].as_object().map(|e| UpstreamPicker {
+                value: e["value"].as_str().unwrap().to_string(),
+                options: e["options"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|o| (o["value"].as_str().unwrap().to_string(), o["label"].as_str().unwrap().to_string()))
+                    .collect(),
+            });
+            assert_eq!(got, want, "{name}");
+            assert_eq!(account_caption(row["name"].as_str().unwrap(), row["serverName"].as_str(), uses).as_deref(), case["caption"].as_str(), "{name}");
         }
     }
 

@@ -8,7 +8,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { appAccess, apps, appRecords, comments, issues, mcpCalls, mcpGrants, teamMembers, teams } from "@/db/schema"
+import { appAccess, apps, appRecords, comments, issues, mcpCalls, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { createTestBoard } from "@/test/factories"
 
@@ -359,7 +359,7 @@ describe.skipIf(!ready.ok)(`the apps consent (real db, VAPP-182)`, () => {
     const tree = await appsConsentTree(w.owner)
     const team = tree.find((t) => t.id === w.teamId)!
     expect(team.apps).toEqual([
-      expect.objectContaining({ id: w.appId, slug: `timesheet`, toolCount: 4, upstreams: [{ name: `crm`, serverId: null, auth: null, state: null }] }),
+      expect.objectContaining({ id: w.appId, slug: `timesheet`, toolCount: 4, upstreams: [{ name: `crm`, serverId: null, serverName: null, auth: null, state: null }] }),
     ])
 
     // A stranger's team and an unknown app id are clamped away.
@@ -417,6 +417,20 @@ describe.skipIf(!ready.ok)(`the member policy and the tool switch (real db, VAPP
     const tools = await member.appAccess.appTools({ appId: w.appId })
     expect(tools.canToggle).toBe(false)
     expect(tools.tools.find((t) => t.name === `add_entry`)).toMatchObject({ enabled: false, access: `write`, via: `records` })
-    expect(tools.upstreams).toEqual([{ name: `crm`, serverId: null, auth: null, state: null }])
+    expect(tools.upstreams).toEqual([{ name: `crm`, serverId: null, serverName: null, auth: null, state: null }])
+    expect(tools.servers).toEqual([])
+
+    // #VAPP-254: an owner maps another server; the row and audit name it.
+    const [hubspot] = await db.insert(mcpServers).values({ teamId: w.teamId, name: `hubspot`, transport: `http`, url: `https://hubspot.example/mcp`, auth: `none` }).returning({ id: mcpServers.id })
+    await expect(member.appAccess.setUpstreamMapping({ appId: w.appId, upstream: `crm`, serverId: hubspot!.id })).rejects.toThrow(/owner/)
+    await expect(owner.appAccess.setUpstreamMapping({ appId: w.appId, upstream: `stripe`, serverId: hubspot!.id })).rejects.toThrow(/declare/)
+    await expect(owner.appAccess.setUpstreamMapping({ appId: w.appId, upstream: `crm`, serverId: crypto.randomUUID() })).rejects.toThrow(/team/)
+    await owner.appAccess.setUpstreamMapping({ appId: w.appId, upstream: `crm`, serverId: hubspot!.id })
+    expect((await member.appAccess.appTools({ appId: w.appId })).upstreams[0]).toMatchObject({ name: `crm`, serverId: hubspot!.id, serverName: `hubspot` })
+    expect((await owner.appAccess.appTools({ appId: w.appId })).servers).toEqual([{ id: hubspot!.id, name: `hubspot` }])
+    await owner.appAccess.setUpstreamMapping({ appId: w.appId, upstream: `crm`, serverId: null })
+    expect((await member.appAccess.appTools({ appId: w.appId })).upstreams[0]).toMatchObject({ serverId: null })
+    const audited = await db.select({ tool: mcpCalls.tool }).from(mcpCalls).where(eq(mcpCalls.appId, w.appId))
+    expect(audited.map((r) => r.tool)).toEqual(expect.arrayContaining([`upstream:crm=hubspot`, `upstream:crm=auto`]))
   })
 })

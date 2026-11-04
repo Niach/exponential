@@ -7,7 +7,7 @@
 import { afterAll, describe, expect, it } from "vitest"
 import { eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { devices, mcpDeviceCalls, mcpServers, teamMembers, teams } from "@/db/schema"
+import { appUpstreamBindings, apps, devices, mcpDeviceCalls, mcpServers, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { pushSeal } from "@/lib/push-seal"
 import { callOnDevice, claimDeviceCall, loadRoutedServer, pruneDeviceCalls, routeServer } from "@/lib/emcp/upstream/device-call"
@@ -59,9 +59,26 @@ afterAll(async () => {
 })
 
 describe.skipIf(!ready.ok)(`device-routed upstream calls (real db)`, () => {
+  it(`#VAPP-254: a mapping fills another name, wins over the exact name, and a removed server falls back`, async () => {
+    const w = await world()
+    const [app] = await db.insert(apps).values({ teamId: w.teamId, slug: `m-${id8()}`, name: `M`, createdBy: w.owner }).returning({ id: apps.id })
+    expect(await loadRoutedServer(w.teamId, `crm`, app!.id)).toBeNull()
+    await db.insert(appUpstreamBindings).values({ appId: app!.id, teamId: w.teamId, upstream: `crm`, serverId: w.serverId })
+    const mapped = await loadRoutedServer(w.teamId, `crm`, app!.id)
+    expect(mapped).toMatchObject({ id: w.serverId, name: `ha` })
+    expect(mapped?.device).toMatchObject({ ownerId: w.owner, label: `homelab` })
+    expect(routeServer(mapped!, w.other)).toMatchObject({ error: `deviceNotOwned` })
+    // Another app of the team is not mapped.
+    expect(await loadRoutedServer(w.teamId, `crm`, null)).toBeNull()
+    const [exact] = await db.insert(mcpServers).values({ teamId: w.teamId, name: `crm`, transport: `http`, url: `https://crm.example/mcp`, auth: `none` }).returning({ id: mcpServers.id })
+    expect(await loadRoutedServer(w.teamId, `crm`, app!.id)).toMatchObject({ id: w.serverId })
+    await db.delete(mcpServers).where(eq(mcpServers.id, w.serverId))
+    expect(await loadRoutedServer(w.teamId, `crm`, app!.id)).toMatchObject({ id: exact!.id })
+  })
+
   it(`routes the owner's call to their device, which claims it once and answers sealed`, async () => {
     const w = await world()
-    const server = await loadRoutedServer(w.teamId, `ha`)
+    const server = await loadRoutedServer(w.teamId, `ha`, null)
     expect(server?.device).toEqual({ id: w.deviceId, ownerId: w.owner, label: `homelab`, steerDeviceId: w.steerDeviceId })
     expect(routeServer(server!, w.owner)).toEqual({ route: `device`, deviceId: w.deviceId })
     expect(routeServer(server!, w.other)).toMatchObject({ error: `deviceNotOwned` })
@@ -100,7 +117,7 @@ describe.skipIf(!ready.ok)(`device-routed upstream calls (real db)`, () => {
 
   it(`an offline device reads as upstreamFailed with its label; a forged answer does not open`, async () => {
     const w = await world()
-    const server = (await loadRoutedServer(w.teamId, `ha`))!
+    const server = (await loadRoutedServer(w.teamId, `ha`, null))!
     const input = { userId: w.owner, server: server as never, tool: `t`, args: {}, veto: { kind: `call` as const, access: `read` } }
     expect(await callOnDevice(input, { relay: async () => ({ delivered: false, reason: `device_offline` }) })).toEqual({
       error: `upstreamFailed`,

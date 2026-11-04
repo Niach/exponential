@@ -50,6 +50,42 @@ export function missingUpstreams(
   return [...names].filter((name) => !upstreamCallable(states[name] ?? `disconnected`)).sort()
 }
 
+// VAPP-254: an app's per-app server mapping (`mapping` in the fixture: its
+// `$comment` is the spec).
+
+export const UPSTREAM_MAPPING = fixture.mapping
+
+export interface UpstreamServerRef {
+  id: string
+  name: string
+}
+
+export type UpstreamResolution<T> = { server: T; source: `mapped` | `name` }
+
+/** The team server filling a declared upstream: a binding on the team, else
+ *  the server of exactly that name, else null. */
+export function resolveUpstreamServer<T extends UpstreamServerRef>(upstream: string, bound: string | null, servers: readonly T[]): UpstreamResolution<T> | null {
+  const mapped = bound === null ? undefined : servers.find((s) => s.id === bound)
+  if (mapped) return { server: mapped, source: `mapped` }
+  const named = servers.find((s) => s.name === upstream)
+  return named ? { server: named, source: `name` } : null
+}
+
+export type UpstreamMappingWrite = { op: `set`; serverId: string } | { op: `clear` } | { error: string }
+
+/** What an owner's pick writes: the exact-name default keeps no row. */
+export function upstreamMappingWrite(upstream: string, serverId: string | null, servers: readonly UpstreamServerRef[]): UpstreamMappingWrite {
+  if (serverId === null) return { op: `clear` }
+  const server = servers.find((s) => s.id === serverId)
+  if (!server) return { error: UPSTREAM_ERRORS.missing }
+  return server.name === upstream ? { op: `clear` } : { op: `set`, serverId }
+}
+
+/** The audit row's `tool` for a mapping change. */
+export function upstreamMappingTool(upstream: string, server: string | null): string {
+  return `upstream:${upstream}=${server ?? `auto`}`.slice(0, 128)
+}
+
 // VAPP-230 (eApps M1): `upstream:<server>/<tool>?<args>` read bindings
 // (`binding` in the fixture: its `$comment` is the spec).
 

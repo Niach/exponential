@@ -84,6 +84,61 @@ pub fn missing_upstreams(
 }
 
 // ---------------------------------------------------------------------------
+// VAPP-254: an app's per-app server mapping (`mapping` in the fixture: its
+// `$comment` is the spec).
+// ---------------------------------------------------------------------------
+
+/// A team server as the mapping sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpstreamServerRef {
+    pub id: String,
+    pub name: String,
+}
+
+/// How a declared upstream found its server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpstreamSource {
+    Mapped,
+    Name,
+}
+
+/// The team server filling a declared upstream: a binding on the team, else
+/// the server of exactly that name, else none.
+pub fn resolve_upstream_server<'a>(
+    upstream: &str,
+    bound: Option<&str>,
+    servers: &'a [UpstreamServerRef],
+) -> Option<(&'a UpstreamServerRef, UpstreamSource)> {
+    if let Some(mapped) = bound.and_then(|id| servers.iter().find(|s| s.id == id)) {
+        return Some((mapped, UpstreamSource::Mapped));
+    }
+    servers.iter().find(|s| s.name == upstream).map(|s| (s, UpstreamSource::Name))
+}
+
+/// What an owner's pick writes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpstreamMappingWrite {
+    Set(String),
+    Clear,
+    Error(&'static str),
+}
+
+/// The exact-name default keeps no row.
+pub fn upstream_mapping_write(upstream: &str, server_id: Option<&str>, servers: &[UpstreamServerRef]) -> UpstreamMappingWrite {
+    let Some(id) = server_id else { return UpstreamMappingWrite::Clear };
+    match servers.iter().find(|s| s.id == id) {
+        None => UpstreamMappingWrite::Error(ERROR_MISSING),
+        Some(server) if server.name == upstream => UpstreamMappingWrite::Clear,
+        Some(_) => UpstreamMappingWrite::Set(id.to_string()),
+    }
+}
+
+/// The audit row's `tool` for a mapping change.
+pub fn upstream_mapping_tool(upstream: &str, server: Option<&str>) -> String {
+    format!("upstream:{upstream}={}", server.unwrap_or("auto")).chars().take(128).collect()
+}
+
+// ---------------------------------------------------------------------------
 // VAPP-230 (eApps M1): `upstream:<server>/<tool>?<args>` read bindings
 // (`binding` in the fixture: its `$comment` is the spec).
 // ---------------------------------------------------------------------------
