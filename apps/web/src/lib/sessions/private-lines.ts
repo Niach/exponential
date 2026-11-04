@@ -1,7 +1,7 @@
-import { eq, sql } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } from "@exp/domain-contract/chats"
-import { messages, type Event } from "@/db/schema"
+import type { Event } from "@/db/schema"
 import { TRIGGER_COPY } from "@/lib/agents/triggers"
 import { askHiddenText, privateText } from "@/lib/sessions/bus"
 import { clearCard, isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
@@ -19,6 +19,13 @@ import type { Tx } from "@/lib/sessions/tx"
 // new readers would get its key, so it too becomes the neutral line its
 // clear `kind` picks (a reply's otherwise) and its card keeps only the
 // clear part (no `sealed`).
+//
+// #EXP-1410: a firing is matched on its own card and the ids its own body
+// quotes, never through `events`: that row is pruned after 30 days while the
+// firing stays. Left alone on purpose: a private session's explicit
+// `sessions_send` into its owner's private conversation. The author chose to
+// write those words there and they reach the conversation as a message, not
+// as a bus copy of private work, so they stay in full after a move.
 
 interface Row extends Record<string, unknown> {
   id: string
@@ -32,9 +39,15 @@ interface Row extends Record<string, unknown> {
 interface Firing extends Record<string, unknown> {
   id: string
   body: string
-  name: string
-  emittedBy: Event[`emittedBy`]
-  payload: Record<string, unknown>
+  card: MessageCard | null
+  rootId: string | null
+  sessionId: string | null
+}
+
+/** Who a firing's line says emitted its event (`TRIGGER_COPY.event`). */
+function firingEmitter(body: string): Event[`emittedBy`] {
+  const head = body.split(`\n`, 1)[0] ?? ``
+  return head.includes(`(from a session)`) ? `session` : head.includes(`(from a person)`) ? `user` : `server`
 }
 
 function neutral(row: Row): { body: string; card: MessageCard | null } | null {
@@ -99,32 +112,38 @@ export async function hidePrivateLinesInTx(tx: Tx, rootIds: readonly string[]): 
     WHERE l.root_id IN (${roots}) AND mc.session_id <> m.author_session_id
       AND NOT o.shared AND (l.shared OR l.user_id <> o.user_id)
   `)
-  // A `session.ended` firing whose session is private (or gone) and
-  // hidden from the conversation's readers.
+  // A `session.ended` firing whose session is private (or gone) and hidden
+  // from the conversation's readers. Its ids come from its own body: the
+  // top-level keys sit on lines of their own, two spaces in (a nested or
+  // string value's never match: JSON escapes newlines and quotes).
+  const firedId = (key: string) => sql.raw(`substring(m.body from E'\\n  "${key}": "([0-9a-fA-F-]{36})"')`)
   const firings = await tx.execute<Firing>(sql`
-    SELECT m.id, m.body, e.name, e.emitted_by AS "emittedBy", e.payload
+    SELECT m.id, m.body, m.card, ${firedId(`rootId`)} AS "rootId", ${firedId(`sessionId`)} AS "sessionId"
     FROM messages m
     JOIN conversations mc ON mc.id = m.conversation_id
     JOIN sessions l ON l.id = mc.session_id
-    JOIN events e ON e.id::text = m.card->>'eventId'
-    LEFT JOIN sessions o ON o.id::text = e.payload->>'sessionId'
-    WHERE l.root_id IN (${roots}) AND m.card->>'event' = 'trigger_fired' AND e.name = 'session.ended'
+    LEFT JOIN sessions o ON o.id::text = ${firedId(`sessionId`)}
+    WHERE l.root_id IN (${roots}) AND m.card->>'event' = 'trigger_fired' AND m.card->>'name' = 'session.ended'
       AND (o.id IS NULL OR (NOT o.shared AND (l.shared OR l.user_id <> o.user_id)))
   `)
-  const now = new Date()
-  let changed = 0
+  const changes: { id: string; body: string; card: MessageCard | null }[] = []
   for (const row of lines.rows) {
     const next = neutral(row)
     if (!next || (next.body === row.body && JSON.stringify(next.card) === JSON.stringify(row.card))) continue
-    await tx.update(messages).set({ body: next.body, card: next.card, updatedAt: now }).where(eq(messages.id, row.id))
-    changed += 1
+    changes.push({ id: row.id, body: next.body, card: next.card })
   }
   for (const row of firings.rows) {
-    const payload = { rootId: row.payload.rootId ?? null, sessionId: row.payload.sessionId ?? null }
-    const body = TRIGGER_COPY.event({ name: row.name, emittedBy: row.emittedBy, payload })
-    if (body === row.body) continue
-    await tx.update(messages).set({ body, updatedAt: now }).where(eq(messages.id, row.id))
-    changed += 1
+    const payload = { rootId: row.rootId, sessionId: row.sessionId }
+    const body = TRIGGER_COPY.event({ name: `session.ended`, emittedBy: firingEmitter(row.body), payload })
+    if (body !== row.body) changes.push({ id: row.id, body, card: row.card })
   }
-  return changed
+  if (changes.length === 0) return 0
+  // One statement however long the conversation is (a JSON `null` card reads
+  // as SQL NULL, as the row had it).
+  await tx.execute(sql`
+    UPDATE messages m SET body = c.body, card = c.card, updated_at = ${new Date()}
+    FROM jsonb_to_recordset(${JSON.stringify(changes)}::jsonb) AS c(id uuid, body text, card jsonb)
+    WHERE m.id = c.id
+  `)
+  return changes.length
 }

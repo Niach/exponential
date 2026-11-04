@@ -314,6 +314,47 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     await inRollback(async (tx) => expect(await hidePrivateLinesInTx(tx, [conversation])).toBe(0))
   })
 
+  it(`#EXP-1410: a firing older than the event retention is still scrubbed, its ids read from its own body`, async () => {
+    const w = await world()
+    const agent = await w.agent(w.owner, w.ownerDev)
+    const thread = await w.thread(w.owner, w.ownerDev)
+    await endSession({ userId: w.owner, sessionId: thread })
+    const [event] = await endedEvents(thread)
+    const [fired] = await firings(agent.id)
+    expect(fired!.body).toContain(`xyz-123`)
+    // The retention pruned the row; the firing stays.
+    await db.delete(events).where(eq(events.id, event!.id))
+
+    await agentsRouter.createCaller(ctx(w.owner)).update({ id: agent.id, deviceId: w.teamDev })
+
+    const [after] = await firings(agent.id)
+    expect(after!.body).toBe(TRIGGER_COPY.event(event!))
+    expect(after!.body).not.toContain(`xyz-123`)
+    expect(after!.card).toEqual(fired!.card)
+    await inRollback(async (tx) => expect(await hidePrivateLinesInTx(tx, [after!.sessionId])).toBe(0))
+  })
+
+  it(`#EXP-1410: the owner's explicit send into the private conversation stays in full after the move`, async () => {
+    const w = await world()
+    const agent = await w.agent(w.owner, w.ownerDev)
+    const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent.id, text: `watch it` } }))
+      .sessionId
+    const thread = (
+      await sendSession({
+        userId: w.owner,
+        callerSessionId: conversation,
+        viaMcp: true,
+        input: { teamId: w.teamId, deviceId: w.ownerDev, text: `go` },
+      })
+    ).sessionId
+    await sendSession({ userId: w.owner, callerSessionId: thread, viaMcp: true, input: { sessionId: conversation, text: SECRET } })
+
+    await agentsRouter.createCaller(ctx(w.owner)).update({ id: agent.id, deviceId: w.teamDev })
+
+    const kept = await db.select().from(messages).where(eq(messages.rootId, conversation))
+    expect(kept.some((m) => m.body === SECRET && m.authorSessionId === thread)).toBe(true)
+  })
+
   it(`#FEED-177: a move from a shared device to a private one drops the teammates' tree-key wraps`, async () => {
     const w = await world()
     const agent = await w.agent(w.owner, w.teamDev, [])
