@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
 import { accountRow, automationSponsor, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
-import { screenParamsFromQuery, screenPath, screenShell } from "./apps"
+import { screenParamsFromQuery, screenPath, screenShell, surfaceState } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -34,6 +34,9 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.webhookRowCases.cases)(`webhookRow (#VAPP-238) $name`, (c) => {
     expect(webhookRow(c.row, c.isOwner)).toEqual(c.expected as never)
+  })
+  test.each(fixture.surfaceStateCases)(`surfaceState (#VAPP-251) $name`, (c) => {
+    expect(surfaceState(c.hasPackage, c.applied, c.hasSurface)).toBe(c.state as never)
   })
   test.each(fixture.sortAppsCases)(`sortApps %j`, (c) => {
     expect(sortApps(c.apps).map((a) => a.slug)).toEqual(c.order)

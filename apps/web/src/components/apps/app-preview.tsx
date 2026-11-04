@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, type ComponentType } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
+import type { LucideIcon } from "lucide-react"
 import { useRouter } from "@tanstack/react-router"
 import { DEFAULT_THEME_ID, navScreens, resolveScreen, screenData, type AppPackage, type ResolvedScreen } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
-import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, screenShell } from "@exp/domain-contract/apps"
+import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, screenShell, surfaceState } from "@exp/domain-contract/apps"
 import { appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
+import { AppSurfaceBoundary } from "@/components/apps/app-surface-boundary"
 import { ConsentCard, HostBanner, createAppHost, createConsentGate, type AppHostOptions } from "@/lib/exponential-ui-host"
 import type { ScreenRequest } from "@/lib/app-screens"
 
@@ -22,6 +24,8 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 // (apps.json `screens`): the sidebar rows on a wide frame, the phone tab
 // bar on a phone or the Phone frame; the shown screen's template opens with
 // its params (`screenData`), and `app.navigate` asks the editor for another.
+// #VAPP-251: a package the host refuses, or any throw in here, = the frame
+// with `copy.needsUpdate` alone (`AppSurfaceBoundary`).
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const PlaceholderIcon = conceptIcon(`ui-icon-placeholder`)
@@ -63,6 +67,7 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
   )
   // VAPP-221: a FileUpload's bytes go to the app host (apps.json `appFiles`).
   const plugin = useMemo(() => ({ icons: exponentialUiIcons, onUpload: (files: File[], target: { name: string }) => host.upload(files, target) }), [host])
+  const [appliedHost, setAppliedHost] = useState<typeof host | null>(null)
   useEffect(() => {
     if (templateId) {
       host.receive({
@@ -70,10 +75,14 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
         applyTemplate: { surfaceId: APPS_PREVIEW.surfaceId, templateId, packageId: pkg.id, ...(screen ? { data: screenData(screen) } : {}) },
       })
     }
+    setAppliedHost(host)
     return () => host.close()
     // The surface's key holds the screen: a new one = a fresh host.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, pkg.id, templateId])
+  // #VAPP-251: applied and no surface = refused, as a throw for the boundary.
+  const hasSurface = useSyncExternalStore(useCallback((cb: () => void) => host.subscribe(cb), [host]), () => host.surface(APPS_PREVIEW.surfaceId) !== undefined)
+  if (surfaceState(true, appliedHost === host, hasSurface) === `needsUpdate`) throw new Error(`the template ${templateId} of ${pkg.id} made no surface: ${host.issues.map((i) => i.message).join(`; `)}`)
   return (
     <>
       <HostBanner host={host} />
@@ -91,24 +100,22 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
   )
 }
 
-export function AppPreview({
-  pkg,
-  template = null,
-  frame = `desktop`,
-  mode = `dark`,
-  className,
-  appId = null,
-  teamId = null,
-  me = null,
-  grantedTools = [],
-  runAs = null,
-  readOnly = false,
-  migrateFrom = null,
-  phone = false,
-  screen = null,
-  onScreen,
-  variant = `frame`,
-}: {
+/** The frame's classes and the outer centring (the run view has neither
+ *  border nor radius; the Phone frame is `phoneWidth` px, centred). */
+function previewFrame(variant: `frame` | `run`, frame: `desktop` | `phone`, className: string | undefined) {
+  const run = variant === `run`
+  return {
+    frameClass: `relative min-h-0 bg-background ${run ? `` : `rounded-[12px] border border-border`} ${frame === `desktop` ? `flex-1 ${className ?? ``}` : `shrink-0`}`,
+    frameStyle: {
+      ...(run ? {} : { borderRadius: APPS_PREVIEW.radius }),
+      ...(frame === `phone` ? { width: APPS_PREVIEW.phoneWidth, maxWidth: `100%` } : {}),
+    },
+    testId: run ? APPS_TEST_IDS.run : APPS_TEST_IDS.preview,
+    outer: (surface: ReactNode) => (frame === `desktop` ? surface : <div className={`flex min-h-0 flex-1 justify-center ${className ?? ``}`}>{surface}</div>),
+  }
+}
+
+type AppPreviewProps = {
   pkg: Record<string, unknown> | null
   /** VAPP-179: the picked template (null or missing = the first by id). */
   template?: string | null
@@ -140,7 +147,46 @@ export function AppPreview({
   /** VAPP-242 (apps.json THE RUN VIEW): `run` = the same surface edge to
    *  edge (no frame border or radius), the run view's full screen. */
   variant?: `frame` | `run`
-}) {
+  /** #VAPP-251: the app's glyph (`copy.needsUpdate`). */
+  glyph?: LucideIcon
+}
+
+export function AppPreview(props: AppPreviewProps) {
+  const { pkg, template = null, screen = null, frame = `desktop`, variant = `frame`, className, glyph = NavAppsIcon } = props
+  const resetKey = useMemo(() => JSON.stringify([pkg, template, screen]), [pkg, template, screen])
+  const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className)
+  return (
+    <AppSurfaceBoundary
+      resetKey={resetKey}
+      fallback={outer(
+        <div className={`${frameClass} flex items-center justify-center`} style={frameStyle} data-testid={testId}>
+          <EmptyState icon={glyph} title={APPS_COPY.needsUpdate} size="page" />
+        </div>
+      )}
+    >
+      <AppPreviewBody {...props} />
+    </AppSurfaceBoundary>
+  )
+}
+
+function AppPreviewBody({
+  pkg,
+  template = null,
+  frame = `desktop`,
+  mode = `dark`,
+  className,
+  appId = null,
+  teamId = null,
+  me = null,
+  grantedTools = [],
+  runAs = null,
+  readOnly = false,
+  migrateFrom = null,
+  phone = false,
+  screen = null,
+  onScreen,
+  variant = `frame`,
+}: AppPreviewProps) {
   // VAPP-218: with screens the shown one picks the template (the Select is hidden).
   // #EXP-1674: the shell paints the navigation's; `nav: false` opens by link.
   const screens = useMemo(() => (pkg ? navScreens(pkg) : []), [pkg])
@@ -170,13 +216,7 @@ export function AppPreview({
     </div>
   )
   const open = (id: string) => onScreen?.({ screen: id, params: {} })
-  const run = variant === `run`
-  const frameClass = `relative min-h-0 bg-background ${run ? `` : `rounded-[12px] border border-border`} ${frame === `desktop` ? `flex-1 ${className ?? ``}` : `shrink-0`}`
-  const frameStyle = {
-    ...(run ? {} : { borderRadius: APPS_PREVIEW.radius }),
-    ...(frame === `phone` ? { width: APPS_PREVIEW.phoneWidth, maxWidth: `100%` } : {}),
-  }
-  const testId = run ? APPS_TEST_IDS.run : APPS_TEST_IDS.preview
+  const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className)
   const surface = !shell || !resolved ? (
     <div className={`${frameClass} overflow-y-auto`} style={{ ...frameStyle, padding: APPS_PREVIEW.padding }} data-testid={testId}>
       {content}
@@ -215,6 +255,5 @@ export function AppPreview({
       </div>
     </div>
   )
-  if (frame === `desktop`) return surface
-  return <div className={`flex min-h-0 flex-1 justify-center ${className ?? ``}`}>{surface}</div>
+  return outer(surface)
 }

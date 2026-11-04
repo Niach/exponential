@@ -92,6 +92,7 @@ export function AppRunView({
       me={me}
       grantedTools={app.row?.grantedTools ?? []}
       readOnly={access === `read`}
+      glyph={getActionIcon({ icon: app.icon })}
     />
   ) : (
     <div className="flex min-h-0 flex-1 items-center justify-center" data-testid={APPS_TEST_IDS.run}>

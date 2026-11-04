@@ -205,6 +205,15 @@ export function previewTemplate(pkg: { templates?: Record<string, unknown> } | n
   return picked !== null && list.includes(picked) ? picked : (list[0] ?? null)
 }
 
+/** #VAPP-251 (`surfaceStateCases`): what an app's pane shows: nothing to run,
+ *  the surface, or once the host had its chance and holds no surface (it
+ *  refused the package), `copy.needsUpdate`. */
+export type AppSurfaceState = `empty` | `surface` | `needsUpdate`
+export function surfaceState(hasPackage: boolean, applied: boolean, hasSurface: boolean): AppSurfaceState {
+  if (!hasPackage) return `empty`
+  return applied && !hasSurface ? `needsUpdate` : `surface`
+}
+
 /** VAPP-198: one Run as option (`value` "" = me). */
 export interface RunAsOption {
   value: string

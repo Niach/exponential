@@ -56,6 +56,7 @@ final class AppsTests: XCTestCase {
             "recordsOne": Apps.Copy.recordsOne, "recordsOf": Apps.Copy.recordsOf,
             "recordsNone": Apps.Copy.recordsNone, "preview": Apps.Copy.preview,
             "runEmpty": Apps.Copy.runEmpty,
+            "needsUpdate": Apps.Copy.needsUpdate,
         ]
         // Every string key of `copy`, both ways.
         let strings = copy.compactMapValues { $0 as? String }
@@ -405,6 +406,17 @@ final class AppsTests: XCTestCase {
         let screens = try XCTUnwrap(try fixture()["screens"] as? [String: Any])
         XCTAssertEqual(screens["sidebarWidth"] as? Double, Apps.ScreenSpec.sidebarWidth)
         XCTAssertEqual(screens["reserved"] as? [String], Apps.ScreenSpec.reserved)
+    }
+
+    func testSurfaceStateCases() throws {
+        for item in try cases("surfaceStateCases") {
+            let got = Apps.surfaceState(
+                hasPackage: try XCTUnwrap(item["hasPackage"] as? Bool),
+                applied: try XCTUnwrap(item["applied"] as? Bool),
+                hasSurface: try XCTUnwrap(item["hasSurface"] as? Bool)
+            )
+            XCTAssertEqual(got.rawValue, item["state"] as? String, "\(item["name"] ?? "")")
+        }
     }
 
     func testScreenShellCases() throws {

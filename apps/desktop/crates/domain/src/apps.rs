@@ -74,6 +74,7 @@ pub struct AppsCopy {
     pub preview_empty: String,
     /// VAPP-242: THE RUN VIEW of an app never published (page-size EmptyState).
     pub run_empty: String,
+    pub needs_update: String,
     /// VAPP-176: the versions drawer with no version yet.
     pub versions_empty: String,
     pub composer_placeholder: String,
@@ -598,6 +599,26 @@ pub fn viewing_label(number: i64) -> String {
 }
 
 /// `Restored v{n} as v{m}` (the restore toast).
+/// #VAPP-251 (fixture `surfaceStateCases`): what an app's pane shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceState {
+    Empty,
+    Surface,
+    NeedsUpdate,
+}
+
+/// Nothing to run, the surface, or once the host had its chance and holds no
+/// surface (it refused the package), `copy.needsUpdate`.
+pub fn surface_state(has_package: bool, applied: bool, has_surface: bool) -> SurfaceState {
+    if !has_package {
+        SurfaceState::Empty
+    } else if applied && !has_surface {
+        SurfaceState::NeedsUpdate
+    } else {
+        SurfaceState::Surface
+    }
+}
+
 /// eApps V1 (#VAPP-210, fixture `publishCases`): an app's two pointers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppVersions {
@@ -1121,6 +1142,7 @@ mod tests {
         assert_eq!(APPS.test_ids.run, "app-run");
         assert_eq!(APPS.test_ids.new_menu, "apps-new-menu");
         assert_eq!(APPS.copy.run_empty, "Not published yet");
+        assert_eq!(APPS.copy.needs_update, "This app needs an update");
         assert_eq!(APPS.copy.menu.edit, "Edit app");
     }
 
@@ -1377,6 +1399,19 @@ mod tests {
             let order: Vec<&str> = rows.iter().map(|r| r.slug.as_str()).collect();
             let want: Vec<&str> = case["order"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
             assert_eq!(order, want);
+        }
+    }
+
+    #[test]
+    fn surface_state_replays_the_fixture() {
+        for case in cases("surfaceStateCases") {
+            let got = surface_state(case["hasPackage"].as_bool().unwrap(), case["applied"].as_bool().unwrap(), case["hasSurface"].as_bool().unwrap());
+            let expected = match case["state"].as_str().unwrap() {
+                "empty" => SurfaceState::Empty,
+                "surface" => SurfaceState::Surface,
+                _ => SurfaceState::NeedsUpdate,
+            };
+            assert_eq!(got, expected, "{}", case["name"]);
         }
     }
 

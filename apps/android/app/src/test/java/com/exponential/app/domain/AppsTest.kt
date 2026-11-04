@@ -57,6 +57,20 @@ class AppsTest {
 
     // eApps V1 (#VAPP-210): shownVersion, canPublish, grantVersion, listPill
     // and versionRow replay `publishCases`.
+    // #VAPP-251: `surfaceStateCases` sit right before it.
+    @Test
+    fun `surfaceStateCases replay`() {
+        for (case in fixture["surfaceStateCases"]!!.jsonArray.map { it.jsonObject }) {
+            val flag = { key: String -> case[key]!!.jsonPrimitive.content.toBooleanStrict() }
+            val expected = when (case["state"]!!.jsonPrimitive.content) {
+                "empty" -> Apps.SurfaceState.Empty
+                "surface" -> Apps.SurfaceState.Surface
+                else -> Apps.SurfaceState.NeedsUpdate
+            }
+            assertEquals(case["name"].toString(), expected, Apps.surfaceState(flag("hasPackage"), flag("applied"), flag("hasSurface")))
+        }
+    }
+
     @Test
     fun `publishCases replay`() {
         val cases = fixture["publishCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
@@ -284,6 +298,7 @@ class AppsTest {
             menu["delete"]!!.jsonPrimitive.content to Apps.Copy.MENU_DELETE,
             menu["edit"]!!.jsonPrimitive.content to Apps.Copy.MENU_EDIT,
             c("runEmpty") to Apps.Copy.RUN_EMPTY,
+            c("needsUpdate") to Apps.Copy.NEEDS_UPDATE,
             tabs["chat"]!!.jsonPrimitive.content to Apps.Copy.TAB_CHAT,
             tabs["preview"]!!.jsonPrimitive.content to Apps.Copy.TAB_PREVIEW,
             tabs["data"]!!.jsonPrimitive.content to Apps.Copy.TAB_DATA,

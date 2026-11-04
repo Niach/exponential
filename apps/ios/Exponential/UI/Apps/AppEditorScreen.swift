@@ -471,7 +471,7 @@ struct AppEditorScreen: View {
                 }
                 // A grant is about the version it was made on (`grantVersion`):
                 // any other previews asking for everything.
-                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions), readOnly: access == "read", migrateFrom: migrateFrom(app, shown: number), screen: $screenRequest)
+                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions), readOnly: access == "read", migrateFrom: migrateFrom(app, shown: number), screen: $screenRequest, glyph: app.glyph)
             }
             .padding(16)
         }

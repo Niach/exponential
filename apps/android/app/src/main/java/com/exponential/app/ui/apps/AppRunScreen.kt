@@ -125,6 +125,7 @@ fun AppRunScreen(
                     else -> key(pkg) {
                         AppPackageSurface(
                             packageJson = pkg,
+                            appIcon = entry.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.navApps,
                             onOpenTeamSettings = onOpenTeamSettings,
                             appId = viewModel.appId,
                             teamId = entry.teamId,

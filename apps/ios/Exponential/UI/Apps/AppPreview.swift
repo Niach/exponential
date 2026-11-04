@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import OSLog
 import SwiftUI
 #if canImport(ExponentialUI)
 import ExponentialUI
@@ -21,6 +22,10 @@ import ExponentialUI
 /// first); a tab tap requests that screen with its own params, the
 /// package's `app.navigate` the call's screen + params (in memory). A new
 /// screen = a fresh surface opening its template with `{params}`.
+///
+/// #VAPP-251 (apps.json A PACKAGE THAT NO LONGER VALIDATES): a package the
+/// host refuses (`Apps.surfaceState`) = the page-size `copy.needsUpdate` alone,
+/// centred, without the bar; a republished package (a new key) tries again.
 struct AppPreview: View {
     /// The package's JSON text; nil = no version yet.
     let packageJSON: String?
@@ -47,6 +52,10 @@ struct AppPreview: View {
     /// VAPP-242: the run view's empty state (`copy.runEmpty`, the app's glyph).
     var emptyTitle = Apps.Copy.previewEmpty
     var emptyIcon = AppIcons.navApps
+    /// #VAPP-251: the app's glyph on `copy.needsUpdate`.
+    var glyph = AppIcons.navApps
+    /// #VAPP-251: the surface key the host refused (a new key = a new try).
+    @State private var refusedKey: String?
     /// The scroller's visible height: the surface's viewport, what its
     /// Dialogs and Drawers size against (`setViewport`); the surface itself
     /// is as tall as its content.
@@ -55,7 +64,12 @@ struct AppPreview: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: framed ? Apps.Preview.radius : 0)
         let screens = AppPreviewScreens(packageJSON: packageJSON, request: screen.wrappedValue)
+        let surfaceKey = "\(grants):\(readOnly):\(migrateFrom ?? ""):\(screens.shownKey):\(packageJSON ?? "")"
         VStack(spacing: 0) {
+            if refusedKey == surfaceKey {
+                EmptyState(title: Apps.Copy.needsUpdate, icon: glyph, size: .page)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
             ScrollView {
                 Group {
                     if let packageJSON {
@@ -63,9 +77,10 @@ struct AppPreview: View {
                             packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly,
                             migrateFrom: migrateFrom, shown: screens.shown,
                             viewportHeight: max(0, visibleHeight - Apps.Preview.padding * 2),
-                            onNavigate: { request in screen.wrappedValue = request }
+                            onNavigate: { request in screen.wrappedValue = request },
+                            onRefused: { refusedKey = surfaceKey }
                         )
-                        .id("\(grants):\(readOnly):\(migrateFrom ?? ""):\(screens.shownKey):\(packageJSON)")
+                        .id(surfaceKey)
                     } else {
                         EmptyState(title: emptyTitle, icon: emptyIcon, size: .page)
                             .frame(maxWidth: .infinity, minHeight: 192)
@@ -97,6 +112,7 @@ struct AppPreview: View {
                 .padding(.bottom, Apps.Preview.padding)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(Apps.TestIds.previewScreens)
+            }
             }
         }
         .background(framed ? GlassTokens.backgroundTop : Color.clear, in: shape)
@@ -165,6 +181,8 @@ private struct AppPackageSurface: View {
     let viewportHeight: CGFloat
     /// VAPP-218: the package's `app.navigate` (the request it names).
     let onNavigate: (Apps.ScreenRequest) -> Void
+    /// #VAPP-251: the host holds no surface after the apply.
+    let onRefused: () -> Void
 
     #if canImport(ExponentialUI)
     @Environment(AppDependencies.self) private var deps
@@ -261,6 +279,12 @@ private struct AppPackageSurface: View {
             host.apply(surfaceId: Apps.Preview.surfaceId, packageId: packageId, templateId: templateId)
         }
         appHost = host
+        if Apps.surfaceState(hasPackage: true, applied: true, hasSurface: host.host.surface(Apps.Preview.surfaceId) != nil) == .needsUpdate {
+            // The validator's words stay in the log, never on screen.
+            let issues = host.host.installPackage(packageJSON).map(\.json).joined(separator: "; ")
+            Logger(subsystem: "at.exponential", category: "apps").error("app \(appId ?? "?", privacy: .public) paints nothing: \(issues, privacy: .public)")
+            onRefused()
+        }
     }
     #else
     var body: some View { EmptyView() }
