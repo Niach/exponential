@@ -435,7 +435,9 @@ fn an_image_seed_publishes_exactly_one_user_row() {
     // manifest line carries the URL — deterministic, and still a spelling
     // that differs from the announce).
     let stdin = std::fs::read_to_string(harness.work.join("stdin.jsonl")).unwrap_or_default();
-    assert!(stdin.contains("Image #1: "), "the agent got the manifest: {stdin}");
+    // The recorded replay is that text byte for byte (#EXP-1682's id tail too).
+    let manifest = format!("Image #1: ![image](/api/attachments/{attachment}) (attachment {attachment})");
+    assert!(stdin.contains(&manifest), "the agent got the manifest: {stdin}");
     // Let the flush tick publish anything the replay coalesced.
     std::thread::sleep(Duration::from_millis(600));
 

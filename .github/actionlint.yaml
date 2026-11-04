@@ -3,6 +3,8 @@ self-hosted-runner:
   labels:
     # GitHub's custom macOS 27 + Xcode 27 image (build-ios.yml).
     - xcode-27
+    # GitHub's image, newer than this actionlint (test.yml's `desktop-scope`).
+    - ubuntu-26.04
     # Our own runners, picked by pick-runner.yml (.github/runners/README.md).
     - exp-linux
     - exp-mac

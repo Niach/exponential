@@ -575,6 +575,41 @@ impl AppDetailPane {
             .child(group)
     }
 
+    /// #VAPP-243 (apps.json `policyRowCases`): the Record access group, one
+    /// read-only row per declared kind of the running package (its
+    /// effective policy as the caption); `None` when it declares no kinds.
+    fn policies_group(&self, row: &AppRow, cx: &mut gpui::Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
+        let package = row.package.as_ref().filter(|p| p.is_object()).or(row.draft_package.as_ref());
+        let records = package.and_then(|p| p.get("records"));
+        let kinds = domain::apps::policy_kinds(records);
+        if kinds.is_empty() {
+            return None;
+        }
+        let muted = cx.theme().muted_foreground;
+        let mono = cx.theme().mono_font_family.clone();
+        let rows = kinds
+            .into_iter()
+            .map(|kind| {
+                let policy = eui_core::host::record_policy(records.and_then(|r| r.get(&kind)));
+                let caption = domain::apps::policy_caption([policy.read, policy.create, policy.update, policy.delete]);
+                crate::surface::glass_row_shell().child(
+                    v_flex()
+                        .id(SharedString::from(format!("{}-{}", APPS.test_ids.policy_row, kind)))
+                        .min_w_0()
+                        .child(div().text_sm().font_family(mono.clone()).truncate().child(kind.clone()))
+                        .child(div().text_xs().text_color(muted).truncate().child(caption)),
+                )
+            })
+            .collect::<Vec<_>>();
+        Some(
+            v_flex()
+                .id(SharedString::from(APPS.test_ids.policies.clone()))
+                .gap_1()
+                .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(APPS.copy.policies.title.clone()))
+                .child(crate::surface::glass_group_rows(rows)),
+        )
+    }
+
     /// The identity row: icon and colour save at once.
     fn identity_row(&self, row: &AppRow, manage: bool, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
         let icon = row.icon.clone().unwrap_or_else(|| DEFAULT_ICON.to_string());
@@ -708,6 +743,7 @@ impl Render for AppDetailPane {
                         .text_color(cx.theme().muted_foreground)
                         .child(domain::app_records::records_count_label(count, self.records_max)),
                 )
+                .children(self.policies_group(row, cx))
                 .child(self.tools_group(row, manage, cx))
             })
             // VAPP-183: Accounts + MCP tools, each hidden when empty.

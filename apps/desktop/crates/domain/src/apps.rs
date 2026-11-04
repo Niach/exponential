@@ -111,6 +111,17 @@ pub struct AppsCopy {
     pub automations: AppsAutomationsCopy,
     /// #VAPP-238: the Settings tab's Webhooks group.
     pub webhooks: AppsWebhooksCopy,
+    /// #VAPP-243: the Settings tab's Record access group.
+    pub policies: AppsPoliciesCopy,
+}
+
+/// #VAPP-243: `copy.policies.*` (`policyRowCases`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsPoliciesCopy {
+    pub title: String,
+    pub ops: std::collections::BTreeMap<String, String>,
+    pub levels: std::collections::BTreeMap<String, String>,
 }
 
 /// #VAPP-238: `copy.webhooks.*`.
@@ -332,6 +343,9 @@ pub struct AppsTestIds {
     pub webhooks: String,
     pub webhook_row: String,
     pub webhook_secret: String,
+    /// #VAPP-243: the Record access group and one row.
+    pub policies: String,
+    pub policy_row: String,
     /// VAPP-178: the Data tab.
     pub data: String,
     /// VAPP-179: the preview toolbar, its frame control and template picker.
@@ -834,6 +848,32 @@ pub fn webhook_row(has_secret: bool, is_owner: bool) -> WebhookRowView {
     WebhookRowView { status, label: label.clone(), action, action_label }
 }
 
+/// #VAPP-243 (`policyRowCases`): the record-policy ops in order.
+pub const POLICY_OPS: [&str; 4] = ["read", "create", "update", "delete"];
+
+/// #VAPP-243: a kind's EFFECTIVE policy (`levels` = the level of each of
+/// [`POLICY_OPS`], in order) as the Record access row's caption.
+pub fn policy_caption(levels: [&str; 4]) -> String {
+    let copy = &APPS.copy.policies;
+    POLICY_OPS
+        .iter()
+        .zip(levels)
+        .map(|(op, level)| {
+            let op = copy.ops.get(*op).map(String::as_str).unwrap_or(op);
+            let level = copy.levels.get(level).map(String::as_str).unwrap_or(level);
+            format!("{op}: {level}")
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// #VAPP-243: the declared kinds of a package's `records`, code-point order.
+pub fn policy_kinds(records: Option<&serde_json::Value>) -> Vec<String> {
+    let mut kinds: Vec<String> = records.and_then(|r| r.as_object()).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    kinds.sort();
+    kinds
+}
+
 /// `Delete {name}?`.
 pub fn delete_title(name: &str) -> String {
     APPS.copy.delete_title.replace("{name}", name)
@@ -1228,6 +1268,21 @@ mod tests {
         assert_eq!(APPS.test_ids.webhooks, fixture["testIds"]["webhooks"].as_str().unwrap());
         assert_eq!(APPS.test_ids.webhook_row, fixture["testIds"]["webhookRow"].as_str().unwrap());
         assert_eq!(APPS.test_ids.webhook_secret, fixture["testIds"]["webhookSecret"].as_str().unwrap());
+    }
+
+    #[test]
+    fn policy_row_cases_replay() {
+        let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).unwrap();
+        let all = fixture["policyRowCases"]["cases"].as_array().unwrap();
+        assert!(!all.is_empty());
+        for case in all {
+            let name = case["name"].as_str().unwrap();
+            let levels = POLICY_OPS.map(|op| case["policy"][op].as_str().unwrap());
+            assert_eq!(policy_caption(levels), case["expected"].as_str().unwrap(), "{name}");
+        }
+        assert_eq!(APPS.test_ids.policies, fixture["testIds"]["policies"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.policy_row, fixture["testIds"]["policyRow"].as_str().unwrap());
+        assert_eq!(policy_kinds(Some(&serde_json::json!({"note": {}, "entry": {}}))), vec!["entry", "note"]);
     }
 
     #[test]
