@@ -261,6 +261,41 @@ async function openPr(teamId: string, rootSessionId: string, actorUserId: string
   })
 }
 
+describe.skipIf(!ready.ok)(`#FEED-194: turn replies and team agents`, () => {
+  it(`the agent that started a thread wakes on each turn; another agent that only watches it does not`, async () => {
+    const w = await world()
+    const starter = await w.agent(w.owner, w.ownerDev)
+    const other = await w.agent(w.owner, w.ownerDev)
+    const conversationOf = async (agentId: string) =>
+      (await sendSession({ userId: w.owner, input: { agentId, text: `hello` } })).sessionId
+    const starting = await conversationOf(starter.id)
+    const watching = await conversationOf(other.id)
+    const thread = (
+      await sendSession({
+        userId: w.owner,
+        callerSessionId: starting,
+        viaMcp: true,
+        input: { teamId: w.teamId, deviceId: w.ownerDev, text: `Make the PDF` },
+      })
+    ).sessionId
+    expect((await row(thread)).startedByAgentId).toBe(starter.id)
+    await sendSession({ userId: w.owner, callerSessionId: watching, viaMcp: true, input: { wakeOn: [thread] } })
+    expect((await row(watching)).wakeOn).toContain(thread)
+
+    const host = sessionsRouter.createCaller(ctx(w.owner))
+    await host.claim({ sessionId: thread, deviceId: w.ownerDev })
+    await host.reply({ sessionId: thread, body: `The PDF is done.` })
+
+    const turnsIn = (sessionId: string) =>
+      db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.rootId, sessionId), eq(messages.authorSessionId, thread), sql`${messages.card} IS NULL`))
+    expect(await turnsIn(starting)).toMatchObject([{ authorKind: `agent`, body: `The PDF is done.`, consumedAt: null }])
+    expect(await turnsIn(watching)).toEqual([])
+  })
+})
+
 describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to a shared one`, () => {
   it(`its conversations' private lines go neutral inside the move; the owner's own words stay`, async () => {
     const w = await world()
@@ -295,8 +330,11 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     const after = await inConversation()
     expect(JSON.stringify(after)).not.toContain(`xyz-123`)
     const from = after.filter((m) => m.authorSessionId === thread)
-    // S-3: an agent conversation watching a thread hears no turn relay.
-    expect(from.find((m) => m.card === null && m.authorKind === `agent`)).toBeUndefined()
+    // #FEED-194: the agent that started the thread heard its turn; the move
+    // made that line neutral too.
+    expect(from.find((m) => m.card === null && m.authorKind === `agent`)!.body).toBe(
+      privateText({ id: thread }, PRIVATE_REPLY_LEAD)
+    )
     expect(from.find((m) => (m.card as { kind?: string } | null)?.kind === `report`)!.body).toBe(
       privateText({ id: thread }, PRIVATE_REPORT_LEAD)
     )
