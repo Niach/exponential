@@ -2630,10 +2630,10 @@ describe(`exponential_sessions_send stop / sessions_end`, () => {
   })
 
   it(`#FEED-192: exponential_sessions_end still ends when an encrypted chat drops its plain summary, and says so`, async () => {
+    dbRows.current = [callerRow()]
     sessionsCore.endSession.mockResolvedValue({ txid: 1, endedIds: [SESSION], summaryDropped: true })
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_end`)!({ summary: `Done` })
-    expect(result.isError).toBeFalsy()
-    expect(result.structuredContent).toMatchObject({ ok: true, warning: `summary dropped` })
+    expect(parseOk(result)).toEqual({ ok: true, id: SESSION, warning: `summary dropped` })
   })
 
   it(`ends the caller's own session with its summary by default`, async () => {
