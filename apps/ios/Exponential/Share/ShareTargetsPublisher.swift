@@ -20,7 +20,7 @@ final class ShareTargetsPublisher {
     private static let throttle: Duration = .seconds(5)
     /// Recent chats mirrored: more than the sheet's cap, so a chat that
     /// leaves the donation still resolves.
-    private static let chatLimit = 12
+    nonisolated private static let chatLimit = 12
 
     private let auth: AuthRepository
     private let db: DatabaseManager
