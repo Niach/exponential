@@ -22,10 +22,11 @@
 //!   fresh key as `seal`; an app's brief composed in).
 //!
 //! EXP-1472: content that cannot be sealed is NEVER sent in clear while
-//! this process has a key holder: the call fails with the reason (another
-//! tree without a key yet is first waited for, `sealing::SEND_KEY_WAIT`).
-//! Only a process without one (eNet off, signed out) sends as given, and
-//! the server refuses that for a keyed tree.
+//! this process has a key holder: the call fails with the reason. #FEED-188:
+//! another tree without a key yet takes one from this install; only a tree
+//! it may not key (not a reader) and no claim keyed meanwhile
+//! (`sealing::SEND_KEY_WAIT`) goes as given, like a process without a holder
+//! (eNet off, signed out). The server refuses both for a keyed tree.
 //!
 //! OPEN (every result): body envelopes, card envelopes and sealed titles
 //! anywhere in the result's JSON are opened; what this install cannot open
@@ -73,8 +74,8 @@ impl SealingTransform {
         sealing::root_of(session_id)
     }
 
-    /// A body for `root`: the own tree may create its key, another tree is
-    /// sealed with its current key only.
+    /// A body for `root`: its current key, else one this install creates
+    /// (#FEED-188; another tree it may not key = `SealError::NotReader`).
     fn seal_text(&self, root: &str, text: &str) -> Result<String, SealError> {
         if root == self.root_id {
             sealing::seal_body(root, text)
@@ -742,12 +743,13 @@ struct EscalateTarget {
 }
 
 /// EXP-1472: what to do with content that could not be sealed. Without a
-/// key holder in this process it goes as given (`Ok`: plaintext stays legal
-/// in a keyless tree, the server refuses it in a keyed one); otherwise the
-/// call fails with the reason and nothing is sent.
+/// key holder in this process, or (#FEED-188) into a keyless tree this
+/// install may not key, it goes as given (`Ok`: plaintext stays legal in a
+/// keyless tree, the server refuses it in a keyed one); otherwise the call
+/// fails with the reason and nothing is sent.
 fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
     match err {
-        SealError::NoService => Ok(()),
+        SealError::NoService | SealError::NotReader => Ok(()),
         err => Err(refused(what, err)),
     }
 }
@@ -2001,21 +2003,44 @@ mod tests {
         sealing::uninstall();
     }
 
+    /// #FEED-188: an idle thread older than sealing is only keyed at a
+    /// claim, and the send is what would wake its device: the sender keys it.
     #[test]
-    fn a_send_into_a_keyless_tree_waits_for_its_key_and_never_goes_out_plaintext() {
+    fn a_send_into_a_keyless_tree_keys_it_and_never_goes_out_plaintext() {
         let _serial = serial();
         let fake = install_fake();
-        sealing::set_send_key_wait(std::time::Duration::from_millis(800));
         fake.roots.lock().unwrap().insert("s-a".into(), "root-a".into());
         let answer: Answer = Arc::new(|_, _| json!({ "sessionId": "s-a", "messageId": "m", "status": "running", "deliverTo": null }));
         let server = fake_server(answer, json!({}));
         let grant = gateway(&server, "s-own", "root-own");
 
-        // Nobody keys root-a: the call fails and nothing reaches the server.
+        call(&grant, SEND_TOOL, json!({ "sessionId": "s-a", "text": "PONG-7731" }));
+        assert_eq!(*fake.created.lock().unwrap(), vec!["root-a".to_string()]);
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        let opened = enet_core::sealed::open_body(sent["text"].as_str().unwrap(), &|epoch| fake.keyring.secret("root-a", epoch));
+        assert_eq!(opened.text.as_deref(), Some("PONG-7731"));
+
+        codemode::revoke("s-own");
+        sealing::uninstall();
+    }
+
+    /// A keyless tree this install may not key (not a reader): a claim's key
+    /// is waited for, then plaintext stays legal (never a dead end).
+    #[test]
+    fn a_send_into_a_keyless_tree_it_may_not_key_waits_then_goes_as_given() {
+        let _serial = serial();
+        let fake = install_fake();
+        sealing::set_send_key_wait(std::time::Duration::from_millis(800));
+        fake.roots.lock().unwrap().insert("s-a".into(), "root-a".into());
+        fake.not_reader_of.lock().unwrap().push("root-a".into());
+        let answer: Answer = Arc::new(|_, _| json!({ "sessionId": "s-a", "messageId": "m", "status": "running", "deliverTo": null }));
+        let server = fake_server(answer, json!({}));
+        let grant = gateway(&server, "s-own", "root-own");
+
+        // Nobody keys root-a: the send goes as given.
         let out = call(&grant, SEND_TOOL, json!({ "sessionId": "s-a", "text": "PONG-7731" }));
-        assert!(out["error"].as_str().is_some_and(|e| e.contains("no key yet")), "{out}");
-        assert!(calls_of(&server, SEND_TOOL).is_empty());
-        assert!(!server.calls.lock().unwrap().iter().any(|(_, args)| args.to_string().contains("PONG-7731")));
+        assert!(out.get("error").is_none(), "{out}");
+        assert_eq!(calls_of(&server, SEND_TOOL).pop().unwrap()["text"], "PONG-7731");
 
         // Its device keys it meanwhile (the claim): the send waits and seals.
         let tree = enet_core::sealed::generate_tree_key();
@@ -2029,7 +2054,7 @@ mod tests {
         let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
         let opened = enet_core::sealed::open_body(sent["text"].as_str().unwrap(), &|_| Some(tree.secret));
         assert_eq!(opened.text.as_deref(), Some("PONG-7731"));
-        assert!(!fake.created.lock().unwrap().iter().any(|root| root == "root-a"), "another tree's key is never created here");
+        assert!(fake.created.lock().unwrap().is_empty(), "a tree it may not key is never keyed here");
 
         sealing::set_send_key_wait(sealing::SEND_KEY_WAIT);
         codemode::revoke("s-own");

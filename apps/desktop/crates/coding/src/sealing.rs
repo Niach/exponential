@@ -343,11 +343,12 @@ pub trait SealService: Send + Sync {
     fn new_root_readers(&self, _target_device: &str) -> Vec<(String, String)> {
         Vec::new()
     }
-    /// `root`'s current (epoch, public key) for WRITING into its own tree:
-    /// the cached key, else `publicKeys`, else a fresh tree key this
-    /// install creates (`sessionKeys.create`, epoch 1).
-    fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String>;
-    /// Another tree's current key for SENDING into it (never creates).
+    /// `root`'s current (epoch, public key) for WRITING into it: the cached
+    /// key, else `publicKeys`, else a fresh tree key this install creates
+    /// (`sessionKeys.create`, epoch 1). [`SealError::NotReader`] = the server
+    /// refused the create; any other failure is [`SealError::NoKey`].
+    fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), SealError>;
+    /// A tree's current key, if it has one (never creates).
     fn public_key(&self, root_id: &str) -> Result<Option<(u32, [u8; 32])>, String>;
     /// Pull this install's wraps for `root` now (`sessionKeys.mine`).
     fn fetch_secrets(&self, root_id: &str);
@@ -571,6 +572,9 @@ pub enum SealError {
     UnknownRoot,
     /// The tree has no key and none could be created / fetched.
     NoKey(String),
+    /// #FEED-188: a keyless tree this install may not key (not a reader).
+    /// Plaintext stays legal there; the server refuses it once it is keyed.
+    NotReader,
     /// #FEED-185: the tree is sealed but this process has no key holder
     /// and none is coming (signed out, eNet off, registration refused).
     NoHolder,
@@ -584,6 +588,7 @@ impl std::fmt::Display for SealError {
             SealError::NotReady => write!(f, "this device's key holder is not running yet (its install is still registering)"),
             SealError::UnknownRoot => write!(f, "unknown session root"),
             SealError::NoKey(why) => write!(f, "no tree key: {why}"),
+            SealError::NotReader => write!(f, "this install may not key this chat (not a reader)"),
             SealError::NoHolder => write!(
                 f,
                 "this chat is end-to-end encrypted and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
@@ -597,11 +602,14 @@ impl std::error::Error for SealError {}
 
 fn key_for_writing(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     let service = sealer()?;
-    service.ensure_key(root_id).map_err(SealError::NoKey)
+    match service.ensure_key(root_id) {
+        Err(SealError::NotReader) => Err(SealError::NoKey(SealError::NotReader.to_string())),
+        other => other,
+    }
 }
 
-/// EXP-1472: how long a send into ANOTHER tree waits for that tree's first
-/// key (its device creates it when it claims the root) before it fails.
+/// EXP-1472: how long a send into a tree this install may not key waits for
+/// its first key (its device creates it when it claims the root).
 pub const SEND_KEY_WAIT: Duration = Duration::from_secs(20);
 const SEND_KEY_POLL: Duration = Duration::from_secs(1);
 /// [`SEND_KEY_WAIT`] in ms (tests shorten it).
@@ -617,8 +625,16 @@ fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     if let Some(current) = service.keyring().current(root_id) {
         return Ok(current);
     }
-    // A tree nobody keyed yet: its executing device keys it at its claim.
-    // Wait for that rather than send in clear (EXP-1472).
+    // #FEED-188: a tree nobody keyed takes its key from its first writer, as
+    // on web and the phones. Waiting for its device cannot work for an idle
+    // thread older than sealing: only a claim keys it there, and this send is
+    // what would wake it. The other readers get theirs through `pending`.
+    match service.ensure_key(root_id) {
+        Err(SealError::NotReader) => {}
+        other => return other,
+    }
+    // Not a reader: only a claim can key it. Wait for one rather than send
+    // in clear (EXP-1472); after that plaintext stays legal in a keyless tree.
     let deadline = Instant::now() + Duration::from_millis(SEND_KEY_WAIT_MS.load(Ordering::SeqCst));
     loop {
         if let Some(key) = service.public_key(root_id).map_err(SealError::NoKey)? {
@@ -626,7 +642,7 @@ fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
         }
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            return Err(SealError::NoKey("the target chat has no key yet (its device has not picked it up)".into()));
+            return Err(SealError::NotReader);
         }
         std::thread::sleep(left.min(SEND_KEY_POLL));
     }
@@ -661,7 +677,8 @@ pub fn seal_card(root_id: &str, card: &Value) -> Result<Value, SealError> {
 }
 
 /// A body sealed for ANOTHER tree (agent-to-agent): its current public
-/// key, never created here. BLOCKING.
+/// key, created here when the tree has none and this install is a reader
+/// ([`SealError::NotReader`] otherwise). BLOCKING.
 pub fn seal_body_for_tree(root_id: &str, text: &str) -> Result<String, SealError> {
     let (epoch, public) = key_for_sending(root_id)?;
     enet_core::sealed::seal_body(&public, epoch, text).map_err(|e| SealError::Invalid(e.to_string()))
@@ -922,6 +939,8 @@ pub(crate) mod test_support {
         pub roots: Mutex<HashMap<String, String>>,
         /// [`SealService::new_root_readers`]: `(device, install, public)`.
         pub device_installs: Vec<(String, String, String)>,
+        /// Roots [`SealService::ensure_key`] refuses to key (not a reader).
+        pub not_reader_of: Mutex<Vec<String>>,
     }
 
     impl SealService for FakeService {
@@ -944,9 +963,12 @@ pub(crate) mod test_support {
                 .map(|(_, install, public)| (install.clone(), public.clone()))
                 .collect()
         }
-        fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String> {
+        fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
             if let Some(current) = self.keyring.current(root_id) {
                 return Ok(current);
+            }
+            if self.not_reader_of.lock().unwrap().iter().any(|root| root == root_id) {
+                return Err(SealError::NotReader);
             }
             let key = generate_tree_key();
             self.keyring.insert_secret(root_id, 1, key.secret);
