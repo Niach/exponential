@@ -638,7 +638,44 @@
           }
         ]
       },
-      "expected": []
+      "expected": [
+        {
+          "messageId": "p1",
+          "sessionId": "r2",
+          "rootId": "r2",
+          "kind": "pr",
+          "opens": "results",
+          "title": "Ship the picker",
+          "chat": "Ship it",
+          "meta": "#12",
+          "age": "1h",
+          "createdAt": "2027-01-15T07:00:00.000Z"
+        },
+        {
+          "rootId": "r1",
+          "chat": "Palette",
+          "age": "2h",
+          "createdAt": "2027-01-15T06:00:00.000Z",
+          "messageId": "q1",
+          "sessionId": "r1",
+          "kind": "question",
+          "opens": "card",
+          "title": "Which palette?",
+          "meta": ""
+        },
+        {
+          "messageId": "p0",
+          "sessionId": "r1",
+          "rootId": "r1",
+          "kind": "pr",
+          "opens": "results",
+          "title": "Older PR",
+          "chat": "Palette",
+          "meta": "#11",
+          "age": "3h",
+          "createdAt": "2027-01-15T05:00:00.000Z"
+        }
+      ]
     },
     {
       "name": "never: pending or failing checks, merged, closed, no known checks",
@@ -799,7 +836,20 @@
           }
         ]
       },
-      "expected": []
+      "expected": [
+        {
+          "messageId": "d",
+          "sessionId": "e1",
+          "rootId": "e1",
+          "kind": "pr",
+          "opens": "results",
+          "title": "Finished work",
+          "chat": "Ended",
+          "meta": "#4",
+          "age": "1h",
+          "createdAt": "2027-01-15T07:00:00.000Z"
+        }
+      ]
     },
     {
       "name": "a stack: only the PR whose base is not open; an agent conversation opens the chat",
@@ -861,7 +911,32 @@
           }
         ]
       },
-      "expected": []
+      "expected": [
+        {
+          "messageId": "bottom",
+          "sessionId": "as",
+          "rootId": "as",
+          "kind": "pr",
+          "opens": "chat",
+          "title": "Bottom",
+          "chat": "Assistant",
+          "meta": "#1",
+          "age": "2h",
+          "createdAt": "2027-01-15T06:00:00.000Z"
+        },
+        {
+          "messageId": "free",
+          "sessionId": "as",
+          "rootId": "as",
+          "kind": "pr",
+          "opens": "chat",
+          "title": "Base merged",
+          "chat": "Assistant",
+          "meta": "#3",
+          "age": "3h",
+          "createdAt": "2027-01-15T05:00:00.000Z"
+        }
+      ]
     }
   ]
 }
