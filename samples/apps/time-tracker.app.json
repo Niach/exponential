@@ -2355,7 +2355,7 @@
     {
       "kind": "settings",
       "data": {
-        "hours_per_month": 120
+        "hours_per_month": 160
       }
     }
   ],
@@ -2365,6 +2365,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "RhkPowyY9CBmtj7yumNALNnbBorTTvvCC4odtERyMtxaSsthqeyVmMb85vNPah1MuM75GUHA2m0vwy9rUwjCCA"
+    "value": "2RltCE_gvcY1PcuXgq3IdstFzuotuyob3Wo7xaeFPK0N_POHMP7xKu9vgsCvqXDtkXUxjx0xfnaUBnYuyVO8Cw"
   }
 }
