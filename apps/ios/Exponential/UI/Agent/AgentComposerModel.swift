@@ -783,7 +783,8 @@ final class AgentComposerModel {
             if let messagedAgentId {
                 await sendToAgent(
                     messagedAgentId, text: text, attachmentIds: attachmentIds,
-                    issueIds: effectiveChecked, sent: sent
+                    issueIds: effectiveChecked,
+                    identifiers: checkedOptions.compactMap(\.identifier), sent: sent
                 )
                 return
             }
@@ -806,19 +807,21 @@ final class AgentComposerModel {
     /// `sessions.send({agentId, text, attachmentIds, issueIds})`, opened on
     /// first use server-side (EXP-1450: the issue chips forward onto it) —
     /// and `landedAgentId` tells the page to open that chat. The draft
-    /// settles (`settleDraft`); the agent pick stays.
+    /// settles (`settleDraft`); the agent pick stays. EXP-1686: the refs lead
+    /// the text (`agentForwardText`), so the sealer seals them with it.
     private func sendToAgent(
-        _ agentId: String, text: String?, attachmentIds: [String], issueIds: [String],
+        _ agentId: String, text: String?, attachmentIds: [String], issueIds: [String], identifiers: [String],
         sent: ComposerSend.Content
     ) async {
         do {
             _ = try await deps.sessionsApi.send(
                 accountId: accountId,
-                .agent(
+                SessionBrief.agentForwardInput(
                     agentId: agentId,
                     text: text,
-                    attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds,
-                    issueIds: issueIds.isEmpty ? nil : issueIds
+                    attachmentIds: attachmentIds,
+                    issueIds: issueIds,
+                    identifiers: identifiers
                 )
             )
             settleDraft(sent: sent)

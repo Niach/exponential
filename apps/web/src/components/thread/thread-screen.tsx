@@ -249,7 +249,7 @@ export function ThreadScreen({
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
-      : search.tab === `stories`
+      : search.tab === `stories` && threadChatMode(root) !== `bubbles`
         ? { kind: `stories` as const }
         : search.tab === `session` && focused && focused.id !== root.id
         ? { kind: `session` as const, sessionId: focused.id }
@@ -411,7 +411,9 @@ export function ThreadScreen({
 
   // STORIES TAB: every story of the tree (the chip's dot, the body).
   const storyTab = useStoryTab(team.id, root.id)
-  const tabs = (
+  // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation
+  // only: no strip.
+  const tabs = threadChatMode(root) === `bubbles` ? null : (
     <ThreadTabs
       variant={isMobile ? `pager` : `bar`}
       conversation={{
@@ -648,7 +650,7 @@ export function ThreadScreen({
                 {trailing}
               </span>
             }
-            below={<div className="px-3 pb-2">{tabs}</div>}
+            below={tabs ? <div className="px-3 pb-2">{tabs}</div> : undefined}
           />
           {/* The page under the band: only the visible one renders. */}
           <div
@@ -677,7 +679,7 @@ export function ThreadScreen({
             <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
             {headerMenu(`shrink-0 text-muted-foreground`)}
           </div>
-          <div className="mt-4">{tabs}</div>
+          {tabs && <div className="mt-4">{tabs}</div>}
         </div>
         {agent?.overlay}
         <CardHighlightContext.Provider value={highlight}>{body}</CardHighlightContext.Provider>

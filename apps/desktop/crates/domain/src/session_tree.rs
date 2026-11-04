@@ -1936,9 +1936,16 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             .map(|s| s.id.clone())
     });
     let origin = xref(if viewed.is_ended() { "reported" } else { "started" }, starter.as_deref());
-    let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
-    tabs.extend(issue_tabs);
-    tabs.extend(session_tabs);
+    // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation only.
+    let tabs = match thread_chat_mode(root.agent_id.as_deref()) {
+        ThreadChatMode::Bubbles => vec![ThreadTab::Conversation],
+        ThreadChatMode::Transcript => {
+            let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
+            tabs.extend(issue_tabs);
+            tabs.extend(session_tabs);
+            tabs
+        }
+    };
     SessionThreadView {
         root_id: root.id.clone(),
         title,

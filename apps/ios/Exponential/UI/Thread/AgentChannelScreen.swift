@@ -134,7 +134,7 @@ private struct AgentChannelEmpty: View {
                 // (#EXP-1448: the Assistant's = the brand mark) over `Agent`.
                 ChatHeaderTitle(
                     title: agent.name,
-                    subtitle: "Agent",
+                    subtitle: Chats.agentChatSubtitle(modelLabel: agent.model.map(LaunchVocabulary.modelLabel)),
                     agentIcon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
                     agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor,
                     assistant: agent.isAssistant

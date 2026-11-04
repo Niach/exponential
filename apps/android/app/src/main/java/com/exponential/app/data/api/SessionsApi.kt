@@ -106,17 +106,18 @@ data class SessionsSendInput(
         /**
          * NEW-2: a message to the agent [agentId] = into the caller's OWN
          * conversation session with it (created on first use; it runs on the
-         * agent's device, so no runner picks). Needs text or attachments.
+         * agent's device, so no runner picks). EXP-1686: an empty text is
+         * OMITTED (a bare issue forward), never `""`.
          */
         fun toAgent(
             agentId: String,
-            text: String,
+            text: String?,
             attachmentIds: List<String>? = null,
             /** EXP-1450: the composer's issue chips, forwarded onto the DM. */
             issueIds: List<String>? = null,
         ): SessionsSendInput = SessionsSendInput(
             agentId = agentId,
-            text = text,
+            text = text?.takeIf { it.isNotBlank() },
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
             issueIds = issueIds?.takeIf { it.isNotEmpty() },
         )

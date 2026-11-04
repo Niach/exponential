@@ -48,8 +48,9 @@ use crate::transcript_rows::{plan_list_sync, ListOp, RowKey, WORKING_ROW_ID};
 const CHANNEL_W: f32 = crate::work_header::CHAT_COLUMN_W;
 /// The header's side inset.
 const HEADER_INSET: f32 = 44.;
-/// The header icon.
-const HEADER_ICON_PX: f32 = 28.;
+/// The header's lead disc and the glyph in it (web `disc(`size-8`, `size-4`)`).
+const HEADER_DISC_PX: f32 = 32.;
+const HEADER_GLYPH_PX: f32 = 16.;
 
 /// #EXP-1380: how far beyond the viewport the conversation renders and
 /// measures rows (the thread's `CONVERSATION_OVERDRAW`).
@@ -91,6 +92,116 @@ pub(crate) fn agent_def_icon(agent: Option<&AgentDefRow>) -> Icon {
         agent.and_then(|agent| agent.icon.as_deref()),
         agent.and_then(|agent| agent.color.as_deref()),
     )
+}
+
+/// The header's lead disc (web `disc(`size-8`, `size-4`)`): the agent's
+/// avatar on bg muted; the Assistant = the brand mark.
+fn agent_header_disc(agent: Option<&AgentDefRow>, cx: &App) -> AnyElement {
+    let glyph = match agent {
+        Some(agent) if agent.is_assistant() => Icon::from(crate::icons::ExpIcon::Logo)
+            .with_size(px(HEADER_GLYPH_PX))
+            .text_color(cx.theme().foreground)
+            .into_any_element(),
+        _ => agent_def_icon(agent).with_size(px(HEADER_GLYPH_PX)).into_any_element(),
+    };
+    div()
+        .size(px(HEADER_DISC_PX))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(cx.theme().muted)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(glyph)
+        .into_any_element()
+}
+
+/// The agent's `…` (`agentMenuEntries`); none without entries.
+fn agent_header_menu(agent_id: &str, cx: &App) -> Option<AnyElement> {
+    if crate::chat_actions::agent_entries(agent_id, cx).is_empty() {
+        return None;
+    }
+    let agent_id = agent_id.to_string();
+    let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx);
+    Some(
+        div()
+            .flex_shrink_0()
+            .mr(px(-crate::work_header::GHOST_ICON_HANG))
+            .child(crate::controls::PointerMenu::for_button(trigger, move |menu, _, cx| {
+                crate::chat_actions::agent_menu_items(menu, &agent_id, cx)
+            }))
+            .into_any_element(),
+    )
+}
+
+/// NEW-55 (voice-call.json): THE telephone, left of `…`, the header's icon
+/// button: disabled with the reason as its tooltip while a call cannot start
+/// here (no voice device, not this machine, no voice yet, no usable GPU, a
+/// call this client does not run). S-3: while THIS client runs the call with
+/// this agent it stays enabled and focuses the call panel; a new call focuses
+/// it too (Esc there ends it).
+fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, cx: &App) -> AnyElement {
+    let copy = &etalk::call::VOICE_CALL.copy;
+    let here = etalk_gpui::voice_call::runs_for(agent_id, cx);
+    let reason = (!here).then(|| etalk_gpui::voice_call::unavailable(cx)).flatten();
+    let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", name));
+    let agent_id = agent_id.to_string();
+    let button = crate::controls::ghost_icon_button(
+        etalk::call::VOICE_CALL.test_ids.call.as_str(),
+        Icon::new(registry::VOICE_CALL),
+        cx,
+    )
+    .tooltip(tooltip)
+    .disabled(reason.is_some())
+    .on_click(move |_, window, cx| {
+        if !etalk_gpui::voice_call::runs_for(&agent_id, cx) {
+            etalk_gpui::voice_call::start(agent_id.clone(), cx);
+        }
+        window.focus(&panel, cx);
+    });
+    div().flex_shrink_0().child(button).into_any_element()
+}
+
+/// EXP-1686 (chats.json AGENT CHAT): THE agent chat header, conversation or
+/// not yet: the lead disc, the agent's NAME, then `merge` (a conversation's
+/// open PR), the call button and the agent menu. No strip.
+pub(crate) fn agent_header(
+    agent: Option<&AgentDefRow>,
+    merge: Option<AnyElement>,
+    call_panel: FocusHandle,
+    cx: &App,
+) -> AnyElement {
+    let theme = cx.theme();
+    let name = agent.map(agent_def_name).unwrap_or_default();
+    let call = agent.map(|agent| agent_header_call(&agent.id, &name, call_panel, cx));
+    let menu = agent.and_then(|agent| agent_header_menu(&agent.id, cx));
+    v_flex()
+        .w_full()
+        .px(px(HEADER_INSET))
+        .pt_6()
+        .gap_4()
+        .child(
+            h_flex()
+                .min_w_0()
+                .gap_3()
+                .items_center()
+                .child(agent_header_disc(agent, cx))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_2xl()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.foreground)
+                        .child(SharedString::from(name)),
+                )
+                .children(merge)
+                .children(call)
+                .children(menu),
+        )
+        .child(div().w_full().h(px(1.)).bg(theme.border))
+        .into_any_element()
 }
 
 /// NEW-6: the `agents` row an [`crate::navigation::Screen::Agent`] id names.
@@ -299,14 +410,6 @@ impl AgentScreenView {
         match &self.app {
             Some(app) => app.team_id.clone(),
             None => self.agent.as_ref().and_then(|agent| agent.team_id.clone()),
-        }
-    }
-
-    /// The subject's glyph (the agent's tinted icon, the app's glyph).
-    fn subject_icon(&self) -> Icon {
-        match &self.app {
-            Some(app) => crate::icons::app_icon(app.icon.as_deref(), app.color.as_deref()),
-            None => agent_def_icon(self.agent.as_ref()),
         }
     }
 
@@ -818,84 +921,9 @@ impl AgentScreenView {
     /// Thread 58cb32df (chats.json `agentMenuCases`): the agent chat
     /// header's `…` = THE agent menu (Compact conversation, New
     /// conversation, Stop while busy, Agent settings for owners).
-    fn header_menu(&self, cx: &App) -> Option<AnyElement> {
-        let agent_id = self.agent.as_ref()?.id.clone();
-        if crate::chat_actions::agent_entries(&agent_id, cx).is_empty() {
-            return None;
-        }
-        let trigger = crate::controls::ghost_icon_button("agent-header-more", Icon::new(registry::UI_MORE), cx);
-        Some(
-            div()
-                .flex_shrink_0()
-                .mr(px(-crate::work_header::GHOST_ICON_HANG))
-                .child(crate::controls::PointerMenu::for_button(trigger, move |menu, _, cx| {
-                    crate::chat_actions::agent_menu_items(menu, &agent_id, cx)
-                }))
-                .into_any_element(),
-        )
-    }
-
-    /// NEW-55 (voice-call.json): THE telephone, left of `…`, the header's
-    /// icon button: disabled with the reason as its tooltip while a call
-    /// cannot start here (no voice device, not this machine, no voice yet,
-    /// no usable GPU, a call this client does not run). S-3: while THIS
-    /// client runs the call with this agent it stays enabled and focuses
-    /// the call panel; a new call focuses it too (Esc there ends it).
-    fn header_call(&self, cx: &App) -> Option<AnyElement> {
-        let agent_id = self.agent.as_ref()?.id.clone();
-        let copy = &etalk::call::VOICE_CALL.copy;
-        let here = etalk_gpui::voice_call::runs_for(&agent_id, cx);
-        let reason = (!here).then(|| etalk_gpui::voice_call::unavailable(cx)).flatten();
-        let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", &self.subject_name()));
-        let panel = self.call_panel.read(cx).focus_handle(cx);
-        let button = crate::controls::ghost_icon_button(
-            etalk::call::VOICE_CALL.test_ids.call.as_str(),
-            Icon::new(registry::VOICE_CALL),
-            cx,
-        )
-        .tooltip(tooltip)
-        .disabled(reason.is_some())
-        .on_click(move |_, window, cx| {
-            if !etalk_gpui::voice_call::runs_for(&agent_id, cx) {
-                etalk_gpui::voice_call::start(agent_id.clone(), cx);
-            }
-            window.focus(&panel, cx);
-        });
-        Some(div().flex_shrink_0().child(button).into_any_element())
-    }
-
     fn render_header(&self, cx: &App) -> AnyElement {
-        let theme = cx.theme();
-        let icon = self.subject_icon();
-        let name = self.subject_name();
-        let call = self.header_call(cx);
-        let menu = self.header_menu(cx);
-        v_flex()
-            .w_full()
-            .px(px(HEADER_INSET))
-            .pt_6()
-            .gap_4()
-            .child(
-                h_flex()
-                    .min_w_0()
-                    .gap_3()
-                    .items_center()
-                    .child(icon.with_size(px(HEADER_ICON_PX)))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_2xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme.foreground)
-                            .child(SharedString::from(name)),
-                    )
-                    .children(call)
-                    .children(menu),
-            )
-            .child(div().w_full().h(px(1.)).bg(theme.border))
-            .into_any_element()
+        let panel = self.call_panel.read(cx).focus_handle(cx);
+        agent_header(self.agent.as_ref(), None, panel, cx)
     }
 }
 

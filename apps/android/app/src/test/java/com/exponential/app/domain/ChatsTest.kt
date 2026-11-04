@@ -440,6 +440,17 @@ class ChatsTest {
     }
 
     @Test
+    fun `the agent chat equals the fixture`() {
+        val block = fixture.getValue("agentChat").jsonObject
+        assertEquals(listOf("conversation"), block.getValue("tabs").jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(block.str("subtitle"), Chats.AgentChat.SUBTITLE)
+        assertEquals(block.str("subtitleModelSeparator"), Chats.AgentChat.SUBTITLE_MODEL_SEPARATOR)
+        assertEquals(block.str("emptyPlaceholder")!!.replace("{name}", "Bro"), Chats.AgentChat.emptyPlaceholder("Bro"))
+        assertEquals("Agent", SessionTree.agentChatSubtitle(null))
+        assertEquals("Agent · Opus", SessionTree.agentChatSubtitle("Opus"))
+    }
+
+    @Test
     fun `the copy, shell, sends and surface card equal the fixture`() {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("title"), Chats.Copy.TITLE)

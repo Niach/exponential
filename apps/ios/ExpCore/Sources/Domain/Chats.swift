@@ -136,6 +136,18 @@ public enum Chats {
         }
     }
 
+    /// EXP-1686 (fixture `agentChat`): the line under an agent's name on a
+    /// phone header (`modelLabel` = the model's display name).
+    public enum AgentChat {
+        public static let subtitle = "Agent"
+        public static let subtitleModelSeparator = " · "
+    }
+
+    public static func agentChatSubtitle(modelLabel: String?) -> String {
+        guard let modelLabel, !modelLabel.isEmpty else { return AgentChat.subtitle }
+        return AgentChat.subtitle + AgentChat.subtitleModelSeparator + modelLabel
+    }
+
     /// Fixture `transcript` (#EXP-1380 WINDOW + FOLLOW ×4): a chat paints
     /// its newest `window` rows, `Load earlier` widens by `windowStep`, the
     /// tail is followed within `followSlack` px of the bottom.

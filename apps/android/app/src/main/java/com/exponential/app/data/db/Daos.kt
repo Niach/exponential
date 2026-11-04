@@ -88,6 +88,9 @@ interface IssueDao {
     @Query("SELECT i.* FROM issues i JOIN boards b ON b.id = i.board_id WHERE b.team_id = :teamId")
     fun observeByTeamForApps(teamId: String): Flow<List<IssueEntity>>
 
+    @Query("SELECT * FROM issues WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<IssueEntity>
+
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 

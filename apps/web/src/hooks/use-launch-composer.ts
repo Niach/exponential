@@ -1,3 +1,4 @@
+import { agentForwardText } from "@exp/domain-contract/session-brief"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
@@ -140,6 +141,8 @@ export function buildSendInput(args: {
   repoId: string
   /** S-3: the agent row's pick (null = Temporary session). */
   agentId?: string | null
+  /** EXP-1686: the forwarded issues' identifiers (a to-agent send's refs). */
+  issueIdentifiers?: readonly string[]
 }): SessionsSendInput {
   const { options, subject } = args
   const text = args.text.trim()
@@ -147,10 +150,13 @@ export function buildSendInput(args: {
   // caller's conversation with it. It runs on the agent's own device and
   // login: no runner picks ride; picked issues forward onto it.
   if (args.agentId) {
+    // EXP-1686 (session-brief.json `forwardTextCases`): the refs lead the
+    // person's text, the bubble's record of what was sent.
+    const body = subject?.kind === `issues` ? agentForwardText(args.text, args.issueIdentifiers ?? []) : args.text
     return {
       teamId: args.teamId,
       agentId: args.agentId,
-      ...(text ? { text: args.text } : {}),
+      ...(body.trim() ? { text: body } : {}),
       ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
       ...(subject?.kind === `issues` ? { issueIds: [...subject.ids] } : {}),
     }
@@ -608,6 +614,7 @@ export function useLaunchComposer({
         subject,
         repoId,
         agentId: recipient?.id ?? null,
+        issueIdentifiers: checkedIssues.map((issue) => issue.identifier),
       })
       let result: { sessionId: string; txid: number }
       try {
