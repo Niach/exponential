@@ -108,6 +108,7 @@ pub fn host_contract() -> Value {
             "screens": {
                 "max": super::screens::MAX_SCREENS,
                 "titleMax": super::screens::MAX_SCREEN_TITLE,
+                "exposedDescriptionMax": super::screens::MAX_EXPOSED_DESCRIPTION,
                 "navigateFunction": super::screens::NAVIGATE_FUNCTION,
                 "paramsKey": super::screens::SCREEN_PARAMS_KEY,
             },

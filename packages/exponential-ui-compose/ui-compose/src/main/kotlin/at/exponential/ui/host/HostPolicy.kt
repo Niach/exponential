@@ -53,6 +53,8 @@ data class UrlPolicy(
     val hosts: List<String>? = null,
     val baseUrl: String? = null,
     val allowPrivate: List<String>? = null,
+    /** #EXP-1674: what `~/x` expands against; null = `~/x` is denied. */
+    val linkBase: String? = null,
 ) {
     internal fun json(fallbackBase: String?): String {
         val m = LinkedHashMap<String, JsonValue>()
@@ -60,6 +62,7 @@ data class UrlPolicy(
         hosts?.let { m["hosts"] = JsonValue.Arr(it.map(JsonValue::Str)) }
         allowPrivate?.let { m["allowPrivate"] = JsonValue.Arr(it.map(JsonValue::Str)) }
         (baseUrl ?: fallbackBase)?.let { m["baseUrl"] = JsonValue.Str(it) }
+        linkBase?.let { m["linkBase"] = JsonValue.Str(it) }
         return JsonValue.Obj(m).json
     }
 }

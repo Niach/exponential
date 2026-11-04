@@ -827,7 +827,6 @@ private fun AuthenticatedNav(
             AppRunScreen(
                 onBack = { navController.popBackStack() },
                 onEdit = { id -> navController.navigate(Routes.app(id)) },
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenTeamSettings = openReadinessTeamSettings,
             )
         }
@@ -843,7 +842,6 @@ private fun AuthenticatedNav(
         ) {
             AppEditorScreen(
                 onBack = { navController.popBackStack() },
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 // #VAPP-230: Connect <server> opens the app team's Settings › MCP.
                 onOpenTeamSettings = openReadinessTeamSettings,

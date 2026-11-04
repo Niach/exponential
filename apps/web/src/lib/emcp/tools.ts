@@ -185,7 +185,7 @@ import {
 } from "@/lib/sessions/plan"
 import { loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
-import { appCatalogText, componentCatalogText } from "@/lib/apps/package"
+import { appCatalogText, componentCatalogText, linkableScreens } from "@/lib/apps/package"
 import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
 import { emitEventInTx } from "@/lib/events"
 import {
@@ -4073,14 +4073,14 @@ export function registerExponentialTools(
     `exponential_apps_get`,
     {
       annotations: READ_ONLY,
-      description: `Read one app by slug with its package (the head, or version = an older one's).`,
+      description: `Read one app by slug with its package (the head, or version = an older one's) and linkableScreens: its navigation and exposed screens, with params and a ready ~/ link (another app may link only to an exposed one).`,
       inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), version: z.number().int().min(1).optional() }),
     },
     async ({ slug, teamId, version }) => {
       try {
         const result = await caller(user, request).apps.get({ slug, teamId: await appsTeam(teamId), version })
         const { package: _omit, draftPackage: _draft, ...app } = result.app
-        return ok({ ...app, version: result.version, package: result.package })
+        return ok({ ...app, version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package) })
       } catch (e) {
         return err(e)
       }

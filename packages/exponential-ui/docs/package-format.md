@@ -17,12 +17,12 @@ extension compatibility, canonical JSON, signatures).
 ## Versions
 
 A package MUST carry `formatVersion`. This document is format version
-**3** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
-`policy`), and a host reads exactly its own version: eApps keeps no
-backwards compatibility. A missing one is
-`/formatVersion: formatVersion is required (3)`, an older one `format version
-2 is no longer read: write 3`, a newer one `format version 4 is newer than
-this host (3)`; a host never guesses at keys it does not know. The catalog a package
+**4** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
+`policy`, 4 added a screen's `nav` and `exposed`), and a host reads exactly its
+own version: eApps keeps no backwards compatibility. A missing one is
+`/formatVersion: formatVersion is required (4)`, an older one `format version
+3 is no longer read: write 4`, a newer one `format version 5 is newer than
+this host (4)`; a host never guesses at keys it does not know. The catalog a package
 renders against keeps its own version in its id (`catalogId`,
 `…/catalogs/core/v1`) and is negotiated as before (`supportedCatalogIds`).
 
@@ -30,7 +30,7 @@ renders against keeps its own version in its id (`catalogId`,
 
 ```jsonc
 {
-  "formatVersion": 3,                  // required: the current format
+  "formatVersion": 4,                  // required: the current format
   "id": "acme.hours", "name": "Working hours", "version": "1.2.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "templates": { "<id>": { "components": [/* flat, one root */], "data": {}, "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }] } },
@@ -80,15 +80,26 @@ is the navigation manifest: the templates a person can open, in order.
 ]
 ```
 
-- 1 to **5** screens, each keyed by its `template` (a declared template, no
-  duplicates); `title` 1..32 characters; `icon` an Exponential UI icon name;
-  `params` an object of strings, the params it opens with. Install refuses
-  an unknown template, a duplicate, a sixth screen, an unknown key, a bad
-  icon or a non-string param.
+- At least 1 and at most **5** screens in the navigation, each keyed by its
+  `template` (a declared template, no duplicates); `title` 1..32 characters;
+  `icon` an Exponential UI icon name; `params` an object of strings, the params
+  it opens with. Install refuses an unknown template, a duplicate, a sixth
+  navigation screen, an unknown key, a bad icon or a non-string param.
+- **`nav: false`** (the only allowed value) is a detail screen: outside the
+  sidebar and the bottom bar, and not counted in the 5, since that limit is the
+  phone bar's room. It opens by `app.navigate` or a link. A package with only
+  `nav: false` screens is refused.
+- **`exposed: {description, params?}`** is the screen's public contract, the
+  one thing another app may link to: a stable name and checked params
+  (`params: {<key>: {required?: boolean, description?}}`, keys letters, digits
+  and `_`; `description` 1..200 characters). It is not access control: the
+  target's own policy still decides what the viewer sees.
 - **The host draws the navigation**, never the app: a sidebar on wide
   frames (desktop, web ≥ md), the phone bottom bar on phones. A package
   without `screens` shows its first template as before. `app.navigate`
-  opens screens only, so a detail view is a screen or a Dialog/Drawer.
+  opens screens only, so a detail view is a `nav: false` screen or a
+  Dialog/Drawer. `app.navigate` is for the app's OWN screens and replaces the
+  one shown.
 - **`app.navigate {screen, params?}`** opens a screen: as a press
   (`on.press.functionCall {call: "app.navigate", args: {screen, params}}`)
   or as an action step (`{call: "app.navigate", args: {screen: "'deals'",
@@ -103,8 +114,23 @@ is the navigation manifest: the templates a person can open, in order.
   when the template opens (`records:deal?query=byStage&stage=${params.stage}`).
   A screen's params = its own `params`, then the request's, key by key
   (`resolveScreen`; strings only).
+  Params are data: opening a screen runs no action or function.
 - **Deep links** carry the same pair: on Exponential
   `/t/<team>/apps/<slug>/<screen>?<params>` and the natives' app links.
+- **Links.** `Link.href`, `Row.href`, `Button.href` and `openUrl` go through the
+  host's URL policy. `~/x` expands against the host's optional `linkBase`; a
+  host without one denies it, so it paints as text, and `~//…` or a `.` or `..`
+  segment (percent-encoded too) is always denied. On Exponential `linkBase` is
+  `/t/<team>`: `~/issues/EXP-12` opens the issue, `~/devices` the Devices page,
+  `~/apps/<slug>/<screen>?k=v` an app screen. `href` is a literal; a link per
+  list row is a press: `{"on": {"press": {"functionCall": {"call": "openUrl",
+  "args": {"url": {"call": "formatString", "args": {"value": "~/issues/${identifier}"}}}}}}}`.
+- **A link at another app** (`~/apps/<slug>/<screen>?k=v`, from a surface of a
+  different app): the screen must be `exposed` and its required params present
+  and non-empty; only declared params arrive. Anything else, a missing app
+  included, is one toast ("Not found or no access"). The link pushes, so back
+  returns to the first app. `crossAppTarget(pkg, screen, params)` is the rule. A
+  person's URL or an agent's chat link opens any declared screen.
 - **`@media (form-factor: phone|wide)`** is the style condition for a
   layout that truly differs on phones (the host's form factor; unset = the
   surface width against `$breakpoint.md`).

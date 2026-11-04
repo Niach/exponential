@@ -61,6 +61,10 @@ export interface UrlPolicy {
    *  for every private address. A `hosts` allowlist does not opt one in. */
   allowPrivate?: readonly string[]
   baseUrl?: string
+  /** #EXP-1674: what `~/x` expands against (a host's own link root, e.g. an
+   *  app's team: `/t/acme`, or an absolute url). Unset = `~/x` is denied, so
+   *  it paints as text. */
+  linkBase?: string
 }
 
 export interface UrlDecision {
@@ -165,11 +169,31 @@ function privateAllowed(allow: readonly string[] | undefined, host: string): boo
   return (allow ?? []).some((p) => p === `*` || hostMatches(p, host))
 }
 
-/** The decision for a url: it must parse (relative against `baseUrl`), use
- *  one of `schemes`, and for http(s) match `hosts` when set and not be a
- *  private host unless `allowPrivate` covers it. */
+/** #EXP-1674: `~/x` against the host's `linkBase`; null = denied: no base,
+ *  `~//`, or a `.` or `..` path segment. Checked on what the URL parser will
+ *  read (it drops tab and newline, takes `\\` as `/` and `%2e` as `.`), so a
+ *  spelling never climbs out of the base. */
+export function expandLinkBase(url: string, linkBase: string | undefined): string | null {
+  if (!linkBase) return null
+  const clean = url.replace(/[\t\n\r]/g, ``)
+  if (!clean.startsWith(`~/`) || clean.startsWith(`~//`) || clean.startsWith(`~/\\`)) return null
+  const rest = clean.slice(2)
+  const end = rest.search(/[?#]/)
+  const segments = (end === -1 ? rest : rest.slice(0, end)).split(/[/\\]/).map((segment) => segment.replace(/%2e/gi, `.`))
+  if (segments.some((segment) => segment === `.` || segment === `..`)) return null
+  return `${linkBase.replace(/\/+$/, ``)}/${rest}`
+}
+
+/** The decision for a url: `~/x` expands against `linkBase` first
+ *  (`expandLinkBase`); it must parse (relative against `baseUrl`), use one of
+ *  `schemes`, and for http(s) match `hosts` when set and not be a private
+ *  host unless `allowPrivate` covers it. */
 export function decideUrl(policy: UrlPolicy | undefined, url: string): UrlDecision {
-  const parsed = absolute(url.trim(), policy?.baseUrl)
+  const trimmed = url.trim()
+  const shorthand = trimmed.replace(/[\t\n\r]/g, ``).startsWith(`~/`)
+  const expanded = shorthand ? expandLinkBase(trimmed, policy?.linkBase) : trimmed
+  if (expanded === null) return { allowed: false, reason: `invalid` }
+  const parsed = absolute(expanded, policy?.baseUrl)
   if (!parsed) return { allowed: false, reason: `invalid` }
   const scheme = parsed.protocol.replace(/:$/, ``).toLowerCase()
   const schemes = policy?.schemes ?? DEFAULT_URL_SCHEMES

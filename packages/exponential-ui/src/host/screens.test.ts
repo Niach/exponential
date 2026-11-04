@@ -3,8 +3,9 @@
 import { describe, expect, test } from "bun:test"
 import routerFixture from "../../fixtures/host-router.json" with { type: "json" }
 import { ExponentialHost } from "./runtime"
-import type { AppPackage } from "./package"
-import { NAVIGATE_FUNCTION, resolveScreen, screenData } from "./screens"
+import { NAVIGATE_FUNCTION, crossAppTarget, resolveScreen, screenData } from "./screens"
+import { PACKAGE_FORMAT_VERSION, type AppPackage } from "./package"
+import { CORE_CATALOG_ID } from "../catalog"
 
 const pkg = (routerFixture.packages as unknown as Record<string, AppPackage>)[`acme.screens`]!
 
@@ -37,6 +38,36 @@ describe(`app.navigate`, () => {
     expect((await b.h.callFunction({ surfaceId: `s`, componentId: `go`, name: NAVIGATE_FUNCTION, args: { screen: `deals` } })).decision).toBe(`deny`)
     expect(b.errors.some((e) => e.startsWith(`FUNCTION_DENIED`))).toBe(true)
   })
+  // #EXP-1674: params are data: opening a screen runs nothing, whatever a link
+  // carries; only a person's press does.
+  test(`opening a screen never runs an action or function`, async () => {
+    const called: string[] = []
+    const opened = {
+      formatVersion: PACKAGE_FORMAT_VERSION,
+      id: `acme.open`,
+      name: `Open`,
+      version: `1.0.0`,
+      catalogId: CORE_CATALOG_ID,
+      functions: [`app.record`],
+      screens: [{ template: `deal`, title: `Deal`, exposed: { description: `A deal`, params: { run: {} } } }],
+      templates: {
+        deal: {
+          components: [
+            { id: `root`, component: `Stack`, children: [`go`] },
+            { id: `go`, component: `Button`, label: { path: `/params/run` }, on: { press: { functionCall: { call: `app.record`, args: { what: `wipe` } } } } },
+          ],
+        },
+      },
+    } as unknown as AppPackage
+    const h = new ExponentialHost({ packages: [opened], functions: { "app.record": ({ what }) => void called.push(String(what)) } })
+    const target = crossAppTarget(opened, `deal`, { run: `app.record` })
+    if (`error` in target) throw new Error(target.error)
+    const screen = resolveScreen(opened, target.screen, target.params)!
+    h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `o`, packageId: opened.id, templateId: screen.screen, data: screenData(screen) } })
+    await Promise.resolve()
+    expect(h.surface(`o`)!.data).toEqual({ params: { run: `app.record` } })
+    expect(called).toEqual([])
+  })
   test(`a screen's params land under /params`, () => {
     const h = new ExponentialHost({ packages: [pkg] })
     const screen = resolveScreen(pkg, `deals`, { stage: `won` })!
@@ -49,4 +80,29 @@ import hostContract from "../../catalog/host.json" with { type: "json" }
 import { MAX_SCREENS, MAX_SCREEN_TITLE, SCREEN_PARAMS_KEY } from "./screens"
 test(`the screens constants are catalog/host.json's`, () => {
   expect(hostContract.package.screens).toMatchObject({ max: MAX_SCREENS, titleMax: MAX_SCREEN_TITLE, navigateFunction: NAVIGATE_FUNCTION, paramsKey: SCREEN_PARAMS_KEY })
+})
+
+// #EXP-1674: a link per list row: `href` is a literal, so a press computes it.
+test(`a row's press opens ~/ with its own data through the URL policy`, async () => {
+  const opened: string[] = []
+  const pkg = {
+    formatVersion: PACKAGE_FORMAT_VERSION,
+    id: `acme.links`,
+    name: `Links`,
+    version: `1.0.0`,
+    catalogId: CORE_CATALOG_ID,
+    templates: {
+      t: {
+        data: { row: { identifier: `EXP-1` } },
+        components: [
+          { id: `root`, component: `Stack`, children: [`go`] },
+          { id: `go`, component: `Button`, label: `Open`, on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${/row/identifier}` } } } } } } },
+        ],
+      },
+    },
+  } as unknown as AppPackage
+  const h = new ExponentialHost({ packages: [pkg], policy: { urls: { baseUrl: `https://app.example`, linkBase: `/t/acme` }, openUrl: (url) => void opened.push(url) } })
+  h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `l`, packageId: pkg.id, templateId: `t` } })
+  expect(h.openUrl(`~/issues/EXP-1`)).toBe(true)
+  expect(opened).toEqual([`https://app.example/t/acme/issues/EXP-1`])
 })

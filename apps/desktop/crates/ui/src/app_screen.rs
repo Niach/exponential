@@ -75,7 +75,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use eui_core::host::{package_screens, resolve_screen, screen_data, ResolvedScreen};
+use eui_core::host::{nav_screens, package_screens, resolve_screen, screen_data, ResolvedScreen};
 use sync::Store;
 
 use domain::apps::{
@@ -1052,7 +1052,8 @@ impl AppScreenView {
             return None;
         }
         let pkg = self.shown_package(cx)?;
-        let screens: Vec<(String, String, Option<String>)> = package_screens(&pkg)
+        // #EXP-1674: the navigation's screens; a `nav: false` one opens by link.
+        let screens: Vec<(String, String, Option<String>)> = nav_screens(&pkg)
             .into_iter()
             .map(|s| {
                 let text = |key: &str| s.get(key).and_then(Value::as_str).map(str::to_string);
@@ -1593,7 +1594,7 @@ mod tests {
         assert_eq!(message["applyTemplate"]["templateId"], "companies");
         assert_eq!(message["applyTemplate"]["data"], json!({"params": {"q": "acme"}}));
         assert_eq!(resolve_screen(&pkg, Some("gone"), None).unwrap().screen, "pipeline");
-        assert_eq!(screen_shell(package_screens(&pkg).len(), true), Some(ScreenShell::Bar));
+        assert_eq!(screen_shell(nav_screens(&pkg).len(), true), Some(ScreenShell::Bar));
         // `ui-icon-placeholder` = CircleDashed (ExpIcon has no PartialEq).
         assert!(matches!(screen_icon(None), crate::icons::ExpIcon::CircleDashed));
         assert!(matches!(screen_icon(Some("no-such-icon")), crate::icons::ExpIcon::CircleDashed));

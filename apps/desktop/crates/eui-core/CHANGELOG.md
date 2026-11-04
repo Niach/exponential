@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking** #EXP-1674: `PACKAGE_FORMAT_VERSION` 4: a screen's `nav: false` and `exposed`; `host::nav_screens`, `host::cross_app_target`; `UrlPolicy::link_base` (`decide_url` expands `~/x` against it).
+
 ## 0.14.0 (2026-11-04)
 
 - VAPP-217 (eApps U2): the `RecordForm` and `RecordTable` macros expand in the core, with the host's record fill (kind schema, row values, the form's submit as a records batch).

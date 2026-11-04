@@ -2,9 +2,11 @@
 //! line-by-line port of `packages/exponential-ui/src/host/screens.ts`;
 //! `fixtures/host-router.json` (`validation`, `screens`, `navigate`) locks
 //! the same behaviour on every platform. `screens: [{template, title,
-//! icon?, params?}]` lists the templates a person can open (keyed by the
-//! template); the host draws the navigation; `app.navigate {screen,
-//! params?}` opens one, its params landing under `/params/*`.
+//! icon?, params?, nav?, exposed?}]` lists the templates a person can open
+//! (keyed by the template); the host draws the navigation; `app.navigate
+//! {screen, params?}` opens one, its params landing under `/params/*`.
+//! #EXP-1674: `nav: false` = a detail screen, left out of the navigation;
+//! `exposed` = the public contract other apps link to.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -13,16 +15,21 @@ use super::js_trim;
 use super::package::PackageIssue;
 use crate::generated::catalog::ICON_NAMES;
 
-/// The most screens a package declares (the phone bottom bar's room).
+/// The most NAVIGATION screens a package declares (the phone bottom bar's
+/// room); `nav: false` screens do not count.
 pub const MAX_SCREENS: usize = 5;
 /// A screen title's most characters (code points).
 pub const MAX_SCREEN_TITLE: usize = 32;
+/// An exposed screen's description's most characters (code points).
+pub const MAX_EXPOSED_DESCRIPTION: usize = 200;
 /// The host function (and action call) that opens a screen; always allowed.
 pub const NAVIGATE_FUNCTION: &str = "app.navigate";
 /// The template data key a screen's params land under (`/params/*`).
 pub const SCREEN_PARAMS_KEY: &str = "params";
 
-const SCREEN_KEYS: &[&str] = &["template", "title", "icon", "params"];
+const SCREEN_KEYS: &[&str] = &["template", "title", "icon", "params", "nav", "exposed"];
+const EXPOSED_KEYS: &[&str] = &["description", "params"];
+const EXPOSED_PARAM_KEYS: &[&str] = &["required", "description"];
 
 /// A screen as a host opens it: its template and the merged params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,11 +65,15 @@ fn sorted_keys(o: &Map<String, Value>) -> Vec<&String> {
 pub fn validate_package_screens(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
     let Some(list) = pkg.get("screens") else { return Vec::new() };
     let Some(list) = list.as_array().filter(|l| !l.is_empty()) else {
-        return vec![issue("/screens", "screens is a non-empty list of {template, title, icon?, params?}")];
+        return vec![issue("/screens", "screens is a non-empty list of {template, title, icon?, params?, nav?, exposed?}")];
     };
     let mut issues = Vec::new();
-    if list.len() > MAX_SCREENS {
-        issues.push(issue("/screens", format!("at most {MAX_SCREENS} screens, got {}", list.len())));
+    let in_nav = list.iter().filter(|s| !s.is_object() || s.get("nav") != Some(&Value::Bool(false))).count();
+    if in_nav > MAX_SCREENS {
+        issues.push(issue("/screens", format!("at most {MAX_SCREENS} screens in the navigation, got {in_nav}")));
+    }
+    if in_nav == 0 {
+        issues.push(issue("/screens", "at least one screen is in the navigation (not nav: false)"));
     }
     let empty = Map::new();
     let templates = pkg.get("templates").and_then(Value::as_object).unwrap_or(&empty);
@@ -70,7 +81,7 @@ pub fn validate_package_screens(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
     for (i, s) in list.iter().enumerate() {
         let at = format!("/screens/{i}");
         let Some(s) = s.as_object() else {
-            issues.push(issue(&at, "a screen is {template, title, icon?, params?}"));
+            issues.push(issue(&at, "a screen is {template, title, icon?, params?, nav?, exposed?}"));
             continue;
         };
         for k in sorted_keys(s) {
@@ -110,8 +121,62 @@ pub fn validate_package_screens(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                 }
             }
         }
+        if s.get("nav").is_some_and(|nav| *nav != Value::Bool(false)) {
+            issues.push(issue(format!("{at}/nav"), "nav is false or absent"));
+        }
+        if let Some(exposed) = s.get("exposed") {
+            issues.extend(exposed_issues(exposed, &format!("{at}/exposed")));
+        }
     }
     issues.extend(navigate_issues(pkg, &seen));
+    issues
+}
+
+/// #EXP-1674: what is wrong with a screen's `exposed`.
+fn exposed_issues(exposed: &Value, at: &str) -> Vec<PackageIssue> {
+    let Some(exposed) = exposed.as_object() else {
+        return vec![issue(at, "exposed is {description, params?}")];
+    };
+    let mut issues = Vec::new();
+    for k in sorted_keys(exposed) {
+        if !EXPOSED_KEYS.contains(&k.as_str()) {
+            issues.push(issue(format!("{at}/{}", escape(k)), format!("unknown exposed key {k}")));
+        }
+    }
+    match exposed.get("description").and_then(Value::as_str) {
+        Some(d) if !js_trim(d).is_empty() => {
+            if d.chars().count() > MAX_EXPOSED_DESCRIPTION {
+                issues.push(issue(format!("{at}/description"), format!("description is at most {MAX_EXPOSED_DESCRIPTION} characters")));
+            }
+        }
+        _ => issues.push(issue(format!("{at}/description"), "description is a required string")),
+    }
+    let Some(params) = exposed.get("params") else { return issues };
+    let Some(params) = params.as_object() else {
+        issues.push(issue(format!("{at}/params"), "params is an object of {required?, description?}"));
+        return issues;
+    };
+    for k in sorted_keys(params) {
+        let here = format!("{at}/params/{}", escape(k));
+        if k.is_empty() || !k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+            issues.push(issue(&here, format!("param {k} is letters, digits and _")));
+        }
+        let Some(param) = params[k].as_object() else {
+            issues.push(issue(&here, "a param is {required?, description?}"));
+            continue;
+        };
+        for key in sorted_keys(param) {
+            if !EXPOSED_PARAM_KEYS.contains(&key.as_str()) {
+                issues.push(issue(format!("{here}/{}", escape(key)), format!("unknown param key {key}")));
+            }
+        }
+        if param.get("required").is_some_and(|r| !r.is_boolean()) {
+            issues.push(issue(format!("{here}/required"), "required is a boolean"));
+        }
+        if param.get("description").is_some_and(|d| !d.is_string()) {
+            issues.push(issue(format!("{here}/description"), "description is a string"));
+        }
+    }
     issues
 }
 
@@ -183,12 +248,19 @@ pub fn package_screens(pkg: &Value) -> Vec<&Map<String, Value>> {
     pkg.get("screens").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_object).filter(|s| s.get("template").is_some_and(Value::is_string)).collect()
 }
 
+/// #EXP-1674: the screens the host's navigation paints (no `nav: false`).
+pub fn nav_screens(pkg: &Value) -> Vec<&Map<String, Value>> {
+    package_screens(pkg).into_iter().filter(|s| s.get("nav") != Some(&Value::Bool(false))).collect()
+}
+
 /// The screen a host opens for a request: the requested one when the
-/// package has it, else the FIRST; its params = the screen's own, then the
-/// request's string params key by key. None = the package has no screens.
+/// package has it (a `nav: false` one too), else the FIRST in the navigation;
+/// its params = the screen's own, then the request's string params key by
+/// key. None = the package has no screens.
 pub fn resolve_screen(pkg: &Value, screen: Option<&str>, params: Option<&Value>) -> Option<ResolvedScreen> {
     let screens = package_screens(pkg);
-    let picked = screens.iter().find(|s| s.get("template").and_then(Value::as_str) == screen).or(screens.first())?;
+    let first = nav_screens(pkg).first().copied();
+    let picked = screens.iter().find(|s| s.get("template").and_then(Value::as_str) == screen).copied().or(first)?;
     let mut merged = Map::new();
     for source in [picked.get("params"), params] {
         let Some(o) = source.and_then(Value::as_object) else { continue };
@@ -232,6 +304,53 @@ pub fn navigate_target(pkg: &Value, args: &Value) -> Result<NavigateTarget, Stri
 /// `navigate_target` as the fixture's JSON: `{screen, params}` | `{error}`.
 pub fn navigate_target_value(pkg: &Value, args: &Value) -> Value {
     match navigate_target(pkg, args) {
+        Ok(t) => json!({"screen": t.screen, "params": t.params}),
+        Err(error) => json!({"error": error}),
+    }
+}
+
+/// #EXP-1674: what a link FROM ANOTHER APP may open in this package, or why it
+/// is refused. The target (`screen`, else the first in the navigation) must be
+/// `exposed`; its params = the screen's own, then the request's string params
+/// the contract declares (anything else dropped); a `required` one must be
+/// present and non-empty.
+pub fn cross_app_target(pkg: &Value, screen: Option<&str>, params: Option<&Value>) -> Result<NavigateTarget, String> {
+    let picked = match screen.filter(|s| !s.is_empty()) {
+        Some(screen) => package_screens(pkg).into_iter().find(|s| s.get("template").and_then(Value::as_str) == Some(screen)),
+        None => nav_screens(pkg).first().copied(),
+    };
+    let Some(picked) = picked else { return Err("no such screen".into()) };
+    let template = picked.get("template").and_then(Value::as_str).unwrap_or_default();
+    let Some(exposed) = picked.get("exposed").and_then(Value::as_object) else { return Err(format!("{template} is not exposed")) };
+    let empty = Map::new();
+    let declared = exposed.get("params").and_then(Value::as_object).unwrap_or(&empty);
+    let mut merged = Map::new();
+    if let Some(own) = picked.get("params").and_then(Value::as_object) {
+        for k in sorted_keys(own) {
+            if own[k].is_string() {
+                merged.insert(k.clone(), own[k].clone());
+            }
+        }
+    }
+    if let Some(asked) = params.and_then(Value::as_object) {
+        for k in sorted_keys(asked) {
+            if declared.contains_key(k) && asked[k].is_string() {
+                merged.insert(k.clone(), asked[k].clone());
+            }
+        }
+    }
+    for k in sorted_keys(declared) {
+        let required = declared[k].get("required").and_then(Value::as_bool) == Some(true);
+        if required && merged.get(k).and_then(Value::as_str).is_none_or(str::is_empty) {
+            return Err(format!("{template} needs {k}"));
+        }
+    }
+    Ok(NavigateTarget { screen: template.to_string(), params: merged })
+}
+
+/// `cross_app_target` as the fixture's JSON: `{screen, params}` | `{error}`.
+pub fn cross_app_target_value(pkg: &Value, screen: Option<&str>, params: Option<&Value>) -> Value {
+    match cross_app_target(pkg, screen, params) {
         Ok(t) => json!({"screen": t.screen, "params": t.params}),
         Err(error) => json!({"error": error}),
     }

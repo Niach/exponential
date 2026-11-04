@@ -32,7 +32,7 @@ import type { PackageScreen } from "./screens"
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
  *  A package names it, and it is exactly this one: no older format is
  *  read (eApps keeps no backwards compatibility). */
-export const PACKAGE_FORMAT_VERSION = 3
+export const PACKAGE_FORMAT_VERSION = 4
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
  *  extension id in order, de-duplicated. */

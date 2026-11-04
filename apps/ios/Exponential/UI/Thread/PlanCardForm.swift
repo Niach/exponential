@@ -763,9 +763,12 @@ private final class PlanCardSurfaceHost: HostPlugin {
         )
     }
 
+    /// #EXP-1674: `~/x` = the card's team.
+    private lazy var linkBase: String? = LinkOpener.linkBase(teamId: teamId, accountId: accountId, deps: deps)
+
     // https, plus the instance's own scheme (a LAN self-host may be plain http).
     var urlPolicy: UrlPolicy? {
-        UrlPolicy(schemes: ["https"] + (baseURL?.scheme == "http" ? ["http"] : []), allowPrivate: ownPrivateHosts, baseUrl: base)
+        UrlPolicy(schemes: ["https"] + (baseURL?.scheme == "http" ? ["http"] : []), allowPrivate: ownPrivateHosts, baseUrl: base, linkBase: linkBase)
     }
 
     func mediaRequest(_ src: String) -> URLRequest? {

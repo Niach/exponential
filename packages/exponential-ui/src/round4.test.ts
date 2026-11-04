@@ -92,7 +92,7 @@ describe(`round4-contract.json`, () => {
 
 describe(`host functions are namespaced`, () => {
   test(`catalog names and dotted names are callable; anything else is a typo`, () => {
-    for (const ok of [`openUrl`, `filter`, `set`, `formatRelativeTime`, `app.toast`, `harness.openIssue`, `cart.add`, `a.b.c`]) expect(isCallableName(ok), ok).toBe(true)
+    for (const ok of [`openUrl`, `filter`, `set`, `formatRelativeTime`, `app.toast`, `harness.toast`, `cart.add`, `a.b.c`]) expect(isCallableName(ok), ok).toBe(true)
     for (const bad of [`opneUrl`, `toast`, `.toast`, `app.`, `app..toast`, ``]) expect(isCallableName(bad), bad).toBe(false)
   })
 })

@@ -9,7 +9,7 @@ import { reduceSurface } from "./reducer"
 describe(`defineSurface`, () => {
   const devices = ui.Stack({ gap: `md` }, [
     ui.Section({ title: `Devices`, icon: `nav-devices` }),
-    ui.List({ divided: true }, { template: ui.Row({ title: bind(`label`), subtitle: bind(`detail`), pressable: true }, undefined, { on: { press: run(`harness.openDevice`, { id: bind(`id`) }) } }), path: `/devices/rows`, key: `id` }),
+    ui.List({ divided: true }, { template: ui.Row({ title: bind(`label`), subtitle: bind(`detail`), pressable: true }, undefined, { on: { press: run(`harness.toast`, { id: bind(`id`) }) } }), path: `/devices/rows`, key: `id` }),
     ui.EmptyState({ icon: `nav-devices`, title: `No devices yet`, actionLabel: `Add device` }, undefined, { visible: call(`eq`, { a: 0, b: bind(`/devices/count`) }), on: { press: event(`addDevice`) } }),
   ])
 
@@ -18,7 +18,7 @@ describe(`defineSurface`, () => {
     expect(flat.map((c) => c.id)).toEqual([`root`, `section-1`, `list-1`, `row-1`, `emptyState-1`])
     expect(flat[0]).toEqual({ id: `root`, component: `Stack`, gap: `md`, children: [`section-1`, `list-1`, `emptyState-1`] })
     expect(flat[2].children).toEqual({ componentId: `row-1`, path: `/devices/rows`, key: `id` })
-    expect(flat[3].on).toEqual({ press: { functionCall: { call: `harness.openDevice`, args: { id: { path: `id` } } } } })
+    expect(flat[3].on).toEqual({ press: { functionCall: { call: `harness.toast`, args: { id: { path: `id` } } } } })
     expect(flat[4].visible).toEqual({ call: `eq`, args: { a: 0, b: { path: `/devices/count` } } })
   })
 

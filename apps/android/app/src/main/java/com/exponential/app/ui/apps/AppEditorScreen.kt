@@ -145,7 +145,6 @@ private fun tabLabel(tab: EditorTab) = when (tab) {
 @Composable
 fun AppEditorScreen(
     onBack: () -> Unit,
-    onOpenIssue: (issueId: String) -> Unit,
     onOpenSession: (sessionId: String) -> Unit,
     /** #VAPP-230: the upstream banner's Connect (Settings › MCP of the app's team). */
     onOpenTeamSettings: (teamId: String, section: String) -> Unit = { _, _ -> },
@@ -293,7 +292,6 @@ fun AppEditorScreen(
                         restoring = restoring,
                         onRestore = viewModel::restore,
                         onHead = viewModel::clearViewing,
-                        onOpenIssue = onOpenIssue,
                         onOpenTeamSettings = onOpenTeamSettings,
                         appId = viewModel.appId,
                         teamId = entry.teamId,
@@ -485,7 +483,6 @@ private fun AppPreviewPane(
     restoring: Boolean,
     onRestore: () -> Unit,
     onHead: () -> Unit,
-    onOpenIssue: (String) -> Unit,
     onOpenTeamSettings: (teamId: String, section: String) -> Unit,
     appId: String,
     teamId: String?,
@@ -536,7 +533,7 @@ private fun AppPreviewPane(
                 // A new package = a new host (the key): every synced upsert
                 // repaints; the screen request outlives it (VAPP-218).
                 androidx.compose.runtime.key(pkg, viewing, migrateFrom) {
-                    AppPackageSurface(pkg, onOpenIssue, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly, migrateFrom = migrateFrom, screen = screen, onScreen = onScreen)
+                    AppPackageSurface(pkg, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly, migrateFrom = migrateFrom, screen = screen, onScreen = onScreen)
                 }
             } else {
                 EmptyState(
@@ -557,7 +554,6 @@ private fun AppPreviewPane(
 @Composable
 internal fun AppPackageSurface(
     packageJson: String,
-    onOpenIssue: (String) -> Unit,
     onOpenTeamSettings: (teamId: String, section: String) -> Unit,
     appId: String,
     teamId: String?,
@@ -570,7 +566,8 @@ internal fun AppPackageSurface(
 ) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
-    val screens = remember(parsed) { parsed?.let(Screens::list).orEmpty() }
+    // #EXP-1674: the bar paints the navigation's; a `nav: false` screen opens by link.
+    val screens = remember(parsed) { parsed?.let(Screens::nav).orEmpty() }
     val resolved = remember(parsed, screen) { parsed?.let { Screens.resolve(it, screen.screen, screen.params) } }
     val shell = Apps.screenShell(screens.size, phone = true)
     val templateId = resolved?.screen ?: parsed?.get("templates")?.obj?.keys?.let { Apps.previewTemplate(it) }
@@ -587,7 +584,6 @@ internal fun AppPackageSurface(
     val host = rememberAppHost(
         packages = listOf(packageJson),
         consent = consent,
-        onOpenIssue = onOpenIssue,
         appId = appId,
         teamId = teamId,
         me = me,

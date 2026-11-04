@@ -5,12 +5,12 @@
 ## Versions
 
 A package MUST carry `formatVersion`. This document is format version
-**3** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
-`policy`), and a host reads exactly its own version: eApps keeps no
-backwards compatibility. A missing one is
-`/formatVersion: formatVersion is required (3)`, an older one `format version
-2 is no longer read: write 3`, a newer one `format version 4 is newer than
-this host (3)`; a host never guesses at keys it does not know. The catalog a package
+**4** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
+`policy`, 4 added a screen's `nav` and `exposed`), and a host reads exactly its
+own version: eApps keeps no backwards compatibility. A missing one is
+`/formatVersion: formatVersion is required (4)`, an older one `format version
+3 is no longer read: write 4`, a newer one `format version 5 is newer than
+this host (4)`; a host never guesses at keys it does not know. The catalog a package
 renders against keeps its own version in its id (`catalogId`,
 `…/catalogs/core/v1`) and is negotiated as before (`supportedCatalogIds`).
 
@@ -18,7 +18,7 @@ renders against keeps its own version in its id (`catalogId`,
 
 ```jsonc
 {
-  "formatVersion": 3,                  // required: the current format
+  "formatVersion": 4,                  // required: the current format
   "id": "acme.hours", "name": "Working hours", "version": "1.2.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "templates": { "<id>": { "components": [/* flat, one root */], "data": {}, "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }] } },

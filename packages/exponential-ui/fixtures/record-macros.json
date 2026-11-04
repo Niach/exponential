@@ -1783,7 +1783,7 @@
     {
       "name": "clean: functions and sources allow the writes and the rows",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -1858,7 +1858,7 @@
     {
       "name": "RecordForm without records.upsert",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -1932,7 +1932,7 @@
     {
       "name": "a read-only RecordForm writes nothing",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -2002,7 +2002,7 @@
     {
       "name": "RecordTable without records.delete and outside sources",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",
@@ -2086,7 +2086,7 @@
     {
       "name": "a RecordTable that is not editable needs only its source",
       "package": {
-        "formatVersion": 3,
+        "formatVersion": 4,
         "id": "acme.deals",
         "name": "Deals",
         "version": "1.0.0",

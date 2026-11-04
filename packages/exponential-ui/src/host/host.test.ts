@@ -35,7 +35,7 @@ import {
   imageDimensions,
   MEDIA_LIMITS,
 } from "."
-import { navigateTarget, resolveScreen } from "./screens"
+import { crossAppTarget, navigateTarget, resolveScreen } from "./screens"
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, HostIssue, MediaOptions, TransportStatus, UrlPolicy, AppPackage } from "."
 import { neutralTheme } from "../themes"
 import { CORE_CATALOG_ID } from "../catalog"
@@ -86,6 +86,7 @@ describe(`host-router.json`, () => {
   // VAPP-218: the screens a host opens, the navigate targets.
   for (const c of routerFixture.screens) test(`screens: ${c.name}`, () => expect(resolveScreen(packages[c.package]!, c.screen, c.params as Record<string, unknown> | null)).toEqual(c.expected as never))
   for (const c of routerFixture.navigate) test(`navigate: ${c.name}`, () => expect(navigateTarget(packages[c.package]!, c.args)).toEqual(c.expected as never))
+  for (const c of routerFixture.crossApp) test(`crossApp: ${c.name}`, () => expect(crossAppTarget(packages[c.package]!, c.screen, c.params as Record<string, unknown> | null)).toEqual(c.expected as never))
   for (const c of routerFixture.records)
     test(`records: ${c.name}`, () => expect(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)).toEqual(c.expected as never))
   for (const c of routerFixture.attachments)

@@ -118,7 +118,8 @@ private struct AppPreviewScreens {
         #if canImport(ExponentialUI)
         guard let packageJSON else { return }
         let pkg = JSONValue.parse(packageJSON)
-        tabs = Screens.list(pkg).map { Tab(screen: $0.screen, title: $0.title, icon: $0.icon) }
+        // #EXP-1674: the bar paints the navigation's; a `nav: false` screen opens by link.
+        tabs = Screens.nav(pkg).map { Tab(screen: $0.screen, title: $0.title, icon: $0.icon) }
         guard !tabs.isEmpty else { return }
         shown = Screens.resolve(pkg, screen: request?.screen, params: request?.params)
             .map { Apps.ScreenRequest(screen: $0.screen, params: $0.params) }
@@ -232,9 +233,6 @@ private struct AppPackageSurface: View {
             navigate: { [onNavigate] target in
                 onNavigate(Apps.ScreenRequest(screen: target.screen, params: target.params))
                 return true
-            },
-            onOpenIssue: { [pushRoute, accountId] issueId in
-                pushRoute(.issue(accountId: accountId, id: issueId))
             }
         )
         if let shown {

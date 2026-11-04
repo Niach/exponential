@@ -18,7 +18,7 @@ import ExponentialUI
 //     fixture's derivation); VAPP-122 the format's `records:<kind>?…` over
 //     the app's own rows (`AppRecords`; VAPP-189: the SDK's `RecordsQuery`,
 //     eUI's one evaluator);
-//   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
+//   - functions: `harness.toast`,
 //     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
 //     `records.upsert` / `.delete` (tRPC `apps.records.*`, no consent card:
 //     the app's own rows; a refusal = the failed-action toast;
@@ -429,8 +429,7 @@ final class ExpAppHost {
         grants: Bool = true,
         readOnly: Bool = false,
         migrateFrom: String? = nil,
-        navigate: ((NavigateTarget) -> Bool)? = nil,
-        onOpenIssue: @escaping (String) -> Void
+        navigate: ((NavigateTarget) -> Bool)? = nil
     ) {
         self.consent = consent
         let base = deps.auth.instanceBaseURL(forAccountId: accountId)
@@ -541,24 +540,6 @@ final class ExpAppHost {
                     }
                     return nil
                 },
-                "harness.openIssue": { args, _ in
-                    let identifier = args["identifier"]?.displayText ?? ""
-                    if let issueId = AppHostStore.issueId(identifier: identifier, pool: pool) {
-                        onOpenIssue(issueId)
-                    } else {
-                        Toaster.shared.error(
-                            FeedbackStates.Errors.title(verb: "open", thing: identifier),
-                            description: "It is not synced here."
-                        )
-                    }
-                    return nil
-                },
-                // The web host's default: the device's name as a toast.
-                "harness.openDevice": { args, _ in
-                    let label = args["label"]?.displayText ?? ""
-                    Toaster.shared.info(label.isEmpty ? (args["id"]?.displayText ?? "") : label)
-                    return nil
-                },
                 "harness.mcp": { args, _ in
                     try await AppHostMcp.call(
                         tool: args["tool"]?.displayText ?? "",
@@ -617,13 +598,23 @@ final class ExpAppHost {
                 // VAPP-107: private hosts are denied unless opted in; the
                 // app's OWN instance is (the localhost dev setup), nothing
                 // else. A public origin listed here changes nothing.
-                urls: UrlPolicy(allowPrivate: ownHost, baseUrl: origin),
+                // #EXP-1674: `~/x` = the app's team.
+                urls: UrlPolicy(
+                    allowPrivate: ownHost, baseUrl: origin,
+                    linkBase: LinkOpener.linkBase(teamId: teamId, accountId: accountId, deps: deps)
+                ),
                 openUrl: { url in
-                    // THE opener (#EXP-1674), the app's team for `~/`: an instance
-                    // link opens in-app, anything else in the Safari sheet, never
-                    // UIApplication.open.
+                    // THE opener (#EXP-1674): an instance link opens in-app (one at
+                    // another app's screen through that app's `exposed` contract),
+                    // anything else in the Safari sheet, never UIApplication.open.
+                    guard let opened = AppHostStore.crossAppURL(
+                        url, sourceAppId: appId, origin: origin ?? "", pool: pool
+                    ) else {
+                        Toaster.shared.error(AppLink.noAccessCopy)
+                        return
+                    }
                     if let action = LinkOpener.tapAction(
-                        url, origin: origin ?? "", accountId: accountId, teamId: teamId, deps: deps
+                        opened, origin: origin ?? "", accountId: accountId, teamId: teamId, deps: deps
                     ) {
                         action()
                     }
@@ -1221,16 +1212,46 @@ enum AppHostStore {
         return (try? pool.read { db in try AppEntity.fetchOne(db, key: appId)?.grantedTools }) ?? []
     }
 
-    /// A synced issue's id by identifier (nil = not synced here).
-    static func issueId(identifier: String, pool: DatabasePool?) -> String? {
-        guard let pool, !identifier.isEmpty else { return nil }
-        return try? pool.read { db in
-            try String.fetchOne(
+    /// #EXP-1674 (host-router.json `crossApp`): the url a link opens when the
+    /// app `sourceAppId`'s surface opens it: anything but another app's screen
+    /// as it is; another app's only through its `exposed` contract, with the
+    /// params it declares. nil = the toast `AppLink.noAccessCopy`, the same for a
+    /// missing app. A person's URL or an agent's chat link never comes here.
+    static func crossAppURL(_ url: URL, sourceAppId: String?, origin: String, pool: DatabasePool?) -> URL? {
+        guard let sourceAppId else { return url }
+        let teamSlug: String
+        let appSlug: String
+        let screen: String?
+        let params: [String: String]?
+        switch AppLink.classify(url.absoluteString, origin: origin) {
+        case let .appHome(team, app):
+            teamSlug = team
+            appSlug = app
+            screen = nil
+            params = nil
+        case let .appScreen(team, app, shown, asked):
+            teamSlug = team
+            appSlug = app
+            screen = shown
+            params = asked
+        default:
+            return url
+        }
+        guard let pool else { return nil }
+        let found = try? pool.read { db -> AppEntity? in
+            try AppEntity.fetchOne(
                 db,
-                sql: #"SELECT "id" FROM "issues" WHERE upper("identifier") = upper(?) LIMIT 1"#,
-                arguments: [identifier]
+                sql: #"SELECT "apps".* FROM "apps" JOIN "teams" ON "teams"."id" = "apps"."team_id" WHERE "teams"."slug" = ? AND "apps"."slug" = ? AND "apps"."deleted_at" IS NULL LIMIT 1"#,
+                arguments: [teamSlug, appSlug]
             )
         }
+        guard let app = found else { return nil }
+        if app.id == sourceAppId { return url }
+        guard app.publishedVersion > 0, let published = app.package else { return nil }
+        guard case let .success(target) = Screens.crossAppTarget(JSONValue.parse(published), screen: screen, params: params) else {
+            return nil
+        }
+        return URL(string: origin + Apps.screenPath(teamSlug: teamSlug, appSlug: appSlug, screen: target.screen, params: target.params))
     }
 }
 

@@ -36,6 +36,7 @@ import com.exponential.app.data.images.resolveAccountForUrl
 import com.exponential.app.domain.CardSurface
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.ui.markdown.LocalAppLinks
+import com.exponential.app.domain.expandTeamLink
 import com.exponential.app.ui.markdown.openCardHref
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.markdown.rememberIssueTextLinks
@@ -96,6 +97,7 @@ private class CardSurfaceHost(
     private val onActionEvent: ((name: String, context: JsonObject?) -> Unit)? = null,
     private val onOpenUrl: (String) -> Unit = {},
     private val onTextLinks: (String) -> List<TextLinkSegment>? = { null },
+    private val linkBase: () -> String? = { null },
 ) : HostPlugin {
     private val origin = base?.trimEnd('/')
 
@@ -113,12 +115,15 @@ private class CardSurfaceHost(
         allowPrivate = ownHost,
     )
 
-    // #EXP-1674: https, plus the instance's own scheme (a local http dev stack).
-    override val urlPolicy: UrlPolicy = UrlPolicy(
-        schemes = listOfNotNull("https", origin?.substringBefore("://")?.takeIf { it == "http" }),
-        baseUrl = origin,
-        allowPrivate = ownHost,
-    )
+    // #EXP-1674: https, plus the instance's own scheme (a local http dev stack);
+    // `~/x` = the card's team, read late (the slug lands after the first frame).
+    override val urlPolicy: UrlPolicy
+        get() = UrlPolicy(
+            schemes = listOfNotNull("https", origin?.substringBefore("://")?.takeIf { it == "http" }),
+            baseUrl = origin,
+            allowPrivate = ownHost,
+            linkBase = linkBase(),
+        )
 
     override fun openUrl(url: String) = onOpenUrl(url)
 
@@ -136,13 +141,14 @@ private fun cardHost(
     onAction: ((name: String, context: JsonObject?) -> Unit)? = null,
     onOpenUrl: (String) -> Unit = {},
     onTextLinks: (String) -> List<TextLinkSegment>? = { null },
+    linkBase: () -> String? = { null },
 ): HostPlugin {
     val auth = runCatching {
         EntryPointAccessors.fromApplication(context.applicationContext, CardSurfaceEntryPoint::class.java).authRepository()
     }.getOrNull()
     val base = auth?.instanceUrl?.value
     val token = auth?.let { a -> base?.let { resolveAccountForUrl(a.accounts.value, a.activeAccountId.value, it)?.token } }
-    return CardSurfaceHost(base, token, onAction, onOpenUrl, onTextLinks)
+    return CardSurfaceHost(base, token, onAction, onOpenUrl, onTextLinks, linkBase)
 }
 
 /**
@@ -174,6 +180,7 @@ internal fun rememberCardSurfaceModel(
                     forward,
                     onOpenUrl = { url -> latestLinks.value?.openCardHref(url) },
                     onTextLinks = { text -> latestTextLinks.value(text) },
+                    linkBase = { expandTeamLink("~/", latestLinks.value?.team) },
                 ),
             ) { error("set by ExponentialSurface") }.also { m ->
                 m.setNested(surface.root.toString())

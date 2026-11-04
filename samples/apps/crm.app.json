@@ -7,7 +7,7 @@
     "description": "A small team CRM: companies, their contacts and the deal pipeline. Companies and contacts are shared (any member edits them); a deal is changed by its author or an owner."
   },
   "package": {
-    "formatVersion": 3,
+    "formatVersion": 4,
     "id": "exponential.crm",
     "name": "CRM",
     "version": "1.0.0",
@@ -2401,6 +2401,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "l2p8_TP1PSBlezwKIwyzu3HM4dFt4gdkUvNYZOTptWWZhyAkQOIlqTuRPvNv6KFUY4cnjrsyM1oloEN674w8Dg"
+    "value": "cwW1fggMqDAkxSkOrRyISVeud38FaaOTSUy5fsAS7odwu1EOvkOBx8WTogW3FKQJdFQS_zbE_KnXPGJhWRo2DA"
   }
 }

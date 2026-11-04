@@ -198,7 +198,7 @@ Needs: C2, C13.
 ```jsonc
 {
   "id": "acme.hours", "name": "Hours", "version": "2.0.0",
-  "formatVersion": 2,                      // host reads ≤ 2; 3 = this spec
+  "formatVersion": 4,                      // a host reads exactly its own
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "icon": { "glyph": "clock", "color": "blue" }, "description": "…",
   "sources":   ["records:*", "exp:members", "exp:issues"],     // allowlist
@@ -226,6 +226,10 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 | `automations` | Schedule, record event, Exponential event and webhook → one run | 7 |
 | `migrations` | Declarative record migrations between versions | 3.6 |
 | `share` | Public link definitions (`package-format.md`) | 9.4 |
+
+### 2.2.1 What formatVersion 4 adds (✅ #EXP-1674)
+
+A screen's `nav: false` and `exposed` (§5.1). A version 3 package is a valid version 4 package, so migration `0251_eapps_format_v4` moved the stored ones (`apps.package`, `apps.draft_package`, `app_versions.package`) up, as `0237` did for version 3; a client that has not updated shows the update prompt below.
 
 A host refuses a newer `formatVersion` (✅ today), so old clients show "Update Exponential to open this app" instead of a broken screen.
 
@@ -445,11 +449,14 @@ One language at two levels, on the Q2 core:
 
 ### 5.1 Screens and navigation (✅ U1, #VAPP-218)
 
-- `screens` lists the templates a person can open (1..5, keyed by the template; `title`, an eUI `icon`, default `params`). The host draws the shell from it with Exponential's EXISTING navigation: the sidebar row pattern on wide frames (desktop, web ≥ md, the preview's Desktop frame) and the phone bottom tab bar on phones (and the preview's Phone frame). No new component.
+- `screens` lists the templates a person can open (at least 1 and at most 5 in the navigation, keyed by the template; `title`, an eUI `icon`, default `params`). The host draws the shell from it with Exponential's EXISTING navigation: the sidebar row pattern on wide frames (desktop, web ≥ md, the preview's Desktop frame) and the phone bottom tab bar on phones (and the preview's Phone frame). No new component.
 - **The app draws no chrome of its own** for this, so every app navigates the same way.
 - The host function `app.navigate {screen, params?}` (a press, or an action's `call` step after its writes; always allowed) and the route `/t/$team/apps/$slug/$screen?…` give deep links that work ×4 (natives: the same path as an app link).
 - `params` become `/params/*` in the template data, and a binding source's `${params.month}` is filled (percent-encoded) when the screen opens.
 - Install refuses an unknown template, a duplicate, a sixth screen, a bad icon, a non-string param and a literal navigate target that is no screen.
+- ✅ #EXP-1674: `nav: false` = a detail screen outside the sidebar and tab bar (the limit of 5 counts only navigation screens, since it exists for the phone bar; a package with only `nav: false` screens is refused; a request with no screen opens the first in the navigation). `exposed: {description, params?: {<key>: {required?, description?}}}` = the public contract: a stable name and checked params.
+- ✅ #EXP-1674: `~/x` in `Link.href`, `Row.href`, `Button.href` and `openUrl` expands against the host's `linkBase` (eUI `decideUrl`; Exponential's run views and chat cards: `/t/<team>`; a host without one paints it as text; `~//` and a `.` or `..` segment, percent-encoded too, are denied).
+- ✅ #EXP-1674: a link from another app at `~/apps/<slug>/<screen>?k=v` passes `crossAppTarget` (`fixtures/host-router.json` `crossApp`, the host's check): the target screen must be `exposed` and its required params present and non-empty, only declared params arrive; otherwise the toast `app-link.json` `copy.noAccess`, the same for a missing or unpublished app. It PUSHES so back returns to the first app; `app.navigate` stays for the app's own screens and keeps replacing. A person's URL or an agent's chat link keeps opening any declared screen. `exponential_apps get` lists `linkableScreens` (navigation + exposed screens, params, a ready `~/` link).
 - ✅ Built as `src/host/screens.ts` (`validatePackageScreens`, `resolveScreen`, `navigateTarget`, `fillScreenParams`) + Rust `eui_core::host::screens` (FFI `resolve_screen_json`, `navigate_target_json`; SDKs `Screens`, `HostOptions.navigate` ×4), fixture `fixtures/host-router.json` (`screens`, `navigate`, `acme.badscreens`), the host contract `catalog/host.json` `package.screens`. The editor preview paints the screens in its frame (apps.json `screensCases`); with screens it replaces the template picker.
 
 ### 5.2 Templates and components
@@ -483,7 +490,7 @@ The two Hours mocks above are the same package. The phone picks the `month.phone
 
 | Family | What | Consent |
 |---|---|---|
-| `harness.*` | toast, openIssue, openDevice, records.upsert/delete, mcp (always asks) | None for records; `harness.mcp` asks every time |
+| `harness.*` | toast, records.upsert/delete, mcp (always asks); opening an issue or Devices is a link (`~/issues/<id>`, `~/devices`, #EXP-1674) | None for records; `harness.mcp` asks every time |
 | `exponential.<noun>.<op>` | 84 typed actions, each an MCP call **as the viewer** | Only an owner grants (`apps.granted_tools`). Destructive and owner-only ops are never grantable. A non-owner version clears all grants. |
 | `bind`, `set`, `openUrl` | Re-bind a source, set data, open a link (URL policy: private hosts denied) | None |
 
@@ -756,6 +763,7 @@ Added here:
 
 - **Data is never instructions.** `run.agent` and webhooks pass records and payloads as a fenced, typed data block. The agent prompt is the package's frozen text, never interpolated record text.
 - **Cross-app reads:** `records:<kind>?app=<slug>` lets an app read another app's rows today. 🆕 The target app must list the reader in `records.<kind>.readableBy`, and the kind's policy still applies (decided 2026-11-01).
+- ✅ **Cross-app links (#EXP-1674):** a link only navigates. An app reaches another app's screen only when it is `exposed` with its required params (§5.1), params are data (percent-encoded into bindings) and a screen never runs an action on open. `exposed` is not access control: the target's own policy decides what the viewer sees, and every refusal reads the same, so a link learns nothing about a missing app.
 - **Rendered text:** record strings render as text. `Markdown` renders links through the URL policy ✅, and images go through the media policy (#VAPP-157 ✅).
 
 ### 12.2 Data isolation

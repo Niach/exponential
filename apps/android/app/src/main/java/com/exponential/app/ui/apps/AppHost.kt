@@ -60,6 +60,7 @@ import at.exponential.ui.host.NavigateTarget
 import at.exponential.ui.host.RecordRow
 import at.exponential.ui.host.RecordMigrations
 import at.exponential.ui.host.RecordsQuery
+import at.exponential.ui.host.Screens
 import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.ffi.HostZone
 import at.exponential.ui.host.TimeZoneOffset
@@ -87,7 +88,11 @@ import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.TeamZone
 import com.exponential.app.domain.AppSources
 import com.exponential.app.domain.AppUpstream
+import com.exponential.app.domain.AppLink
 import com.exponential.app.domain.Apps
+import com.exponential.app.domain.LINK_NO_ACCESS
+import com.exponential.app.domain.classifyAppLink
+import com.exponential.app.domain.expandTeamLink
 import com.exponential.app.ui.components.failedAction
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.Prompts
@@ -137,10 +142,9 @@ import kotlinx.coroutines.withContext
  * Everything goes through the SDK's PUBLIC Compose host API
  * ([ExponentialHost] + [at.exponential.ui.host.HostSurface]), like a third
  * party's host would:
- *  - functions: `harness.toast` (the app's toast stack), `harness.openIssue`
- *    (the synced issue's page, else an error toast), `harness.openDevice` (a
- *    toast with its name, the web's default), `harness.mcp` (a `tools/call` on
- *    the instance's own `/api/mcp` as the signed-in account);
+ *  - functions: `harness.toast` (the app's toast stack), `harness.mcp` (a
+ *    `tools/call` on the instance's own `/api/mcp` as the signed-in account); a
+ *    link goes through the URL policy (`~/` = the app's team) and THE opener;
  *  - bindings: the `exp:` scheme over Room (`exp:devices`, re-derived on the
  *    liveness tick), [AppHostValues]; VAPP-119 `exp:issues` / `boards` /
  *    `members` / `sessions` / `comments` / `attachments` over the scope
@@ -502,15 +506,39 @@ private const val OUTBOX_PRUNE_TICK_MS = 5_000L
 const val APP_THEME_ID = "exponential"
 
 /**
- * A host over [packages] (package JSON texts), alive while the caller is composed. [onOpenIssue] =
- * `harness.openIssue` for a synced issue (by row id).
+ * #EXP-1674 (host-router.json `crossApp`): the href [link] opens when the app
+ * [sourceAppId]'s surface opens it: its own screens as written, another app's
+ * only through its `exposed` contract, with the params it declares. Null = the
+ * toast [LINK_NO_ACCESS], the same for a missing app. A person's URL or an
+ * agent's chat link never comes here.
+ */
+private suspend fun crossAppHref(link: AppLink, origin: String, sourceAppId: String, database: ExponentialDatabase?): String? {
+    val teamSlug: String
+    val appSlug: String
+    val screen: String?
+    val params: Map<String, String>?
+    when (link) {
+        is AppLink.AppHome -> { teamSlug = link.teamSlug; appSlug = link.appSlug; screen = null; params = null }
+        is AppLink.AppScreen -> { teamSlug = link.teamSlug; appSlug = link.appSlug; screen = link.screen; params = link.params }
+        else -> return null
+    }
+    val db = database ?: return null
+    val team = db.teamDao().observeBySlug(teamSlug).first() ?: return null
+    val app = db.appDao().observeByTeam(team.id).first().firstOrNull { it.slug == appSlug } ?: return null
+    if (app.id == sourceAppId) return if (screen != null) origin + Apps.screenPath(teamSlug, appSlug, screen, params.orEmpty()) else origin + "/t/" + Uri.encode(teamSlug) + "/apps/" + Uri.encode(appSlug)
+    val published = app.packageJson?.takeIf { (app.publishedVersion ?: 0) > 0 } ?: return null
+    val target = Screens.crossAppTarget(JsonValue.parse(published), screen, params).getOrNull() ?: return null
+    return origin + Apps.screenPath(teamSlug, appSlug, target.first, target.second)
+}
+
+/**
+ * A host over [packages] (package JSON texts), alive while the caller is composed.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @Composable
 fun rememberAppHost(
     packages: List<String>,
     consent: AppConsentGate,
-    onOpenIssue: (issueId: String) -> Unit,
     /** VAPP-122: the hosting app (its records; null = none: `records:<kind>` is null, writes fail). */
     appId: String? = null,
     /** The hosting app's team (an `app=<slug>` names an app of this team). */
@@ -534,13 +562,12 @@ fun rememberAppHost(
     val toaster = LocalToaster.current
     // VAPP-215: the batch's Undo outlives the call that toasted it.
     val undoScope = rememberCoroutineScope()
-    val openIssue by rememberUpdatedState(onOpenIssue)
     // The markdown links' rule for an allowed href (web + iOS alike): an
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
     val links = rememberAppLinkHandler(teamId)
-    // #EXP-1674: the team's slug lands after the first frame; read late so it
-    // never rebuilds the host (the host is keyed on the origin alone).
+    // #EXP-1674: the opener and text links read the latest; `~/x`'s base is in
+    // the host's URL policy, so the team's slug landing rebuilds it once.
     val latestLinks by rememberUpdatedState(links)
     val latestTextLinks by rememberUpdatedState(rememberIssueTextLinks(teamId, links?.team))
     // VAPP-221: a FileUpload's pick = the system document picker (several
@@ -554,12 +581,11 @@ fun rememberAppHost(
             if (request.multiple) pickMany.launch(types) else pickOne.launch(types)
         }
     }
-    val host = remember(packages, consent, themeId, links?.origin, appId, teamId, me, grants, readOnly, upstreams, migrateFrom, navigate) {
+    val host = remember(packages, consent, themeId, links?.origin, links?.team, appId, teamId, me, grants, readOnly, upstreams, migrateFrom, navigate) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
         val devices: Flow<List<DeviceEntity>> = db.scopedQuery(emptyList()) { it.deviceDao().observeAll() }
-        val issues: Flow<List<IssueEntity>> = db.scopedQuery(emptyList()) { it.issueDao().observeAll() }
         val users: Flow<List<UserEntity>> = db.scopedQuery(emptyList()) { it.userDao().observeAll() }
         // VAPP-120: the hosting app's row, read at call time for its grants
         // (the web/desktop settings page may change them while the host lives).
@@ -745,12 +771,6 @@ fun rememberAppHost(
             val text = args["message"]?.string.orEmpty()
             if (args["tone"]?.string == "error") toaster.error(text) else toaster.info(text)
         }
-        val openIssueFn: HostFunction = { args, _ ->
-            val identifier = args["identifier"]?.string.orEmpty()
-            val issue = issues.first().firstOrNull { it.identifier == identifier }
-            if (issue != null) openIssue(issue.id) else toaster.error("$identifier is not synced here")
-        }
-        val openDevice: HostFunction = { args, _ -> toaster.info(args["label"]?.string ?: args["id"]?.string.orEmpty()) }
         val mcp: HostFunction = { args, _ ->
             callMcp(deps.httpClient(), origin, token, args["tool"]?.string.orEmpty(), args["arguments"])
         }
@@ -893,8 +913,6 @@ fun rememberAppHost(
             "records.delete" to recordsDelete,
             "records.batch" to recordsBatch,
             "harness.toast" to toast,
-            "harness.openIssue" to openIssueFn,
-            "harness.openDevice" to openDevice,
             "harness.mcp" to mcp,
         )
 
@@ -920,8 +938,25 @@ fun rememberAppHost(
                     // VAPP-107: private hosts are denied unless opted in; the
                     // app's OWN instance is (the localhost dev setup), nothing
                     // else. A public origin listed here changes nothing.
-                    urls = UrlPolicy(baseUrl = origin, allowPrivate = ownHost),
-                    openUrl = links?.let { handler -> { url: String -> (latestLinks ?: handler).openHref(url) } },
+                    // #EXP-1674: `~/x` = the app's team.
+                    urls = UrlPolicy(baseUrl = origin, allowPrivate = ownHost, linkBase = expandTeamLink("~/", links?.team)),
+                    // #EXP-1674: a link at another app's screen passes that app's `exposed` contract.
+                    openUrl = links?.let { handler ->
+                        { url: String ->
+                            val current = latestLinks ?: handler
+                            val link = classifyAppLink(url, current.origin)
+                            val source = appId
+                            if (source == null || (link !is AppLink.AppHome && link !is AppLink.AppScreen)) {
+                                current.openHref(url)
+                            } else {
+                                undoScope.launch {
+                                    val href = crossAppHref(link, current.origin, source, db.first())
+                                    if (href != null) current.openHref(href) else toaster.error(LINK_NO_ACCESS)
+                                }
+                            }
+                            Unit
+                        }
+                    },
                     // #EXP-1674: a Row subtitle's `#IDENT` refs that resolve in the app's team.
                     textLinks = { text -> latestTextLinks(text) },
                     media = MediaOptions(

@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the pure host rules (catalog/host.json functions, urls, media, sources, negotiation). Inputs hand-written; `expected` filled by the generator from src/host/{policy,sources,package}.ts. VAPP-122: `sourceParams` = sourceWithParams(source, params) → the source URI the `bind` action follows.",
+  "$comment": "VAPP-91: the pure host rules (catalog/host.json functions, urls, media, sources, negotiation). Inputs hand-written; `expected` filled by the generator from src/host/{policy,sources,package}.ts. VAPP-122: `sourceParams` = sourceWithParams(source, params) → the source URI the `bind` action follows. #EXP-1674: `urls` `~/x` cases: decideUrl expands it against `linkBase` first; denied without one, for `~//` and for a `.` or `..` segment in any spelling the URL parser reads as one.",
   "functions": [
     {
       "name": "a built-in always runs",
@@ -77,9 +77,9 @@
         ],
         "default": "deny"
       },
-      "fn": "harness.openIssue",
+      "fn": "harness.toast",
       "registered": true,
-      "expected": "deny"
+      "expected": "allow"
     },
     {
       "name": "a package allowlist",
@@ -758,6 +758,259 @@
         "url": "tel:+4312345",
         "reason": "scheme"
       }
+    },
+    {
+      "name": "~/ expands against linkBase",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/issues/EXP-1",
+      "expected": {
+        "allowed": true,
+        "url": "https://app.example/t/acme/issues/EXP-1"
+      }
+    },
+    {
+      "name": "~/ keeps its query and hash",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/apps/crm/deal?id=a%20b&x=../y#top",
+      "expected": {
+        "allowed": true,
+        "url": "https://app.example/t/acme/apps/crm/deal?id=a%20b&x=../y#top"
+      }
+    },
+    {
+      "name": "~/ tolerates surrounding space",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "  ~/inbox  ",
+      "expected": {
+        "allowed": true,
+        "url": "https://app.example/t/acme/inbox"
+      }
+    },
+    {
+      "name": "a linkBase may be absolute, trailing slash tolerated",
+      "policy": {
+        "linkBase": "https://other.example/t/acme/"
+      },
+      "url": "~/inbox",
+      "expected": {
+        "allowed": true,
+        "url": "https://other.example/t/acme/inbox"
+      }
+    },
+    {
+      "name": "~/ without a linkBase is denied",
+      "policy": {
+        "baseUrl": "https://app.example"
+      },
+      "url": "~/inbox",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "~/ with no policy is denied",
+      "url": "~/inbox",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "~/.. is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/../x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a .. inside is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/a/../../x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "~/. is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/./x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a percent-encoded .. is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/%2e%2E/x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a half-encoded .. is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/a/.%2E/x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a backslash .. is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/a\\..\\x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "a tab inside .. is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/.\t./x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "~// is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~//evil.example/x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "~/\\ is denied",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/\\evil.example/x",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "dots in the query are data",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/inbox?next=../x",
+      "expected": {
+        "allowed": true,
+        "url": "https://app.example/t/acme/inbox?next=../x"
+      }
+    },
+    {
+      "name": "dots in a longer segment are fine",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/a..b/c.d",
+      "expected": {
+        "allowed": true,
+        "url": "https://app.example/t/acme/a..b/c.d"
+      }
+    },
+    {
+      "name": "~x is an ordinary relative url",
+      "policy": {
+        "baseUrl": "https://app.example",
+        "linkBase": "/t/acme"
+      },
+      "url": "~x/y",
+      "expected": {
+        "allowed": true,
+        "url": "https://app.example/~x/y"
+      }
+    },
+    {
+      "name": "the expanded url still passes hosts",
+      "policy": {
+        "linkBase": "https://other.example/t/acme",
+        "hosts": [
+          "app.example"
+        ]
+      },
+      "url": "~/inbox",
+      "expected": {
+        "allowed": false,
+        "url": "https://other.example/t/acme/inbox",
+        "reason": "host"
+      }
+    },
+    {
+      "name": "the expanded url still passes the private rule",
+      "policy": {
+        "baseUrl": "http://localhost:3000",
+        "linkBase": "/t/acme"
+      },
+      "url": "~/inbox",
+      "expected": {
+        "allowed": false,
+        "url": "http://localhost:3000/t/acme/inbox",
+        "reason": "private"
+      }
+    },
+    {
+      "name": "the expanded url honours allowPrivate",
+      "policy": {
+        "baseUrl": "http://localhost:3000",
+        "linkBase": "/t/acme",
+        "allowPrivate": [
+          "localhost"
+        ]
+      },
+      "url": "~/inbox",
+      "expected": {
+        "allowed": true,
+        "url": "http://localhost:3000/t/acme/inbox"
+      }
     }
   ],
   "media": [
@@ -982,6 +1235,14 @@
       "name": "a CGNAT poster is denied",
       "options": {},
       "url": "http://100.100.100.100/poster.jpg",
+      "expected": null
+    },
+    {
+      "name": "a media src has no linkBase: ~/ loads nothing",
+      "url": "~/a.png",
+      "options": {
+        "baseUrl": "https://app.example"
+      },
       "expected": null
     }
   ],

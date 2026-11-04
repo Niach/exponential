@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking** (over the core) #EXP-1674: `installPackage` refuses a package without `formatVersion: 4`. `Screens.nav`, `Screens.crossAppTarget`, `UrlPolicy.linkBase`.
+
 ## 0.14.0 (2026-11-04)
 
 - The U2 record macros and U3 Calendar/Timeline render through the core; `Row.href` / `Button.href` open the URL (VAPP-217, VAPP-232, EXP-1674).

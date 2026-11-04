@@ -780,18 +780,18 @@ async function seedSessionTree(ctx: {
           title: { path: `title` },
           pressable: true,
           chevron: `always`,
-          on: { press: { functionCall: { call: `harness.openIssue`, args: { identifier: { path: `identifier` } } } } },
+          on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
         }
       )
     }
     return {
-      formatVersion: 3,
+      formatVersion: 4,
       id: `acme.team-dashboard`,
       name: `Team dashboard`,
       version,
       catalogId: `https://ui.exponential.at/catalogs/exponential-app/v1`,
       icon: { glyph: `chart-line` },
-      functions: [`harness.openIssue`, `harness.toast`],
+      functions: [`harness.toast`],
       sources: [`exp:issues`],
       templates: {
         dashboard: {
@@ -817,7 +817,7 @@ async function seedSessionTree(ctx: {
                     title: { path: `title` },
                     pressable: true,
                     chevron: `always`,
-                    on: { press: { functionCall: { call: `harness.openIssue`, args: { identifier: { path: `identifier` } } } } },
+                    on: { press: { functionCall: { call: `openUrl`, args: { url: { call: `formatString`, args: { value: `~/issues/\${identifier}` } } } } } },
                   },
                 ],
               },

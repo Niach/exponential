@@ -56,14 +56,6 @@ class AppLinkTest {
     }
 
     @Test
-    fun theTeamShorthandSurvivesTheUrlPolicy() {
-        val origin = "https://app.exponential.at"
-        assertEquals("~/issues/EXP-1?x=1", teamShorthandOf("https://App.Exponential.at/~/issues/EXP-1?x=1", origin))
-        assertEquals("$origin/t/acme/inbox", teamShorthandOf("$origin/t/acme/inbox", origin))
-        assertEquals("https://other.example/~/inbox", teamShorthandOf("https://other.example/~/inbox", origin))
-    }
-
-    @Test
     fun everyOpenCaseOutcomeIsTheSame() {
         val cases = fixture.getValue("openCases").jsonArray
         assertTrue(cases.isNotEmpty())

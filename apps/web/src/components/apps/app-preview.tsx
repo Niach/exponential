@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, type ComponentType } from "react"
 import { useRouter } from "@tanstack/react-router"
-import { DEFAULT_THEME_ID, packageScreens, resolveScreen, screenData, type AppPackage, type ResolvedScreen } from "@exponential_app/eui"
+import { DEFAULT_THEME_ID, navScreens, resolveScreen, screenData, type AppPackage, type ResolvedScreen } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
 import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, screenShell } from "@exp/domain-contract/apps"
 import { appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
@@ -142,7 +142,8 @@ export function AppPreview({
   variant?: `frame` | `run`
 }) {
   // VAPP-218: with screens the shown one picks the template (the Select is hidden).
-  const screens = useMemo(() => (pkg ? packageScreens(pkg) : []), [pkg])
+  // #EXP-1674: the shell paints the navigation's; `nav: false` opens by link.
+  const screens = useMemo(() => (pkg ? navScreens(pkg) : []), [pkg])
   const resolved = pkg && screens.length ? resolveScreen(pkg, screen?.screen ?? null, screen?.params ?? null) : null
   const shell = screenShell(screens.length, phone || frame === `phone`)
   const templateId = resolved ? resolved.screen : previewTemplate(pkg as { templates?: Record<string, unknown> } | null, template)

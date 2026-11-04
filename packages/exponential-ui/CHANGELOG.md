@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Breaking** #EXP-1674: `formatVersion` 4 (a version-3 package is `format version 3 is no longer read: write 4`). A screen may carry `nav: false` (a detail screen outside the navigation; `MAX_SCREENS` counts only navigation screens; a package with only `nav: false` screens is refused) and `exposed: {description, params?}` (its public contract). `navScreens(pkg)`; `resolveScreen` falls back to the first in the navigation. `crossAppTarget(pkg, screen, params)`: what a link from another app may open. `UrlPolicy.linkBase`: `decideUrl` expands `~/x` against it, denies it without one, and refuses `~//` and a `.` or `..` segment in any spelling the URL parser reads as one.
+
 ## 0.14.0 (2026-11-04)
 
 - #EXP-1674: `Row.href` and `Button.href` (type url): a press opens it through the host's `openUrl` like `Link.href`, then fires `press`. `HostPlugin.textLinks(text)` (a `policy.textLinks` on `ExponentialHost`): the host turns parts of a `Row` subtitle into tappable spans, painted in the text's colour, underlined; eUI knows nothing of what they mean. All 5 renderers.

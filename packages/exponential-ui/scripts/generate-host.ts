@@ -55,6 +55,7 @@ import {
   validateRecordTransitions,
   resolveScreen,
   navigateTarget,
+  crossAppTarget,
 } from "../src/host"
 import { dateBucket, type DateBucket } from "../src/dates"
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordOwnership, RecordRefTarget, RecordRow, RecordTransitions, TransitionViewer } from "../src/host"
@@ -107,6 +108,8 @@ export function renderHost(): Record<string, string> {
   // VAPP-218: the screens a host opens and the navigate targets.
   router.screens = router.screens.map((c: Case) => ({ ...c, expected: resolveScreen(packages[c.package as string]!, c.screen as string | null, c.params as Record<string, unknown> | null) }))
   router.navigate = router.navigate.map((c: Case) => ({ ...c, expected: navigateTarget(packages[c.package as string]!, c.args) }))
+  // #EXP-1674: what a link from another app may open.
+  router.crossApp = router.crossApp.map((c: Case) => ({ ...c, expected: crossAppTarget(packages[c.package as string]!, c.screen as string | null, c.params as Record<string, unknown> | null) }))
   router.flows = router.flows.map((flow: Case & { steps: { message?: unknown }[] | unknown[] }) => {
     const r = new HostRouter({ extensionIds: (flow.extensionIds as string[]) ?? [] })
     const installIssues: Record<string, unknown> = {}
@@ -217,7 +220,7 @@ function renderPackageFixture(f: Record<string, any>): Record<string, unknown> {
     return { name, expected: toolCall(name) }
   })
   f.extensions = f.extensions.map((c: Case) => {
-    const pkg = { formatVersion: 3, id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
+    const pkg = { formatVersion: 4, id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
     return { ...c, expected: validatePackage(pkg, supportedCatalogIds(c.extensionIds as string[]), c.available as AvailableExtension[] | undefined) }
   })
   f.canonical = f.canonical.map((c: Case) => ({ text: c.text, expected: canonicalJson(JSON.parse(c.text as string)) }))

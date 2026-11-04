@@ -33,8 +33,48 @@ public enum Screens {
         }
     }
 
+    /// #EXP-1674: the screens the host's navigation paints (no `nav: false`).
+    public static func nav(_ pkg: JSONValue) -> [Resolved] {
+        (pkg["screens"]?.array ?? []).compactMap { s in
+            guard s["nav"]?.bool != false, let template = s["template"]?.string else { return nil }
+            return resolve(pkg, screen: template, params: nil)
+        }
+    }
+
+    /// #EXP-1674: what a link FROM ANOTHER APP may open in this package, or why
+    /// it is refused (`host-router.json` `crossApp`). The target (`screen`, else
+    /// the first in the navigation) must be `exposed`; its params = the screen's
+    /// own, then the request's params the contract declares; a `required` one
+    /// must be present and non-empty.
+    public static func crossAppTarget(_ pkg: JSONValue, screen: String?, params: [String: String]?) -> Result<NavigateTarget.Target, NavigateTarget.Refusal> {
+        let screens = (pkg["screens"]?.array ?? []).filter { $0["template"]?.string != nil }
+        let picked: JSONValue?
+        if let screen, !screen.isEmpty {
+            picked = screens.first { $0["template"]?.string == screen }
+        } else {
+            picked = screens.first { $0["nav"]?.bool != false }
+        }
+        guard let picked, let template = picked["template"]?.string else {
+            return .failure(NavigateTarget.Refusal(message: "no such screen"))
+        }
+        guard let exposed = picked["exposed"], exposed.object != nil else {
+            return .failure(NavigateTarget.Refusal(message: "\(template) is not exposed"))
+        }
+        let declared = exposed["params"]?.object ?? [:]
+        var merged: [String: String] = [:]
+        for (k, p) in picked["params"]?.object ?? [:] { if let s = p.string { merged[k] = s } }
+        for (k, v) in params ?? [:] where declared[k] != nil { merged[k] = v }
+        for k in declared.keys.sorted() where declared[k]?["required"]?.bool == true {
+            if merged[k]?.isEmpty ?? true {
+                return .failure(NavigateTarget.Refusal(message: "\(template) needs \(k)"))
+            }
+        }
+        return .success(NavigateTarget.Target(screen: template, params: merged))
+    }
+
     /// The screen a host opens for a request (a deep link, a navigate, the
-    /// default): the requested one, else the first; nil without screens.
+    /// default): the requested one (a `nav: false` one too), else the first in
+    /// the navigation; nil without screens.
     public static func resolve(_ pkg: JSONValue, screen: String?, params: [String: String]?) -> Resolved? {
         let paramsJson = params.map { JSONValue.object($0.mapValues { .string($0) }).json }
         let out = JSONValue.parse((try? resolveScreenJson(packageJson: pkg.json, screen: screen, paramsJson: paramsJson)) ?? "null")

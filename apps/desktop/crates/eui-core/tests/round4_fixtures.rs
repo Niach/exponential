@@ -176,7 +176,7 @@ fn close_on_submit_the_nearest_dialog_or_drawer_around_the_form_closes() {
 
 #[test]
 fn host_functions_are_namespaced() {
-    for ok in ["openUrl", "filter", "set", "formatRelativeTime", "app.toast", "harness.openIssue", "cart.add", "a.b.c"] {
+    for ok in ["openUrl", "filter", "set", "formatRelativeTime", "app.toast", "harness.toast", "cart.add", "a.b.c"] {
         assert!(is_callable_name(ok), "{ok}");
     }
     for bad in ["opneUrl", "toast", ".toast", "app.", "app..toast", ""] {
