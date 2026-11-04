@@ -42,6 +42,7 @@ import {
   apikeys,
   attachments,
   agents,
+  appAccess,
   apps,
   appRecords,
   appVersions,
@@ -167,11 +168,14 @@ import {
   WIDGET_REPORTER_EMAIL,
   WIDGET_REPORTER_NAME,
   TEAM_SLUG,
+  MEMBER_EMAIL,
+  MEMBER_ID,
+  MEMBER_READ_APP_SLUG,
 } from "./screenshot-demo"
 import { escapeReporterText } from "@/lib/reporter-text"
 
 const TEAMMATES = [
-  { id: `demo-mira`, name: `Mira Chen`, email: `mira@acme.dev` },
+  { id: MEMBER_ID, name: `Mira Chen`, email: MEMBER_EMAIL },
   { id: `demo-jonas`, name: `Jonas Weber`, email: `jonas@acme.dev` },
   { id: `demo-sofia`, name: `Sofia Almeida`, email: `sofia@acme.dev` },
 ] as const
@@ -340,6 +344,20 @@ async function ensureTeammates(): Promise<Record<string, string>> {
     if (!row) throw new Error(`teammate ${mate.email} missing`)
     ids[mate.id] = row.id
   }
+  // The member login signs in with the demo password.
+  const createdAt = daysAgo(60)
+  await db
+    .insert(accounts)
+    .values({
+      id: `${MEMBER_ID}-credential`,
+      accountId: MEMBER_ID,
+      providerId: `credential`,
+      userId: ids[MEMBER_ID]!,
+      password: await (await auth.$context).password.hash(DEMO_PASSWORD),
+      createdAt,
+      updatedAt: createdAt,
+    })
+    .onConflictDoNothing()
   return ids
 }
 
@@ -1050,6 +1068,14 @@ async function seedSessionTree(ctx: {
     .where(and(eq(appVersions.appId, DEMO_APP_DASHBOARD_ID), eq(appVersions.number, 3)))
   // VAPP-242/243: the rich apps (samples/apps + Ops desk).
   await seedSampleApps(teamId, demoId)
+  // The member view's `read` case (CRM declares no tools: Settings › MCP's
+  // Access table does not list it, so `settings-mcp` stays as it is).
+  const [readApp] = await db
+    .select({ id: apps.id })
+    .from(apps)
+    .where(and(eq(apps.teamId, teamId), eq(apps.slug, MEMBER_READ_APP_SLUG)))
+    .limit(1)
+  await db.insert(appAccess).values({ appId: readApp!.id, teamId, userId: MEMBER_ID, level: `read` })
 
   // ── the thread roots ───────────────────────────────────────────────────
   const batchGuide = [

@@ -493,6 +493,8 @@ impl AppDetailPane {
     /// Settings › MCP with the add form pre-filled with its name.
     pub(crate) fn add_upstream_server(&mut self, name: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
         super::mcp_servers::request_add(name, cx);
+        // This pane lives in the editor, not on the Settings screen.
+        crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
         select_settings_section(window, cx, SettingsSection::Mcp);
     }
 
@@ -504,6 +506,7 @@ impl AppDetailPane {
     ) {
         let Some(server_id) = upstream.server_id.clone() else { return };
         if upstream.auth.as_deref() != Some("oauth") {
+            crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
             select_settings_section(window, cx, SettingsSection::Mcp);
             return;
         }

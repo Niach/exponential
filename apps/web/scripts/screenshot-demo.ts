@@ -11,6 +11,11 @@
 export const DEMO_EMAIL = `demo@exponential.at`
 export const DEMO_PASSWORD = `screenshots-demo`
 export const DEMO_NAME = `Alex Carter`
+/** The member login: a seeded teammate, a plain `member` of the team, with the
+ *  demo password; CRM at app access `read`, every other app at the default. */
+export const MEMBER_ID = `demo-mira`
+export const MEMBER_EMAIL = `mira@acme.dev`
+export const MEMBER_READ_APP_SLUG = `crm`
 export const TEAM_SLUG = `acme`
 
 /**
