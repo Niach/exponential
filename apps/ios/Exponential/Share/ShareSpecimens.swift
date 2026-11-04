@@ -23,7 +23,7 @@ struct ShareSpecimens: View {
             sortOrder: 1, role: "agent", ownerId: "u2", conversation: nil
         ),
         MirroredAgent(
-            id: "triage", teamId: "t", name: "Support Triage", glyph: "life-buoy", color: "#f59e0b",
+            id: "triage", teamId: "t", name: "Support Triage", glyph: "bug", color: "#f59e0b",
             sortOrder: 2, role: "agent", ownerId: "u2", conversation: nil
         ),
     ]
