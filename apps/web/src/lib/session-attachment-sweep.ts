@@ -8,7 +8,8 @@
 // against the team's storage budget with no delete UI.
 //
 // This sweep deletes owner-less rows once they age past the grace window
-// AND no `sessions.guide` names them, then reclaims their blobs. Mirrors
+// AND no `sessions.guide` and no `teams.icon_url` (#EXP-1645) names them, then
+// reclaims their blobs. Mirrors
 // board-trash.ts: storage keys come from DELETE ... RETURNING in the
 // deleting transaction (the atomic multi-instance claim), the S3 objects go
 // after the commit (idempotent).
@@ -42,6 +43,7 @@ export function isOrphanSessionAttachmentPurgeDue(
     appId?: string | null
     createdAt: Date
   },
+  /** A Guide names it, or (#EXP-1645) a team's `icon_url` does. */
   referencedByGuide: boolean,
   now: Date = new Date()
 ): boolean {
@@ -56,6 +58,10 @@ function orphanCondition(cutoff: Date) {
   return sql`a.issue_id IS NULL AND a.draft_id IS NULL AND a.message_id IS NULL
     AND a.app_id IS NULL
     AND a.created_at <= ${cutoff}
+    AND NOT EXISTS (
+      SELECT 1 FROM teams t
+      WHERE t.id = a.team_id AND t.icon_url = '/api/attachments/' || a.id::text
+    )
     AND NOT EXISTS (
       SELECT 1 FROM sessions s
       WHERE s.team_id = a.team_id

@@ -298,6 +298,8 @@ struct AppNavigator: View {
             MainActor.assumeIsolated { toastBannerHeight = height }
         }
         .environment(\.toaster, toaster)
+        // #EXP-1645: ExpUI's team mark fetches through the signed-in loader.
+        .environment(\.teamImageLoader, .signedIn(deps))
         // EXP-1275 (D8 BLOCKING): ONE overlay over the whole window, above
         // the `.id(activeAccountId)` screens so an account switch or a
         // sign-out never tears it down mid-wait.
@@ -550,6 +552,12 @@ struct MainNavigator: View {
     @State private var keyboardVisible = false
     /// #EXP-1384: the board menu's New board row → the create-board sheet.
     @State private var createBoardTarget: CreateBoardTarget?
+    /// #EXP-1645: the Team tab's team menu (every server's teams, New team).
+    @State private var teamLoader: MultiAccountTeamLoader?
+    @State private var showTeamSetup = false
+    /// #EXP-1645: a pick of another server's team rebuilds this navigator
+    /// (`.id(activeAccountId)`); the new one lands on the Team page.
+    @MainActor private static var landOnTeamPage = false
 
     private struct CreateBoardTarget: Identifiable {
         let accountId: String
@@ -592,7 +600,14 @@ struct MainNavigator: View {
                 onCreated: { boardId in selectBoard(accountId: target.accountId, boardId: boardId) }
             )
         }
+        .sheet(isPresented: $showTeamSetup) {
+            TeamSetupSheet()
+        }
         .onAppear {
+            if Self.landOnTeamPage {
+                Self.landOnTeamPage = false
+                tab = .team
+            }
             pushRouteAction.setHandler { route in
                 // EXP-1210: a bar destination is never pushed — a link to one
                 // (an entity chip, a getting-started card) switches to it.
@@ -610,6 +625,9 @@ struct MainNavigator: View {
             if boardLoader == nil {
                 boardLoader = MultiAccountBoardLoader(auth: deps.auth, db: deps.db)
             }
+            if teamLoader == nil {
+                teamLoader = MultiAccountTeamLoader(auth: deps.auth, db: deps.db)
+            }
             startObserving()
             resolveCurrentBoard()
             if teamState.teams.isEmpty {
@@ -622,6 +640,7 @@ struct MainNavigator: View {
         }
         .onChange(of: deps.auth.accounts) { _, _ in
             boardLoader?.refresh()
+            teamLoader?.refresh()
         }
         // Defense-in-depth against a split binding. `.id(activeAccountId)` on
         // this navigator (AppNavigator) normally recreates the whole view on an
@@ -786,6 +805,8 @@ struct MainNavigator: View {
                     board: activeBoard,
                     // The board view = the Board tab's root (its menu).
                     onBoardView: tab == .issues && path.isEmpty,
+                    // The Team page itself; a pushed page's tap returns to it.
+                    onTeamPage: tab == .team && path.isEmpty,
                     team: teamState.activeTeam,
                     chatsRunning: sessionLists.chatsRunning(teamId: teamState.activeTeamId),
                     chatsNeedYou: sessionLists.chatsNeedYou(teamId: teamState.activeTeamId),
@@ -796,6 +817,8 @@ struct MainNavigator: View {
                     composeEnabled: composeTarget != nil,
                     boards: teamState.filteredBoards,
                     onNewBoard: newBoardAction,
+                    teams: teamMenuRows,
+                    onNewTeam: { showTeamSetup = true },
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
                     // back to it); EXP-1212: through the draft hold like
                     // every other path change.
@@ -804,6 +827,7 @@ struct MainNavigator: View {
                         guard let accountId = deps.auth.activeAccountId else { return }
                         selectBoard(accountId: accountId, boardId: board.id)
                     },
+                    onSelectTeam: { row in switchTeam(accountId: row.accountId, teamId: row.team.id) },
                     onCompose: {
                         // EXP-1170: the draft id is minted HERE, at tap time.
                         guard let target = composeTarget else { return }
@@ -852,6 +876,20 @@ struct MainNavigator: View {
     private var newBoardAction: (() -> Void)? {
         guard let accountId = deps.auth.activeAccountId, let teamId = teamState.activeTeam?.id else { return nil }
         return { createBoardTarget = CreateBoardTarget(accountId: accountId, teamId: teamId) }
+    }
+
+    /// The team menu's rows: the Team page's list, every server's teams.
+    private var teamMenuRows: [MobileTabBar.TeamRow] {
+        let groups = teamLoader?.groups ?? []
+        return groups.flatMap { group in
+            group.teams.map {
+                MobileTabBar.TeamRow(
+                    team: $0,
+                    accountId: group.accountId,
+                    server: groups.count > 1 ? group.hostname : nil
+                )
+            }
+        }
     }
 
     /// The Chats header's inbox dot: an unread row of the ACTIVE team (or a
@@ -1682,6 +1720,8 @@ extension MainNavigator {
             if let board = block?.boards.first {
                 SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
             }
+            // A pick on the Team tab lands on that team's Team page.
+            Self.landOnTeamPage = tab == .team
             // The rebuilt navigator opens on this team, board or not.
             SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: teamId)
             let account = deps.auth.accounts.first { $0.id == accountId }

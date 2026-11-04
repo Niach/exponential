@@ -19,6 +19,9 @@ import { usePrefersReducedMotion } from "./phone-tab-bar"
 // a viewer who may create boards; past `maxVisibleRows` the rows scroll
 // inside the panel. A tap outside (a transparent scrim) or Escape collapses.
 //
+// #EXP-1645 (`shell.teamTab`): the Team tab's team switcher is this same
+// panel over the member's teams.
+//
 // `PhoneBoardMenuStrip` wraps the strip (its children ARE the strip) so the
 // panel shares its frame; web-mobile mounts it in mobile-tab-bar.tsx.
 
@@ -61,6 +64,7 @@ export function PhoneBoardMenuStrip({
   rows,
   onSelect,
   onNewBoard,
+  newLabel = CHATS_COPY.boardMenu.newBoard,
   children,
   className,
 }: {
@@ -70,6 +74,8 @@ export function PhoneBoardMenuStrip({
   onSelect: (id: string) => void
   /** Present = the viewer may create boards (the muted New board row). */
   onNewBoard?: () => void
+  /** #EXP-1645: the bottom row's label (the team switcher's `newTeam`). */
+  newLabel?: string
   /** The strip itself: the tab capsule and the capsule beside it. */
   children: React.ReactNode
   className?: string
@@ -213,7 +219,7 @@ export function PhoneBoardMenuStrip({
                 <span className="flex size-5 shrink-0 items-center justify-center">
                   <AddIcon className="size-4" />
                 </span>
-                <span className="min-w-0 flex-1 truncate">{CHATS_COPY.boardMenu.newBoard}</span>
+                <span className="min-w-0 flex-1 truncate">{newLabel}</span>
               </button>
             )}
           </div>

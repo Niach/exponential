@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,6 +10,8 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PlaceholderStatus
 import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.SettingsNav
+import com.exponential.app.domain.TeamImage
+import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.membersInJoinOrder
 import com.exponential.app.domain.pendingInvites
@@ -38,7 +42,9 @@ import com.exponential.app.data.db.TeamInviteEntity
 import com.exponential.app.data.db.TeamMemberEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -56,6 +62,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 data class MemberRow(
     val member: TeamMemberEntity,
@@ -129,6 +136,7 @@ class TeamSettingsViewModel @Inject constructor(
     private val integrationsApi: IntegrationsApi,
     private val deepLinkBus: DeepLinkBus,
     private val connectStarter: GithubConnectStarter,
+    @ApplicationContext private val appContext: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -618,6 +626,42 @@ class TeamSettingsViewModel @Inject constructor(
         runCatching { teamsApi.updateTimeZone(accountId, team.id, timeZone) }
             .onFailure { fail("save", "the time zone", it) { setTimeZone(timeZone) } }
         _zoneBusy.value = false
+    }
+
+    private val _imageBusy = MutableStateFlow(false)
+    val imageBusy: StateFlow<Boolean> = _imageBusy
+
+    /** #EXP-1645 (team-image.json): the picked image, one part `file` to the
+     *  owner-only icon route; the shape delivers the new `icon_url`. */
+    fun uploadTeamImage(uri: Uri): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = state.value.team?.id ?: return@launch
+        _imageBusy.value = true
+        runCatching {
+            val bytes = withContext(Dispatchers.IO) {
+                val known = MarkdownMediaUtils.querySize(appContext, uri)
+                require(known == null || known <= TeamImage.Upload.MAX_BYTES) { "The image is too large" }
+                requireNotNull(MarkdownMediaUtils.readBytes(appContext, uri)) { "The image could not be read" }
+            }
+            teamsApi.uploadIcon(
+                accountId,
+                teamId,
+                bytes,
+                MarkdownMediaUtils.guessFilename(appContext, uri),
+                canonicalContentType(MarkdownMediaUtils.guessMimeType(appContext, uri)),
+            )
+        }.onFailure { fail("upload", "the team image", it) { uploadTeamImage(uri) } }
+        _imageBusy.value = false
+    }
+
+    /** #EXP-1645: Remove, no confirm: `teams.update {iconUrl: null}`. */
+    fun removeTeamImage(): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = state.value.team?.id ?: return@launch
+        _imageBusy.value = true
+        runCatching { teamsApi.removeIcon(accountId, teamId) }
+            .onFailure { fail("remove", "the team image", it) { removeTeamImage() } }
+        _imageBusy.value = false
     }
 
     /** EXP-1025: the team prompt editor (server-only text, fetched on open). */

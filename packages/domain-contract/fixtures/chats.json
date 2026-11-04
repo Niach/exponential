@@ -15,7 +15,8 @@
       "agent": "Agent"
     },
     "boardMenu": {
-      "newBoard": "New board"
+      "newBoard": "New board",
+      "newTeam": "New team"
     },
     "filters": {
       "all": "All",
@@ -147,8 +148,13 @@
       }
     },
     "boardTab": {
+      "$comment": "#EXP-1645: the caret sits BESIDE the tab's glyph (`caretGap` after its right edge, vertically centred on it), positioned out of flow: showing or hiding it never changes a tab's width, so nothing in the bar moves, and the label keeps all its room. It shows while the tab can open its menu: the Board tab on the board view; the Team tab on the Team page (`teamTab`).",
       "caret": "nav-team-switcher",
-      "caretSize": 10
+      "caretSize": 10,
+      "caretGap": 2
+    },
+    "teamTab": {
+      "$comment": "#EXP-1645: THE team switcher on phones. ON the Team page (never on the settings or Devices pages pushed from it: a tap there returns to the Team page) the Team tab carries the caret and a tap morphs the strip into `boardMenu`'s panel, exactly the board menu's geometry, motion and rows: the member's teams (the mark at the row's glyph size; the active one lit with `ui-check`), then the muted `copy.boardMenu.newTeam` row opening New team. A pick switches team and lands on that team's Team page, the blocking switch the Team page's own rows use."
     },
     "boardMenu": {
       "rowHeight": 48,
