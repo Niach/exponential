@@ -20,6 +20,8 @@ export interface ShareTargetChat {
   updatedAt: string
   /** The agent a conversation session belongs to: never a recent chat row. */
   agentId: string | null
+  /** A tree key or a sealed title: never handed to the OS. */
+  sealed?: boolean
 }
 
 /** The Share to page: the fixed rows, then the agents in agent row order. */
@@ -59,7 +61,7 @@ export function directShareEntries<T extends ShareTargetAgent>(input: {
     title: agent.name,
   }))
   const chats = input.chats
-    .filter((chat) => !chat.agentId)
+    .filter((chat) => !chat.agentId && !chat.sealed)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((chat) => ({ id: `${fixture.directShare.chatPrefix}${chat.id}`, title: chat.title }))
   return [...agents, ...chats].slice(0, fixture.directShare.maxEntries)

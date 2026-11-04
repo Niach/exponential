@@ -342,10 +342,10 @@ abstract class SessionDao {
 
     // Every visible session (the Threads list derives groups per tree off it).
     // EXP-1635: a team's newest chats (the sharing shortcuts): roots that are
-    // neither an agent's conversation nor an app's editor, unarchived.
+    // neither an agent's conversation nor an app's editor nor encrypted, unarchived.
     @Query(
         """SELECT * FROM sessions WHERE team_id = :teamId AND parent_id IS NULL
-        AND agent_id IS NULL AND app_id IS NULL
+        AND agent_id IS NULL AND app_id IS NULL AND seal_public_key IS NULL AND sealed_title IS NULL
         AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
         ORDER BY updated_at DESC LIMIT :limit""",
     )

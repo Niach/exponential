@@ -97,7 +97,8 @@ final class ShareTargetsTests: XCTestCase {
                     id: try XCTUnwrap(row["id"] as? String),
                     title: try XCTUnwrap(row["title"] as? String),
                     updatedAt: try XCTUnwrap(row["updatedAt"] as? String),
-                    agentId: row["agentId"] as? String
+                    agentId: row["agentId"] as? String,
+                    sealed: row["sealed"] as? Bool ?? false
                 )
             }
             let entries = ShareTargets.directShareEntries(

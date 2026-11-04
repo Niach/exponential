@@ -51,6 +51,8 @@ object ShareTargets {
         val updatedAt: String,
         /** The agent a conversation session belongs to: never a recent chat row. */
         val agentId: String?,
+        /** A tree key or a sealed title: never handed to the OS. */
+        val sealed: Boolean = false,
     )
 
     data class Targets<T>(val rows: List<String>, val agents: List<T>)
@@ -83,7 +85,7 @@ object ShareTargets {
     fun <T> directShareEntries(agents: List<T>, chats: List<Chat>, me: String?, row: (T) -> Agent): List<Entry> {
         val agentEntries = ordered(agents, me, row).map { row(it) }.map { Entry("$AGENT_PREFIX${it.id}", it.name) }
         val chatEntries = chats
-            .filter { it.agentId.isNullOrEmpty() }
+            .filter { it.agentId.isNullOrEmpty() && !it.sealed }
             .sortedByDescending { it.updatedAt }
             .map { Entry("$CHAT_PREFIX${it.id}", it.title) }
         return (agentEntries + chatEntries).take(MAX_ENTRIES)

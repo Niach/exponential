@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -96,7 +97,7 @@ class ShareTargetsTest {
             val input = case.getValue("input").jsonObject
             val chats = input.getValue("chats").jsonArray.map {
                 val c = it.jsonObject
-                ShareTargets.Chat(c.str("id")!!, c.str("title")!!, c.str("updatedAt")!!, c.str("agentId"))
+                ShareTargets.Chat(c.str("id")!!, c.str("title")!!, c.str("updatedAt")!!, c.str("agentId"), c["sealed"]?.jsonPrimitive?.booleanOrNull == true)
             }
             val got = ShareTargets.directShareEntries(agents(input), chats, input.str("me")) { it }
             val expected = case.getValue("expected").jsonArray.map {

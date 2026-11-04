@@ -105,7 +105,7 @@ class DirectShareShortcuts @Inject constructor(
         val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), team, me)
         val order = listed.withIndex().associate { (index, row) -> row.agentId to index }
         val chats = sessions.map {
-            ShareTargets.Chat(it.id, it.title?.trim()?.takeIf(String::isNotEmpty) ?: SessionTitle.UNTITLED, it.updatedAt, it.agentId)
+            ShareTargets.Chat(it.id, it.title?.trim()?.takeIf(String::isNotEmpty) ?: SessionTitle.UNTITLED, it.updatedAt, it.agentId, it.sealPublicKey != null || it.sealedTitle != null)
         }
         val entries = ShareTargets.directShareEntries(listed, chats, me) { a ->
             ShareTargets.Agent(

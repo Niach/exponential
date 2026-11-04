@@ -110,6 +110,7 @@ final class ShareTargetsPublisher {
         let roots = try SessionEntity.fetchAll(db, sql: """
             SELECT * FROM "sessions"
             WHERE "parent_id" IS NULL AND "agent_id" IS NULL AND "app_id" IS NULL
+              AND "seal_public_key" IS NULL AND "sealed_title" IS NULL
             ORDER BY "updated_at" DESC LIMIT ?
             """, arguments: [chatLimit])
         let chats = roots

@@ -55,12 +55,15 @@ public enum ShareTargets {
         public let title: String
         public let updatedAt: String
         public let agentId: String?
+        /// A tree key or a sealed title: never handed to the OS.
+        public let sealed: Bool
 
-        public init(id: String, title: String, updatedAt: String, agentId: String?) {
+        public init(id: String, title: String, updatedAt: String, agentId: String?, sealed: Bool = false) {
             self.id = id
             self.title = title
             self.updatedAt = updatedAt
             self.agentId = agentId
+            self.sealed = sealed
         }
     }
 
@@ -108,7 +111,7 @@ public enum ShareTargets {
             Entry(id: DirectShare.agentPrefix + $0.agentId, title: $0.agentName)
         }
         let chatRows = chats
-            .filter { $0.agentId == nil }
+            .filter { $0.agentId == nil && !$0.sealed }
             .enumerated()
             .sorted { lhs, rhs in
                 lhs.element.updatedAt != rhs.element.updatedAt
