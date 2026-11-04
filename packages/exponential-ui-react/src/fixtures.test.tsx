@@ -3,7 +3,7 @@
 // and the kitchen sink renders under `exponential`, `neutral` and the
 // `playful` test theme with no code change — the recipes do the work.
 
-import { describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { act, render } from "@testing-library/react"
 import { PENDING_DELAY_MS, CORE_CATALOG_ID, A2UI_BASIC_CATALOG_ID, BUILTIN_THEME_IDS, defineExtension, reduceNested, reduceSurface, expandMacros, builtinTheme } from "@exponential_app/eui"
 import type { ExtensionDef, FlatComponent, NestedNode, UiNode } from "@exponential_app/eui"
@@ -53,6 +53,14 @@ function markup(container: HTMLElement): string {
 }
 
 describe(`catalog fixture → every component renders`, () => {
+  // RecordTable's `updated` cell reads relative to now: a fixed clock keeps
+  // its snapshots from drifting with the wall clock.
+  beforeAll(() => {
+    vi.spyOn(Date, `now`).mockReturnValue(Date.parse(`2026-11-03T18:00:00Z`))
+  })
+  afterAll(() => {
+    vi.restoreAllMocks()
+  })
   for (const c of cases) {
     it(c.name, () => {
       const { root, issues, templates } = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
