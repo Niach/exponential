@@ -120,6 +120,13 @@ object Apps {
         const val WRITE = "Write"
     }
 
+    /** #VAPP-243: the Settings tab's Record access group (`copy.policies`). */
+    object PoliciesCopy {
+        const val TITLE = "Record access"
+        val OPS: Map<String, String> = mapOf("read" to "Read", "create" to "Add", "update" to "Change", "delete" to "Delete")
+        val LEVELS: Map<String, String> = mapOf("member" to "Members", "author" to "Author", "owners" to "Owners")
+    }
+
     object Preview {
         const val RADIUS = 12
         const val PADDING = 16
@@ -177,6 +184,9 @@ object Apps {
         const val ACCOUNT_ROW = "app-account"
         const val MCP_TOOLS = "app-settings-mcp-tools"
         const val MCP_TOOL_ROW = "app-mcp-tool"
+        // #VAPP-243: the Record access group + one of its rows.
+        const val POLICIES = "app-settings-policies"
+        const val POLICY_ROW = "app-policy"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
@@ -382,6 +392,23 @@ object Apps {
         if (status == "connected" || status == "expired") return AccountRow(status, AccountsCopy.CONNECTED, null, null)
         val action = if (status == "reconnect") AccountAction.RECONNECT else AccountAction.CONNECT
         return AccountRow(status, null, action, if (action == AccountAction.RECONNECT) AccountsCopy.RECONNECT else AccountsCopy.CONNECT)
+    }
+
+    // #VAPP-243 (fixture `policyRowCases`): one Record access row = the
+    // kind and its EFFECTIVE policy (AppRecords.Policy.effective) as text.
+
+    data class PolicyRow(val kind: String, val caption: String)
+
+    fun policyCaption(policy: Map<String, String>): String =
+        AppRecords.Policy.OPS.joinToString(" · ") { op ->
+            val level = policy[op] ?: AppRecords.Policy.DEFAULTS[op] ?: "member"
+            "${PoliciesCopy.OPS[op] ?: op}: ${PoliciesCopy.LEVELS[level] ?: level}"
+        }
+
+    /** The package's declared kinds in code-point order with their captions. */
+    fun policyRows(pkg: at.exponential.ui.json.JsonValue?): List<PolicyRow> {
+        val records = pkg?.obj?.get("records")?.obj ?: return emptyList()
+        return records.keys.sorted().map { PolicyRow(it, policyCaption(AppRecords.Policy.effective(records[it]))) }
     }
 
     fun restored(restored: Int, version: Int): String =

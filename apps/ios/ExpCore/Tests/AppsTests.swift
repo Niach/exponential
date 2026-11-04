@@ -126,6 +126,7 @@ final class AppsTests: XCTestCase {
             "run": Apps.TestIds.run, "runMenu": Apps.TestIds.runMenu, "newMenu": Apps.TestIds.newMenu,
             "accounts": Apps.TestIds.accounts, "accountRow": Apps.TestIds.accountRow,
             "mcpTools": Apps.TestIds.mcpTools, "mcpToolRow": Apps.TestIds.mcpToolRow,
+            "policies": Apps.TestIds.policies, "policyRow": Apps.TestIds.policyRow,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -295,6 +296,25 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(copy["mcpTools"] as? [String: String], [
             "title": Apps.Copy.McpTools.title, "read": Apps.Copy.McpTools.read, "write": Apps.Copy.McpTools.write,
         ])
+    }
+
+    // #VAPP-243: `policyCaption` replays `policyRowCases`; the copy pins.
+    func testPolicyRowCases() throws {
+        let block = try XCTUnwrap(try fixture()["policyRowCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let policy = try XCTUnwrap(item["policy"] as? [String: String])
+            XCTAssertEqual(Apps.policyCaption(policy), item["expected"] as? String, item["name"] as? String ?? "")
+        }
+        let copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
+        let policies = try XCTUnwrap(copy["policies"] as? [String: Any])
+        XCTAssertEqual(policies["title"] as? String, Apps.Copy.Policies.title)
+        XCTAssertEqual(policies["ops"] as? [String: String], Apps.Copy.Policies.ops)
+        XCTAssertEqual(policies["levels"] as? [String: String], Apps.Copy.Policies.levels)
+        let rows = Apps.policyRows(package: #"{"records":{"note":{},"entry":{"policy":{"read":"author"}}}}"#)
+        XCTAssertEqual(rows.map(\.kind), ["entry", "note"])
+        XCTAssertEqual(rows.first?.caption, "Read: Author · Add: Members · Change: Author · Delete: Author")
     }
 
     func testEditorTabsMatchTheFixture() throws {

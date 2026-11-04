@@ -296,6 +296,23 @@ export function accountRow(row: AccountRowInput): { status: AccountStatus; label
   return { status, label: null, action, actionLabel: copy[action] }
 }
 
+/** #VAPP-243 (`policyRowCases`): a kind's EFFECTIVE record policy as the
+ *  Record access row's caption, ops in record-policy.json order. */
+export type PolicyOp = `read` | `create` | `update` | `delete`
+export type PolicyLevel = `member` | `author` | `owners`
+export const POLICY_OPS: readonly PolicyOp[] = [`read`, `create`, `update`, `delete`]
+
+export function policyCaption(policy: Record<PolicyOp, PolicyLevel>): string {
+  const copy = fixture.copy.policies
+  return POLICY_OPS.map((op) => `${copy.ops[op]}: ${copy.levels[policy[op]]}`).join(` · `)
+}
+
+/** The declared kinds in code-point order (the group's rows). */
+export function policyKinds(records: unknown): string[] {
+  if (!records || typeof records !== `object` || Array.isArray(records)) return []
+  return Object.keys(records).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
 /** VAPP-221 (eApps R7): the app hosts' FileUpload uploads (fixture
  *  `appFiles`): every picked file POSTs to `uploadPath` as one part
  *  `partName`; the answer's `url` lands in the FileUpload's bound list. */

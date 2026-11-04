@@ -133,6 +133,13 @@ public enum Apps {
             public static let write = "Write"
         }
 
+        /// #VAPP-243: the Settings tab's Record access group (`policyRowCases`).
+        public enum Policies {
+            public static let title = "Record access"
+            public static let ops: [String: String] = ["read": "Read", "create": "Add", "update": "Change", "delete": "Delete"]
+            public static let levels: [String: String] = ["member": "Members", "author": "Author", "owners": "Owners"]
+        }
+
         public static func viewing(_ number: Int) -> String {
             viewing.replacingOccurrences(of: "{n}", with: String(number))
         }
@@ -217,6 +224,9 @@ public enum Apps {
         public static let accountRow = "app-account"
         public static let mcpTools = "app-settings-mcp-tools"
         public static let mcpToolRow = "app-mcp-tool"
+        // #VAPP-243: the Settings tab's Record access group and its rows.
+        public static let policies = "app-settings-policies"
+        public static let policyRow = "app-policy"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
@@ -665,6 +675,35 @@ public enum Apps {
             status: status, label: nil, action: action,
             actionLabel: action == .reconnect ? Strings.reconnect : Strings.connect
         )
+    }
+
+    // MARK: - eApps record access (#VAPP-243, fixture `policyRowCases`)
+
+    /// One Record access row: the kind and its effective policy as text.
+    public struct PolicyRow: Equatable, Sendable {
+        public let kind: String
+        public let caption: String
+    }
+
+    /// A kind's EFFECTIVE policy (`AppRecords.Policy.effective`) as the
+    /// row's caption, ops in record-policy.json order (TS `policyCaption`).
+    public static func policyCaption(_ policy: [String: String]) -> String {
+        typealias Strings = Apps.Copy.Policies
+        return AppRecords.Policy.ops.map { op in
+            let level = policy[op] ?? AppRecords.Policy.defaults[op] ?? "member"
+            return "\(Strings.ops[op] ?? op): \(Strings.levels[level] ?? level)"
+        }.joined(separator: " · ")
+    }
+
+    /// The package's declared kinds in code-point order, each with its
+    /// caption; `package` = the package JSON text (nil = none).
+    public static func policyRows(package: String?) -> [PolicyRow] {
+        guard let text = package,
+              let parsed = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
+              let records = CardJSON(any: parsed)?.objectValue?["records"]?.objectValue
+        else { return [] }
+        return records.keys.sorted { Array($0.unicodeScalars.map(\.value)).lexicographicallyPrecedes($1.unicodeScalars.map(\.value)) }
+            .map { PolicyRow(kind: $0, caption: policyCaption(AppRecords.Policy.effective(records[$0]))) }
     }
 
     /// A name → its slug: lowercase ASCII letters, digits and single dashes,

@@ -182,6 +182,24 @@ class AppsTest {
         }
     }
 
+    // #VAPP-243: policyCaption replays `policyRowCases` and locks `copy.policies`.
+    @Test
+    fun `policyRowCases replay`() {
+        val copy = fixture["copy"]!!.jsonObject["policies"]!!.jsonObject
+        assertEquals(copy["title"]!!.jsonPrimitive.content, Apps.PoliciesCopy.TITLE)
+        assertEquals(copy["ops"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }, Apps.PoliciesCopy.OPS)
+        assertEquals(copy["levels"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }, Apps.PoliciesCopy.LEVELS)
+        val cases = fixture["policyRowCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val policy = case["policy"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }
+            assertEquals(case["name"]!!.jsonPrimitive.content, case["expected"]!!.jsonPrimitive.content, Apps.policyCaption(policy))
+        }
+        val rows = Apps.policyRows(at.exponential.ui.json.JsonValue.parse("""{"records":{"note":{},"entry":{"policy":{"read":"author"}}}}"""))
+        assertEquals(listOf("entry", "note"), rows.map { it.kind })
+        assertEquals("Read: Author · Add: Members · Change: Author · Delete: Author", rows.first().caption)
+    }
+
     @Test
     fun `editorTab replays the fixture`() {
         val tabs = fixture["editorTabs"]!!.jsonObject
@@ -295,6 +313,7 @@ class AppsTest {
             "run" to Apps.TestIds.RUN, "runMenu" to Apps.TestIds.RUN_MENU, "newMenu" to Apps.TestIds.NEW_MENU,
             "accounts" to Apps.TestIds.ACCOUNTS, "accountRow" to Apps.TestIds.ACCOUNT_ROW,
             "mcpTools" to Apps.TestIds.MCP_TOOLS, "mcpToolRow" to Apps.TestIds.MCP_TOOL_ROW,
+            "policies" to Apps.TestIds.POLICIES, "policyRow" to Apps.TestIds.POLICY_ROW,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)
