@@ -14,20 +14,21 @@
 //!   pattern may not climb out with `..`.
 //! - Bash: every path the command line spells out statically (literal,
 //!   `~`, `$HOME`/`$PWD`/`$TMPDIR`, a variable assigned a literal earlier in
-//!   the same command, a brace expansion, a `cd` chain, a symlink that exists
-//!   now) is checked, including inside `$(…)`, backticks, `bash -c '…'` and
-//!   here-docs fed to a shell. A word the scanner cannot resolve FAILS
-//!   CLOSED: a `${…}` modifier on a variable that could name a path, a
-//!   `cd` into a computed dir, a path built on a command substitution or an
-//!   untracked variable (`$(…)/x`, `$dir/x`), a command substitution used as
-//!   a file operand, unparseable quoting. The agent is told why.
+//!   the same command, a brace expansion, a `cd` chain, a `mktemp -d` dir, a
+//!   symlink that exists now) is checked, including inside `$(…)`, backticks,
+//!   `bash -c '…'` and here-docs fed to a shell. A word the scanner cannot
+//!   resolve FAILS CLOSED: a `${…}` modifier on a variable that could name a
+//!   path, a `cd` into a computed dir, a path built on a command substitution,
+//!   an untracked variable or a nameref (`$(…)/x`, `$dir/x`), a command
+//!   substitution used as a file operand, a glob that can match `..` (`.?`,
+//!   `.*`), unparseable quoting. The agent is told why.
 //! - NOT guaranteed: code an interpreter runs (`python -c`, `node -e`,
 //!   `perl`, a script file, awk's `system()` beyond the paths it spells out)
 //!   builds paths at runtime no hook can see; neither can a file's contents
 //!   fed to `xargs`, nor an untracked variable used whole (`cat "$f"`). This
 //!   is a guard rail that stops an agent wandering out, not an OS sandbox.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -270,7 +271,8 @@ pub fn confinement_denial(tool: &str, input: &Value, cwd: &Path, confine: &Confi
         Offense::Unresolved(what) => format!(
             "This session is confined to its scratch folder {root}; the guard cannot check {what} \
              statically (a `${{…}}` modifier, a command substitution or an untracked variable used \
-             as a path, a `cd` into a computed dir, or unparseable quoting), so the command is \
+             as a path, a `cd` into a computed dir, a glob that can match `..`, or unparseable \
+             quoting), so the command is \
              refused. Spell the path out literally, inside the scratch folder or a temp dir."
         ),
     })
@@ -356,13 +358,16 @@ impl Check {
 /// absolute part under a top-level directory nobody has (`/api/x` in a URL)
 /// is not a path.
 ///
-/// `cd`/`pushd` targets join the bases relative words resolve against, so
-/// `cd /tmp && cat link/x` follows `/tmp/link`; a bare `cd` (home) and a
+/// A `cd` moves the base relative words resolve against, so `cd /tmp && cat
+/// link/x` follows `/tmp/link` and `cd sub && cmake ..` climbs from `sub`. The
+/// old base stays a candidate wherever the `cd` might not have run (see
+/// [`Flow`]); a bare `cd` (home), a first `cd -` (an unknown `$OLDPWD`) and a
 /// `cd` into a dir the scanner cannot compute are refused.
 ///
 /// The root `/` (or a glob straight under it, `/ho*`) is only a path as an
-/// operand of its own (`ls /`, `find "/" …`): not inside a larger word
-/// (`IFS=/`, `-F/`, `'{print $1"/"$2}'`, `split('/')`), nor as the operand
+/// operand of its own (`ls /`, `find "/" …`, `--directory=/ho*`, `-C/ho*`):
+/// not inside a larger word (`IFS=/`, `-F/`, `'{print $1"/"$2}'`,
+/// `split('/')`), nor as the operand
 /// of a text command (`tr / -`, `[ "$p" = / ]`), a pattern (`grep -c / f`),
 /// a script (`sed`, `awk`; there a `/re/` opening the script is not a path
 /// either) or a delimiter flag (`cut -d /`, `awk -F /`, `sort -t /`). A
@@ -372,8 +377,56 @@ impl Check {
 /// is data, still checked for the paths it names. A text command piped into
 /// `xargs` passes its operands on as arguments, so they count as paths.
 fn bash_offending(command: &str, check: &Check) -> Option<Offense> {
-    let mut scan = Scan { check, bases: vec![check.cwd.clone()], pwd: check.cwd.clone(), vars: HashMap::new() };
+    let mut scan = Scan {
+        check,
+        bases: vec![check.cwd.clone()],
+        fallback: Vec::new(),
+        oldpwd: None,
+        loose: false,
+        dirs_trusted: true,
+        vars: HashMap::new(),
+        namerefs: HashSet::new(),
+    };
     scan.run(command, 0)
+}
+
+/// How sure the scanner is that a `cd` ran and that its effect lasts, from
+/// the separators around its command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flow {
+    /// Starts a list (`cd x; …`): it runs, so a dir that exists now is the
+    /// new base, the old one gone. A missing dir: it may fail, both stay.
+    Head,
+    /// [`Flow::Head`] followed by `&&` (`cd x && …`): what follows in the
+    /// chain only runs if it worked, whatever the dir is now
+    /// (`mkdir b && cd b && cmake ..`); past the chain the old base is back
+    /// (`cd x && y; cat ../z` when `x` is missing).
+    Guarded,
+    /// After `&&` (`a && cd x`): the same, also when the dir exists, since
+    /// `a` may fail.
+    Chained,
+    /// It may not run, or not in this shell (`||`, a pipeline, `&`, a
+    /// subshell, a loop, a branch, a wrapper): both bases stay.
+    Loose,
+}
+
+impl Flow {
+    fn between(before: Separator, after: Separator) -> Self {
+        let out_of_line = |sep: Separator| matches!(sep, Separator::Pipe | Separator::Background | Separator::Group);
+        match (before, after) {
+            (Separator::Or, _) => Self::Loose,
+            (before, after) if out_of_line(before) || out_of_line(after) => Self::Loose,
+            (Separator::And, _) => Self::Chained,
+            (_, Separator::And) => Self::Guarded,
+            _ => Self::Head,
+        }
+    }
+}
+
+fn push_new(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.contains(&path) {
+        paths.push(path);
+    }
 }
 
 /// What an operand is to its command.
@@ -413,13 +466,26 @@ enum FlagEffect {
 /// The state a command line carries from one simple command to the next.
 struct Scan<'a> {
     check: &'a Check,
-    /// Every dir relative words may resolve against (the cwd plus each `cd`).
+    /// Every dir the shell may be in here, what relative words resolve
+    /// against: one, unless a `cd` may or may not have run.
     bases: Vec<PathBuf>,
-    /// `$PWD`: the last `cd`.
-    pwd: PathBuf,
+    /// The dirs an `&&` chain's `cd` left, back in [`Self::bases`] when the
+    /// chain ends: past it the `cd` may have failed.
+    fallback: Vec<PathBuf>,
+    /// Where `cd -` goes; `None` = not known (`$OLDPWD` came from outside
+    /// this command line, or the last `cd` may not have run).
+    oldpwd: Option<Vec<PathBuf>>,
+    /// A branch, loop, subshell or dir stack was seen: no `cd` after it is
+    /// sure ([`Flow::Loose`]).
+    loose: bool,
+    /// `false` once the command removes or moves things: a dir that exists
+    /// now may be gone when its `cd` runs.
+    dirs_trusted: bool,
     /// Variables assigned in this command line: `None` = an unknown value
-    /// (a command substitution, `read`).
+    /// (a command substitution, `read`, a nameref).
     vars: HashMap<String, Option<String>>,
+    /// `declare -n` names: whatever they are assigned names ANOTHER variable.
+    namerefs: HashSet<String>,
 }
 
 impl Scan<'_> {
@@ -428,19 +494,66 @@ impl Scan<'_> {
             Ok(commands) => commands,
             Err(why) => return Some(Offense::Unresolved(why)),
         };
+        let mut before = Separator::Semi;
+        let mut substitutions: Vec<&ShellCommand> = Vec::new();
         for (at, command) in commands.iter().enumerate() {
             let feeds_args = command.feeds_next
                 && commands[at + 1..].iter().find(|next| !next.nested).is_some_and(|next| {
                     next.words.iter().any(|word| matches!(basename(&word.text), "xargs" | "parallel"))
                 });
-            if let Some(hit) = self.command_offending(&command.words, feeds_args, depth) {
+            self.loose |= command.grouped;
+            let flow = if command.nested {
+                substitutions.push(command);
+                Flow::Loose
+            } else {
+                if !matches!(before, Separator::And | Separator::Pipe) {
+                    self.settle_chain();
+                }
+                Flow::between(std::mem::replace(&mut before, command.after), command.after)
+            };
+            // `d=$(mktemp -d)`: the one substitution of this command.
+            let temp_dir = !command.nested && matches!(substitutions.as_slice(), [only] if makes_temp_dir(&only.words));
+            if let Some(hit) = self.command_offending(&command.words, feeds_args, depth, flow, temp_dir) {
                 return Some(hit);
+            }
+            if !command.nested {
+                substitutions.clear();
             }
         }
         None
     }
 
-    fn command_offending(&mut self, words: &[ShellWord], feeds_args: bool, depth: usize) -> Option<Offense> {
+    /// An `&&` chain ended: its `cd` may have failed.
+    fn settle_chain(&mut self) {
+        if self.fallback.is_empty() {
+            return;
+        }
+        self.oldpwd = None;
+        for base in std::mem::take(&mut self.fallback) {
+            push_new(&mut self.bases, base);
+        }
+    }
+
+    /// `bash -c '…'`, `eval '…'`: the code's own chains follow [`Flow`] from
+    /// where this shell is; a `cd` in it is not this shell's (except under
+    /// `eval`), so the dirs it reached only join the bases.
+    fn shell_code(&mut self, code: &str, depth: usize) -> Option<Offense> {
+        let outer = self.bases.clone();
+        let oldpwd = self.oldpwd.clone();
+        let fallback = std::mem::take(&mut self.fallback);
+        let loose = std::mem::replace(&mut self.loose, false);
+        let hit = self.run(code, depth + 1);
+        self.settle_chain();
+        self.oldpwd = if self.bases == outer { oldpwd } else { None };
+        for base in outer {
+            push_new(&mut self.bases, base);
+        }
+        self.fallback = fallback;
+        self.loose = loose;
+        hit
+    }
+
+    fn command_offending(&mut self, words: &[ShellWord], feeds_args: bool, depth: usize, flow: Flow, temp_dir: bool) -> Option<Offense> {
         let mut roles = vec![Role::Plain; words.len()];
         // The command word: past assignments, redirections, keywords and
         // wrappers with their options.
@@ -494,6 +607,18 @@ impl Scan<'_> {
         }
         let name = words.get(index).map(|word| basename(&word.text).to_string()).unwrap_or_default();
         let name = name.as_str();
+        // `if`, `while`, `{`, `!` …, `for`, `case`, and the dir stack (`popd`
+        // goes back to a dir `cd` no longer lists): no `cd` from here on is sure.
+        if words[..index].iter().any(|word| !word.quoted && RESERVED.contains(&word.text.as_str()))
+            || matches!(name, "for" | "select" | "case" | "pushd" | "popd")
+        {
+            self.loose = true;
+        }
+        if matches!(name, "rm" | "rmdir" | "mv" | "chmod") {
+            self.dirs_trusted = false;
+        }
+        // `timeout 5 cd x` is no `cd` of this shell.
+        let flow = if wrapper.is_some_and(|wrapper| !matches!(wrapper.name, "command" | "builtin")) { Flow::Loose } else { flow };
         let mut next: Option<Role> = None;
         let mut given = false;
         let mut cd_target = false;
@@ -557,9 +682,9 @@ impl Scan<'_> {
         for (at, word) in words.iter().enumerate() {
             let hit = match roles[at] {
                 Role::Delimiter => None,
-                Role::Shell if depth < 4 => self.run(&word.text, depth + 1),
+                Role::Shell if depth < 4 => self.shell_code(&word.text, depth),
                 Role::Shell => Some(Offense::Unresolved("shell code nested this deep".to_string())),
-                Role::Cd => self.cd(word),
+                Role::Cd => self.cd(word, flow),
                 role => {
                     let assignment = is_assignment(word) && (at < index || DECLARE_COMMANDS.contains(&name));
                     self.word_offending(word, role, assignment)
@@ -569,22 +694,43 @@ impl Scan<'_> {
                 return hit;
             }
         }
-        self.record(words, index, name);
+        self.record(words, index, name, temp_dir);
         None
     }
 
     /// Remembers what this command assigns, for the commands after it.
-    fn record(&mut self, words: &[ShellWord], index: usize, name: &str) {
+    fn record(&mut self, words: &[ShellWord], index: usize, name: &str, temp_dir: bool) {
         let declares = DECLARE_COMMANDS.contains(&name);
+        // `declare -n r=HOME`: `$r` is another variable's value. (`export -n`
+        // only un-exports.)
+        let nameref = matches!(name, "declare" | "local" | "typeset")
+            && words.iter().skip(index + 1).any(|word| short_flag(word, 'n'));
         for (at, word) in words.iter().enumerate() {
             if !(is_assignment(word) && (at < index || declares)) {
                 continue;
             }
             let (var, value) = word.text.split_once('=').expect("an assignment");
-            let value = self.resolve_vars(value).ok().filter(|value| !value.contains(UNKNOWN));
+            if nameref && at > index {
+                self.namerefs.insert(var.to_string());
+            }
+            let value = if self.namerefs.contains(var) {
+                None
+            } else if temp_dir && value.chars().eq([UNKNOWN]) {
+                // Somewhere under the temp dir, `..` climbing out of it
+                // like out of the real one.
+                Some(std::env::temp_dir().join("tmp.mktemp").display().to_string())
+            } else {
+                self.resolve_vars(value).ok().filter(|value| !value.contains(UNKNOWN))
+            };
             self.vars.insert(var.to_string(), value);
         }
         let operands = words.iter().skip(index + 1).filter(|word| !word.redirect && !is_flag(word));
+        if nameref {
+            for word in operands.clone().filter(|word| !is_assignment(word)) {
+                self.namerefs.insert(word.text.clone());
+                self.vars.insert(word.text.clone(), None);
+            }
+        }
         match name {
             "read" | "mapfile" | "readarray" => {
                 for word in operands {
@@ -595,7 +741,7 @@ impl Scan<'_> {
                 let mut operands = operands;
                 if let Some(var) = operands.next() {
                     let unknown = operands.any(|word| self.resolve_vars(&word.text).map_or(true, |text| text.contains(UNKNOWN)));
-                    if unknown {
+                    if unknown || self.namerefs.contains(&var.text) {
                         self.vars.insert(var.text.clone(), None);
                     } else {
                         self.vars.remove(&var.text);
@@ -606,9 +752,9 @@ impl Scan<'_> {
         }
     }
 
-    /// A `cd` target: refused when outside or not computable, else a new
+    /// A `cd` target: refused when outside or not computable, else the new
     /// base for the relative words after it.
-    fn cd(&mut self, word: &ShellWord) -> Option<Offense> {
+    fn cd(&mut self, word: &ShellWord, flow: Flow) -> Option<Offense> {
         let text = match self.resolve_vars(&word.text) {
             Ok(text) => text,
             Err(offense) => return Some(offense),
@@ -616,18 +762,43 @@ impl Scan<'_> {
         if text.contains([UNKNOWN, OPAQUE]) || text.contains(['*', '?', '[', '{']) {
             return Some(Offense::Unresolved(format!("the `cd` target `{}`", shown(&word.text))));
         }
-        let target = if text == "-" { "~".to_string() } else { collapse_slashes(&text) };
-        let hit = self.word_offending(&ShellWord { text: target.clone(), ..word.clone() }, Role::Plain, false);
-        if hit.is_none() {
-            let resolved: Vec<PathBuf> = self.bases.iter().map(|base| self.check.resolve(&target, base)).collect();
-            self.pwd = self.check.resolve(&target, &self.pwd);
-            for path in resolved {
-                if !self.bases.contains(&path) {
-                    self.bases.push(path);
+        let moves: Vec<(PathBuf, PathBuf)> = if text == "-" {
+            let Some(previous) = self.oldpwd.take() else {
+                return Some(Offense::Outside("~".to_string()));
+            };
+            self.bases.iter().flat_map(|base| previous.iter().map(move |to| (base.clone(), to.clone()))).collect()
+        } else {
+            let target = collapse_slashes(&text);
+            if let Some(hit) = self.word_offending(&ShellWord { text: target.clone(), ..word.clone() }, Role::Plain, false) {
+                return Some(hit);
+            }
+            self.bases.iter().map(|base| (base.clone(), self.check.resolve(&target, base))).collect()
+        };
+        self.apply_cd(moves, flow);
+        None
+    }
+
+    /// Each `(from, to)`: the shell moves, and `from` stays a base only where
+    /// [`Flow`] says the `cd` may not have run.
+    fn apply_cd(&mut self, moves: Vec<(PathBuf, PathBuf)>, flow: Flow) {
+        let flow = if self.loose { Flow::Loose } else { flow };
+        let left = self.bases.clone();
+        let mut next = Vec::new();
+        let mut sure = true;
+        for (from, to) in moves {
+            let exists = self.dirs_trusted && to.is_dir();
+            match flow {
+                Flow::Head | Flow::Guarded if exists => {}
+                Flow::Guarded | Flow::Chained => push_new(&mut self.fallback, from),
+                Flow::Head | Flow::Loose => {
+                    sure = false;
+                    push_new(&mut next, from);
                 }
             }
+            push_new(&mut next, to);
         }
-        hit
+        self.bases = next;
+        self.oldpwd = sure.then_some(left);
     }
 
     fn word_offending(&self, word: &ShellWord, role: Role, assignment: bool) -> Option<Offense> {
@@ -640,7 +811,8 @@ impl Scan<'_> {
         };
         for alternative in &alternatives {
             for (start, part) in split_parts(alternative) {
-                let whole = part.len() == alternative.len();
+                // `--directory=/ho*`: the value is an operand of its own.
+                let whole = part.len() == alternative.len() || option_value_at(alternative) == Some(start);
                 if let Some(hit) = self.part_offending(word, part, role, start == 0, whole, assignment) {
                     return Some(hit);
                 }
@@ -673,11 +845,17 @@ impl Scan<'_> {
             None => (part, false),
         };
         let path = collapse_slashes(raw);
+        // `cat .?/.?/x`: the shell globs a whole unquoted word, and `.?` can
+        // match `..` (`shopt -u globskipdots`, bash 3.2 on macOS).
+        if role == Role::Plain && opens && whole && !attached && !word.quoted && path.split('/').any(dot_glob_climbs) {
+            return unresolved();
+        }
         if path.starts_with('/') {
             let Some(literal) = literal_base(&path) else { return unresolved() };
             if self.check.resolve(literal, &self.check.cwd) == Path::new("/") {
-                // The root alone: a path only as an operand of its own.
-                if role == Role::Plain && !attached && whole {
+                // The root alone: a path only as an operand of its own. Glued
+                // to a flag only a glob names it (`-C/ho*`; `-F/` is a delimiter).
+                if role == Role::Plain && whole && (!attached || path != "/") {
                     return Some(Offense::Outside(shown(raw)));
                 }
                 return None;
@@ -781,7 +959,11 @@ impl Scan<'_> {
             Some(None) => UNKNOWN.to_string(),
             None => match name {
                 "HOME" => home_dir().unwrap_or_else(|| PathBuf::from("/")).display().to_string(),
-                "PWD" => self.pwd.display().to_string(),
+                "PWD" => match self.bases.as_slice() {
+                    [only] => only.display().to_string(),
+                    // A `cd` that may not have run.
+                    _ => UNKNOWN.to_string(),
+                },
                 "TMPDIR" => std::env::temp_dir().display().to_string(),
                 "OLDPWD" => UNKNOWN.to_string(),
                 _ => OPAQUE.to_string(),
@@ -861,6 +1043,82 @@ fn delimiter_flag(command: &str, flag: &str) -> bool {
 
 fn is_flag(word: &ShellWord) -> bool {
     !word.quoted && word.text.starts_with('-') && word.text.len() > 1
+}
+
+/// A single-dash flag cluster naming `letter` (`-n`, `-rn`).
+fn short_flag(word: &ShellWord, letter: char) -> bool {
+    is_flag(word) && !word.text.starts_with("--") && word.text.contains(letter)
+}
+
+/// `mktemp -d` (`-t`, a bare template): its output is a new dir under the
+/// temp dir, or under the cwd with a template, which `..` leaves no further
+/// than the temp dir stand-in. Any other place (`-p`, `--tmpdir`, a template
+/// with a path or an expansion) is unknown.
+fn makes_temp_dir(words: &[ShellWord]) -> bool {
+    let [first, rest @ ..] = words else { return false };
+    first.text == "mktemp"
+        && rest.iter().any(|word| word.text == "--directory" || short_flag(word, 'd'))
+        && rest.iter().all(|word| {
+            !word.redirect
+                && !word.text.contains(['/', EXPAND, UNKNOWN, OPAQUE])
+                && !word.text.contains("..")
+                && !word.text.starts_with("--tmpdir")
+                && !short_flag(word, 'p')
+        })
+}
+
+/// Options whose value is a separator or a pattern, never a file.
+const NON_PATH_OPTIONS: [&str; 10] = [
+    "--delimiter",
+    "--output-delimiter",
+    "--field-separator",
+    "--separator",
+    "--output-separator",
+    "--exclude",
+    "--exclude-dir",
+    "--include",
+    "--glob",
+    "--iglob",
+];
+
+/// Where the value of `--opt=value` starts (`None`: another word, or an
+/// option whose value is no path).
+fn option_value_at(word: &str) -> Option<usize> {
+    let (option, _) = word.split_once('=')?;
+    (option.starts_with("--") && !NON_PATH_OPTIONS.contains(&option)).then_some(option.len() + 1)
+}
+
+/// A glob component that can match `..` (`.?`, `.*`, `.[.]`, not `.*rc`). A
+/// leading `*` or `?` never matches a dot without `dotglob`.
+fn dot_glob_climbs(component: &str) -> bool {
+    component.starts_with('.') && component.contains(['*', '?', '[']) && {
+        let pattern: Vec<char> = component.chars().collect();
+        glob_matches_dots(&pattern, 2)
+    }
+}
+
+/// Whether `pattern` matches exactly `dots` dots.
+fn glob_matches_dots(pattern: &[char], dots: usize) -> bool {
+    match pattern.first() {
+        None => dots == 0,
+        Some('*') => glob_matches_dots(&pattern[1..], dots) || (dots > 0 && glob_matches_dots(pattern, dots - 1)),
+        Some('?') | Some('.') => dots > 0 && glob_matches_dots(&pattern[1..], dots - 1),
+        Some('[') => {
+            let negated = matches!(pattern.get(1), Some('!' | '^'));
+            let first = if negated { 2 } else { 1 };
+            // A `]` right after the opening is a member.
+            let Some(close) = pattern.iter().skip(first + 1).position(|c| *c == ']').map(|at| at + first + 1) else {
+                return false;
+            };
+            let members = &pattern[first..close];
+            let has_dot = (0..members.len()).any(|at| {
+                members[at] == '.'
+                    || (at + 2 < members.len() && members[at + 1] == '-' && members[at] <= '.' && '.' <= members[at + 2])
+            });
+            has_dot != negated && dots > 0 && glob_matches_dots(&pattern[close + 1..], dots - 1)
+        }
+        Some(_) => false,
+    }
 }
 
 fn is_name(text: &str) -> bool {
@@ -974,13 +1232,30 @@ pub struct ShellWord {
     pub data: bool,
 }
 
-/// One simple command: its words, whether it pipes into the next one, and
-/// whether it ran inside a command substitution.
+/// What separates a simple command from the next one.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Separator {
+    /// `;`, a newline, the end.
+    #[default]
+    Semi,
+    And,
+    Or,
+    Pipe,
+    Background,
+    /// `(` or `)`.
+    Group,
+}
+
+/// One simple command: its words, whether it pipes into the next one, whether
+/// it ran inside a command substitution, what follows it, and whether it sits
+/// in a `(…)` group.
 #[derive(Debug, Default)]
 pub struct ShellCommand {
     pub words: Vec<ShellWord>,
     pub feeds_next: bool,
     pub nested: bool,
+    pub after: Separator,
+    pub grouped: bool,
 }
 
 struct Heredoc {
@@ -998,6 +1273,8 @@ struct Lexer {
     redirect_next: bool,
     heredocs: Vec<Heredoc>,
     depth: usize,
+    /// How many `(` are open.
+    groups: usize,
 }
 
 const UNTERMINATED: &str = "an unterminated quote or substitution";
@@ -1007,16 +1284,22 @@ impl Lexer {
         if self.started {
             let mut word = std::mem::take(&mut self.word);
             word.redirect = std::mem::take(&mut self.redirect_next);
-            self.commands.last_mut().expect("one command").words.push(word);
+            let command = self.commands.last_mut().expect("one command");
+            command.words.push(word);
+            command.grouped |= self.groups > 0;
         }
         self.word = ShellWord::default();
         self.started = false;
     }
 
-    fn split(&mut self) {
+    /// Ends the current simple command, if it has words (`a &&\n b` keeps
+    /// the `&&`).
+    fn split(&mut self, after: Separator) {
         self.flush();
         self.redirect_next = false;
-        if !self.commands.last().expect("one command").words.is_empty() {
+        let last = self.commands.last_mut().expect("one command");
+        if !last.words.is_empty() {
+            last.after = after;
             self.commands.push(ShellCommand::default());
         }
     }
@@ -1236,6 +1519,7 @@ pub fn lex(command: &str, depth: usize) -> Result<Vec<ShellCommand>, String> {
         redirect_next: false,
         heredocs: Vec::new(),
         depth,
+        groups: 0,
     };
     let mut i = 0;
     while i < chars.len() {
@@ -1307,7 +1591,7 @@ pub fn lex(command: &str, depth: usize) -> Result<Vec<ShellCommand>, String> {
                 continue;
             }
             '\n' => {
-                lexer.split();
+                lexer.split(Separator::Semi);
                 i += 1;
                 for heredoc in std::mem::take(&mut lexer.heredocs) {
                     let mut body = String::new();
@@ -1328,16 +1612,30 @@ pub fn lex(command: &str, depth: usize) -> Result<Vec<ShellCommand>, String> {
                 continue;
             }
             '|' if next == Some('|') => {
-                lexer.split();
+                lexer.split(Separator::Or);
                 i += 2;
                 continue;
             }
             '|' => {
                 lexer.flush();
                 lexer.commands.last_mut().expect("one command").feeds_next = true;
-                lexer.split();
+                lexer.split(Separator::Pipe);
             }
-            ';' | '&' | '(' | ')' => lexer.split(),
+            '&' if next == Some('&') => {
+                lexer.split(Separator::And);
+                i += 2;
+                continue;
+            }
+            '&' => lexer.split(Separator::Background),
+            ';' => lexer.split(Separator::Semi),
+            '(' => {
+                lexer.split(Separator::Group);
+                lexer.groups += 1;
+            }
+            ')' => {
+                lexer.split(Separator::Group);
+                lexer.groups = lexer.groups.saturating_sub(1);
+            }
             '#' if !lexer.started => {
                 while i < chars.len() && chars[i] != '\n' {
                     i += 1;
@@ -1594,7 +1892,242 @@ mod tests {
         assert!(bash("cd /usr/share; cd ../..; ls home"));
         // Inside stays allowed.
         assert!(!bash("cd sub && ls"));
+        assert!(!bash("cd sub; ls"));
         assert!(!bash("cd /tmp && ls && cd -- /usr/share && ls"));
+    }
+
+    /// #EXP-1403: a `..` climbs from the dir the `cd` before it reached, not
+    /// from every dir the command line passed through.
+    #[test]
+    fn a_dot_dot_after_a_guarded_cd_climbs_from_that_dir() {
+        for command in [
+            "cd sub && cd .. && ls",
+            "mkdir -p build && cd build && cmake .. && make",
+            "cd sub && ../run.sh",
+            "cd sub && make -C ..",
+            "cd sub && cat ../x",
+            "cd sub &&\n cat ../x",
+            "cd a && cd b && cat ../../x",
+            "cd sub && cmake .. | tee ../log",
+            "rm -rf build && mkdir build && cd build && cmake ..",
+            "cd sub && cd - && ls",
+        ] {
+            assert!(!bash(command), "{command}");
+        }
+        for command in [
+            // Past the base it climbs from.
+            "cd sub && cat ../../x",
+            "cd sub && cd .. && cat ../x",
+            "cd sub && cd - && cat ../x",
+            // Past the chain the `cd` may have failed.
+            "cd sub && ls; cat ../x",
+            "cd sub && ls || cat ../x",
+            "cd sub; cat ../x",
+            "cd sub; cd ..; cat ../x",
+            "false && cd sub; cat ../x",
+            // $PWD is not known then, either.
+            "cd sub; cat $PWD/../x",
+        ] {
+            assert!(bash(command), "{command}");
+        }
+    }
+
+    /// #EXP-1403: a dir that exists now is entered whatever follows, unless
+    /// the `cd` may not run or not in this shell. The crate dir stands in for
+    /// a scratch dir (outside the open temp dirs, `src` in it).
+    #[test]
+    fn a_cd_into_an_existing_dir_moves_the_base_only_when_it_surely_runs() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        if in_temp_dir(&resolve_path(dir, Path::new("/"))) {
+            return;
+        }
+        let denied = |command: &str| denial_in("Bash", json!({ "command": command }), dir, &[]).is_some();
+        for command in [
+            "cd src; cd ..; ls",
+            "cd src; cat ../Cargo.toml",
+            "cd src || exit 1; cat ../Cargo.toml",
+            "cd src; ls; cd -",
+            "cd src; ls; cd -; ls src",
+            "cd src; cd -; cd src; cat ../Cargo.toml",
+            "cd src; cat $PWD/../Cargo.toml",
+            "command cd src; cat ../Cargo.toml",
+        ] {
+            assert!(!denied(command), "{command}");
+        }
+        for command in [
+            "cat ../x",
+            "cd src; cat ../../x",
+            "cd src; cd -; cat ../x",
+            "cd src; cd -; cd -; cat ../../x",
+            "cd nosuch; cat ../x",
+            "cd src && ls; cd nosuch && ls; cat ../../x",
+            // Never ran, or not in this shell.
+            "(cd src); cat ../x",
+            "(cd src) && cat ../x",
+            "bash -c 'cd src'; cat ../x",
+            "bash -c 'cd src'; cat $PWD/../x",
+            "echo $(cd src); cat ../x",
+            "true || cd src; cat ../x",
+            "false && cd src; cat ../x",
+            "cd src & cat ../x",
+            "cd src | cat; cat ../x",
+            "ls | cd src; cat ../x",
+            "timeout 1 cd src; cat ../x",
+            "if false; then cd src; fi; cat ../x",
+            "while false; do cd src; done; cat ../x",
+            "for d in a; do cd src; done; cat ../x",
+            "case a in b) cd src;; esac; cat ../x",
+            "f() { cd src; }; cat ../x",
+            "! cd src; cat ../x",
+            // The dir stack comes back to a dir `cd` no longer lists.
+            "pushd src; popd; cat ../x",
+            "pushd src; cd .; popd; cat ../x",
+            // The dir may be gone by then.
+            "rmdir src; cd src; cat ../x",
+            "mv src other; cd src; cat ../x",
+            // The next `cd -` would go to a dir this line never saw.
+            "(cd src); cd -",
+        ] {
+            assert!(denied(command), "{command}");
+        }
+        // Each leg of a `bash -c` follows the same rules on its own.
+        assert!(!denied("bash -c 'cd src && cat ../Cargo.toml'"));
+        assert!(denied("bash -c 'cd src; cat ../../x'"));
+        assert!(denied("bash -c 'cd nosuch && ls; cat ../x'"));
+    }
+
+    /// #EXP-1403: `mktemp -d` makes a temp dir, so a `cd` into it is allowed;
+    /// any other value stays unknown.
+    #[test]
+    fn a_mktemp_dir_counts_as_a_temp_dir() {
+        for command in [
+            "d=$(mktemp -d); cd \"$d\" && ls",
+            "d=\"$(mktemp -d)\"; cd \"$d\"",
+            "d=$(mktemp -d -t x.XXXXXX); cat \"$d/f\"",
+            "d=$(mktemp -dt x); cat $d/f",
+            "d=`mktemp --directory`; cat $d/f",
+            "export d=$(mktemp -d); cd $d",
+        ] {
+            assert!(!bash(command), "{command}");
+        }
+        for command in [
+            "d=$(mktemp -d); cat $d/../../../../../../../../home/x",
+            "d=$(mktemp); cd \"$d\"",
+            "d=$(mktemp -d -p ..); cd \"$d\"",
+            "d=$(mktemp -d --tmpdir=..); cd \"$d\"",
+            "x=../..; d=$(mktemp -d $x/a); cd \"$d\"",
+            "d=$(mktemp -d; dirname \"$PWD\"); cd \"$d\"",
+            "d=$(mktemp -d | head -1); cd \"$d\"",
+            "d=$(mktemp -d)/x; cd \"$d\"",
+            "a=$(mktemp -d) b=$(dirname \"$PWD\"); cd \"$b\"",
+        ] {
+            assert!(bash(command), "{command}");
+        }
+    }
+
+    /// #EXP-1403: a nameref's value is another variable's.
+    #[test]
+    fn a_nameref_is_untracked() {
+        for command in [
+            "declare -n r=HOME; cd $r",
+            "declare -n r=HOME; cat $r/x",
+            "local -n r=HOME; ls \"$r\"",
+            "typeset -n r=HOME; cd \"$r\"",
+            "declare -rn r=HOME; cd $r",
+            "declare -n r; r=HOME; cd $r",
+            "declare -n r; r=HOME; ls $r",
+            "r=HOME; declare -n r; cd $r",
+            "declare -n r=HOME; for r in HOME; do cd $r; done",
+        ] {
+            assert!(bash(command), "{command}");
+        }
+        assert!(!bash("declare -r x=sub; cat $x/y"));
+        assert!(!bash("export -n x=sub; cat $x/y"));
+    }
+
+    /// #EXP-1403: a root glob after `--opt=` or glued to a short flag is an
+    /// operand of its own; a separator or a pattern is not.
+    #[test]
+    fn a_root_glob_in_an_option_value_is_denied() {
+        for command in [
+            "tar -cf o.tar --directory=/ho* someone",
+            "tar -cf o.tar --directory=/",
+            "cp --target-directory=/ho*/someone/x a",
+            "tar -cf o.tar -C/ho* someone",
+            "ls --directory=/{ho*,x}",
+        ] {
+            assert!(bash(command), "{command}");
+        }
+        for command in [
+            "cut --delimiter=/ -f1 list.txt",
+            "awk --field-separator=/ '{print $1}' list.txt",
+            "rsync -a --exclude=/* --include=/x* a b",
+            "rg --glob=/*.md x .",
+            "cut -d/ -f1 list.txt",
+            "tar --directory=sub -cf o.tar .",
+        ] {
+            assert!(!bash(command), "{command}");
+        }
+    }
+
+    /// #EXP-1403: `.?`, `.[.]`, `.*` can match `..`.
+    #[test]
+    fn a_glob_matching_dot_dot_is_refused() {
+        for command in [
+            "shopt -u globskipdots; cat .?/.?/CLAUDE.md",
+            "cat .[.]/x",
+            "cat .[!a]/x",
+            "cat .[a-z.]/x",
+            "cat .[+-0]/x",
+            "ls .*",
+            "cat .*/x",
+            "cat ..*/x",
+            "cat sub/.?/.?/.?/x",
+            "cat /tmp/.?/.?/home/x",
+            "x=.?; cat $x/y",
+            "cat .{?,a}/y",
+        ] {
+            assert!(bash(command), "{command}");
+        }
+        let message = denial_in("Bash", json!({ "command": "cat .?/x" }), &scratch(), &[]).expect("denied");
+        assert!(message.contains("a glob that can match `..`"), "{message}");
+        for command in [
+            "cat .*rc",
+            "ls .git*",
+            "cat .a?",
+            "cat .[a-z]/x",
+            "cat .[!.]/x",
+            "cat '.?/x'",
+            "find . -name '.*'",
+            "sed 's/.*/x/' list.txt",
+            "grep '.*' list.txt",
+            "grep -r /usr/.* .",
+            "echo .*",
+            "ls *.md ?.txt",
+        ] {
+            assert!(!bash(command), "{command}");
+        }
+    }
+
+    #[test]
+    fn the_lexer_records_what_separates_commands() {
+        let commands = lex("a && b || c | d & e; f\ng &&\nh (i)", 0).expect("lexes");
+        let seen: Vec<(&str, Separator, bool)> =
+            commands.iter().map(|command| (command.words[0].text.as_str(), command.after, command.grouped)).collect();
+        assert_eq!(
+            seen,
+            vec![
+                ("a", Separator::And, false),
+                ("b", Separator::Or, false),
+                ("c", Separator::Pipe, false),
+                ("d", Separator::Background, false),
+                ("e", Separator::Semi, false),
+                ("f", Separator::Semi, false),
+                ("g", Separator::And, false),
+                ("h", Separator::Group, false),
+                ("i", Separator::Group, true),
+            ]
+        );
     }
 
     #[cfg(unix)]
