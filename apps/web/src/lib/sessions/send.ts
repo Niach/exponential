@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { isPersistent } from "@exp/domain-contract/session-kind"
+import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
 import {
@@ -53,6 +53,7 @@ import {
 import { closeAskMirrorsOf, watchSessions } from "@/lib/sessions/bus"
 import { clearBlockedInTx } from "@/lib/sessions/watchdog"
 import {
+  agentForwardLine,
   assertIssuesInTeam,
   forwardIssues,
   linkIssues,
@@ -455,7 +456,7 @@ async function postSendMessage(
   authorId: string,
   uploaderIds: string[],
   from?: { sessionId: string; asSession: boolean } | null,
-  issueBrief?: { brief: string; identifiers: string[] } | null
+  issueBrief?: { brief: string; line: string | null } | null
 ): Promise<string | null> {
   // EXP-1458: the install named by `seal` is the CALLER's (a hosted run's
   // agent acts with its host's key, so the caller is the uploader set's
@@ -464,13 +465,14 @@ async function postSendMessage(
   let text = input.text ?? ``
   // EXP-1458: the tree's key arrives with its first sealed message.
   if (input.seal) await createTreeKeyInTx(tx, sealUserId, { ...input.seal, rootId: session.rootId })
-  // #EXP-1584: a bare forward into a plaintext tree still wakes the agent.
-  if (issueBrief && !text.trim() && !input.attachmentIds?.length && !(await treeIsSealed(tx, session.rootId))) {
-    text = manualLinkText(issueBrief.identifiers) ?? ``
-  }
+  // #EXP-1584/#EXP-1686: a bare forward still wakes the agent, in a sealed
+  // tree too: a server line, legal plaintext there (the identifiers ride in
+  // the clear `issue_brief` anyway).
+  const serverLine = !!issueBrief && !text.trim() && !input.attachmentIds?.length
+  if (serverLine) text = issueBrief.line ?? ``
   if (!text.trim() && !input.attachmentIds?.length) return null
   if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
-  else if (text.trim()) await assertNotPlainInSealedTree(tx, session.rootId, from?.sessionId)
+  else if (text.trim() && !serverLine) await assertNotPlainInSealedTree(tx, session.rootId, from?.sessionId)
   if (input.refIssueIds?.length) await assertIssuesInTeam(tx, session.teamId, input.refIssueIds)
   const messageId = from?.asSession
     ? await postSessionInput(tx, session, from.sessionId, text)
@@ -508,21 +510,17 @@ async function postSendMessage(
   return messageId
 }
 
-async function treeIsSealed(tx: Pick<Db, `select`>, rootId: string): Promise<boolean> {
-  const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
-  return root?.sealEpoch != null
-}
-
 /** #EXP-1584 (fixtures/session-brief.json `issueBriefCases`): the Issues
  *  section of `issueIds` (input order) for a message forwarding them into
- *  a session already under way: a queued session's brief lists them, a
- *  running or idle one would never see them. */
+ *  a session already under way: a queued thread's brief lists its rows, a
+ *  running or idle one would never see them. #EXP-1686: an agent's
+ *  conversation holds no rows, so its message always carries the section. */
 async function forwardedIssueBrief(
   tx: Tx,
-  session: Pick<Session, `status`>,
+  session: Pick<Session, `status` | `agentId`>,
   issueIds: string[] | undefined
-): Promise<{ brief: string; identifiers: string[] } | null> {
-  if (!issueIds?.length || session.status === `queued`) return null
+): Promise<{ brief: string; line: string | null } | null> {
+  if (!issueIds?.length || (session.status === `queued` && linksIssues(session))) return null
   const rows = await tx
     .select({ id: issues.id, identifier: issues.identifier, title: issues.title, description: issues.description })
     .from(issues)
@@ -533,7 +531,9 @@ async function forwardedIssueBrief(
     return row ? [row] : []
   })
   const brief = composeIssueBrief(ordered)
-  return brief ? { brief, identifiers: ordered.map((row) => row.identifier) } : null
+  if (!brief) return null
+  const identifiers = ordered.map((row) => row.identifier)
+  return { brief, line: linksIssues(session) ? manualLinkText(identifiers) : agentForwardLine(identifiers) }
 }
 
 /** Who a new session belongs to: the real person. A hosted run's agent acts
@@ -1311,15 +1311,19 @@ async function messageSession(
       // NEW-1: the answer to the target's open card (first answer wins).
       if (input.answer) await answerSessionCardInTx(tx, target, input.answer)
       // NEW-1: issues on a message = FORWARDED to that session (the rows
-      // move onto it; it takes them).
+      // move onto it; it takes them). #EXP-1686: a conversation only reads them.
       if (input.issueIds?.length) {
-        await forwardIssues(tx, {
-          sessionId: target.id,
-          issueIds: input.issueIds,
-          source: caller ? `agent` : `user`,
-          addedBy: userId,
-          addedBySessionId: caller?.id ?? null,
-        })
+        if (linksIssues(target)) {
+          await forwardIssues(tx, {
+            sessionId: target.id,
+            issueIds: input.issueIds,
+            source: caller ? `agent` : `user`,
+            addedBy: userId,
+            addedBySessionId: caller?.id ?? null,
+          })
+        } else {
+          await assertIssuesInTeam(tx, target.teamId, input.issueIds)
+        }
       }
       const issueBrief = await forwardedIssueBrief(tx, target, input.issueIds)
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from, issueBrief)
@@ -1414,8 +1418,9 @@ async function messageSession(
 /**
  * NEW-2: a message to an AGENT: the caller's own conversation session with
  * it (found, or created `queued` on the agent's device: own or shared with
- * the team). Issues on it are rows on the conversation; the message is the
- * conversation's pending input (agents never end: the row resumes).
+ * the team). The message is the conversation's pending input (agents never
+ * end: the row resumes); #EXP-1686: issues on it ride on the message, never
+ * as rows.
  */
 async function messageAgent(
   userId: string,
@@ -1438,18 +1443,8 @@ async function messageAgent(
     const from = caller
       ? { sessionId: caller.id, asSession: viaMcp && caller.id !== session.id }
       : null
-    if (input.issueIds?.length) {
-      await assertIssuesInTeam(tx, agent.teamId, input.issueIds)
-      await forwardIssues(tx, {
-        sessionId: session.id,
-        issueIds: input.issueIds,
-        source: caller ? `agent` : `user`,
-        addedBy: userId,
-        addedBySessionId: caller?.id ?? null,
-      })
-    }
-    // #EXP-1584: an existing conversation never reads a brief again.
-    const issueBrief = created ? null : await forwardedIssueBrief(tx, session, input.issueIds)
+    if (input.issueIds?.length) await assertIssuesInTeam(tx, agent.teamId, input.issueIds)
+    const issueBrief = await forwardedIssueBrief(tx, session, input.issueIds)
     const messageId = await postSendMessage(tx, session, input, userId, uploaderIds, from, issueBrief)
     await applyWakeOn(tx, caller, input)
     await extras.within?.(tx, { sessionId: session.id, messageId, rootId: session.id })

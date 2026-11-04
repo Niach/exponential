@@ -24,14 +24,16 @@ export { deriveSessionTitle }
 
 /** The session's first input: a person's message, or (#EXP-1452) the
  *  message of the agent session that started it. */
-async function firstPersonMessage(sessionId: string): Promise<{ body: string | null; attachmentIds: string[] }> {
+async function firstPersonMessage(
+  sessionId: string
+): Promise<{ body: string | null; attachmentIds: string[]; issueBrief: string | null }> {
   const [row] = await db
-    .select({ body: messages.body, attachmentIds: messages.attachmentIds })
+    .select({ body: messages.body, attachmentIds: messages.attachmentIds, issueBrief: messages.issueBrief })
     .from(messages)
     .where(and(inSession(sessionId), isNull(messages.card), pendingInput()))
     .orderBy(asc(messages.createdAt))
     .limit(1)
-  return { body: row?.body ?? null, attachmentIds: row?.attachmentIds ?? [] }
+  return { body: row?.body ?? null, attachmentIds: row?.attachmentIds ?? [], issueBrief: row?.issueBrief ?? null }
 }
 
 /** FEED-180: the attachment lines of a sealed first message, in its order
@@ -101,6 +103,8 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   const input: BriefInput = { text: sealedText ? null : first.body }
 
   input.issues = await sessionIssueRows(session)
+  // #EXP-1686: a conversation holds no rows; its message names the issues.
+  if (session.agentId) input.issueBrief = first.issueBrief
 
   let parentBranch: string | null = null
   if (session.parentId) {

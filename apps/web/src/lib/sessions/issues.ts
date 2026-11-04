@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, ne, sql } from "drizzle-orm"
 import type { SessionIssueSource } from "@exp/db-schema/domain"
+import { linksIssues } from "@exp/domain-contract/session-kind"
 import { boards, issues, sessionIssues, sessions, type Session } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
 import type { IssueEventOrigin } from "@/lib/integrations/event-origin"
@@ -17,8 +18,12 @@ import type { Tx } from "@/lib/sessions/tx"
 // (`issue_linked`, or `issue_filed` when the agent created the issue); a
 // re-link is a no-op. Board + visibility mirrors are trigger-written. The
 // lifecycle (issue-lifecycle.json): a row on a WORKER takes the issue.
+// EXP-1686: an agent's conversation holds no rows (session-kind.json
+// `linksIssues`): issues reach it as a message (`sessions.send`).
 
-type Holder = Pick<Session, `id` | `rootId` | `teamId` | `shared` | `userId` | `repositoryId`>
+type Holder = Pick<Session, `id` | `rootId` | `teamId` | `shared` | `userId` | `repositoryId` | `agentId`>
+
+export const AGENT_CONVERSATION_LINK_MESSAGE = `An agent's conversation links no issues: send them to it with exponential_sessions_send {agentId, issueIds}, or link them to a thread`
 
 const HOLDER = {
   id: sessions.id,
@@ -27,12 +32,19 @@ const HOLDER = {
   shared: sessions.shared,
   userId: sessions.userId,
   repositoryId: sessions.repositoryId,
+  agentId: sessions.agentId,
 }
 
 async function loadHolder(tx: Tx, sessionId: string): Promise<Holder> {
   const [row] = await tx.select(HOLDER).from(sessions).where(eq(sessions.id, sessionId)).limit(1)
   if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
   return row
+}
+
+async function loadLinkHolder(tx: Tx, sessionId: string): Promise<Holder> {
+  const holder = await loadHolder(tx, sessionId)
+  if (!linksIssues(holder)) throw new TRPCError({ code: `BAD_REQUEST`, message: AGENT_CONVERSATION_LINK_MESSAGE })
+  return holder
 }
 
 /** The ids of every session of the root's tree. */
@@ -88,7 +100,7 @@ function origin(args: Pick<LinkArgs, `source` | `addedBySessionId`>): IssueEvent
  *  lifecycle, the root's event cards. */
 export async function linkIssues(tx: Tx, args: LinkArgs): Promise<{ linked: string[] }> {
   if (args.issueIds.length === 0) return { linked: [] }
-  const holder = await loadHolder(tx, args.sessionId)
+  const holder = await loadLinkHolder(tx, args.sessionId)
   const ordered = await assertIssuesInTeam(tx, holder.teamId, args.issueIds)
   const [{ next } = { next: 0 }] = await tx
     .select({ next: sql<number>`coalesce(max(${sessionIssues.sortOrder}), 0)` })
@@ -143,7 +155,7 @@ export async function forwardIssues(
   args: Omit<LinkArgs, `filed`>
 ): Promise<{ linked: string[]; moved: string[] }> {
   if (args.issueIds.length === 0) return { linked: [], moved: [] }
-  const holder = await loadHolder(tx, args.sessionId)
+  const holder = await loadLinkHolder(tx, args.sessionId)
   const ids = (await assertIssuesInTeam(tx, holder.teamId, args.issueIds)).map((issue) => issue.id)
   const tree = (await treeSessionIds(tx, holder.rootId)).filter((id) => id !== holder.id)
   const held = new Set(
@@ -245,6 +257,12 @@ export async function retakeHeldIssues(
  *  issues), so the session wakes and takes the work. */
 export function manualLinkText(identifiers: string[]): string | null {
   return identifiers.length ? `Link ${identifiers.map((ident) => `#${ident}`).join(` `)}` : null
+}
+
+/** #EXP-1686: the server line of a bare forward to an agent's conversation
+ *  (nothing is linked there, so no `Link`). */
+export function agentForwardLine(identifiers: string[]): string | null {
+  return identifiers.length ? identifiers.map((ident) => `#${ident}`).join(` `) : null
 }
 
 /** The identifiers of `issueIds`, in input order. */

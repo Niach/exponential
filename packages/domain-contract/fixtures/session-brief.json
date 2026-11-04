@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept; NEW-2: a prompt run's body plus what was typed is already the text) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line. FEED-178: a SEALED first message the server cannot read: it composes with no text and returns the envelope as `sealedText`; the device opens it (waiting at a launch for its tree key, else the locked placeholder) and puts it in as the Request exactly as above (first section, trimmed; `empty` replaced; the same byte cut). FEED-180: that sealed message's attachments (the clear `attachment_ids`) come back as `sealedAttachments`, one line per attachment in their order, exactly the line a plaintext body gets appended (`![<filename>](/api/attachments/<id>)` for an accepted image type, `[<filename>](/api/attachments/<id>)` otherwise, `[`/`]` stripped from the filename), none for a plaintext message; the device appends them to the opened text, each after a blank line, before it becomes the Request. S-3 (owner 2026-10-28): plan mode is GONE (a plan is an `exponential_show {plan}` card, no gate): no Plan section. EXP-1584: an issue's DESCRIPTION rides in the Issues section: after the '- <identifier> <title>' lines (unchanged, the device parses them), one '### <identifier>' + a blank line + the trimmed description per issue that has one, link order, each after a blank line. ISSUE BRIEF (`issueBriefCases`): a message that FORWARDS issues (`sessions.send {issueIds}`: Start coding with an agent picked, an agent's forward) into a session already under way (an existing agent conversation, an idle or running thread; a queued session's brief already lists them) never reached the agent before: the server composes composeIssueBrief(issues) = that same Issues section ('## Issues' + a blank line + its body, the same byte cut; no issues = null) at send and stores it on the message as the clear `issue_brief` column (plaintext AND sealed alike: the server cannot add to a sealed body, so it never edits a body at all; clients draw the chips, never this column). The device appends it to the text the agent reads (`deliveryCases`: after the body (and its attachment lines) and a blank line; an empty body = the brief alone; a blank brief = the body untouched), on the desktop app and the CLI daemon. A forward with no text into a plaintext tree posts `Link #<identifier> …` (the manual-link text) so the agent still wakes.",
+  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept; NEW-2: a prompt run's body plus what was typed is already the text) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line. FEED-178: a SEALED first message the server cannot read: it composes with no text and returns the envelope as `sealedText`; the device opens it (waiting at a launch for its tree key, else the locked placeholder) and puts it in as the Request exactly as above (first section, trimmed; `empty` replaced; the same byte cut). FEED-180: that sealed message's attachments (the clear `attachment_ids`) come back as `sealedAttachments`, one line per attachment in their order, exactly the line a plaintext body gets appended (`![<filename>](/api/attachments/<id>)` for an accepted image type, `[<filename>](/api/attachments/<id>)` otherwise, `[`/`]` stripped from the filename), none for a plaintext message; the device appends them to the opened text, each after a blank line, before it becomes the Request. S-3 (owner 2026-10-28): plan mode is GONE (a plan is an `exponential_show {plan}` card, no gate): no Plan section. EXP-1584: an issue's DESCRIPTION rides in the Issues section: after the '- <identifier> <title>' lines (unchanged, the device parses them), one '### <identifier>' + a blank line + the trimmed description per issue that has one, link order, each after a blank line. ISSUE BRIEF (`issueBriefCases`): a message that FORWARDS issues (`sessions.send {issueIds}`: Start coding with an agent picked, an agent's forward) into a session already under way (an existing agent conversation, an idle or running thread; a queued session's brief already lists them) never reached the agent before: the server composes composeIssueBrief(issues) = that same Issues section ('## Issues' + a blank line + its body, the same byte cut; no issues = null) at send and stores it on the message as the clear `issue_brief` column (plaintext AND sealed alike: the server cannot add to a sealed body, so it never edits a body at all; clients draw the chips, never this column). The device appends it to the text the agent reads (`deliveryCases`: after the body (and its attachment lines) and a blank line; an empty body = the brief alone; a blank brief = the body untouched), on the desktop app and the CLI daemon. A forward with no text posts a server line so the agent always wakes, in a plaintext or a sealed tree alike (a server line is legal plaintext; the identifiers already ride in the clear `issue_brief`): `Link #<identifier> …` (the manual-link text) into a thread, `#<identifier> …` into an agent conversation (nothing is linked there). EXP-1686 (owner 2026-11-04): ONE path for issues sent to an AGENT CONVERSATION (Start coding with an agent picked, `sessions.send {agentId|sessionId, issueIds}`, `sessions.linkIssues` from an older client): no `session_issues` row (session-kind.json `linksIssues`), the message always carries `issue_brief`, a brand-new (queued) conversation too; `issueBriefCases` is that message. A new conversation's first prompt carries it as its Issues section (`input.issueBrief`, in the place of the rows, the same bytes). Every client's composer writes the forwarded refs into the person's text before it seals (`forwardTextCases`: the bubble is the person's only record of what was sent); the server line remains for a sender that does not (MCP, an older client).",
   "headings": {
     "request": "Request",
     "issues": "Issues",
@@ -88,6 +88,42 @@
         ]
       },
       "expected": "## Request\n\nCheck this.\n\n## Issues\n\n- EXP-1584 Agent picks drop the issue\n- EXP-1585 No description\n\n### EXP-1584\n\nThe agent only got the prompt.\n\n![shot](/api/attachments/abc)"
+    },
+    {
+      "name": "a new agent conversation: the message's issue brief is the Issues section (EXP-1686)",
+      "input": {
+        "text": "Please look.",
+        "issueBrief": "## Issues\n\n- EXP-1584 Agent picks drop the issue\n\n### EXP-1584\n\nThe agent only got the prompt."
+      },
+      "expected": "## Request\n\nPlease look.\n\n## Issues\n\n- EXP-1584 Agent picks drop the issue\n\n### EXP-1584\n\nThe agent only got the prompt."
+    },
+    {
+      "name": "a sealed first message: the brief alone, the device puts the Request first (EXP-1686)",
+      "input": {
+        "text": null,
+        "issueBrief": "## Issues\n\n- EXP-1 A"
+      },
+      "expected": "## Issues\n\n- EXP-1 A"
+    }
+  ],
+  "forwardTextCases": [
+    {
+      "name": "a bare forward",
+      "text": "   ",
+      "identifiers": ["EXP-12", "EXP-13"],
+      "expected": "#EXP-12 #EXP-13"
+    },
+    {
+      "name": "with the person's text",
+      "text": "Please look.\n",
+      "identifiers": ["EXP-12"],
+      "expected": "#EXP-12\n\nPlease look."
+    },
+    {
+      "name": "nothing forwarded",
+      "text": " Hello ",
+      "identifiers": [],
+      "expected": " Hello "
     }
   ],
   "issueBriefCases": [
