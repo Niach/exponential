@@ -77,16 +77,18 @@ export async function readUpstreamBinding(
   if (!binding) return refusal(UPSTREAM_BINDING.errors.invalid, ``, `not an upstream:<server>/<tool> source`)
   const pkg = permittingPackage(app, source, binding.server)
   if (!pkg) return refusal(UPSTREAM_BINDING.errors.notDeclared, binding.server, `the app does not declare ${binding.server} in its upstreams and sources`)
-  const server = await loadRoutedServer(app.teamId, binding.server)
+  // #VAPP-254: the app's mapping, else exactly that name. Everyone after this
+  // line names the REAL server; the provenance `tool` keeps the declared one.
+  const server = await loadRoutedServer(app.teamId, binding.server, app.id)
   if (!server) return refusal(UPSTREAM_ERRORS.missing, binding.server, `the team has no MCP server ${binding.server}`)
   // #VAPP-239 (M2): a device-routed server reads on its owner's device.
   const route = routeServer(server, userId)
-  if (`error` in route) return refusal(route.error, binding.server, route.message)
+  if (`error` in route) return refusal(route.error, server.name, route.message)
   const meta: Record<string, string> = {
     [PROVENANCE_KEYS.app]: app.slug,
     [PROVENANCE_KEYS.tool]: `${binding.server}/${binding.tool}`,
     [PROVENANCE_KEYS.via]: `upstream`,
-    [PROVENANCE_KEYS.upstream]: binding.server,
+    [PROVENANCE_KEYS.upstream]: server.name,
     ...(server.device && route.route === `device` ? { [PROVENANCE_KEYS.device]: server.device.label } : {}),
   }
   const key = upstreamCacheKey(userId, server.id, binding.tool, binding.args)
@@ -104,24 +106,24 @@ export async function readUpstreamBinding(
         args: binding.args,
         veto: { kind: `read`, sources },
       })
-      if (`error` in out) return { ...refusal(out.error, binding.server, out.message), ...(out.offline ? { offline: out.offline } : {}) }
+      if (`error` in out) return { ...refusal(out.error, server.name, out.message), ...(out.offline ? { offline: out.offline } : {}) }
       const value = upstreamBindingValue(out.result)
-      if (`error` in value) return refusal(value.error, binding.server, `${binding.server}'s ${binding.tool} answered an error`)
+      if (`error` in value) return refusal(value.error, server.name, `${server.name}'s ${binding.tool} answered an error`)
       remember(key, value.value, now)
       return { ok: true, value: value.value, meta }
     }
     const launch = await resolveForLaunch(db, { userId, teamIds: [app.teamId], serverIds: [server.id] })
     const entry = launch.servers[0]
-    if (!entry?.url) return refusal(UPSTREAM_ERRORS.disconnected, binding.server, `connect your ${binding.server} account first`)
+    if (!entry?.url) return refusal(UPSTREAM_ERRORS.disconnected, server.name, `connect your ${server.name} account first`)
     const headers = Object.fromEntries(entry.headers.map((h) => [h.name, h.value]))
     const called = await callUpstreamTool(entry.url, headers, binding.tool, binding.args, (annotations) => upstreamReadError(binding, annotations, sources))
     if (!called.ok) {
-      if (called.reason === `vetoed`) return refusal(called.error, binding.server, `${binding.server}'s ${binding.tool} is not a read-only tool`)
-      if (called.reason === `refused`) return refusal(UPSTREAM_ERRORS.disconnected, binding.server, `${binding.server} refused your connection; reconnect`)
-      return refusal(UPSTREAM_ERRORS.failed, binding.server, `${binding.server}: ${called.error}`)
+      if (called.reason === `vetoed`) return refusal(called.error, server.name, `${server.name}'s ${binding.tool} is not a read-only tool`)
+      if (called.reason === `refused`) return refusal(UPSTREAM_ERRORS.disconnected, server.name, `${server.name} refused your connection; reconnect`)
+      return refusal(UPSTREAM_ERRORS.failed, server.name, `${server.name}: ${called.error}`)
     }
     const value = upstreamBindingValue(called.result)
-    if (`error` in value) return refusal(value.error, binding.server, `${binding.server}'s ${binding.tool} answered an error`)
+    if (`error` in value) return refusal(value.error, server.name, `${server.name}'s ${binding.tool} answered an error`)
     remember(key, value.value, now)
     return { ok: true, value: value.value, meta }
   })()

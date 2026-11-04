@@ -504,7 +504,7 @@ The complete list: records writes, MCP operations, toasts, navigation and links.
 
 - `harness.mcp` asks every time: fine for a rare action, useless for a dashboard. So a template has a read binding source `upstream:<server>/<tool>?<args>` (`@exp/emcp` `upstream.json` `binding`, its `$comment` the spec):
   - the name splits at its last `/`; each query param is one argument, read as JSON when it is a number, `true`/`false`/`null`, an object or an array, else the string (so a `bind` action's params drive it);
-  - the server must be in the package's `upstreams` (an install issue otherwise) and the source in its `sources` (`upstream:<server>/<tool>`, `upstream:<server>/*` or `upstream:*`);
+  - the server must be in the package's `upstreams` (an install issue otherwise; it runs on the team server that fills it: §8 "The per-app mapping") and the source in its `sources` (`upstream:<server>/<tool>`, `upstream:<server>/*` or `upstream:*`);
   - read-only only, checked at every call against the tool's live annotations: `readOnlyHint: true` reads; a tool with no hint reads only when `sources` lists it exactly (the author vouches); `readOnlyHint: false` and destructive tools never run;
   - run by the **server broker** as the viewer with their own credential (`resolveForLaunch`), exactly one tool per read, never another app's upstreams, `_meta` provenance on the answer (§12.1);
   - cached for 60 s per (member, server, tool, args); errors are never cached, and hosts re-read every 60 s while bound;
@@ -598,6 +598,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 | "via <app>" | 🟡 comments only | #VAPP-186 |
 | Broker `records` = full query | ✅ | Q4 #VAPP-216: `run.records` list + `records_list` `query` run the Q1 evaluator (`@exponential_app/eui/host/query`) over the caller's readable rows (read policy + RLS first, ≤ 25,000 rows read); `records-query.json` replays through the broker |
 | http upstreams | ✅ | |
+| Per-app upstream mapping | ✅ | #VAPP-254, below |
 | stdio / LAN upstreams | ✅ M2 (#VAPP-239) | `@exp/emcp` upstream.json `device` (its `$comment` is the spec), `lib/emcp/upstream/device-call.ts`, the relay's `POST /devices/:userId/:deviceId/upstream`, `steer::upstream_call` + `emcp::device_call` on the device (below) |
 | eMCP local hub + codemode | in review | #EXP-1507 |
 | Spezl loopback broker | ❌ | #YO-32 |
@@ -608,6 +609,15 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 - **The path:** the broker writes one `mcp_device_calls` row (tool, args, the veto, a fresh X25519 reply key; 30 s, claimable once, no secret in it) and asks the steer relay to send `upstream_call {callId}` down the device's control socket (the same socket kill, interrupt and compact use). The device claims the call over its own authenticated API (`mcpServers.claimDeviceCall`: its own call on that device, else NOT_FOUND), which resolves the member's credential at claim time; it runs exactly that tool through the `emcp` client (http, or the command spawned over stdio), checking the tool's live annotations against the veto first, and answers `upstream_answer {callId, sealed}`, sealed to the reply key with eNet's sealed box (enet-core `push_seal`). The relay sees only the id and ciphertext and cannot forge an answer: the reply key never crosses it.
 - **Offline:** the relay's `device_offline` = `upstreamFailed` "<server> runs on <device>, offline"; a read keeps the binding's default and the host shows that banner (no action) beside the "Connect <server>" ones; a device that never answers (25 s) = "<server>: <device> did not answer".
 - **Grants, audit, cache:** exactly as for http upstreams; the answer's `_meta` adds `at.exponential/device` = the device's label.
+
+**The per-app mapping** (✅ #VAPP-254, Danny 2026-11-04, replacing the exact-name-only rule of 2026-11-03; `@exp/emcp` upstream.json `mapping`, TS `resolveUpstreamServer`, Rust `emcp::contract::upstream`): a team owner picks which team server fills each upstream an app declares, at install (the import step) and on the app's Settings › Accounts (`apps.json` `upstreamPickerCases`, ×4). Exact name stays the automatic default, so a package whose names match keeps no row and nothing changes; a shared template works with any server name.
+
+- **Data:** `app_upstream_bindings` (app + upstream → server, team-scoped, unique per app + upstream; cascades with the server, so a removed mapped server falls back to the exact name). Server-only, never a shape. Writes: `appAccess.setUpstreamMapping`, `apps.import {upstreamMappings}`, owners only; the upstream must be declared, the server the team's.
+- **Resolve:** the mapping, else exactly the name, else `upstreamMissing`. Exposes runs, M1 reads, automations and M2 device routing all go through `loadRoutedServer` with the app's id. A mapped server that names a device routes exactly as above.
+- **What keeps the declared name:** the package (`upstreams`, `sources`, `run.upstream`, `upstream:<declared>/<tool>`) and the provenance `tool`. **What shows the real server:** every banner and refusal, the answer's `server`, `_meta` `at.exponential/upstream`, the cache key, the consent page, an Accounts row's `Uses <server>` line, and an automation's audit `tool`.
+- **Package writes:** a declared name is fine when it is a team server, mapped for the app, or already declared by the app's published or head package. Only a name new to the app must exist by name, so an imported template stays editable before an owner maps it.
+- **Export/import:** the mapping belongs to the install. A file holds the declared names only; an import starts from the exact-name default plus the owner's picks in that dialog. A member's import keeps the default; the app shows "Not set up" until an owner maps it.
+- **Audit:** each change is one `mcp_calls` row as the owner, `tool = upstream:<upstream>=<server>` (`auto` once cleared), Settings › MCP › Activity. Connections stay per server: a mapping changes no member's credential.
 
 **The eMCP hub** (ExponentialOS v5): on a device, one loopback hub combines its servers (ePilot, eDE tools, Spezl apps) behind grants and audit. eApps plug into it as one more `ToolProvider`, using the same `<app>__<tool>` names and the same `exposes` rules, replayed from `packages/emcp` fixtures in Rust.
 
@@ -663,7 +673,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 
 | Format | Today | Spec |
 |---|---|---|
-| `.app.json` (package ± records, signed) | ✅ #VAPP-121, #VAPP-161 (4 MB, ≤ 2,000 records) | Records carry `author`: the export writes it (✅ #VAPP-192, ×4), and the import keeps it when the author is a member of the importing team and the importer an owner; otherwise (a stranger, or a member importing a teammate's export) the row is the importer's (✅ #VAPP-188/192). 🆕 An explicit author mapping when importing into another team. |
+| `.app.json` (package ± records, signed) | ✅ #VAPP-121, #VAPP-161 (4 MB, ≤ 2,000 records) | Records carry `author`: the export writes it (✅ #VAPP-192, ×4), and the import keeps it when the author is a member of the importing team and the importer an owner; otherwise (a stranger, or a member importing a teammate's export) the row is the importer's (✅ #VAPP-188/192). 🆕 An explicit author mapping when importing into another team. ✅ The file never carries the app's upstream mapping; an owner picks servers in the import step (#VAPP-254, §8). |
 | CSV / xlsx export | ❌ | **Out of scope** (decided 2026-11-01). Records leave through `.app.json` and MCP: an agent reads `records_list` or an exposed tool and writes whatever file it needs. |
 | CSV / xlsx import | ✅ #VAPP-228: the agent recipe (§10.2, CSV + xlsx) and the Data tab's mapping dialog (§10.3, CSV) | **Agent path** (✅ §10.2): the agent reads the file in a session and calls `records_upsert` with `author` (R2 ✅ #VAPP-188). **Dialog** (✅ §10.3): paste or choose a CSV → map columns onto the Data tab's kind (auto-matched by name) → preview the issues → import the ready rows in one transaction (`apps.records.batch` `via: import`, ≤ 500 rows), Undo for 10 s. |
 | JSON (records only) | 🟡 via `records_list` | Covered by `.app.json` |

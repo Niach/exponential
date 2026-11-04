@@ -177,9 +177,11 @@ const AUTOMATION_MESSAGES: Record<string, string> = {
 
 /** VAPP-180: a package's `upstreams` name MCP servers of the app's team
  *  (Settings › MCP); unknown names refuse with the ones the team has. A
- *  server removed later only makes its bindings answer upstreamMissing. */
-export function upstreamIssues(pkg: AppPackage, teamServers: readonly string[]): PackageIssue[] {
-  const unknown = (pkg.upstreams ?? []).filter((name) => !teamServers.includes(name))
+ *  server removed later only makes its bindings answer upstreamMissing.
+ *  #VAPP-254: `known` = names mapped for this app or already declared by it
+ *  (upstream.json `mapping`). */
+export function upstreamIssues(pkg: AppPackage, teamServers: readonly string[], known: readonly string[] = []): PackageIssue[] {
+  const unknown = (pkg.upstreams ?? []).filter((name) => !teamServers.includes(name) && !known.includes(name))
   if (unknown.length === 0) return []
   const have = teamServers.length > 0 ? `the team has ${[...teamServers].sort().join(`, `)}` : `the team has no MCP servers yet (Settings › MCP)`
   return [{ path: `/upstreams`, message: `upstreams ${unknown.join(`, `)} are not MCP servers of this team: ${have}` }]

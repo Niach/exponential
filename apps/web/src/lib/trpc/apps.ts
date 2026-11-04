@@ -29,6 +29,9 @@ import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 import { readUpstreamBinding } from "@/lib/emcp/upstream-reads"
+import { recordMcpCalls, type McpCallRow } from "@/lib/emcp/audit"
+import { bindingsOf, declaredUpstreams, writeUpstreamMappings } from "@/lib/apps/upstream-mapping"
+import { resolveUpstreamServer } from "@exp/emcp/upstream"
 import { runVia, validateExposes, type AgentRun, type Expose } from "@exp/emcp/exposes"
 import { handOff } from "@/lib/apps/agent-handoff"
 import { templateImportText } from "@/lib/apps/templates"
@@ -292,11 +295,12 @@ export async function checkAppImport(
 
 /** VAPP-180: a written package's `upstreams` are MCP servers of the app's
  *  team (an import keeps its names: an unknown one answers upstreamMissing
- *  until an owner adds the server). */
-async function assertTeamUpstreams(db: Pick<Tx, `select`>, teamId: string, pkg: AppPackage): Promise<void> {
+ *  until an owner adds the server or maps one). #VAPP-254: `known` = names
+ *  the app already maps or declares. */
+async function assertTeamUpstreams(db: Pick<Tx, `select`>, teamId: string, pkg: AppPackage, known: readonly string[] = []): Promise<void> {
   if (!pkg.upstreams?.length) return
   const rows = await db.select({ name: mcpServers.name }).from(mcpServers).where(eq(mcpServers.teamId, teamId))
-  const issue = upstreamIssues(pkg, rows.map((r) => r.name))[0]
+  const issue = upstreamIssues(pkg, rows.map((r) => r.name), known)[0]
   if (issue) throw new TRPCError({ code: `BAD_REQUEST`, message: issue.message })
 }
 
@@ -307,7 +311,7 @@ const IMPORT_SLUG_ATTEMPTS = 5
  *  once), the records as the importer's within the team's quota. No grants:
  *  an owner grants on the settings page. Any member. `import` and
  *  `importTemplate` (VAPP-234) share it. */
-async function importAppText(ctx: Context & { session: NonNullable<Context[`session`]> }, teamId: string, text: string, note: string) {
+async function importAppText(ctx: Context & { session: NonNullable<Context[`session`]> }, teamId: string, text: string, note: string, upstreamMappings: readonly { upstream: string; serverId: string }[] = []) {
   const userId = ctx.session.user.id
   const member = await assertTeamMember(userId, teamId)
   const { issues, file } = await checkAppImport(text, { userId, role: member.role, members: await teamMemberIds(ctx.db, teamId) })
@@ -315,8 +319,14 @@ async function importAppText(ctx: Context & { session: NonNullable<Context[`sess
     const listed = issues.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
     throw new TRPCError({ code: `BAD_REQUEST`, message: `the app file is invalid: ${listed.join(`; `)}` })
   }
+  // #VAPP-254 (upstream.json `mapping`): an owner's picks, for names the file declares.
+  if (upstreamMappings.length > 0 && member.role !== `owner`) throw new TRPCError({ code: `FORBIDDEN`, message: `Only a team owner picks an app's servers` })
+  const declared = declaredUpstreams(file.package)
+  const undeclared = upstreamMappings.find((m) => !declared.includes(m.upstream))
+  if (undeclared) throw new TRPCError({ code: `BAD_REQUEST`, message: `the app does not declare ${undeclared.upstream}` })
   const icon = boardIconSchema.safeParse(file.app.icon)
   const color = colorSchema.safeParse(file.app.color)
+  let mappingAudit: McpCallRow[] = []
   const importInTx = () => ctx.db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     const slug = slugify(file.app.name, await takenSlugs(tx, teamId))
@@ -335,6 +345,7 @@ async function importAppText(ctx: Context & { session: NonNullable<Context[`sess
     const { number } = await writeVersionInTx(tx, app!, file.package, { note, sessionId: null, createdBy: userId, byOwner: false })
     // eApps V1: an imported app file is a finished app: v1 is published at once.
     await publishVersionInTx(tx, app!, { number, byOwner: false, userId })
+    mappingAudit = await writeUpstreamMappings(tx, app!, userId, upstreamMappings)
     // #VAPP-193: last in the transaction (it switches to role eapps).
     await importRecords(tx, { ...app!, package: file.package as App[`package`] }, userId, member.role, file.records)
     return { txid: txId, app: { ...app!, headVersion: number, publishedVersion: number }, records: file.records.length }
@@ -345,7 +356,9 @@ async function importAppText(ctx: Context & { session: NonNullable<Context[`sess
   // attempts = CONFLICT, never a 500.
   for (let attempt = 1; ; attempt++) {
     try {
-      return await importInTx()
+      const imported = await importInTx()
+      await recordMcpCalls(mappingAudit)
+      return imported
     } catch (error) {
       if (uniqueViolationConstraint(error) !== `uniq_apps_team_slug`) throw error
       if (attempt >= IMPORT_SLUG_ATTEMPTS) {
@@ -501,7 +514,14 @@ export const appsRouter = router({
       const userId = ctx.session.user.id
       const member = await assertTeamMember(userId, input.teamId)
       const { issues, file } = await checkAppImport(input.text, { userId, role: member.role, members: await teamMemberIds(ctx.db, input.teamId) })
-      return { issues, name: file?.app.name ?? null, records: file?.records.length ?? 0 }
+      // #VAPP-254: the owner's picker (apps.json `upstreamPickerCases`).
+      const names = file ? [...declaredUpstreams(file.package)].sort() : []
+      const teamServers = names.length ? await ctx.db.select({ id: mcpServers.id, name: mcpServers.name }).from(mcpServers).where(eq(mcpServers.teamId, input.teamId)).orderBy(asc(mcpServers.name)) : []
+      const upstreams = names.map((name) => {
+        const server = resolveUpstreamServer(name, null, teamServers)?.server ?? null
+        return { name, serverId: server?.id ?? null, serverName: server?.name ?? null }
+      })
+      return { issues, name: file?.app.name ?? null, records: file?.records.length ?? 0, upstreams, servers: member.role === `owner` ? teamServers : [] }
     }),
 
   /** VAPP-121: a new app out of an app file (or a bare package): the
@@ -509,8 +529,8 @@ export const appsRouter = router({
    *  as the importer's within the team's quota. No grants: an owner grants
    *  on the settings page. Any member. */
   import: authedProcedure
-    .input(importInputSchema)
-    .mutation(({ ctx, input }) => importAppText(ctx, input.teamId, input.text, APP_EXPORT_COPY.importNote)),
+    .input(importInputSchema.and(z.object({ upstreamMappings: z.array(z.object({ upstream: z.string().min(1).max(64), serverId: uuid })).max(64).default([]) })))
+    .mutation(({ ctx, input }) => importAppText(ctx, input.teamId, input.text, APP_EXPORT_COPY.importNote, input.upstreamMappings)),
 
   /** VAPP-234 (app-templates.json): a new app out of a SIGNED template of
    *  the gallery: the pinned signature verified, then imported exactly like
@@ -580,7 +600,7 @@ export const appsRouter = router({
       const { member } = await resolveTeamAccess(userId, app.teamId)
       await assertAppAccess(ctx.db, app, userId, `write`)
       const pkg = validateAppPackage(input.package)
-      await assertTeamUpstreams(ctx.db, app.teamId, pkg)
+      await assertTeamUpstreams(ctx.db, app.teamId, pkg, [...(await bindingsOf(ctx.db, app.id)).keys(), ...declaredUpstreams(app.package), ...declaredUpstreams(app.draftPackage)])
       // Release train 2026-10-23: the version always names its author; the
       // session is kept only when it is the caller's own editor session for
       // THIS app (anything else is ignored, never a 400: old callers).

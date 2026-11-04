@@ -313,6 +313,27 @@ export function accountRow(row: AccountRowInput): { status: AccountStatus; label
   return { status, label: null, action, actionLabel: copy[action] }
 }
 
+/** #VAPP-254 (`upstreamPickerCases`): an Accounts or import row's server
+ *  picker, and the second line naming the real server. */
+export interface UpstreamPickerRow {
+  name: string
+  serverId: string | null
+  serverName: string | null
+}
+
+export const UPSTREAM_PICKER_NONE = fixture.upstreamPickerCases.none
+
+export function upstreamPicker(row: UpstreamPickerRow, servers: readonly { id: string; name: string }[]): { value: string; options: { value: string; label: string }[] } | null {
+  if (servers.length === 0) return null
+  const options = servers.map((server) => ({ value: server.id, label: server.name }))
+  const clear = servers.some((server) => server.name === row.name) ? [] : [{ value: UPSTREAM_PICKER_NONE, label: fixture.copy.accounts.notSetUp }]
+  return { value: row.serverId ?? UPSTREAM_PICKER_NONE, options: [...clear, ...options] }
+}
+
+export function accountCaption(row: UpstreamPickerRow): string | null {
+  return row.serverName && row.serverName !== row.name ? fixture.copy.accounts.usesServer.replace(`{server}`, row.serverName) : null
+}
+
 /** #VAPP-243 (`policyRowCases`): a kind's EFFECTIVE record policy as the
  *  Record access row's caption, ops in record-policy.json order. */
 export type PolicyOp = `read` | `create` | `update` | `delete`
