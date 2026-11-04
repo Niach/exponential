@@ -67,6 +67,7 @@ pub(crate) fn open_import(window: &mut Window, cx: &mut App, team_id: String, te
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
+            .self_scrolling()
             .can_close(move |cx| !busy.read(cx).pending.active())
             .on_enter(move |window, cx| submit.update(cx, |view, cx| view.run_import(window, cx)))
     });
@@ -96,6 +97,9 @@ pub(crate) struct AppImportView {
     upstreams: Vec<ImportUpstream>,
     servers: Vec<AppServer>,
     picks: HashMap<String, String>,
+    /// The body scrolls under a pinned Import (the web's DialogFooter), so an
+    /// owner's Accounts group never pushes it below the fold.
+    body_scroll: gpui::ScrollHandle,
     /// The debounced `apps.validateImport` (replacing it cancels).
     validate: Option<Task<()>>,
     import_focused: bool,
@@ -124,6 +128,7 @@ impl AppImportView {
             upstreams: Vec::new(),
             servers: Vec::new(),
             picks: HashMap::new(),
+            body_scroll: gpui::ScrollHandle::new(),
             validate: None,
             import_focused: false,
             with_records: false,
@@ -424,8 +429,9 @@ impl AppImportView {
         });
         let label = APP_EXPORT_COPY.import_action.clone();
         let ready = self.issues.as_ref().is_some_and(Vec::is_empty);
-        v_flex()
-            .size_full()
+        let body_scroll = self.body_scroll.clone();
+        let body = v_flex()
+            .w_full()
             .gap_3()
             .child(self.render_templates(cx))
             .child(
@@ -450,8 +456,26 @@ impl AppImportView {
                 ),
             )
             .children(issue_rows)
-            .children(self.render_upstreams(cx))
-            .child(div().flex_1())
+            .children(self.render_upstreams(cx));
+        v_flex()
+            .size_full()
+            .gap_3()
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(v_flex().id("app-import-scroll").size_full().overflow_y_scroll().track_scroll(&body_scroll).child(body))
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .child(gpui_component::scroll::Scrollbar::new(&body_scroll).axis(gpui_component::scroll::ScrollbarAxis::Vertical)),
+                    ),
+            )
             .child(
                 h_flex()
                     .pt_3()
