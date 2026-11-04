@@ -15,6 +15,11 @@ public struct SurfaceOptions: Sendable {
     /// Locale, strings, `system` mode, density, contrast, font scale,
     /// insets, pointer, motion, today. nil = the defaults with `mode` above.
     public var settings: SurfaceSettings?
+    /// #VAPP-252: the surface does not paint its modal layers (Dialog, Drawer)
+    /// and what opens above them: the host shows them where the scrim should
+    /// reach with `ExponentialSurfaceLayers`, while `liftedLayersOpen`. Off =
+    /// every layer inside the surface.
+    public var liftsLayers = false
 
     public init(catalogId: String = coreCatalogId(), theme: ThemeHandle? = ThemeHandle.builtin(defaultThemeId()), mode: Mode = .dark, rounding: Bool = false, settings: SurfaceSettings? = nil) {
         self.catalogId = catalogId
@@ -123,6 +128,8 @@ public final class SurfaceModel {
     /// The host's width (the view's geometry), visible height and card bound.
     @ObservationIgnored public internal(set) var width: CGFloat = 0
     @ObservationIgnored public internal(set) var viewportHeight: CGFloat = 0
+    /// While lifted layers are up, the host's height they replaced.
+    @ObservationIgnored private var viewportBeforeOverlay: CGFloat?
     @ObservationIgnored public internal(set) var maxHeight: CGFloat?
     @ObservationIgnored var nodesDirty = true
     @ObservationIgnored var visualsDirty = true
@@ -305,6 +312,11 @@ public final class SurfaceModel {
     /// The host's width (from the view's geometry) and visible height
     /// (dialog centring, windowed lists). `maxHeight` bounds a card.
     public func setViewport(width: CGFloat, height: CGFloat, maxHeight: CGFloat? = nil) {
+        var height = height
+        if viewportBeforeOverlay != nil, height != viewportHeight {
+            viewportBeforeOverlay = height
+            height = viewportHeight
+        }
         let w = max(0, width.rounded(.down))
         if w == self.width, height == viewportHeight, maxHeight == self.maxHeight, !layoutNeeded { return }
         self.width = w
@@ -312,6 +324,26 @@ public final class SurfaceModel {
         self.maxHeight = maxHeight
         layoutNeeded = true
         if w > 0 { pass() }
+    }
+
+    /// #VAPP-252: lifted layers are open and the host should show them.
+    public var liftedLayersOpen: Bool {
+        options.liftsLayers && layers.contains(where: \.modal)
+    }
+
+    /// #VAPP-252: lifted layers hang from the window: its height for the
+    /// layout while they are up, nil = back to the host's.
+    func overlayViewportHeight(_ height: CGFloat?) {
+        if let height {
+            if viewportBeforeOverlay == nil { viewportBeforeOverlay = viewportHeight }
+            viewportHeight = height
+        } else {
+            guard let before = viewportBeforeOverlay else { return }
+            viewportBeforeOverlay = nil
+            viewportHeight = before
+        }
+        layoutNeeded = true
+        if width > 0 { pass() }
     }
 
     // MARK: - The pass

@@ -76,6 +76,8 @@ struct AppConsentWords: Equatable {
 final class AppConsentGate {
     /// The pending call's words; nil = nothing pending.
     private(set) var pending: AppConsentWords?
+    /// #VAPP-252: lifted layers are up: the card hangs off their cover.
+    var covered = false
     @ObservationIgnored private var resolve: ((Bool) -> Void)?
 
     nonisolated init() {}
@@ -319,11 +321,13 @@ final class AppRecordOutbox {
 /// arguments in the CodeBlock under the body.
 struct AppConsentCard: ViewModifier {
     let gate: AppConsentGate
+    /// #VAPP-252: this card is the one on `LiftedLayersCover`.
+    var onCover = false
 
     func body(content: Content) -> some View {
         content.glassAlert(
             isPresented: Binding(
-                get: { gate.pending != nil },
+                get: { gate.pending != nil && gate.covered == onCover },
                 set: { if !$0 { gate.answer(false) } }
             ),
             onDismiss: { gate.answer(false) }
@@ -645,7 +649,8 @@ final class ExpAppHost {
             },
             // VAPP-218: `app.navigate` opens one of the package's screens
             // (the preview's screens shell; nil = refused).
-            navigate: navigate
+            navigate: navigate,
+            liftsLayers: true
         ))
         uploads?.host = host
     }

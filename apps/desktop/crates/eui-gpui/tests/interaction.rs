@@ -200,6 +200,46 @@ fn a_select_opens_on_its_selection_and_chooses_with_enter(cx: &mut TestAppContex
     assert!(view.read_with(cx, |v, _| v.layers().is_empty()));
 }
 
+/// #VAPP-252: a surface narrower than the window with one modal open; where
+/// its body painted, and the window's width.
+fn modal_in_a_narrow_surface(cx: &mut TestAppContext, modal: Value, lift_layers: bool) -> (f32, f32, f32) {
+    init(cx);
+    let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, lift_layers, ..Default::default() };
+    let (view, vcx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+    view.update(vcx, |v, cx| {
+        v.record_bounds(true);
+        v.set_width(400.0, cx);
+        v.set_nested(serde_json::from_value::<NestedNode>(json!({"id": "root", "component": "Box", "children": [modal]})).unwrap(), cx);
+    });
+    draw(vcx);
+    draw(vcx);
+    let b = view.read_with(vcx, |v, _| v.painted_bounds("body")).expect("the modal painted");
+    let window = vcx.update(|window, _| f32::from(window.viewport_size().width));
+    (f32::from(b.origin.x), f32::from(b.origin.y), window)
+}
+
+#[gpui::test]
+fn a_lifted_dialog_centres_in_the_window(cx: &mut TestAppContext) {
+    let dialog = json!({"id": "d", "component": "Dialog", "props": {"title": "T", "open": true}, "children": [{"id": "body", "component": "Text", "props": {"text": "x"}}]});
+    let (x, _, window) = modal_in_a_narrow_surface(cx, dialog, true);
+    assert!(window > 800.0, "the test window is wider than the surface: {window}");
+    assert!(x > 400.0 && x < window / 2.0, "centred in the window, not in the 400 px surface: {x} of {window}");
+}
+
+#[gpui::test]
+fn a_dialog_stays_in_the_surface_by_default(cx: &mut TestAppContext) {
+    let dialog = json!({"id": "d", "component": "Dialog", "props": {"title": "T", "open": true}, "children": [{"id": "body", "component": "Text", "props": {"text": "x"}}]});
+    let (x, _, _) = modal_in_a_narrow_surface(cx, dialog, false);
+    assert!(x < 400.0, "painted inside the surface: {x}");
+}
+
+#[gpui::test]
+fn a_lifted_side_drawer_hangs_from_the_window_edge(cx: &mut TestAppContext) {
+    let drawer = json!({"id": "d", "component": "Drawer", "props": {"title": "T", "open": true, "side": "right"}, "children": [{"id": "body", "component": "Text", "props": {"text": "x"}}]});
+    let (x, _, window) = modal_in_a_narrow_surface(cx, drawer, true);
+    assert!(x > window - 400.0, "against the window's right edge: {x} of {window}");
+}
+
 #[gpui::test]
 fn escape_and_the_scrim_respect_dismissible(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [

@@ -42,6 +42,8 @@ public struct HostOptions {
     /// (`app.navigate`, checked by `Screens.target`); the host's shell opens
     /// it. Nil = no shell, so a navigate is refused. True when it navigated.
     public var navigate: ((NavigateTarget) -> Bool)?
+    /// #VAPP-252: `SurfaceOptions.liftsLayers` of every surface.
+    public var liftsLayers: Bool
 
     public init(
         transport: Transport? = nil,
@@ -60,8 +62,10 @@ public struct HostOptions {
         now: (() -> Date)? = nil,
         zone: HostZone? = nil,
         onActionFailed: ((ActionFailure) -> Void)? = nil,
-        navigate: ((NavigateTarget) -> Bool)? = nil
+        navigate: ((NavigateTarget) -> Bool)? = nil,
+        liftsLayers: Bool = false
     ) {
+        self.liftsLayers = liftsLayers
         self.transport = transport
         self.functions = functions
         self.sources = sources
@@ -249,6 +253,7 @@ public final class ExponentialHost {
             }
             var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: surfaceTheme, mode: mode, settings: settings)
             o.rounding = false
+            o.liftsLayers = options.liftsLayers
             guard let model = try? SurfaceModel(id: surfaceId, options: o, host: bridge) else { return }
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }
             if op["sendDataModel"]?.bool == true { sendDataModel.insert(surfaceId) } else { sendDataModel.remove(surfaceId) }

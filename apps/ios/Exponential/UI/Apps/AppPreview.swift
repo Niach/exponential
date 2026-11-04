@@ -26,6 +26,12 @@ import ExponentialUI
 /// #VAPP-251 (apps.json A PACKAGE THAT NO LONGER VALIDATES): a package the
 /// host refuses (`Apps.surfaceState`) = the page-size `copy.needsUpdate` alone,
 /// centred, without the bar; a republished package (a new key) tries again.
+///
+/// #VAPP-252: the surface's Dialog and Drawer layers escape the scroller and
+/// cover the whole screen, tab bar included, in the preview as in the run
+/// view (web's fixed overlay, Android's dialog windows): `LiftedLayersCover`.
+/// The run view's scroller runs to the screen's bottom edge, under the home
+/// indicator, when no bar stands there.
 struct AppPreview: View {
     /// The package's JSON text; nil = no version yet.
     let packageJSON: String?
@@ -116,10 +122,25 @@ struct AppPreview: View {
             }
         }
         .background(framed ? GlassTokens.backgroundTop : Color.clear, in: shape)
-        .clipShape(shape)
+        .modifier(FrameClip(shape: shape, framed: framed))
         .overlay(shape.strokeBorder(framed ? GlassTokens.strokeCard : Color.clear, lineWidth: GlassTokens.hairline))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(framed ? Apps.TestIds.preview : Apps.TestIds.run)
+    }
+}
+
+/// The editor's frame clips to its radius; the run view has no frame, so
+/// nothing stops its scroller at the safe area.
+private struct FrameClip: ViewModifier {
+    let shape: RoundedRectangle
+    let framed: Bool
+
+    func body(content: Content) -> some View {
+        if framed {
+            content.clipShape(shape)
+        } else {
+            content
+        }
     }
 }
 
@@ -165,6 +186,53 @@ private struct AppPreviewScreens {
     }
 }
 
+#if canImport(ExponentialUI)
+/// #VAPP-252: the surface's lifted layers in a clear `.fullScreenCover` (THE
+/// surface that paints over a navigation bar, a tab bar and the keyboard, as
+/// `GlassAlert`'s), presented and dismissed animation-free: the layers bring
+/// their own enter, and the cover stays for their exit. A consent card a
+/// layer's press asks for hangs off the cover (one presentation per level).
+private struct LiftedLayersCover: ViewModifier {
+    let model: SurfaceModel?
+    let consent: AppConsentGate
+    @State private var shown = false
+
+    private var open: Bool { model?.liftedLayersOpen ?? false }
+
+    private func setShown(_ value: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { shown = value }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: open) { _, open in
+                if open {
+                    setShown(true)
+                    return
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(140))
+                    if !self.open { setShown(false) }
+                }
+            }
+            .fullScreenCover(isPresented: Binding(get: { shown }, set: { setShown($0) })) {
+                Group {
+                    if let model {
+                        ExponentialSurfaceLayers(model: model)
+                            .modifier(AppConsentCard(gate: consent, onCover: true))
+                            .onAppear { consent.covered = true }
+                            .onDisappear { consent.covered = false }
+                    }
+                }
+                .presentationBackground(.clear)
+            }
+            .transaction(value: shown) { $0.disablesAnimations = true }
+    }
+}
+#endif
+
 /// The live surface of one package: its own host, the first template (or
 /// VAPP-218 the shown screen's, with its `{params}`) applied once, closed
 /// when it leaves. Without the painter linked: nothing (the frame stays).
@@ -207,6 +275,7 @@ private struct AppPackageSurface: View {
             }
         }
         .modifier(AppConsentCard(gate: consent))
+        .modifier(LiftedLayersCover(model: appHost?.host.surfaces[Apps.Preview.surfaceId], consent: consent))
         .onAppear(perform: build)
         .onDisappear {
             appHost?.close()
