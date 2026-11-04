@@ -1,8 +1,9 @@
+import { agentChatSubtitle } from "@exp/domain-contract/session-tree"
+import { workModelLabel } from "@exp/domain-contract/work-card"
 import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
   BoardGlyph,
-  CHAT_HEADER_AGENT_SUBTITLE,
   conceptIcon,
   EmptyState,
   ExponentialLogo,
@@ -150,7 +151,7 @@ function AgentChannelPage() {
       <PhoneHeaderTitle
         disc={disc(`size-10`, `size-5`)}
         title={name}
-        subtitle={<span className="text-muted-foreground">{CHAT_HEADER_AGENT_SUBTITLE}</span>}
+        subtitle={<span className="text-muted-foreground">{agentChatSubtitle(workModelLabel(conversation?.model))}</span>}
       />
     ),
     headerMenu: (className?: string) => (

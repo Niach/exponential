@@ -17,12 +17,15 @@ pub struct SessionTraits {
     pub persistent: bool,
     /// The kind whose definition carries triggers (the server fires them).
     pub triggers: bool,
+    /// EXP-1686: a `session_issues` row may land on it (a conversation:
+    /// never, issues reach it as a message).
+    pub links_issues: bool,
 }
 
 /// `kinds.thread`.
-pub const THREAD: SessionTraits = SessionTraits { persistent: false, triggers: false };
+pub const THREAD: SessionTraits = SessionTraits { persistent: false, triggers: false, links_issues: true };
 /// `kinds.agent`.
-pub const AGENT: SessionTraits = SessionTraits { persistent: true, triggers: true };
+pub const AGENT: SessionTraits = SessionTraits { persistent: true, triggers: true, links_issues: false };
 
 /// The traits of `kind`; an unknown or absent kind = a thread.
 pub fn session_traits(kind: Option<&str>) -> SessionTraits {
@@ -47,6 +50,25 @@ pub fn is_persistent(agent_id: Option<&str>) -> bool {
     session_traits(Some(session_kind_of(agent_id))).persistent
 }
 
+/// EXP-1686: whether the session may hold issue rows. Keyed on `agent_id`.
+pub fn links_issues(agent_id: Option<&str>) -> bool {
+    session_traits(Some(session_kind_of(agent_id))).links_issues
+}
+
+/// EXP-1686 (`fixtures/session-brief.json` `forwardTextCases`): the person's
+/// text of a forward to an agent, the refs first, composed before the client
+/// seals it: the bubble is their record of what was sent.
+pub fn agent_forward_text(text: &str, identifiers: &[String]) -> String {
+    if identifiers.is_empty() {
+        return text.to_string();
+    }
+    let refs = identifiers.iter().map(|identifier| format!("#{identifier}")).collect::<Vec<_>>().join(" ");
+    match text.trim() {
+        "" => refs,
+        body => format!("{refs}\n\n{body}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,6 +81,7 @@ mod tests {
         SessionTraits {
             persistent: value["persistent"].as_bool().unwrap(),
             triggers: value["triggers"].as_bool().unwrap(),
+            links_issues: value["linksIssues"].as_bool().unwrap(),
         }
     }
 
@@ -84,6 +107,24 @@ mod tests {
             let expected = case["expected"].as_str().unwrap();
             assert_eq!(session_kind_of(agent_id), expected, "{case}");
             assert_eq!(is_persistent(agent_id), expected == SESSION_KIND_AGENT, "{case}");
+            assert_eq!(links_issues(agent_id), expected != SESSION_KIND_AGENT, "{case}");
+        }
+    }
+
+    /// EXP-1686: `session-brief.json` `forwardTextCases`.
+    #[test]
+    fn every_forward_text_case_matches() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-brief.json"
+        ))
+        .unwrap();
+        let cases = fixture["forwardTextCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let identifiers: Vec<String> =
+                case["identifiers"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect();
+            let got = agent_forward_text(case["text"].as_str().unwrap(), &identifiers);
+            assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 

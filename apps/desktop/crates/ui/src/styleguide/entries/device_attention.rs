@@ -2,20 +2,16 @@
 //! "Device card": THE Devices page card — the REAL `machines::device_card`
 //! over two fabricated machines of mine in the page's grid (`card_grid`,
 //! `device_card_columns`). The first is outdated and holds a login that needs
-//! re-login: its icon wears THE run-mark badge and its account preview is
-//! painted OPEN beneath it (the preview's own renderer,
-//! `machines::account_preview`; a gallery has no pointer to hover it open).
-//! The badge and the preview's status come from the real derivation
-//! (`machines::device_attention`), so they read exactly what
+//! re-login: its icon wears THE run-mark badge and #EXP-1643 its account panel
+//! is open in the card. The badge and the panel's status come from the real
+//! derivation (`machines::device_attention`), so they read exactly what
 //! `fixtures/devices-list.json` locks. Inert: nothing is wired. Web twin:
 //! `apps/styleguide/src/entries/device-attention.tsx`.
 
-use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
-use gpui_component::{v_flex, ActiveTheme as _};
+use gpui::{px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
+use gpui_component::v_flex;
 
-use crate::machines::{
-    self, AttentionKind, AttentionPill, DeviceCard, DeviceCardProps, LoginFlag, UpdateLine,
-};
+use crate::machines::{self, AttentionKind, AttentionPill, DeviceCard, DeviceCardProps, UpdateLine};
 use crate::usage_bar::AgentProfileUsageRow;
 
 pub(crate) const ID: &str = "device-attention";
@@ -24,18 +20,27 @@ pub(crate) const OWNER: &str = "EXP-1560";
 /// The specimen's width — the web island's `max-w-[44rem]`.
 const WIDTH: f32 = 704.;
 
+/// The specimen's height floor — the web island's `min-h-72`.
+const MIN_HEIGHT: f32 = 288.;
+
 /// The instance's latest desktop version (the fixture's `latest`).
 const LATEST: &str = "0.14.79";
 
 /// The badged login's slot in the first card (claude · claude · codex).
 const BADGED: usize = 1;
 
-fn window(key: &str, label: &str, percent: u8) -> coding::agent_usage::UsageWindow {
+/// 2h 10m and 3d 14h, with half a minute's room for the time the frame takes
+/// (the countdown floors).
+const RESETS_SESSION: i64 = 2 * 3600 + 10 * 60 + 30;
+const RESETS_WEEK: i64 = 3 * 86_400 + 14 * 3600 + 30;
+
+/// `resets_in` seconds from now: the island's `resets in …` captions.
+fn window(key: &str, label: &str, percent: u8, resets_in: i64) -> coding::agent_usage::UsageWindow {
     coding::agent_usage::UsageWindow {
         key: key.to_string(),
         label: label.to_string(),
         percent,
-        resets_at: None,
+        resets_at: Some((chrono::Utc::now() + chrono::Duration::seconds(resets_in)).to_rfc3339()),
     }
 }
 
@@ -57,7 +62,8 @@ fn login(
         agent: agent.to_string(),
         profile_id: profile_id.to_string(),
         active: health == coding::agent_accounts::Health::Ok,
-        signed_in: health == coding::agent_accounts::Health::Ok,
+        // A dead credential is still a login here: it signs out and in.
+        signed_in: health != coding::agent_accounts::Health::SignedOut,
         email: Some(email.to_string()),
         plan: Some(plan.to_string()),
         usage: (!windows.is_empty()).then(|| coding::agent_usage::AgentUsage {
@@ -116,9 +122,13 @@ fn macbook() -> DeviceCard {
                 "claude",
                 "b",
                 "danny@yourev.at",
-                "max",
+                "Max",
                 Health::NeedsRelogin,
-                vec![window("session", "Session", 42), window("weekly", "Weekly", 81), window("model:fable", "Fable", 64)],
+                vec![
+                    window("session", "Session", 42, RESETS_SESSION),
+                    window("weekly", "Weekly", 81, RESETS_WEEK),
+                    window("model:fable", "Fable", 64, RESETS_WEEK),
+                ],
             ),
             login("sg-device-macbook", "codex", "c", "ops@yourev.at", "pro", Health::Ok, Vec::new()),
         ],
@@ -140,14 +150,15 @@ fn mint() -> DeviceCard {
 }
 
 /// The card's props through the real derivation, every action inert.
-fn props(index: usize, device: DeviceCard) -> DeviceCardProps {
+/// `open`: the slot of the login whose panel the card shows.
+fn props(index: usize, device: DeviceCard, open: Option<usize>) -> DeviceCardProps {
     let derived = machines::device_attention(&device.list_input(Some(LATEST)));
     let inert = |label| AttentionPill {
         label,
         busy: false,
         on_click: None,
     };
-    let mut login_flags: Vec<Option<LoginFlag>> = vec![None; device.logins.len()];
+    let mut login_flags = vec![None; device.logins.len()];
     let mut update_line = None;
     for item in &derived.attention {
         match &item.kind {
@@ -161,10 +172,7 @@ fn props(index: usize, device: DeviceCard) -> DeviceCardProps {
                     .iter()
                     .position(|login| &login.agent == agent && &login.profile_id == profile_id)
                 {
-                    login_flags[slot] = Some(LoginFlag {
-                        status: *status,
-                        sign_in: item.action.map(|action| inert(action.label())),
-                    });
+                    login_flags[slot] = Some(*status);
                 }
             }
             AttentionKind::Update | AttentionKind::UpdateQueued => {
@@ -175,6 +183,7 @@ fn props(index: usize, device: DeviceCard) -> DeviceCardProps {
             }
         }
     }
+    let open_login = open.map(|slot| device.logins[slot].key.clone());
     DeviceCardProps {
         index,
         device,
@@ -183,6 +192,8 @@ fn props(index: usize, device: DeviceCard) -> DeviceCardProps {
         update_line,
         no_account: derived.no_account,
         inert: true,
+        open_login,
+        on_toggle_login: None,
         accounts_expanded: false,
         on_expand_accounts: None,
         on_drop_share: None,
@@ -190,52 +201,24 @@ fn props(index: usize, device: DeviceCard) -> DeviceCardProps {
 }
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
-    let first = props(9_000, macbook());
-    let badged_login = first.device.logins[BADGED].clone();
-    let badged_flag = first.login_flags[BADGED].clone();
-    let preview = machines::account_preview(
-        SharedString::from("sg-device-attention-preview"),
-        &badged_login,
-        badged_flag.as_ref(),
-        chrono::Utc::now().timestamp(),
-        cx,
-    );
-    let cards = vec![machines::device_card(first, cx), machines::device_card(props(9_001, mint()), cx)];
+    let cards = vec![
+        machines::device_card(props(9_000, macbook(), Some(BADGED)), cx),
+        machines::device_card(props(9_001, mint(), None), cx),
+    ];
     let grid = machines::card_grid(cards, machines::device_card_columns(WIDTH - 24.));
-    let theme = cx.theme();
-    // The preview as the hover paints it: anchored under the badged icon
-    // (card padding + one icon and its gap in from the card's left edge).
-    let icon_x = machines::CARD_PADDING + machines::CARD_ICON_SIZE + 4.;
-    v_flex()
-        .w(px(WIDTH))
-        .p_3()
-        .gap_1p5()
-        .child(grid)
-        .child(
-            div().pl(px(icon_x)).child(
-                div()
-                    .p_2p5()
-                    .rounded(px(theme::tokens::radius::LG))
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.popover)
-                    .text_color(theme.popover_foreground)
-                    .shadow_md()
-                    .child(preview),
-            ),
-        )
+    v_flex().w(px(WIDTH)).min_h(px(MIN_HEIGHT)).p_3().child(grid)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The specimen badges exactly the one login the brief names, with its
-    /// Sign in, and leads the first card's `⋯` with the update line (a
-    /// desktop updates itself: no Update item).
+    /// The specimen badges exactly the one login the brief names, opens its
+    /// panel, and leads the first card's `⋯` with the update line (a desktop
+    /// updates itself: no Update item).
     #[test]
     fn the_specimen_badges_the_relogin_and_carries_the_update_line() {
-        let first = props(0, macbook());
+        let first = props(0, macbook(), Some(BADGED));
         let badged: Vec<usize> = first
             .login_flags
             .iter()
@@ -243,14 +226,14 @@ mod tests {
             .filter_map(|(slot, flag)| flag.as_ref().map(|_| slot))
             .collect();
         assert_eq!(badged, vec![BADGED]);
-        let flag = first.login_flags[BADGED].as_ref().expect("flag");
-        assert_eq!(flag.status, machines::LoginStatus::NeedsRelogin);
-        assert!(flag.sign_in.is_some());
+        assert_eq!(first.login_flags[BADGED], Some(machines::LoginStatus::NeedsRelogin));
+        assert_eq!(first.open_login.as_deref(), Some(first.device.logins[BADGED].key.as_str()));
         let line = first.update_line.as_ref().expect("update line");
         assert_eq!(line.text.as_ref(), "Update available · v0.14.79");
         assert!(line.update.is_none());
-        let second = props(1, mint());
+        let second = props(1, mint(), None);
         assert!(second.login_flags.iter().all(Option::is_none));
         assert!(second.update_line.is_none());
+        assert!(second.open_login.is_none());
     }
 }

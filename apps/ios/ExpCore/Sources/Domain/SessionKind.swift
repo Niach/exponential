@@ -11,11 +11,15 @@ import Foundation
 public struct SessionTraits: Equatable, Sendable {
     /// Never ends: exits idle, `sessions.end` refuses, revived by its device.
     public let persistent: Bool
+    /// EXP-1686: a `session_issues` row may land on it. A conversation holds
+    /// none: issues sent to it arrive as a message (session-brief.json).
+    public let linksIssues: Bool
     /// The kind whose definition carries triggers (the server fires them).
     public let triggers: Bool
 
-    public init(persistent: Bool, triggers: Bool) {
+    public init(persistent: Bool, linksIssues: Bool, triggers: Bool) {
         self.persistent = persistent
+        self.linksIssues = linksIssues
         self.triggers = triggers
     }
 }
@@ -23,8 +27,8 @@ public struct SessionTraits: Equatable, Sendable {
 public enum SessionKind {
     /// fixtures/session-kind.json `kinds`.
     public static let kinds: [String: SessionTraits] = [
-        "thread": SessionTraits(persistent: false, triggers: false),
-        "agent": SessionTraits(persistent: true, triggers: true),
+        "thread": SessionTraits(persistent: false, linksIssues: true, triggers: false),
+        "agent": SessionTraits(persistent: true, linksIssues: false, triggers: true),
     ]
 
     /// An unknown or missing kind = `thread`.

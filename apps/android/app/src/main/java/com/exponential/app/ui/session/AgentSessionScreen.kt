@@ -4908,7 +4908,6 @@ internal fun SessionComposer(
         // refuses `This session has ended`). S-3: no Plan switch.
         readOnly = sessionEnded,
         onConfigure = viewModel::configure,
-        onImplement = viewModel::implementIssues,
         surface = surface,
         prompts = promptRows,
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
@@ -5480,7 +5479,6 @@ internal data class SessionComposerMenu(
     /** An ended session: the option rows are read-only. */
     val readOnly: Boolean,
     val onConfigure: (AgentSessionViewModel.ConfigurePicks) -> Unit,
-    val onImplement: (List<String>) -> Unit,
     /** S-3: which composer this is (composer-menu.json `surfaces`). */
     val surface: com.exponential.app.domain.ComposerMenuSurface = com.exponential.app.domain.ComposerMenuSurface.Session,
     /** #EXP-1434: Prompts › = the team's prompts (the `/` menu's list) ... */

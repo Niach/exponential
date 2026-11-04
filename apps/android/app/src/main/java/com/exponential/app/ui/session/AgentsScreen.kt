@@ -4,12 +4,12 @@ import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
+import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,8 +47,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,7 +63,6 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentProfileUsageRow
-import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DevicesList
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.Prompts
@@ -70,10 +73,10 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
@@ -88,7 +91,6 @@ import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.compactRelativeTime
-import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
@@ -127,6 +129,9 @@ import kotlinx.coroutines.delay
  * logins as brand-mark icons badged where they need a fix, the update line
  * and the settings behind the card's `⋯`; the attention icon and the gear
  * are gone.
+ *
+ * #EXP-1643 replaced the account menu with THE account panel: a tap on an
+ * icon expands that card ([DeviceAccountPanel]), nothing floats any more.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -300,8 +305,8 @@ fun AgentsScreen(
                             }
                         }
                     }
-                    // Teammates' cards are read-only: the account icons only
-                    // preview, no `+`, no actions. FEED-149: a team OWNER's ⋯
+                    // Teammates' cards are read-only: the account panel has no
+                    // actions, no `+`. FEED-149: a team OWNER's ⋯
                     // holds Remove on a card shared into the SELECTED team (the
                     // list is cross-team, EXP-1186), which drops that share.
                     if (teamDevices.isNotEmpty()) {
@@ -553,10 +558,11 @@ private fun OfflineLabel() {
 /**
  * EXP-1560 (`devices-list.json` `card`): one section's devices as a GRID of
  * [columns] equal cards, [DevicesList.Card.GAP] both ways; a short last row
- * keeps its cards at the column width.
+ * keeps its cards at the column width. #EXP-1643: a row aligns to the top, so
+ * a card that grows its panel never stretches a neighbour.
  */
 @Composable
-private fun DeviceGrid(
+internal fun DeviceGrid(
     devices: List<SteerDevice>,
     columns: Int,
     key: (SteerDevice) -> String,
@@ -566,12 +572,13 @@ private fun DeviceGrid(
     Column(verticalArrangement = Arrangement.spacedBy(gap)) {
         devices.chunked(columns).forEach { row ->
             Row(
-                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(gap),
+                verticalAlignment = Alignment.Top,
             ) {
                 row.forEach { device ->
                     key(key(device)) {
-                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) { card(device) }
+                        Box(modifier = Modifier.weight(1f)) { card(device) }
                     }
                 }
                 repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
@@ -581,28 +588,69 @@ private fun DeviceGrid(
 }
 
 /**
+ * #EXP-1643: a card's open account, remembered per device on this client
+ * (never synced). [save] writes the choice through; a specimen passes a no-op.
+ */
+internal class OpenAccountMemory(
+    initial: DevicesList.RememberedAccount,
+    private val save: (DevicesList.RememberedAccount) -> Unit = {},
+) {
+    var remembered by mutableStateOf(initial)
+        private set
+
+    /** The tap on a login's icon: [open] is the login open right now. */
+    fun toggle(key: String, open: String?) {
+        val next = if (open == key) DevicesList.RememberedAccount.Closed else DevicesList.RememberedAccount.Login(key)
+        remembered = next
+        save(next)
+    }
+}
+
+/** An empty value = closed by hand; no value = never touched on this client. */
+@Composable
+private fun rememberOpenAccount(deviceId: String): OpenAccountMemory {
+    val context = LocalContext.current
+    return remember(deviceId) {
+        val prefs = context.getSharedPreferences(OPEN_ACCOUNT_PREFS, Context.MODE_PRIVATE)
+        val initial = when (val stored = prefs.getString(deviceId, null)) {
+            null -> DevicesList.RememberedAccount.Untouched
+            "" -> DevicesList.RememberedAccount.Closed
+            else -> DevicesList.RememberedAccount.Login(stored)
+        }
+        OpenAccountMemory(initial) { next ->
+            val value = (next as? DevicesList.RememberedAccount.Login)?.key.orEmpty()
+            prefs.edit().putString(deviceId, value).apply()
+        }
+    }
+}
+
+private const val OPEN_ACCOUNT_PREFS = "device_account_open"
+
+/**
  * EXP-1560 (`devices-list.json`): THE device card — the glass card surface,
  * padding [DevicesList.Card.PADDING], two rows.
  *
- * TOP: the name (truncating) + `v{version}` (warning tone when the caller's
+ * TOP: the device's icon (muted), the name (truncating) + `v{version}` (warning tone when the caller's
  * own device is outdated) + the default star, over the status line and the
  * `Shared` tag (a phone is never a registered device, so `This device` never
- * applies on this client); top-right the ghost `⋯` opening THE menu: the
- * update line (disabled, muted), `Update` (a server's update action), Device
+ * applies on this client); top-right the ghost `⋯` opening THE menu's bottom
+ * sheet: the update line (disabled, muted), `Update` (a server's update action), Device
  * settings (own registered). A teammate's card holds only a team owner's
  * Remove from this team; with nothing to hold, no `⋯`.
  *
  * BOTTOM: the logins as brand-mark icons ([DeviceLoginIcon]), the run-mark
  * amber badge on every login with a login attention item; past
  * [DevicesList.Card.MAX_ACCOUNT_ICONS] a ghost `⋯` reveals the rest in place;
- * own, online cards with an agent to add end with a ghost `+`.
+ * own, online cards with an agent to add end with a ghost `+`. A tap on an
+ * icon opens THAT login's [DeviceAccountPanel] under the row; tapping it again
+ * closes it; one open per device ([openAccount]).
  *
  * The device's health is never summarised from its agents: an agent with no
  * login profile (a CLI installed, never signed in) badges nothing.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun DeviceCard(
+internal fun DeviceCard(
     device: SteerDevice,
     latestVersions: DeviceLatestVersions,
     /** EXP-849: this machine's account commands in flight, keyed by login. */
@@ -624,6 +672,8 @@ private fun DeviceCard(
     onUpdate: () -> Unit,
     /** FEED-149: a team owner's Remove on a teammate's shared card; null = none. */
     onRemoveShare: (() -> Unit)? = null,
+    /** #EXP-1643: which login's panel is open on this device. */
+    openAccount: OpenAccountMemory = rememberOpenAccount(device.deviceId),
 ) {
     val online = device.online
     val mine = device.isMine
@@ -665,23 +715,44 @@ private fun DeviceCard(
     }
     val canSettings = mine && device.registered
     val hasMenu = if (mine) updateItem != null || canSettings else onRemoveShare != null
-    var expanded by remember(device.deviceId) { mutableStateOf(false) }
+    // Only what the row draws can be open: a machine that never reported has
+    // no icons yet.
+    val shownLogins = logins?.takeIf { device.agentAccounts != null }.orEmpty()
+    val openKey = DevicesList.openDeviceAccount(shownLogins.map { it.key }, openAccount.remembered)
+    val openIndex = shownLogins.indexOfFirst { it.key == openKey }
+    var revealed by remember(device.deviceId) { mutableStateOf(false) }
+    // An open login folded behind the ⋯ reveals the folded icons.
+    val expanded = revealed || openIndex >= DevicesList.accountIcons(shownLogins.size, false).visible
+    fun itemFor(login: AgentProfileUsageRow) = listRow.attention.firstOrNull {
+        it.kind == DevicesList.Kind.Login && it.agent == login.agent && it.profileId == login.profileId
+    }
     val gap = 4.dp
     Column(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
             .alpha(if (online) 1f else 0.6f)
             .glassCard()
             .padding(DevicesList.Card.PADDING.dp)
             .testTag("device-card"),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(DevicesList.Card.PANEL_GAP.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                deviceIcon(device),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.padding(top = 1.dp).size(DevicesList.Card.DEVICE_ICON_SIZE.dp),
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         device.displayLabel,
                         style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -763,6 +834,7 @@ private fun DeviceCard(
             }
             if (hasMenu) {
                 DeviceActionsMenu(
+                    title = device.displayLabel,
                     updateItem = updateItem,
                     updateBusy = deviceBusy || device.updateRequested,
                     onUpdate = onUpdate,
@@ -787,16 +859,10 @@ private fun DeviceCard(
                         key(login.key) {
                             DeviceLoginIcon(
                                 row = login,
-                                item = listRow.attention.firstOrNull {
-                                    it.kind == DevicesList.Kind.Login &&
-                                        it.agent == login.agent && it.profileId == login.profileId
-                                },
-                                actionable = actionable,
+                                item = itemFor(login),
+                                open = login.key == openKey,
                                 state = commandStates[deviceLoginCommandKey(login)],
-                                onRemove = { onRemoveAccount(login) },
-                                onSignOut = { onSignOutAccount(login) },
-                                onSignIn = { onSignIn(login.agent, login.profileId) },
-                                onPersistLogin = { onPersistLogin(login) },
+                                onToggle = { openAccount.toggle(login.key, openKey) },
                             )
                         }
                     }
@@ -804,7 +870,7 @@ private fun DeviceCard(
                         CircleIconButton(
                             ExpIcons.uiMore,
                             contentDescription = DevicesList.Copy.MORE_ACCOUNTS,
-                            onClick = { expanded = true },
+                            onClick = { revealed = true },
                             borderless = true,
                             size = DevicesList.Card.ICON_SIZE.dp,
                             glyphSize = DevicesList.Card.MARK_SIZE.dp,
@@ -826,6 +892,19 @@ private fun DeviceCard(
                 )
             }
         }
+        shownLogins.getOrNull(openIndex)?.let { login ->
+            val state = commandStates[deviceLoginCommandKey(login)]
+            DeviceAccountPanel(
+                row = login,
+                item = itemFor(login),
+                actionable = actionable,
+                busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running,
+                onSignIn = { onSignIn(login.agent, login.profileId) },
+                onPersistLogin = { onPersistLogin(login) },
+                onSignOut = { onSignOutAccount(login) },
+                onRemove = { onRemoveAccount(login) },
+            )
+        }
     }
 }
 
@@ -841,13 +920,14 @@ private fun LoginHint(text: String) {
 }
 
 /**
- * EXP-1560: the card's ghost `⋯` (`copy.deviceActions`) and THE menu — the
- * update line as a disabled muted row, `Update` (only for the update action;
- * waits while one is requested), Device settings; on a teammate's card only
- * the owner's Remove from this team.
+ * EXP-1560: the card's ghost `⋯` (`copy.deviceActions`) and THE menu, on a
+ * phone its bottom sheet (#EXP-1643): the update line as a disabled muted row,
+ * `Update` (only for the update action; waits while one is requested), Device
+ * settings; on a teammate's card only the owner's Remove from this team.
  */
 @Composable
 private fun DeviceActionsMenu(
+    title: String,
     updateItem: DevicesList.AttentionItem?,
     updateBusy: Boolean,
     onUpdate: () -> Unit,
@@ -855,258 +935,238 @@ private fun DeviceActionsMenu(
     onRemoveShare: (() -> Unit)?,
 ) {
     var open by remember { mutableStateOf(false) }
-    Box {
-        CircleIconButton(
-            ExpIcons.uiMore,
-            contentDescription = DevicesList.Copy.DEVICE_ACTIONS,
-            onClick = { open = true },
-            borderless = true,
-            size = DevicesList.Card.ICON_SIZE.dp,
-            glyphSize = DevicesList.Card.MARK_SIZE.dp,
-            modifier = Modifier.testTag("device-actions"),
-        )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            updateItem?.let { item ->
-                GlassMenuItem(
-                    text = {
-                        Text(
-                            item.text,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    },
-                    enabled = false,
-                    onClick = {},
-                )
-                if (item.action == DevicesList.Action.Update) {
-                    GlassMenuItem(
-                        text = { Text(DevicesList.Copy.UPDATE) },
-                        leadingIcon = { Icon(ExpIcons.uiUpdate, contentDescription = null) },
+    // The web `⋯` hangs 4 into the card's padding, level with its corner.
+    CircleIconButton(
+        ExpIcons.uiMore,
+        contentDescription = DevicesList.Copy.DEVICE_ACTIONS,
+        onClick = { open = true },
+        borderless = true,
+        size = DevicesList.Card.ICON_SIZE.dp,
+        glyphSize = DevicesList.Card.MARK_SIZE.dp,
+        modifier = Modifier.offset(x = 4.dp, y = (-4).dp).testTag("device-actions"),
+    )
+    if (!open) return
+    val rowTint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    GlassSheet(title = title, onDismiss = { open = false }, modifier = Modifier.testTag("device-actions-sheet")) {
+        updateItem?.let { item ->
+            GlassSheetRow(
+                label = item.text,
+                onClick = {},
+                enabled = false,
+                labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            if (item.action == DevicesList.Action.Update) {
+                Box(Modifier.testTag("device-update")) {
+                    GlassSheetRow(
+                        label = DevicesList.Copy.UPDATE,
                         enabled = !updateBusy,
+                        leading = { Icon(ExpIcons.uiUpdate, contentDescription = null, tint = rowTint, modifier = Modifier.size(18.dp)) },
                         onClick = {
                             open = false
                             onUpdate()
                         },
-                        modifier = Modifier.testTag("device-update"),
                     )
                 }
             }
-            onOpenSettings?.let { open1 ->
-                GlassMenuItem(
-                    text = { Text(DevicesList.Copy.SETTINGS) },
-                    leadingIcon = { Icon(ExpIcons.navSettings, contentDescription = null) },
+        }
+        onOpenSettings?.let { openSettings ->
+            Box(Modifier.testTag("device-settings-button")) {
+                GlassSheetRow(
+                    label = DevicesList.Copy.SETTINGS,
+                    leading = { Icon(ExpIcons.navSettings, contentDescription = null, tint = rowTint, modifier = Modifier.size(18.dp)) },
                     onClick = {
                         open = false
-                        open1()
+                        openSettings()
                     },
-                    modifier = Modifier.testTag("device-settings-button"),
                 )
             }
-            onRemoveShare?.let { remove ->
-                GlassMenuItem(
-                    text = { Text(DevicesList.Copy.REMOVE_FROM_TEAM) },
-                    leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                    destructive = true,
+        }
+        onRemoveShare?.let { remove ->
+            val destructive = MaterialTheme.colorScheme.error
+            Box(Modifier.testTag("device-remove-share-button")) {
+                GlassSheetRow(
+                    label = DevicesList.Copy.REMOVE_FROM_TEAM,
+                    labelColor = destructive,
+                    leading = { Icon(ExpIcons.uiDelete, contentDescription = null, tint = destructive, modifier = Modifier.size(18.dp)) },
                     onClick = {
                         open = false
                         remove()
                     },
-                    modifier = Modifier.testTag("device-remove-share-button"),
                 )
             }
         }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
 /**
  * EXP-1560: ONE login of one machine as an icon — a ghost
- * [DevicesList.Card.ICON_SIZE] square holding the agent's brand mark, THE
- * run-mark amber badge when the login has a login attention [item]. A tap
- * opens the account menu headed by the email (else the label), the plan
- * muted, the item's status line in warning tone, then the usage windows; on
- * a teammate's (or an offline) machine the menu is that preview alone.
+ * [DevicesList.Card.ICON_SIZE] button holding the agent's brand mark, THE
+ * run-mark amber badge when the login has a login attention [item].
+ * #EXP-1643: a tap opens (or closes) its [DeviceAccountPanel]; the [open] icon
+ * wears the glass-active wash.
  */
 @Composable
 private fun DeviceLoginIcon(
     row: AgentProfileUsageRow,
     item: DevicesList.AttentionItem?,
-    actionable: Boolean,
+    open: Boolean,
     state: DeviceCommandUiState?,
-    onRemove: () -> Unit,
-    onSignOut: () -> Unit,
-    onSignIn: () -> Unit,
-    onPersistLogin: () -> Unit,
+    onToggle: () -> Unit,
 ) {
-    val nowMs = rememberUsageClock()
-    val label = AgentAccountsRows.loginLabel(row)
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
-    var menuOpen by remember { mutableStateOf(false) }
-    val actions = if (actionable) AgentAccountsRows.chipActions(row) else emptyList()
-    // The plan line only when the header is the EMAIL: a login that has
-    // nothing but its plan must not read "max" twice.
-    val plan = row.plan?.takeIf { row.email != null }
-    // EXP-1626: which login feeds a persisted profile (none without a token).
-    val persisted = AgentAccountsRows.persistedLine(row)
     val status = item?.status?.let { DevicesList.Copy.STATUS[it] }
     val description = buildString {
-        append("${agentLabel(row.agent)}, $label")
-        plan?.let { append(", $it") }
-        persisted?.let { append(", $it") }
+        append("${agentLabel(row.agent)}, ${AgentAccountsRows.loginLabel(row)}")
         status?.let { append(", ${it.lowercase()}") }
     }
-    Box {
-        Box(
-            modifier = Modifier
-                .size(DevicesList.Card.ICON_SIZE.dp)
-                .clip(CircleShape)
-                .clickable(role = Role.Button) { menuOpen = true }
-                .semantics { contentDescription = description }
-                .testTag("device-login-icon"),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(DevicesList.Card.MARK_SIZE.dp - 2.dp),
-                    strokeWidth = 1.5.dp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            } else {
-                AgentRunMark(
-                    agent = row.agent,
-                    state = if (item != null) SessionTree.SessionState.NeedsYou else null,
-                    size = DevicesList.Card.MARK_SIZE.dp,
-                    badgeSize = 7.dp,
-                    badgeRing = GlassTokens.OpaqueCardFill,
-                )
+    Box(
+        modifier = Modifier
+            .size(DevicesList.Card.ICON_SIZE.dp)
+            .clip(CircleShape)
+            .then(if (open) Modifier.background(GlassTokens.RowFillActive) else Modifier)
+            .clickable(role = Role.Button, onClick = onToggle)
+            .semantics {
+                contentDescription = description
+                selected = open
             }
-        }
-        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            val age = AgentUsagePresentation.usageAge(row.usage, nowMs)
-            val asOf = age ?: row.checkedAt?.takeIf { it.isNotBlank() }
-                ?.let(::relativeTime)?.takeIf { it.isNotEmpty() }?.let { "as of $it" }
-            Column(
-                modifier = Modifier
-                    .width(260.dp)
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                    .testTag("device-login-preview"),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                // EXP-1627: the header email in the foreground at medium weight.
-                Text(
-                    row.email ?: label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                plan?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                }
-                persisted?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.testTag("device-login-persisted"),
-                    )
-                }
-                status?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NeedsInputAmber,
-                        maxLines = 1,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                val usage = row.usage
-                if (usage != null && usage.windows.isNotEmpty()) {
-                    UsageWindows(usage = usage)
-                } else if (row.signedIn && asOf == null) {
-                    LoginHint(DevicesList.Copy.CHECKING)
-                } else {
-                    LoginHint(if (asOf != null) "No usage reported · $asOf" else "No usage reported")
-                }
-            }
-            if (actions.isNotEmpty()) {
-                AccountChipMenuItems(
-                    actions = actions,
-                    busy = busy,
-                    onSignIn = {
-                        menuOpen = false
-                        onSignIn()
-                    },
-                    onPersistLogin = {
-                        menuOpen = false
-                        onPersistLogin()
-                    },
-                    onRemove = {
-                        menuOpen = false
-                        onRemove()
-                    },
-                    onSignOut = {
-                        menuOpen = false
-                        onSignOut()
-                    },
-                )
-            }
+            .testTag("device-login-icon"),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(DevicesList.Card.MARK_SIZE.dp - 2.dp),
+                strokeWidth = 1.5.dp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+        } else {
+            AgentRunMark(
+                agent = row.agent,
+                state = if (item != null) SessionTree.SessionState.NeedsYou else null,
+                size = DevicesList.Card.MARK_SIZE.dp,
+                badgeSize = 7.dp,
+                badgeRing = GlassTokens.OpaqueCardFill,
+            )
         }
     }
 }
 
 /**
- * EXP-862: the account chip menu, identical on a machine row and on an account
- * row's machine chip — never `codex logout` (it would revoke the account
- * server-wide) and never a credential copy: the files stay where the CLI wrote
- * them. "Remove account" deletes only THIS machine's copy; EXP-1137's "Sign
- * out" is the agent's own way out (claude's `auth logout`, codex's credential
- * file deleted) and keeps the row.
+ * #EXP-1643 THE account panel (`devices-list.json`, web `DeviceAccountPanel`):
+ * a hairline, the email (else the label) + icon-only Sign out and Remove, the
+ * plan + the one action pill, the persisted and status lines, the usage
+ * windows the login reports. A teammate's or an offline machine: no actions.
+ * Never `codex logout` (it would revoke the account server-wide): Remove
+ * deletes only THIS machine's copy, Sign out keeps the row (EXP-862, EXP-1137).
  */
 @Composable
-private fun AccountChipMenuItems(
-    actions: List<String>,
+private fun DeviceAccountPanel(
+    row: AgentProfileUsageRow,
+    item: DevicesList.AttentionItem?,
+    actionable: Boolean,
     busy: Boolean,
     onSignIn: () -> Unit,
     onPersistLogin: () -> Unit,
-    onRemove: () -> Unit,
     onSignOut: () -> Unit,
+    onRemove: () -> Unit,
 ) {
-    actions.forEach { action ->
-        when (action) {
-            AgentAccountsRows.ACTION_SIGN_IN -> GlassMenuItem(
-                text = { Text(action) },
-                leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
-                enabled = !busy,
-                onClick = onSignIn,
-            )
-            AgentAccountsRows.ACTION_PERSIST_LOGIN,
-            AgentAccountsRows.ACTION_RENEW_PERSISTED_LOGIN,
-            -> GlassMenuItem(
-                text = { Text(action) },
-                leadingIcon = { Icon(ExpIcons.uiClock, contentDescription = null) },
-                enabled = !busy,
-                onClick = onPersistLogin,
-            )
-            AgentAccountsRows.ACTION_SIGN_OUT -> GlassMenuItem(
-                text = { Text(action) },
-                leadingIcon = { Icon(ExpIcons.uiSignOut, contentDescription = null) },
-                enabled = !busy,
-                destructive = true,
-                onClick = onSignOut,
-            )
-            AgentAccountsRows.ACTION_REMOVE -> GlassMenuItem(
-                text = { Text(action) },
-                leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                enabled = !busy,
-                destructive = true,
-                onClick = onRemove,
-            )
+    val actions = if (actionable) AgentAccountsRows.chipActions(row) else emptyList()
+    // The plan line only when the header is the EMAIL: a login that has
+    // nothing but its plan must not read "max" twice.
+    val plan = row.plan?.takeIf { row.email != null }
+    val pill = actions.firstOrNull {
+        it == AgentAccountsRows.ACTION_SIGN_IN ||
+            it == AgentAccountsRows.ACTION_PERSIST_LOGIN ||
+            it == AgentAccountsRows.ACTION_RENEW_PERSISTED_LOGIN
+    }
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    val persisted = AgentAccountsRows.persistedLine(row)
+    val status = item?.status?.let { DevicesList.Copy.STATUS[it] }
+    val usage = row.usage?.takeIf { row.signedIn && it.windows.isNotEmpty() }
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("device-account-panel"),
+        verticalArrangement = Arrangement.spacedBy(DevicesList.Card.PANEL_GAP.dp),
+    ) {
+        GroupDivider()
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = DevicesList.Card.ICON_SIZE.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                // EXP-1627: the header email in the foreground at medium weight.
+                Text(
+                    row.email ?: AgentAccountsRows.loginLabel(row),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (AgentAccountsRows.ACTION_SIGN_OUT in actions) {
+                    CircleIconButton(
+                        ExpIcons.uiSignOut,
+                        contentDescription = AgentAccountsRows.ACTION_SIGN_OUT,
+                        onClick = onSignOut,
+                        enabled = !busy,
+                        borderless = true,
+                        size = DevicesList.Card.ICON_SIZE.dp,
+                        glyphSize = DevicesList.Card.MARK_SIZE.dp,
+                        modifier = Modifier.testTag("device-account-sign-out"),
+                    )
+                }
+                if (AgentAccountsRows.ACTION_REMOVE in actions) {
+                    CircleIconButton(
+                        ExpIcons.uiDelete,
+                        contentDescription = AgentAccountsRows.ACTION_REMOVE,
+                        onClick = onRemove,
+                        enabled = !busy,
+                        borderless = true,
+                        size = DevicesList.Card.ICON_SIZE.dp,
+                        glyphSize = DevicesList.Card.MARK_SIZE.dp,
+                        modifier = Modifier.offset(x = 4.dp).testTag("device-account-remove"),
+                    )
+                }
+            }
+            if (plan != null || pill != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = DevicesList.Card.ICON_SIZE.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        plan.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    pill?.let { action ->
+                        GlassPill(
+                            action,
+                            size = PillSize.Sm,
+                            icon = if (action == AgentAccountsRows.ACTION_SIGN_IN) ExpIcons.uiSignIn else ExpIcons.uiClock,
+                            enabled = !busy,
+                            onClick = if (action == AgentAccountsRows.ACTION_SIGN_IN) onSignIn else onPersistLogin,
+                            modifier = Modifier.testTag("device-account-action"),
+                        )
+                    }
+                }
+            }
+            persisted?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = muted,
+                    modifier = Modifier.testTag("device-login-persisted"),
+                )
+            }
+            status?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = NeedsInputAmber)
+            }
         }
+        usage?.let { UsageWindows(usage = it) }
     }
 }
-

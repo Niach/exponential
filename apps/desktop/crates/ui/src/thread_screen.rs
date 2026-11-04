@@ -2966,9 +2966,27 @@ struct QueueFeed {
     _sub: Subscription,
 }
 
+/// EXP-1686 (`thread_chat_mode`): the agent whose conversation this tree is;
+/// `None` = a thread.
+fn conversation_agent(model: &ThreadModel) -> Option<&str> {
+    let agent_id = model.root.agent_id.as_deref();
+    (domain::session_tree::thread_chat_mode(agent_id) == domain::session_tree::ThreadChatMode::Bubbles)
+        .then_some(agent_id)
+        .flatten()
+}
+
 /// #EXP-1545: the tree's Live (not ended) children with their tab names
-/// (top-level chips and the sessions folded under them).
-fn live_children(view: &SessionThreadView, root_id: &str, cx: &App) -> Vec<(String, String)> {
+/// (top-level chips and the sessions folded under them). EXP-1686: an agent's
+/// chat has no chips, so its children come straight from the tree.
+fn live_children(view: &SessionThreadView, root: &SessionRow, cx: &App) -> Vec<(String, String)> {
+    let root_id = root.id.as_str();
+    if domain::session_tree::thread_chat_mode(root.agent_id.as_deref()) == domain::session_tree::ThreadChatMode::Bubbles {
+        return crate::session_data::tree_of_root(root_id, cx)
+            .into_iter()
+            .filter(|row| row.id != root_id && !row.is_ended())
+            .map(|row| (row.id, row.title.unwrap_or_default()))
+            .collect();
+    }
     view.tabs
         .iter()
         .filter_map(|tab| match tab {
@@ -2987,6 +3005,9 @@ fn live_children(view: &SessionThreadView, root_id: &str, cx: &App) -> Vec<(Stri
 
 pub(crate) struct ThreadScreenView {
     root_id: String,
+    /// EXP-1686: an agent's chat: the call covers the conversation while it
+    /// runs (the agent header's telephone focuses it).
+    call_panel: Entity<etalk_gpui::voice_call::CallPanel>,
     stories: StoriesState,
     child: ThreadChildSel,
     /// EXP-1346: shared, never deep-cloned per frame.
@@ -3082,6 +3103,8 @@ impl ThreadScreenView {
             // NEW-8: a message's session is its conversation's.
             subscriptions.push(cx.observe(&collections.conversations, |this, _, cx| this.queue_refresh(cx)));
             subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.queue_refresh(cx)));
+            // EXP-1686: an agent's chat header reads its `agents` row.
+            subscriptions.push(cx.observe(&collections.agents, |_, _, cx| cx.notify()));
             // #EXP-1611: the header's Merge pill + Checks submenu read them.
             subscriptions.push(cx.observe(&collections.pull_request_checks, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
@@ -3112,6 +3135,7 @@ impl ThreadScreenView {
         });
         let mut this = Self {
             root_id,
+            call_panel: cx.new(etalk_gpui::voice_call::CallPanel::new),
             stories: StoriesState::default(),
             child: ThreadChildSel::Conversation,
             model: None,
@@ -3368,8 +3392,6 @@ impl ThreadScreenView {
     }
 
     fn render_header(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        // EXP-1316: the title is derived, plain text (no rename).
-        let title = title_row(&model.view.title, model.view.private, cx).id("thread-title");
         // EXP-1316: the trailing slot on EVERY tab — the Merge pill while the
         // Guide's PR is open (`Merge PR` | `Merge stack`), then the Guide `…`.
         // #EXP-1611: the pill wears the PR's `checks_state` (pr-checks.json
@@ -3384,6 +3406,15 @@ impl ThreadScreenView {
                 cx,
             )
         });
+        // EXP-1686 (chats.json AGENT CHAT): an agent's chat wears THE agent
+        // header (the disc, its NAME, call, the agent menu) and no strip.
+        if let Some(agent_id) = conversation_agent(model) {
+            let agent = crate::session_data::agent_def(agent_id, cx);
+            let panel = self.call_panel.read(cx).focus_handle(cx);
+            return crate::agent_screen::agent_header(agent.as_ref(), merge.map(IntoElement::into_any_element), panel, cx);
+        }
+        // EXP-1316: the title is derived, plain text (no rename).
+        let title = title_row(&model.view.title, model.view.private, cx).id("thread-title");
         // S-3 (owner 2026-10-28): no Stop pill; the composer's stop-turn
         // is the one stop.
         let menu = guide_menu(model, cx);
@@ -4168,6 +4199,13 @@ impl Render for ThreadScreenView {
                 .pt_6()
                 .child(crate::feedback::skeleton_rows("thread-loading", 3, 36., cx));
         };
+        // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation
+        // only: a stale Stories (or issue) selection falls back to it.
+        let agent_chat = conversation_agent(&model).map(str::to_string);
+        if agent_chat.is_some() && self.child != ThreadChildSel::Conversation {
+            self.set_child(ThreadChildSel::Conversation, window, cx);
+        }
+        self.call_panel.update(cx, |panel, cx| panel.set_agent(agent_chat.clone(), cx));
         // A new issue filed into this thread lands on its child once its
         // link has synced.
         let pending = cx
@@ -4208,7 +4246,7 @@ impl Render for ThreadScreenView {
         self.sync_tail(live.as_deref(), window, cx);
         // #EXP-1545: the Live children's Queues ride the Conversation's Dock.
         let children = if on_conversation && main.is_none() && self.child == ThreadChildSel::Conversation {
-            live_children(&model.view, &self.root_id, cx)
+            live_children(&model.view, &model.root, cx)
         } else {
             Vec::new()
         };
@@ -4265,6 +4303,20 @@ impl Render for ThreadScreenView {
                 Some(row) => self.render_plan_child(&row, window, cx),
                 None => div().flex_1().into_any_element(),
             },
+        };
+        // EXP-1686: the call panel covers an agent chat's body while it runs.
+        let child = match agent_chat {
+            Some(_) => div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .child(child)
+                .child(self.call_panel.clone())
+                .into_any_element(),
+            None => child,
         };
         // THE story viewer, opened from the Stories tab.
         let viewer = crate::story_viewer::overlay(window, cx);

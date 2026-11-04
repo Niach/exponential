@@ -21,6 +21,7 @@ final class SessionKindTests: XCTestCase {
         let object = try XCTUnwrap(raw as? [String: Any])
         return SessionTraits(
             persistent: try XCTUnwrap(object["persistent"] as? Bool),
+            linksIssues: try XCTUnwrap(object["linksIssues"] as? Bool),
             triggers: try XCTUnwrap(object["triggers"] as? Bool)
         )
     }

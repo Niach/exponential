@@ -197,11 +197,12 @@ struct ThreadScreen: View {
     /// EVERY page the strip reaches (the Conversation, the plan, each issue of
     /// the tree, each session under the root, Stories): what a pill, a landing
     /// or a pick may open in place. An app editor's chat has the
-    /// Conversation alone (its band replaces the strip). NEW-46: on a
+    /// Conversation alone (its band replaces the strip), and so has an
+    /// agent's chat (EXP-1686, chats.json AGENT CHAT). NEW-46: on a
     /// `transcript` thread with ONE session the Conversation tab IS that
     /// session's page (one page, not two); `bubbles` keeps the Conversation.
     private func reachable(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
-        guard editor == nil else { return [.conversation] }
+        guard editor == nil, !rows.isAgent else { return [.conversation] }
         let main = rows.chatMode == .transcript ? view.mainSessionId : nil
         let plan: [ThreadPage] = shownPlan(view) == nil ? [] : [.plan(nil)]
         return plan + view.tabs.flatMap { tab -> [ThreadPage] in
@@ -219,7 +220,7 @@ struct ThreadScreen: View {
     /// the plan) · (chips: the one issue | group: the item opened from the group, only while it is
     /// the shown page) · Stories; `+` and the group tab are never pages.
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
-        guard editor == nil else { return [.conversation] }
+        guard editor == nil, !rows.isAgent else { return [.conversation] }
         let conversation = resolved(.conversation)
         let group = ThreadStripGroup(tabs: view.tabs)
         let middle: [ThreadPage] = if let single = group.single {
@@ -262,7 +263,8 @@ struct ThreadScreen: View {
                 ZStack {
                     FacePager(
                         pages: pages(rows, view),
-                        selection: Binding(get: { page }, set: { switchPage($0) })
+                        // EXP-1686: an agent's chat is one page, whatever a route named.
+                        selection: Binding(get: { rows.isAgent ? ThreadPage.conversation : page }, set: { switchPage($0) })
                     ) { page in
                         pageView(page, rows: rows, view: view)
                     }
@@ -510,9 +512,16 @@ struct ThreadScreen: View {
 
     // MARK: - Header
 
-    /// The band under the nav row: THE strip (the pager), both chat modes.
+    /// The band under the nav row: THE strip (the pager) on a thread; an
+    /// agent's chat is the conversation only, no strip (EXP-1686).
     @ViewBuilder
     private func header(rows: ThreadRows, view: SessionThreadView) -> some View {
+        if !rows.isAgent {
+            threadStrip(rows: rows, view: view)
+        }
+    }
+
+    private func threadStrip(rows: ThreadRows, view: SessionThreadView) -> some View {
         ThreadStripTabs(
             tabs: view.tabs,
             // NEW-46: the ONE session's page reads as the Conversation tab.

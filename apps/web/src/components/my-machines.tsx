@@ -40,6 +40,7 @@ import {
   conceptIcon,
   Button,
   GlassCard,
+  getDeviceIcon,
   Pill,
   GlassSectionHeader,
   Menu,
@@ -323,7 +324,7 @@ function DeviceGroups({
   return (
     <div className="flex flex-col pt-2">
       {online.length > 0 && (
-        <div className="grid" style={grid} data-testid="device-grid">
+        <div className="grid items-start" style={grid} data-testid="device-grid">
           {online.map(render)}
         </div>
       )}
@@ -332,7 +333,7 @@ function DeviceGroups({
           <div className="px-3 pt-3 pb-2 text-xs text-muted-foreground">
             {DEVICES_LIST_COPY.offline}
           </div>
-          <div className="grid" style={grid}>
+          <div className="grid items-start" style={grid}>
             {offline.map(render)}
           </div>
         </>
@@ -435,17 +436,24 @@ function DeviceCard({
     })
   }
   const shared = mine && (device.sharedTeamIds?.length ?? 0) > 0
+  const DeviceIcon = getDeviceIcon({ icon: device.icon, kind: device.kind })
   return (
     <GlassCard
       data-testid={`device-row-${device.deviceId}`}
       className={cn(
-        `flex min-w-0 flex-col justify-between gap-3`,
+        `flex min-w-0 flex-col gap-3`,
         !online && `opacity-60`,
         online && !runnable && `opacity-60`
       )}
       style={{ padding: DEVICE_CARD.padding }}
     >
       <div className="flex min-w-0 items-start gap-2">
+        {/* #EXP-1643: the device's own icon leads the card. */}
+        <DeviceIcon
+          aria-hidden
+          className="mt-px shrink-0 text-muted-foreground"
+          style={{ width: DEVICE_CARD.deviceIconSize, height: DEVICE_CARD.deviceIconSize }}
+        />
         {/* FEED-15: name + version (+ star) on top, live/last-seen state and
             the tags beneath. */}
         <div className="min-w-0 flex-1">

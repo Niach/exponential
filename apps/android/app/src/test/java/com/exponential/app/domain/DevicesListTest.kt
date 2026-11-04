@@ -13,7 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** A-16 / EXP-1560: [DevicesList] replays `devices-list.json` (copy, card,
- *  every case, accountIcons). */
+ *  every case, accountIcons, accountPanelCases). */
 class DevicesListTest {
 
     private val fixture: JsonObject =
@@ -42,13 +42,15 @@ class DevicesListTest {
     fun cardGeometryMatchesTheFixture() {
         val card = fixture.getValue("card").jsonObject
         fun int(key: String) = card.getValue(key).jsonPrimitive.content.toInt()
-        assertEquals(6, card.size)
+        assertEquals(8, card.size)
         assertEquals(int("minWidth"), DevicesList.Card.MIN_WIDTH)
         assertEquals(int("gap"), DevicesList.Card.GAP)
         assertEquals(int("padding"), DevicesList.Card.PADDING)
         assertEquals(int("iconSize"), DevicesList.Card.ICON_SIZE)
         assertEquals(int("markSize"), DevicesList.Card.MARK_SIZE)
         assertEquals(int("maxAccountIcons"), DevicesList.Card.MAX_ACCOUNT_ICONS)
+        assertEquals(int("deviceIconSize"), DevicesList.Card.DEVICE_ICON_SIZE)
+        assertEquals(int("panelGap"), DevicesList.Card.PANEL_GAP)
         // EXP-1626: no renewal reminder, so no reminder window.
         assertFalse(fixture.containsKey("keepSignedIn"))
         // A 390dp phone (minus the page's 16 + 16) = 1 column; a wide one = 4.
@@ -72,6 +74,28 @@ class DevicesListTest {
             )
             assertEquals(name, expect.getValue("visible").jsonPrimitive.content.toInt(), got.visible)
             assertEquals(name, expect.bool("more"), got.more)
+        }
+    }
+
+    @Test
+    fun everyAccountPanelCaseReplays() {
+        val cases = fixture.getValue("accountPanelCases").jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val remembered = when {
+                "remembered" !in case -> DevicesList.RememberedAccount.Untouched
+                case.getValue("remembered") is JsonNull -> DevicesList.RememberedAccount.Closed
+                else -> DevicesList.RememberedAccount.Login(case.str("remembered")!!)
+            }
+            assertEquals(
+                case.str("name"),
+                case.str("expect"),
+                DevicesList.openDeviceAccount(
+                    case.getValue("loginKeys").jsonArray.map { it.jsonPrimitive.content },
+                    remembered,
+                ),
+            )
         }
     }
 

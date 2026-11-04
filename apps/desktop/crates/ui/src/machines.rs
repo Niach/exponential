@@ -20,10 +20,8 @@
 //!
 //! EXP-849/EXP-862/EXP-909: this is THE surface for agent logins. Each device
 //! row carries the worst health among the logins it reported and lists those
-//! logins beneath itself, one flat sub-row each: the brand mark, the login's
-//! identity (`usage_bar::login_label`), its health badge, its mini usage line
-//! and a `⋯` menu — the ×4 rule (`usage_bar::chip_actions`, the shared login
-//! menu): sign in, sign out, remove this device's copy of the login
+//! logins beneath itself, each with the ×4 actions (`usage_bar::chip_actions`):
+//! sign in, sign out, remove this device's copy of the login
 //! (`agent_profile_remove`). EXP-1158: there is no "default" to set — every
 //! start runs on the login last used on that device. A team device's logins are read-only: they belong
 //! to their owner.
@@ -46,14 +44,18 @@
 //!
 //! EXP-1560 (`fixtures/devices-list.json`, one spec ×4; was A-16's one-line
 //! row): each section is a GRID of device CARDS ([`device_card_columns`]).
-//! A card's top row is the name block and the `⋯`; its bottom row the logins
-//! as brand-mark ICONS ([`device_card_account_icons`]), each previewing its
-//! account on hover (email, plan, status, usage windows) and opening the
-//! login menu on click. A login with a problem (dead, signed out, at its
-//! limit) wears THE run-mark badge; the update line leads the `⋯` menu. Only
-//! login PROFILES count: an agent CLI installed but never signed in badges
-//! nothing ([`device_attention`]). Online cards lead, the offline ones follow
-//! dimmed under a muted "Offline" label.
+//! A card's top row is the device's own icon, the name block and the `⋯`; its
+//! bottom row the logins as brand-mark ICONS ([`device_card_account_icons`]).
+//! A login with a problem (dead, signed out, at its limit) wears THE run-mark
+//! badge; the update line leads the `⋯` menu. Only login PROFILES count: an
+//! agent CLI installed but never signed in badges nothing
+//! ([`device_attention`]). Online cards lead, the offline ones follow dimmed
+//! under a muted "Offline" label.
+//!
+//! #EXP-1643 THE ACCOUNT PANEL: nothing floats any more. A press on an icon
+//! expands THAT card with [`account_panel`] (one open per device, remembered
+//! per device on this client in [`crate::ui_prefs`], never synced); a hover is
+//! only the tooltip with the email.
 
 use crate::controls::PointerMenuButtonExt as _;
 use gpui::prelude::FluentBuilder as _;
@@ -65,8 +67,8 @@ use gpui::{
     Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    menu::{PopupMenuItem},
-    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    button::{ButtonCustomVariant, ButtonVariants as _},
+    ActiveTheme as _, Icon, IconNamed as _, Sizable as _,
 };
 
 use crate::agent_account_actions::DEVICE_SETTINGS;
@@ -91,14 +93,6 @@ pub(crate) const CARD_PADDING: f32 = 12.;
 pub(crate) const CARD_ICON_SIZE: f32 = 28.;
 pub(crate) const CARD_MARK_SIZE: f32 = 16.;
 pub(crate) const CARD_MAX_ACCOUNT_ICONS: usize = 5;
-
-/// EXP-1560: the account preview's width (web hover card `w-64`, minus its
-/// padding).
-pub(crate) const PREVIEW_W: f32 = 236.;
-
-/// EXP-1560: the account preview's hover delays (web `HoverCard` 100 / 150 ms).
-const PREVIEW_OPEN_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
-const PREVIEW_CLOSE_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// EXP-909 (moved from the retired Accounts section): how long a queued usage
 /// refresh shows as in flight before the list gives up on the device
@@ -249,9 +243,9 @@ const COPY_STATUS_NEEDS_RELOGIN: &str = "Needs re-login";
 const COPY_STATUS_SIGNED_OUT: &str = "Signed out";
 const COPY_STATUS_LIMIT: &str = "Limit reached";
 /// EXP-1626: Persist login, an option on an existing claude login (the
-/// fixture's copy): the menu entry, its renewal (the account menu only,
+/// fixture's copy): the panel's pill, its renewal (the account panel only,
 /// EXP-1626: no renewal reminder), the dialog's one muted line, and the
-/// preview header's line saying which login is active.
+/// panel's line saying which login is active.
 pub(crate) const COPY_PERSIST_LOGIN: &str = "Persist login";
 pub(crate) const COPY_RENEW_PERSISTED_LOGIN: &str = "Renew persisted login";
 pub(crate) const COPY_PERSIST_NOTE: &str =
@@ -268,7 +262,7 @@ pub(crate) const COPY_SETTINGS: &str = DEVICE_SETTINGS;
 pub(crate) const COPY_REMOVE_FROM_TEAM: &str = "Remove from this team";
 pub(crate) const COPY_MORE_ACCOUNTS: &str = "More accounts";
 
-/// EXP-1626 — the preview header's persisted line: `None` for a login with
+/// EXP-1626 — the account panel's persisted line: `None` for a login with
 /// no token; else which login is active (`usageSource: "token"` = the
 /// browser login cannot serve the usage, the token's probe does).
 pub(crate) fn persisted_line(login: &AgentProfileUsageRow) -> Option<&'static str> {
@@ -318,7 +312,7 @@ pub(crate) struct DeviceListInput {
     pub(crate) now: chrono::DateTime<chrono::Utc>,
 }
 
-/// EXP-1560: a login item's `status` — the preview's warning line
+/// EXP-1560: a login item's `status` — the panel's warning line
 /// (`copy.status`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoginStatus {
@@ -474,6 +468,12 @@ pub(crate) fn device_card_account_icons(count: usize, expanded: bool) -> (usize,
     } else {
         (CARD_MAX_ACCOUNT_ICONS - 1, true)
     }
+}
+
+/// #EXP-1643 — what a press on the icon of `key` remembers: the open icon
+/// closes (by hand, so it stays closed), any other opens.
+pub(crate) fn toggled_account<'a>(open: Option<&str>, key: &'a str) -> Option<&'a str> {
+    (open != Some(key)).then_some(key)
 }
 
 /// The two groups the section renders, in the EXP-623 stable order.
@@ -943,8 +943,9 @@ impl MachinesSection {
 
     /// EXP-1560: one card's [`DeviceCardProps`] — the derivation
     /// ([`device_attention`]) split onto the logins it badges and the update
-    /// line the `⋯` leads with, plus the handlers its Sign in pills, its
-    /// Update item, "More accounts" and the owner's Remove run.
+    /// line the `⋯` leads with, the open account ([`crate::ui_prefs`]), plus
+    /// the handlers its icons, its Update item, "More accounts" and the
+    /// owner's Remove run.
     fn card_props(
         &self,
         index: usize,
@@ -960,7 +961,7 @@ impl MachinesSection {
         };
         let derived = device_attention(&device.list_input(latest.as_deref()));
         let view = cx.entity().downgrade();
-        let mut login_flags: Vec<Option<LoginFlag>> = vec![None; device.logins.len()];
+        let mut login_flags: Vec<Option<LoginStatus>> = vec![None; device.logins.len()];
         let mut update_line = None;
         for item in &derived.attention {
             match &item.kind {
@@ -969,44 +970,13 @@ impl MachinesSection {
                     profile_id,
                     status,
                 } => {
-                    let Some(slot) = device
+                    if let Some(slot) = device
                         .logins
                         .iter()
                         .position(|login| &login.agent == agent && &login.profile_id == profile_id)
-                    else {
-                        continue;
-                    };
-                    // `sign_in` = THE (browser) sign-in, the only login
-                    // action.
-                    let sign_in = item.action.map(|action| {
-                        let agent = coding::CodingAgent::parse(agent);
-                        let device_id = device.device_id.clone();
-                        let device_label = device.label.clone();
-                        let own = device.own;
-                        let profile_id = profile_id.clone();
-                        AttentionPill {
-                            label: action.label(),
-                            busy: false,
-                            on_click: Some(Rc::new(move |window: &mut Window, cx: &mut App| {
-                                let Some(agent) = agent else {
-                                    return;
-                                };
-                                crate::agent_login::sign_in_on_device(
-                                    device_id.clone(),
-                                    device_label.clone(),
-                                    own,
-                                    agent,
-                                    Some(profile_id.clone()),
-                                    window,
-                                    cx,
-                                );
-                            })),
-                        }
-                    });
-                    login_flags[slot] = Some(LoginFlag {
-                        status: *status,
-                        sign_in,
-                    });
+                    {
+                        login_flags[slot] = Some(*status);
+                    }
                 }
                 // `update` is a SERVER's only (devices-list.json): the CLI
                 // daemon acts on the request; a desktop app updates itself
@@ -1045,6 +1015,25 @@ impl MachinesSection {
                     });
                 }) as RowHandler
             });
+        // #EXP-1643: the open account, remembered per device on this client.
+        let open_login = {
+            let keys: Vec<&str> = device.logins.iter().map(|login| login.key.as_str()).collect();
+            let remembered = crate::ui_prefs::device_account(&device.device_id);
+            domain::devices_list::open_device_account(
+                &keys,
+                remembered.as_ref().map(|key| key.as_deref()),
+            )
+            .map(str::to_string)
+        };
+        let on_toggle_login = {
+            let view = view.clone();
+            let device_id = device.device_id.clone();
+            let open = open_login.clone();
+            Some(Rc::new(move |key: &str, _: &mut Window, cx: &mut App| {
+                crate::ui_prefs::set_device_account(&device_id, toggled_account(open.as_deref(), key));
+                let _ = view.update(cx, |_, cx| cx.notify());
+            }) as LoginHandler)
+        };
         let on_expand_accounts = {
             let row_id = device.row_id.clone();
             Some(Rc::new(move |_: &mut Window, cx: &mut App| {
@@ -1063,6 +1052,8 @@ impl MachinesSection {
             update_line,
             no_account: derived.no_account,
             inert: false,
+            open_login,
+            on_toggle_login,
             accounts_expanded: self.expanded_accounts.contains(&device.row_id),
             on_expand_accounts,
             on_drop_share,
@@ -1108,7 +1099,9 @@ impl MachinesSection {
 }
 
 /// EXP-1560 — `cards` laid out `columns` wide, `CARD_GAP` both ways; the
-/// last row keeps its empty cells so every card is one column wide.
+/// last row keeps its empty cells so every card is one column wide. #EXP-1643:
+/// a row aligns to the top, a card with its panel open never stretches its
+/// neighbour.
 pub(crate) fn card_grid(cards: Vec<gpui::AnyElement>, columns: usize) -> gpui::Div {
     let columns = columns.max(1);
     let mut grid = gpui_component::v_flex().w_full().min_w_0().gap(px(CARD_GAP));
@@ -1117,7 +1110,7 @@ pub(crate) fn card_grid(cards: Vec<gpui::AnyElement>, columns: usize) -> gpui::D
         let mut row = gpui_component::h_flex()
             .w_full()
             .min_w_0()
-            .items_stretch()
+            .items_start()
             .gap(px(CARD_GAP));
         for _ in 0..columns {
             let cell = gpui_component::v_flex().flex_1().min_w_0();
@@ -1134,22 +1127,16 @@ pub(crate) fn card_grid(cards: Vec<gpui::AnyElement>, columns: usize) -> gpui::D
 /// A card control's click, built where the state lives and run by the card.
 pub(crate) type RowHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// One action a card offers (a Sign in pill, the Update item). `on_click:
-/// None` = inert (the gallery).
+/// #EXP-1643: a press on one login's icon, by its [`AgentProfileUsageRow::key`].
+pub(crate) type LoginHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
+/// The Update item a card's menu offers. `on_click: None` = inert (the gallery).
 #[derive(Clone)]
 pub(crate) struct AttentionPill {
     pub(crate) label: &'static str,
     /// The request is already in flight: the control disables.
     pub(crate) busy: bool,
     pub(crate) on_click: Option<RowHandler>,
-}
-
-/// EXP-1560: a login's attention item, as its icon wears it — the badge,
-/// the preview's status line and its Sign in pill.
-#[derive(Clone)]
-pub(crate) struct LoginFlag {
-    pub(crate) status: LoginStatus,
-    pub(crate) sign_in: Option<AttentionPill>,
 }
 
 /// EXP-1560: the update line the `⋯` menu leads with, and its Update item.
@@ -1166,12 +1153,17 @@ pub(crate) struct DeviceCardProps {
     pub(crate) device: DeviceCard,
     /// This kind's `CLIENT_LATEST_VERSION_*` (the version's tooltip).
     pub(crate) latest: Option<String>,
-    /// One per `device.logins`, in that order: its attention item, if any.
-    pub(crate) login_flags: Vec<Option<LoginFlag>>,
+    /// One per `device.logins`, in that order: its attention status, if any
+    /// (the icon's badge, the panel's warning line).
+    pub(crate) login_flags: Vec<Option<LoginStatus>>,
     pub(crate) update_line: Option<UpdateLine>,
     pub(crate) no_account: bool,
     /// The gallery: every control drawn, none wired (no menus, no dialogs).
     pub(crate) inert: bool,
+    /// #EXP-1643: the [`AgentProfileUsageRow::key`] of the login whose panel
+    /// the card shows ([`domain::devices_list::open_device_account`]).
+    pub(crate) open_login: Option<String>,
+    pub(crate) on_toggle_login: Option<LoginHandler>,
     /// "More accounts" was pressed: every login icon shows.
     pub(crate) accounts_expanded: bool,
     pub(crate) on_expand_accounts: Option<RowHandler>,
@@ -1179,11 +1171,12 @@ pub(crate) struct DeviceCardProps {
     pub(crate) on_drop_share: Option<RowHandler>,
 }
 
-/// EXP-1560 — THE device card: the glass card surface, two rows. Top: name ·
-/// version · default star over the status line and the This device / Shared
-/// tags, the `⋯` overflow right. Bottom: the logins as brand-mark icons
-/// (badged when they need attention), the `⋯` "More accounts" reveal and the
-/// ghost `+`. An offline card is dimmed.
+/// EXP-1560 — THE device card: the glass card surface, two rows. Top: the
+/// device's own icon, name · version · default star over the status line and
+/// the This device / Shared tags, the `⋯` overflow right. Bottom: the logins as
+/// brand-mark icons (badged when they need attention), the `⋯` "More accounts"
+/// reveal and the ghost `+`, then #EXP-1643 the open login's [`account_panel`].
+/// An offline card is dimmed.
 pub(crate) fn device_card(props: DeviceCardProps, cx: &App) -> gpui::AnyElement {
     let DeviceCardProps {
         index,
@@ -1193,13 +1186,14 @@ pub(crate) fn device_card(props: DeviceCardProps, cx: &App) -> gpui::AnyElement 
         update_line,
         no_account,
         inert,
+        open_login,
+        on_toggle_login,
         accounts_expanded,
         on_expand_accounts,
         on_drop_share,
     } = props;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
-    let now_epoch = chrono::Utc::now().timestamp();
     // A-16: only the caller's OWN device wears the outdated tone — a
     // teammate's version is theirs to keep.
     let outdated = device.mine && update_available(device.version.as_deref(), latest.as_deref());
@@ -1286,6 +1280,14 @@ pub(crate) fn device_card(props: DeviceCardProps, cx: &App) -> gpui::AnyElement 
         .min_w_0()
         .items_start()
         .gap_2()
+        // #EXP-1643: the device's own icon leads the card.
+        .child(
+            Icon::new(crate::icons::device_icon(device.icon.as_deref(), device.server))
+                .size(px(domain::devices_list::CARD_DEVICE_ICON_SIZE))
+                .flex_shrink_0()
+                .mt(px(1.))
+                .text_color(muted),
+        )
         .child(
             gpui_component::v_flex()
                 .flex_1()
@@ -1316,10 +1318,27 @@ pub(crate) fn device_card(props: DeviceCardProps, cx: &App) -> gpui::AnyElement 
                 .child(if no_account { COPY_NO_ACCOUNT } else { COPY_CHECKING }),
         );
     }
-    let (visible, more) = device_card_account_icons(device.logins.len(), accounts_expanded);
+    let open_slot = open_login
+        .as_deref()
+        .and_then(|key| device.logins.iter().position(|login| login.key == key));
+    // An open login folded behind the `⋯` reveals the folded icons.
+    let folded_visible = device_card_account_icons(device.logins.len(), false).0;
+    let revealed = accounts_expanded || open_slot.is_some_and(|slot| slot >= folded_visible);
+    let (visible, more) = device_card_account_icons(device.logins.len(), revealed);
     for (slot, login) in device.logins.iter().enumerate().take(visible) {
-        let flag = login_flags.get(slot).cloned().flatten();
-        accounts = accounts.child(account_icon(index * 64 + slot, &device, login, flag, inert, now_epoch, cx));
+        let badged = login_flags.get(slot).copied().flatten().is_some();
+        let on_toggle = on_toggle_login.clone().map(|on_toggle| {
+            let key = login.key.clone();
+            Rc::new(move |window: &mut Window, cx: &mut App| on_toggle(&key, window, cx)) as RowHandler
+        });
+        accounts = accounts.child(account_icon(
+            index * 64 + slot,
+            login,
+            badged,
+            open_slot == Some(slot),
+            on_toggle,
+            cx,
+        ));
     }
     if more {
         accounts = accounts.child(
@@ -1357,17 +1376,27 @@ pub(crate) fn device_card(props: DeviceCardProps, cx: &App) -> gpui::AnyElement 
         );
     }
 
+    let panel = open_slot.map(|slot| {
+        let status = login_flags.get(slot).copied().flatten();
+        account_panel(index * 64 + slot, &device, &device.logins[slot], status, inert, cx)
+    });
+
     crate::surface::glass_card()
         .w_full()
         .min_w_0()
-        .flex_1()
         .p(px(CARD_PADDING))
-        .gap_2()
-        .justify_between()
+        .gap_3()
         // EXP-1560: the offline group is dimmed.
         .when(!device.online, |this| this.opacity(0.6))
         .child(top)
-        .child(accounts)
+        .child(
+            gpui_component::v_flex()
+                .w_full()
+                .min_w_0()
+                .gap(px(domain::devices_list::CARD_PANEL_GAP))
+                .child(accounts)
+                .children(panel),
+        )
         .into_any_element()
 }
 
@@ -1455,50 +1484,115 @@ fn row_tag(label: &'static str, cx: &App) -> gpui::Div {
         .child(label)
 }
 
-/// EXP-1560 — the account header the preview AND the login menu lead with:
-/// the email (else [`crate::usage_bar::login_label`]), the plan muted under
-/// it, EXP-1626's persisted line muted under that ([`persisted_line`]), the
-/// attention status in warning tone, then the usage windows.
-pub(crate) fn account_header(
+/// #EXP-1643 — THE account panel a press on an icon expands the card with
+/// (`devices-list.json`; web `DeviceAccountPanel`): a hairline, the email (else
+/// [`crate::usage_bar::login_label`]) + the icon-only Sign out and Remove, the
+/// plan + the one action pill, the persisted line, the status in warning tone,
+/// the usage windows. A team or offline device: the same panel, no actions.
+fn account_panel(
+    id: usize,
+    device: &DeviceCard,
     login: &AgentProfileUsageRow,
     status: Option<LoginStatus>,
-    now_epoch: i64,
+    inert: bool,
     cx: &App,
 ) -> gpui::Div {
-    let title = login
-        .email
-        .clone()
-        .unwrap_or_else(|| crate::usage_bar::login_label(login));
-    let persisted = persisted_line(login);
-    // The plan rides UNDER an address only: a title that already is the
-    // plan must not print it twice.
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    let label = crate::usage_bar::login_label(login);
+    let title = login.email.clone().unwrap_or_else(|| label.clone());
+    // The plan rides UNDER an address only: a title that already is the plan
+    // must not print it twice.
     let plan = login.email.as_ref().and(login.plan.clone());
-    let muted = cx.theme().muted_foreground;
-    gpui_component::v_flex()
-        .w(px(PREVIEW_W))
+    let actions = if device.actionable() {
+        chip_actions(
+            login.signed_in,
+            login.health,
+            (login.agent == coding::CodingAgent::Claude.id()).then_some(
+                login.token_expires_at.as_deref().is_some_and(|at| !at.is_empty()),
+            ),
+        )
+    } else {
+        Vec::new()
+    };
+    let handler = |action: ChipAction| (!inert).then(|| account_action(action, device, login, &label)).flatten();
+
+    let mut name_line = gpui_component::h_flex()
+        .w_full()
         .min_w_0()
-        .gap_2()
+        .min_h(px(CARD_ICON_SIZE))
+        .items_center()
+        .gap_0p5()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(theme.foreground)
+                .child(SharedString::from(title)),
+        );
+    for action in actions.iter().copied().filter(|action| action.destructive()) {
+        name_line = name_line.child(panel_icon_button((id, action), handler(action), cx));
+    }
+    let pill = actions.iter().copied().find(|action| !action.destructive()).map(|action| {
+        let on_click = handler(action);
+        div().flex_shrink_0().child(
+            crate::surface::glass_pill_button(
+                ("machine-account-action", id),
+                crate::surface::PillSize::Sm,
+                cx,
+            )
+            .icon(action.icon())
+            .label(action.label())
+            .on_click(move |_, window, cx| {
+                if let Some(on_click) = on_click.as_ref() {
+                    on_click(window, cx);
+                }
+            }),
+        )
+    });
+    let usage = login.usage.as_ref().filter(|usage| {
+        crate::usage_bar::usage_state(login.signed_in, login.unmonitored, Some(usage))
+            == crate::usage_bar::UsageState::Ready
+    });
+    let now_epoch = chrono::Utc::now().timestamp();
+
+    gpui_component::v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_3()
+        .border_t_1()
+        .border_color(theme.border)
+        .pt(px(domain::devices_list::CARD_PANEL_GAP))
         .child(
             gpui_component::v_flex()
                 .w_full()
                 .min_w_0()
                 .gap_0p5()
-                .child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .truncate()
-                        .text_sm()
-                        // EXP-1627: foreground at medium weight (web
-                        // `device-logins.tsx`), never the menu's muted.
-                        .font_weight(gpui::FontWeight::MEDIUM)
-                        .text_color(cx.theme().foreground)
-                        .child(SharedString::from(title)),
-                )
-                .when_some(plan, |this, plan| {
-                    this.child(div().text_xs().text_color(muted).child(SharedString::from(plan)))
+                .child(name_line)
+                .when(plan.is_some() || pill.is_some(), |this| {
+                    this.child(
+                        gpui_component::h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .min_h(px(CARD_ICON_SIZE))
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .children(plan.map(SharedString::from)),
+                            )
+                            .children(pill),
+                    )
                 })
-                .when_some(persisted, |this, line| {
+                .when_some(persisted_line(login), |this, line| {
                     this.child(div().text_xs().text_color(muted).child(line))
                 })
                 .when_some(status, |this, status| {
@@ -1510,183 +1604,165 @@ pub(crate) fn account_header(
                     )
                 }),
         )
-        .when_some(login.usage.as_ref(), |this, usage| {
+        .when_some(usage, |this, usage| {
             this.child(crate::usage_bar::render_usage_windows(usage, now_epoch, cx))
         })
 }
 
-/// EXP-1560 — the account preview (THE hover card's body): the
-/// [`account_header`], then a `Sign in` pill when the login's item carries
-/// that action.
-pub(crate) fn account_preview(
-    id: SharedString,
-    login: &AgentProfileUsageRow,
-    flag: Option<&LoginFlag>,
-    now_epoch: i64,
+/// #EXP-1643 — one icon-only panel action (`card.iconSize`, named by its
+/// tooltip, the destructive tone on hover only). A plain element because the
+/// `Button` painter has no hover foreground.
+fn panel_icon_button(
+    (id, action): (usize, ChipAction),
+    on_click: Option<RowHandler>,
     cx: &App,
-) -> gpui::Div {
-    let header = account_header(login, flag.map(|flag| flag.status), now_epoch, cx);
-    let pill = flag.and_then(|flag| flag.sign_in.clone()).map(|pill| {
-        let on_click = pill.on_click.clone();
-        div().child(
-            crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
-                .label(pill.label)
-                .disabled(pill.busy)
-                .on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    if let Some(on_click) = on_click.as_ref() {
-                        on_click(window, cx);
-                    }
-                }),
+) -> gpui::AnyElement {
+    const GROUP: &str = "machine-account-icon-action";
+    let theme = cx.theme();
+    let hover = theme.list_hover;
+    let danger = theme.danger;
+    let label = SharedString::from(action.label());
+    let element_id = match action {
+        ChipAction::Remove => ("machine-account-remove", id),
+        _ => ("machine-account-sign-out", id),
+    };
+    div()
+        .id(element_id)
+        .group(GROUP)
+        .size(px(CARD_ICON_SIZE))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(crate::controls::ide_chrome().radius_md))
+        .cursor_pointer()
+        .hover(move |this| this.bg(hover))
+        // The web row's `-mr-1`: the last glyph sits on the card's padding.
+        .when(action == ChipAction::Remove, |this| this.mr(px(-4.)))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+        })
+        .on_click(move |_, window, cx| {
+            if let Some(on_click) = on_click.as_ref() {
+                on_click(window, cx);
+            }
+        })
+        .child(
+            gpui::svg()
+                .path(action.icon().path())
+                .size(px(CARD_MARK_SIZE))
+                .flex_shrink_0()
+                .text_color(theme.muted_foreground)
+                .group_hover(GROUP, move |this| this.text_color(danger)),
         )
-    });
-    header.children(pill)
+        .into_any_element()
+}
+
+/// #EXP-1643 — what a panel action runs: the sign-in flows, or the confirmed
+/// Sign out / Remove. `None` for an agent this build does not know.
+fn account_action(
+    action: ChipAction,
+    device: &DeviceCard,
+    login: &AgentProfileUsageRow,
+    label: &str,
+) -> Option<RowHandler> {
+    let agent = coding::CodingAgent::parse(&login.agent)?;
+    let device_id = device.device_id.clone();
+    let device_label = device.label.clone();
+    let own = device.own;
+    let profile_id = login.profile_id.clone();
+    let account_label = SharedString::from(label.to_string());
+    Some(Rc::new(move |window: &mut Window, cx: &mut App| match action {
+        ChipAction::SignIn => crate::agent_login::sign_in_on_device(
+            device_id.clone(),
+            device_label.clone(),
+            own,
+            agent,
+            Some(profile_id.clone()),
+            window,
+            cx,
+        ),
+        // EXP-1626: persist (or renew) THIS profile, in place.
+        ChipAction::Persist { .. } => crate::agent_login::persist_login_on_device(
+            device_id.clone(),
+            device_label.clone(),
+            own,
+            profile_id.clone(),
+            window,
+            cx,
+        ),
+        ChipAction::SignOut => crate::agent_account_actions::sign_out_account(
+            device_id.clone(),
+            device_label.clone(),
+            own,
+            agent,
+            profile_id.clone(),
+            account_label.clone(),
+            window,
+            cx,
+        ),
+        ChipAction::Remove => crate::agent_account_actions::remove_account(
+            device_id.clone(),
+            device_label.clone(),
+            own,
+            agent,
+            profile_id.clone(),
+            account_label.clone(),
+            window,
+            cx,
+        ),
+    }))
 }
 
 /// EXP-1560 — ONE login as an icon: a ghost icon button holding the agent's
-/// brand mark, THE run-mark badge (`needs_input` amber) when the login has
-/// an attention item. Hover previews it ([`account_preview`]); a click on
-/// one of MY reachable devices opens the ×4 login menu ([`chip_actions`])
-/// led by the same [`account_header`]. A teammate's icon only previews.
+/// brand mark, THE run-mark badge (`needs_input` amber) when the login has an
+/// attention item. #EXP-1643: a press opens or closes the card's
+/// [`account_panel`], the open icon carries the glass-active wash, and a hover
+/// is only the tooltip with the email (else the label).
 fn account_icon(
     id: usize,
-    device: &DeviceCard,
     login: &AgentProfileUsageRow,
-    flag: Option<LoginFlag>,
-    inert: bool,
-    now_epoch: i64,
+    badged: bool,
+    open: bool,
+    on_toggle: Option<RowHandler>,
     cx: &App,
 ) -> gpui::AnyElement {
-    let agent = coding::CodingAgent::parse(&login.agent);
-    let mark = match agent {
+    let mark = match coding::CodingAgent::parse(&login.agent) {
         Some(agent) => crate::coding_selects::agent_mark(agent),
         None => Icon::new(registry::SETTINGS_AGENTS),
     };
-    let label = SharedString::from(crate::usage_bar::login_label(login));
-    let actions = if device.actionable() && !inert {
-        chip_actions(
-            login.signed_in,
-            login.health,
-            (login.agent == coding::CodingAgent::Claude.id()).then_some(
-                login.token_expires_at.as_deref().is_some_and(|at| !at.is_empty()),
-            ),
-        )
-    } else {
-        Vec::new()
-    };
+    let tooltip = SharedString::from(
+        login
+            .email
+            .clone()
+            .unwrap_or_else(|| crate::usage_bar::login_label(login)),
+    );
     // The button sizes its icon at 3/4 of a `Size::Size`: that is the 16px
     // mark; the box itself is the card's 28px icon square.
-    let button = crate::controls::ghost_icon_button(("machine-login", id), mark, cx)
+    let mut button = crate::controls::ghost_icon_button(("machine-login", id), mark, cx)
         .with_size(gpui_component::Size::Size(px(CARD_MARK_SIZE / 0.75)))
-        .size(px(CARD_ICON_SIZE));
-    let status = flag.as_ref().map(|flag| flag.status);
-    let trigger = match agent.filter(|_| !actions.is_empty()) {
-        Some(agent) => {
-            let device_id = device.device_id.clone();
-            let device_label = device.label.clone();
-            let own = device.own;
-            let profile_id = login.profile_id.clone();
-            let account_label = label.clone();
-            let header_login = login.clone();
-            button
-                .pointer_menu(move |menu, _window, cx| {
-                    let header_login = header_login.clone();
-                    // The same header the hover previews, at the menu's top.
-                    let mut menu = menu
-                        .item(
-                            PopupMenuItem::element(move |_, cx| {
-                                div()
-                                    .py_1()
-                                    .child(account_header(&header_login, status, now_epoch, cx))
-                            })
-                            .disabled(true),
-                        )
-                        .separator();
-                    for action in &actions {
-                        let action = *action;
-                        let device_id = device_id.clone();
-                        let device_label = device_label.clone();
-                        let profile_id = profile_id.clone();
-                        let account_label = account_label.clone();
-                        let click = move |_: &gpui::ClickEvent,
-                                          window: &mut Window,
-                                          cx: &mut App| match action {
-                            ChipAction::SignIn => crate::agent_login::sign_in_on_device(
-                                device_id.clone(),
-                                device_label.clone(),
-                                own,
-                                agent,
-                                Some(profile_id.clone()),
-                                window,
-                                cx,
-                            ),
-                            // EXP-1626: persist (or renew) THIS profile, in place.
-                            ChipAction::Persist { .. } => crate::agent_login::persist_login_on_device(
-                                device_id.clone(),
-                                device_label.clone(),
-                                own,
-                                profile_id.clone(),
-                                window,
-                                cx,
-                            ),
-                            ChipAction::SignOut => crate::agent_account_actions::sign_out_account(
-                                device_id.clone(),
-                                device_label.clone(),
-                                own,
-                                agent,
-                                profile_id.clone(),
-                                account_label.clone(),
-                                window,
-                                cx,
-                            ),
-                            ChipAction::Remove => crate::agent_account_actions::remove_account(
-                                device_id.clone(),
-                                device_label.clone(),
-                                own,
-                                agent,
-                                profile_id.clone(),
-                                account_label.clone(),
-                                window,
-                                cx,
-                            ),
-                        };
-                        menu = menu.item(if action.destructive() {
-                            crate::controls::danger_menu_item(
-                                action.label(),
-                                Icon::new(action.icon()),
-                                cx,
-                            )
-                            .on_click(click)
-                        } else {
-                            crate::controls::pointer_label_item(action.label(), false)
-                                .icon(Icon::new(action.icon()))
-                                .on_click(click)
-                        });
-                    }
-                    menu
-                })
-                .into_any_element()
-        }
-        None => button.into_any_element(),
-    };
-    let preview_login = login.clone();
-    let preview_id = SharedString::from(format!("machine-login-sign-in-{id}"));
-    let badged = flag.is_some();
+        .size(px(CARD_ICON_SIZE))
+        .tooltip(tooltip);
+    if open {
+        // The hover is unmixed, the rest goes through the variant's mix
+        // (`ghost_icon_button`); both read the one wash.
+        let wash = crate::controls::ide_chrome().fill_active;
+        button = button.custom(
+            ButtonCustomVariant::new(cx)
+                .color(crate::surface::custom_variant_fill(wash))
+                .hover(wash)
+                .active(wash)
+                .foreground(cx.theme().foreground.opacity(0.7)),
+        );
+    }
     div()
-        .id(("machine-login-icon", id))
         .relative()
         .flex_shrink_0()
-        .child(
-            gpui_component::hover_card::HoverCard::new(("machine-login-preview", id))
-                .anchor(gpui::Anchor::TopLeft)
-                .open_delay(PREVIEW_OPEN_DELAY)
-                .close_delay(PREVIEW_CLOSE_DELAY)
-                .p_2p5()
-                .trigger(trigger)
-                .content(move |_, _, cx| {
-                    account_preview(preview_id.clone(), &preview_login, flag.as_ref(), now_epoch, cx)
-                }),
-        )
+        .child(button.on_click(move |_, window, cx| {
+            if let Some(on_toggle) = on_toggle.as_ref() {
+                on_toggle(window, cx);
+            }
+        }))
         .when(badged, |this| {
             this.child(
                 crate::run_rows::mark_badge(
@@ -1863,7 +1939,7 @@ mod tests {
         assert_eq!(crate::usage_bar::login_label(by_id("0a1b2c3d")), coding::agent_accounts::NO_EMAIL_LABEL);
         assert!(by_id("0a1b2c3d").usage_from_token);
         assert!(!by_id("0a1b2c3e").usage_from_token);
-        // The preview header's persisted line (`copy.persistedToken` /
+        // The panel's persisted line (`copy.persistedToken` /
         // `copy.persistedBrowser`), none without a token.
         assert_eq!(persisted_line(by_id("0a1b2c3d")), Some(COPY_PERSISTED_TOKEN));
         assert_eq!(persisted_line(by_id("0a1b2c3e")), Some(COPY_PERSISTED_BROWSER));
@@ -1980,7 +2056,7 @@ mod tests {
         assert_eq!(copy["status"].as_object().map(|status| status.len()), Some(3));
         assert_eq!(copy.as_object().map(|copy| copy.len()), Some(26), "a new copy key");
         assert_eq!(COPY_LONG_LIVED_REFUSED, coding::agent_login::LONG_LIVED_NEEDS_PROFILE);
-        // EXP-1626: the account menu reads the fixture's copy.
+        // EXP-1626: the account panel reads the fixture's copy.
         assert_eq!(crate::usage_bar::ChipAction::Persist { renew: false }.label(), COPY_PERSIST_LOGIN);
         assert_eq!(crate::usage_bar::ChipAction::Persist { renew: true }.label(), COPY_RENEW_PERSISTED_LOGIN);
         assert!(fixture.get("keepSignedIn").is_none(), "EXP-1626: no renewal reminder");
@@ -1998,10 +2074,12 @@ mod tests {
             ("iconSize", CARD_ICON_SIZE),
             ("markSize", CARD_MARK_SIZE),
             ("maxAccountIcons", CARD_MAX_ACCOUNT_ICONS as f32),
+            ("deviceIconSize", domain::devices_list::CARD_DEVICE_ICON_SIZE),
+            ("panelGap", domain::devices_list::CARD_PANEL_GAP),
         ] {
             assert_eq!(card[key].as_f64(), Some(ours as f64), "card.{key}");
         }
-        assert_eq!(card.as_object().map(|card| card.len()), Some(6), "a new card key");
+        assert_eq!(card.as_object().map(|card| card.len()), Some(8), "a new card key");
         // The `$comment`'s examples: a phone in portrait gets 1 column,
         // wider sections 2 or more.
         assert_eq!(device_card_columns(358.), 1);
@@ -2025,6 +2103,14 @@ mod tests {
             assert_eq!(case["expect"]["visible"].as_u64(), Some(visible as u64), "{name}: visible");
             assert_eq!(case["expect"]["more"].as_bool(), Some(more), "{name}: more");
         }
+    }
+
+    /// #EXP-1643: pressing the open icon closes (by hand); any other opens.
+    #[test]
+    fn pressing_an_account_icon_toggles_that_login() {
+        assert_eq!(toggled_account(None, "a"), Some("a"));
+        assert_eq!(toggled_account(Some("a"), "a"), None);
+        assert_eq!(toggled_account(Some("a"), "b"), Some("b"));
     }
 
     /// EXP-1560: `limitHit` = a FRESH window at ≥ 100 %; old numbers never

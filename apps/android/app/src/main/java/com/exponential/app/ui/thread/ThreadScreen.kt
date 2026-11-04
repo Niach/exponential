@@ -279,7 +279,7 @@ fun ThreadScreen(
         }
     }
     val headerSubtitle = if (agent != null) {
-        listOfNotNull(AGENT_SUBTITLE, rootRow?.model?.takeIf { it.isNotBlank() }?.let(::modelLabel)).joinToString(" · ")
+        SessionTree.agentChatSubtitle(rootRow?.model?.takeIf { it.isNotBlank() }?.let(::modelLabel))
     } else {
         listOfNotNull(chatStateWord(view), deviceLabel).joinToString(" · ")
     }
@@ -671,9 +671,6 @@ fun ThreadScreen(
         )
     }
 }
-
-/** The agent chat's subtitle lead (chats.json draft: `Agent · <model>`). */
-private const val AGENT_SUBTITLE = "Agent"
 
 private fun Modifier.androidxClipCircle(): Modifier = this.then(Modifier.clip(androidx.compose.foundation.shape.CircleShape))
 

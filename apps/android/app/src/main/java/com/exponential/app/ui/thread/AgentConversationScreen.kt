@@ -40,6 +40,7 @@ import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
@@ -313,9 +314,9 @@ fun AgentConversationScreen(
 
     val row = agent
     val name = row?.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS
-    // EXP-1649: THE session composer's placeholder ×4 (session-thread.json
-    // copy.placeholder), never `Message <agent>`: web's agent channel reads it.
-    val placeholder = SessionTree.ThreadCopy.PLACEHOLDER
+    // EXP-1686 (chats.json `agentChat.emptyPlaceholder`): this page = no
+    // conversation yet; session-thread.json copy.placeholder once one exists.
+    val placeholder = if (row == null) SessionTree.ThreadCopy.PLACEHOLDER else Chats.AgentChat.emptyPlaceholder(name)
     CompositionLocalProvider(LocalDetailHaze provides rememberHazeState()) {
         Scaffold(
             containerColor = Color.Transparent,
@@ -326,7 +327,7 @@ fun AgentConversationScreen(
                 // exists, the telephone already (NEW-69).
                 ChatHeader(
                     title = if (row == null) "" else name,
-                    subtitle = if (row == null) null else "Agent",
+                    subtitle = if (row == null) null else SessionTree.agentChatSubtitle(null),
                     lead = {
                         androidx.compose.foundation.layout.Box(
                             modifier = Modifier
@@ -411,7 +412,6 @@ fun AgentConversationScreen(
                                 issues = emptyList(),
                                 readOnly = false,
                                 onConfigure = {},
-                                onImplement = {},
                                 surface = com.exponential.app.domain.ComposerMenuSurface.Agent,
                                 // #EXP-1434: Prompts › on every composer; a
                                 // pick inserts the body at the caret.

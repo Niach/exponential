@@ -10,6 +10,7 @@
 import cardFixture from "../fixtures/session-card.json" with { type: "json" }
 import threadFixture from "../fixtures/session-thread.json" with { type: "json" }
 import listFixture from "../fixtures/threads-list.json" with { type: "json" }
+import chats from "../fixtures/chats.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { commandDivider } from "./chats"
@@ -1148,12 +1149,11 @@ export function buildSessionThread(input: {
     title,
     private: !root.shared,
     focusId: focus?.id ?? null,
-    tabs: [
-      { kind: `add` },
-      { kind: `conversation` as const },
-      ...issueTabs,
-      ...sessionTabs,
-    ],
+    // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation only.
+    tabs:
+      threadChatMode(root) === `bubbles`
+        ? [{ kind: `conversation` as const }]
+        : [{ kind: `add` }, { kind: `conversation` as const }, ...issueTabs, ...sessionTabs],
     rows,
     composer: { sessionId: root.id, placeholder: THREAD_COPY.placeholder },
     live: live.length > 0,
@@ -1532,6 +1532,13 @@ export interface ThreadStripMode {
 export function threadStripMode(input: { issues: number; sessions: number }): ThreadStripMode {
   const count = input.issues + input.sessions
   return { mode: input.issues <= 1 && input.sessions === 0 ? `chips` : `group`, count }
+}
+
+/** EXP-1686 (chats.json `agentChat`): the line under an agent's name on a
+ *  phone header (`modelLabel` = the model's display name). */
+export function agentChatSubtitle(modelLabel: string | null | undefined): string {
+  const { subtitle, subtitleModelSeparator } = chats.agentChat
+  return modelLabel ? `${subtitle}${subtitleModelSeparator}${modelLabel}` : subtitle
 }
 
 /** S-3 (session-thread.json `chatModeCases`): THE thread screen's mode: an

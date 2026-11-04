@@ -713,8 +713,8 @@ async function recipeScrollToCommentCard(page: Page): Promise<void> {
 
 // --------------------------------------------------------------- machines
 
-/** A-16: a device is ONE line with its logins as chips; the catalog's
- *  Devices shot hovers the first login chip so its limits preview shows. */
+/** #EXP-1643: the catalog's Devices shot opens the first login's account
+ *  panel in its card. */
 async function recipePreviewDeviceLimits(page: Page): Promise<void> {
   const row = page.locator(`[data-testid^="device-row-"]`).first()
   if (!(await appears(row, 30_000))) {
@@ -725,10 +725,10 @@ async function recipePreviewDeviceLimits(page: Page): Promise<void> {
   }
   const chip = page.locator(`[data-testid^="device-login-chip-"]`).first()
   if (!(await appears(chip, 15_000))) return
-  await chip.hover()
-  // The preview is optional: a login whose usage was never probed has none.
+  // A lone login opens by itself (`openDeviceAccount`): never close it.
+  if ((await chip.getAttribute(`aria-expanded`)) !== `true`) await chip.click()
   await page
-    .locator(`[data-slot="account-limits-preview"]`)
+    .locator(`[data-slot="device-account-panel"]`)
     .first()
     .waitFor({ timeout: 3_000 })
     .catch(() => undefined)

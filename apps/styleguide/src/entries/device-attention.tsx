@@ -1,12 +1,8 @@
 import {
   AgentRunMark,
   Button,
+  DeviceAccountPanel,
   GlassCard,
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-  Pill,
-  UsageWindows,
   conceptIcon,
 } from "@exp/ui"
 import { DEVICE_CARD, DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
@@ -14,11 +10,11 @@ import { DEVICE_CARD, DEVICES_LIST_COPY } from "@exp/domain-contract/devices-lis
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1560 (was A-16): THE Devices page card (`devices-list.json`), drawn
-// from the pieces the page uses: GlassCard, the ⋯ ghost button, the logins as
-// AgentRunMark icons (the amber `needs_input` badge ON the login that needs
-// attention) and its preview — email, plan, status, UsageWindows `full`,
-// Sign in — open under the badged icon.
+// from the pieces the page uses: GlassCard, the device icon, the ⋯ ghost button,
+// the logins as AgentRunMark icons (the amber `needs_input` badge ON the login
+// that needs attention) and #EXP-1643 THE account panel, open on the badged icon.
 
+const DeviceIcon = conceptIcon(`ui-device`)
 const MoreIcon = conceptIcon(`ui-more`)
 const AddIcon = conceptIcon(`ui-add`)
 
@@ -34,9 +30,11 @@ const WINDOWS = [
   { key: `model:fable`, label: `Fable only`, percent: 64, caption: `resets in 3d 14h` },
 ]
 
-function Icon({ agent, attention }: { agent: string; attention: boolean }) {
+const noop = () => {}
+
+function Icon({ agent, attention, open = false }: { agent: string; attention: boolean; open?: boolean }) {
   return (
-    <Button variant="ghost" size="icon-sm" className="size-7" aria-label={agent}>
+    <Button variant="ghost" size="icon-sm" className={open ? `size-7 bg-glass-active` : `size-7`} aria-label={agent}>
       <AgentRunMark
         agent={agent}
         state={attention ? `needs_input` : undefined}
@@ -57,6 +55,11 @@ function Card({ name, version, outdated, status, preview }: {
   return (
     <GlassCard className="flex min-w-0 flex-col gap-3" style={{ padding: DEVICE_CARD.padding }}>
       <div className="flex min-w-0 items-start gap-2">
+        <DeviceIcon
+          aria-hidden
+          className="mt-px shrink-0 text-muted-foreground"
+          style={{ width: DEVICE_CARD.deviceIconSize, height: DEVICE_CARD.deviceIconSize }}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="min-w-0 truncate text-sm font-medium">{name}</span>
@@ -74,36 +77,24 @@ function Card({ name, version, outdated, status, preview }: {
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-1">
-        {LOGINS.map((login, index) =>
-          preview && login.attention ? (
-            <HoverCard key={index} open>
-              <HoverCardTrigger asChild>
-                <span className="inline-flex">
-                  <Icon {...login} />
-                </span>
-              </HoverCardTrigger>
-              <HoverCardContent side="bottom" align="start" sideOffset={6} className="w-auto p-3">
-                <div className="flex w-60 flex-col gap-2">
-                  <div className="flex min-w-0 flex-col">
-                    <span className="truncate text-sm font-medium">danny@yourev.at</span>
-                    <span className="truncate text-xs text-muted-foreground">max</span>
-                    <span className="text-xs text-amber-500">{DEVICES_LIST_COPY.status.needs_relogin}</span>
-                  </div>
-                  <UsageWindows windows={WINDOWS} density="full" />
-                  <Pill mode="action" className="self-start">
-                    {DEVICES_LIST_COPY.signIn}
-                  </Pill>
-                </div>
-              </HoverCardContent>
-            </HoverCard>
-          ) : (
-            <Icon key={index} {...login} />
-          )
-        )}
+        {LOGINS.map((login, index) => (
+          <Icon key={index} {...login} open={preview && login.attention} />
+        ))}
         <Button variant="ghost" size="icon-sm" className="size-7 text-muted-foreground" aria-label={DEVICES_LIST_COPY.addAccount}>
           <AddIcon className="size-4" />
         </Button>
       </div>
+      {preview && (
+        <DeviceAccountPanel
+          name="danny@yourev.at"
+          plan="Max"
+          status={DEVICES_LIST_COPY.status.needs_relogin}
+          windows={WINDOWS}
+          signIn={{ label: DEVICES_LIST_COPY.signIn, onSelect: noop }}
+          signOut={{ label: `Sign out`, onSelect: noop }}
+          remove={{ label: `Remove account`, onSelect: noop }}
+        />
+      )}
     </GlassCard>
   )
 }
@@ -113,7 +104,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1560`,
   title: `Device card`,
-  blurb: `EXP-1560 (devices-list.json): the Devices page is a grid of cards (min 256, gap 12; 1 column on a portrait phone). A card: name + version (amber when outdated) over the status, a ⋯ overflow top-right (the update line, Update, Device settings), and the logins along the bottom as brand-mark icons only — the amber run-mark badge ON a login that is dead, signed out or at its limit, a ⋯ past five, then +. Hovering (pointer) or tapping an icon previews the login: email, plan, its status, the usage windows, Sign in.`,
+  blurb: `#EXP-1643 (devices-list.json): the Devices page is a grid of cards (min 256, gap 12; 1 column on a portrait phone), aligned to the top. A card: the device's own icon, name + version (amber when outdated) over the status, a ⋯ overflow (phones: the bottom sheet), then the logins as icons with THE run-mark amber badge on one that needs attention. Pressing an icon expands the card with THE account panel: email + icon-only Sign out and Remove, plan + the one action pill (Sign in or Persist login), the status line, the usage windows. The open login is remembered per device on this client; a device with one login opens it by default. No hover card, no account menu.`,
   status: {
     web: { state: `ok`, symbol: `DeviceCard`, file: `apps/web/src/components/my-machines.tsx` },
     desktop: { state: `ok`, symbol: `device_card`, file: `apps/desktop/crates/ui/src/machines.rs` },

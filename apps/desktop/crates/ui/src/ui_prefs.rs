@@ -57,6 +57,12 @@ struct UiPrefs {
     /// never picked (the Default skills seed).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     skill_picks: BTreeMap<String, Vec<String>>,
+    /// #EXP-1643: the Devices page's open account, per device id, on this
+    /// client only (`devices-list.json` THE ACCOUNT PANEL). A login key = the
+    /// one opened last, null = closed by hand, a missing device = never
+    /// touched here (`domain::devices_list::open_device_account`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    device_accounts: BTreeMap<String, Option<String>>,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -178,6 +184,26 @@ pub(crate) fn set_skill_pick(team_id: &str, ids: &[String]) {
     schedule_write();
 }
 
+/// #EXP-1643: the device's remembered account. `None` = never touched on this
+/// client, `Some(None)` = closed by hand.
+pub(crate) fn device_account(device_id: &str) -> Option<Option<String>> {
+    prefs().lock().ok()?.device_accounts.get(device_id).cloned()
+}
+
+/// #EXP-1643: remember the device's open account, `None` = closed by hand
+/// (debounced like the widths).
+pub(crate) fn set_device_account(device_id: &str, login_key: Option<&str>) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        prefs
+            .device_accounts
+            .insert(device_id.to_string(), login_key.map(str::to_string));
+    }
+    schedule_write();
+}
+
 /// The pure half of [`set_sidebar_width`]: true when the prefs changed (an
 /// unchanged value schedules no write).
 fn apply_width(prefs: &mut UiPrefs, key: &str, width: Option<f32>) -> bool {
@@ -268,5 +294,20 @@ mod tests {
         assert!(apply_width(&mut prefs, "list", None), "reset removes");
         assert!(!apply_width(&mut prefs, "list", None), "nothing left to remove");
         assert_eq!(prefs, UiPrefs::default());
+    }
+
+    /// #EXP-1643: "closed by hand" (null) survives the file, apart from
+    /// "never touched" (no entry).
+    #[test]
+    fn a_closed_device_account_round_trips_apart_from_an_untouched_one() {
+        let path = scratch("device-accounts").join("ui-prefs.json");
+        let mut prefs = UiPrefs::default();
+        prefs.device_accounts.insert("closed".to_string(), None);
+        prefs.device_accounts.insert("open".to_string(), Some("open:claude:a".to_string()));
+        write_to(&path, &prefs).expect("write");
+        let back = load_from(&path).expect("load");
+        assert_eq!(back.device_accounts.get("closed"), Some(&None));
+        assert_eq!(back.device_accounts.get("open"), Some(&Some("open:claude:a".to_string())));
+        assert_eq!(back.device_accounts.get("untouched"), None);
     }
 }
