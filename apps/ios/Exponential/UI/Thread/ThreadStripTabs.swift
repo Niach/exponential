@@ -484,7 +484,7 @@ struct ChatHeaderTitle: View {
     /// The subtitle's parts, ` · `-joined.
     static func subtitle(rows: ThreadRows) -> String {
         if rows.isAgent {
-            return ["Agent", rows.root.model].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+            return Chats.agentChatSubtitle(modelLabel: rows.root.model.map(LaunchVocabulary.modelLabel))
         }
         let live = live(rows)
         let state: String? = if live.contains(where: \.needsInput) {

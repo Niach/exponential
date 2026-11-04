@@ -1242,7 +1242,10 @@ object SessionTree {
             title = title,
             private = !root.shared,
             focusId = focused?.id,
-            tabs = buildList {
+            tabs = if (threadChatMode(root.agentId) == ThreadChatMode.Bubbles) {
+                // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation only.
+                listOf(ThreadTab.Conversation)
+            } else buildList {
                 add(ThreadTab.Add)
                 // NEW-46: the Conversation tab is always in the strip; on a
                 // single-session thread it opens `mainSessionId`'s work.
@@ -1490,6 +1493,15 @@ object SessionTree {
 
     fun threadChatMode(rootAgentId: String?): ThreadChatMode =
         if (!rootAgentId.isNullOrEmpty()) ThreadChatMode.Bubbles else ThreadChatMode.Transcript
+
+    /** EXP-1686 (chats.json `agentChat`): the line under an agent's name on a
+     *  phone header ([modelLabel] = the model's display name). */
+    fun agentChatSubtitle(modelLabel: String?): String =
+        if (modelLabel.isNullOrEmpty()) {
+            Chats.AgentChat.SUBTITLE
+        } else {
+            "${Chats.AgentChat.SUBTITLE}${Chats.AgentChat.SUBTITLE_MODEL_SEPARATOR}$modelLabel"
+        }
 
     /** NEW-2: the viewer's own conversation session per agent id (an Agents
      *  row opens it; absent = none yet, `sessions.send({agentId})` makes it). */

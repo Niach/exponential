@@ -353,6 +353,18 @@ final class ChatsTests: XCTestCase {
         }
     }
 
+    /// EXP-1686: `agentChat`, replaying TS `agentChatSubtitle`.
+    func testAgentChatSubtitle() throws {
+        let block = try XCTUnwrap(try fixture()["agentChat"] as? [String: Any])
+        let subtitle = try XCTUnwrap(block["subtitle"] as? String)
+        let separator = try XCTUnwrap(block["subtitleModelSeparator"] as? String)
+        XCTAssertEqual(Chats.AgentChat.subtitle, subtitle)
+        XCTAssertEqual(Chats.AgentChat.subtitleModelSeparator, separator)
+        XCTAssertEqual(Chats.agentChatSubtitle(modelLabel: "Opus"), "\(subtitle)\(separator)Opus")
+        XCTAssertEqual(Chats.agentChatSubtitle(modelLabel: nil), subtitle)
+        XCTAssertEqual(Chats.agentChatSubtitle(modelLabel: ""), subtitle)
+    }
+
     func testWindowCases() throws {
         for testCase in try cases("windowCases") {
             let name = string(testCase["name"]) ?? ""

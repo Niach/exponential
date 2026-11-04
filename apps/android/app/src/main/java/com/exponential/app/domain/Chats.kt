@@ -294,6 +294,16 @@ object Chats {
 
     /** `agentMenu.sends`: what Compact / New conversation send (one path
      *  with the typed lines). */
+    /** EXP-1686 (`agentChat`): an agent's chat, the conversation only. */
+    object AgentChat {
+        const val SUBTITLE = "Agent"
+        const val SUBTITLE_MODEL_SEPARATOR = " · "
+        private const val EMPTY_PLACEHOLDER = "Message {name}"
+
+        /** The composer's placeholder before the first message. */
+        fun emptyPlaceholder(name: String): String = EMPTY_PLACEHOLDER.replace("{name}", name)
+    }
+
     object Sends {
         const val COMPACT = "/compact"
         const val NEW_CONVERSATION = "/new"

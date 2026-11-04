@@ -1098,22 +1098,6 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
     }
 
-    /** The "+"'s Implement issue ›: link the picks to the session's ROOT
-     *  (`sessions.linkIssues`; a manual link wakes the dispatcher). */
-    fun implementIssues(issueIds: List<String>) {
-        if (issueIds.isEmpty()) return
-        val rootId = session.value?.rootId?.takeIf { it.isNotEmpty() } ?: codingSessionId
-        viewModelScope.launch {
-            try {
-                val accountId = auth.activeAccountId.value ?: throw IllegalStateException("No active account")
-                sessionsApi.linkIssues(accountId, rootId, issueIds)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _configureError.value = trpcErrorMessage(t, "")
-            }
-        }
-    }
-
     /** `sessions.configure` with the changed fields; the pick shows at once,
      *  stays until the synced row confirms it (bounded: [CONFIGURE_SYNC_WAIT_MS],
      *  web parity) and rolls back on a refusal. */

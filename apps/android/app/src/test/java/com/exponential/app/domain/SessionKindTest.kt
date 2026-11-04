@@ -25,6 +25,7 @@ class SessionKindTest {
     private fun traits(json: JsonObject) = SessionTraits(
         persistent = json.getValue("persistent").jsonPrimitive.boolean,
         triggers = json.getValue("triggers").jsonPrimitive.boolean,
+        linksIssues = json.getValue("linksIssues").jsonPrimitive.boolean,
     )
 
     @Test
@@ -51,6 +52,11 @@ class SessionKindTest {
                 "session $session",
                 SessionKind.sessionTraits(expected).persistent,
                 SessionKind.isPersistent(agentId),
+            )
+            assertEquals(
+                "session $session",
+                SessionKind.sessionTraits(expected).linksIssues,
+                SessionKind.linksIssues(agentId),
             )
         }
     }

@@ -12,13 +12,16 @@ data class SessionTraits(
     val persistent: Boolean,
     /** The kind whose definition carries triggers (the server fires them). */
     val triggers: Boolean,
+    /** EXP-1686: a `session_issues` row may land on it (a conversation: never,
+     *  issues reach it as a message). */
+    val linksIssues: Boolean,
 )
 
 object SessionKind {
     /** fixture `kinds`. */
     val KINDS: Map<String, SessionTraits> = mapOf(
-        DomainContract.sessionKindThread to SessionTraits(persistent = false, triggers = false),
-        DomainContract.sessionKindAgent to SessionTraits(persistent = true, triggers = true),
+        DomainContract.sessionKindThread to SessionTraits(persistent = false, triggers = false, linksIssues = true),
+        DomainContract.sessionKindAgent to SessionTraits(persistent = true, triggers = true, linksIssues = false),
     )
 
     /** An unknown or missing kind = `thread`. */
@@ -32,4 +35,7 @@ object SessionKind {
 
     /** A persistent session (an agent's conversation): it idles instead of ending. */
     fun isPersistent(agentId: String?): Boolean = sessionTraits(sessionKindOf(agentId)).persistent
+
+    /** EXP-1686: whether the session may hold issue rows. */
+    fun linksIssues(agentId: String?): Boolean = sessionTraits(sessionKindOf(agentId)).linksIssues
 }

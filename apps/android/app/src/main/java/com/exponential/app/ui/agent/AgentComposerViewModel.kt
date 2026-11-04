@@ -71,6 +71,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.exponential.app.domain.AgentHome
+import com.exponential.app.domain.SessionBrief
 import com.exponential.app.domain.FeedbackStates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
@@ -129,6 +130,23 @@ sealed interface ComposerSubject {
  *  controls. The subject lives apart from the launch options, so only the
  *  agent row's tap may touch it, and even that keeps the issue chips. */
 enum class ComposerControl { AgentRow, Device, Agent, Account, Model, Effort, Repository, Work, McpServer }
+
+/** EXP-1686 (chats.json AGENT CHAT): the to-agent send: the chipped issues'
+ *  refs lead the text (session-brief.json `forwardTextCases`, before sealing:
+ *  they are the bubble's record of what was sent); an empty text stays off
+ *  the wire. An issue this install has not synced yet rides `issueIds` alone. */
+internal fun agentForwardInput(
+    agentId: String,
+    text: String?,
+    attachmentIds: List<String>,
+    issueIds: List<String>?,
+    identifierOf: Map<String, String>,
+): SessionsSendInput = SessionsSendInput.toAgent(
+    agentId = agentId,
+    text = SessionBrief.agentForwardText(text.orEmpty(), issueIds.orEmpty().mapNotNull(identifierOf::get)),
+    attachmentIds = attachmentIds,
+    issueIds = issueIds,
+)
 
 /** The subject after [control] changed ([pick] = the agent row's tap). */
 internal fun subjectAfterControl(
@@ -189,7 +207,7 @@ data class LaunchDraft(
 class AgentComposerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
-    holder: DatabaseHolder,
+    private val holder: DatabaseHolder,
     selection: TeamSelection,
     private val steerLaunch: SteerLaunchDelegate,
     private val store: SteerConnectionStore,
@@ -995,13 +1013,18 @@ class AgentComposerViewModel @Inject constructor(
                     draftText,
                     sent.uploadedImageIds(),
                     sent.uploadedSteerFiles(),
-                ).orEmpty()
+                )
+                // Read here, not off a screen-scoped flow: a send outlives the screen.
+                val forwarded = issueIds?.takeIf { it.isNotEmpty() }
+                    ?.let { holder.database(forAccountId = accountId).issueDao().byIds(it) }
+                    .orEmpty()
                 val accepted = steerLaunch.send(
-                    SessionsSendInput.toAgent(
+                    agentForwardInput(
                         agentId = agentId,
                         text = text,
                         attachmentIds = sent.mapNotNull { it.uploadedId },
                         issueIds = issueIds,
+                        identifierOf = forwarded.associate { it.id to it.identifier },
                     ),
                 ) != null
                 if (accepted) settleSentDraft(draftText, sent, subject)

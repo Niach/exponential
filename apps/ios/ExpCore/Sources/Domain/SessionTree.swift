@@ -1863,7 +1863,10 @@ public enum SessionTree {
             title: title,
             isPrivate: !root.shared,
             focusId: focused?.id,
-            tabs: [.add, .conversation] + issueTabs + sessionTabs,
+            // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation only.
+            tabs: threadChatMode(agentId: root.agentId) == .bubbles
+                ? [.conversation]
+                : [.add, .conversation] + issueTabs + sessionTabs,
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,
