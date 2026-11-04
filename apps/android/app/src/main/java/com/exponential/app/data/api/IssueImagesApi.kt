@@ -3,6 +3,7 @@ package com.exponential.app.data.api
 import android.util.Log
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.domain.PreparedMedia
+import com.exponential.app.domain.TeamImage
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
@@ -36,6 +37,9 @@ data class UploadedImage(
     val videoCodec: String? = null,
     val audioCodec: String? = null,
 )
+
+@Serializable
+private data class TeamIconResult(val iconUrl: String)
 
 /**
  * Build the multipart/form-data body for the single image part BY HAND.
@@ -212,6 +216,22 @@ class IssueImagesApi @Inject constructor(
     ): UploadedImage =
         post(accountId, "api/teams/$teamId/session-files", bytes, filename, contentType).also(::rememberSessionUpload)
 
+    /**
+     * #EXP-1645 (team-image.json): the team image, one part `file` to the
+     * owner-only icon route. The server normalises it, sets `teams.icon_url`
+     * and answers {iconUrl}; the shape delivers it.
+     */
+    suspend fun uploadTeamIcon(
+        accountId: String,
+        teamId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): String = json.decodeFromString(
+        TeamIconResult.serializer(),
+        postMultipart(accountId, TeamImage.uploadPath(teamId).trimStart('/'), bytes, filename, contentType),
+    ).iconUrl
+
     // EXP-1459: a sealed message embeds its attachments itself (SealedWrite).
     private fun rememberSessionUpload(uploaded: UploadedImage) =
         com.exponential.app.data.sealed.SealedWrite.rememberUpload(uploaded.id, uploaded.filename, uploaded.contentType)
@@ -225,7 +245,22 @@ class IssueImagesApi @Inject constructor(
         poster: ByteArray? = null,
         fields: Map<String, String> = emptyMap(),
         timeoutMs: Long = 120_000,
-    ): UploadedImage {
+    ): UploadedImage = json.decodeFromString(
+        UploadedImage.serializer(),
+        postMultipart(accountId, path, bytes, filename, contentType, poster, fields, timeoutMs),
+    )
+
+    /** The authed multipart POST; the success body as text. */
+    private suspend fun postMultipart(
+        accountId: String,
+        path: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+        poster: ByteArray? = null,
+        fields: Map<String, String> = emptyMap(),
+        timeoutMs: Long = 120_000,
+    ): String {
         val account = auth.accounts.value.firstOrNull { it.id == accountId }
         val baseUrl = account?.instanceUrl
             ?: throw TrpcException("No instance URL for account $accountId")
@@ -255,7 +290,7 @@ class IssueImagesApi @Inject constructor(
             }
             throw TrpcException("Image upload failed: HTTP ${response.status.value}: $text", response.status)
         }
-        return json.decodeFromString(UploadedImage.serializer(), text)
+        return text
     }
 }
 

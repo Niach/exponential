@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { accountRow, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
+import { accountRow, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
 import { screenParamsFromQuery, screenPath, screenShell } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
@@ -25,6 +25,9 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.accountRowCases.cases)(`accountRow (#VAPP-243) $name`, (c) => {
     expect(accountRow(c.row)).toEqual(c.expected as never)
+  })
+  test.each(fixture.policyRowCases.cases)(`policyCaption (#VAPP-243) $name`, (c) => {
+    expect(policyCaption(c.policy as Record<PolicyOp, PolicyLevel>)).toBe(c.expected)
   })
   test.each(fixture.webhookRowCases.cases)(`webhookRow (#VAPP-238) $name`, (c) => {
     expect(webhookRow(c.row, c.isOwner)).toEqual(c.expected as never)

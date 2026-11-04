@@ -15,14 +15,19 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use domain::team_image::{team_mark, TeamMark, TEAM_IMAGE};
 use gpui::{
-    div, px, App, AppContext as _, Div, Entity, Global, IntoElement as _, ParentElement as _,
-    Pixels, Styled as _,
+    div, img, prelude::FluentBuilder as _, px, App, AppContext as _, Div, Entity, Global,
+    InteractiveElement as _, IntoElement as _, ParentElement as _, Pixels, SharedString,
+    StyledImage as _, Styled as _,
 };
 use gpui_component::avatar::Avatar;
-use gpui_component::{Sizable as _, Size};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::{ActiveTheme as _, Disableable as _, Icon, Sizable as _, Size};
 
-use crate::markdown::sniff_format;
+use crate::controls::WebControl as _;
+use crate::icons::registry;
+use crate::markdown::{sniff_format, ImageCache, ImageSlot as MarkdownImageSlot};
 
 #[derive(Clone)]
 enum ImageSlot {
@@ -284,40 +289,134 @@ fn agent_glyph_px(side: Pixels) -> Pixels {
     px(glyph)
 }
 
-/// The TEAM mark (EXP-723, mirror of web `components/team/team-avatar.tsx`,
-/// iOS `TeamAvatar.swift`, Android `Avatars.kt`): the primary fill under its
-/// foreground, a rounded SQUARE at a quarter of its side, and the team name's
-/// first letter uppercased (`E` when there is no name yet).
-///
-/// Deliberately not a [`user_avatar`]: user discs are hashed-hue circles, so
-/// a single accent square can never be misread as a person. `size` is the
-/// side in px — 28 in the rail header, 20 in its menu (the same ladder the
-/// web component documents).
-pub(crate) fn team_avatar(name: &str, size: f32) -> gpui::AnyElement {
-    let initial = team_initial(name);
-    div()
-        .flex_shrink_0()
-        .size(px(size))
-        .rounded(px(size / 4.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(theme::tokens::PRIMARY.to_hsla())
-        .text_color(theme::tokens::PRIMARY_FOREGROUND.to_hsla())
-        .font_weight(gpui::FontWeight::BOLD)
-        .text_size(px(size * 0.44))
-        .child(gpui::SharedString::from(initial))
-        .into_any_element()
+/// The team marks' pictures: ONE [`ImageCache`] for the active account, so a
+/// relative `/api/attachments/{id}` resolves against its instance and carries
+/// its bearer (the cache's transport sends that bearer to the instance only).
+/// Another account gets a new cache.
+struct TeamImagesGlobal {
+    account: Option<String>,
+    images: Entity<ImageCache>,
+}
+impl Global for TeamImagesGlobal {}
+
+fn team_images(cx: &mut App) -> Entity<ImageCache> {
+    let account = sync::Store::try_global(cx)
+        .and_then(|store| store.session(cx).account_id().map(str::to_string));
+    if let Some(global) = cx.try_global::<TeamImagesGlobal>() {
+        if global.account == account {
+            return global.images.clone();
+        }
+    }
+    let images = cx.new(|_| ImageCache::new(None));
+    cx.set_global(TeamImagesGlobal { account, images: images.clone() });
+    images
 }
 
-/// [`team_avatar`]'s glyph: the first character of the trimmed name,
-/// uppercased. Split out so the rule is testable without a gpui App.
-fn team_initial(name: &str) -> String {
-    name.trim()
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_else(|| "E".to_string())
+/// Register a specimen's bytes under `url` for [`team_avatar`] (the styleguide
+/// entry paints without a transport). Once: another decode per frame otherwise.
+pub(crate) fn seed_team_image(url: &str, content_type: &str, bytes: &[u8], cx: &mut App) {
+    team_images(cx).update(cx, |images, _| {
+        if images.ready_image(url).is_none() {
+            images.insert_bytes(url.to_string(), content_type, bytes.to_vec());
+        }
+    });
+}
+
+/// The no-image mark: the group glyph at the side, in the surrounding text
+/// colour, no chip and no fill.
+pub(crate) fn team_glyph(size: f32) -> gpui::AnyElement {
+    Icon::new(registry::UI_TEAM).with_size(px(size)).into_any_element()
+}
+
+/// #EXP-1645 THE TEAM mark (fixtures/team-image.json, web `team-avatar.tsx`,
+/// iOS `TeamAvatar.swift`, Android `Avatars.kt`): the team's image in a square
+/// of `size`, cover, rounded at `mark.radiusFraction`, no border and no fill,
+/// so a transparent image stays transparent; no image, loading or failed =
+/// [`team_glyph`]. `size` is the side in px: 28 in the rail header, 20 in its
+/// menu.
+pub(crate) fn team_avatar(icon_url: Option<&str>, size: f32, cx: &mut App) -> gpui::AnyElement {
+    let image = match team_mark(icon_url) {
+        TeamMark::Image { src } => {
+            match team_images(cx).update(cx, |images, cx| images.slot(&src, cx)) {
+                MarkdownImageSlot::Ready(image) => Some(image),
+                _ => None,
+            }
+        }
+        TeamMark::Glyph => None,
+    };
+    let frame = div()
+        .flex_shrink_0()
+        .size(px(size))
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center();
+    match image {
+        Some(image) => frame
+            .child(
+                img(image)
+                    .size_full()
+                    .object_fit(gpui::ObjectFit::Cover)
+                    .rounded(px(size * TEAM_IMAGE.mark.radius_fraction))
+                    .with_loading(move || team_glyph(size))
+                    .with_fallback(move || team_glyph(size)),
+            )
+            .into_any_element(),
+        None => frame.child(team_glyph(size)).into_any_element(),
+    }
+}
+
+/// The Settings › General row (team-image.json, web `TeamImageRow`): the
+/// label, the mark, the Upload pill, then, only with an image, the icon-only
+/// Remove ghost. `disabled` = not an owner, or a write is out.
+pub(crate) fn team_image_row(
+    icon_url: Option<&str>,
+    disabled: bool,
+    on_upload: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut App) + 'static,
+    on_remove: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut App) + 'static,
+    cx: &mut App,
+) -> Div {
+    let spec = &*TEAM_IMAGE;
+    let has_image = matches!(team_mark(icon_url), TeamMark::Image { .. });
+    let mark = team_avatar(icon_url, spec.row.mark_size, cx);
+    let muted = cx.theme().muted_foreground;
+    let foreground = cx.theme().foreground;
+    crate::surface::glass_row_shell()
+        .child(
+            div()
+                .id(SharedString::from(spec.test_ids.row.clone()))
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .text_color(foreground)
+                .child(SharedString::from(spec.copy.row.clone())),
+        )
+        .child(div().flex_shrink_0().text_color(foreground).child(mark))
+        .child(
+            crate::surface::glass_pill_button(
+                SharedString::from(spec.test_ids.upload.clone()),
+                crate::surface::PillSize::Sm,
+                cx,
+            )
+            .flex_shrink_0()
+            .disabled(disabled)
+            .label(SharedString::from(spec.copy.upload.clone()))
+            .on_click(on_upload),
+        )
+        .when(has_image, |row| {
+            row.child(
+                Button::new(SharedString::from(spec.test_ids.remove.clone()))
+                    .ghost()
+                    .web_icon_sm()
+                    .size(px(spec.row.mark_size))
+                    .flex_shrink_0()
+                    .disabled(disabled)
+                    .text_color(muted)
+                    .icon(Icon::new(registry::UI_DELETE).with_size(px(16.)))
+                    .tooltip(SharedString::from(spec.copy.remove.clone()))
+                    .on_click(on_remove),
+            )
+        })
 }
 
 /// One avatar + name row (EXP-426): the ONE shape every user-listing surface
@@ -350,7 +449,7 @@ pub fn first_name(name: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{avatar_hue_index, first_name, initials, team_initial};
+    use super::{avatar_hue_index, first_name, initials};
 
     /// EXP-698: the hue hash is a CROSS-CLIENT contract — the same person
     /// wears the same colour on web, iOS, Android and here. These vectors are
@@ -367,19 +466,6 @@ mod tests {
         assert_eq!(avatar_hue_index("7c9e6679-7425-40de-944b-e07fc1f90ae7"), 3);
         assert_eq!(avatar_hue_index("user_01HZY"), 1);
         assert_eq!(avatar_hue_index("ünïcödé"), 2);
-    }
-
-    /// EXP-723: the team mark's glyph rule, mirroring the web component's
-    /// `(name ?? "").trim()[0]?.toUpperCase() ?? "E"`.
-    #[test]
-    fn team_initials_take_the_first_character_uppercased() {
-        assert_eq!(team_initial("Acme Inc"), "A");
-        assert_eq!(team_initial("  spaced out "), "S");
-        assert_eq!(team_initial("überteam"), "Ü");
-        assert_eq!(team_initial("7 Wonders"), "7");
-        // A name-less team (nothing synced yet) falls back to the app letter.
-        assert_eq!(team_initial(""), "E");
-        assert_eq!(team_initial("   "), "E");
     }
 
     /// The modulo above is the palette's length, not a hard-coded 8 — but the

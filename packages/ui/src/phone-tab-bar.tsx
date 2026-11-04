@@ -291,7 +291,7 @@ export function PhoneTab({
   icon,
   selected = false,
   dot,
-  trailing,
+  caret,
   asChild = false,
   lensPreview,
   className,
@@ -305,8 +305,10 @@ export function PhoneTab({
   selected?: boolean
   /** The dot's colour class (`bg-yellow-400`); absent = none. */
   dot?: string | null
-  /** After the label (the Board tab's caret on the board view). */
-  trailing?: React.ReactNode
+  /** #EXP-1645 (`shell.boardTab`): beside the glyph, out of flow, so showing
+   *  it never changes the tab's width (the Board tab on the board view, the
+   *  Team tab on the Team page). */
+  caret?: React.ReactNode
   /** Render as the single child (a `Link`/`<a>`); its own children are
    *  replaced by the tab's body. */
   asChild?: boolean
@@ -327,12 +329,21 @@ export function PhoneTab({
           style={{ transform: `translateX(${lensPreview.offset ?? 0}px) scale(${BAR.drag.lensScale})` }}
         />
       )}
-      <span className="flex h-5 items-center justify-center">{icon}</span>
-      <span className="flex min-w-0 max-w-full items-center gap-0.5">
-        <span className="min-w-0 truncate text-[10px] font-medium leading-none">
-          {label}
-        </span>
-        {trailing}
+      <span className="relative flex h-5 items-center justify-center">
+        {icon}
+        {caret && (
+          <span
+            aria-hidden
+            data-slot="phone-tab-caret"
+            className="absolute top-1/2 left-full flex -translate-y-1/2"
+            style={{ marginLeft: CHATS_SHELL.boardTab.caretGap }}
+          >
+            {caret}
+          </span>
+        )}
+      </span>
+      <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-none">
+        {label}
       </span>
       {dot && <PhoneTabDot className={dot} />}
     </>

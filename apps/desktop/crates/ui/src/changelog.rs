@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-04-agent-keys-off-argv",
+    date: "2026-11-04",
+    title: "Agent keys stay off the command line on Linux",
+    summary: "Security fix for Linux: on systemd 258 or newer the agent's API key could appear in process listings; update to 0.14.119.",
+    body: r#"- **Security fix**: Linux on systemd 258 or newer (e.g. Ubuntu 26.04): the agent's API key could appear in process listings. Fixed in 0.14.119. If that machine is shared or logs command lines, rotate your personal key and team MCP credentials.
+- **Forwarded images**: the agent's run playbook tells it to forward pasted images when it hands work on."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_198: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-pasted-images",
     date: "2026-11-04",
     title: "Pasted images reach the agent and show in chats",

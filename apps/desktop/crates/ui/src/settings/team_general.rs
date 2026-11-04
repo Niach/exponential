@@ -36,6 +36,18 @@ use super::{
 };
 use crate::icons::registry;
 
+/// #EXP-1645: why a picked file never goes out (the server's own words,
+/// `team-icon-upload.ts`). The native picker has no type filter, so `upload.accept`
+/// runs on the result.
+fn team_image_refusal(content_type: &str, len: usize) -> Option<String> {
+    let upload = &domain::team_image::TEAM_IMAGE.upload;
+    if !upload.accept.iter().any(|accepted| accepted == content_type) {
+        return Some("Team images must be PNG, JPEG, WebP, GIF or SVG".to_string());
+    }
+    (len > upload.max_bytes)
+        .then(|| format!("Team images must be {} MB or smaller", upload.max_bytes / (1024 * 1024)))
+}
+
 /// Server fetch state for the read-only billing summary (EXP-288).
 enum BillingLoad {
     Idle,
@@ -440,6 +452,8 @@ pub struct GeneralPane {
     yolo_busy: bool,
     /// VAPP-201: a time-zone `teams.update` is in flight (picker disabled).
     zone_busy: bool,
+    /// #EXP-1645: a team image upload or remove is out (row disabled).
+    image_busy: bool,
     /// EXP-288: the read-only plan/usage summary between the name card and
     /// the Danger Zone. Refetched on team/account change; hidden while
     /// loading/failed and entirely on self-hosted (`plan == "unlimited"`).
@@ -513,6 +527,7 @@ impl GeneralPane {
             saving: false,
             yolo_busy: false,
             zone_busy: false,
+            image_busy: false,
             billing: BillingLoad::Idle,
             billing_team: None,
             billing_account: None,
@@ -1004,6 +1019,134 @@ impl GeneralPane {
         .detach();
     }
 
+    /// #EXP-1645 (team-image.json): the General group's Team image row.
+    fn team_image_row(&self, team: &domain::rows::Team, owner: bool, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let upload_team = team.id.clone();
+        let remove_team = team.id.clone();
+        let on_upload = cx.listener(move |this, _: &gpui::ClickEvent, window, cx| {
+            this.pick_team_image(upload_team.clone(), window, cx);
+        });
+        let on_remove = cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+            this.remove_team_image(remove_team.clone(), cx);
+        });
+        crate::user_avatar::team_image_row(
+            team.icon_url.as_deref(),
+            !owner || self.image_busy,
+            on_upload,
+            on_remove,
+            cx,
+        )
+    }
+
+    /// The Upload pill: the native picker, one file.
+    fn pick_team_image(&mut self, team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(domain::team_image::TEAM_IMAGE.copy.upload.clone().into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            // Receiver error = dialog dismissed/unsupported; None = cancelled.
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, _, cx| this.upload_team_image(team_id, path, cx));
+        })
+        .detach();
+    }
+
+    /// One multipart `file` to `upload.path`; the Electric echo delivers the
+    /// new url, a failure toasts with a Retry that reads the file again.
+    fn upload_team_image(&mut self, team_id: String, path: std::path::PathBuf, cx: &mut gpui::Context<Self>) {
+        if self.image_busy {
+            return;
+        }
+        let Some(transport) = crate::queries::http_attachment_transport(cx) else {
+            crate::action_error::failed_action("upload", "the team image", None, cx);
+            return;
+        };
+        self.image_busy = true;
+        cx.notify();
+        let (send_team, send_path) = (team_id.clone(), path.clone());
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let (filename, content_type, bytes) = crate::markdown::image_paste::read_any_file(&send_path)?;
+                    if let Some(refusal) = team_image_refusal(&content_type, bytes.len()) {
+                        anyhow::bail!(refusal);
+                    }
+                    transport.upload_team_image(&send_team, &filename, &content_type, &bytes)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.image_busy = false;
+                if let Err(err) = result {
+                    log::warn!("[ui] team image upload failed: {err}");
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "upload",
+                        "the team image",
+                        crate::action_error::description_of(&err.to_string()),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| {
+                                this.upload_team_image(team_id.clone(), path.clone(), cx);
+                            });
+                        },
+                        cx,
+                    );
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Remove: no confirm, `teams.update {iconUrl: null}`; the echo moves the row.
+    fn remove_team_image(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
+        if self.image_busy {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("remove", "the team image", None, cx);
+            return;
+        };
+        self.image_busy = true;
+        cx.notify();
+        let send_team = team_id.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut input = api::teams::TeamsUpdateInput::new(send_team);
+                    input.icon_url = api::Patch::Null;
+                    api::teams::teams_update(&trpc, &input)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.image_busy = false;
+                if let Err(err) = result {
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "remove",
+                        "the team image",
+                        crate::action_error::action_error_description(&err),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| this.remove_team_image(team_id.clone(), cx));
+                        },
+                        cx,
+                    );
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// EXP-1105: flip the team's synced `yolo_mode` through `teams.update`
     /// (owner-only server-side). No optimistic flip — the Electric echo moves
     /// the switch.
@@ -1258,10 +1401,11 @@ impl Render for GeneralPane {
                     .child(if saving { "Saving…" } else { "Unsaved" }),
             )
         });
+        let image_row = self.team_image_row(&team, owner, cx);
         let zone_row = self.time_zone_row(&team, owner, window, cx);
         let mut general = section(cx)
             .child(crate::surface::glass_section_header("General", None, cx))
-            .child(crate::surface::glass_group_rows(vec![name_row, zone_row]));
+            .child(crate::surface::glass_group_rows(vec![name_row, image_row, zone_row]));
         // EXP-1105: yolo mode — owner-only and HIDDEN from everyone else,
         // like every owner control in this pane. Its OWN group under Name,
         // label only (web general-section's second GlassGroup).
@@ -1376,6 +1520,17 @@ mod tests {
         let (third, _) = queue.ask("abcde".into()).expect("sent");
         assert_eq!(queue.settled(third, "abcde", false, now), None);
         assert_eq!(queue.retry_text().as_deref(), Some("abcde"));
+    }
+
+    /// #EXP-1645: `upload.accept` + `upload.maxBytes`, on the picked file.
+    #[test]
+    fn a_team_image_pick_follows_the_fixture() {
+        let max = domain::team_image::TEAM_IMAGE.upload.max_bytes;
+        for accepted in &domain::team_image::TEAM_IMAGE.upload.accept {
+            assert_eq!(team_image_refusal(accepted, max), None, "{accepted}");
+        }
+        assert!(team_image_refusal("image/png", max + 1).is_some());
+        assert!(team_image_refusal("application/pdf", 1).is_some());
     }
 
     /// FEED-79: the byte cap's inline line is the fixture's

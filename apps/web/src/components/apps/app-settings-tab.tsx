@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { APPS_COPY, APP_DESCRIPTION_MAX, grantVersion } from "@exp/domain-contract/apps"
+import { APPS_COPY, APPS_TEST_IDS, APP_DESCRIPTION_MAX, grantVersion, policyCaption, policyKinds } from "@exp/domain-contract/apps"
+import { recordPolicy } from "@exponential_app/eui/host"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
 import { Button, conceptIcon, GlassGroup, Switch, Textarea } from "@exp/ui"
@@ -64,7 +65,13 @@ export function AppSettingsTab({
   // VAPP-120: the typed actions the RUNNING package declares (eApps V1: the
   // published one, else the head's), each with its grant (the synced row); a
   // toggle writes the whole list.
-  const grantPackage = (app.row?.package ?? app.row?.draftPackage ?? null) as { functions?: string[] } | null
+  const grantPackage = (app.row?.package ?? app.row?.draftPackage ?? null) as { functions?: string[]; records?: Record<string, unknown> } | null
+  // #VAPP-243 (apps.json `policyRowCases`): each declared kind's effective
+  // record policy, read-only (the package's, written by the agent).
+  const policies = useMemo(
+    () => policyKinds(grantPackage?.records).map((kind) => ({ kind, caption: policyCaption(recordPolicy(grantPackage?.records?.[kind])) })),
+    [grantPackage]
+  )
   const declared = useMemo(() => declaredActions((grantPackage?.functions ?? []) as string[]), [grantPackage])
   // FEED-159: a stored grant that is no longer grantable reads as none.
   const granted = grantableTools(app.row?.grantedTools as string[] | null | undefined)
@@ -169,6 +176,20 @@ export function AppSettingsTab({
       <p className="px-1 text-sm text-muted-foreground" data-testid="app-settings-records">
         {recordsCountLabel(records?.length ?? 0, recordsMax)}
       </p>
+
+      {policies.length > 0 && (
+        <div className="space-y-1" data-testid={APPS_TEST_IDS.policies}>
+          <h2 className="px-1 text-sm font-medium">{APPS_COPY.policies.title}</h2>
+          <GlassGroup>
+            {policies.map((p) => (
+              <div key={p.kind} className="px-4 py-3" data-testid={`${APPS_TEST_IDS.policyRow}-${p.kind}`}>
+                <div className="truncate font-mono text-sm">{p.kind}</div>
+                <div className="truncate text-xs text-muted-foreground">{p.caption}</div>
+              </div>
+            ))}
+          </GlassGroup>
+        </div>
+      )}
 
       <div className="space-y-1" data-testid="app-settings-tools">
           <div className="px-1">

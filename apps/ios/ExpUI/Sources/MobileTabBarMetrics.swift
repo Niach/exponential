@@ -8,7 +8,8 @@ import SwiftUI
 /// beside the launcher (`gap` between them); each tab starts as wide as its
 /// label (label + 2 × `tabPaddingX`, at least `tabMinWidth`) and the tabs
 /// share the rest evenly; a label truncates only when the labels alone do
-/// not fit, the widest giving way first (`tabWidths`).
+/// not fit, the widest giving way first (`tabWidths`). The caret never takes
+/// part: it hangs beside the glyph (`caretOffset`).
 ///
 /// The numbers live here rather than inside `MobileTabBar` so the
 /// distribution is TESTED (`MobileTabBarMetricsTests`) instead of eyeballed.
@@ -33,9 +34,13 @@ public enum MobileTabBarMetrics {
     /// The strip's screen inset.
     public static let inset: CGFloat = 16
 
-    /// The Board tab's caret (`shell.boardTab`): `caretSize`, 2pt after the label.
+    /// The caret (`shell.boardTab`): `caretSize`, `caretGap` after the glyph's
+    /// right edge, out of flow, so showing it never changes a tab's width.
     public static let caretSize = CGFloat(Chats.Shell.BoardTab.caretSize)
-    public static let caretGap: CGFloat = 2
+    public static let caretGap = CGFloat(Chats.Shell.BoardTab.caretGap)
+    /// The caret's offset from a trailing-anchored overlay on the glyph: it
+    /// starts `caretGap` past the glyph's right edge.
+    public static var caretOffset: CGFloat { caretSize + caretGap }
 
     /// The drag lens (`shell.bar.drag`).
     public static let lensScale = CGFloat(Chats.Shell.Bar.Drag.lensScale)

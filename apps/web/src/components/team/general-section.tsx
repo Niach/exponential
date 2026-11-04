@@ -3,6 +3,7 @@ import type { Team } from "@/db/schema"
 import { contract } from "@exp/domain-contract"
 import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import { TEAM_ZONE_COPY, TEAM_ZONE_TEST_IDS } from "@exp/domain-contract/team-zone"
+import { teamImageUploadPath } from "@exp/domain-contract/team-image"
 import contractJson from "@exp/domain-contract/contract"
 import {
   Button,
@@ -15,6 +16,7 @@ import {
   InlineStatus,
   Picker,
   SkeletonRows,
+  TeamImageRow,
   Textarea,
 } from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
@@ -54,6 +56,49 @@ export function utf8ByteLength(text: string): number {
 export function approxTokens(bytes: number): string {
   const tokens = Math.round(bytes / 4)
   return tokens < 1000 ? `≈${tokens} tokens` : `≈${(tokens / 1000).toFixed(1)}k tokens`
+}
+
+/** #EXP-1645 (team-image.json): the General row: the mark, Upload, Remove. */
+function TeamImageSetting({ team }: { team: Team }) {
+  const [busy, setBusy] = useState(false)
+  const upload = async (file: File) => {
+    setBusy(true)
+    try {
+      const body = new FormData()
+      body.append(`file`, file)
+      const response = await fetch(teamImageUploadPath(team.id), {
+        method: `POST`,
+        body,
+        credentials: `same-origin`,
+      })
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(result?.error ?? `Upload failed`)
+      }
+    } catch (e) {
+      failedAction(`upload`, `the team image`, e, { retry: () => void upload(file) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = async () => {
+    setBusy(true)
+    try {
+      await trpc.teams.update.mutate({ teamId: team.id, iconUrl: null }, SKIP_ERROR_TOAST)
+    } catch (e) {
+      failedAction(`remove`, `the team image`, e, { retry: () => void remove() })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <TeamImageRow
+      iconUrl={team.iconUrl}
+      busy={busy}
+      onUpload={(file) => void upload(file)}
+      onRemove={() => void remove()}
+    />
+  )
 }
 
 // Team visibility is deliberately NOT configurable: every team is
@@ -297,6 +342,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
             }}
             trailing={saving ? <InlineStatus state="saving" className="shrink-0" /> : undefined}
           />
+          <TeamImageSetting team={team} />
           <Picker
             mode="single"
             triggerVariant="row"

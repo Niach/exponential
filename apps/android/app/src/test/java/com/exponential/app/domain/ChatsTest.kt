@@ -520,7 +520,8 @@ class ChatsTest {
         assertEquals(headers.keys.toList(), Chats.Copy.HEADERS.keys.toList())
         for ((key, title) in Chats.Copy.HEADERS) assertEquals(headers.str(key), title)
         assertEquals(copy.getValue("boardMenu").jsonObject.str("newBoard"), Chats.Copy.BOARD_MENU_NEW_BOARD)
-        assertEquals(1, copy.getValue("boardMenu").jsonObject.size)
+        assertEquals(copy.getValue("boardMenu").jsonObject.str("newTeam"), Chats.Copy.BOARD_MENU_NEW_TEAM)
+        assertEquals(2, copy.getValue("boardMenu").jsonObject.size)
         assertEquals(
             setOf(
                 "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "stopTurn",
@@ -548,6 +549,7 @@ class ChatsTest {
         val boardTab = shell.getValue("boardTab").jsonObject
         assertEquals(boardTab.str("caret"), Chats.Shell.BoardTab.CARET)
         assertEquals(boardTab.getValue("caretSize").jsonPrimitive.int, Chats.Shell.BoardTab.CARET_SIZE)
+        assertEquals(boardTab.getValue("caretGap").jsonPrimitive.int, Chats.Shell.BoardTab.CARET_GAP)
         val boardMenu = shell.getValue("boardMenu").jsonObject
         assertEquals(boardMenu.getValue("rowHeight").jsonPrimitive.int, Chats.Shell.BoardMenu.ROW_HEIGHT)
         assertEquals(boardMenu.getValue("maxVisibleRows").jsonPrimitive.int, Chats.Shell.BoardMenu.MAX_VISIBLE_ROWS)

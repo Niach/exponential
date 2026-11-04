@@ -15,11 +15,16 @@ import {
   PhoneTab,
   PhoneTabBar,
   TeamAvatar,
+  blockingLabel,
   conceptIcon,
+  whileBlocking,
 } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
+import { CreateTeamDialog } from "@/components/create-team-dialog"
+import { useSession } from "@/hooks/use-session"
+import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
@@ -31,7 +36,7 @@ import { useThreadsNav } from "@/hooks/use-nav-counts"
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const ActionChatIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
-// chats.json `shell.tabIcons` (Team = the active team's avatar; Board = the
+// chats.json `shell.tabIcons` (Team = the active team's mark; Board = the
 // active board's glyph, this one only while the team has no board).
 const BoardTabIcon = conceptIcon(`nav-issues`)
 const ChatsTabIcon = conceptIcon(`nav-threads`)
@@ -180,8 +185,9 @@ interface MobileTabBarProps {
 // the drag lens included). The Board tab = the active board's glyph + name;
 // ON the board view it carries the caret and a tap morphs the whole strip
 // into the BOARD MENU (`PhoneBoardMenuStrip`, the only phone board switch).
-// The Team tab is the active team's avatar + name and holds settings,
-// Devices and the account; the Inbox is in every page header. The phone
+// The Team tab is the active team's mark + name and holds settings, Devices
+// and the account; ON the Team page it carries the caret and a tap opens the
+// same menu over the member's teams (#EXP-1645); the Inbox is in every page header. The phone
 // OPENS on the Agent page (`routes/index.tsx`), whose entry is the FAB's chat
 // arm.
 export function MobileTabBar({
@@ -192,8 +198,12 @@ export function MobileTabBar({
   const matchRoute = useMatchRoute()
   const navigate = useNavigate()
   const permissions = useTeamPermissions(team)
-  const [menuOpen, setMenuOpen] = useState(false)
+  // #EXP-1645: the strip's menu: the board switcher or the team switcher.
+  const [menu, setMenu] = useState<`board` | `team` | null>(null)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
+  const [createTeamOpen, setCreateTeamOpen] = useState(false)
+  const { data: authSession } = useSession()
+  const { myTeams } = useTeamMemberships(authSession?.user?.id)
   // EXP-698 r5: a multi-selection replaces the bar with the bulk bar (native
   // parity) — one occupant of the bottom edge, FAB included.
   const { bulkBarPresent } = useMobileChrome()
@@ -224,10 +234,13 @@ export function MobileTabBar({
     Boolean(matchRoute({ to: `/t/$teamSlug/team`, fuzzy: true })) ||
     Boolean(matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })) ||
     Boolean(matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true }))
-  // Leaving the board view (or the bar hiding) folds the menu.
+  // `shell.teamTab`: only the Team page itself; the pages pushed from it keep
+  // the tab lit and a tap returns here.
+  const onTeamPage = Boolean(matchRoute({ to: `/t/$teamSlug/team` }))
+  // Leaving the menu's page (or the bar hiding) folds the menu.
   useEffect(() => {
-    if (!onBoard || !visible) setMenuOpen(false)
-  }, [onBoard, visible])
+    if (!visible || (menu === `board` && !onBoard) || (menu === `team` && !onTeamPage)) setMenu(null)
+  }, [menu, onBoard, onTeamPage, visible])
   // EXP-973: the New-issue arm is always DRAWN; it only goes dead when the
   // team has no board to file into. The arm targets the current board when
   // there is one, else the team's remembered/first board
@@ -238,12 +251,20 @@ export function MobileTabBar({
 
   const teamName = team?.name ?? teamSlug
 
-  const menuRows = (boards ?? []).map((board) => ({
-    id: board.id,
-    name: board.name,
-    glyph: <BoardGlyph board={board} className="size-5" />,
-    active: board.id === boardTarget?.id,
-  }))
+  const menuRows =
+    menu === `team`
+      ? myTeams.map((row) => ({
+          id: row.id,
+          name: row.name,
+          glyph: <TeamAvatar iconUrl={row.iconUrl} size={20} />,
+          active: row.id === team?.id,
+        }))
+      : (boards ?? []).map((board) => ({
+          id: board.id,
+          name: board.name,
+          glyph: <BoardGlyph board={board} className="size-5" />,
+          active: board.id === boardTarget?.id,
+        }))
 
   return (
     <>
@@ -254,10 +275,22 @@ export function MobileTabBar({
       {/* #EXP-1384: the strip (tab capsule + the capsule beside it) is the
           frame the board menu grows from. */}
       <PhoneBoardMenuStrip
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
+        open={menu !== null}
+        onOpenChange={(open) => {
+          if (!open) setMenu(null)
+        }}
         rows={menuRows}
+        newLabel={menu === `team` ? CHATS_COPY.boardMenu.newTeam : CHATS_COPY.boardMenu.newBoard}
         onSelect={(id) => {
+          if (menu === `team`) {
+            const next = myTeams.find((row) => row.id === id)
+            if (next && next.slug !== teamSlug) {
+              void whileBlocking(blockingLabel(`switchTeam`, next.name), () =>
+                navigate({ to: `/t/$teamSlug/team`, params: { teamSlug: next.slug } })
+              )
+            }
+            return
+          }
           const board = boards?.find((row) => row.id === id)
           if (board && board.slug !== boardSlug) {
             void navigate({
@@ -266,7 +299,13 @@ export function MobileTabBar({
             })
           }
         }}
-        onNewBoard={permissions.canCreate && team ? () => setCreateBoardOpen(true) : undefined}
+        onNewBoard={
+          menu === `team`
+            ? () => setCreateTeamOpen(true)
+            : permissions.canCreate && team
+              ? () => setCreateBoardOpen(true)
+              : undefined
+        }
       >
       <PhoneTabBar className="flex-1">
         {onBoard && boardTarget ? (
@@ -274,12 +313,12 @@ export function MobileTabBar({
           <PhoneTab
             label={boardTarget.name}
             icon={<BoardGlyph board={boardTarget} className="size-5" />}
-            trailing={<BoardCaretIcon className="size-2.5 shrink-0" />}
+            caret={<BoardCaretIcon className="size-2.5 shrink-0" />}
             selected
             aria-haspopup="menu"
-            aria-expanded={menuOpen}
+            aria-expanded={menu === `board`}
             data-testid={CHATS_TEST_IDS.tabBoard}
-            onClick={() => setMenuOpen((value) => !value)}
+            onClick={() => setMenu((value) => (value === `board` ? null : `board`))}
           />
         ) : (
           <PhoneTab
@@ -324,15 +363,29 @@ export function MobileTabBar({
         >
           <Link to="/t/$teamSlug/apps" params={{ teamSlug }} />
         </PhoneTab>
-        <PhoneTab
-          asChild
-          label={teamName}
-          icon={<TeamAvatar name={teamName} size={20} />}
-          selected={onTeam}
-          data-testid={CHATS_TEST_IDS.tabTeam}
-        >
-          <Link to="/t/$teamSlug/team" params={{ teamSlug }} />
-        </PhoneTab>
+        {onTeamPage ? (
+          // ON the Team page: the caret, and a tap opens the team menu.
+          <PhoneTab
+            label={teamName}
+            icon={<TeamAvatar iconUrl={team?.iconUrl} size={20} />}
+            caret={<BoardCaretIcon className="size-2.5 shrink-0" />}
+            selected
+            aria-haspopup="menu"
+            aria-expanded={menu === `team`}
+            data-testid={CHATS_TEST_IDS.tabTeam}
+            onClick={() => setMenu((value) => (value === `team` ? null : `team`))}
+          />
+        ) : (
+          <PhoneTab
+            asChild
+            label={teamName}
+            icon={<TeamAvatar iconUrl={team?.iconUrl} size={20} />}
+            selected={onTeam}
+            data-testid={CHATS_TEST_IDS.tabTeam}
+          >
+            <Link to="/t/$teamSlug/team" params={{ teamSlug }} />
+          </PhoneTab>
+        )}
       </PhoneTabBar>
       {/* EXP-631/694: the chat launcher started on Devices and Actions,
           EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it
@@ -387,6 +440,7 @@ export function MobileTabBar({
       </div>
       </PhoneBoardMenuStrip>
     </div>
+    <CreateTeamDialog open={createTeamOpen} onOpenChange={setCreateTeamOpen} />
     {team && (
       <CreateBoardDialog
         open={createBoardOpen}

@@ -110,7 +110,10 @@ import com.exponential.app.ui.settings.McpActivityScreen
 import com.exponential.app.ui.settings.McpSettingsScreen
 import com.exponential.app.ui.settings.PromptSettingsScreen
 import com.exponential.app.ui.settings.PromptsSettingsScreen
+import com.exponential.app.ui.onboarding.TeamSetupSheet
+import com.exponential.app.ui.settings.SettingsViewModel
 import com.exponential.app.ui.settings.SkillSettingsScreen
+import com.exponential.app.ui.settings.TeamTabViewModel
 import com.exponential.app.ui.settings.SkillsSettingsScreen
 import com.exponential.app.ui.thread.AgentConversationScreen
 import com.exponential.app.ui.apps.AppEditorScreen
@@ -533,11 +536,21 @@ private fun AuthenticatedNav(
     val teamBoards = activeBlock?.boards.orEmpty().sortedBy { it.sortOrder }
     val activeBoard = teamBoards.firstOrNull { it.id == composeBoardId }
     val onBoardView = currentRoute == MainTabs.ISSUES || currentRoute == "board/{boardId}"
-    var boardMenuOpen by remember { mutableStateOf(false) }
+    // #EXP-1645 (`shell.teamTab`): the Team tab, on the Team page itself (never
+    // the settings or Devices pages pushed from it), opens the same menu over
+    // the member's teams, the rows the Team page lists.
+    val onTeamPage = currentRoute == MainTabs.TEAM
+    val settingsVm: SettingsViewModel = hiltViewModel()
+    val teamTabVm: TeamTabViewModel = hiltViewModel()
+    val serverGroups by settingsVm.serverGroups.collectAsStateWithLifecycle()
+    var stripMenuOpen by remember { mutableStateOf(false) }
+    // Which menu the strip shows; kept through the collapse.
+    var teamMenu by remember { mutableStateOf(false) }
     var createBoardOpen by remember { mutableStateOf(false) }
-    // Leaving the board view (or the bar hiding) folds the menu.
-    LaunchedEffect(onBoardView, barVisible) {
-        if (!onBoardView || !barVisible) boardMenuOpen = false
+    var createTeamOpen by remember { mutableStateOf(false) }
+    // Leaving the menu's page (or the bar hiding) folds the menu.
+    LaunchedEffect(onBoardView, onTeamPage, teamMenu, barVisible) {
+        if (!barVisible || !(if (teamMenu) onTeamPage else onBoardView)) stripMenuOpen = false
     }
     // The page header's circles (`shell.header.buttons`), the same on every
     // page: search pushes the phone search, the inbox the inbox page.
@@ -1186,8 +1199,8 @@ private fun AuthenticatedNav(
     }
 
     // After the NavHost, so the menu's back wins over the NavHost's pop.
-    BackHandler(enabled = boardMenuOpen) { boardMenuOpen = false }
-    if (boardMenuOpen) {
+    BackHandler(enabled = stripMenuOpen) { stripMenuOpen = false }
+    if (stripMenuOpen) {
         // The board menu's transparent scrim: a press outside the panel
         // collapses it (the panel sits above, in the bar's own layer).
         Box(
@@ -1196,7 +1209,7 @@ private fun AuthenticatedNav(
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false).consume()
-                        boardMenuOpen = false
+                        stripMenuOpen = false
                     }
                 },
         )
@@ -1223,6 +1236,7 @@ private fun AuthenticatedNav(
             board = activeBoard,
             onBoardView = onBoardView,
             team = activeTeam,
+            onTeamPage = onTeamPage,
             chatsRunning = threadsRunning,
             chatsNeedYou = threadsNeedYou,
             chatsUnread = threadsUnread,
@@ -1234,37 +1248,58 @@ private fun AuthenticatedNav(
             composeEnabled = composeBoardId != null,
             // EXP-1210: every entry SWITCHES to a sibling root (a re-tap pops
             // back to it). #EXP-1384: the Board tab ON the board view opens
-            // the board menu instead (`shell.boardTab`).
+            // the board menu instead (`shell.boardTab`), #EXP-1645: the Team
+            // tab ON the Team page the team menu (`shell.teamTab`).
             onSelectTab = { tab ->
                 when (tab) {
                     "board" -> if (onBoardView && activeBoard != null) {
-                        boardMenuOpen = !boardMenuOpen
+                        stripMenuOpen = teamMenu || !stripMenuOpen
+                        teamMenu = false
                     } else {
                         navController.selectTab(MainTabs.ISSUES, tabSwitch)
                     }
                     "chats" -> navController.selectTab(MainTabs.THREADS, tabSwitch)
                     "apps" -> navController.selectTab(MainTabs.APPS, tabSwitch)
-                    "team" -> navController.selectTab(MainTabs.TEAM, tabSwitch)
+                    "team" -> if (onTeamPage) {
+                        stripMenuOpen = !teamMenu || !stripMenuOpen
+                        teamMenu = true
+                    } else {
+                        navController.selectTab(MainTabs.TEAM, tabSwitch)
+                    }
                 }
             },
             onChat = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
-            boardMenu = PhoneBoardMenu(
-                boards = teamBoards,
-                activeBoardId = activeBoard?.id,
-                onSelect = { picked ->
-                    val accountId = activeGroup?.accountId
-                    if (accountId != null && picked.id != composeBoardId) homeVm.selectBoard(accountId, picked.id)
-                    // A pushed board gives way to the Board tab's root, which
-                    // follows the pick.
-                    if (currentRoute != MainTabs.ISSUES) navController.selectTab(MainTabs.ISSUES, tabSwitch)
-                },
-                // The teams shape is member-only, so the active team is one
-                // the viewer belongs to: a member may create boards
-                // (TeamPermissions.canCreate).
-                onNewBoard = if (activeBlock != null) ({ createBoardOpen = true }) else null,
-            ),
-            menuOpen = boardMenuOpen,
-            onMenuOpenChange = { boardMenuOpen = it },
+            boardMenu = if (teamMenu) {
+                PhoneBoardMenu.teams(
+                    teams = serverGroups.flatMap { it.teams },
+                    activeTeamId = selectedTeamId,
+                    onSelect = { picked ->
+                        // The Team page's own switch: the Team tab follows it,
+                        // so this lands on the picked team's Team page.
+                        val accountId = serverGroups.firstOrNull { picked in it.teams }?.accountId
+                        if (accountId != null && picked.id != selectedTeamId) teamTabVm.switchTeam(accountId, picked.id)
+                    },
+                    onNewTeam = { createTeamOpen = true },
+                )
+            } else {
+                PhoneBoardMenu.boards(
+                    boards = teamBoards,
+                    activeBoardId = activeBoard?.id,
+                    onSelect = { picked ->
+                        val accountId = activeGroup?.accountId
+                        if (accountId != null && picked.id != composeBoardId) homeVm.selectBoard(accountId, picked.id)
+                        // A pushed board gives way to the Board tab's root, which
+                        // follows the pick.
+                        if (currentRoute != MainTabs.ISSUES) navController.selectTab(MainTabs.ISSUES, tabSwitch)
+                    },
+                    // The teams shape is member-only, so the active team is one
+                    // the viewer belongs to: a member may create boards
+                    // (TeamPermissions.canCreate).
+                    onNewBoard = if (activeBlock != null) ({ createBoardOpen = true }) else null,
+                )
+            },
+            menuOpen = stripMenuOpen,
+            onMenuOpenChange = { stripMenuOpen = it },
             onCompose = {
                 composeBoardId?.let { navController.openIssueDraft(it) }
             },
@@ -1278,6 +1313,14 @@ private fun AuthenticatedNav(
             teamId = selectedTeamId,
             onCreated = { createBoardOpen = false },
             onDismiss = { createBoardOpen = false },
+        )
+    }
+    if (createTeamOpen) {
+        // The team menu's New team row: the Team page's own create flow.
+        TeamSetupSheet(
+            onDismiss = { createTeamOpen = false },
+            onCreated = { createTeamOpen = false },
+            onJoined = { createTeamOpen = false },
         )
     }
     }
