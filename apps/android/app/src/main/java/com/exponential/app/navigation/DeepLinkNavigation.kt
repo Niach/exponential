@@ -147,7 +147,7 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
                 else -> Routes.thread(destination.id)
             },
         )
-        is LinkDestination.Plan -> navigateDeepLink(Routes.planPage(destination.sessionId, destination.messageId))
+        is LinkDestination.Plan -> navigateDeepLink(Routes.threadPlan(destination.sessionId, destination.messageId))
         is LinkDestination.Board -> navigateDeepLink("board/${destination.id}")
         LinkDestination.Threads -> selectTab(MainTabs.THREADS, tabSwitch, restore = false)
         is LinkDestination.AgentDm -> navigateDeepLink(Routes.agentDm(destination.agentId))
