@@ -28,3 +28,4 @@
 - Apps können Einträge als Formulare, Tabellen, Kalender und Zeitleisten zeigen
 - Bilder, Links und Text aus anderen Apps in einen Chat oder an einen Agenten teilen
 - Links in Chats und Karten öffnen den richtigen Bildschirm in der App
+- Ein geschlossenes App-Formular bleibt zu; ein Tippen auf eine Zeile öffnet den Eintrag

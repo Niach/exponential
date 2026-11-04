@@ -28,3 +28,4 @@
 - Aplikace mohou zobrazit záznamy jako formuláře, tabulky, kalendáře a časové osy
 - Sdílejte obrázky, odkazy a text z jiných aplikací do chatu nebo agentovi
 - Odkazy v chatech a kartách otevírají správnou obrazovku v aplikaci
+- Zavřený formulář aplikace zůstane zavřený; klepnutí na řádek otevře záznam

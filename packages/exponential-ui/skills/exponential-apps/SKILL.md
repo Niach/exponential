@@ -5,7 +5,7 @@ description: "Build or change an Exponential app (eApps): the package format (fo
 
 # Exponential apps
 
-> Generated from the eApps docs (eUI 0.15.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from the eApps docs (eUI 0.15.1) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 An Exponential app is **data, never code**: a declarative package (manifest, eUI templates, bindings, record kinds, a function allowlist, `exposes`, `upstreams`) stored per team, versioned in the DB, and painted by the same eUI renderers on web, desktop, iOS and Android, as well as Spezl and eDE.
 

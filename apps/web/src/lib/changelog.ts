@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-app-fixes`,
+    date: `2026-11-04`,
+    title: `App fixes`,
+    summary: `Closing an app's form or drawer keeps it closed, tapping a row in a record table opens the record, and side drawers fit their content.`,
+    body: `- **Forms and drawers**: closing an app's form, dialog or drawer keeps it closed instead of opening it again.
+- **Record rows**: tapping a row in an app's record table opens that record on every app.
+- **Drawers**: a side drawer is as wide as its content, not the whole screen.
+- **Text**: counts read correctly ("1 record", "3 records"), and long captions wrap instead of being cut off.`,
+  },
+  {
     id: `2026-11-04-links-open-in-the-app`,
     date: `2026-11-04`,
     title: `Links open in the app`,

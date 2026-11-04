@@ -1,0 +1,3 @@
+- Closing an app's form or drawer keeps it closed
+- Tapping a row in an app's record table opens the record
+- Side drawers fit their content; long captions wrap
