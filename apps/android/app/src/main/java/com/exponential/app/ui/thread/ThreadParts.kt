@@ -48,6 +48,8 @@ import com.exponential.app.ui.session.LocalAskCardTrailing
 import com.exponential.app.ui.session.DismissedCardLine
 import com.exponential.app.ui.session.centreOnItem
 import com.exponential.app.ui.plan.LocalOpenPlanPage
+import com.exponential.app.ui.session.CardDismissButton
+import com.exponential.app.ui.session.LocalCardDismiss
 import com.exponential.app.domain.PlanPage
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.ui.components.JumpToBottomButton
@@ -166,12 +168,16 @@ internal object ThreadUiCopy {
 /** The Stories tab's page key (`?tab=stories` on web). */
 const val STORIES_TAB_KEY = "stories"
 
+/** #EXP-1662 (plan-page.json): the plan tab's page key. */
+const val PLAN_TAB_KEY = "plan"
+
 fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
     SessionTree.ThreadTab.Conversation -> "conversation"
     is SessionTree.ThreadTab.IssueTab -> "issue:${tab.issueId}"
     SessionTree.ThreadTab.Add -> "add"
     is SessionTree.ThreadTab.SessionTab -> "session:${tab.sessionId}"
     SessionTree.ThreadTab.Stories -> STORIES_TAB_KEY
+    SessionTree.ThreadTab.Plan -> PLAN_TAB_KEY
 }
 
 /** A `question` answer: (message id, the answer, settled(ok)); EXP-1280
@@ -359,6 +365,8 @@ fun ThreadTabStrip(
     onPickWaiting: ((String) -> Unit)? = null,
     /** The styleguide's static paint: the waiting sheet held open. */
     waitingSheetOpen: Boolean = false,
+    /** #EXP-1662: the plan chip's needs-you dot (its plan waits). */
+    planWaiting: Boolean = false,
 ) {
     var sheet by remember { mutableStateOf(groupSheetOpen) }
     var waitingSheet by remember { mutableStateOf(waitingSheetOpen) }
@@ -387,6 +395,10 @@ fun ThreadTabStrip(
                 tint = if (conversationSelected) MaterialTheme.colorScheme.onSurface else Secondary,
                 modifier = Modifier.size(16.dp),
             )
+        }
+        // #EXP-1662 (plan-page.json): the plan tab right after Conversation.
+        if (SessionTree.ThreadTab.Plan in tabs) {
+            ThreadPlanTab(selected = selectedKey == PLAN_TAB_KEY, waiting = planWaiting, onClick = { onSelect(PLAN_TAB_KEY) })
         }
         // #EXP-1562: phones = ONE icon-only chip right after Conversation
         // (the question tint, the count muted) while something waits.
@@ -477,6 +489,22 @@ fun ThreadTabStrip(
 
 /** The strip's one gap. */
 private val StripGap = 4.dp
+
+/** #EXP-1662 (plan-page.json): THE plan tab, phones = THE strip chip box,
+ *  the `coding-plan` glyph + `copy.title` + the 6 px needs-you dot. */
+@Composable
+private fun ThreadPlanTab(selected: Boolean, waiting: Boolean, onClick: () -> Unit) {
+    val tint = if (selected) MaterialTheme.colorScheme.onSurface else Secondary
+    ThreadTab(selected = selected, onClick = onClick, onLongClick = null, testTag = PlanPage.TestIds.TAB, chip = true) {
+        Icon(ExpIcons.codingPlan, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(PlanPage.Copy.TITLE, style = MaterialTheme.typography.labelMedium, color = tint, maxLines = 1, softWrap = false)
+        if (waiting) {
+            Spacer(Modifier.width(6.dp))
+            Box(Modifier.size(6.dp).background(DesignTokens.Semantic.Yellow, CircleShape).testTag("thread-tab-plan-dot"))
+        }
+    }
+}
 
 /** #EXP-1562 (waiting-cards.json CHIPS `button`): THE strip chip box,
  *  icon-only (`icons.waiting` in the question tint) + the count muted;
@@ -1429,51 +1457,89 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
         DismissedCardLine(plan = false, title = AskDock.askDockTitle(row.question))
         return
     }
-    Column(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
-        if (row is SessionTree.ThreadRow.Plan) {
-            // #EXP-1493: THE plan page (plan-page.json `copy.openPlan`), the
-            // header action left of a host's own trailing link.
-            val outer = LocalAskCardTrailing.current
-            val openPlan = LocalOpenPlanPage.current
-            CompositionLocalProvider(
-                LocalAskCardTrailing provides {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PlanPageOpenButton { openPlan.open(row.sessionId, row.id) }
-                        outer?.invoke()
-                    }
-                },
-            ) {
-                PlanAskCard(row, onAnswer, onDecidePlan)
-            }
-        } else {
-            PlanAskCard(row, onAnswer, onDecidePlan)
-        }
+    if (row is SessionTree.ThreadRow.Plan) {
+        ThreadPlanRow(row)
+        return
+    }
+    Column(Modifier.testTag("thread-question-card")) {
+        PlanAskCard(row, onAnswer, onDecidePlan)
     }
 }
 
-/** #EXP-1493: THE plan card's header action (a ghost button, `ui-fullscreen`
- *  + `copy.openPlan`) opening THE plan page. */
+/**
+ * #EXP-1662 (plan-page.json): a plan in the Conversation = ONE row in THE
+ * session card's box: the `coding-plan` glyph (amber while it waits, emerald
+ * check approved, muted otherwise), `planRowLabel` (one line), the status word,
+ * the chevron; a press opens the thread's plan tab on THAT plan. THE × while it
+ * waits, gone once the press is in flight.
+ */
 @Composable
-fun PlanPageOpenButton(onOpen: () -> Unit) {
-    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val tint = if (pressed) MaterialTheme.colorScheme.onSurface else Muted
+private fun ThreadPlanRow(row: SessionTree.ThreadRow.Plan) {
+    val openPlan = LocalOpenPlanPage.current
+    val dismiss = LocalCardDismiss.current
+    var dismissing by remember(row.id) { mutableStateOf(false) }
+    val waiting = row.decision == null
+    val approved = row.decision == "approved"
+    val style = threadCardTextStyle()
+    val tone = if (waiting) DesignTokens.Semantic.Yellow else Muted
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onOpen)
-            .padding(horizontal = 4.dp, vertical = 2.dp)
-            .testTag(PlanPage.TestIds.OPEN_PLAN),
+            .fillMaxWidth()
+            .threadCard()
+            .heightIn(min = PlanPage.Layout.ROW_HEIGHT.dp)
+            .testTag("thread-plan-card"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(ExpIcons.uiFullscreen, contentDescription = null, tint = tint, modifier = Modifier.size(12.dp))
-        Text(
-            PlanPage.Copy.OPEN_PLAN,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
-            color = tint,
-            maxLines = 1,
-        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = PlanPage.Layout.ROW_HEIGHT.dp)
+                .clickable(role = Role.Button) { openPlan.open(row.sessionId, row.id) }
+                .padding(horizontal = 12.dp)
+                .testTag("plan-row"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    if (approved) ExpIcons.uiCheck else ExpIcons.codingPlan,
+                    contentDescription = null,
+                    tint = if (approved) DesignTokens.Semantic.Green else tone,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    PlanPage.planRowLabel(row.plan),
+                    style = style.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Text(
+                    row.decision?.let { AskDock.planDecisionLabel(it, row.fresh) } ?: PlanPage.Copy.NEEDS_YOU,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                    color = tone,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+            Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.size(16.dp))
+        }
+        if (waiting && dismiss != null && !dismissing) {
+            Box(Modifier.padding(end = 8.dp)) {
+                CardDismissButton(
+                    onDismiss = {
+                        dismissing = true
+                        dismiss(row.id) { ok -> if (!ok) dismissing = false }
+                    },
+                    corner = false,
+                )
+            }
+        }
     }
 }
 
@@ -1705,9 +1771,10 @@ fun ThreadEventLine(text: String, onClick: (() -> Unit)? = null) {
 /**
  * #EXP-1464 (thread-row-action.json `expand`): a Needs-you session row,
  * expanded in place = THE session card (chevron down; a tap collapses it)
- * over THE question / plan card of that session ([waiting]; null = the
- * skeleton line while it syncs), its label line carrying `Open chat`.
- * A sent answer marks the session answered ([onAnswered]) and collapses.
+ * over THE question card of that session, its label line carrying `Open chat`,
+ * or #EXP-1662 THE plan row ([waiting]; null = the skeleton line while it
+ * syncs). A sent answer or a dismissal marks the session answered
+ * ([onAnswered]) and collapses.
  */
 @Composable
 private fun ExpandedSessionRow(
@@ -1727,7 +1794,18 @@ private fun ExpandedSessionRow(
         if (waiting == null) {
             SkeletonRows(rows = 1, rowHeight = 20.dp, dot = false)
         } else {
-            CompositionLocalProvider(LocalAskCardTrailing provides { OpenChatLink(onOpenChat) }) {
+            val dismiss = LocalCardDismiss.current
+            CompositionLocalProvider(
+                LocalAskCardTrailing provides { OpenChatLink(onOpenChat) },
+                LocalCardDismiss provides dismiss?.let { host ->
+                    { id: String, settled: (Boolean) -> Unit ->
+                        host(id) { ok ->
+                            settled(ok)
+                            if (ok) onAnswered()
+                        }
+                    }
+                },
+            ) {
                 ThreadAskCard(
                     waiting,
                     onAnswer = { id, answer, settled ->

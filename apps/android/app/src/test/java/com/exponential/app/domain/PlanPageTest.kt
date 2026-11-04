@@ -31,6 +31,10 @@ class PlanPageTest {
     private fun num(value: JsonElement?): Float = value!!.jsonPrimitive.content.toFloat()
 
     private fun encode(block: PlanPage.Block): JsonObject = when (block) {
+        is PlanPage.Block.Title -> buildJsonObject {
+            put("kind", "title")
+            put("text", block.text)
+        }
         is PlanPage.Block.Markdown -> buildJsonObject {
             put("kind", "markdown")
             put("text", block.text)
@@ -72,6 +76,8 @@ class PlanPageTest {
         assertEquals(copy.str("openChat"), PlanPage.Copy.OPEN_CHAT)
         assertEquals(copy.str("outline"), PlanPage.Copy.OUTLINE)
         assertEquals(copy.str("questions"), PlanPage.Copy.QUESTIONS)
+        assertEquals(copy.str("needsYou"), PlanPage.Copy.NEEDS_YOU)
+        assertEquals(copy.str("rowPrefix"), PlanPage.Copy.ROW_PREFIX)
         val counts = copy.getValue("counts").jsonObject
         fun words(key: String) = counts.getValue(key).jsonArray.map { it.jsonPrimitive.content }
         assertEquals(words("sections"), PlanPage.Copy.SECTIONS)
@@ -80,13 +86,21 @@ class PlanPageTest {
         val layout = fixture.getValue("layout").jsonObject
         assertEquals(num(layout["outlineWidth"]), PlanPage.Layout.OUTLINE_WIDTH)
         assertEquals(num(layout["columnMaxWidth"]), PlanPage.Layout.COLUMN_MAX_WIDTH)
-        assertEquals(num(layout["railWidth"]), PlanPage.Layout.RAIL_WIDTH)
+        assertEquals(setOf("outlineWidth", "columnMaxWidth", "columnPadding", "blockGap", "outlineRowHeight", "outlineActiveBar", "titleSize", "rowHeight", "tabMaxWidth"), layout.keys)
         assertEquals(num(layout.getValue("columnPadding").jsonObject["wide"]), PlanPage.Layout.COLUMN_PADDING_WIDE)
         assertEquals(num(layout.getValue("columnPadding").jsonObject["phone"]), PlanPage.Layout.COLUMN_PADDING_PHONE)
-        assertEquals(num(layout["headerHeight"]), PlanPage.Layout.HEADER_HEIGHT)
         assertEquals(num(layout["blockGap"]), PlanPage.Layout.BLOCK_GAP)
         assertEquals(num(layout["outlineRowHeight"]), PlanPage.Layout.OUTLINE_ROW_HEIGHT)
         assertEquals(num(layout["outlineActiveBar"]), PlanPage.Layout.OUTLINE_ACTIVE_BAR)
+        assertEquals(num(layout["titleSize"]), PlanPage.Layout.TITLE_SIZE)
+        assertEquals(num(layout["rowHeight"]), PlanPage.Layout.ROW_HEIGHT)
+        assertEquals(num(layout["tabMaxWidth"]), PlanPage.Layout.TAB_MAX_WIDTH)
+        val panel = fixture.getValue("panel").jsonObject
+        assertEquals(num(panel["maxWidth"]), PlanPage.Panel.MAX_WIDTH)
+        assertEquals(num(panel["gap"]), PlanPage.Panel.GAP)
+        assertEquals(num(panel["padding"]), PlanPage.Panel.PADDING)
+        assertEquals(num(panel["radius"]), PlanPage.Panel.RADIUS)
+        assertEquals(num(panel["maxHeightFraction"]), PlanPage.Panel.MAX_HEIGHT_FRACTION)
         val mosaic = fixture.getValue("mosaic").jsonObject
         assertEquals(num(mosaic["gap"]), PlanPage.Mosaic.GAP)
         assertEquals(num(mosaic["largeFraction"]), PlanPage.Mosaic.LARGE_FRACTION)
@@ -98,7 +112,7 @@ class PlanPageTest {
                 "outlineRow" to PlanPage.TestIds.OUTLINE_ROW, "document" to PlanPage.TestIds.DOCUMENT,
                 "rail" to PlanPage.TestIds.RAIL, "mosaic" to PlanPage.TestIds.MOSAIC,
                 "carousel" to PlanPage.TestIds.CAROUSEL, "openPlan" to PlanPage.TestIds.OPEN_PLAN,
-                "outlineToggle" to PlanPage.TestIds.OUTLINE_TOGGLE,
+                "outlineToggle" to PlanPage.TestIds.OUTLINE_TOGGLE, "tab" to PlanPage.TestIds.TAB,
             ),
             fixture.getValue("testIds").jsonObject.mapValues { it.value.jsonPrimitive.content },
         )
@@ -183,6 +197,23 @@ class PlanPageTest {
             }
             val actual = PlanPage.planPageFor(case.str("sessionId")!!, messages)
             assertEquals(case.str("name"), case["expected"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content, actual)
+        }
+    }
+
+    @Test
+    fun `replays every tab case`() {
+        for (case in cases("tabCases")) {
+            val plans = case.getValue("plans").jsonArray.map { it.jsonObject }.map {
+                PlanPage.TabPlan(it.str("id")!!, it.str("decision"))
+            }
+            assertEquals(case.str("name"), case.str("expect"), PlanPage.planTabTarget(plans))
+        }
+    }
+
+    @Test
+    fun `replays every row label case`() {
+        for (case in cases("rowLabelCases")) {
+            assertEquals(case.str("expect"), PlanPage.planRowLabel(case.str("plan")!!))
         }
     }
 

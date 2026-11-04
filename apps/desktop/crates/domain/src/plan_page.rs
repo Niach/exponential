@@ -2,8 +2,9 @@
 //! twin, iOS ExpCore `PlanPage.swift`, Android `domain/PlanPage.kt`): a
 //! plan's markdown split into blocks (prose, h2 sections, picture groups),
 //! its outline, its counts line, the wide picture group's tiles and where a
-//! session's waiting plan opens. Byte-locked by `fixtures/plan-page.json`
-//! (its `$comment` is the spec); pure.
+//! session's waiting plan opens. #EXP-1662: the plan is a TAB of its thread:
+//! the `title` block, the row's and the chip's label, the tab's target.
+//! Byte-locked by `fixtures/plan-page.json` (its `$comment` is the spec); pure.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -31,6 +32,8 @@ pub struct PlanPageCopy {
     pub outline: String,
     pub questions: String,
     pub counts: PlanPageCounts,
+    pub needs_you: String,
+    pub row_prefix: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -44,12 +47,24 @@ pub struct PlanPagePadding {
 pub struct PlanPageLayout {
     pub outline_width: f32,
     pub column_max_width: f32,
-    pub rail_width: f32,
     pub column_padding: PlanPagePadding,
-    pub header_height: f32,
     pub block_gap: f32,
     pub outline_row_height: f32,
     pub outline_active_bar: f32,
+    pub title_size: f32,
+    pub row_height: f32,
+    pub tab_max_width: f32,
+}
+
+/// #EXP-1662: the floating questions panel (`panel`).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanPagePanel {
+    pub max_width: f32,
+    pub gap: f32,
+    pub padding: f32,
+    pub radius: f32,
+    pub max_height_fraction: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -73,6 +88,7 @@ pub struct PlanPageTestIds {
     pub carousel: String,
     pub open_plan: String,
     pub outline_toggle: String,
+    pub tab: String,
 }
 
 /// THE styleguide specimen ×4 (`specimen`).
@@ -94,6 +110,7 @@ pub struct PlanPageSpec {
     pub mosaic: MosaicSpec,
     pub test_ids: PlanPageTestIds,
     pub specimen: PlanPageSpecimen,
+    pub panel: PlanPagePanel,
 }
 
 pub static PLAN_PAGE: LazyLock<PlanPageSpec> =
@@ -108,6 +125,8 @@ pub struct PlanPicture {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlanBlock {
+    /// #EXP-1662: a leading `# ` line (plain text), the document's big title.
+    Title { text: String },
     Markdown { text: String },
     Section { id: String, title: String },
     Pictures { pictures: Vec<PlanPicture> },
@@ -130,6 +149,8 @@ pub struct PlanCounts {
 
 static PICTURE_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$").unwrap());
 static PICTURE_ANY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"!\[[^\]]*\]\(([^)\s]+)\)").unwrap());
+static H1: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#\s+(.+?)\s*#*\s*$").unwrap());
+static PLAN_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^plan:\s*").unwrap());
 static H2: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^##\s+(.+?)\s*#*\s*$").unwrap());
 static FENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(```|~~~)").unwrap());
 static LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[([^\]]*)\]\([^)]*\)").unwrap());
@@ -155,7 +176,28 @@ fn flush_prose(blocks: &mut Vec<PlanBlock>, prose: &mut Vec<String>) {
     prose.clear();
 }
 
-/// THE plan page's blocks (`blockCases`): the markdown in order, every `## `
+/// #EXP-1662: the plan a thread's tab shows (`tabCases`; `plans` = (id,
+/// decision), oldest first): the newest waiting one, else the newest approved
+/// or rejected one; superseded and dismissed never.
+pub fn plan_tab_target<'a>(plans: &[(&'a str, Option<&str>)]) -> Option<&'a str> {
+    let newest = |pick: &dyn Fn(Option<&str>) -> bool| plans.iter().rev().find(|(_, decision)| pick(*decision)).map(|(id, _)| *id);
+    newest(&|decision| decision.is_none()).or_else(|| newest(&|decision| matches!(decision, Some("approved" | "rejected"))))
+}
+
+/// #EXP-1662: `Plan: title`, the row's and the wide tab's label
+/// (`rowLabelCases`).
+pub fn plan_row_label(plan: &str) -> String {
+    let title = crate::ask_dock::ask_dock_title(plan);
+    let title = PLAN_PREFIX.replace(&title, "");
+    if title.is_empty() {
+        PLAN_PAGE.copy.title.clone()
+    } else {
+        format!("{}{title}", PLAN_PAGE.copy.row_prefix)
+    }
+}
+
+/// THE plan page's blocks (`blockCases`): a leading `# ` line = the `title`
+/// block (every other `# ` stays in the prose), then the markdown in order, every `## `
 /// line outside a code fence = a `section` block (its anchor deduped `-2`,
 /// `-3`…), a run of two or more picture-only lines (blank lines between
 /// them allowed) = ONE `pictures` block; a lone picture stays in the prose.
@@ -163,6 +205,13 @@ fn flush_prose(blocks: &mut Vec<PlanBlock>, prose: &mut Vec<String>) {
 /// are trimmed of blank edge lines; an empty one is dropped.
 pub fn plan_blocks(markdown: &str) -> Vec<PlanBlock> {
     let mut blocks = Vec::new();
+    let mut lines: Vec<&str> = markdown.split('\n').collect();
+    if let Some(first) = lines.iter().position(|line| !line.trim().is_empty()) {
+        if let Some(heading) = H1.captures(lines[first]) {
+            blocks.push(PlanBlock::Title { text: plain_title(&heading[1]) });
+            lines.remove(first);
+        }
+    }
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut prose: Vec<String> = Vec::new();
     let mut run: Vec<PlanPicture> = Vec::new();
@@ -181,7 +230,7 @@ pub fn plan_blocks(markdown: &str) -> Vec<PlanBlock> {
             run_lines.clear();
         };
 
-    for line in markdown.split('\n') {
+    for line in lines {
         if FENCE.is_match(line) {
             flush_run(&mut blocks, &mut prose, &mut run, &mut run_lines);
             fenced = !fenced;
@@ -230,7 +279,7 @@ pub fn plan_blocks(markdown: &str) -> Vec<PlanBlock> {
 fn pictures_in(block: &PlanBlock) -> usize {
     match block {
         PlanBlock::Pictures { pictures } => pictures.len(),
-        PlanBlock::Section { .. } => 0,
+        PlanBlock::Title { .. } | PlanBlock::Section { .. } => 0,
         PlanBlock::Markdown { text } => {
             let mut fenced = false;
             let mut count = 0;
@@ -371,6 +420,13 @@ mod tests {
         assert_eq!(PLAN_PAGE.layout.outline_width, 240.0);
         assert_eq!(PLAN_PAGE.mosaic.large_fraction, 0.6);
         assert_eq!(PLAN_PAGE.test_ids.page, "plan-page");
+        assert_eq!(PLAN_PAGE.test_ids.tab, "thread-tab-plan");
+        assert_eq!(PLAN_PAGE.copy.needs_you, "Needs you");
+        assert_eq!(PLAN_PAGE.layout.title_size, 28.0);
+        assert_eq!(PLAN_PAGE.layout.row_height, 44.0);
+        assert_eq!(PLAN_PAGE.layout.tab_max_width, 260.0);
+        assert_eq!(PLAN_PAGE.panel.max_width, 720.0);
+        assert_eq!(PLAN_PAGE.panel.max_height_fraction, 0.4);
     }
 
     #[test]
@@ -407,6 +463,26 @@ mod tests {
         for case in fixture()["mosaicCases"].as_array().unwrap() {
             let actual = serde_json::to_value(mosaic_tiles(case["count"].as_u64().unwrap() as usize)).unwrap();
             assert_eq!(actual, case["expected"], "{}", case["count"]);
+        }
+    }
+
+    #[test]
+    fn tab_target_matches_the_fixture() {
+        for case in fixture()["tabCases"].as_array().unwrap() {
+            let plans: Vec<(&str, Option<&str>)> = case["plans"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|plan| (plan["id"].as_str().unwrap(), plan["decision"].as_str()))
+                .collect();
+            assert_eq!(plan_tab_target(&plans), case["expect"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn row_label_matches_the_fixture() {
+        for case in fixture()["rowLabelCases"].as_array().unwrap() {
+            assert_eq!(plan_row_label(case["plan"].as_str().unwrap()), case["expect"].as_str().unwrap());
         }
     }
 

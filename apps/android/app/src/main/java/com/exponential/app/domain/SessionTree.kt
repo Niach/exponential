@@ -568,6 +568,10 @@ object SessionTree {
          *  (not part of session-thread.json `tabs`: [threadView] never
          *  emits it, the host appends it after the last chip). */
         data object Stories : ThreadTab
+        /** #EXP-1662 (plan-page.json): the plan tab right after Conversation
+         *  while the thread holds a plan ([threadView] never emits it, the
+         *  host inserts it). */
+        data object Plan : ThreadTab
     }
 
     sealed interface ThreadRow {

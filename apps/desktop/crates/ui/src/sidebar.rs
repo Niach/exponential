@@ -3041,11 +3041,12 @@ impl ListPanel {
         } else {
             Vec::new()
         };
-        // #EXP-1493 (plan-page.json WAYS IN): a session waiting on its own
-        // plan opens THE plan page.
-        let target = entry
-            .session_id()
-            .map(|id| crate::plan_page::screen_for_session(&id, cx));
+        // #EXP-1662 (plan-page.json WAYS IN): a session waiting on its own
+        // plan opens its thread's plan tab.
+        let session_id = entry.session_id();
+        let target = session_id
+            .as_deref()
+            .map(|id| crate::plan_page::screen_for_session(id, cx));
         let selected = target.as_ref().is_some_and(|screen| {
             resolved_screen(&self.nav, cx).as_ref() == Some(screen)
         });
@@ -3065,6 +3066,9 @@ impl ListPanel {
         .on_click(cx.listener(move |this, _, window, cx| {
             mark_group_read(&unread_ids, cx);
             if let Some(screen) = target.clone() {
+                if let Some(id) = &session_id {
+                    crate::plan_page::prime_session(id, cx);
+                }
                 this.open_from_list(screen, window, cx);
             }
         }))
@@ -3094,9 +3098,10 @@ impl ListPanel {
             domain::inbox_route::InboxRowTarget::Device { device_id } => Some(device_id),
             _ => None,
         };
-        let target = entry
-            .session_id()
-            .map(|id| crate::plan_page::screen_for_session(&id, cx));
+        let session_id = entry.session_id();
+        let target = session_id
+            .as_deref()
+            .map(|id| crate::plan_page::screen_for_session(id, cx));
         // EXP-1192: the run this row opened reads selected beside it, like
         // an issue row beside its detail.
         let selected = target.as_ref().is_some_and(|screen| {
@@ -3129,6 +3134,9 @@ impl ListPanel {
             let Some(screen) = target.clone() else {
                 return;
             };
+            if let Some(id) = &session_id {
+                crate::plan_page::prime_session(id, cx);
+            }
             this.open_from_list(screen, window, cx);
         }))
         .into_any_element()

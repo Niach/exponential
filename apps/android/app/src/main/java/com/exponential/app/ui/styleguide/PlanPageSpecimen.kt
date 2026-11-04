@@ -1,12 +1,23 @@
 package com.exponential.app.ui.styleguide
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.LocalSpecimenPicture
 import com.exponential.app.ui.components.SpecimenSamples
 import com.exponential.app.domain.PlanPage
@@ -14,14 +25,17 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.plan.PlanPageContent
 import com.exponential.app.ui.plan.PlanPageState
 import com.exponential.app.ui.theme.AppBackground
+import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.thread.PLAN_TAB_KEY
+import com.exponential.app.ui.thread.ThreadTabStrip
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-// #EXP-1493 THE styleguide specimen ×4 (`plan-page`, plan-page.json
-// `specimen`): this card, waiting, drawn phone (the document from its top,
-// the DockCard at the foot; pictures = the committed samples, EXP-1654
-// `SpecimenSamples`). Web
+// #EXP-1493 → #EXP-1662 THE styleguide specimen ×4 (`plan-page`, plan-page.json
+// `specimen`): this card, waiting, drawn phone (the thread's title + strip, the
+// document from its top, the questions floating at the foot; pictures = the
+// committed samples, EXP-1654 `SpecimenSamples`). Web
 // `PlanPageSpecimen`, iOS ChatSpecimens `plan-page`, desktop plan_page.rs.
 
 const val PlanPageSpecimenTestId = "plan-page-specimen"
@@ -31,7 +45,7 @@ private const val SPECIMEN_CARD = """{"kind": "plan", "plan": "# Plan: editor-fi
 
 internal val PlanPageSpecimenCard: JsonObject = Json.parseToJsonElement(SPECIMEN_CARD).jsonObject
 
-/** The page's state over the specimen card (`sessionId` apps, message plan). */
+/** The tab's state over the specimen card (`sessionId` apps, message plan). */
 internal fun planPageSpecimenState(card: JsonObject = PlanPageSpecimenCard): PlanPageState {
     val message = SessionTree.Message(
         id = "plan",
@@ -45,31 +59,42 @@ internal fun planPageSpecimenState(card: JsonObject = PlanPageSpecimenCard): Pla
         createdAt = "2027-01-15T08:00:00.000Z",
         authorSessionId = "apps",
     )
-    return PlanPageState(
-        sessionId = "apps",
-        messageId = "plan",
-        card = card,
-        row = SessionTree.askRow(message) as? SessionTree.ThreadRow.Plan,
-        sessionName = PlanPage.Specimen.CHAT_NAME,
-        loading = false,
-    )
+    return PlanPageState(row = SessionTree.askRow(message) as SessionTree.ThreadRow.Plan, card = card)
 }
 
-/** `plan-page`: THE plan page, phone, over the specimen card. */
+/** `plan-page`: THE plan tab, phone, over the specimen card: the thread's title
+ *  and strip (Conversation · Plan with its dot · Stories), the body under them. */
 @Composable
 fun PlanPageSpecimenScreen() {
     val samples = SpecimenSamples.resolver(LocalContext.current)
     AppBackground(Modifier.testTag(PlanPageSpecimenTestId)) {
         CompositionLocalProvider(LocalSpecimenPicture provides samples) {
-        Box(Modifier.fillMaxSize()) {
-            PlanPageContent(
-                state = planPageSpecimenState(),
-                onBack = {},
-                onDecidePlan = { _, _, settled -> settled(false) },
-                chatName = PlanPage.Specimen.CHAT_NAME,
-                activeSection = PlanPage.Specimen.ACTIVE_SECTION,
-            )
-        }
+            Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                Text(
+                    PlanPage.Specimen.CHAT_NAME,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
+                )
+                ThreadTabStrip(
+                    tabs = listOf(SessionTree.ThreadTab.Conversation, SessionTree.ThreadTab.Plan, SessionTree.ThreadTab.Stories),
+                    selectedKey = PLAN_TAB_KEY,
+                    onSelect = {},
+                    onAdd = null,
+                    issueStatus = { null },
+                    planWaiting = true,
+                )
+                HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeCard)
+                PlanPageContent(
+                    state = planPageSpecimenState(),
+                    onDecidePlan = { _, _, settled -> settled(false) },
+                    modifier = Modifier.weight(1f),
+                    bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                    activeSection = PlanPage.Specimen.ACTIVE_SECTION,
+                )
+            }
         }
     }
 }

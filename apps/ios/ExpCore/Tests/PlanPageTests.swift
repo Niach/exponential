@@ -50,6 +50,8 @@ final class PlanPageTests: XCTestCase {
         XCTAssertEqual(copy["openChat"] as? String, PlanPage.Copy.openChat)
         XCTAssertEqual(copy["outline"] as? String, PlanPage.Copy.outline)
         XCTAssertEqual(copy["questions"] as? String, PlanPage.Copy.questions)
+        XCTAssertEqual(copy["needsYou"] as? String, PlanPage.Copy.needsYou)
+        XCTAssertEqual(copy["rowPrefix"] as? String, PlanPage.Copy.rowPrefix)
         XCTAssertEqual(copy["counts"] as? [String: [String]], [
             "sections": PlanPage.Copy.sections, "pictures": PlanPage.Copy.pictures,
             "questions": PlanPage.Copy.questionsCount,
@@ -57,15 +59,22 @@ final class PlanPageTests: XCTestCase {
         let layout = try XCTUnwrap(f["layout"] as? [String: Any])
         XCTAssertEqual(num(layout["outlineWidth"]), PlanPage.Layout.outlineWidth)
         XCTAssertEqual(num(layout["columnMaxWidth"]), PlanPage.Layout.columnMaxWidth)
-        XCTAssertEqual(num(layout["railWidth"]), PlanPage.Layout.railWidth)
+        XCTAssertNil(layout["railWidth"])
+        XCTAssertNil(layout["headerHeight"])
         XCTAssertEqual(
             layout["columnPadding"] as? [String: Double],
             ["wide": PlanPage.Layout.columnPaddingWide, "phone": PlanPage.Layout.columnPaddingPhone]
         )
-        XCTAssertEqual(num(layout["headerHeight"]), PlanPage.Layout.headerHeight)
         XCTAssertEqual(num(layout["blockGap"]), PlanPage.Layout.blockGap)
         XCTAssertEqual(num(layout["outlineRowHeight"]), PlanPage.Layout.outlineRowHeight)
         XCTAssertEqual(num(layout["outlineActiveBar"]), PlanPage.Layout.outlineActiveBar)
+        XCTAssertEqual(num(layout["titleSize"]), PlanPage.Layout.titleSize)
+        XCTAssertEqual(num(layout["rowHeight"]), PlanPage.Layout.rowHeight)
+        XCTAssertEqual(num(layout["tabMaxWidth"]), PlanPage.Layout.tabMaxWidth)
+        XCTAssertEqual(f["panel"] as? [String: Double], [
+            "maxWidth": PlanPage.Panel.maxWidth, "gap": PlanPage.Panel.gap, "padding": PlanPage.Panel.padding,
+            "radius": PlanPage.Panel.radius, "maxHeightFraction": PlanPage.Panel.maxHeightFraction,
+        ])
         XCTAssertEqual(f["mosaic"] as? [String: Double], [
             "gap": PlanPage.Mosaic.gap, "largeFraction": PlanPage.Mosaic.largeFraction,
             "aspect": PlanPage.Mosaic.aspect, "radius": PlanPage.Mosaic.radius,
@@ -75,7 +84,7 @@ final class PlanPageTests: XCTestCase {
             "outlineRow": PlanPage.TestIds.outlineRow, "document": PlanPage.TestIds.document,
             "rail": PlanPage.TestIds.rail, "mosaic": PlanPage.TestIds.mosaic,
             "carousel": PlanPage.TestIds.carousel, "openPlan": PlanPage.TestIds.openPlan,
-            "outlineToggle": PlanPage.TestIds.outlineToggle,
+            "outlineToggle": PlanPage.TestIds.outlineToggle, "tab": PlanPage.TestIds.tab,
         ])
     }
 
@@ -84,6 +93,7 @@ final class PlanPageTests: XCTestCase {
             let name = entry["name"] as? String ?? "?"
             let actual = PlanPage.blocks(try XCTUnwrap(entry["markdown"] as? String, name)).map { block -> [String: Any] in
                 switch block {
+                case let .title(text): ["kind": "title", "text": text]
                 case let .markdown(text): ["kind": "markdown", "text": text]
                 case let .section(id, title): ["kind": "section", "id": id, "title": title]
                 case let .pictures(pictures):
@@ -91,6 +101,23 @@ final class PlanPageTests: XCTestCase {
                 }
             }
             same(actual, entry["expected"], name)
+        }
+    }
+
+    func testTabCases() throws {
+        for entry in try cases("tabCases") {
+            let name = entry["name"] as? String ?? "?"
+            let plans = try XCTUnwrap(entry["plans"] as? [[String: Any]], name).map { raw -> (id: String, decision: String?) in
+                (raw["id"] as? String ?? "", raw["decision"] as? String)
+            }
+            same(PlanPage.planTabTarget(plans) ?? NSNull(), entry["expect"], name)
+        }
+    }
+
+    func testRowLabelCases() throws {
+        for entry in try cases("rowLabelCases") {
+            let plan = try XCTUnwrap(entry["plan"] as? String)
+            XCTAssertEqual(PlanPage.planRowLabel(plan), entry["expect"] as? String, plan)
         }
     }
 

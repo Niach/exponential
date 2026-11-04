@@ -753,11 +753,9 @@ private struct PlanSheetSpecimen: View {
 /// EXP-1280: THE rich plan / question card (`sg_plan-card`, web styleguide
 /// `plan-card`, the IDE's `styleguide:plan-card`): session-thread.json's case
 /// "EXP-1280: a rich plan card…" through the REAL row model
-/// (`ThreadRow.askCard`) and `ThreadAskCard`: the pending plan (a picture in
-/// the body, the inline surface, a picture-tile question + a multiple one;
-/// NEW-6: stepped, so it shows "Question 1 of 2" and Next),
-/// the answered question card (several picks, closed) and the approved plan
-/// with its feedback.
+/// (`ThreadRow.askCard`) and `ThreadAskCard`: #EXP-1662 the pending plan's ONE
+/// row, the answered question card (several picks, closed) and the approved
+/// plan's row.
 private struct PlanCardSpecimens: View {
     private static let pending = #"""
     {"kind":"plan","plan":"# Plan\n\n1. Lift the partition\n\n![before](/api/attachments/att-1)\n\n![after](upload:after)",

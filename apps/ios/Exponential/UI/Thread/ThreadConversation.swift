@@ -34,8 +34,9 @@ struct ThreadLiveTail: View {
 /// agent's reply bare prose under its mark (`NarrationBubble`); a `session`
 /// / `thread_started` card is THE session card (`SessionCardView`): a
 /// session of this tree opens its raw view, a thread another root started
-/// opens that thread; a question or plan answers IN the session view's
-/// `QuestionCard` (`sessions.answer`); a subagent is one muted row; a
+/// opens that thread; a question answers IN the session view's
+/// `QuestionCard` (`sessions.answer`), #EXP-1662 a plan is ONE row opening the
+/// plan tab; a subagent is one muted row; a
 /// picture is the Guide's inline tile; an event is one muted line.
 /// EXP-1323: a child's `report` is ONE line, S-3: its link header
 /// (`SessionXrefHeader`, `Report from <chip> ›`) pushing that session; a
@@ -495,9 +496,9 @@ struct ThreadConversationRow: View, Equatable {
             // collapsed to `copy.superseded`, never in the dock.
             SupersededPlanCard()
         case .question, .plan:
-            // FEED-140: a WAITING plan or question card is ALWAYS visible
-            // inline at its place with its actions (Approve / answer),
-            // besides THE dock; answered ones stay CLOSED.
+            // FEED-140: a WAITING question card is ALWAYS visible inline at
+            // its place with its actions, besides THE dock; answered ones stay
+            // CLOSED. #EXP-1662: a plan = ONE row opening the plan tab.
             ThreadAskCard(
                 row: row,
                 canAnswer: canAnswer,
@@ -665,8 +666,10 @@ struct AskDismissedCard: View {
 
 /// #EXP-1561 (waiting-cards.json DISMISS): THE card's × — a ghost icon-xs
 /// button (`ui-close` at 12pt, muted), the LAST item of the card's top row,
-/// tucked into the top-right corner.
+/// tucked into the top-right corner (#EXP-1662 `tucked` false: a plan row's,
+/// centred on the row).
 struct CardDismissButton: View {
+    var tucked = true
     let onDismiss: () -> Void
 
     var body: some View {
@@ -674,36 +677,14 @@ struct CardDismissButton: View {
             AppIcons.uiClose, accessibilityLabel: WaitingCards.Copy.dismiss, size: 24, glyphSize: 12,
             tint: DesignTokens.Palette.mutedForeground, action: onDismiss
         )
-        .padding(.top, -2)
-        .padding(.trailing, -4)
+        .padding(.top, tucked ? -2 : 0)
+        .padding(.trailing, tucked ? -4 : 0)
         .accessibilityIdentifier(WaitingCards.TestIds.dismiss)
     }
 }
 
 /// #EXP-1464 `copy.openChat`: trailing an expanded card's label line, it
 /// opens that card's session.
-/// #EXP-1493: THE plan card's header action (a ghost button, `ui-fullscreen`
-/// + `copy.openPlan`) opening THE plan page.
-struct PlanPageOpenButton: View {
-    let onOpen: () -> Void
-
-    var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 4) {
-                AppIcon(AppIcons.uiFullscreen, size: 12)
-                Text(PlanPage.Copy.openPlan)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(PlanPage.TestIds.openPlan)
-    }
-}
-
 private struct ThreadOpenChatLink: View {
     let onOpen: () -> Void
 
@@ -1167,14 +1148,13 @@ struct SupersededPlanCard: View {
     }
 }
 
-/// A thread's question or plan card IN THE TRANSCRIPT — THE session view's
+/// A thread's question card IN THE TRANSCRIPT — THE session view's
 /// `QuestionCard` (EXP-1316; EXP-1334: a CHILD's own ask lands here too):
-/// closed once answered (a decided plan names `planDecisionLabel` and lists
-/// every question closed), read-only while it waits on someone else. N-12: a
-/// card this reader may answer waits in THE Dock instead and opens as its
-/// sheet (`ThreadPlanSheet` / `ThreadQuestionSheet`, ThreadDockSheets.swift).
+/// closed once answered, read-only while it waits on someone else.
 /// EXP-1280 (plan-card.json): the rich card adds the inline surface and the
-/// question blocks under the body (`PlanCardForm.swift`).
+/// question blocks under the body (`PlanCardForm.swift`). #EXP-1662: a plan is
+/// never drawn here: ONE row opening the plan tab (`PlanConversationRow`), its
+/// superseded or dismissed form one closed line.
 struct ThreadAskCard: View {
     let row: ThreadRow
     var canAnswer = true
@@ -1185,11 +1165,11 @@ struct ThreadAskCard: View {
     var headerTrailing: AnyView?
     var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
 
+    @Environment(AppDependencies.self) private var deps
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.accountId) private var accountId
+    @Environment(\.threadPlanOutlet) private var planOutlet
     @State private var draft = PlanCardDraft()
-    /// FEED-140: a waiting plan's inline No-keep-planning field.
-    @State private var rejecting = false
 
     var body: some View {
         switch row {
@@ -1201,19 +1181,36 @@ struct ThreadAskCard: View {
         case let .question(card):
             questionCard(card)
                 .accessibilityIdentifier("thread-question-card")
+        case let .plan(card) where card.decision == "superseded":
+            SupersededPlanCard()
         case let .plan(card):
-            planCard(card)
-                .accessibilityIdentifier("thread-plan-card")
+            PlanConversationRow(
+                card: card,
+                onOpen: { openPlan(card) },
+                onDismiss: dismissAction(card.id, waiting: card.decision == nil)
+            )
+            .accessibilityIdentifier("thread-plan-card")
         default:
             EmptyView()
         }
     }
 
-    /// #EXP-1561: a WAITING card's ONE ghost × (top-right of its header
-    /// row) for a reader who may answer it; a press dismisses at once.
-    private func dismissButton(_ messageId: String, waiting: Bool) -> AnyView? {
+    /// #EXP-1662: the thread's tab on this plan, from anywhere.
+    private func openPlan(_ card: ThreadPlanRow) {
+        if planOutlet?.open(card.id) == true { return }
+        pushRoute(AppRoute.openingPlan(card.sessionId, messageId: card.id, accountId: accountId, deps: deps))
+    }
+
+    /// #EXP-1561: a WAITING card's ONE × for a reader who may answer it; a
+    /// press dismisses at once.
+    private func dismissAction(_ messageId: String, waiting: Bool) -> (() -> Void)? {
         guard waiting, canAnswer, answeringId != messageId else { return nil }
-        return AnyView(CardDismissButton { onSubmit(ThreadCardAnswer(messageId: messageId, dismissed: true)) })
+        return { onSubmit(ThreadCardAnswer(messageId: messageId, dismissed: true)) }
+    }
+
+    /// The same × in a question's header row (its top-right corner).
+    private func dismissButton(_ messageId: String, waiting: Bool) -> AnyView? {
+        dismissAction(messageId, waiting: waiting).map { action in AnyView(CardDismissButton(onDismiss: action)) }
     }
 
     /// The header's trailing slot: the host's own (`Open chat`), then the ×.
@@ -1333,126 +1330,63 @@ struct ThreadAskCard: View {
             surfaceData: card.surface == nil ? nil : draft.surface.snapshot()
         ))
     }
+}
 
-    // MARK: - Plan
+/// #EXP-1662 (plan-page.json): a plan in the Conversation = ONE row, THE
+/// session card's box: the plan glyph (amber while waiting, the emerald check
+/// once approved, muted otherwise), `planRowLabel` one line, the status word,
+/// flex, the chevron; a press opens the thread's plan tab on THIS plan. THE ×
+/// (waiting-cards.json) trails it while it waits.
+struct PlanConversationRow: View {
+    let card: ThreadPlanRow
+    let onOpen: () -> Void
+    var onDismiss: (() -> Void)?
 
-    @ViewBuilder
-    private func planCard(_ card: ThreadPlanRow) -> some View {
-        let decided = card.decision != nil
-        let busy = answeringId == card.id
-        QuestionCard(
-            question: AgentQuestion(
-                id: 0,
-                wireId: card.id,
-                text: PlanCard.renderableMarkdown(card.plan),
-                options: [],
-                planMode: true,
-                resolved: decided,
-                answers: card.decision.map { [AskDock.planDecisionLabel(decision: $0, fresh: card.fresh)] } ?? []
-            ),
-            active: !decided,
-            canAnswer: canAnswer,
-            locked: busy,
-            pending: busy,
-            failed: false,
-            onAnswer: { _, _ in },
-            markdownContext: markdownContext,
-            caption: caption,
-            form: planForm(card),
-            // NEW-6 (N-1): the decision block lives in the form.
-            hidesOptions: true,
-            resolutionNote: card.feedback,
-            richBody: true,
-            headerTrailing: AnyView(HStack(spacing: 10) {
-                // #EXP-1493: THE plan page (plan-page.json `copy.openPlan`);
-                // a superseded plan has none (web `headerAction`).
-                if card.decision != "superseded" {
-                    PlanPageOpenButton {
-                        pushRoute(.planPage(accountId: accountId, sessionId: card.sessionId, messageId: card.id))
-                    }
+    private var waiting: Bool { card.decision == nil }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: onOpen) {
+                HStack(spacing: 8) {
+                    AppIcon(card.decision == "approved" ? AppIcons.uiCheck : AppIcons.codingPlan, size: 16)
+                        .foregroundStyle(glyphTint)
+                    Text(PlanPage.planRowLabel(card.plan))
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(waiting ? DesignTokens.Semantic.yellow : DesignTokens.Palette.mutedForeground)
+                        .lineLimit(1)
+                        .fixedSize()
+                    Spacer(minLength: 0)
+                    AppIcon(AppIcons.uiChevronRight, size: 16)
+                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
                 }
-                headerTrailing
-                dismissButton(card.id, waiting: !decided)
-            })
-        )
+                .padding(.horizontal, 12)
+                .frame(minHeight: CGFloat(PlanPage.Layout.rowHeight))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("plan-row")
+            if let onDismiss {
+                CardDismissButton(tucked: false, onDismiss: onDismiss)
+                    .padding(.trailing, 8)
+            }
+        }
+        .glassCard()
+        .accessibilityElement(children: .contain)
     }
 
-    /// A plan's form: the surface, then every question (closed once
-    /// decided, inert while it waits on someone else). FEED-140: a plan
-    /// waiting on THIS reader is answerable inline too — its questions take
-    /// picks and THE decision footer (Yes · No, keep planning) closes it.
-    private func planForm(_ card: ThreadPlanRow) -> AnyView? {
-        let decided = card.decision != nil
-        let interactive = !decided && canAnswer && answeringId != card.id
-        guard card.surface != nil || !card.questions.isEmpty || interactive else { return nil }
-        let issue = PlanCard.answerIssue(
-            questions: card.questions,
-            input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
-        )
-        return AnyView(VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
-            if let surface = card.surface {
-                // Decided: the person's stamped `surfaceData` over the
-                // agent's initial values (web `data={row.surfaceData}`).
-                PlanCardSurfaceView(
-                    surface: surface, handle: draft.surface, editable: interactive,
-                    data: decided ? card.surfaceData : nil
-                )
-            }
-            ForEach(card.questions) { question in
-                questionBlock(question, card: card, editable: interactive)
-            }
-            if interactive {
-                PlanCardFooter(
-                    onBack: nil,
-                    onNext: nil,
-                    decision: PlanCardFooter.Decision(
-                        approveIssue: issue.map(PlanCard.Copy.issue),
-                        rejecting: $rejecting,
-                        feedback: $draft.feedback,
-                        onDecide: { decide($0, card: card, blocked: issue != nil) },
-                        busy: answeringId == card.id
-                    )
-                )
-                .accessibilityIdentifier("thread-plan-inline-decision")
-            }
-        })
+    private var glyphTint: Color {
+        if waiting { return DesignTokens.Semantic.yellow }
+        return card.decision == "approved" ? DesignTokens.Semantic.green : DesignTokens.Palette.mutedForeground
     }
 
-    /// Rejecting never needs answers; approving waits on them.
-    private func decide(_ option: AskDock.PlanOption, card: ThreadPlanRow, blocked: Bool) {
-        let approved = option.decision == PlanDecision.approved.rawValue
-        if approved, blocked { return }
-        let answers = draft.planAnswers(card.questions)
-        let typed = approved ? "" : draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
-        onSubmit(ThreadCardAnswer(
-            messageId: card.id,
-            decision: approved ? .approved : .rejected,
-            fresh: approved && option.fresh,
-            feedback: typed.isEmpty ? nil : typed,
-            answers: answers.isEmpty ? nil : .plan(answers),
-            surfaceData: card.surface == nil ? nil : draft.surface.snapshot()
-        ))
-    }
-
-    private func questionBlock(_ question: ThreadPlanQuestion, card: ThreadPlanRow, editable: Bool) -> some View {
-        PlanCardQuestionBlock(
-            questionId: question.id,
-            prompt: question.prompt,
-            caption: question.multi ? PlanCard.Copy.chooseAny : PlanCard.Copy.chooseOne,
-            multi: question.multi,
-            custom: question.custom,
-            options: question.options,
-            picked: card.decision != nil ? (card.answers?[question.id] ?? []) : draft.answer(question.id),
-            editable: editable,
-            customText: Binding(
-                get: { draft.custom[question.id] ?? "" },
-                set: { draft.custom[question.id] = $0 }
-            ),
-            onToggle: {
-                draft.toggle(question.id, label: $0, multi: question.multi, order: question.options.map(\.label))
-            },
-            onType: { draft.type(question.id, text: $0, multi: question.multi) }
-        )
+    private var status: String {
+        card.decision.map { AskDock.planDecisionLabel(decision: $0, fresh: card.fresh) } ?? PlanPage.Copy.needsYou
     }
 }
 

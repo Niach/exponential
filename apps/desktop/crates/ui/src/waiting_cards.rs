@@ -239,10 +239,12 @@ pub(crate) fn strip_chips(prefix: &str, cards: &[WaitingCardInput], on_pick: OnW
 }
 
 /// The conversation's WAITING cards for the chips: a thread's
-/// `thread_pending_asks` over its rows (Conversation order).
+/// `thread_pending_asks` over its rows (Conversation order). #EXP-1662: only
+/// the questions; a waiting plan's chip is the strip's plan tab.
 pub(crate) fn thread_waiting_cards(rows: &[domain::session_tree::SessionThreadRow]) -> Vec<WaitingCardInput> {
     domain::ask_dock::thread_pending_asks(rows, |_| None)
         .into_iter()
+        .filter(|ask| ask.kind != AskDockKind::Plan)
         .map(|ask| WaitingCardInput { id: ask.id, kind: ask.kind, text: ask.text })
         .collect()
 }
@@ -250,6 +252,43 @@ pub(crate) fn thread_waiting_cards(rows: &[domain::session_tree::SessionThreadRo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1662: a waiting plan has no chip (it is the strip's plan tab); the
+    /// chips keep the questions.
+    #[test]
+    fn the_chips_keep_only_the_questions() {
+        use domain::session_tree::SessionThreadRow;
+        let rows = [
+            SessionThreadRow::Plan {
+                id: "p".into(),
+                session_id: "s".into(),
+                plan: "# Plan: one".into(),
+                questions: Vec::new(),
+                surface: None,
+                decision: None,
+                fresh: false,
+                answers: None,
+                feedback: None,
+                surface_data: None,
+            },
+            SessionThreadRow::Question {
+                id: "q".into(),
+                session_id: "s".into(),
+                question: "Which?".into(),
+                options: Vec::new(),
+                custom: true,
+                multi: false,
+                surface: None,
+                answer: None,
+                answers: None,
+                surface_data: None,
+                answered: false,
+                dismissed: None,
+            },
+        ];
+        let ids: Vec<String> = thread_waiting_cards(&rows).into_iter().map(|card| card.id).collect();
+        assert_eq!(ids, ["q"]);
+    }
 
     #[gpui::test]
     fn the_ring_steps_out_and_ends(cx: &mut gpui::TestAppContext) {

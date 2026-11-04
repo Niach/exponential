@@ -1,173 +1,124 @@
 import ExpCore
 import ExpUI
-import GRDB
 import SwiftUI
 
-/// #EXP-1493 THE PLAN PAGE, phone form (fixtures/plan-page.json; web
-/// packages/ui plan-page.tsx, Android ui/plan/PlanPage.kt): THE plan card's
-/// expanded form, a pushed page. ONE scroll under the page header (back,
-/// `copy.title`, the `ui-menu` outline toggle when the outline has a row):
-/// the kind badge + the h1 title + the counts line lead the column, then the
-/// blocks (`PlanPage.blocks`): prose through THE chat markdown renderer, a
-/// section = its h2 (the outline's anchor), a picture group = THE carousel.
-/// A press on a picture opens THE lightbox (EXP-1586 THE picture viewer,
-/// zoomable, `‹ i / n ›`) over every plan picture in document order. The outline opens in a bottom sheet
-/// (THE eUI Drawer's phone form). The bottom = THE DockCard (dock.json, kind
-/// plan) opening THE Dock sheet (plan-card `stepper`); no composer.
-struct PlanPageScreen: View {
-    let sessionId: String
-    let messageId: String
-    /// The styleguide capture's card (no store read); nil = the synced row.
-    var specimen: TreeMessageCard?
-    /// The capture's chat name (`specimen.chatName`).
-    var specimenChatName: String?
+/// #EXP-1493 → #EXP-1662 THE PLAN TAB's body, phone form (fixtures/plan-page.json;
+/// web packages/ui plan-page.tsx, Android ui/plan/PlanPage.kt): under the
+/// thread's own header + strip, on its ground, no composer, no page header. ONE
+/// scroll: the big title, then the blocks (`PlanPage.blocks`): prose through THE
+/// chat markdown renderer, a section = its h2 (the outline's anchor), a picture
+/// group = THE carousel. A press on a picture opens THE lightbox (EXP-1586 THE
+/// picture viewer, zoomable, `‹ i / n ›`) over every plan picture in document
+/// order. The outline toggle (`ui-menu`, a ghost button at the document's top
+/// right) opens THE eUI Drawer's phone form. The questions float over the foot
+/// (`PlanQuestionsPanel`); the document pads by the panel's height.
+struct PlanPageBody: View {
+    let card: ThreadPlanRow
+    /// The card's `pictures` (their sizes give a carousel its aspect).
+    var pictureSizes: [ExpCore.PlanCardPicture] = []
+    /// A member of the team decides; anyone else reads.
+    var canAnswer = true
+    /// The answer in flight (its controls wait).
+    var busy = false
+    let onSubmit: (ThreadCardAnswer) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(\.pushRoute) private var pushRoute
-    @Environment(\.toaster) private var toaster
-    @Environment(\.dismiss) private var dismiss
 
-    @State private var message: SessionMessage?
-    /// The asking session's name (the DockCard's caption).
-    @State private var sessionName: String?
-    @State private var resolved = false
     @State private var draft = PlanCardDraft()
-    @State private var dockOpenId: String?
     @State private var outlineOpen = false
-    @State private var busy = false
     @State private var sectionTops: [String: CGFloat] = [:]
     @State private var lightbox: PictureViewerSet?
+    @State private var panelHeight: CGFloat = 0
 
     private static let space = "plan-document"
 
-    private var card: TreeMessageCard? { specimen ?? TreeMessageCard.parse(message?.card) }
-
     var body: some View {
-        ZStack {
-            AppBackground()
-            if let card, card.kind == "plan" {
-                page(card)
-            } else if resolved {
-                EmptyState(title: "Not found", description: "It may still be syncing, or it was deleted.",
-                           icon: AppIcons.codingPlan)
-                    .frame(maxHeight: .infinity)
-            } else {
-                SkeletonRows()
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        let plan = card.plan
+        let outline = PlanPage.outline(plan)
+        let hasOutline = !outline.isEmpty || !card.questions.isEmpty
+        let padding = CGFloat(PlanPage.Layout.columnPaddingPhone)
+        let gap = CGFloat(PlanPage.Panel.gap)
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: CGFloat(PlanPage.Layout.blockGap)) {
+                        ForEach(Array(PlanPage.blocks(plan).enumerated()), id: \.offset) { _, block in
+                            blockView(block, plan: plan, hasOutline: hasOutline)
+                        }
+                        if let surface = card.surface {
+                            PlanCardSurfaceView(
+                                surface: surface, handle: draft.surface, editable: false,
+                                data: card.decision != nil ? card.surfaceData : nil
+                            )
+                        }
+                    }
+                    .frame(maxWidth: CGFloat(PlanPage.Layout.columnMaxWidth), alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, padding)
+                    .padding(.top, padding)
+                    .padding(.bottom, panelHeight + 2 * gap)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(PlanPage.TestIds.document)
+                }
+                .coordinateSpace(name: Self.space)
+                .scrollIndicators(.hidden)
+                .overlay(alignment: .topTrailing) {
+                    if hasOutline {
+                        GhostIconButton(
+                            AppIcons.uiMenu, accessibilityLabel: PlanPage.Copy.outline,
+                            tint: .white.opacity(TextOpacity.secondary)
+                        ) { outlineOpen = true }
+                        .padding(.trailing, 8)
+                        .padding(.top, 8)
+                        .accessibilityIdentifier(PlanPage.TestIds.outlineToggle)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    PlanQuestionsPanel(
+                        card: card, canAnswer: canAnswer, busy: busy, draft: draft,
+                        maxHeight: geometry.size.height * CGFloat(PlanPage.Panel.maxHeightFraction),
+                        onSubmit: onSubmit
+                    )
+                    .padding(.horizontal, gap)
+                    .padding(.bottom, gap)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height - gap }) { panelHeight = $0 }
+                }
+                .sheet(isPresented: $outlineOpen) {
+                    GlassSheetChrome {
+                        PlanOutlineList(
+                            sections: outline,
+                            active: activeSection(outline),
+                            questions: card.questions.count,
+                            onSelect: { id in
+                                outlineOpen = false
+                                withAnimation { proxy.scrollTo(id, anchor: .top) }
+                            }
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 12)
+                    }
+                }
             }
-        }
-        .navigationTitle(PlanPage.Copy.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        // The outline toggle: a bare glyph (web-mobile), no iOS 26 shared glass.
-        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: !PlanPage.outline(card?.plan ?? "").isEmpty) {
-            GhostIconButton(AppIcons.uiMenu, accessibilityLabel: PlanPage.Copy.outline) { outlineOpen = true }
-                .accessibilityIdentifier(PlanPage.TestIds.outlineToggle)
         }
         .pictureViewer($lightbox)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanPage.TestIds.page)
-        .task(id: messageId) { await observe() }
     }
 
-    // MARK: - The page
-
-    private func page(_ card: TreeMessageCard) -> some View {
-        let plan = card.plan ?? ""
-        let blocks = Self.leadTrimmed(PlanPage.blocks(plan))
-        let outline = PlanPage.outline(plan)
-        let counts = PlanPage.countsLine(PlanPage.counts(card))
-        let row = planRow(card)
-        let padding = CGFloat(PlanPage.Layout.columnPaddingPhone)
-        return ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: CGFloat(PlanPage.Layout.blockGap)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        StoryKindBadge(kind: .plan, waiting: card.decision == nil)
-                        Text(AskDock.title(plan).isEmpty ? PlanPage.Copy.title : AskDock.title(plan))
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if !counts.isEmpty {
-                            Text(counts)
-                                .font(.footnote)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        }
-                    }
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                        blockView(block, card: card, plan: plan)
-                    }
-                }
-                .frame(maxWidth: CGFloat(PlanPage.Layout.columnMaxWidth), alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, padding)
-                .padding(.top, padding)
-                .padding(.bottom, 120)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(PlanPage.TestIds.document)
-            }
-            .coordinateSpace(name: Self.space)
-            .scrollIndicators(.hidden)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                DockView(
-                    rows: [row],
-                    openId: $dockOpenId,
-                    renderSheet: { row, close in
-                        AnyView(ThreadPlanSheet(
-                            row: row,
-                            card: threadPlanRow(card),
-                            canAnswer: true,
-                            busy: busy,
-                            markdownContext: markdownContext,
-                            sharedDraft: draft,
-                            questionsOnly: true,
-                            onSubmit: { answer in submit(answer, close: close) },
-                            onClose: close
-                        )
-                        .environment(deps)
-                        .environment(\.accountId, accountId))
-                    }
-                ) { EmptyView() }
-                .padding(.bottom, 8)
-                // Docked at the bottom (web-mobile): the page's ground from
-                // the card's middle down through the home indicator (no
-                // document line shows under the card), THE floating bar's
-                // fade above it.
-                .background(alignment: .bottom) {
-                    GlassTokens.backgroundBottom
-                        .padding(.top, 28)
-                        .ignoresSafeArea(.container, edges: .bottom)
-                }
-                .floatingBarEdge()
-            }
-            .sheet(isPresented: $outlineOpen) {
-                GlassSheetChrome {
-                    PlanOutlineList(
-                        sections: outline,
-                        active: activeSection(outline),
-                        questions: card.questions.count,
-                        onSelect: { id in
-                            outlineOpen = false
-                            withAnimation { proxy.scrollTo(id, anchor: .top) }
-                        },
-                        onQuestions: {
-                            outlineOpen = false
-                            dockOpenId = row.id
-                        }
-                    )
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 12)
-                }
-            }
-        }
-    }
+    // MARK: - The document
 
     @ViewBuilder
-    private func blockView(_ block: PlanPage.Block, card: TreeMessageCard, plan: String) -> some View {
+    private func blockView(_ block: PlanPage.Block, plan: String, hasOutline: Bool) -> some View {
         switch block {
+        case let .title(text):
+            Text(text)
+                .font(.system(size: CGFloat(PlanPage.Layout.titleSize), weight: .semibold))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.trailing, hasOutline ? 32 : 0)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("plan-title")
         case let .markdown(text):
             AgentMarkdownText(
                 text: text,
@@ -189,7 +140,7 @@ struct PlanPageScreen: View {
         case let .pictures(pictures):
             PlanPictureCarousel(
                 count: pictures.count,
-                aspect: aspect(pictures.first, card: card),
+                aspect: aspect(pictures.first),
                 onOpen: { index in openLightbox(at: pictures[index], plan: plan) }
             ) { index in
                 PlanPictureImage(src: pictures[index].src)
@@ -197,25 +148,15 @@ struct PlanPageScreen: View {
         }
     }
 
-    /// The h1 the page already leads with (`AskDock.title`) is not said twice.
-    private static func leadTrimmed(_ blocks: [PlanPage.Block]) -> [PlanPage.Block] {
-        guard case let .markdown(text)? = blocks.first else { return blocks }
-        var lines = text.components(separatedBy: "\n")
-        guard let first = lines.first, first.hasPrefix("# ") else { return blocks }
-        lines.removeFirst()
-        let rest = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return (rest.isEmpty ? [] : [.markdown(rest)]) + blocks.dropFirst()
-    }
-
     /// Scroll-spy: the last section whose heading passed the top.
     private func activeSection(_ outline: [PlanPage.Section]) -> String? {
         outline.last { (sectionTops[$0.id] ?? .infinity) <= 8 }?.id
     }
 
-    private func aspect(_ picture: PlanPage.Picture?, card: TreeMessageCard) -> CGFloat {
+    private func aspect(_ picture: PlanPage.Picture?) -> CGFloat {
         guard let picture else { return 16 / 10 }
         let id = Self.attachmentId(picture.src)
-        if let entry = card.pictures.first(where: { $0.attachmentId == id }),
+        if let entry = pictureSizes.first(where: { $0.attachmentId == id }),
            let width = entry.width, let height = entry.height, width > 0, height > 0 {
             return max(0.5, min(2.4, width / height))
         }
@@ -224,50 +165,6 @@ struct PlanPageScreen: View {
 
     private static func attachmentId(_ src: String) -> String {
         String(src.split(separator: "?").first?.split(separator: "/").last ?? "")
-    }
-
-    // MARK: - THE DockCard + Dock sheet
-
-    /// dock.json's plan DockCard UNCHANGED (`Dock.rows` of the plan:
-    /// `Plan ready`, the asking session's name, `n questions`, the title).
-    private func planRow(_ card: TreeMessageCard) -> Dock.Row {
-        Dock.rows([.plan(
-            id: messageId, text: card.plan ?? "", sessionName: specimenChatName ?? sessionName,
-            questions: card.questions.count, createdAt: 0
-        )]).first ?? Dock.Row(
-            id: messageId, kind: .plan, tint: .plan, icon: Dock.Icons.plan, label: AskDock.label(.plan),
-            caption: nil, meta: nil, title: PlanPage.Copy.title, expandable: true, action: nil
-        )
-    }
-
-    private func threadPlanRow(_ card: TreeMessageCard) -> ThreadPlanRow {
-        ThreadPlanRow(
-            id: messageId, sessionId: sessionId, plan: card.plan ?? "", questions: card.questions,
-            surface: card.surface, decision: card.decision, fresh: card.fresh, answers: card.planAnswers,
-            feedback: card.feedback, surfaceData: card.surfaceData
-        )
-    }
-
-    /// THE card-answer path; the page stays open (closed once it syncs).
-    private func submit(_ answer: ThreadCardAnswer, close: @escaping () -> Void) {
-        guard !busy else { return }
-        busy = true
-        Task {
-            do {
-                try await deps.sessionsApi.answer(
-                    accountId: accountId, messageId: answer.messageId, answer: answer.answer,
-                    decision: answer.decision, fresh: answer.fresh, feedback: answer.feedback,
-                    answers: answer.answers, surfaceData: answer.surfaceData
-                )
-                close()
-            } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: "answer", thing: "the plan"),
-                    description: error.userFacingMessage
-                )
-            }
-            busy = false
-        }
     }
 
     // MARK: - THE lightbox
@@ -299,28 +196,151 @@ struct PlanPageScreen: View {
             httpClient: deps.httpClient
         )
     }
+}
 
-    private func observe() async {
-        guard specimen == nil else { return }
-        guard let pool = try? deps.db.pool(forAccountId: accountId) else {
-            resolved = true
-            return
-        }
-        let id = messageId
-        let session = sessionId
-        let observation = ValueObservation.tracking { db in
-            (try SessionQueries.messages(db: db, ids: [id]).first,
-             try SessionEntity.fetchOne(db, key: session)?.title)
-        }
-        do {
-            for try await (row, title) in observation.values(in: pool) {
-                if row != message { message = row }
-                if title != sessionName { sessionName = title }
-                resolved = true
+/// #EXP-1662 THE questions, floating (plan-page.json `panel`; web `PlanRail`):
+/// plan-card `stepper`: the step label top right (more than one question), one
+/// question at a time, Back / Next bottom right, the decision on the last step,
+/// the feedback field after the reject pick; no questions = the decision alone;
+/// decided or superseded = the closed card (the picks, `planDecisionLabel`, the
+/// feedback line). A decision goes through THE card-answer path.
+struct PlanQuestionsPanel: View {
+    let card: ThreadPlanRow
+    let canAnswer: Bool
+    let busy: Bool
+    let draft: PlanCardDraft
+    let maxHeight: CGFloat
+    let onSubmit: (ThreadCardAnswer) -> Void
+
+    @State private var step = 0
+    @State private var rejecting = false
+
+    private var decided: Bool { card.decision != nil }
+
+    var body: some View {
+        @Bindable var bound = draft
+        let interactive = !decided && !busy && canAnswer
+        let count = card.questions.count
+        let page = min(step, max(0, count - 1))
+        let question = decided || count == 0 ? nil : card.questions[page]
+        let last = page >= count - 1
+        let issue = PlanCard.answerIssue(
+            questions: card.questions,
+            input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
+        )
+        let showsFooter = !decided && (page > 0 || !last || interactive || busy)
+        if decided || count > 0 || interactive {
+            PlanFloatingPanel(maxHeight: maxHeight) {
+                if question != nil, count > 1 {
+                    Text(PlanCard.Copy.stepLabel(step: page + 1, count: count))
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.bottom, 12)
+                        .accessibilityIdentifier(PlanCard.TestIds.step)
+                }
+            } content: {
+                VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
+                    if let question {
+                        questionBlock(question, editable: interactive)
+                    } else if decided {
+                        ForEach(card.questions) { question in
+                            questionBlock(question, editable: false)
+                        }
+                        closedLines
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(PlanCard.TestIds.card)
+            } footer: {
+                if showsFooter {
+                    VStack(alignment: .trailing, spacing: PlanCard.Stepper.buttonGap) {
+                        PlanCardFooter(
+                            onBack: page > 0 ? { step = page - 1 } : nil,
+                            onNext: last ? nil : { step = page + 1 },
+                            decision: last && interactive
+                                ? PlanCardFooter.Decision(
+                                    approveIssue: issue.map(PlanCard.Copy.issue),
+                                    rejecting: $rejecting,
+                                    feedback: $bound.feedback,
+                                    onDecide: { decide($0, blocked: issue != nil) },
+                                    busy: busy
+                                )
+                                : nil
+                        )
+                        if busy {
+                            Text(PlanCard.Copy.answering)
+                                .font(.caption)
+                                .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                        }
+                    }
+                }
             }
-        } catch {
-            resolved = true
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(PlanPage.TestIds.rail)
         }
+    }
+
+    /// A decided plan's closing lines: the decision label + the feedback.
+    @ViewBuilder
+    private var closedLines: some View {
+        if let decision = card.decision {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 6) {
+                    AppIcon(decision == "approved" ? AppIcons.uiCheck : AppIcons.uiClose, size: 12)
+                        .foregroundStyle(decision == "approved"
+                            ? DesignTokens.Semantic.green
+                            : DesignTokens.Palette.mutedForeground)
+                        .padding(.top, 2)
+                    Text(AskDock.planDecisionLabel(decision: decision, fresh: card.fresh))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                }
+                if let feedback = card.feedback, !feedback.isEmpty {
+                    Text(PlanCard.Copy.feedbackLine(feedback))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .accessibilityIdentifier(PlanCard.TestIds.feedback)
+                }
+            }
+        }
+    }
+
+    private func questionBlock(_ question: ThreadPlanQuestion, editable: Bool) -> some View {
+        PlanCardQuestionBlock(
+            questionId: question.id,
+            prompt: question.prompt,
+            caption: question.multi ? PlanCard.Copy.chooseAny : PlanCard.Copy.chooseOne,
+            multi: question.multi,
+            custom: question.custom,
+            options: question.options,
+            picked: decided ? (card.answers?[question.id] ?? []) : draft.answer(question.id),
+            editable: editable,
+            customText: Binding(
+                get: { draft.custom[question.id] ?? "" },
+                set: { draft.custom[question.id] = $0 }
+            ),
+            onToggle: {
+                draft.toggle(question.id, label: $0, multi: question.multi, order: question.options.map(\.label))
+            },
+            onType: { draft.type(question.id, text: $0, multi: question.multi) }
+        )
+    }
+
+    /// Rejecting never needs answers; approving waits on them.
+    private func decide(_ option: AskDock.PlanOption, blocked: Bool) {
+        let approved = option.decision == PlanDecision.approved.rawValue
+        if approved, blocked { return }
+        let answers = draft.planAnswers(card.questions)
+        let typed = approved ? "" : draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        onSubmit(ThreadCardAnswer(
+            messageId: card.id,
+            decision: approved ? .approved : .rejected,
+            fresh: approved && option.fresh,
+            feedback: typed.isEmpty ? nil : typed,
+            answers: answers.isEmpty ? nil : .plan(answers),
+            surfaceData: card.surface == nil ? nil : draft.surface.snapshot()
+        ))
     }
 }
 

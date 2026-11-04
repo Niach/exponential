@@ -2,6 +2,8 @@ package com.exponential.app.ui.thread
 
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionTree.ThreadTab
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -102,5 +104,45 @@ class ThreadPagesTest {
     fun noMainSessionKeepsThePagesAsTheyAre() {
         val tabs = listOf(ThreadTab.Conversation, ThreadTab.IssueTab("i1", "APP-1"))
         assertEquals(listOf("conversation", "issue:i1"), threadMainPages(threadPages(tabs), null).map(::threadTabKey))
+    }
+
+    @Test
+    fun `the plan page follows Conversation`() {
+        // #EXP-1662 (plan-page.json): web `threadPages`.
+        val tabs = threadTabsWithPlan(listOf(ThreadTab.Conversation, ThreadTab.Add, ThreadTab.IssueTab("i1", "EXP-1"), ThreadTab.Stories), hasPlan = true)
+        assertEquals(listOf("conversation", "plan", "issue:i1", "stories"), threadPages(tabs).map(::threadTabKey))
+    }
+
+    @Test
+    fun `no plan no page`() {
+        val tabs = threadTabsWithPlan(listOf(ThreadTab.Conversation, ThreadTab.Stories), hasPlan = false)
+        assertEquals(listOf("conversation", "stories"), threadPages(tabs).map(::threadTabKey))
+    }
+
+    @Test
+    fun `the shown plan is the opened one else the tab target`() {
+        fun plan(id: String, decision: String?) = SessionTree.ThreadRow.Plan(id = id, sessionId = "r", plan = "# $id", decision = decision)
+        val rows = listOf(plan("a", "approved"), plan("b", null), plan("c", "rejected"))
+        assertEquals("b", threadShownPlan(rows, null, emptyMap())?.id)
+        assertEquals("a", threadShownPlan(rows, "a", emptyMap())?.id)
+        assertEquals("b", threadShownPlan(rows, "gone", emptyMap())?.id)
+        assertEquals(null, threadShownPlan(listOf(plan("s", "superseded")), null, emptyMap()))
+        // A child session's plan is no row of the root's: found in the tree's messages.
+        val child = SessionTree.Message(
+            id = "child",
+            sessionId = "c1",
+            authorKind = "agent",
+            authorId = null,
+            body = "",
+            card = buildJsonObject {
+                put("kind", "plan")
+                put("plan", "# Child")
+            },
+            answeredAt = null,
+            consumedAt = null,
+            createdAt = "2027-01-15T08:00:00.000Z",
+            authorSessionId = "c1",
+        )
+        assertEquals("child", threadShownPlan(rows, "child", mapOf("child" to child))?.id)
     }
 }

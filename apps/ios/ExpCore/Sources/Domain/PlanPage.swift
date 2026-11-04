@@ -1,9 +1,10 @@
 import Foundation
 
-/// #EXP-1493 THE PLAN PAGE ×4 (`packages/domain-contract/fixtures/plan-page.json`,
-/// TS reference `src/plan-page.ts`): the expanded form of THE plan card. A
-/// plan's markdown split into blocks (prose, h2 sections, picture groups),
-/// its outline, its counts line and where a session's waiting plan opens.
+/// #EXP-1493 → #EXP-1662 THE PLAN TAB ×4 (`packages/domain-contract/fixtures/plan-page.json`,
+/// TS reference `src/plan-page.ts`): the expanded form of THE plan card, a
+/// tab of its thread. A plan's markdown split into blocks (title, prose, h2
+/// sections, picture groups), its outline, its counts line, which plan the
+/// tab shows, its row's label and where a session's waiting plan opens.
 /// `PlanPageTests` replays every `*Cases` array.
 public enum PlanPage {
     // MARK: - Fixture constants
@@ -15,6 +16,8 @@ public enum PlanPage {
         public static let openChat = "Open chat"
         public static let outline = "Outline"
         public static let questions = "Questions"
+        public static let needsYou = "Needs you"
+        public static let rowPrefix = "Plan: "
         /// singular, plural.
         public static let sections = ["section", "sections"]
         public static let pictures = ["picture", "pictures"]
@@ -24,13 +27,23 @@ public enum PlanPage {
     public enum Layout {
         public static let outlineWidth: Double = 240
         public static let columnMaxWidth: Double = 720
-        public static let railWidth: Double = 360
         public static let columnPaddingWide: Double = 28
         public static let columnPaddingPhone: Double = 18
-        public static let headerHeight: Double = 48
         public static let blockGap: Double = 14
         public static let outlineRowHeight: Double = 32
         public static let outlineActiveBar: Double = 2
+        public static let titleSize: Double = 28
+        public static let rowHeight: Double = 44
+        public static let tabMaxWidth: Double = 260
+    }
+
+    /// #EXP-1662: the questions float over the document's foot.
+    public enum Panel {
+        public static let maxWidth: Double = 720
+        public static let gap: Double = 16
+        public static let padding: Double = 16
+        public static let radius: Double = 16
+        public static let maxHeightFraction: Double = 0.4
     }
 
     public enum Mosaic {
@@ -50,6 +63,7 @@ public enum PlanPage {
         public static let carousel = "plan-carousel"
         public static let openPlan = "open-plan"
         public static let outlineToggle = "plan-outline-toggle"
+        public static let tab = "thread-tab-plan"
     }
 
     public static let route = "/t/$teamSlug/sessions/$sessionId/plan/$messageId"
@@ -74,6 +88,8 @@ public enum PlanPage {
     }
 
     public enum Block: Equatable, Sendable {
+        /// #EXP-1662: a leading `# ` line.
+        case title(String)
         case markdown(String)
         case section(id: String, title: String)
         case pictures([Picture])
@@ -106,9 +122,11 @@ public enum PlanPage {
 
     nonisolated(unsafe) private static let pictureLine = #/^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/#
     nonisolated(unsafe) private static let pictureAny = #/!\[[^\]]*\]\(([^)\s]+)\)/#
+    nonisolated(unsafe) private static let h1 = #/^#\s+(.+?)\s*#*\s*$/#
     nonisolated(unsafe) private static let h2 = #/^##\s+(.+?)\s*#*\s*$/#
     nonisolated(unsafe) private static let fence = #/^\s*(```|~~~)/#
     nonisolated(unsafe) private static let link = #/\[([^\]]*)\]\([^)]*\)/#
+    nonisolated(unsafe) private static let planPrefix = #/^plan:\s*/#.ignoresCase()
     private static let pending = "upload:"
 
     private static func isFence(_ line: String) -> Bool { line.prefixMatch(of: fence) != nil }
@@ -138,8 +156,22 @@ public enum PlanPage {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// THE plan page's blocks (`blockCases`): every `## ` line outside a code
-    /// fence = a `section` (anchor deduped `-2`, `-3`…), a run of two or more
+    /// #EXP-1662: the plan a thread's tab shows (`tabCases`): the newest waiting
+    /// card, else the newest approved or rejected one. `plans` = oldest first.
+    public static func planTabTarget(_ plans: [(id: String, decision: String?)]) -> String? {
+        plans.last { $0.decision == nil }?.id
+            ?? plans.last { $0.decision == "approved" || $0.decision == "rejected" }?.id
+    }
+
+    /// #EXP-1662: `Plan: title`, the row's and the wide tab's label
+    /// (`rowLabelCases`).
+    public static func planRowLabel(_ plan: String) -> String {
+        let title = AskDock.title(plan).replacing(planPrefix, with: "")
+        return title.isEmpty ? Copy.title : Copy.rowPrefix + title
+    }
+
+    /// THE plan page's blocks (`blockCases`): a leading `# ` line = the `title`
+    /// (#EXP-1662), every `## ` line outside a code fence = a `section` (anchor deduped `-2`, `-3`…), a run of two or more
     /// picture-only lines (blank lines between allowed) = ONE `pictures`
     /// block; a lone picture stays in the prose; a pending `upload:` picture
     /// is dropped. Prose blocks are trimmed of blank edge lines; empty = dropped.
@@ -150,8 +182,13 @@ public enum PlanPage {
         var run: [Picture] = []
         var runLines: [String] = []
         var fenced = false
+        var lines = markdown.components(separatedBy: "\n")
 
         func blankLine(_ line: String) -> Bool { line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if let first = lines.firstIndex(where: { !blankLine($0) }), let heading = lines[first].wholeMatch(of: h1) {
+            blocks.append(.title(plainTitle(String(heading.1))))
+            lines.remove(at: first)
+        }
         func flushProse() {
             while let first = prose.first, blankLine(first) { prose.removeFirst() }
             while let last = prose.last, blankLine(last) { prose.removeLast() }
@@ -169,7 +206,7 @@ public enum PlanPage {
             runLines = []
         }
 
-        for line in markdown.components(separatedBy: "\n") {
+        for line in lines {
             if isFence(line) {
                 flushRun()
                 fenced.toggle()
@@ -214,7 +251,7 @@ public enum PlanPage {
     private static func picturesIn(_ block: Block) -> Int {
         switch block {
         case let .pictures(pictures): return pictures.count
-        case .section: return 0
+        case .title, .section: return 0
         case let .markdown(text):
             var fenced = false
             var count = 0
@@ -249,7 +286,7 @@ public enum PlanPage {
         for block in blocks(markdown) {
             switch block {
             case let .pictures(pictures): out.append(contentsOf: pictures)
-            case .section: break
+            case .title, .section: break
             case let .markdown(text):
                 var fenced = false
                 for line in text.components(separatedBy: "\n") {
@@ -348,7 +385,7 @@ public enum PlanPage {
         return best?.id
     }
 
-    /// The web path; natives push the same page.
+    /// The web deep link; natives open the thread's tab on the same plan.
     public static func path(teamSlug: String, sessionId: String, messageId: String) -> String {
         route
             .replacingOccurrences(of: "$teamSlug", with: teamSlug)

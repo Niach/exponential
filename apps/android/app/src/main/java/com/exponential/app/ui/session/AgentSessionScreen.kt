@@ -3521,10 +3521,14 @@ internal fun AskCard(
  *  (`icons.dismiss`, `copy.dismiss`, `testIds.dismiss`), the unqueue ×'s size;
  *  a press dismisses at once. */
 @Composable
-internal fun CardDismissButton(onDismiss: () -> Unit) {
+internal fun CardDismissButton(
+    onDismiss: () -> Unit,
+    /** Into a card's corner; off in a row (#EXP-1662's plan row). */
+    corner: Boolean = true,
+) {
     Box(
         modifier = Modifier
-            .offset(x = 4.dp, y = (-4).dp)
+            .then(if (corner) Modifier.offset(x = 4.dp, y = (-4).dp) else Modifier)
             .size(24.dp)
             .clip(CircleShape)
             .clickable(

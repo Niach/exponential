@@ -1,41 +1,37 @@
-//! #EXP-1493 THE PLAN PAGE (`fixtures/plan-page.json`, its `$comment` is
-//! the spec; web `packages/ui/src/plan-page.tsx`, iOS ExpUI `PlanPage.swift`,
-//! Android `ui/plan/PlanPage.kt`): the EXPANDED FORM of THE plan card, never
-//! a second plan UI. The IDE is WIDE: ONE header row (`layout.headerHeight`,
-//! a hairline under it: back, the chat's name muted, `/`, `copy.title`, THE
-//! kind badge + the waiting dot, the counts line, `copy.openChat`, close)
-//! over three columns: THE Outline ([`crate::outline`], scroll-spy, the
-//! Questions row), THE document (one scroll, a `layout.columnMaxWidth`
-//! column: THE chat markdown, h2 anchors, picture groups as THE Mosaic
-//! [`crate::mosaic`]) and THE rail (the plan card's stepper + decision,
-//! [`crate::plan_card::plan_rail`], sticky). Any picture opens THE lightbox
-//! over every picture of the plan ([`crate::image_preview::open_picture_gallery`]).
+//! #EXP-1493 → #EXP-1662 THE PLAN IS A TAB (`fixtures/plan-page.json`, its
+//! `$comment` is the spec; web `packages/ui/src/plan-page.tsx`, iOS ExpUI
+//! `PlanPage.swift`, Android `ui/plan/PlanPage.kt`): the BODY of a thread's
+//! plan tab, under the thread's own header + strip, on its ground, no page
+//! header. The IDE is WIDE: THE Outline ([`crate::outline`], scroll-spy, the
+//! Questions row) + THE document (one scroll, a `layout.columnMaxWidth`
+//! column: the big title, THE chat markdown, h2 anchors, picture groups as
+//! THE Mosaic [`crate::mosaic`]). THE questions float over the document's
+//! foot (`panel`, [`crate::plan_card::plan_rail`]). Any picture opens THE
+//! lightbox over every picture of the plan
+//! ([`crate::image_preview::open_picture_gallery`]).
 //!
-//! [`Screen::PlanPage`] is a detail that shares its session's tab (like
-//! [`Screen::Session`]); [`open`] is every way in (the story viewer's
-//! `Open plan`, the plan card header, the Dock sheet glyph, an inbox row,
-//! the Needs-you row).
+//! [`open`] is every way in that names a plan (a Conversation row, a story's
+//! `Open plan`, the Dock sheet glyph); [`prime_session`] + [`screen_for_session`]
+//! are an inbox row's and a push's. All of them land on the thread's tab
+//! ([`crate::thread_screen::request_thread_plan`]).
 
+use std::cell::Cell;
 use std::rc::Rc;
 
-use domain::plan_page::{plan_blocks, plan_counts_line, plan_outline, PlanBlock, PlanCounts, PLAN_PAGE};
+use domain::plan_page::{plan_blocks, plan_outline, PlanBlock, PLAN_PAGE};
 use domain::rows::MessageRow;
 use domain::session_tree::SessionThreadRow;
-use domain::stories::StoryKind;
 use gpui::{
-    div, img, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, FontWeight,
-    InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement as _, Styled as _, StyledImage as _, Subscription, Window,
+    canvas, div, img, prelude::FluentBuilder as _, px, relative, AnyElement, App, Entity, FontWeight,
+    InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
     h_flex,
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _,
 };
 
-use crate::controls::WebControl as _;
-use crate::icons::registry;
 use crate::image_preview::GalleryPicture;
 use crate::markdown::{attachment_natural_size, ImageCache, ImageSlot};
 use crate::navigation::Screen;
@@ -50,31 +46,51 @@ const SPY_SLACK: f32 = 16.;
 // Ways in
 // ---------------------------------------------------------------------------
 
-/// Opens THE plan page for `message_id` (a plan card `session_id` posted).
-/// Every way in (the story viewer's `Open plan`, the plan card header, the
-/// Dock sheet glyph, an inbox row, the Needs-you row) calls this. A message
-/// that is not a plan card = the session instead (one still syncing opens
-/// the page, which waits for it).
+/// The screen that shows `session_id`'s thread (its root's id too): the
+/// viewer's own agent conversation = the agent's page, every other tree = its
+/// thread screen (web: the deep link's redirect); `None` while unsynced.
+fn thread_of(session_id: &str, cx: &App) -> Option<(String, Screen)> {
+    let root_id = crate::session_data::session(session_id, cx)?.root_id_or_self().to_string();
+    let screen = match crate::navigation::session_screen_for(&root_id, cx) {
+        agent @ Screen::Agent { .. } => agent,
+        _ => Screen::Thread { session_id: root_id.clone() },
+    };
+    Some((root_id, screen))
+}
+
+/// Opens the thread's plan tab on `message_id` (a plan card `session_id`
+/// posted; a plan of another thread opens that thread on it). Every way in
+/// that names a plan calls this. A message that is not a plan card = the
+/// session instead, like a session that has not synced.
 pub(crate) fn open(session_id: &str, message_id: &str, window: &mut Window, cx: &mut App) {
-    if message_of(message_id, session_id, cx).is_some_and(|message| !is_plan_card(&message)) {
-        crate::thread_screen::open_session_card(session_id, window, cx);
-        return;
+    let not_a_plan = message_of(message_id, session_id, cx).is_some_and(|message| !is_plan_card(&message));
+    match thread_of(session_id, cx).filter(|_| !not_a_plan) {
+        Some((root_id, screen)) => {
+            crate::thread_screen::request_thread_plan(&root_id, message_id, cx);
+            crate::navigation::navigate(window, cx, screen);
+        }
+        None => crate::thread_screen::open_session_card(session_id, window, cx),
     }
-    crate::navigation::navigate(
-        window,
-        cx,
-        Screen::PlanPage { session_id: session_id.to_string(), message_id: message_id.to_string() },
-    );
 }
 
 /// What an inbox row / push naming `session_id` opens (plan-page.json WAYS
-/// IN): THE plan page when the session waits on its own plan
+/// IN): its thread while the session waits on its own plan
 /// ([`domain::plan_page::plan_page_for`]), else the session's screen
-/// ([`crate::navigation::session_screen_for`]).
+/// ([`crate::navigation::session_screen_for`]). The caller pairs it with
+/// [`prime_session`] when it navigates.
 pub(crate) fn screen_for_session(session_id: &str, cx: &App) -> Screen {
-    match waiting_plan_of(session_id, cx) {
-        Some(message_id) => Screen::PlanPage { session_id: session_id.to_string(), message_id },
-        None => crate::navigation::session_screen_for(session_id, cx),
+    waiting_plan_of(session_id, cx)
+        .and_then(|_| thread_of(session_id, cx))
+        .map_or_else(|| crate::navigation::session_screen_for(session_id, cx), |(_, screen)| screen)
+}
+
+/// Selects the plan tab on the plan `session_id` waits on, for the navigation
+/// to [`screen_for_session`] that follows.
+pub(crate) fn prime_session(session_id: &str, cx: &mut App) {
+    if let Some(message_id) = waiting_plan_of(session_id, cx) {
+        if let Some((root_id, _)) = thread_of(session_id, cx) {
+            crate::thread_screen::request_thread_plan(&root_id, &message_id, cx);
+        }
     }
 }
 
@@ -113,16 +129,6 @@ fn message_of(id: &str, session_id: &str, cx: &App) -> Option<MessageRow> {
 
 fn is_plan_card(message: &MessageRow) -> bool {
     message.card.as_ref().and_then(|card| card.get("kind")).and_then(|kind| kind.as_str()) == Some("plan")
-}
-
-/// Back / close (web: history back) and `Open chat` (the session).
-fn leave_to_session(session_id: &str, back: bool, window: &mut Window, cx: &mut App) {
-    let screen = crate::navigation::session_screen_for(session_id, cx);
-    if back {
-        crate::navigation::go_back_to(window, cx, screen);
-    } else {
-        crate::navigation::navigate(window, cx, screen);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -208,12 +214,6 @@ fn prose_pieces(text: &str) -> Vec<Piece> {
     out
 }
 
-/// The header's waiting dot: THE needs-you yellow (#EXP-1480, the rail's
-/// needs-you dot), never the primary (white on the forced dark theme).
-fn waiting_dot_color() -> gpui::Hsla {
-    theme::tokens::YELLOW.to_hsla()
-}
-
 /// The lightbox index of a pressed picture's `src` (a mosaic tile, a lone
 /// picture or an INLINE one): its first place in [`document_pictures`].
 fn picture_index(pictures: &[GalleryPicture], src: &str) -> usize {
@@ -239,7 +239,7 @@ fn document_pictures(blocks: &[PlanBlock]) -> Vec<GalleryPicture> {
                     }
                 }
             }
-            PlanBlock::Section { .. } => {}
+            PlanBlock::Title { .. } | PlanBlock::Section { .. } => {}
         }
     }
     out
@@ -256,45 +256,44 @@ fn spy<'a>(tops: impl IntoIterator<Item = (&'a str, f32)>, scrolled: f32) -> Opt
 // The page
 // ---------------------------------------------------------------------------
 
-/// A header / page action.
-pub(crate) type PageAction = Rc<dyn Fn(&mut Window, &mut App)>;
+/// The body's own state, kept by its host: the document's scroll and the
+/// floating panel's measured height (the document pads by it).
+#[derive(Clone, Default)]
+pub(crate) struct PlanPageState {
+    pub scroll: ScrollHandle,
+    panel_height: Rc<Cell<f32>>,
+}
 
-/// What THE plan page paints (the live view's and the styleguide's).
+/// What THE plan tab's body paints (the thread's and the styleguide's).
 pub(crate) struct PlanPageProps<'a> {
     /// A `SessionThreadRow::Plan`.
     pub row: &'a SessionThreadRow,
-    pub chat_name: SharedString,
     pub text: &'a ThreadText,
     pub images: &'a Entity<ImageCache>,
-    pub scroll: &'a ScrollHandle,
+    pub state: &'a PlanPageState,
     /// The outline's active row; `None` = the scroll-spy's.
     pub active: Option<String>,
-    pub on_back: Option<PageAction>,
-    pub on_close: Option<PageAction>,
-    pub on_open_chat: Option<PageAction>,
+    /// The reader may decide (a non-member reads).
+    pub answer: bool,
 }
 
-/// THE plan page, wide.
+/// THE plan tab's body, wide.
 pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> AnyElement {
     let Some((message_id, plan, facts)) = crate::thread_screen::plan_facts(props.row) else {
         return div().into_any_element();
     };
     let layout = &PLAN_PAGE.layout;
+    let panel = &PLAN_PAGE.panel;
     let ids = &PLAN_PAGE.test_ids;
     let copy = &PLAN_PAGE.copy;
     let blocks = plan_blocks(plan);
     let outline = plan_outline(plan);
     let pictures = Rc::new(document_pictures(&blocks));
-    let counts = plan_counts_line(&PlanCounts {
-        sections: outline.len(),
-        pictures: pictures.len(),
-        questions: facts.questions.len(),
-    });
-    let waiting = facts.decision.is_none();
-    let (muted, foreground, border, sidebar) = {
+    let (foreground, border) = {
         let theme = cx.theme();
-        (theme.muted_foreground, theme.foreground, theme.border, theme.sidebar)
+        (theme.foreground, theme.border)
     };
+    let scroll = &props.state.scroll;
 
     // Section → its child index in the document's scroll.
     let sections: Vec<(String, usize)> = blocks
@@ -306,14 +305,14 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         })
         .collect();
     let active = props.active.clone().or_else(|| {
-        let column_top = props.scroll.bounds().top();
+        let column_top = scroll.bounds().top();
         let tops: Vec<(&str, f32)> = sections
             .iter()
             .filter_map(|(id, ix)| {
-                props.scroll.bounds_for_item(*ix).map(|bounds| (id.as_str(), f32::from(bounds.top() - column_top)))
+                scroll.bounds_for_item(*ix).map(|bounds| (id.as_str(), f32::from(bounds.top() - column_top)))
             })
             .collect();
-        spy(tops, -f32::from(props.scroll.offset().y)).map(str::to_string)
+        spy(tops, -f32::from(scroll.offset().y)).map(str::to_string)
     });
 
     // ── the lightbox over every picture ──
@@ -326,60 +325,6 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
     };
     let open_picture = Some(open_picture);
 
-    // ── the header ──
-    let header = h_flex()
-        .flex_shrink_0()
-        .w_full()
-        .min_w_0()
-        .h(px(layout.header_height))
-        .px_4()
-        .gap_3()
-        .items_center()
-        .border_b_1()
-        .border_color(border)
-        .when_some(props.on_back.clone(), |row, back| {
-            row.child(
-                crate::controls::ghost_icon_button("plan-page-back", Icon::new(registry::UI_BACK).small(), cx)
-                    .tooltip(copy.open_chat.clone())
-                    .on_click(move |_, window, cx| back(window, cx)),
-            )
-        })
-        .child(div().min_w_0().truncate().text_xs().text_color(muted).child(props.chat_name.clone()))
-        .child(div().flex_shrink_0().text_xs().text_color(muted).child("/"))
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(foreground)
-                .child(SharedString::from(copy.title.clone())),
-        )
-        .child(div().flex_shrink_0().child(crate::story_badge::kind_badge("plan-page-badge", StoryKind::Plan, cx)))
-        .when(waiting, |row| {
-            row.child(div().id("plan-page-waiting").flex_shrink_0().size(px(6.)).rounded_full().bg(waiting_dot_color()))
-        })
-        .child(div().flex_1())
-        .when(!counts.is_empty(), |row| {
-            row.child(div().min_w_0().truncate().text_xs().text_color(muted).child(SharedString::from(counts.clone())))
-        })
-        .when_some(props.on_open_chat.clone(), |row, open_chat| {
-            row.child(
-                Button::new("plan-page-open-chat")
-                    .ghost()
-                    .web_sm()
-                    .cursor_pointer()
-                    .label(copy.open_chat.clone())
-                    .on_click(move |_, window, cx| open_chat(window, cx)),
-            )
-        })
-        .when_some(props.on_close.clone(), |row, close| {
-            row.child(
-                crate::controls::ghost_icon_button("plan-page-close", Icon::new(registry::UI_CLOSE).small(), cx)
-                    .tooltip(copy.open_chat.clone())
-                    .on_click(move |_, window, cx| close(window, cx)),
-            )
-        });
-
     // ── the outline ──
     let entries: Vec<OutlineEntry> = outline
         .iter()
@@ -389,7 +334,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
     let has_outline = !entries.is_empty() || question_count > 0;
     let outline_column = has_outline.then(|| {
         let on_select: OnOutlineSelect = {
-            let (scroll, sections) = (props.scroll.clone(), sections.clone());
+            let (scroll, sections) = (scroll.clone(), sections.clone());
             Rc::new(move |id: &str, window: &mut Window, _: &mut App| {
                 if let Some((_, ix)) = sections.iter().find(|(section, _)| section == id) {
                     scroll.scroll_to_top_of_item(*ix);
@@ -426,7 +371,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         .id(SharedString::from(ids.document.clone()))
         .size_full()
         .overflow_y_scroll()
-        .track_scroll(props.scroll)
+        .track_scroll(scroll)
         .items_center()
         .p(px(pad))
         .gap(px(layout.block_gap))
@@ -434,6 +379,15 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         .on_scroll_wheel(|_, window, _| window.refresh());
     for (ix, block) in blocks.iter().enumerate() {
         let element = match block {
+            PlanBlock::Title { text } => div()
+                .id(SharedString::from(format!("plan-title-{message_id}")))
+                .w_full()
+                .text_size(px(layout.title_size))
+                .line_height(relative(1.25))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(foreground)
+                .child(SharedString::from(text.clone()))
+                .into_any_element(),
             PlanBlock::Section { id, title } => {
                 let heading = crate::thread_screen::message_markdown(
                     SharedString::from(format!("plan-page-{message_id}-h2-{id}")),
@@ -491,6 +445,62 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
     if facts.surface.is_some() {
         document = document.child(column(crate::plan_card::surface_block(message_id, true, cx)));
     }
+
+    // ── the questions, floating over the document's foot ──
+    let panel_height = props.state.panel_height.clone();
+    let rail = crate::plan_card::plan_rail(&facts, props.answer, props.images, window, cx);
+    if rail.is_none() {
+        panel_height.set(0.);
+    }
+    let floating = rail.map(|rail| {
+        let measured = panel_height.clone();
+        let probe = canvas(
+            move |bounds, window, _| {
+                let height = f32::from(bounds.size.height);
+                if (measured.get() - height).abs() > 0.5 {
+                    measured.set(height);
+                    window.refresh();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full();
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .p(px(panel.gap))
+            .flex()
+            .items_end()
+            .justify_center()
+            .child(
+                v_flex()
+                    .id(SharedString::from(format!("plan-questions-panel-{message_id}")))
+                    .relative()
+                    .occlude()
+                    .w_full()
+                    .max_w(px(panel.max_width))
+                    .max_h(relative(panel.max_height_fraction))
+                    .overflow_hidden()
+                    .p(px(panel.padding))
+                    .rounded(px(panel.radius))
+                    .border_1()
+                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                    .bg(crate::dock::card_fill())
+                    .shadow_lg()
+                    .child(probe)
+                    .child(rail),
+            )
+    });
+    // The document scrolls clear of the panel (its padding + the block gap
+    // are already under the last block).
+    let clearance = if floating.is_some() { panel_height.get() + 2. * panel.gap } else { 0. };
+    document = document.child(div().flex_shrink_0().h(px((clearance - pad - layout.block_gap).max(0.))));
     let document = div()
         .relative()
         .flex_1()
@@ -504,38 +514,17 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                 .left_0()
                 .right_0()
                 .bottom_0()
-                .child(Scrollbar::new(props.scroll).axis(ScrollbarAxis::Vertical)),
-        );
+                .child(Scrollbar::new(scroll).axis(ScrollbarAxis::Vertical)),
+        )
+        .children(floating);
 
-    // ── the rail ──
-    let rail = v_flex()
-        .flex_shrink_0()
-        .w(px(layout.rail_width))
-        .h_full()
-        .min_h_0()
-        .border_l_1()
-        .border_color(border)
-        .bg(sidebar)
-        .px_4()
-        .py_5()
-        .child(crate::plan_card::plan_rail(&facts, props.images, window, cx));
-
-    v_flex()
+    h_flex()
         .id(SharedString::from(format!("{}-{message_id}", ids.page)))
         .size_full()
         .min_h_0()
-        .bg(cx.theme().background)
-        .child(header)
-        .child(
-            h_flex()
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .items_start()
-                .children(outline_column)
-                .child(document)
-                .child(rail),
-        )
+        .items_start()
+        .children(outline_column)
+        .child(document)
         .into_any_element()
 }
 
@@ -584,75 +573,6 @@ fn lone_picture(
             })
         })
         .into_any_element()
-}
-
-// ---------------------------------------------------------------------------
-// The live screen
-// ---------------------------------------------------------------------------
-
-/// [`Screen::PlanPage`]'s view: the synced plan card painted by
-/// [`plan_page`]; the document's scroll and the scroll-spy live here.
-pub(crate) struct PlanPageView {
-    session_id: String,
-    message_id: String,
-    scroll: ScrollHandle,
-    images: Entity<ImageCache>,
-    _subscriptions: Vec<Subscription>,
-}
-
-impl PlanPageView {
-    pub(crate) fn new(session_id: String, message_id: String, _window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let transport = crate::queries::attachment_transport(cx);
-        let images = cx.new(|_| ImageCache::new(transport));
-        let mut subscriptions = crate::session_data::observe_session_collections(cx);
-        subscriptions.push(cx.observe(&images, |_, _, cx| cx.notify()));
-        Self { session_id, message_id, scroll: ScrollHandle::new(), images, _subscriptions: subscriptions }
-    }
-}
-
-impl Render for PlanPageView {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let message = message_of(&self.message_id, &self.session_id, cx);
-        let row = message.as_ref().and_then(domain::session_tree::ask_card_row);
-        let Some(row @ SessionThreadRow::Plan { .. }) = row else {
-            return v_flex()
-                .id(SharedString::from(PLAN_PAGE.test_ids.page.clone()))
-                .size_full()
-                .p_6()
-                .gap_2()
-                .child(crate::feedback::skeleton_value("plan-page-skeleton-1", 240., cx))
-                .child(crate::feedback::skeleton_value("plan-page-skeleton-2", 360., cx))
-                .into_any_element();
-        };
-        let team_id = message
-            .as_ref()
-            .and_then(|message| message.team_id.clone())
-            .or_else(|| crate::session_data::session(&self.session_id, cx).and_then(|session| session.team_id));
-        let text = ThreadText::team(team_id.as_deref()).answering(true);
-        let root_id = crate::session_data::session(&self.session_id, cx)
-            .map(|session| session.root_id_or_self().to_string())
-            .unwrap_or_else(|| self.session_id.clone());
-        let chat_name = crate::navigation::screen_title(&Screen::Thread { session_id: root_id }, cx);
-        let action = |back: bool, session_id: &str| -> PageAction {
-            let session_id = session_id.to_string();
-            Rc::new(move |window, cx| leave_to_session(&session_id, back, window, cx))
-        };
-        plan_page(
-            PlanPageProps {
-                row: &row,
-                chat_name,
-                text: &text,
-                images: &self.images,
-                scroll: &self.scroll,
-                active: None,
-                on_back: Some(action(true, &self.session_id)),
-                on_close: Some(action(true, &self.session_id)),
-                on_open_chat: Some(action(false, &self.session_id)),
-            },
-            window,
-            cx,
-        )
-    }
 }
 
 #[cfg(test)]
@@ -705,12 +625,6 @@ mod tests {
         let pictures = document_pictures(&blocks);
         assert_eq!(picture_index(&pictures, "/api/attachments/a"), 0);
         assert_eq!(picture_index(&pictures, "/api/attachments/b"), 1);
-    }
-
-    /// #EXP-1493: the header's waiting dot is THE needs-you yellow.
-    #[test]
-    fn plan_page_waiting_dot_is_the_needs_you_yellow() {
-        assert_eq!(waiting_dot_color(), theme::tokens::YELLOW.to_hsla());
     }
 
     #[test]

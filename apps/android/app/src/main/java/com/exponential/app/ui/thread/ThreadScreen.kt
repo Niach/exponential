@@ -50,6 +50,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.PlanPage
+import com.exponential.app.ui.plan.LocalOpenPlanPage
+import com.exponential.app.ui.plan.OpenPlanPage
+import com.exponential.app.ui.plan.PlanPageContent
+import com.exponential.app.ui.plan.PlanPageState
 import com.exponential.app.domain.WaitingCards
 import com.exponential.app.domain.Dock
 import com.exponential.app.ui.components.DockSheetBody
@@ -104,10 +109,11 @@ import java.time.format.DateTimeFormatter
  * A thread: the title (EXP-1316: derived, never renamed), then ONE tab strip
  * = the phone pager — Conversation · one chip per linked issue · "+" (link /
  * file an issue) · the session chips (EXP-1343: each a page = its raw work + composer) ·
- * Guide. Conversation = the root's rows (THE session card per session, the
- * person's bubbles, the agent's prose, THE session view's question / plan
- * card answered in place, subagent / picture / event rows) over THE composer
- * box; an issue page = that issue's [IssueScreen] embedded; Guide = the root's Guide with
+ * Guide. #EXP-1662: a thread holding a plan adds the plan tab after
+ * Conversation ([PlanPageContent] under the header + strip). Conversation = the
+ * root's rows (THE session card per session, the person's bubbles, the agent's
+ * prose, THE session view's question card answered in place, THE plan row,
+ * subagent / picture / event rows) over THE composer box; an issue page = that issue's [IssueScreen] embedded; Guide = the root's Guide with
  * the Merge capsule of its PR. An AGENT channel is the same screen with the
  * agent's icon + name (settings affordance) and the conversation only, its
  * messages as comment rows. A live session page puts Stop in the header.
@@ -171,6 +177,9 @@ fun ThreadScreen(
     LaunchedEffect(viewModel.rootId, newestAgentMessage) { viewModel.markRead() }
 
     var selectedKey by rememberSaveable { mutableStateOf(viewModel.initialTab ?: "conversation") }
+    // #EXP-1662 (plan-page.json): the plan a row or a way in opened (else
+    // `planTabTarget`), any plan of the tree, kept while the tab is shown.
+    var pinnedPlan by rememberSaveable { mutableStateOf(viewModel.initialPlan) }
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
@@ -190,6 +199,23 @@ fun ThreadScreen(
     }
     val messagesById = remember(messages) { messages.associateBy { it.id } }
     val issueTitles = remember(syncedIssues) { syncedIssues.associate { it.id to it.title } }
+    val shownPlan = remember(view?.rows, pinnedPlan, messagesById) {
+        threadShownPlan(view?.rows.orEmpty(), pinnedPlan, messagesById)
+    }
+    // A plan of this tree opens the tab in place (a session page's row, a
+    // story); anything else takes the host's way in.
+    val outerOpenPlan = LocalOpenPlanPage.current
+    val latestMessages by rememberUpdatedState(messagesById)
+    val openPlanHere = remember(outerOpenPlan) {
+        OpenPlanPage { sessionId, messageId ->
+            if (latestMessages.containsKey(messageId)) {
+                pinnedPlan = messageId
+                selectedKey = PLAN_TAB_KEY
+            } else {
+                outerOpenPlan.open(sessionId, messageId)
+            }
+        }
+    }
     // #EXP-1380: one instance per change of its inputs, so the transcript's
     // rows skip recomposition while the screen's other state moves.
     val metaFor: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = remember(users, messagesById) {
@@ -440,6 +466,7 @@ fun ThreadScreen(
         CompositionLocalProvider(
             // #EXP-1561 (waiting-cards.json DISMISS): every waiting card's ×.
             com.exponential.app.ui.session.LocalCardDismiss provides viewModel::dismissCard,
+            LocalOpenPlanPage provides openPlanHere,
             LocalDetailHaze provides hazeState,
             LocalTitleCollapse provides titleCollapse,
             LocalIssueRefs provides issueRefHandler,
@@ -451,6 +478,8 @@ fun ThreadScreen(
                 agent = agent,
                 selectedKey = selectedKey,
                 onSelectKey = { selectedKey = it },
+                plan = shownPlan?.let { PlanPageState(it, messagesById[it.id]?.card) },
+                onPlanLeft = { if (selectedKey != PLAN_TAB_KEY) pinnedPlan = null },
                 issueStatus = { statusById[it] },
                 meta = metaFor,
                 // #EXP-1464: a session card opens where its session lives.
@@ -742,15 +771,26 @@ fun ThreadContent(
     storiesDot: Boolean = false,
     /** #EXP-1464: what an expanding session row needs (null = rows only open). */
     rowActions: ThreadRowActions? = null,
+    /** #EXP-1662 (plan-page.json): the plan the plan tab shows (null = no tab). */
+    plan: PlanPageState? = null,
+    /** The pager rested off the plan tab: an opened plan is forgotten. */
+    onPlanLeft: () -> Unit = {},
 ) {
     // stories.json STORIES TAB: the host appends the Stories tab after the
     // last chip (never part of session-thread.json `tabs`): the phones'
     // pager's last page.
-    val stripTabs = remember(view?.tabs, agent != null, storiesPage != null) {
+    // #EXP-1662: the plan tab right after Conversation. An agent channel has no
+    // strip but for this: its two pages while it holds a plan.
+    val hasPlan = plan != null
+    val stripTabs = remember(view?.tabs, agent != null, storiesPage != null, hasPlan) {
         view?.tabs?.let { tabs ->
-            if (agent == null && storiesPage != null) tabs + SessionTree.ThreadTab.Stories else tabs
+            when {
+                agent != null && hasPlan -> listOf(SessionTree.ThreadTab.Conversation, SessionTree.ThreadTab.Plan)
+                else -> threadTabsWithPlan(if (agent == null && storiesPage != null) tabs + SessionTree.ThreadTab.Stories else tabs, hasPlan)
+            }
         }
     }
+    val hasStrip = agent == null || hasPlan
     // An agent channel is the conversation only. NEW-6 (N-1) / NEW-46: a
     // thread with ONE session (the root alone) IS that session: the
     // Conversation tab's page is the root's session page (one page).
@@ -770,8 +810,8 @@ fun ThreadContent(
     val openNow = pageKey.takeIf { groupMode && stripItems.tabOf(it) != null }
     LaunchedEffect(openNow) { if (openNow != null) groupOpen = openNow }
     val open = openNow ?: groupOpen?.takeIf { groupMode && stripItems.tabOf(it) != null }
-    val pages = remember(agent != null, stripTabs, mainSessionId, open) {
-        threadMainPages(threadPages(if (agent != null) null else stripTabs, open, mainSessionId), mainSessionId)
+    val pages = remember(hasStrip, stripTabs, mainSessionId, open) {
+        threadMainPages(threadPages(if (hasStrip) stripTabs else null, open, mainSessionId), mainSessionId)
     }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the first page: the conversation, or the main session's page.
@@ -798,7 +838,9 @@ fun ThreadContent(
         if (agent != null || view == null) {
             emptyList()
         } else {
-            WaitingCards.waitingChips(WaitingCards.inputs(AskDock.threadPendingAsks(view.rows) { null }), phone = true).chips
+            // #EXP-1662: a plan's chip is the plan tab; these are the questions.
+            val questions = AskDock.threadPendingAsks(view.rows) { null }.filter { it.kind != AskDock.Kind.Plan }
+            WaitingCards.waitingChips(WaitingCards.inputs(questions), phone = true).chips
         }
     }
     var cardScroll by remember { mutableStateOf<com.exponential.app.ui.session.CardScrollRequest?>(null) }
@@ -825,8 +867,9 @@ fun ThreadContent(
                 menuGroups = menuGroups,
                 call = headerCall,
                 action = headerAction,
-                // An agent's chat is the conversation only: no strip.
-                tabs = if (agent == null && view != null) {
+                // An agent's chat is the conversation only: no strip, but for
+                // the plan tab while it holds a plan (#EXP-1662).
+                tabs = if (hasStrip && view != null) {
                     {
                         ThreadTabStrip(
                             tabs = stripTabs.orEmpty(),
@@ -845,6 +888,7 @@ fun ThreadContent(
                             mainSessionId = mainSessionId,
                             waiting = waitingChips,
                             onPickWaiting = pickWaiting,
+                            planWaiting = plan?.row?.decision == null && hasPlan,
                         )
                     }
                 } else {
@@ -878,7 +922,10 @@ fun ThreadContent(
             // holds live models), so a swipe's first frame never builds one.
             beyondViewportPageCount = 1,
             pageViewModels = true,
-            onSettled = { tab -> groupOpen = threadGroupOpenAfterSettle(groupOpen, threadTabKey(tab)) },
+            onSettled = { tab ->
+                groupOpen = threadGroupOpenAfterSettle(groupOpen, threadTabKey(tab))
+                if (tab != SessionTree.ThreadTab.Plan) onPlanLeft()
+            },
             neighbour = { tab ->
                 when (tab) {
                     is SessionTree.ThreadTab.IssueTab, is SessionTree.ThreadTab.SessionTab -> {
@@ -951,6 +998,16 @@ fun ThreadContent(
                 is SessionTree.ThreadTab.IssueTab -> issuePage(tab.issueId, padding)
                 is SessionTree.ThreadTab.SessionTab -> sessionPage(tab.sessionId, padding)
                 SessionTree.ThreadTab.Stories -> storiesPage?.invoke(padding)
+                SessionTree.ThreadTab.Plan -> plan?.let { shown ->
+                    key(shown.row.id) {
+                        PlanPageContent(
+                            state = shown,
+                            onDecidePlan = onDecidePlan,
+                            topInset = topInset,
+                            bottomInset = bottomInset,
+                        )
+                    }
+                }
                 SessionTree.ThreadTab.Add -> Unit
             }
         }
@@ -969,7 +1026,7 @@ private fun ThreadPageSkeleton(topInset: Dp) {
 
 /**
  * EXP-1343 / #EXP-1433 (session-thread.json STRIP): the phone pager's pages
- * = Conversation · (chips: the ONE issue | group: the item [open] from the
+ * = Conversation · (#EXP-1662: the plan) · (chips: the ONE issue | group: the item [open] from the
  * group's sheet, only while it is open) · Stories (the last page). The "+"
  * and the group tab are never pages. null [tabs] (an agent channel, or
  * nothing loaded) = the conversation alone.
@@ -985,9 +1042,42 @@ internal fun threadPages(
         ?: open?.let(items::tabOf)
     return buildList {
         if (SessionTree.ThreadTab.Conversation in tabs) add(SessionTree.ThreadTab.Conversation)
+        if (SessionTree.ThreadTab.Plan in tabs) add(SessionTree.ThreadTab.Plan)
         middle?.let(::add)
         if (SessionTree.ThreadTab.Stories in tabs) add(SessionTree.ThreadTab.Stories)
     }
+}
+
+/** #EXP-1662: [tabs] with the plan tab right after Conversation. */
+internal fun threadTabsWithPlan(tabs: List<SessionTree.ThreadTab>, hasPlan: Boolean): List<SessionTree.ThreadTab> =
+    if (!hasPlan) {
+        tabs
+    } else {
+        buildList {
+            for (tab in tabs) {
+                add(tab)
+                if (tab == SessionTree.ThreadTab.Conversation) add(SessionTree.ThreadTab.Plan)
+            }
+        }
+    }
+
+/**
+ * #EXP-1662 (plan-page.json): the plan the tab shows: the plan a row or a way
+ * in opened ([pinned], the root's rows or any message of the tree), else
+ * `planTabTarget` over the Conversation's plan rows; null = no tab.
+ */
+internal fun threadShownPlan(
+    rows: List<SessionTree.ThreadRow>,
+    pinned: String?,
+    messages: Map<String, SessionTree.Message>,
+): SessionTree.ThreadRow.Plan? {
+    val plans = rows.filterIsInstance<SessionTree.ThreadRow.Plan>()
+    pinned?.let { id ->
+        val row = plans.firstOrNull { it.id == id } ?: messages[id]?.let(SessionTree::askRow) as? SessionTree.ThreadRow.Plan
+        if (row != null) return row
+    }
+    val target = PlanPage.planTabTarget(plans.map { PlanPage.TabPlan(it.id, it.decision) })
+    return plans.firstOrNull { it.id == target }
 }
 
 /**

@@ -38,7 +38,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,7 +99,6 @@ import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.thread.ThreadScreen
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.plan.OpenPlanPage
-import com.exponential.app.ui.plan.PlanPageScreen
 import com.exponential.app.ui.threads.ThreadsScreen
 import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
@@ -211,9 +212,12 @@ fun AppNavHost() {
             // Same snapshot hazard as the issue route — the screens read
             // their id from SavedStateHandle once.
             is DeepLinkBus.Target.Session -> {
-                // #EXP-1493: a session with a waiting plan of its own = THE plan page.
-                val route = webLinkResolver.planPageTarget(target.id)?.let { Routes.planPage(target.id, it) }
-                    ?: sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
+                // #EXP-1662: a session with a waiting plan of its own = its
+                // thread's plan tab, on that plan.
+                val planRoot = webLinkResolver.planThread(target.id)
+                val route = planRoot?.let { root ->
+                    webLinkResolver.planPageTarget(target.id)?.let { Routes.threadPlan(root, it) }
+                } ?: sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
                 val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
                 guarded {
                     teamSwitch?.let(viewModel::applyTeamSwitch)
@@ -516,6 +520,16 @@ private fun AuthenticatedNav(
     onRetrySync: () -> Unit,
 ) {
     val teamSelection = applicationTeamSelection()
+    val planLinks = applicationWebLinkResolver()
+    val planScope = rememberCoroutineScope()
+    val openPlanTab = remember(navController) {
+        OpenPlanPage { sessionId, messageId ->
+            planScope.launch {
+                val root = planLinks.planThread(sessionId)
+                navController.navigate(root?.let { Routes.threadPlan(it, messageId) } ?: Routes.session(sessionId))
+            }
+        }
+    }
 
     // NavHost only evaluates startDestination once, so an account switch onto a
     // not-yet-onboarded account (possible when a login was killed mid-wizard)
@@ -682,10 +696,9 @@ private fun AuthenticatedNav(
         LocalEntityNavigator provides entityNavigator,
         LocalLeaveGuard provides leaveGuard,
         LocalPageHeaderActions provides pageHeaderActions,
-        // #EXP-1493: every way in pushes THE plan page.
-        LocalOpenPlanPage provides OpenPlanPage { sessionId, messageId ->
-            navController.navigate(Routes.planPage(sessionId, messageId))
-        },
+        // #EXP-1662: every way in from outside a thread opens that thread's
+        // plan tab (an unsynced session = its own route, web's plan route).
+        LocalOpenPlanPage provides openPlanTab,
     ) {
     NavHost(
         navController = navController,
@@ -1113,13 +1126,6 @@ private fun AuthenticatedNav(
                 },
             )
         }
-        composable(Routes.PLAN_PAGE_PATTERN) {
-            // #EXP-1493: THE plan page (plan-page.json), a pushed page.
-            PlanPageScreen(
-                onBack = { navController.popBackStack() },
-                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
-            )
-        }
         composable(Routes.SESSION_PATTERN) { entry ->
             // EXP-1291: the RAW session view (the live transcript).
             AgentSessionScreen(
@@ -1135,6 +1141,12 @@ private fun AuthenticatedNav(
             Routes.THREAD_PATTERN,
             arguments = listOf(
                 navArgument("tab") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                // #EXP-1662: the plan card the plan tab opens on.
+                navArgument("plan") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null

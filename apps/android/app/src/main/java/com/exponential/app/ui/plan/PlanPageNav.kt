@@ -3,11 +3,12 @@ package com.exponential.app.ui.plan
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
- * #EXP-1493 WAYS IN ×4 (plan-page.json): every way in (a story's Open plan,
- * the chat plan card's header action, the Dock sheet's `ui-fullscreen`
- * glyph, an inbox row of a waiting plan) pushes THE plan page of one plan
- * card (`messageId`) a session (`sessionId`) posted. [AppNavHost] provides
- * it; a host without a nav graph (the styleguide) leaves it a no-op.
+ * #EXP-1493 → #EXP-1662 WAYS IN ×4 (plan-page.json): every way in (the
+ * Conversation's plan row, a story's Open plan, an inbox row or push of a
+ * waiting plan) opens the plan tab of the thread holding one plan card
+ * (`messageId`) a session (`sessionId`) posted. [AppNavHost] provides it (the
+ * thread's route), a [ThreadScreen] over it for its own plans (the tab in
+ * place); a host without a nav graph (the styleguide) leaves it a no-op.
  */
 fun interface OpenPlanPage {
     fun open(sessionId: String, messageId: String)

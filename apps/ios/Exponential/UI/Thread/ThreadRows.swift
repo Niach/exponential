@@ -10,6 +10,10 @@ import SwiftUI
 /// Stories page, always the last.
 enum ThreadPage: Hashable {
     case conversation
+    /// #EXP-1662 (plan-page.json): the plan tab, right after Conversation.
+    /// The page itself is `.plan(nil)`; a way in names the plan it opens
+    /// (nil = `PlanPage.planTabTarget`), which `ThreadScreen` holds aside.
+    case plan(String?)
     /// stories.json STORIES TAB (not a session-thread.json tab: the host
     /// pins it after the last chip).
     case stories
@@ -526,6 +530,37 @@ final class ThreadLanding: @unchecked Sendable {
 
     func land(threadId: String, page: ThreadPage) {
         request = Request(threadId: threadId, page: page, nonce: UUID())
+    }
+}
+
+// MARK: - #EXP-1662 a plan's ways in = the thread's tab
+
+/// Inside a thread (its Conversation, an embedded session page, the Stories
+/// tab) a plan opens in that thread's tab; `open` answers whether the thread
+/// took it. The same reference box as `ThreadIssueOutlet`.
+final class ThreadPlanOutlet: @unchecked Sendable {
+    private var handler: ((String) -> Bool)?
+
+    init() {}
+
+    func setHandler(_ handler: @escaping (String) -> Bool) {
+        self.handler = handler
+    }
+
+    @MainActor
+    func open(_ messageId: String) -> Bool {
+        handler?(messageId) ?? false
+    }
+}
+
+private struct ThreadPlanOutletKey: EnvironmentKey {
+    static let defaultValue: ThreadPlanOutlet? = nil
+}
+
+extension EnvironmentValues {
+    var threadPlanOutlet: ThreadPlanOutlet? {
+        get { self[ThreadPlanOutletKey.self] }
+        set { self[ThreadPlanOutletKey.self] = newValue }
     }
 }
 

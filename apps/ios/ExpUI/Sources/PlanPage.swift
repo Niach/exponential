@@ -1,14 +1,15 @@
 import ExpCore
 import SwiftUI
 
-// #EXP-1493 THE plan page's parts ×4 (fixtures/plan-page.json + stories.json
-// `badge`; web packages/ui plan-page.tsx, desktop plan_page.rs, Android
-// ui/plan/PlanPage.kt): the kind badge, the phone picture group (THE eUI
-// Carousel: one slide per picture, "i / n" top-left, dots under it), THE
+// #EXP-1493 → #EXP-1662 THE plan tab's parts ×4 (fixtures/plan-page.json +
+// stories.json `badge`; web packages/ui plan-page.tsx, desktop plan_page.rs,
+// Android ui/plan/PlanPage.kt): the kind badge, the phone picture group (THE
+// eUI Carousel: one slide per picture, "i / n" top-left, dots under it), THE
 // outline (eUI `Outline`: the caption, one row per section, the questions
-// row) and the thumbnail strip the story viewer's plan cover and gallery
-// filmstrip share. The page itself (markdown, Dock, lightbox) lives in the
-// app (`PlanPageScreen`): those renderers are the app's.
+// row), the floating panel's surface and the thumbnail strip the story
+// viewer's plan cover and gallery filmstrip share. The tab's body (markdown,
+// the questions, lightbox) lives in the app (`PlanPageBody`): those renderers
+// are the app's.
 
 extension Stories.Kind {
     /// The ask-dock tints: plan primary, question yellow, a result the
@@ -24,33 +25,15 @@ extension Stories.Kind {
 
 /// THE kind badge (stories.json `badge` = THE Pill, sm, readonly): the
 /// concept icon + the kind word in the tint, the tint at `fill` behind and
-/// at `stroke` as its border. `waiting` = the plan page's waiting dot after
-/// it (plan-page.json: a 6 pt needs-you yellow dot, no word; #1455's token).
+/// at `stroke` as its border.
 public struct StoryKindBadge: View {
     let kind: Stories.Kind
-    var waiting = false
 
-    public static let waitingDot: CGFloat = 6
-
-    public init(kind: Stories.Kind, waiting: Bool = false) {
+    public init(kind: Stories.Kind) {
         self.kind = kind
-        self.waiting = waiting
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
-            pill
-            if waiting {
-                Circle()
-                    .fill(DesignTokens.Semantic.yellow)
-                    .frame(width: Self.waitingDot, height: Self.waitingDot)
-                    .accessibilityHidden(true)
-            }
-        }
-        .fixedSize()
-    }
-
-    private var pill: some View {
         let tint = kind.tint
         return HStack(spacing: 4) {
             AppIcon(AppIcons.conceptOrName(Stories.Badge.icon(kind)) ?? AppIcons.codingPlan, size: 11, weight: .semibold)
@@ -64,7 +47,73 @@ public struct StoryKindBadge: View {
         .background(Capsule().fill(tint.opacity(Stories.Badge.fill)))
         .overlay(Capsule().stroke(tint.opacity(Stories.Badge.stroke), lineWidth: 1))
         .accessibilityElement(children: .combine)
+        .fixedSize()
         .accessibilityIdentifier("story-badge")
+    }
+}
+
+/// #EXP-1662 THE floating panel's surface (plan-page.json `panel`): centred,
+/// `maxWidth` wide, the menu surface fill + hairline + `radius`, `padding`; it
+/// hugs its content up to `maxHeight` and scrolls inside past that, the header
+/// and the footer pinned.
+public struct PlanFloatingPanel<Header: View, Content: View, Footer: View>: View {
+    let maxHeight: CGFloat
+    let header: Header
+    let content: Content
+    let footer: Footer
+
+    @State private var contentHeight: CGFloat = 0
+
+    public init(
+        maxHeight: CGFloat,
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder footer: () -> Footer
+    ) {
+        self.maxHeight = maxHeight
+        self.header = header()
+        self.content = content()
+        self.footer = footer()
+    }
+
+    public var body: some View {
+        let shape = RoundedRectangle(cornerRadius: CGFloat(PlanPage.Panel.radius), style: .continuous)
+        CappedHeight(maxHeight: maxHeight) {
+            VStack(spacing: 0) {
+                header
+                ScrollView {
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.hidden)
+                .frame(maxHeight: contentHeight)
+                footer
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.top, contentHeight > 0 ? 12 : 0)
+            }
+            .padding(CGFloat(PlanPage.Panel.padding))
+        }
+        .frame(maxWidth: CGFloat(PlanPage.Panel.maxWidth))
+        .background(GlassTokens.opaqueCardFill, in: shape)
+        .overlay(shape.strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+    }
+}
+
+/// Proposes at most `maxHeight` to its one child and reports the child's own
+/// size: a `.frame(maxHeight:)` would grow to it instead of hugging.
+private struct CappedHeight: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return child.sizeThatFits(ProposedViewSize(width: proposal.width, height: min(proposal.height ?? maxHeight, maxHeight)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
     }
 }
 
@@ -160,17 +209,15 @@ public struct PlanOutlineList: View {
     /// The plan's question count; 0 = no questions row.
     let questions: Int
     let onSelect: (String) -> Void
-    let onQuestions: () -> Void
 
     public init(
         sections: [PlanPage.Section], active: String?, questions: Int,
-        onSelect: @escaping (String) -> Void, onQuestions: @escaping () -> Void
+        onSelect: @escaping (String) -> Void
     ) {
         self.sections = sections
         self.active = active
         self.questions = questions
         self.onSelect = onSelect
-        self.onQuestions = onQuestions
     }
 
     public var body: some View {
@@ -219,20 +266,17 @@ public struct PlanOutlineList: View {
                     .fill(GlassTokens.strokeCard)
                     .frame(height: GlassTokens.hairline)
                     .padding(.vertical, 6)
-                Button(action: onQuestions) {
-                    HStack(spacing: 0) {
-                        Text(PlanPage.Copy.questions)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        Text(" · \(questions)")
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        Spacer(minLength: 0)
-                    }
-                    .font(.subheadline)
-                    .padding(.horizontal, 10)
-                    .frame(height: rowHeight)
-                    .contentShape(Rectangle())
+                // Scrolls nothing: the panel already shows them.
+                HStack(spacing: 0) {
+                    Text(PlanPage.Copy.questions)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Text(" · \(questions)")
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
+                .font(.subheadline)
+                .padding(.horizontal, 10)
+                .frame(height: rowHeight)
             }
         }
         .accessibilityElement(children: .contain)

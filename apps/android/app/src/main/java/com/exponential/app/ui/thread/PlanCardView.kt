@@ -24,6 +24,7 @@ import com.exponential.app.ui.session.TranscriptBodyStyle
 import com.exponential.app.ui.theme.AppPrimitiveTokens
 import com.exponential.app.ui.theme.DesignTokens
 import androidx.compose.foundation.layout.Arrangement
+import com.exponential.app.domain.Dock
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -110,6 +111,38 @@ private data class ChoiceBlock(
 
 private const val QUESTION_CARD_ID = "question"
 
+/** The stepper's ONE scrolling region: THE Dock sheet's, or #EXP-1662 the
+ *  plan panel's (the panel carries its own padding). */
+@Composable
+private fun ColumnScope.PlanStepBody(panel: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    if (!panel) {
+        DockSheetBody(content)
+        return
+    }
+    Column(
+        modifier = Modifier
+            .weight(1f, fill = false)
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .testTag(Dock.TestIds.SHEET_BODY),
+        content = content,
+    )
+}
+
+/** The stepper's pinned footer: THE Dock sheet's, or the plan panel's. */
+@Composable
+private fun PlanStepFooter(panel: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    if (!panel) {
+        DockSheetFooter(content)
+        return
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag(Dock.TestIds.SHEET_FOOTER),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        content = content,
+    )
+}
+
 /**
  * THE plan / question card ×4 (fixtures/plan-card.json; web
  * `ThreadPlanCard` / `ThreadQuestionCard`): the AskCard header (a plan's
@@ -146,6 +179,9 @@ internal fun ColumnScope.PlanAskCard(
      *  (the document is the page); below `minQuestions` = every question on
      *  one page; closed = the questions + the decision, no plan text. */
     questionsOnly: Boolean = false,
+    /** #EXP-1662: THE plan tab's floating panel (needs [sheet] for the step
+     *  label): one question at a time from the first, no sheet chrome. */
+    panel: Boolean = false,
 ) {
     val plan = row as? SessionTree.ThreadRow.Plan
     val question = row as? SessionTree.ThreadRow.Question
@@ -176,7 +212,11 @@ internal fun ColumnScope.PlanAskCard(
     val surfaceHandle = remember(row.id) { CardSurfaceHandle() }
     // The sheet's 0-based page.
     var step by remember(row.id) { mutableIntStateOf(initialStep) }
-    val stepped = PlanCard.stepperApplies(plan != null, plan?.decision, blocks.size)
+    val stepped = if (panel) {
+        plan != null && plan.decision == null && blocks.isNotEmpty()
+    } else {
+        PlanCard.stepperApplies(plan != null, plan?.decision, blocks.size)
+    }
 
     /** A block's answer now (web `questionAnswer`): its picks in option
      *  order; typed text joins a multi's picks and replaces a single's. */
@@ -211,9 +251,13 @@ internal fun ColumnScope.PlanAskCard(
         val pages = if (stepped) lead + blocks.size else 1
         val page = step.coerceIn(0, pages - 1)
         val pageBlock = if (stepped && page >= lead) blocks[page - lead] else null
-        val meta = if (pageBlock != null) PlanCard.stepLabel(page + 1 - lead, blocks.size) else null
+        val meta = if (pageBlock != null && (!panel || blocks.size > 1)) {
+            PlanCard.stepLabel(page + 1 - lead, blocks.size)
+        } else {
+            null
+        }
         androidx.compose.runtime.SideEffect { sheet.meta = meta }
-        DockSheetBody {
+        PlanStepBody(panel) {
             Box(Modifier.fillMaxWidth().testTag(PlanCard.TestIds.CARD)) {
                 chat {
                     Column(Modifier.fillMaxWidth()) {
@@ -266,7 +310,7 @@ internal fun ColumnScope.PlanAskCard(
                 }
             }
         }
-        DockSheetFooter {
+        PlanStepFooter(panel) {
             if (plan != null) {
                 val answers = blocks.associate { it.id to answerOf(it) }
                 val issue = PlanCard.answerIssue(

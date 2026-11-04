@@ -91,9 +91,15 @@ class WebLinkResolver @Inject constructor(
         )
     }
 
+    /** #EXP-1662 (plan-page.json WAYS IN): the thread whose plan tab holds
+     *  the plans of [sessionId] (its root); null = not synced (yet). */
+    suspend fun planThread(sessionId: String): String? = activeDb(null) { db ->
+        db.sessionDao().getById(sessionId)?.let { session -> session.rootId.takeIf { it.isNotEmpty() } ?: session.id }
+    }
+
     /** #EXP-1493 (plan-page.json WAYS IN): the session's own waiting plan
-     *  message ([PlanPage.planPageFor]) an inbox row / push opens THE plan
-     *  page on; null = none (the session's own route). */
+     *  message ([PlanPage.planPageFor]) an inbox row / push opens its thread's
+     *  plan tab on; null = none (the session's own route). */
     suspend fun planPageTarget(sessionId: String): String? = activeDb(null) { db ->
         val messages = db.messageDao().observeBySession(sessionId).first().mapNotNull { row ->
             val message = SessionTree.message(row, sessionId)
