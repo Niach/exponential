@@ -200,7 +200,7 @@ export function AppsConsent({
             missingUpstreams([app.upstreams.map((u) => u.name)], upstreamStates(app), app.upstreams.filter((u) => u.serverId).map((u) => u.name))
           )
           return (
-            <div key={app.id} className="flex items-center gap-3 px-3 py-2.5" data-app={app.slug}>
+            <div key={app.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5" data-app={app.slug}>
               <Checkbox
                 id={`consent-app-${app.id}`}
                 disabled={choice.allApps}
@@ -213,11 +213,11 @@ export function AppsConsent({
                 }
               />
               <BoardGlyph board={{ icon: app.icon, color: app.color }} />
-              <Label htmlFor={`consent-app-${app.id}`} className="min-w-0 flex-1 flex-col items-start gap-0 font-normal">
+              <Label htmlFor={`consent-app-${app.id}`} className="min-w-0 flex-1 basis-40 flex-col items-start gap-0 font-normal">
                 <span className="truncate font-medium">{app.name}</span>
                 <span className="truncate text-xs text-muted-foreground">{appCaption(app)}</span>
               </Label>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="ml-auto flex shrink-0 items-center gap-2">
                 {app.upstreams.map((u) =>
                   u.serverId && missing.has(u.name) ? (
                     <Button

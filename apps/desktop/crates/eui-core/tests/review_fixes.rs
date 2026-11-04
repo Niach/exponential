@@ -237,6 +237,22 @@ fn a_page_scrolled_list_is_not_clamped_by_its_own_box() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn a_link_with_an_href_is_pressable() {
+    let mut s = surface(json!({"id": "root", "component": "Box", "children": [
+        {"id": "docs", "component": "Link", "props": {"label": "Docs", "href": "~/apps/crm/deal?id=1"}},
+        {"id": "bare", "component": "Link", "props": {"label": "Bare"}}
+    ]}));
+    s.set_viewport(400.0, 600.0, None);
+    let mut m = fixed();
+    s.layout(&mut m);
+    let pressable = |s: &mut Surface, id: &str| s.nodes().into_iter().find(|n| n.id == id).unwrap_or_else(|| panic!("no node {id}")).pressable;
+    assert!(pressable(&mut s, "docs"), "the painters only wire a press on a pressable node");
+    assert!(!pressable(&mut s, "bare"));
+    let events = press(&mut s, "docs");
+    assert!(events.iter().any(|e| matches!(e, OutEvent::OpenUrl { url } if url == "~/apps/crm/deal?id=1")));
+}
+
+#[test]
 fn a_hover_card_stays_open_while_the_pointer_moves_into_its_content() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
         {"id": "hc", "component": "Popover", "props": {"openOn": "hover"}, "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}},

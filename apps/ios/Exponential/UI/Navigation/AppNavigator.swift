@@ -927,6 +927,13 @@ struct MainNavigator: View {
     }
 
     /// EXP-1284: the LAST stack position showing `threadId`, if any.
+    /// #EXP-1674 (app-link.json): an app's run view opened from another one
+    /// stays on the stack above it.
+    private static func opensOverRun(_ route: AppRoute, on path: [AppRoute]) -> Bool {
+        guard case .appRun = route, case .appRun = path.last else { return false }
+        return true
+    }
+
     private static func threadIndex(_ threadId: String, in path: [AppRoute]) -> Int? {
         path.lastIndex { route in
             if case let .thread(_, id, _) = route { return id == threadId }
@@ -1536,7 +1543,8 @@ extension MainNavigator {
             applyBoardSelection(accountId: landing.accountId, boardId: boardId)
             landOnRoot(of: .issues)
         case let .push(route, target):
-            if let target { landOnRoot(of: target) }
+            // #EXP-1674: a link from a running app pushes: back returns to it.
+            if let target, !Self.opensOverRun(route, on: path) { landOnRoot(of: target) }
             // EXP-1288: a thread already on the stack is popped back to.
             if case let .thread(_, threadId, child) = route, let index = Self.threadIndex(threadId, in: path) {
                 landOnThread(at: index, threadId: threadId, page: child)
