@@ -83,10 +83,6 @@
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
     {
-      "route": "/s/$token",
-      "reason": "A public link's guest page (VAPP-241): it needs a live share token, and the surface is the app run view `app-run` photographs."
-    },
-    {
       "route": "/about",
       "reason": "Static third-party licence notices (EXP-262). Legal text, no product surface worth a shot."
     },
@@ -7456,7 +7452,7 @@
       }
     },
     {
-      "id": "team-avatar",
+      "id": "team-mark",
       "group": "coding",
       "title": "Team mark",
       "blurb": "The team mark (#EXP-1645): the team's image, else a group glyph, and the General row that uploads it.",

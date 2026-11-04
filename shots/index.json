@@ -6439,16 +6439,16 @@
         "sha256": "f060b1813c744f2d3777a902eec0101b2e8119e5251ffebb448f805b47f19b3d"
       }
     },
-    "team-avatar": {
+    "team-mark": {
       "android": {
-        "file": "shots/team-avatar/android.webp",
+        "file": "shots/team-mark/android.webp",
         "width": 810,
         "height": 1800,
         "bytes": 11510,
         "sha256": "d31f5cfd7536f486bf4905e2060c29aac22a19be5d493463633cdad03086dcc8"
       },
       "ios": {
-        "file": "shots/team-avatar/ios.webp",
+        "file": "shots/team-mark/ios.webp",
         "width": 828,
         "height": 1800,
         "bytes": 12634,
