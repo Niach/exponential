@@ -74,6 +74,23 @@ enum class LinkOpenOutcome(val wire: String) {
     NotFound("notFound"),
 }
 
+/** #EXP-1674: what a chat card's link may open (plan-card.json `linkCases`): in-app, or https out. */
+fun cardLinkOpens(href: String, origin: String, team: String?): Boolean =
+    when (val link = classifyAppLink(href, origin, team)) {
+        AppLink.Ignore -> false
+        is AppLink.External -> link.url.startsWith("https://", ignoreCase = true)
+        else -> true
+    }
+
+/**
+ * #EXP-1674: the eUI URL policy resolves a relative `~/x` against its base into
+ * `<origin>/~/x`: the shorthand back; anything else as given.
+ */
+fun teamShorthandOf(url: String, origin: String): String {
+    val prefix = "$origin/~/"
+    return if (url.startsWith(prefix, ignoreCase = true)) "~/" + url.substring(prefix.length) else url
+}
+
 /** #EXP-1674: the ONE open rule ×4; unreadable looks exactly like missing. */
 fun linkOpenOutcome(member: Boolean, activeTeam: Boolean, found: Boolean, webOnly: Boolean): LinkOpenOutcome = when {
     !member -> LinkOpenOutcome.NoAccess

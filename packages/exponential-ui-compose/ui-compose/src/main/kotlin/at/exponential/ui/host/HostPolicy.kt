@@ -188,6 +188,8 @@ data class HostPolicy(
     val urls: UrlPolicy? = null,
     val openUrl: ((String) -> Unit)? = null,
     val media: MediaOptions? = null,
+    /** #EXP-1674: a `hostLinks` Text's segments (default: none). */
+    val textLinks: ((String) -> List<TextLinkSegment>?)? = null,
 )
 
 /** A binding source URI, parsed (`exp:issues?board=b1` → scheme `exp`, name `issues`, params). */

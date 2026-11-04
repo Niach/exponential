@@ -114,6 +114,8 @@ export function ButtonNative(props: NativeProps): JSX.Element {
       onClick={(e) => {
         e.stopPropagation()
         if (hold() || inert()) return
+        // #EXP-1674: `href` opens like a Link's (the policy decides).
+        if (str(props.props.href)) ctx.openUrl(str(props.props.href))
         track(props.emit(`press`))
         if (submit()) form!.submit()
       }}

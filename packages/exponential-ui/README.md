@@ -245,6 +245,10 @@ painters through the facade); `catalog/host.json` is the contract and
   emit lands at the bound path.
 - **Negotiation**: `supportedCatalogIds(extensionIds)` = core, core lite,
   A2UI basic, then the registered extensions; `clientCapabilities`.
+- **Links**: `Link.href`, `Button.href` and `Row.href` open through the host's
+  `openUrl`, and a host's optional `textLinks(text)` hook turns parts of a
+  `Row` subtitle into tappable spans (`[{text, href?}]`; eUI knows nothing of
+  what they mean). `catalog/host.json` `urls` is the contract.
 - **Policy** (every renderer, every href and src): `decideUrl` (schemes
   `https http mailto tel`; `schemes: ["https"]` = https only; optional host
   allowlist; relative urls against `baseUrl`) for `openUrl`, `Link`,

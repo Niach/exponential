@@ -660,37 +660,6 @@ export const APP_PARITY: readonly AppParity[] = [
     }
   },
   {
-    "id": "entity-chip",
-    "title": "Entity chip",
-    "blurb": "The issue chip's box, opened to every kind an Exponential MCP answer can name: a settled tool row in a session transcript draws ONE chip per entity it touched — board, action, comment, session, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (`entityRefIcon`) and its name; a LIST answer folds into one chip that counts its members in the product noun (`3 issues`, `1 session`) and never navigates — its card lists them. Label, detail and grouping are the contract's (`@exp/domain-contract/entity-preview`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.",
-    "components": [
-      "Chip"
-    ],
-    "status": {
-      "web": {
-        "status": "ok",
-        "symbol": "EntityChip",
-        "file": "packages/ui/src/entity-chip.tsx",
-        "note": "The app's components/entity-preview/ resolves the row, the target and the hover card per kind."
-      },
-      "desktop": {
-        "status": "ok",
-        "symbol": "entity_chip",
-        "file": "apps/desktop/crates/ui/src/entity_chip.rs"
-      },
-      "ios": {
-        "status": "ok",
-        "symbol": "EntityChip",
-        "file": "apps/ios/ExpUI/Sources/EntityChip.swift"
-      },
-      "android": {
-        "status": "ok",
-        "symbol": "EntityChip",
-        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/EntityChip.kt"
-      }
-    }
-  },
-  {
     "id": "avatar",
     "title": "Avatar",
     "blurb": "Picture first: a circle filled edge to edge by the person's image. Without one the initials sit on THEIR hue — one of eight token colours picked by fnv1a32(utf8(userId)) % 8 — as a 20% fill under the glyph at full strength, no stroke. The hash is byte-identical on all four clients, so one person is one colour everywhere; a subject with no id at all (a bot, an unresolved reporter) keeps the muted fallback.",

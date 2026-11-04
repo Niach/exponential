@@ -756,7 +756,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         n.base_style = base;
         n.lines = props.get("lines").and_then(Value::as_u64).map(|l| l as u32);
-        n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && (bool_prop(&props, "submit") || bool_prop(&props, "hold")))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
+        n.pressable = (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || bool_prop(&props, "pressable") || (node.component == "Button" && (bool_prop(&props, "submit") || bool_prop(&props, "hold"))) || (matches!(node.component.as_str(), "Box" | "Button") && str_prop(&props, "href").is_some_and(|href| !href.is_empty()))) && !bool_prop(&props, "disabled") && !bool_prop(&props, "loading");
         n.on = node.on.clone();
         n.source = self.sources.get(&node.id).cloned();
         n.accessibility = node.accessibility.as_ref().and_then(|a| self.resolve(a, scope));

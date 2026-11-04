@@ -34,7 +34,7 @@ For lower-level use, `SurfaceModel` + `ExponentialSurface` take a `HostPlugin`; 
 
 - `icon(name, size)`: the catalog's icon names to your views.
 - `onAction` gets every A2UI action. `onInput` gets text edits (debounced `change` with a revision, `commit` on blur or Return).
-- `openUrl`, `resolveUrl`, `fontFamily`, `markdown`.
+- `openUrl`, `textLinks`, `resolveUrl`, `fontFamily`, `markdown`.
 
 Register the font files a theme names with `ExponentialUI.registerFont(at:)`; switch themes with `ThemeHandle.load(json:)` and `setTheme`. Details in the [Swift package's README](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-swift/README.md).
 

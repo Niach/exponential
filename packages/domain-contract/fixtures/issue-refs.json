@@ -1,0 +1,276 @@
+{
+  "description": "#EXP-1674 (L2): THE `#IDENT` scan ×4: web lib/issue-refs.ts (`splitIssueRefs`), desktop markdown/editor.rs (`scan_issue_refs_with`), iOS ExpUI IssueRefs.swift (`IssueRefs.matches`), Android ui/markdown/IssueRefs.kt (`IssueRefs.findAll`). Interchange form: `#` not glued to an ASCII word character or another `#`, then `{PREFIX}-{number}` (a letter, letters or digits, `-`, digits; any case), ending at a boundary (no ASCII word character or `-` after it). Bare mode (agent narration only, display-only, never stored): also an identifier with no `#`, whose prefix is UPPERCASE, not glued to an ASCII word character, `#` or `-`; `/` before it is fine. Word characters and digits are ASCII ONLY on every client: a non-ASCII character next to a token is a boundary, a non-ASCII digit is no digit. `hash` = the tokens as written in the default mode, `bare` = in bare mode, left to right; the `#` is part of a token written with one. Code spans are the caller's concern, so none here. Only a token that RESOLVES becomes tappable; the rest stays text.",
+  "cases": [
+    {
+      "name": "a token in prose",
+      "text": "see #EXP-42 now",
+      "hash": [
+        "#EXP-42"
+      ],
+      "bare": [
+        "#EXP-42"
+      ]
+    },
+    {
+      "name": "a token alone",
+      "text": "#EXP-1",
+      "hash": [
+        "#EXP-1"
+      ],
+      "bare": [
+        "#EXP-1"
+      ]
+    },
+    {
+      "name": "several tokens in order",
+      "text": "#A-1 #B-2,#C-3",
+      "hash": [
+        "#A-1",
+        "#B-2",
+        "#C-3"
+      ],
+      "bare": [
+        "#A-1",
+        "#B-2",
+        "#C-3"
+      ]
+    },
+    {
+      "name": "the status card's subtitle",
+      "text": "#VAPP-202 #VAPP-203 merged · V1 #1758",
+      "hash": [
+        "#VAPP-202",
+        "#VAPP-203"
+      ],
+      "bare": [
+        "#VAPP-202",
+        "#VAPP-203"
+      ]
+    },
+    {
+      "name": "a lowercase prefix keeps its hash form",
+      "text": "#exp-12",
+      "hash": [
+        "#exp-12"
+      ],
+      "bare": [
+        "#exp-12"
+      ]
+    },
+    {
+      "name": "digits in the prefix",
+      "text": "#X86-64 and #A1B2-3",
+      "hash": [
+        "#X86-64",
+        "#A1B2-3"
+      ],
+      "bare": [
+        "#X86-64",
+        "#A1B2-3"
+      ]
+    },
+    {
+      "name": "a prefix must start with a letter",
+      "text": "#1A-2",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a number alone is no token",
+      "text": "#1758 and #EXP and #EXP-",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "glued to a word",
+      "text": "foo#MET-1",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "glued to an underscore",
+      "text": "_#MET-1",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "glued to another hash",
+      "text": "##MET-1",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a tail letter",
+      "text": "#MET-115abc",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a tail dash",
+      "text": "#MET-115-2",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a tail underscore",
+      "text": "#MET-1_x",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "punctuation around it",
+      "text": "(#EXP-9). [#EXP-10]: #EXP-11!",
+      "hash": [
+        "#EXP-9",
+        "#EXP-10",
+        "#EXP-11"
+      ],
+      "bare": [
+        "#EXP-9",
+        "#EXP-10",
+        "#EXP-11"
+      ]
+    },
+    {
+      "name": "a slash before the hash is fine",
+      "text": "exp/#EXP-7",
+      "hash": [
+        "#EXP-7"
+      ],
+      "bare": [
+        "#EXP-7"
+      ]
+    },
+    {
+      "name": "a dash before the hash is fine",
+      "text": "x-#EXP-7",
+      "hash": [
+        "#EXP-7"
+      ],
+      "bare": [
+        "#EXP-7"
+      ]
+    },
+    {
+      "name": "a non-ASCII letter before the hash is a boundary",
+      "text": "é#EXP-7",
+      "hash": [
+        "#EXP-7"
+      ],
+      "bare": [
+        "#EXP-7"
+      ]
+    },
+    {
+      "name": "a non-ASCII letter after the token is a boundary",
+      "text": "#EXP-7é",
+      "hash": [
+        "#EXP-7"
+      ],
+      "bare": [
+        "#EXP-7"
+      ]
+    },
+    {
+      "name": "a non-ASCII digit is no digit",
+      "text": "#EXP-٣",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "an emoji beside it",
+      "text": "🚀#EXP-7🚀",
+      "hash": [
+        "#EXP-7"
+      ],
+      "bare": [
+        "#EXP-7"
+      ]
+    },
+    {
+      "name": "bare tokens need the bare mode",
+      "text": "see EXP-12 and #EXP-13",
+      "hash": [
+        "#EXP-13"
+      ],
+      "bare": [
+        "EXP-12",
+        "#EXP-13"
+      ]
+    },
+    {
+      "name": "a branch name chips in bare mode",
+      "text": "exp/EXP-758",
+      "hash": [],
+      "bare": [
+        "EXP-758"
+      ]
+    },
+    {
+      "name": "a lowercase bare prefix is prose",
+      "text": "utf-8 and x86-64 and exp-758",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a bare mixed case prefix is prose",
+      "text": "Exp-1",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a bare digit prefix",
+      "text": "A1-2",
+      "hash": [],
+      "bare": [
+        "A1-2"
+      ]
+    },
+    {
+      "name": "a bare token glued to a word",
+      "text": "fooEXP-1",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a bare token glued to a dash",
+      "text": "foo-EXP-1",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a bare token glued to a hash run",
+      "text": "##EXP-1",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a bare token tail",
+      "text": "EXP-115abc EXP-1-2",
+      "hash": [],
+      "bare": []
+    },
+    {
+      "name": "a bare token in punctuation",
+      "text": "(EXP-9).",
+      "hash": [],
+      "bare": [
+        "EXP-9"
+      ]
+    },
+    {
+      "name": "a bare token after a non-ASCII letter",
+      "text": "éEXP-9",
+      "hash": [],
+      "bare": [
+        "EXP-9"
+      ]
+    },
+    {
+      "name": "an empty text",
+      "text": "",
+      "hash": [],
+      "bare": []
+    }
+  ]
+}

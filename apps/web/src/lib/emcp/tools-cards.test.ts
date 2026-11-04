@@ -64,6 +64,7 @@ import {
   registerExponentialTools,
   SHOW_CARD_ROOT_ERROR,
   SHOW_TEXT_ONLY_ERROR,
+  showSurfaceLinkProblem,
   showSurfaceProblem,
 } from "@/lib/emcp/tools"
 import { buildSurfaceCard } from "@/lib/sessions/plan"
@@ -152,5 +153,24 @@ describe(`exponential_show refuses a Card root and text-only surfaces (EXP-1445)
   it(`lets text ride beside ask, plan or pictures (the card is not text alone)`, () => {
     expect(showSurfaceProblem({ root: node(`t`, `Text`) }, false)).toBeNull()
     expect(showSurfaceProblem({ root: node(`c`, `Card`) }, false)).toBe(SHOW_CARD_ROOT_ERROR)
+  })
+})
+
+describe(`#EXP-1674: exponential_show refuses a link that opens nothing`, () => {
+  const origin = `https://app.exponential.at`
+  const surface = (root: Record<string, unknown>) => ({ root: { id: `s`, component: `Stack`, children: [root] } })
+
+  it(`names the dead href, wherever it sits`, () => {
+    expect(showSurfaceLinkProblem(surface({ id: `l`, component: `Link`, props: { label: `x`, href: `javascript:alert(1)` } }), origin, `acme`)).toContain(`javascript:alert(1)`)
+    expect(showSurfaceLinkProblem(surface({ id: `r`, component: `Row`, props: { title: `x`, href: `https://…` } }), origin, `acme`)).toContain(`https://…`)
+    expect(showSurfaceLinkProblem(surface({ id: `b`, component: `Button`, href: `#top` }), origin, `acme`)).toContain(`#top`)
+    expect(showSurfaceLinkProblem(surface({ id: `r`, component: `Row`, slots: { trailing: { id: `b`, component: `Button`, props: { href: `~/../admin` } } } }), origin, `acme`)).toContain(`~/../admin`)
+    expect(showSurfaceLinkProblem(surface({ id: `l`, component: `List`, template: { id: `t`, component: `Row`, props: { href: `//evil.example` } } }), origin, `acme`)).toContain(`//evil.example`)
+  })
+
+  it(`lets through what opens, and what it cannot read`, () => {
+    for (const href of [`/t/acme/issues/EXP-1`, `~/settings/members`, `https://docs.rs/serde`, `${origin}/t/acme/inbox`, `mailto:a@example.com`, `{item.url}`, { path: `/url` }]) {
+      expect(showSurfaceLinkProblem(surface({ id: `l`, component: `Link`, props: { href } }), origin, `acme`), JSON.stringify(href)).toBeNull()
+    }
   })
 })

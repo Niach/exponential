@@ -425,6 +425,8 @@ struct ThreadConversationRow: View, Equatable {
 
     var body: some View {
         content.chatBubbleArrival(arrived)
+            // #EXP-1674: a card's `~/` and `#IDENT` links resolve in the chat's team.
+            .environment(\.cardTeamId, teamId)
     }
 
     /// S-3: a turn ANOTHER session posted carries its link header right

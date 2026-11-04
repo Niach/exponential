@@ -336,3 +336,50 @@ describe(`paint failures reach the host (onPaintError → RENDER_FAILED)`, () =>
     expect(c.querySelector(`[data-xui-error]`)).toBeNull()
   })
 })
+
+describe(`#EXP-1674: Row.href and Button.href open like a Link`, () => {
+  it(`a press opens through the host, then fires press; a denied href opens nothing`, () => {
+    const openUrl = vi.fn()
+    const row = paint({ id: `r`, component: `Row`, props: { title: `Docs`, href: `https://exponential.at/docs` } }, { openUrl })
+    fireEvent.click(row.querySelector(`[data-pressable="true"]`)!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/docs`)
+    cleanup()
+    const button = paint({ id: `b`, component: `Button`, props: { label: `Docs`, href: `https://exponential.at/b` } }, { openUrl })
+    fireEvent.click(button.querySelector(`button`)!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/b`)
+    cleanup()
+    const denied = paint({ id: `b`, component: `Button`, props: { label: `x`, href: `javascript:alert(1)` } }, { openUrl })
+    fireEvent.click(denied.querySelector(`button`)!)
+    expect(openUrl).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe(`#EXP-1674: a host's text links in a Row subtitle`, () => {
+  const textLinks = (text: string) => (text.startsWith(`#A-1`) ? [{ text: `#A-1`, href: `https://exponential.at/i` }, { text: text.slice(4) }] : null)
+  it(`only linked segments are anchors, and a tap never presses the Row`, () => {
+    const openUrl = vi.fn()
+    const onAction = vi.fn()
+    const c = paint({ id: `r`, component: `Row`, props: { title: `T`, subtitle: `#A-1 merged · #1758` }, on: { press: { event: { name: `row` } } } }, { openUrl, onAction, textLinks })
+    const links = [...c.querySelectorAll(`[data-xui-text-link]`)]
+    expect(links.map((a) => a.textContent)).toEqual([`#A-1`])
+    expect(c.textContent).toContain(`#A-1 merged · #1758`)
+    fireEvent.click(links[0]!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/i`)
+    expect(onAction).not.toHaveBeenCalled()
+  })
+  it(`stays plain: no hook, a null answer, segments that do not concatenate, a denied href`, () => {
+    const subtitle = { id: `r`, component: `Row`, props: { title: `T`, subtitle: `#A-1 x` } } as NestedNode
+    expect(paint(subtitle).querySelector(`[data-xui-text-link]`)).toBeNull()
+    cleanup()
+    expect(paint(subtitle, { textLinks: () => null }).querySelector(`[data-xui-text-link]`)).toBeNull()
+    cleanup()
+    expect(paint(subtitle, { textLinks: () => [{ text: `other`, href: `https://exponential.at/i` }] }).querySelector(`[data-xui-text-link]`)).toBeNull()
+    cleanup()
+    expect(paint(subtitle, { textLinks: () => [{ text: `#A-1 x`, href: `javascript:alert(1)` }] }).querySelector(`[data-xui-text-link]`)).toBeNull()
+  })
+  it(`a plain Text never asks`, () => {
+    const hook = vi.fn(() => null)
+    paint({ id: `t`, component: `Text`, props: { text: `#A-1` } }, { textLinks: hook })
+    expect(hook).not.toHaveBeenCalled()
+  })
+})

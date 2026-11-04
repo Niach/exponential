@@ -120,6 +120,8 @@ pub mod app_records;
 pub mod app_sources;
 // EXP-1188: what a clicked link in agent prose opens, fixture-locked ×4.
 pub mod app_link;
+// #EXP-1674: a bare in-app URL in agent prose reads as its chip, fixture-locked ×4.
+pub mod prose_links;
 pub mod board;
 // Thread 58cb32df: Chats (menus, dividers, the surface card's reply rule), fixture-locked ×4.
 pub mod chats;

@@ -24,6 +24,12 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
+import at.exponential.ui.host.TextLinkSegment
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +103,14 @@ internal fun TextLeaf(cx: LeafContext) {
     val lines = cx.node.lines
     val text = cx.props.shownText("text")
     if (text.isEmpty()) return
+    // #EXP-1674: a `hostLinks` Text (the Row subtitle) the host links part of.
+    if (cx.props["hostLinks"]?.bool == true) {
+        val segments = cx.model.textLinkSegments(text)
+        if (segments != null) {
+            LinkedTextLeaf(cx, segments, align, lines)
+            return
+        }
+    }
     // EXP-1324 `shimmer`: the glyphs filled with the moving gradient.
     val shimmer = textShimmerBrush(cx)
     InnerBox(cx) {
@@ -104,6 +118,40 @@ internal fun TextLeaf(cx: LeafContext) {
             cx.shown(text),
             modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize(),
             style = cx.composeTextStyle(align = align).let { if (shimmer != null) it.copy(brush = shimmer) else it },
+            softWrap = lines != 1,
+            maxLines = lines ?: Int.MAX_VALUE,
+            overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,
+        )
+    }
+}
+
+/**
+ * #EXP-1674: the links in the text's own colour, underlined. A tap on a link
+ * opens it through the URL policy and never presses the Row behind it (the link
+ * consumes it; the rest of the text falls through to the Row).
+ */
+@Composable
+private fun LinkedTextLeaf(cx: LeafContext, segments: List<TextLinkSegment>, align: androidx.compose.ui.text.style.TextAlign?, lines: Int?) {
+    val model = cx.model
+    val annotated = remember(segments, cx.props) {
+        buildAnnotatedString {
+            segments.forEach { segment ->
+                val shown = cx.shown(segment.text)
+                val href = segment.href
+                if (href != null) {
+                    val styles = TextLinkStyles(style = SpanStyle(textDecoration = TextDecoration.Underline))
+                    withLink(LinkAnnotation.Clickable(href, styles = styles, linkInteractionListener = LinkInteractionListener { model.openHref(href) })) { append(shown) }
+                } else {
+                    append(shown)
+                }
+            }
+        }
+    }
+    InnerBox(cx) {
+        BasicText(
+            annotated,
+            modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize(),
+            style = cx.composeTextStyle(align = align),
             softWrap = lines != 1,
             maxLines = lines ?: Int.MAX_VALUE,
             overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,

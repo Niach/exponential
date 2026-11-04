@@ -13,17 +13,24 @@ import { NodeView, TemplateItemView, mergeStyle, templateItems } from "../node-v
 import { bool, BuiltinIcon, num, str, useParts, type PartFn } from "./shared"
 
 export function BoxNative({ node, props, rootProps, emit, children }: NativeProps) {
-  const pressable = bool(props.pressable) || Boolean(node.on?.press)
+  const ctx = useSurfaceContext()
+  // #EXP-1674: `Row.href` lands here and opens like a Link's (the policy decides).
+  const href = str(props.href)
+  const pressable = bool(props.pressable) || Boolean(node.on?.press) || Boolean(href)
   if (!pressable) return <div {...(rootProps as Record<string, unknown>)}>{children}</div>
+  const press = () => {
+    if (href) ctx.openUrl(href)
+    void emit(`press`)
+  }
   const onKey = (e: KeyboardEvent) => {
     if (e.target !== e.currentTarget) return
     if (e.key === `Enter` || e.key === ` `) {
       e.preventDefault()
-      void emit(`press`)
+      press()
     }
   }
   return (
-    <div {...(rootProps as Record<string, unknown>)} data-pressable="true" role="button" tabIndex={0} onClick={() => void emit(`press`)} onKeyDown={onKey}>
+    <div {...(rootProps as Record<string, unknown>)} data-pressable="true" role="button" tabIndex={0} onClick={press} onKeyDown={onKey}>
       {children}
     </div>
   )

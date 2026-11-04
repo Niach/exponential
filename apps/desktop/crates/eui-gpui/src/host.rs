@@ -127,6 +127,13 @@ pub trait HostPlugin: 'static {
         }
     }
 
+    /// #EXP-1674: the text of a `hostLinks` Text (the `Row` subtitle) as
+    /// segments that concatenate back to it; `None` = no links. eUI knows
+    /// nothing of what they mean; [`eui_core::host::police_text_links`] applies.
+    fn text_links(&self, _text: &str, _cx: &gpui::App) -> Option<Vec<eui_core::host::TextLink>> {
+        None
+    }
+
     /// A `Video` / `AudioPlayer` press hands its policed source to the
     /// system player (gpui has no media pipeline, so nothing plays inline):
     /// an http(s) src without headers goes through [`Self::open_url`]; a

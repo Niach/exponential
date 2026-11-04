@@ -1109,7 +1109,8 @@
                                     "props": {
                                       "text": "Open source",
                                       "variant": "muted",
-                                      "lines": 1
+                                      "lines": 1,
+                                      "hostLinks": true
                                     },
                                     "children": [],
                                     "recipe": {
@@ -7046,7 +7047,8 @@
                     "props": {
                       "text": "Online · 2 runs",
                       "variant": "muted",
-                      "lines": 1
+                      "lines": 1,
+                      "hostLinks": true
                     },
                     "children": [],
                     "recipe": {

@@ -11,7 +11,7 @@
 // renderers, locked here through the Solid natives.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render } from "@solidjs/testing-library"
+import { cleanup, fireEvent, render } from "@solidjs/testing-library"
 import { CORE_CATALOG_ID, MEDIA_LIMITS, reduceNested } from "@exponential_app/eui"
 import type { NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface } from "./surface"
@@ -263,5 +263,43 @@ describe(`media limits`, () => {
     const d = paint({ id: `v`, component: `Video`, props: { autoplay: true, src: `https://exponential.at/evil.mp4` } }, host)
     await new Promise((r) => setTimeout(r, 10))
     expect(d.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
+  })
+})
+
+describe(`#EXP-1674: Row.href and Button.href open like a Link`, () => {
+  it(`a press opens through the host; a denied href opens nothing`, () => {
+    const openUrl = vi.fn()
+    const row = paint({ id: `r`, component: `Row`, props: { title: `Docs`, href: `https://exponential.at/docs` } }, { openUrl })
+    fireEvent.click(row.querySelector(`[data-pressable="true"]`)!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/docs`)
+    cleanup()
+    const button = paint({ id: `b`, component: `Button`, props: { label: `Docs`, href: `https://exponential.at/b` } }, { openUrl })
+    fireEvent.click(button.querySelector(`button`)!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/b`)
+    cleanup()
+    const denied = paint({ id: `b`, component: `Button`, props: { label: `x`, href: `javascript:alert(1)` } }, { openUrl })
+    fireEvent.click(denied.querySelector(`button`)!)
+    expect(openUrl).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe(`#EXP-1674: a host's text links in a Row subtitle`, () => {
+  const textLinks = (text: string) => (text.startsWith(`#A-1`) ? [{ text: `#A-1`, href: `https://exponential.at/i` }, { text: text.slice(4) }] : null)
+  it(`only linked segments are anchors, and a tap never presses the Row`, () => {
+    const openUrl = vi.fn()
+    const onAction = vi.fn()
+    const c = paint({ id: `r`, component: `Row`, props: { title: `T`, subtitle: `#A-1 merged · #1758` }, on: { press: { event: { name: `row` } } } }, { openUrl, onAction, textLinks })
+    const links = [...c.querySelectorAll(`[data-xui-text-link]`)]
+    expect(links.map((a) => a.textContent)).toEqual([`#A-1`])
+    expect(c.textContent).toContain(`#A-1 merged · #1758`)
+    fireEvent.click(links[0]!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/i`)
+    expect(onAction).not.toHaveBeenCalled()
+  })
+  it(`stays plain: no hook, a denied href`, () => {
+    const subtitle = { id: `r`, component: `Row`, props: { title: `T`, subtitle: `#A-1 x` } } as NestedNode
+    expect(paint(subtitle).querySelector(`[data-xui-text-link]`)).toBeNull()
+    cleanup()
+    expect(paint(subtitle, { textLinks: () => [{ text: `#A-1 x`, href: `javascript:alert(1)` }] }).querySelector(`[data-xui-text-link]`)).toBeNull()
   })
 })

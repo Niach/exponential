@@ -6,6 +6,19 @@ import UIKit
 import ExponentialUI
 #endif
 
+/// #EXP-1674: the team of the chat holding a card, for its `~/` and `#IDENT`
+/// links; nil = the active team.
+private struct CardTeamIdKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var cardTeamId: String? {
+        get { self[CardTeamIdKey.self] }
+        set { self[CardTeamIdKey.self] = newValue }
+    }
+}
+
 // EXP-1280 custom plan mode: THE rich plan / question card's form parts
 // (fixtures/plan-card.json ×4: web `session-thread-view.tsx` + `ask-card.tsx`,
 // desktop `thread_screen.rs`, Android `ThreadParts.kt`). `ThreadAskCard` hands
@@ -568,6 +581,7 @@ private struct PlanCardLiveSurface: View {
     @Environment(\.motion) private var motion
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.cardTeamId) private var cardTeamId
     @State private var model: SurfaceModel?
     @State private var failed = false
     /// The `buildKey` the current model was built from: a re-appearing card
@@ -625,6 +639,8 @@ private struct PlanCardLiveSurface: View {
         let host = PlanCardSurfaceHost(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
+            teamId: cardTeamId,
+            deps: deps,
             httpClient: deps.httpClient
         )
         host.onReply = onReply
@@ -677,29 +693,35 @@ private struct SurfaceChildVeil: View {
     }
 }
 
-/// The card's host plugin: no transport, no host functions, and NO link
-/// opening; media resolves against the instance, attachments load with the
-/// account's auth. The sandbox is the point: an agent-authored surface
-/// (`plan_propose` / `sessions_ask`) may paint anything, so it must not be
-/// able to send the person anywhere with one tap (web `cardHost`:
-/// `openUrl: () => {}`).
+/// The card's host plugin: no transport, no host functions; media resolves
+/// against the instance, attachments load with the account's auth. #EXP-1674
+/// (plan-card.json): links = in-app and https through THE opener, with the
+/// card's team for `~/`; a Row subtitle's `#IDENT` refs that resolve are links.
 @MainActor
 private final class PlanCardSurfaceHost: HostPlugin {
     let baseURL: URL?
     let accountId: String
+    let teamId: String?
+    let deps: AppDependencies
     let httpClient: HTTPClient
 
-    init(baseURL: URL?, accountId: String, httpClient: HTTPClient) {
+    init(baseURL: URL?, accountId: String, teamId: String?, deps: AppDependencies, httpClient: HTTPClient) {
         self.baseURL = baseURL
         self.accountId = accountId
+        self.teamId = teamId
+        self.deps = deps
         self.httpClient = httpClient
     }
 
-    /// Links open nothing. The protocol's default would hand any
-    /// policy-allowed href (https, or a relative path resolved against the
-    /// instance = a universal link) to `UIApplication.open` — overriding it
-    /// here is what keeps the surface sandboxed.
-    func openUrl(_ url: String) {}
+    /// Never the protocol's default: that would hand a universal link to
+    /// `UIApplication.open`, and any https to the system.
+    func openUrl(_ url: String) {
+        LinkOpener.openCardLink(url, origin: base ?? "", accountId: accountId, teamId: teamId, deps: deps)
+    }
+
+    func textLinks(_ text: String) -> [TextLinkSegment]? {
+        LinkOpener.issueTextLinks(text, accountId: accountId, teamId: teamId, deps: deps)
+    }
 
     /// The surface card's reply hook (`Chats.surfaceReply`).
     var onReply: ((String) -> Void)?
@@ -741,7 +763,10 @@ private final class PlanCardSurfaceHost: HostPlugin {
         )
     }
 
-    var urlPolicy: UrlPolicy? { UrlPolicy(schemes: ["https"], allowPrivate: ownPrivateHosts, baseUrl: base) }
+    // https, plus the instance's own scheme (a LAN self-host may be plain http).
+    var urlPolicy: UrlPolicy? {
+        UrlPolicy(schemes: ["https"] + (baseURL?.scheme == "http" ? ["http"] : []), allowPrivate: ownPrivateHosts, baseUrl: base)
+    }
 
     func mediaRequest(_ src: String) -> URLRequest? {
         guard let base else { return nil }

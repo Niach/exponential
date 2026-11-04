@@ -83,6 +83,41 @@ class SafeHostTest {
         assertNull(m.href("javascript:alert(1)"))
     }
 
+    /** #EXP-1674: `Row.href` and `Button.href` open like a Link's. */
+    @Test
+    fun rowAndButtonHrefsOpenLikeALink() {
+        val host = RecordingHost()
+        val m = SurfaceModel("hrefs", host = host, scope = CoroutineScope(Dispatchers.Unconfined), shaper = noShaper)
+        m.fixedMeasure = true
+        m.setViewport(390f, 800f)
+        m.setComponents(
+            """[{"id":"root","component":"Stack","children":["row","go","bad"]},
+               {"id":"row","component":"Row","title":"Docs","href":"https://ui.exponential.at/r"},
+               {"id":"go","component":"Button","label":"Go","href":"https://ui.exponential.at/b"},
+               {"id":"bad","component":"Button","label":"Evil","href":"javascript:alert(1)"}]""",
+        )
+        m.fire(m.indexOf("row")!!, "press")
+        m.fire(m.indexOf("go")!!, "press")
+        m.fire(m.indexOf("bad")!!, "press")
+        assertEquals(listOf("https://ui.exponential.at/r", "https://ui.exponential.at/b"), host.urls)
+    }
+
+    /** #EXP-1674: a host's text links stay plain unless they concatenate back and the policy allows one. */
+    @Test
+    fun textLinksArePoliced() {
+        var answer: List<at.exponential.ui.host.TextLinkSegment>? = null
+        val host = object : HostPlugin {
+            override fun textLinks(text: String) = answer
+        }
+        val m = SurfaceModel("text-links", host = host, scope = CoroutineScope(Dispatchers.Unconfined), shaper = noShaper)
+        assertNull(m.textLinkSegments("#A-1 x"))
+        answer = listOf(at.exponential.ui.host.TextLinkSegment("#A-1", "https://exponential.at/i"), at.exponential.ui.host.TextLinkSegment(" x"))
+        assertEquals("https://exponential.at/i", m.textLinkSegments("#A-1 x")?.first()?.href)
+        assertNull(m.textLinkSegments("other"))
+        answer = listOf(at.exponential.ui.host.TextLinkSegment("#A-1 x", "javascript:alert(1)"))
+        assertNull(m.textLinkSegments("#A-1 x"))
+    }
+
     // Media
 
     @Test

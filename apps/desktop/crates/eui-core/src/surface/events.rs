@@ -341,6 +341,13 @@ impl Surface {
         let owner_component = n.owner_component.clone().unwrap_or_else(|| n.component.clone());
         let part = n.part.clone();
         let mut out = vec![];
+        // #EXP-1674: a Button's or a Row's (its root Box) `href` opens like a
+        // Link's, ahead of the press event; the host's URL policy decides.
+        if event == "press" && n.part.is_none() && matches!(n.component.as_str(), "Box" | "Button") {
+            if let Some(url) = n.props.get("href").and_then(Value::as_str).filter(|url| !url.is_empty()) {
+                out.push(OutEvent::OpenUrl { url: url.to_string() });
+            }
+        }
         match (owner_component.as_str(), part.as_deref(), event) {
             ("Tabs", Some("tab"), "press") => {
                 let value = n.props.get("value").map(js).unwrap_or_default();

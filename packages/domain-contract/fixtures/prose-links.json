@@ -1,0 +1,187 @@
+{
+  "description": "#EXP-1674 (L2): A BARE IN-APP URL IN AGENT PROSE reads as the chip of what it names. `chipBareAppLinks(text, origin, team, resolve)` runs on DISPLAY text only (agent prose: chat text, narration, steering feeds), never on anything that serializes (descriptions, comments and their editors keep their bytes). Locked ×4: web lib/prose-links.ts, desktop domain::prose_links, iOS ExpCore ProseLinks.swift, Android domain/ProseLinks.kt. THE SCAN, line by line: a line whose first non-space characters (at most 3 spaces) are three backticks or tildes opens a fence, closed by a line starting the same way; fenced lines stay as written (an unclosed fence runs to the end). In other lines a run of n backticks opens a code span closed by the next run of exactly n (no such run = plain text); a span stays as written. Elsewhere a candidate starts at `http://` or `https://` (any case) whose previous character is not an ASCII word character, `[`, `<`, or the `(` of `](`; it runs up to an ASCII space, tab or any of `<>()[]`\"'`, then drops trailing `.,;:!?*_~`. THE RULE: `classifyAppLink(url, origin, team)` names it, its teamSlug must equal `team` (case-insensitive; no team = no chips): issue + issueRef = kind `issue` (id = identifier), board = `board` (id = boardSlug), session + thread = `session` (id = the session id), agent = `agent` (id = agentId); anything else stays a plain link. `resolve(kind, id)` = the display title of a SYNCED row, null otherwise; null stays a plain link (fixture `synced`, keys `kind:id`). THE OUTPUT: an issue = `#<identifier as written>`, which every client's existing chip pass draws as THE IssueChip with its title and status glyph. Any other kind = a labelled link `[<title>](<url without its hash>#exp-chip-<kind>)`, whose run every markdown renderer paints as THE EntityChip (entity-chip.json: `entityRefIcon` glyph, the title); `\\`, `[`, `]`, `*`, `_`, backtick and `~` in the title are backslash-escaped. `proseChipKind(href)` reads the marker back (`chipKindCases`): the text after the LAST `#exp-chip-` when it is `board`, `session` or `agent`, else null. Route kinds drop the hash on open (app-link.json), so the marker never reaches a screen. A labelled link stays the agent's text in link style; a `~/` link in markdown is a labelled link like any other and survives every parser and editor unchanged (CONTRACT_FIXTURES `team_link`).",
+  "origin": "https://app.exponential.at",
+  "team": "acme",
+  "synced": {
+    "issue:EXP-42": "Fix the flicker",
+    "issue:EXP-7": "Ship it",
+    "board:web": "Web",
+    "session:s1": "Fix the flicker",
+    "session:s2": "a_b [c] *d* `e` ~f~ g\\h",
+    "agent:a1": "Triage"
+  },
+  "cases": [
+    {
+      "name": "a bare issue url chips by identifier",
+      "text": "landed https://app.exponential.at/t/acme/boards/web/issues/EXP-42 today",
+      "out": "landed #EXP-42 today"
+    },
+    {
+      "name": "the short issue route",
+      "text": "see https://app.exponential.at/t/acme/issues/EXP-7.",
+      "out": "see #EXP-7."
+    },
+    {
+      "name": "trailing punctuation stays prose",
+      "text": "(https://app.exponential.at/t/acme/issues/EXP-7), ok?",
+      "out": "(#EXP-7), ok?"
+    },
+    {
+      "name": "an issue that did not sync stays a plain link",
+      "text": "see https://app.exponential.at/t/acme/issues/EXP-404 ok",
+      "out": "see https://app.exponential.at/t/acme/issues/EXP-404 ok"
+    },
+    {
+      "name": "a labelled link stays the agent's text",
+      "text": "[the fix](https://app.exponential.at/t/acme/issues/EXP-42)",
+      "out": "[the fix](https://app.exponential.at/t/acme/issues/EXP-42)"
+    },
+    {
+      "name": "a label that is the url stays as written",
+      "text": "[https://app.exponential.at/t/acme/issues/EXP-42](https://app.exponential.at/t/acme/issues/EXP-42)",
+      "out": "[https://app.exponential.at/t/acme/issues/EXP-42](https://app.exponential.at/t/acme/issues/EXP-42)"
+    },
+    {
+      "name": "an angle autolink stays as written",
+      "text": "<https://app.exponential.at/t/acme/issues/EXP-42>",
+      "out": "<https://app.exponential.at/t/acme/issues/EXP-42>"
+    },
+    {
+      "name": "inline code stays code",
+      "text": "`https://app.exponential.at/t/acme/issues/EXP-42` and https://app.exponential.at/t/acme/issues/EXP-7",
+      "out": "`https://app.exponential.at/t/acme/issues/EXP-42` and #EXP-7"
+    },
+    {
+      "name": "a double backtick span",
+      "text": "``a ` https://app.exponential.at/t/acme/issues/EXP-42`` b",
+      "out": "``a ` https://app.exponential.at/t/acme/issues/EXP-42`` b"
+    },
+    {
+      "name": "an unclosed backtick is text",
+      "text": "a ` https://app.exponential.at/t/acme/issues/EXP-7",
+      "out": "a ` #EXP-7"
+    },
+    {
+      "name": "a fence stays code",
+      "text": "```\nhttps://app.exponential.at/t/acme/issues/EXP-42\n```\nhttps://app.exponential.at/t/acme/issues/EXP-7",
+      "out": "```\nhttps://app.exponential.at/t/acme/issues/EXP-42\n```\n#EXP-7"
+    },
+    {
+      "name": "a tilde fence stays code",
+      "text": "~~~md\nhttps://app.exponential.at/t/acme/issues/EXP-42\n~~~",
+      "out": "~~~md\nhttps://app.exponential.at/t/acme/issues/EXP-42\n~~~"
+    },
+    {
+      "name": "another team's url stays a plain link",
+      "text": "https://app.exponential.at/t/other/issues/EXP-42",
+      "out": "https://app.exponential.at/t/other/issues/EXP-42"
+    },
+    {
+      "name": "the team matches case-insensitively",
+      "text": "https://app.exponential.at/t/ACME/issues/EXP-42",
+      "out": "#EXP-42"
+    },
+    {
+      "name": "another instance stays a plain link",
+      "text": "https://other.example/t/acme/issues/EXP-42",
+      "out": "https://other.example/t/acme/issues/EXP-42"
+    },
+    {
+      "name": "a url glued to a word is prose",
+      "text": "xhttps://app.exponential.at/t/acme/issues/EXP-42",
+      "out": "xhttps://app.exponential.at/t/acme/issues/EXP-42"
+    },
+    {
+      "name": "a board chips with its name",
+      "text": "on https://app.exponential.at/t/acme/boards/web now",
+      "out": "on [Web](https://app.exponential.at/t/acme/boards/web#exp-chip-board) now"
+    },
+    {
+      "name": "a session chips with its title",
+      "text": "https://app.exponential.at/t/acme/sessions/s1",
+      "out": "[Fix the flicker](https://app.exponential.at/t/acme/sessions/s1#exp-chip-session)"
+    },
+    {
+      "name": "a thread chips as a session, its query and hash kept out",
+      "text": "https://app.exponential.at/t/acme/threads/s1?child=x#top",
+      "out": "[Fix the flicker](https://app.exponential.at/t/acme/threads/s1?child=x#exp-chip-session)"
+    },
+    {
+      "name": "an agent chips with its name",
+      "text": "https://app.exponential.at/t/acme/agents/a1",
+      "out": "[Triage](https://app.exponential.at/t/acme/agents/a1#exp-chip-agent)"
+    },
+    {
+      "name": "a title's markdown is escaped",
+      "text": "https://app.exponential.at/t/acme/sessions/s2",
+      "out": "[a\\_b \\[c\\] \\*d\\* \\`e\\` \\~f\\~ g\\\\h](https://app.exponential.at/t/acme/sessions/s2#exp-chip-session)"
+    },
+    {
+      "name": "a session that did not sync stays a plain link",
+      "text": "https://app.exponential.at/t/acme/sessions/nope",
+      "out": "https://app.exponential.at/t/acme/sessions/nope"
+    },
+    {
+      "name": "a settings page stays a plain link",
+      "text": "https://app.exponential.at/t/acme/settings/members",
+      "out": "https://app.exponential.at/t/acme/settings/members"
+    },
+    {
+      "name": "a plan page stays a plain link",
+      "text": "https://app.exponential.at/t/acme/sessions/s1/plan/m1",
+      "out": "https://app.exponential.at/t/acme/sessions/s1/plan/m1"
+    },
+    {
+      "name": "two urls",
+      "text": "https://app.exponential.at/t/acme/issues/EXP-42 https://app.exponential.at/t/acme/boards/web",
+      "out": "#EXP-42 [Web](https://app.exponential.at/t/acme/boards/web#exp-chip-board)"
+    },
+    {
+      "name": "non-ASCII prose around it",
+      "text": "Grüße https://app.exponential.at/t/acme/issues/EXP-42 🚀",
+      "out": "Grüße #EXP-42 🚀"
+    },
+    {
+      "name": "prose with no url is untouched",
+      "text": "nothing here, #EXP-42",
+      "out": "nothing here, #EXP-42"
+    }
+  ],
+  "chipKindCases": [
+    {
+      "name": "a board marker",
+      "href": "https://app.exponential.at/t/acme/boards/web#exp-chip-board",
+      "kind": "board"
+    },
+    {
+      "name": "a session marker",
+      "href": "/t/acme/sessions/s1?x=1#exp-chip-session",
+      "kind": "session"
+    },
+    {
+      "name": "an agent marker",
+      "href": "~/agents/a1#exp-chip-agent",
+      "kind": "agent"
+    },
+    {
+      "name": "no marker",
+      "href": "https://app.exponential.at/t/acme/boards/web#top",
+      "kind": null
+    },
+    {
+      "name": "an unknown kind",
+      "href": "/x#exp-chip-issue",
+      "kind": null
+    },
+    {
+      "name": "a marker with a tail",
+      "href": "/x#exp-chip-board-x",
+      "kind": null
+    },
+    {
+      "name": "an empty href",
+      "href": "",
+      "kind": null
+    }
+  ]
+}

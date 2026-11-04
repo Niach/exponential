@@ -12,6 +12,15 @@ extension SurfaceModel {
         host.effectiveHref(href)
     }
 
+    /// #EXP-1674: a `hostLinks` Text's segments when the host links part of
+    /// it, else nil (the plain text): they must concatenate back to `text`; an
+    /// href the URL policy denies stays text.
+    public func textLinkSegments(_ text: String) -> [TextLinkSegment]? {
+        guard let segments = host.textLinks(text), segments.map(\.text).joined() == text else { return nil }
+        let policed = segments.map { TextLinkSegment(text: $0.text, href: $0.href.flatMap(linkHref)) }
+        return policed.contains { $0.href != nil } ? policed : nil
+    }
+
     /// Open `url` when the URL policy allows it (the host gets the absolute
     /// href). True when it was handed over.
     @discardableResult

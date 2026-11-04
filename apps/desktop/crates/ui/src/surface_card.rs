@@ -126,6 +126,10 @@ impl HostPlugin for ReplyHost {
         self.inner.open_url(url, cx)
     }
 
+    fn text_links(&self, text: &str, cx: &App) -> Option<Vec<eui_core::host::TextLink>> {
+        self.inner.text_links(text, cx)
+    }
+
     fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {
         self.inner.open_media_file(path, cx)
     }
@@ -189,7 +193,7 @@ fn ensure_view(id: &str, session_id: &str, surface: &CardSurface, window: &Windo
     let (id, session_id, surface) = (id.to_string(), session_id.to_string(), surface.clone());
     window.defer(cx, move |window, cx| {
         let host = Rc::new(ReplyHost {
-            inner: crate::plan_card::CardSurfaceHost::new(cx),
+            inner: crate::plan_card::CardSurfaceHost::for_session(&session_id, cx),
             session_id,
         });
         let view = crate::plan_card::card_surface_view(&format!("surface-card-{id}"), &surface, host, window, cx);

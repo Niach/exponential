@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- #EXP-1674: `Row.href` and `Button.href` (type url): a press opens it through the host's `openUrl` like `Link.href`, then fires `press`. `HostPlugin.textLinks(text)` (a `policy.textLinks` on `ExponentialHost`): the host turns parts of a `Row` subtitle into tappable spans, painted in the text's colour, underlined; eUI knows nothing of what they mean. All 5 renderers.
 - VAPP-232 (eApps U3, 2/3): the `Calendar` and `Timeline` components (catalog macros, no new primitive, no new token). Calendar draws a records month or week view: Monday-first day cells (other months dimmed, weekends shaded, today filled), spans as bars in the full chart colour (`$color.chart1..8`, the row's tone) across their lanes, "+N more" past the lanes; on phones (`@media (form-factor: phone)`) a compact month with up to three dots a day and the selected day's agenda (Section + Row). Events `select` (a day) and `open` (a bar or entry) run in the pressed item's scope. Timeline draws a records `view=timeline`: a label column, week/month/quarter columns under month or year bands, one row per group with its bars in lanes, today's column and line. New macro rule `$template` (a part renders an item per entry of a data array; the item is lifted into the reducer's `templates`), TS + Rust; recipes in the neutral theme; string `calendarMore`; enum `calendarView`; conformance `template-items.json` `macro-template-*`.
 
 ## 0.13.0 (2026-11-03)

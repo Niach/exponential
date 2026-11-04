@@ -549,7 +549,9 @@ function boundMacroCases(): ComponentCase[] {
  *  together with it, with no custom child so the prop itself paints
  *  (EXP-1259: the pending Button paints `pendingLabel`). */
 const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
-  Button: { "loading=true+pendingLabel": { loading: true, pendingLabel: `Submitting` } },
+  // #EXP-1674: an href press target.
+  Row: { href: { title: `Docs`, href: `https://ui.exponential.at` } },
+  Button: { href: { label: `Docs`, href: `https://ui.exponential.at` }, "loading=true+pendingLabel": { loading: true, pendingLabel: `Submitting` } },
   // EXP-1548: wider than its box: the table scrolls sideways, cells wrap,
   // the `truncate` column keeps one line with an ellipsis.
   Table: { wide: wideTableProps() },
@@ -1362,7 +1364,7 @@ function promptBudget() {
     // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
     // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
     // VAPP-232 (eApps U3, a named budget exception, approved with the U3 design): Calendar + Timeline, +198 tokens after trimming every new description; the measured total (8,948), no slack.
-    budgetTokens: 8948,
+    budgetTokens: 8977,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

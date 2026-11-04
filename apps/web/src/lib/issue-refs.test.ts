@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import issueRefsFixture from "@exp/domain-contract/fixtures/issue-refs.json"
 import { extractIssueRefs, splitIssueRefs } from "@/lib/issue-refs"
 
 describe(`extractIssueRefs`, () => {
@@ -95,4 +96,19 @@ describe(`bare identifiers (EXP-760, steering feeds only)`, () => {
       `APP-33`,
     ])
   })
+})
+
+// #EXP-1674: THE scan, replayed ×4 (desktop `markdown/editor.rs`, iOS
+// `IssueRefsTests`, Android `IssueRefsTest`).
+describe(`issue-refs.json`, () => {
+  const tokens = (text: string, bare: boolean) =>
+    splitIssueRefs(text, { bare })
+      .filter((segment) => segment.identifier !== undefined)
+      .map((segment) => segment.text)
+  for (const c of issueRefsFixture.cases) {
+    it(c.name, () => {
+      expect(tokens(c.text, false)).toEqual(c.hash)
+      expect(tokens(c.text, true)).toEqual(c.bare)
+    })
+  }
 })

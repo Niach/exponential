@@ -2,16 +2,23 @@
 // EXP-1324 `shimmer` → `data-xui-shimmer`), Markdown (`lines` truncation),
 // Icon.
 
-import type { JSX } from "solid-js"
+import { For, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { displayString } from "@exponential_app/eui"
+import { textLinkSegments } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
 import { mergeStyle, type NativeProps } from "../node-view"
 import { num, str } from "./shared"
 
+/** #EXP-1674: a host's text links: the text's own colour, underlined; a tap
+ *  opens through the URL policy and never presses the Row behind it. */
+const TEXT_LINK_STYLE = { color: `inherit`, "text-decoration": `underline` } as const
+
 export function TextNative(props: NativeProps): JSX.Element {
+  const ctx = useSurfaceContext()
+  const segments = () => (props.props.hostLinks === true ? textLinkSegments(ctx.host, displayString(props.props.text)) : null)
   const lines = () => num(props.props.lines, 0)
   const align = () => (props.props.align === `end` ? `end` : props.props.align === `center` ? `center` : props.props.align === `start` ? `start` : undefined)
   // `align` is a base-layer rule (`data-xui-align`), so a node style
@@ -28,7 +35,31 @@ export function TextNative(props: NativeProps): JSX.Element {
       data-xui-shimmer={props.props.shimmer === true ? `` : undefined}
       style={mergeStyle(props.rootProps, lines() > 1 ? { WebkitLineClamp: lines() } : undefined)}
     >
-      {displayString(props.props.text)}
+      <Show when={segments()} fallback={displayString(props.props.text)}>
+        {(shown) => (
+          <For each={shown()}>
+            {(segment) =>
+              segment.href ? (
+                <a
+                  href={segment.href}
+                  data-xui-text-link=""
+                  style={TEXT_LINK_STYLE}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    ctx.openUrl(segment.href!)
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  {segment.text}
+                </a>
+              ) : (
+                segment.text
+              )
+            }
+          </For>
+        )}
+      </Show>
     </span>
   )
 }

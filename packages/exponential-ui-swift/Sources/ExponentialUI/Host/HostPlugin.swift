@@ -97,6 +97,17 @@ public struct SurfacePaintError: Sendable, Equatable, Hashable {
 /// input edits are plain values the host forwards wherever it likes. Every
 /// requirement has a default (the `NoHost` behaviour), so a host implements
 /// what it needs. Called on the main actor.
+/// One piece of a host's `textLinks` answer (`catalog/host.json` urls).
+public struct TextLinkSegment: Equatable, Sendable {
+    public var text: String
+    public var href: String?
+
+    public init(text: String, href: String? = nil) {
+        self.text = text
+        self.href = href
+    }
+}
+
 @MainActor
 public protocol HostPlugin: AnyObject {
     /// The icon registry: a catalog icon NAME (a registry concept such as
@@ -110,6 +121,10 @@ public protocol HostPlugin: AnyObject {
     /// `openUrl`, `Link` and markdown links: only hrefs `urlPolicy`
     /// allowed reach it, absolute. Default: the system opener.
     func openUrl(_ url: String)
+    /// #EXP-1674: the text of a `hostLinks` Text (the `Row` subtitle) as
+    /// segments that concatenate back to it; nil = no links. eUI knows nothing
+    /// of what they mean.
+    func textLinks(_ text: String) -> [TextLinkSegment]?
     /// The URL policy every href passes (Link, markdown links, openUrl).
     /// nil = the contract defaults (https, http, mailto, tel; relative urls
     /// resolve against `mediaOptions.baseUrl`, else are denied).
@@ -160,6 +175,7 @@ public extension HostPlugin {
         guard let href = effectiveHref(url), let u = URL(string: href) else { return }
         systemOpen(u)
     }
+    func textLinks(_ text: String) -> [TextLinkSegment]? { nil }
     var urlPolicy: UrlPolicy? { nil }
     var mediaOptions: MediaOptions? { nil }
     func resolveUrl(_ src: String) -> String { src }

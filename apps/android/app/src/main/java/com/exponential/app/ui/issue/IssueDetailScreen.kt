@@ -93,7 +93,9 @@ import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalAttachmentLinkOpener
+import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.ui.markdown.LocalIssueRefs
+import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.markdown.LocalMarkdownToolbarController
 import com.exponential.app.ui.markdown.LocalMentions
 import com.exponential.app.ui.markdown.MarkdownEditor
@@ -427,8 +429,11 @@ fun IssueFace(
     // Probed image sizes for the description + comment images (REV2-79).
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
 
+    // #EXP-1674: THE opener for a body's links (`~/x`, in-app routes).
+    val appLinkHandler = rememberAppLinkHandler()
     CompositionLocalProvider(
         LocalIssueRefs provides issueRefHandler,
+        LocalAppLinks provides appLinkHandler,
         LocalMentions provides mentionResolver,
         LocalAttachmentDims provides attachmentDims,
         // EXP-824: a media link the renderer could not upgrade (not yet
