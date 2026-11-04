@@ -619,10 +619,11 @@ final class ExpAppHost {
                 // else. A public origin listed here changes nothing.
                 urls: UrlPolicy(allowPrivate: ownHost, baseUrl: origin),
                 openUrl: { url in
-                    // An instance link opens in-app (the markdown links' rule),
-                    // anything else in the Safari sheet: never UIApplication.open.
-                    if let action = AgentMarkdownText.linkAction(
-                        url, base: base, origin: origin ?? "", accountId: accountId, deps: deps
+                    // THE opener (#EXP-1674), the app's team for `~/`: an instance
+                    // link opens in-app, anything else in the Safari sheet, never
+                    // UIApplication.open.
+                    if let action = LinkOpener.tapAction(
+                        url, origin: origin ?? "", accountId: accountId, teamId: teamId, deps: deps
                     ) {
                         action()
                     }

@@ -700,7 +700,7 @@ private fun RunFaceContent(
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
     // EXP-1188: links the agent writes to this instance open in the app.
-    val appLinkHandler = rememberAppLinkHandler()
+    val appLinkHandler = rememberAppLinkHandler(session?.teamId)
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
     val answerLabels = remember(activity.answerLocks, activity.answerLabels) {

@@ -516,9 +516,17 @@ class MarkdownAnnotateTest {
             opened,
         )
         assertEquals("mailto:a@b.co", (linkOf("mailto:a@b.co") as LinkAnnotation.Url).url)
-        assertTrue(isAgentPath("/t/acme/agent?x=1"))
-        assertTrue(!isAgentPath("/t/acme/agent/more"))
         assertNull(linkOf("https://…"))
+        // #EXP-1674: `~/` needs the surface's team, and opens its absolute URL.
+        assertNull(linkOf("~/inbox"))
+        opened.clear()
+        val teamed = AppLinkHandler("https://app.exponential.at", team = "acme") { link, url -> opened.add(link to url) }
+        val shorthand = annotate("link", listOf(InlineMark(0, 4, InlineKind.Link, href = "~/inbox")), null, appLinks = teamed)
+        (shorthand.getLinkAnnotations(0, shorthand.length).single().item as LinkAnnotation.Clickable).let { it.linkInteractionListener?.onClick(it) }
+        assertEquals(
+            com.exponential.app.domain.AppLink.Inbox("acme") to "https://app.exponential.at/t/acme/inbox",
+            opened.single(),
+        )
         // Without a handler every href opens as written, as before.
         val plain = annotate("link", listOf(InlineMark(0, 4, InlineKind.Link, href = "/t/acme/sessions/abc")), null)
         assertEquals("/t/acme/sessions/abc", (plain.getLinkAnnotations(0, plain.length).single().item as LinkAnnotation.Url).url)

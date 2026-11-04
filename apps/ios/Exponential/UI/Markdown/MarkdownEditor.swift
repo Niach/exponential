@@ -649,8 +649,9 @@ private final class TextMeasurer {
 
 /// A read-only render's link-tap override: given the tapped `.link` URL,
 /// return what to run INSTEAD of UIKit's default open, or nil to keep the
-/// default. Set by `AgentMarkdownText` so a link into this instance opens
-/// in-app (`AppLink.classify`); everywhere else it is nil.
+/// default. `LinkOpener.surfaceHandler`, set by `MainNavigator` for every
+/// read-only render and by `AgentMarkdownText` with its surface's team; nil
+/// outside the app shell.
 typealias MarkdownLinkHandler = (URL) -> (() -> Void)?
 
 private struct MarkdownLinkHandlerKey: EnvironmentKey {

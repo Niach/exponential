@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { Toaster, TooltipProvider } from "@exp/ui"
+import { LinkToast } from "@/lib/link-toast"
 import { SessionProvider } from "@/hooks/use-session"
 import { APP_TITLE, appUrl } from "@/lib/page-title"
 
@@ -133,6 +134,7 @@ function RootComponent() {
             effect can toast (a first-render toast is otherwise lost).
             Gated by src/root-toaster-order.test.tsx. */}
         <Toaster />
+        <LinkToast />
         <Outlet />
         {showRouterDevtools && <TanStackRouterDevtools />}
       </TooltipProvider>

@@ -4,6 +4,7 @@ import {
   redirect,
   useParams,
 } from "@tanstack/react-router"
+import { queueLinkToast } from "@/lib/link-toast"
 import { TRPCClientError } from "@trpc/client"
 import { useEffect, useState } from "react"
 import { fetchSessionOnce } from "@/lib/auth/client"
@@ -102,6 +103,9 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
       // Signed in but not a member (e.g. a link from another account,
       // EXP-1177): a bare "Not Found" page is a dead end, so go home — the
       // root redirect resolves this user's own last-used or default team.
+      // #EXP-1674: with the reason (app-link.json `noAccess`), the same words
+      // whether the team is private or gone.
+      queueLinkToast()
       throw redirect({ to: `/` })
     }
   },

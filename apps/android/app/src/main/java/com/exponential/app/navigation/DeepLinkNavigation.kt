@@ -1,7 +1,10 @@
 package com.exponential.app.navigation
 
+import android.net.Uri
 import androidx.navigation.NavHostController
+import com.exponential.app.data.push.LinkDestination
 import com.exponential.app.domain.InboxRoute
+import com.exponential.app.domain.SettingsNav
 
 /**
  * Route plumbing for the deep-link drain in [AppNavHost] (EXP-528).
@@ -126,3 +129,39 @@ fun sessionTargetRoute(sessionId: String, target: InboxRoute.SessionTarget?): St
         is InboxRoute.SessionTarget.Session -> Routes.session(target.sessionId)
         null -> Routes.session(sessionId)
     }
+
+/**
+ * #EXP-1674: the native screen of an in-app link (app-link.json `routes`).
+ * [uri] = the link's absolute URL, whose `?comment=` and `?view=guide` still
+ * land where they did.
+ */
+fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri, tabSwitch: TabSwitchMarker) {
+    fun query(name: String): String? = runCatching { uri.getQueryParameter(name) }.getOrNull()
+    when (destination) {
+        is LinkDestination.Issue -> navigateIssueDeepLink(destination.id, commentId = query("comment"))
+        is LinkDestination.Conversation -> navigateDeepLink(
+            when {
+                !destination.isRoot -> Routes.session(destination.id)
+                destination.sessionPath && query("view") == Routes.THREAD_TAB_GUIDE ->
+                    Routes.thread(destination.id, Routes.THREAD_TAB_GUIDE)
+                else -> Routes.thread(destination.id)
+            },
+        )
+        is LinkDestination.Plan -> navigateDeepLink(Routes.planPage(destination.sessionId, destination.messageId))
+        is LinkDestination.Board -> navigateDeepLink("board/${destination.id}")
+        LinkDestination.Threads -> selectTab(MainTabs.THREADS, tabSwitch, restore = false)
+        is LinkDestination.AgentDm -> navigateDeepLink(Routes.agentDm(destination.agentId))
+        LinkDestination.AgentHome -> selectTab(MainTabs.AGENT, tabSwitch, restore = false)
+        // A page pushed over the Chats tab, not a tab root.
+        LinkDestination.Inbox -> {
+            selectTab(MainTabs.THREADS, tabSwitch, restore = false)
+            navigate(MainTabs.INBOX) { launchSingleTop = true }
+        }
+        LinkDestination.Devices -> navigateDeepLink(Routes.teamSettings(SettingsNav.DEVICES))
+        is LinkDestination.Settings -> navigateDeepLink(Routes.teamSettings(destination.section))
+        LinkDestination.TeamHome -> selectTab(MainTabs.TEAM, tabSwitch, restore = false)
+        LinkDestination.AppsList -> selectTab(MainTabs.APPS, tabSwitch, restore = false)
+        is LinkDestination.AppRun -> navigate(Routes.appRun(destination.appId))
+        is LinkDestination.AppScreen -> navigate(Routes.appScreen(destination.appId, destination.screen, destination.params))
+    }
+}

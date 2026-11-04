@@ -124,6 +124,7 @@ import { Route as TTeamSlugSettingsAssistantRouteImport } from './routes/t/$team
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
+import { Route as TTeamSlugIssuesIdentifierRouteImport } from './routes/t/$teamSlug/issues/$identifier'
 import { Route as TTeamSlugAppsAppSlugRouteImport } from './routes/t/$teamSlug/apps/$appSlug'
 import { Route as TTeamSlugAppEditorAppSlugRouteImport } from './routes/t/$teamSlug/app-editor/$appSlug'
 import { Route as TTeamSlugAgentsAgentIdRouteImport } from './routes/t/$teamSlug/agents/$agentId'
@@ -758,6 +759,11 @@ const TTeamSlugDraftsDraftIdRoute = TTeamSlugDraftsDraftIdRouteImport.update({
   path: '/drafts/$draftId',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugIssuesIdentifierRoute = TTeamSlugIssuesIdentifierRouteImport.update({
+  id: '/issues/$identifier',
+  path: '/issues/$identifier',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugAppsAppSlugRoute = TTeamSlugAppsAppSlugRouteImport.update({
   id: '/apps/$appSlug',
   path: '/apps/$appSlug',
@@ -1042,6 +1048,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
+  '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
@@ -1186,6 +1193,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
+  '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
@@ -1335,6 +1343,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
   '/t/$teamSlug/apps/$appSlug': typeof TTeamSlugAppsAppSlugRouteWithChildren
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
+  '/t/$teamSlug/issues/$identifier': typeof TTeamSlugIssuesIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/assistant': typeof TTeamSlugSettingsAssistantRoute
@@ -1484,6 +1493,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
     | '/t/$teamSlug/drafts/$draftId'
+    | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/assistant'
@@ -1628,6 +1638,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
     | '/t/$teamSlug/drafts/$draftId'
+    | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/assistant'
@@ -1776,6 +1787,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/app-editor/$appSlug'
     | '/t/$teamSlug/apps/$appSlug'
     | '/t/$teamSlug/drafts/$draftId'
+    | '/t/$teamSlug/issues/$identifier'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/assistant'
@@ -2715,6 +2727,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugDraftsDraftIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/issues/$identifier': {
+      id: '/t/$teamSlug/issues/$identifier'
+      path: '/issues/$identifier'
+      fullPath: '/t/$teamSlug/issues/$identifier'
+      preLoaderRoute: typeof TTeamSlugIssuesIdentifierRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/apps/$appSlug': {
       id: '/t/$teamSlug/apps/$appSlug'
       path: '/apps/$appSlug'
@@ -3078,6 +3097,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugAppEditorAppSlugRoute: typeof TTeamSlugAppEditorAppSlugRoute
   TTeamSlugAppsAppSlugRoute: typeof TTeamSlugAppsAppSlugRouteWithChildren
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
+  TTeamSlugIssuesIdentifierRoute: typeof TTeamSlugIssuesIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugThreadsThreadIdRoute: typeof TTeamSlugThreadsThreadIdRoute
   TTeamSlugAppsIndexRoute: typeof TTeamSlugAppsIndexRoute
@@ -3099,6 +3119,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugAppEditorAppSlugRoute: TTeamSlugAppEditorAppSlugRoute,
   TTeamSlugAppsAppSlugRoute: TTeamSlugAppsAppSlugRouteWithChildren,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
+  TTeamSlugIssuesIdentifierRoute: TTeamSlugIssuesIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugThreadsThreadIdRoute: TTeamSlugThreadsThreadIdRoute,
   TTeamSlugAppsIndexRoute: TTeamSlugAppsIndexRoute,

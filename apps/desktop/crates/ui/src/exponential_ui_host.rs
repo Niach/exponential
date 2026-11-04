@@ -1969,7 +1969,8 @@ impl IdeHost {
                     allow_private: allow_private.clone(),
                     ..Default::default()
                 }),
-                open_url: None,
+                // #EXP-1674: a `Link` to this instance opens in-app.
+                open_url: Some(crate::links::app_url_opener(scope.as_ref().and_then(|s| s.team_id.clone()))),
                 media: Some(MediaOptions {
                     base_url: instance,
                     allow_private,

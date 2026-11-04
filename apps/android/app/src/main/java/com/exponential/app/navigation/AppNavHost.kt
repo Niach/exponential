@@ -72,7 +72,10 @@ import com.exponential.app.domain.AGENT_ROUTE
 import com.exponential.app.domain.AGENT_ROUTE_ARGS
 import com.exponential.app.domain.AGENT_ROUTE_PATTERN
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.LINK_NO_ACCESS
+import com.exponential.app.domain.LinkOpenOutcome
 import com.exponential.app.domain.agentRoute
+import com.exponential.app.domain.linkOpenOutcome
 import com.exponential.app.ui.agent.AgentScreen
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomBarInset
@@ -174,6 +177,11 @@ fun AppNavHost() {
         else -> AGENT_TAB_ROUTE
     }
 
+    // EXP-1031: the app's ONE toaster, above both nav graphs, drawn by ONE
+    // ToastHost at the top (below the status bar), where no bottom sheet,
+    // nav bar or keyboard ever covers it.
+    val toaster = remember { Toaster() }
+
     LaunchedEffect(pendingTarget, state.token) {
         val target = pendingTarget ?: return@LaunchedEffect
         // Leave the target in the bus while unauthenticated so a share/deep-link
@@ -230,119 +238,40 @@ fun AppNavHost() {
             is DeepLinkBus.Target.Device -> guarded {
                 navController.navigateDeepLink(Routes.deviceSettings(target.deviceId))
             }
-            // EXP-1291: a thread link opens the thread (a root session).
-            is DeepLinkBus.Target.Thread -> {
-                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
-                guarded {
-                    teamSwitch?.let(viewModel::applyTeamSwitch)
-                    navController.navigateDeepLink(Routes.thread(target.id))
-                }
-            }
-            // EXP-1291: `/t/{team}/sessions/{id}` in prose (the PR body
-            // footer): a synced root IS a thread, so it opens there (on the
-            // Guide for `?view=guide`); a child or unsynced row opens the
-            // raw session view.
-            is DeepLinkBus.Target.SessionLink -> {
-                val isRoot = webLinkResolver.isLocalRoot(target.id) == true
-                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
-                guarded {
-                    teamSwitch?.let(viewModel::applyTeamSwitch)
-                    navController.navigateDeepLink(
-                        if (isRoot) {
-                            Routes.thread(target.id, Routes.THREAD_TAB_GUIDE.takeIf { target.guide })
+            // #EXP-1674: ONE LINK SYSTEM: a tapped link and a verified App Link
+            // alike, by the one open rule (app-link.json `openCases`).
+            is DeepLinkBus.Target.Link -> {
+                val resolved = webLinkResolver.resolveLink(target.link, target.host)
+                val activeTeam = resolved.accountId == state.activeAccountId &&
+                    resolved.teamId == teamSelection.selectedId.value
+                val screen = resolved.destination
+                when (linkOpenOutcome(resolved.member, activeTeam, resolved.found, resolved.webOnly)) {
+                    LinkOpenOutcome.NoAccess -> {
+                        toaster.error(LINK_NO_ACCESS)
+                        guarded { navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false) }
+                    }
+                    LinkOpenOutcome.Browser ->
+                        CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
+                    // A screen with its own not-found state, else the toast.
+                    LinkOpenOutcome.NotFound ->
+                        if (screen != null) {
+                            guarded { navController.openLinkDestination(screen, target.uri, tabSwitch) }
                         } else {
-                            Routes.session(target.id)
-                        },
-                    )
+                            toaster.error(LINK_NO_ACCESS)
+                        }
+                    LinkOpenOutcome.SwitchTeam -> {
+                        val teamSwitch = viewModel.planTeamSwitch(resolved.accountId, resolved.teamId)
+                        guarded {
+                            teamSwitch?.let(viewModel::applyTeamSwitch)
+                            screen?.let { navController.openLinkDestination(it, target.uri, tabSwitch) }
+                        }
+                    }
+                    LinkOpenOutcome.Open -> guarded {
+                        screen?.let { navController.openLinkDestination(it, target.uri, tabSwitch) }
+                    }
                 }
             }
-            // EXP-825: the web's `/t/{team}/agent` — the composer, empty,
-            // which IS the Agent tab.
-            DeepLinkBus.Target.Agent -> guarded {
-                navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
-            }
-            is DeepLinkBus.Target.WebIssueRef ->
-                // Verified App Link (EXP-92): resolve slug+identifier against
-                // the local DB of the account matching the link's host (brief
-                // poll while sync lands fresh rows). Anything unresolvable
-                // opens in a Custom Tab — which never re-triggers App Links,
-                // so it can't loop back here.
-                when (val resolution = webLinkResolver.resolve(target)) {
-                    is WebLinkResolver.Resolution.Found -> {
-                        val teamSwitch = viewModel.planTeamSwitch(
-                            resolution.accountId,
-                            webLinkResolver.teamOfIssue(resolution.id, resolution.accountId),
-                        )
-                        guarded {
-                        if (teamSwitch != null) {
-                            // The issue's team (on another signed-in account,
-                            // that account first, landing on the team);
-                            // IssueDetail re-scopes reactively.
-                            viewModel.applyTeamSwitch(teamSwitch)
-                        } else if (resolution.accountId != state.activeAccountId) {
-                            viewModel.switchAccount(resolution.accountId)
-                        }
-                        // EXP-1241: a web link's `?comment=` lands on that comment.
-                        navController.navigateIssueDeepLink(
-                            resolution.id,
-                            commentId = target.uri.getQueryParameter("comment"),
-                        )
-                        }
-                    }
-                    WebLinkResolver.Resolution.NotFound ->
-                        CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
-                }
-            // EXP-1288: a verified thread link — resolved like the issue
-            // link above, then the SAME route the in-app thread link takes.
-            is DeepLinkBus.Target.WebThreadRef ->
-                when (val resolution = webLinkResolver.resolveThread(target)) {
-                    is WebLinkResolver.Resolution.Found -> {
-                        val teamSwitch = viewModel.planTeamSwitch(
-                            resolution.accountId,
-                            webLinkResolver.teamOfSession(resolution.id, resolution.accountId),
-                        )
-                        guarded {
-                        if (teamSwitch != null) {
-                            viewModel.applyTeamSwitch(teamSwitch)
-                        } else if (resolution.accountId != state.activeAccountId) {
-                            viewModel.switchAccount(resolution.accountId)
-                        }
-                        navController.navigateDeepLink(
-                            when {
-                                !resolution.isRoot -> Routes.session(resolution.id)
-                                target.sessionPath && target.uri.getQueryParameter("view") == Routes.THREAD_TAB_GUIDE ->
-                                    Routes.thread(resolution.id, Routes.THREAD_TAB_GUIDE)
-                                else -> Routes.thread(resolution.id)
-                            },
-                        )
-                        }
-                    }
-                    WebLinkResolver.Resolution.NotFound ->
-                        CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
-                }
-            // VAPP-218 / VAPP-242: an app screen link (a tapped in-app link or
-            // a verified App Link): THE RUN VIEW showing that screen, resolved like the issue link (Custom Tab on a miss).
-            is DeepLinkBus.Target.AppScreen ->
-                when (val resolution = webLinkResolver.resolveApp(target)) {
-                    is WebLinkResolver.Resolution.Found -> {
-                        val teamSwitch = viewModel.planTeamSwitch(
-                            resolution.accountId,
-                            webLinkResolver.teamOfApp(resolution.id, resolution.accountId),
-                        )
-                        guarded {
-                            if (teamSwitch != null) {
-                                viewModel.applyTeamSwitch(teamSwitch)
-                            } else if (resolution.accountId != state.activeAccountId) {
-                                viewModel.switchAccount(resolution.accountId)
-                            }
-                            navController.navigate(Routes.appScreen(resolution.id, target.screen, target.params))
-                        }
-                    }
-                    WebLinkResolver.Resolution.NotFound ->
-                        CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
-                }
-            // A claimed-but-unrenderable https link (MainActivity's null
-            // parse): straight to the Custom Tab, which never re-triggers
+            // A web source: straight to the Custom Tab, which never re-triggers
             // App Links.
             is DeepLinkBus.Target.WebUrl ->
                 CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -376,11 +305,6 @@ fun AppNavHost() {
     // wizard (ServerAccount.needsOnboarding requires onboardingKnown).
     val activeAccount = state.accounts.firstOrNull { it.id == state.activeAccountId }
     val needsOnboarding = activeAccount?.needsOnboarding == true
-
-    // EXP-1031: the app's ONE toaster, above both nav graphs, drawn by ONE
-    // ToastHost at the top (below the status bar), where no bottom sheet,
-    // nav bar or keyboard ever covers it.
-    val toaster = remember { Toaster() }
 
     AppBackground {
         // Every screen floats on AppBackground (a Box, not a Material Surface), so

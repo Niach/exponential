@@ -384,133 +384,9 @@ struct AppNavigator: View {
         }
     }
 
-    /// A universal link (EXP-92). Issue links resolve locally (identifier →
-    /// synced issue id) under a signed-in account matching the URL's host;
-    /// anything unresolvable falls back to the in-app Safari sheet.
+    /// A universal link (EXP-92): THE opener (#EXP-1674).
     private func handleWebLink(_ url: URL) {
-        switch WebLinks.parse(url) {
-        case .invite(let token):
-            deps.deepLinkBus.navigateToInvite(token)
-        case .issue(let teamSlug, _, let identifier):
-            resolveWebIssueLink(url: url, teamSlug: teamSlug, identifier: identifier)
-        case .agent(let teamSlug):
-            // EXP-825: Home under a signed-in account on the link's host; a
-            // foreign host falls back to the Safari sheet.
-            if let account = accountsOnHost(of: url).first {
-                deps.deepLinkBus.navigateToAgent(teamSlug: teamSlug, accountId: account.id)
-            } else {
-                deps.deepLinkBus.openExternal(url)
-            }
-        case .thread(let teamSlug, let threadId):
-            // EXP-1288: the Thread screen, the in-app `AppLink.thread` path.
-            guard let holder = sessionLinkAccount(url: url, teamSlug: teamSlug, sessionId: threadId) else {
-                deps.deepLinkBus.openExternal(url)
-                return
-            }
-            deps.deepLinkBus.navigateToThread(threadId, accountId: holder.id)
-        case .session(let teamSlug, let sessionId, _):
-            // EXP-1291: a root → its thread (S-3: on its Conversation,
-            // `?view=guide` included), a child → its raw session.
-            guard let holder = sessionLinkAccount(url: url, teamSlug: teamSlug, sessionId: sessionId) else {
-                deps.deepLinkBus.openExternal(url)
-                return
-            }
-            deps.deepLinkBus.navigateToSessionLink(sessionId, account: holder, db: deps.db)
-        case let .appScreen(teamSlug, appSlug, screen, params):
-            // VAPP-218: the app's editor on its Preview tab showing that
-            // screen, under a signed-in account on the link's host.
-            guard let account = accountsOnHost(of: url).first else {
-                deps.deepLinkBus.openExternal(url)
-                return
-            }
-            deps.deepLinkBus.navigateToAppScreen(DeepLinkBus.AppScreenLink(
-                teamSlug: teamSlug,
-                appSlug: appSlug,
-                request: Apps.ScreenRequest(screen: screen, params: params),
-                accountId: account.id,
-                url: url
-            ))
-        case nil:
-            // Shouldn't happen (the AASA claims only the parsed shapes), but
-            // never swallow a link the user tapped.
-            deps.deepLinkBus.openExternal(url)
-        }
-    }
-
-    /// Signed-in accounts on the link's instance — active account first,
-    /// then most recently used (multi-account devices can hold several
-    /// accounts on the same host).
-    private func accountsOnHost(of url: URL) -> [ServerAccount] {
-        let host = url.host
-        let activeId = deps.auth.activeAccountId
-        return deps.auth.accounts
-            .filter { $0.token != nil && URL(string: $0.instanceUrl)?.host == host }
-            .sorted { a, b in
-                if a.id == activeId { return true }
-                if b.id == activeId { return false }
-                return a.lastUsedAt > b.lastUsedAt
-            }
-    }
-
-    /// EXP-1288: a thread or session link opens under the signed-in account
-    /// on the link's host that holds the session (else the one in the link's
-    /// team, else the first); nil = a foreign host (the Safari sheet).
-    private func sessionLinkAccount(url: URL, teamSlug: String, sessionId: String) -> ServerAccount? {
-        let candidates = accountsOnHost(of: url)
-        guard let first = candidates.first else { return nil }
-        let store = deps.db
-        func holds(_ account: ServerAccount, _ query: (Database) throws -> Bool) -> Bool {
-            guard let pool = try? store.pool(forAccountId: account.id) else { return false }
-            return (try? pool.read { try query($0) }) ?? false
-        }
-        return candidates.first { account in
-            holds(account) { try SessionQueries.session(db: $0, id: sessionId) != nil }
-        } ?? candidates.first { account in
-            holds(account) { try TeamEntity.filter(Column("slug") == teamSlug).fetchCount($0) > 0 }
-        } ?? first
-    }
-
-    private func resolveWebIssueLink(url: URL, teamSlug: String, identifier: String) {
-        let candidates = accountsOnHost(of: url)
-        guard !candidates.isEmpty else {
-            deps.deepLinkBus.openExternal(url)
-            return
-        }
-        let store = deps.db
-        Task { @MainActor in
-            func resolve() -> (issueId: String, accountId: String)? {
-                for account in candidates {
-                    if let issueId = IssueRefLookup.resolve(
-                        identifier: identifier,
-                        teamSlug: teamSlug,
-                        db: store,
-                        accountId: account.id
-                    ) {
-                        return (issueId, account.id)
-                    }
-                }
-                return nil
-            }
-            if let hit = resolve() {
-                deps.deepLinkBus.navigateToIssue(hit.issueId, accountId: hit.accountId)
-                return
-            }
-            // Cold launch / brand-new issue: the row may simply not have
-            // synced yet — one sync pass, then a bounded poll before giving
-            // up. Opening the link activated the scene, so the wake kick has
-            // just restarted the pipelines and a fresh row typically lands
-            // within a couple of seconds. Worst case this adds ~4s before the
-            // Safari bounce, on a path that was already failing.
-            await deps.syncManager.initialSync()
-            for _ in 0..<8 {
-                if let hit = resolve() {
-                    deps.deepLinkBus.navigateToIssue(hit.issueId, accountId: hit.accountId)
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(500))
-            }
-            deps.deepLinkBus.openExternal(url)
-        }
+        LinkOpener.openWebLink(url, deps: deps)
     }
 }
 
@@ -566,6 +442,9 @@ struct MainNavigator: View {
     @State private var keyboardVisible = false
     /// #EXP-1384: the board menu's New board row → the create-board sheet.
     @State private var createBoardTarget: CreateBoardTarget?
+    /// #EXP-1674: every read-only markdown render's link tap = THE opener. One
+    /// closure for the navigator's lifetime, like `pushRouteAction`.
+    @State private var markdownLinks: MarkdownLinkHandler?
     /// #EXP-1645: the Team tab's team menu (every server's teams, New team).
     @State private var teamLoader: MultiAccountTeamLoader?
     @State private var showTeamSetup = false
@@ -602,6 +481,7 @@ struct MainNavigator: View {
         // NavigationLink in a List row draws the system disclosure OUTSIDE
         // the glass card), so they push through this instead.
         .environment(\.pushRoute, pushRouteAction)
+        .environment(\.markdownLinkHandler, markdownLinks)
         .environment(\.threadLanding, threadLanding)
         .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
@@ -618,6 +498,9 @@ struct MainNavigator: View {
             TeamSetupSheet()
         }
         .onAppear {
+            if markdownLinks == nil {
+                markdownLinks = LinkOpener.surfaceHandler(accountId: nil, baseURL: nil, teamId: nil, deps: deps)
+            }
             if Self.landOnTeamPage {
                 Self.landOnTeamPage = false
                 tab = .team
@@ -726,23 +609,6 @@ struct MainNavigator: View {
                 }
             }
         }
-        // EXP-1284: a tapped thread link opens the thread (a root session).
-        .onChange(of: deps.deepLinkBus.pendingThreadId) { _, threadId in
-            if threadId != nil, let target = deps.deepLinkBus.consumeThread() {
-                // EXP-1288: like `pushRoute` — a thread already on the stack
-                // is popped back to, never a second page of it.
-                navigate {
-                    activateTeam(forSession: target.threadId, accountId: target.accountId)
-                    if let index = Self.threadIndex(target.threadId, in: path) {
-                        landOnThread(at: index, threadId: target.threadId, page: target.page)
-                    } else {
-                        path.append(AppRoute.thread(
-                            accountId: target.accountId, threadId: target.threadId, child: target.page
-                        ))
-                    }
-                }
-            }
-        }
         // #EXP-1534: a signed-out login (inbox row or push) opens that
         // device's settings on the Devices page.
         .onChange(of: deps.deepLinkBus.pendingDeviceRowId) { _, rowId in
@@ -750,16 +616,10 @@ struct MainNavigator: View {
                 navigate({ openDeviceFromLink() }, dropped: { _ = deps.deepLinkBus.consumeDevice() })
             }
         }
-        // EXP-825: a `/t/{team}/agent` universal link.
-        .onChange(of: deps.deepLinkBus.pendingAgentTeamSlug) { _, slug in
-            if slug != nil {
-                navigate({ openAgentFromLink() }, dropped: { _ = deps.deepLinkBus.consumeAgent() })
-            }
-        }
-        // VAPP-218: an app screen link (a tapped link, a universal link).
-        .onChange(of: deps.deepLinkBus.pendingAppScreen) { _, link in
-            if link != nil {
-                navigate({ openAppScreenFromLink() }, dropped: { _ = deps.deepLinkBus.consumeAppScreen() })
+        // #EXP-1674: a link that resolved to a screen (`LinkOpener`).
+        .onChange(of: deps.deepLinkBus.pendingLinkLanding) { _, landing in
+            if landing != nil {
+                navigate({ openLinkLanding() }, dropped: { _ = deps.deepLinkBus.consumeLinkLanding() })
             }
         }
         // A team was deleted in-app (EXP-43): back to the landing tab (Home)
@@ -788,16 +648,9 @@ struct MainNavigator: View {
                 activateTeam(forSession: sessionId, accountId: accountId)
                 path.append(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
             }
-            if let target = deps.deepLinkBus.consumeThread() {
-                activateTeam(forSession: target.threadId, accountId: target.accountId)
-                path.append(AppRoute.thread(
-                    accountId: target.accountId, threadId: target.threadId, child: target.page
-                ))
-            }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
-            if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
-            if deps.deepLinkBus.pendingAppScreen != nil { openAppScreenFromLink() }
+            if deps.deepLinkBus.pendingLinkLanding != nil { openLinkLanding() }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             syncBanner
@@ -1639,66 +1492,47 @@ extension MainNavigator {
         ))
     }
 
-    /// EXP-825: land on Home in the linked team — switch account first when
-    /// the link's host matched another signed-in one (Home starts in the
-    /// ACTIVE team), point the active team at the slug when it synced, and
-    /// switch to the Home TAB (the link carries no seed).
-    private func openAgentFromLink() {
-        guard let slug = deps.deepLinkBus.pendingAgentTeamSlug,
-              let accountId = deps.deepLinkBus.pendingAgentAccountId else { return }
-        if accountId != deps.auth.activeAccountId {
-            // Left PENDING on purpose: `.id(activeAccountId)` recreates this
-            // navigator and its cold-launch `.task` drains the link under the
-            // right account.
-            deps.auth.switchAccount(id: accountId)
-            return
-        }
-        _ = deps.deepLinkBus.consumeAgent()
-        if let team = teamState.teams.first(where: { $0.slug == slug }),
-           team.id != teamState.activeTeamId {
-            applyTeam(team.id)
-        }
-        landOnRoot(of: .agent)
-    }
-
-    /// VAPP-218 / VAPP-242 (apps.json `screens`): an app screen link lands
-    /// on the Apps tab with THE RUN VIEW pushed, showing that screen. Another signed-in account switches first and leaves the link
-    /// PENDING (the rebuilt navigator's cold-launch `.task` drains it); the
-    /// linked team becomes the active one; an app not synced here = the
-    /// Safari sheet.
-    private func openAppScreenFromLink() {
+    /// #EXP-1674: land where a link resolved to. Another signed-in account
+    /// switches first and leaves the landing PENDING (`.id(activeAccountId)`
+    /// recreates this navigator and its cold-launch `.task` drains it); a link
+    /// into another team switches it silently, then opens.
+    private func openLinkLanding() {
         let bus = deps.deepLinkBus
-        guard let link = bus.pendingAppScreen else { return }
-        if !link.accountId.isEmpty, link.accountId != deps.auth.activeAccountId {
-            deps.auth.switchAccount(id: link.accountId)
+        guard let landing = bus.pendingLinkLanding else { return }
+        if !landing.accountId.isEmpty, landing.accountId != deps.auth.activeAccountId {
+            if let teamId = landing.teamId {
+                SharedBoardMirror.writeActiveTeam(accountId: landing.accountId, teamId: teamId)
+            }
+            deps.auth.switchAccount(id: landing.accountId)
             return
         }
-        _ = bus.consumeAppScreen()
-        guard let pool = try? deps.db.pool(forAccountId: link.accountId) else {
-            bus.openExternal(link.url)
-            return
+        _ = bus.consumeLinkLanding()
+        if let teamId = landing.teamId, teamId != teamState.activeTeamId {
+            if teamState.teams.contains(where: { $0.id == teamId }) {
+                applyTeam(teamId)
+            } else {
+                // Cold launch: the teams observation opens on the remembered team.
+                SharedBoardMirror.writeActiveTeam(accountId: landing.accountId, teamId: teamId)
+            }
         }
-        let app = (try? pool.read { db -> AppEntity? in
-            guard let teamId = try String.fetchOne(
-                db,
-                sql: #"SELECT "id" FROM "teams" WHERE "slug" = ? LIMIT 1"#,
-                arguments: [link.teamSlug]
-            ) else { return nil }
-            return try AppEntity
-                .filter(Column("team_id") == teamId)
-                .filter(Column("slug") == link.appSlug)
-                .filter(Column("deleted_at") == nil)
-                .fetchOne(db)
-        }) ?? nil
-        guard let app else {
-            bus.openExternal(link.url)
-            return
+        switch landing.destination {
+        case .home:
+            landOnRoot(of: .agent)
+        case let .tab(target):
+            landOnRoot(of: target)
+        case let .board(boardId):
+            SharedBoardMirror.writeLastUsed(accountId: landing.accountId, boardId: boardId)
+            applyBoardSelection(accountId: landing.accountId, boardId: boardId)
+            landOnRoot(of: .issues)
+        case let .push(route, target):
+            if let target { landOnRoot(of: target) }
+            // EXP-1288: a thread already on the stack is popped back to.
+            if case let .thread(_, threadId, child) = route, let index = Self.threadIndex(threadId, in: path) {
+                landOnThread(at: index, threadId: threadId, page: child)
+            } else {
+                path.append(route)
+            }
         }
-        if app.teamId != teamState.activeTeamId, teamState.teams.contains(where: { $0.id == app.teamId }) {
-            applyTeam(app.teamId)
-        }
-        landOnRoot(of: .apps)
-        path.append(.appRun(accountId: link.accountId, appId: app.id, screen: link.request))
     }
 
     /// EXP-1373 (chats.json `shell`): the phone shows ONE active team; a

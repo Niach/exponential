@@ -12,13 +12,44 @@ sealed interface AppLink {
     /** An issue on this instance: `/t/{team}/boards/{board}/issues/{identifier}`. */
     data class Issue(val teamSlug: String, val boardSlug: String, val identifier: String) : AppLink
 
+    /** #EXP-1674: an issue by identifier alone, `/t/{team}/issues/{identifier}`. */
+    data class IssueRef(val teamSlug: String, val identifier: String) : AppLink
+
+    /** #EXP-1674: `/t/{team}/boards/{board}`. */
+    data class Board(val teamSlug: String, val boardSlug: String) : AppLink
+
     /** A run on this instance: `/t/{team}/sessions/{id}`. */
     data class Session(val teamSlug: String, val sessionId: String) : AppLink
+
+    /** #EXP-1674: THE plan page, `/t/{team}/sessions/{id}/plan/{messageId}`. */
+    data class Plan(val teamSlug: String, val sessionId: String, val messageId: String) : AppLink
+
     /** EXP-1284: a thread on this instance. */
     data class Thread(val teamSlug: String, val threadId: String) : AppLink
 
+    /** #EXP-1674: the chats list, `/t/{team}/threads`. */
+    data class Threads(val teamSlug: String) : AppLink
+
+    /** #EXP-1674: an agent's chat, `/t/{team}/agents/{id}`. */
+    data class Agent(val teamSlug: String, val agentId: String) : AppLink
+
+    /** #EXP-1674: the team's agent page, `/t/{team}/agent`. */
+    data class AgentHome(val teamSlug: String) : AppLink
+
+    /** #EXP-1674: `/t/{team}/inbox`. */
+    data class Inbox(val teamSlug: String) : AppLink
+
+    /** #EXP-1674: `/t/{team}/devices` or `/t/{team}/settings/devices`. */
+    data class Devices(val teamSlug: String) : AppLink
+
+    /** #EXP-1674: `/t/{team}/settings[/{section}]`; [section] = "" for the root. */
+    data class Settings(val teamSlug: String, val section: String) : AppLink
+
+    /** #EXP-1674: an app's first screen in THE RUN VIEW, `/t/{team}/apps/{app}`. */
+    data class AppHome(val teamSlug: String, val appSlug: String) : AppLink
+
     /** VAPP-218: an app screen, `/t/{team}/apps/{app}/{screen}?<params>`:
-     *  the app's editor on its Preview tab showing that screen. */
+     *  THE RUN VIEW showing that screen. */
     data class AppScreen(val teamSlug: String, val appSlug: String, val screen: String, val params: Map<String, String>) : AppLink
 
     /** Any other page on this instance, the path as written (query + hash kept). */
@@ -31,9 +62,70 @@ sealed interface AppLink {
     data object Ignore : AppLink
 }
 
-fun classifyAppLink(href: String, origin: String): AppLink {
+/** #EXP-1674: `app-link.json` `copy.noAccess`. */
+const val LINK_NO_ACCESS = "Not found or no access"
+
+/** #EXP-1674: what opening a resolved in-app link does (`openCases`). */
+enum class LinkOpenOutcome(val wire: String) {
+    Open("open"),
+    SwitchTeam("switchTeam"),
+    NoAccess("noAccess"),
+    Browser("browser"),
+    NotFound("notFound"),
+}
+
+/** #EXP-1674: the ONE open rule ×4; unreadable looks exactly like missing. */
+fun linkOpenOutcome(member: Boolean, activeTeam: Boolean, found: Boolean, webOnly: Boolean): LinkOpenOutcome = when {
+    !member -> LinkOpenOutcome.NoAccess
+    webOnly -> LinkOpenOutcome.Browser
+    !found -> LinkOpenOutcome.NotFound
+    activeTeam -> LinkOpenOutcome.Open
+    else -> LinkOpenOutcome.SwitchTeam
+}
+
+/** #EXP-1674: `~/x` = `/t/<team>/x`, or null when it cannot be expanded (no
+ *  team, not `~/`, `~//`, a `.` or `..` segment even percent-encoded). */
+fun expandTeamLink(href: String, team: String?): String? {
+    if (team.isNullOrEmpty() || !href.startsWith("~/") || href.startsWith("~//")) return null
+    val rest = href.substring(2)
+    val segments = beforeQueryAndHash(rest).split('/').map(::strictDecode)
+    if (segments.any { it == "." || it == ".." }) return null
+    return "/t/${encodeUriComponent(team)}/$rest"
+}
+
+/** The team a link names: every team route's, or an `app` path's under
+ *  `/t/<team>/`; null off the team tree. */
+fun appLinkTeam(link: AppLink): String? = when (link) {
+    is AppLink.Issue -> link.teamSlug
+    is AppLink.IssueRef -> link.teamSlug
+    is AppLink.Board -> link.teamSlug
+    is AppLink.Session -> link.teamSlug
+    is AppLink.Plan -> link.teamSlug
+    is AppLink.Thread -> link.teamSlug
+    is AppLink.Threads -> link.teamSlug
+    is AppLink.Agent -> link.teamSlug
+    is AppLink.AgentHome -> link.teamSlug
+    is AppLink.Inbox -> link.teamSlug
+    is AppLink.Devices -> link.teamSlug
+    is AppLink.Settings -> link.teamSlug
+    is AppLink.AppHome -> link.teamSlug
+    is AppLink.AppScreen -> link.teamSlug
+    is AppLink.App -> pathSegments(link.path).takeIf { it.size >= 2 && it[0] == "t" }?.get(1)
+    is AppLink.External, AppLink.Ignore -> null
+}
+
+/** `/t/<team>/apps`: the app path this client has a screen for (the Apps tab). */
+fun isAppsListPath(path: String): Boolean {
+    val segments = pathSegments(path)
+    return segments.size == 3 && segments[0] == "t" && segments[2] == "apps"
+}
+
+fun classifyAppLink(href: String, origin: String, team: String? = null): AppLink {
     val trimmed = href.trim()
     if (trimmed.isEmpty()) return AppLink.Ignore
+    if (trimmed.startsWith("~")) {
+        return expandTeamLink(trimmed, team)?.let(::inAppLink) ?: AppLink.Ignore
+    }
     if (trimmed.startsWith("/")) {
         if (trimmed.startsWith("//")) return AppLink.Ignore
         return inAppLink(trimmed)
@@ -76,23 +168,63 @@ private fun isValidAuthority(authority: String): Boolean {
     }
 }
 
+private fun beforeQueryAndHash(path: String): String =
+    path.substring(0, path.indexOfFirst { it == '?' || it == '#' }.let { if (it < 0) path.length else it })
+
+private fun pathSegments(path: String): List<String> =
+    beforeQueryAndHash(path).split('/').filter { it.isNotEmpty() }.map(::strictDecode)
+
+/** An in-app path (query + hash kept for [AppLink.App], dropped for the routes). */
 private fun inAppLink(path: String): AppLink {
-    val pathOnly = path.substring(0, path.indexOfFirst { it == '?' || it == '#' }.let { if (it < 0) path.length else it })
-    val segments = pathOnly.split('/').filter { it.isNotEmpty() }.map(::percentDecode)
-    if (segments.size == 6 && segments[0] == "t" && segments[2] == "boards" && segments[4] == "issues") {
-        return AppLink.Issue(teamSlug = segments[1], boardSlug = segments[3], identifier = segments[5])
-    }
-    if (segments.size == 4 && segments[0] == "t" && segments[2] == "sessions") {
-        return AppLink.Session(teamSlug = segments[1], sessionId = segments[3])
-    }
-    if (segments.size == 4 && segments[0] == "t" && segments[2] == "threads") {
-        return AppLink.Thread(teamSlug = segments[1], threadId = segments[3])
-    }
-    // VAPP-218: an app screen, its query = the screen's params.
-    if (segments.size == 5 && segments[0] == "t" && segments[2] == "apps") {
-        return AppLink.AppScreen(teamSlug = segments[1], appSlug = segments[3], screen = segments[4], params = screenQueryParams(path))
+    val segments = pathSegments(path)
+    val n = segments.size
+    if (n >= 3 && segments[0] == "t") {
+        val teamSlug = segments[1]
+        val kind = segments[2]
+        val a = segments.getOrNull(3)
+        val b = segments.getOrNull(4)
+        val c = segments.getOrNull(5)
+        if (kind == "issues" && a != null && n == 4) return AppLink.IssueRef(teamSlug, a)
+        if (kind == "boards" && a != null && b == "issues" && c != null && n == 6) {
+            return AppLink.Issue(teamSlug = teamSlug, boardSlug = a, identifier = c)
+        }
+        if (kind == "boards" && a != null && n == 4) return AppLink.Board(teamSlug, a)
+        if (kind == "sessions" && a != null && b == "plan" && c != null && n == 6) {
+            return AppLink.Plan(teamSlug, a, c)
+        }
+        if (kind == "sessions" && a != null && n == 4) return AppLink.Session(teamSlug, a)
+        if (kind == "threads" && a != null && n == 4) return AppLink.Thread(teamSlug, a)
+        if (kind == "threads" && n == 3) return AppLink.Threads(teamSlug)
+        if (kind == "agents" && a != null && n == 4) return AppLink.Agent(teamSlug, a)
+        if (kind == "agent" && n == 3) return AppLink.AgentHome(teamSlug)
+        if (kind == "inbox" && n == 3) return AppLink.Inbox(teamSlug)
+        if (kind == "devices" && n == 3) return AppLink.Devices(teamSlug)
+        if (kind == "settings" && a == "devices" && n == 4) return AppLink.Devices(teamSlug)
+        if (kind == "settings" && a != null && n == 4) return AppLink.Settings(teamSlug, a)
+        if (kind == "settings" && n == 3) return AppLink.Settings(teamSlug, "")
+        // VAPP-218: an app screen, its query = the screen's params.
+        if (kind == "apps" && a != null && b != null && n == 5) {
+            return AppLink.AppScreen(teamSlug = teamSlug, appSlug = a, screen = b, params = screenQueryParams(path))
+        }
+        if (kind == "apps" && a != null && n == 4) return AppLink.AppHome(teamSlug, a)
     }
     return AppLink.App(path)
+}
+
+/** `encodeURIComponent`: UTF-8, everything but `A-Za-z0-9-_.!~*'()` percent-encoded. */
+private fun encodeUriComponent(text: String): String {
+    val hex = "0123456789ABCDEF"
+    val out = StringBuilder()
+    for (byte in text.toByteArray(Charsets.UTF_8)) {
+        val value = byte.toInt() and 0xFF
+        val c = value.toChar()
+        if (c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c in "-_.!~*'()") {
+            out.append(c)
+        } else {
+            out.append('%').append(hex[value shr 4]).append(hex[value and 0x0F])
+        }
+    }
+    return out.toString()
 }
 
 /** VAPP-218: a path's query as screen params: `k=v` pairs split on `&` then
@@ -144,26 +276,4 @@ private fun strictDecode(text: String): String {
     } catch (_: java.nio.charset.CharacterCodingException) {
         text
     }
-}
-
-/** Percent-decodes UTF-8 bytes; a malformed escape stays literal. */
-private fun percentDecode(segment: String): String {
-    if ('%' !in segment) return segment
-    val out = ByteArrayOutputStream()
-    var i = 0
-    while (i < segment.length) {
-        val c = segment[i]
-        if (c == '%' && i + 2 < segment.length) {
-            val hi = Character.digit(segment[i + 1], 16)
-            val lo = Character.digit(segment[i + 2], 16)
-            if (hi >= 0 && lo >= 0) {
-                out.write(hi * 16 + lo)
-                i += 3
-                continue
-            }
-        }
-        out.write(c.toString().toByteArray(Charsets.UTF_8))
-        i++
-    }
-    return out.toString(Charsets.UTF_8.name())
 }

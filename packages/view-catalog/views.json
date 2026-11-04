@@ -185,6 +185,10 @@
     {
       "route": "/t/$teamSlug/apps/$appSlug/$screen",
       "reason": "VAPP-218 + VAPP-242: a screen deep link renders THE RUN VIEW of its parent route on that screen (the match itself draws nothing); `app-run` photographs that page."
+    },
+    {
+      "route": "/t/$teamSlug/issues/$identifier",
+      "reason": "#EXP-1674: the short issue route (app-link.json `issueRef`) resolves the board and replaces itself with the issue page; nothing of its own to photograph."
     }
   ],
   "views": [

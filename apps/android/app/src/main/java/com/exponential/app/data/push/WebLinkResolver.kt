@@ -2,73 +2,172 @@ package com.exponential.app.data.push
 
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.domain.AppLink
 import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.domain.appLinkTeam
+import com.exponential.app.domain.isAppsListPath
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
+/** #EXP-1674: the native screen an in-app link opens. */
+sealed interface LinkDestination {
+    data class Issue(val id: String) : LinkDestination
+
+    /** A synced session: a root opens its thread (Guide on a `/sessions/` link's
+     *  `?view=guide`), a child its session view. */
+    data class Conversation(val id: String, val isRoot: Boolean, val sessionPath: Boolean) : LinkDestination
+    data class Plan(val sessionId: String, val messageId: String) : LinkDestination
+    data class Board(val id: String) : LinkDestination
+    data object Threads : LinkDestination
+    data class AgentDm(val agentId: String) : LinkDestination
+    data object AgentHome : LinkDestination
+    data object Inbox : LinkDestination
+    data object Devices : LinkDestination
+    data class Settings(val section: String) : LinkDestination
+    data object TeamHome : LinkDestination
+    data object AppsList : LinkDestination
+    data class AppRun(val appId: String) : LinkDestination
+    data class AppScreen(val appId: String, val screen: String, val params: Map<String, String>) : LinkDestination
+}
+
 /**
- * Resolves a verified App Link (EXP-92) — team slug + identifier from the
- * web URL — to a local issue id, under the signed-in account whose instanceUrl
- * host matches the link. The row may simply not have synced yet (cold launch /
- * brand-new issue), so a miss polls the DB briefly while sync runs
- * ([SyncManager] has no awaitable hook) before giving up; the caller falls
- * back to a Custom Tab on [Resolution.NotFound]. EXP-1288: thread links
- * ([resolveThread]) take the same path against the synced `threads` rows.
+ * #EXP-1674: the facts `linkOpenOutcome` decides on. [destination] on a miss =
+ * a screen with its own not-found state (the plan page, an agent's chat);
+ * [accountId] + [teamId] = where the link's team lives for the viewer.
+ */
+data class LinkResolution(
+    val member: Boolean,
+    val found: Boolean,
+    val webOnly: Boolean,
+    val accountId: String? = null,
+    val teamId: String? = null,
+    val destination: LinkDestination? = null,
+)
+
+/**
+ * Resolves an in-app link (EXP-92, #EXP-1674) under the signed-in accounts whose
+ * instanceUrl host matches it. The row may simply not have synced yet (cold
+ * launch / brand-new issue), so a miss polls the DB briefly while sync runs
+ * ([SyncManager] has no awaitable hook) before it counts as missing.
  */
 @Singleton
 class WebLinkResolver @Inject constructor(
     private val auth: AuthRepository,
     private val dbHolder: DatabaseHolder,
 ) {
-    sealed interface Resolution {
-        /** [id] = the local issue id ([resolve]) or thread id ([resolveThread]). */
-        data class Found(
-            val id: String,
-            val accountId: String,
-            /** Thread links only: the synced row is a ROOT (`parent_id IS
-             *  NULL`); a child of a `/sessions/` link opens its session view. */
-            val isRoot: Boolean = true,
-        ) : Resolution
-        data object NotFound : Resolution
-    }
+    /**
+     * Teams and team-scoped rows are member-only shapes, so "not a member" =
+     * no such team among the host's synced teams. It waits only while no team
+     * has synced at all. A link no team governs (a path off the team tree) or
+     * on an instance with no signed-in account here can only open on the web.
+     */
+    suspend fun resolveLink(link: AppLink, host: String): LinkResolution {
+        val browserOnly = LinkResolution(member = true, found = true, webOnly = true)
+        val slug = appLinkTeam(link) ?: return browserOnly
+        val accounts = accountsOn(host)
+        if (accounts.isEmpty()) return browserOnly
 
-    suspend fun resolve(target: DeepLinkBus.Target.WebIssueRef): Resolution =
-        poll(target.host) { db -> db.issueDao().findIdByTeamRef(target.teamSlug, target.identifier)?.let { it to true } }
-
-    /** EXP-1288: a `/t/{team}/threads/{id}` (or EXP-1291 `/sessions/{id}`)
-     *  link → the synced session (a thread IS a root session); [Found.isRoot]
-     *  tells a root from a child. */
-    suspend fun resolveThread(target: DeepLinkBus.Target.WebThreadRef): Resolution =
-        poll(target.host) { db ->
-            db.sessionDao().findIdByTeamRef(target.teamSlug, target.threadId)?.let { id ->
-                id to (db.sessionDao().getById(id)?.isRoot ?: true)
+        var memberAccountId: String? = null
+        var memberTeamId: String? = null
+        for (attempt in 0 until POLL_ATTEMPTS) {
+            var teamsSynced = false
+            for (account in accounts) {
+                val db = runCatching { dbHolder.database(account.id) }.getOrNull() ?: continue
+                val teams = runCatching { db.teamDao().observeAll().first() }.getOrNull().orEmpty()
+                if (teams.isNotEmpty()) teamsSynced = true
+                val team = teams.firstOrNull { it.slug == slug } ?: continue
+                if (memberTeamId == null) {
+                    memberAccountId = account.id
+                    memberTeamId = team.id
+                }
+                if (isWebOnly(link)) {
+                    return LinkResolution(true, found = true, webOnly = true, accountId = account.id, teamId = team.id)
+                }
+                val destination = runCatching { linkDestination(db, team.id, link, account.userId) }.getOrNull()
+                if (destination != null) {
+                    return LinkResolution(true, found = true, webOnly = false, accountId = account.id, teamId = team.id, destination = destination)
+                }
             }
+            if (memberTeamId == null && teamsSynced) break
+            if (attempt < POLL_ATTEMPTS - 1) delay(POLL_INTERVAL_MS)
         }
-
-    /** VAPP-218: a `/t/{team}/apps/{app}/{screen}` link → the synced app's id
-     *  (its team's slug + the app's slug). */
-    suspend fun resolveApp(target: DeepLinkBus.Target.AppScreen): Resolution =
-        poll(target.host) { db ->
-            val team = db.teamDao().observeBySlug(target.teamSlug).first() ?: return@poll null
-            db.appDao().observeByTeam(team.id).first().firstOrNull { it.slug == target.appSlug }?.let { it.id to true }
+        if (memberTeamId == null) return LinkResolution(member = false, found = false, webOnly = false)
+        val notFoundScreen = when (link) {
+            is AppLink.Plan -> LinkDestination.Plan(link.sessionId, link.messageId)
+            is AppLink.Agent -> LinkDestination.AgentDm(link.agentId)
+            else -> null
         }
-
-    suspend fun teamOfApp(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
-        db.appDao().observeById(id).first()?.teamId?.takeIf { it.isNotEmpty() }
+        return LinkResolution(true, found = false, webOnly = false, accountId = memberAccountId, teamId = memberTeamId, destination = notFoundScreen)
     }
 
-    /** EXP-1291: whether the in-app session [sessionId] is a synced ROOT on
-     *  the ACTIVE account; null when the row is not synced (yet). */
-    suspend fun isLocalRoot(sessionId: String): Boolean? {
-        val accountId = auth.activeAccountId.value ?: return null
-        return runCatching { dbHolder.database(accountId).sessionDao().getById(sessionId)?.isRoot }.getOrNull()
+    /** A page this client has no screen for: any `app` path but the apps list,
+     *  a settings section with no phone page. */
+    private fun isWebOnly(link: AppLink): Boolean = when (link) {
+        is AppLink.App -> !isAppsListPath(link.path)
+        is AppLink.Settings -> link.section.isNotEmpty() && link.section !in SettingsNav.PHONE_ROWS
+        else -> false
     }
+
+    private suspend fun isOwner(db: com.exponential.app.data.db.ExponentialDatabase, teamId: String, userId: String?): Boolean =
+        db.teamMemberDao().observeByTeam(teamId).first().any {
+            it.userId == userId && it.role == com.exponential.app.domain.DomainContract.teamRoleOwner
+        }
+
+    /** The screen of [link] on one account's DB; null = the row is not there. */
+    private suspend fun linkDestination(
+        db: com.exponential.app.data.db.ExponentialDatabase,
+        teamId: String,
+        link: AppLink,
+        userId: String?,
+    ): LinkDestination? = when (link) {
+        is AppLink.Issue -> db.issueDao().findIdByTeamRef(link.teamSlug, link.identifier)?.let { LinkDestination.Issue(it) }
+        is AppLink.IssueRef -> db.issueDao().findIdByTeamRef(link.teamSlug, link.identifier)?.let { LinkDestination.Issue(it) }
+        is AppLink.Board -> db.boardDao().observeBySlug(teamId, link.boardSlug).first()?.let { LinkDestination.Board(it.id) }
+        is AppLink.Session -> conversation(db, link.teamSlug, link.sessionId, sessionPath = true)
+        is AppLink.Thread -> conversation(db, link.teamSlug, link.threadId, sessionPath = false)
+        is AppLink.Plan -> db.sessionDao().findIdByTeamRef(link.teamSlug, link.sessionId)?.let { LinkDestination.Plan(it, link.messageId) }
+        is AppLink.Threads -> LinkDestination.Threads
+        is AppLink.Agent -> db.agentDefinitionDao().observeById(link.agentId).first()
+            ?.takeIf { it.teamId == teamId }
+            ?.let { LinkDestination.AgentDm(it.id) }
+        is AppLink.AgentHome -> LinkDestination.AgentHome
+        is AppLink.Inbox -> LinkDestination.Inbox
+        is AppLink.Devices -> LinkDestination.Devices
+        is AppLink.Settings -> when {
+            link.section.isEmpty() -> LinkDestination.TeamHome
+            // `settings-nav.json` `visible`: a row this viewer does not see reads as missing.
+            link.section !in SettingsNav.visiblePhoneRows(isOwner(db, teamId, userId)) -> null
+            else -> LinkDestination.Settings(link.section)
+        }
+        is AppLink.AppHome -> appIdBySlug(db, teamId, link.appSlug)?.let { LinkDestination.AppRun(it) }
+        is AppLink.AppScreen -> appIdBySlug(db, teamId, link.appSlug)?.let { LinkDestination.AppScreen(it, link.screen, link.params) }
+        // Every other `app` path is web-only ([isWebOnly]).
+        is AppLink.App -> LinkDestination.AppsList
+        is AppLink.External, AppLink.Ignore -> null
+    }
+
+    private suspend fun conversation(
+        db: com.exponential.app.data.db.ExponentialDatabase,
+        teamSlug: String,
+        sessionId: String,
+        sessionPath: Boolean,
+    ): LinkDestination? {
+        val id = db.sessionDao().findIdByTeamRef(teamSlug, sessionId) ?: return null
+        return LinkDestination.Conversation(id, db.sessionDao().getById(id)?.isRoot ?: true, sessionPath)
+    }
+
+    private suspend fun appIdBySlug(
+        db: com.exponential.app.data.db.ExponentialDatabase,
+        teamId: String,
+        slug: String,
+    ): String? = db.appDao().observeByTeam(teamId).first().firstOrNull { it.slug == slug }?.id
 
     /**
      * #EXP-1456 (fixtures/inbox-route.json `sessionCases`, the S-3 rule):
@@ -138,29 +237,16 @@ class WebLinkResolver @Inject constructor(
         return runCatching { block(dbHolder.database(accountId)) }.getOrNull()
     }
 
-    private suspend fun poll(
-        host: String,
-        lookup: suspend (com.exponential.app.data.db.ExponentialDatabase) -> Pair<String, Boolean>?,
-    ): Resolution {
-        // Signed-in accounts on the link's instance — active account first,
-        // then most recently used (several accounts can share a host).
+    /** Signed-in accounts on the link's instance — active account first, then
+     *  most recently used (several accounts can share a host). */
+    private fun accountsOn(host: String): List<com.exponential.app.data.auth.ServerAccount> {
         val activeId = auth.activeAccountId.value
-        val candidates = auth.accounts.value
+        return auth.accounts.value
             .filter { it.token != null && instanceHost(it.instanceUrl) == host }
             .sortedWith(
                 compareByDescending<com.exponential.app.data.auth.ServerAccount> { it.id == activeId }
                     .thenByDescending { it.lastUsedAt }
             )
-        if (candidates.isEmpty()) return Resolution.NotFound
-
-        repeat(POLL_ATTEMPTS) { attempt ->
-            for (account in candidates) {
-                val hit = runCatching { lookup(dbHolder.database(account.id)) }.getOrNull()
-                if (hit != null) return Resolution.Found(hit.first, account.id, isRoot = hit.second)
-            }
-            if (attempt < POLL_ATTEMPTS - 1) delay(POLL_INTERVAL_MS)
-        }
-        return Resolution.NotFound
     }
 
     private fun instanceHost(instanceUrl: String): String? =

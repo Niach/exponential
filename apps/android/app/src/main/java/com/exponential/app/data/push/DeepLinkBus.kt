@@ -1,5 +1,6 @@
 package com.exponential.app.data.push
 
+import com.exponential.app.domain.AppLink
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,61 +34,19 @@ class DeepLinkBus @Inject constructor() {
         // id) settings open.
         data class Device(val deviceId: String) : Target
 
-        // EXP-1284: a tapped thread link in agent prose — the Thread screen.
-        data class Thread(val id: String) : Target
-
-        // EXP-1291: a tapped `/t/{team}/sessions/{id}` link in agent prose
-        // (the PR body footer's shape). A synced ROOT opens its thread (on
-        // the Guide when [guide], the link's `?view=guide`); a child, or a
-        // row this device has not synced, opens the raw session view.
-        data class SessionLink(val id: String, val guide: Boolean) : Target
-
-        // A verified https `/t/{team}/agent` App Link (EXP-825): the Agent
-        // page composer, opened with an empty seed on the active account.
-        data object Agent : Target
-
-        // A verified https App Link (EXP-92): carries the web URL's slugs +
-        // identifier; AppNavHost resolves them against the local DB of the
-        // account matching `host` (falling back to a Custom Tab). `uri` is
-        // kept for that fallback.
-        data class WebIssueRef(
+        // #EXP-1674: ONE LINK SYSTEM (app-link.json). Any in-app link, a tapped
+        // one or a verified https App Link: AppNavHost resolves it against the
+        // local DB of the account matching `host` and applies `linkOpenOutcome`.
+        // `uri` = the absolute URL: its query (`?comment=`, `?view=guide`) and
+        // the Custom Tab of a page with no native screen.
+        data class Link(
+            val link: AppLink,
             val uri: android.net.Uri,
             val host: String,
-            val teamSlug: String,
-            val identifier: String,
         ) : Target
 
-        // A verified https `/t/{team}/threads/{id}` App Link (EXP-1288): the
-        // thread twin of [WebIssueRef], resolved the same way (account by
-        // host, brief poll for the synced row, Custom Tab on a miss).
-        data class WebThreadRef(
-            val uri: android.net.Uri,
-            val host: String,
-            val teamSlug: String,
-            val threadId: String,
-            // EXP-1291: the link was `/t/{team}/sessions/{id}` — a root opens
-            // its thread (Guide on `?view=guide`), a child its session view.
-            val sessionPath: Boolean = false,
-        ) : Target
-
-        // VAPP-218: an app screen (app-link.json `appScreen`), a tapped
-        // in-app link or a verified https App Link: the app (team slug + app
-        // slug, resolved against the account matching `host`) opens its
-        // editor on the Preview tab showing [screen] with [params]; `uri` =
-        // the Custom Tab fallback.
-        data class AppScreen(
-            val uri: android.net.Uri,
-            val host: String,
-            val teamSlug: String,
-            val appSlug: String,
-            val screen: String,
-            val params: Map<String, String>,
-        ) : Target
-
-        // A verified https App Link the manifest claims but the app cannot
-        // render (its pathPattern `/t/.*/agent` also matches nested paths
-        // such as `/t/x/boards/b/issues/APP-1/agent`): AppNavHost hands it
-        // to a Custom Tab, the same fallback an unresolvable issue link takes.
+        // A web source, or a claimed https link off the instance: a Custom Tab,
+        // which never re-triggers App Links.
         data class WebUrl(val uri: android.net.Uri) : Target
 
         // Content shared into the app from another app (ACTION_SEND). Image URIs
@@ -137,46 +96,8 @@ class DeepLinkBus @Inject constructor() {
         _target.value = Target.Device(deviceId)
     }
 
-    fun openThread(id: String) {
-        _target.value = Target.Thread(id)
-    }
-
-    fun openSessionLink(id: String, guide: Boolean) {
-        _target.value = Target.SessionLink(id, guide)
-    }
-
-    fun openAgent() {
-        _target.value = Target.Agent
-    }
-
-    fun openWebIssueRef(
-        uri: android.net.Uri,
-        host: String,
-        teamSlug: String,
-        identifier: String,
-    ) {
-        _target.value = Target.WebIssueRef(uri, host, teamSlug, identifier)
-    }
-
-    fun openWebThreadRef(
-        uri: android.net.Uri,
-        host: String,
-        teamSlug: String,
-        threadId: String,
-        sessionPath: Boolean = false,
-    ) {
-        _target.value = Target.WebThreadRef(uri, host, teamSlug, threadId, sessionPath)
-    }
-
-    fun openAppScreen(
-        uri: android.net.Uri,
-        host: String,
-        teamSlug: String,
-        appSlug: String,
-        screen: String,
-        params: Map<String, String>,
-    ) {
-        _target.value = Target.AppScreen(uri, host, teamSlug, appSlug, screen, params)
+    fun openLink(link: AppLink, uri: android.net.Uri, host: String) {
+        _target.value = Target.Link(link, uri, host)
     }
 
     fun openWebUrl(uri: android.net.Uri) {

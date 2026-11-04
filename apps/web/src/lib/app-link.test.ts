@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { classifyAppLink, isRoutedAppPath, ROUTED_APP_PREFIXES, type AppLink } from "./app-link"
+import { classifyAppLink, isRoutedAppPath, linkOpenOutcome, ROUTED_APP_PREFIXES, type AppLink } from "./app-link"
 
 // EXP-1188: the ×4 contract — desktop `domain::app_link`, iOS `AppLinkTests`,
 // Android `AppLinkTest` run the same cases.
@@ -13,12 +13,25 @@ const fixture = JSON.parse(
     ),
     `utf8`,
   ),
-) as { origin: string; cases: { name: string; href: string; link: AppLink }[] }
+) as {
+  origin: string
+  team: string
+  cases: { name: string; href: string; team?: string | null; link: AppLink }[]
+  openCases: { name: string; input: Parameters<typeof linkOpenOutcome>[0]; outcome: string }[]
+}
 
 describe(`classifyAppLink`, () => {
   for (const c of fixture.cases) {
     it(c.name, () => {
-      expect(classifyAppLink(c.href, fixture.origin)).toEqual(c.link)
+      expect(classifyAppLink(c.href, fixture.origin, c.team === undefined ? fixture.team : c.team)).toEqual(c.link)
+    })
+  }
+})
+
+describe(`linkOpenOutcome`, () => {
+  for (const c of fixture.openCases) {
+    it(c.name, () => {
+      expect(linkOpenOutcome(c.input)).toBe(c.outcome)
     })
   }
 })

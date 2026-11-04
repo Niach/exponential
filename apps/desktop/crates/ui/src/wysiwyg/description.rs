@@ -255,10 +255,10 @@ impl WysiwygDescription {
                             cx,
                         );
                     } else {
-                        // Same scheme gate as the block editor's rendered
-                        // links: http(s)/mailto only, never a file: or a
-                        // relative path from an uploaded .md.
-                        crate::markdown::open_link_href(&request.open_target);
+                        // #EXP-1674: THE opener, like the block editor's
+                        // rendered links: in-app targets route natively, the
+                        // OS gets http(s)/mailto only, never a file:.
+                        crate::links::open_agent_link(&request.open_target, window, cx);
                     }
                 }
                 MarkdownEditorEvent::ImageContextMenuRequested { src, position } => {

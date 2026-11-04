@@ -642,7 +642,7 @@ impl Render for GuideViewer {
             )
             .selectable(true)
             .autolink(true)
-            .on_open_link(crate::markdown::open_agent_link);
+            .on_open_link(crate::links::link_opener(self.source.team_id.as_deref().map(str::to_string)));
             if let Some(team_id) = self.source.team_id.as_deref() {
                 view = view.resolver(crate::thread_screen::thread_text_resolver(team_id));
             }
