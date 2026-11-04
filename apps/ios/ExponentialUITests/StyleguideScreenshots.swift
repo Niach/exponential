@@ -31,7 +31,8 @@ import XCTest
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
-///   sg_story-ring · sg_story-viewer · sg_plan-page ·
+///   sg_story-ring · sg_story-viewer · sg_plan-page · sg_team-avatar ·
+///   sg_share-targets · sg_share-composer · sg_composer-add-file ·
 ///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
 ///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
 ///   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
@@ -1164,7 +1165,11 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness", "session-xref", "story-ring", "story-viewer",
         "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
+        "team-avatar", "share-targets", "share-composer", "composer-add-file",
     ]
+
+    /// EXP-1635: the entries whose capture-only screen has another name.
+    static let specimenScreens = ["share-targets": "share-to", "composer-add-file": "composer-attach-menu"]
 
     /// A scoped run that wants only specimens (`--views sealed-locked`)
     /// needs none of the seeded walk before them.
@@ -1178,7 +1183,12 @@ final class StyleguideScreenshots: XCTestCase {
     private func walkSpecimens(_ app: XCUIApplication) {
         for entry in Self.specimenEntries {
             guard ScreenshotShots.isWanted("sg_\(entry)") else { continue }
-            openThreadCards(app, entry)
+            // A simulator has no camera: the add-file menu forces its row.
+            openThreadCards(
+                app,
+                Self.specimenScreens[entry] ?? entry,
+                extraArguments: entry == "composer-add-file" ? ["-uiTestingCameraRow"] : []
+            )
             switch entry {
             case "chat-list": snapshot("sg_chat-list", settle: 2)
             case "phone-tab-bar": snapshot("sg_phone-tab-bar", settle: 2)
@@ -1203,6 +1213,12 @@ final class StyleguideScreenshots: XCTestCase {
             case "session-row": snapshot("sg_session-row", settle: 2)
             // #EXP-1611: the four Merge pills + the open Checks submenu.
             case "pr-checks": snapshot("sg_pr-checks", settle: 2)
+            // #EXP-1645: the team mark and the General row.
+            case "team-avatar": snapshot("sg_team-avatar", settle: 2)
+            // EXP-1635: the share flow's two steps + the + menu's sub-choice.
+            case "share-targets": snapshot("sg_share-targets", settle: 2)
+            case "share-composer": snapshot("sg_share-composer", settle: 2)
+            case "composer-add-file": snapshot("sg_composer-add-file", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }
@@ -1210,8 +1226,8 @@ final class StyleguideScreenshots: XCTestCase {
 
     /// EXP-1259: relaunch signed out onto one run-thread card specimen.
     @MainActor
-    private func openThreadCards(_ app: XCUIApplication, _ card: String) {
-        launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", card])
+    private func openThreadCards(_ app: XCUIApplication, _ card: String, extraArguments: [String] = []) {
+        launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", card] + extraArguments)
         expect(
             anyElement(app, identified: "thread-cards-screen"),
             within: Wait.launch,

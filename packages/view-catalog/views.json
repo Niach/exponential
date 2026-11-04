@@ -7385,12 +7385,19 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_share-targets",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_share-targets",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "The route resolves home with nothing pending: the recipe writes a two-image share where the service worker stashes one, then opens `/share`.",
         "web-mobile": "Inherits web.",
         "desktop": "No capture: the desktop has no share surface (share-targets.json).",
-        "ios": "No capture yet: the share extension runs outside the app's UI tests.",
-        "android": "No capture yet: the share flow enters through a system intent."
+        "ios": "The extension's real page, drawn in the app (capture only): tests cannot drive an extension."
       }
     },
     {
@@ -7408,12 +7415,60 @@
         "recipe": "openComposerAddFile",
         "settleMs": 600
       },
+      "ios": {
+        "shot": "sg_composer-add-file",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_composer-add-file",
+        "lane": "styleguide"
+      },
       "notes": {
         "web-mobile": "The sheet's pushed page.",
         "web": "No capture: a pointer goes straight to the file chooser.",
         "desktop": "No capture: a pointer goes straight to the file chooser.",
-        "ios": "No capture yet: the composer's GlassMenu sub-choice, covered by `composer-menu`'s surface.",
-        "android": "No capture yet: the composer's GlassMenu sub-choice, covered by `composer-menu`'s surface."
+        "ios": "Run with `-uiTestingCameraRow`: a simulator has no camera."
+      }
+    },
+    {
+      "id": "share-composer",
+      "group": "coding",
+      "title": "Share composer",
+      "blurb": "Step 2 of sharing into Exponential (EXP-1635, share-targets.json): THE composer prefilled with the share, the agent row on the pick, nothing sent until Send.",
+      "order": 64,
+      "ios": {
+        "shot": "sg_share-composer",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_share-composer",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "No capture: the agent home composer `agent-home` photographs, seeded from `/share`.",
+        "web-mobile": "See web.",
+        "desktop": "No capture: the desktop has no share surface (share-targets.json).",
+        "ios": "The composer the share extension draws, in the app (capture only): tests cannot drive an extension."
+      }
+    },
+    {
+      "id": "team-mark",
+      "group": "coding",
+      "title": "Team mark",
+      "blurb": "The team mark (#EXP-1645): the team's image, else a group glyph, and the General row that uploads it.",
+      "order": 65,
+      "ios": {
+        "shot": "sg_team-avatar",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_team-avatar",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "No capture: the natives' specimen; web shows the mark in the team switcher and Settings › General.",
+        "web-mobile": "See web.",
+        "desktop": "No capture: see web."
       }
     }
   ]

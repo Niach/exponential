@@ -55,6 +55,8 @@
     { "id": "support-reporter", "class": "native", "with": "the markdown editor for the reply box (plain Textarea would do for a reporter); Markdown + Image + Row otherwise" },
     { "id": "share-targets", "class": "expressible", "with": "Page + Section + Row (agent bubble lead, right chevron) + an Image preview line" },
     { "id": "composer-add-file", "class": "expressible", "with": "Menu of three Rows over the composer: Camera, Photos, File" },
+    { "id": "share-composer", "class": "expressible", "with": "Stack + the agent row + Textarea + Image tiles + Button" },
+    { "id": "team-mark", "class": "expressible", "with": "Avatar over an Image + Row with a Button" },
     { "id": "settings-general", "class": "expressible", "with": "Page + Group + Input + FormActions" },
     { "id": "settings-members", "class": "expressible", "with": "Page + Section + Row (Avatar lead, role Select trailing) + ChipInput; FormActions for Send invites" },
     { "id": "settings-labels", "class": "expressible", "with": "Section + Row with a Chip (dot colour) + Button; the colour picker is a Select of swatches" },
