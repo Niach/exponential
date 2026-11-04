@@ -49,8 +49,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-agent-keys-off-argv",
     date: "2026-11-04",
     title: "Agent keys stay off the command line on Linux",
-    summary: "On Linux machines with a recent systemd, the key that lets an agent reach Exponential no longer shows up in the agent's command line.",
-    body: r#"- **Security fix (Linux)**: on systemd 258 and newer, the agent's Exponential key was expanded into its command line, where other processes on the machine could read it. It now stays in the environment only. Update the desktop app or the CLI on Linux machines.
+    summary: "Security fix for Linux: on systemd 258 or newer the agent's API key could appear in process listings; update to 0.14.119.",
+    body: r#"- **Security fix**: Linux on systemd 258 or newer (e.g. Ubuntu 26.04): the agent's API key could appear in process listings. Fixed in 0.14.119. If that machine is shared or logs command lines, rotate your personal key and team MCP credentials.
 - **Forwarded images**: the agent's run playbook tells it to forward pasted images when it hands work on."#,
 };
 
