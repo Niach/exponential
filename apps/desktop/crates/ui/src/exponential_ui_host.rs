@@ -1941,6 +1941,8 @@ impl IdeHost {
             zone: Some(host_zone(scope.as_ref().and_then(|s| s.team_id.as_deref()), cx)),
             on_action_failed: Some(action_failed_hook()),
             read_only: scope.as_ref().is_some_and(|s| s.read_only),
+            // #VAPP-252: a Dialog or Drawer covers the window, as on the web.
+            lift_layers: true,
             ..HostOptions::default()
         };
         let host = cx.new(|cx| {

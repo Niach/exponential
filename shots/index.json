@@ -563,15 +563,15 @@
         "file": "shots/app-record-form/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 32630,
-        "sha256": "2c73875f9ba27652087cc9eca9b15109c8ad4dba70edf7a978717b312d85294f"
+        "bytes": 29498,
+        "sha256": "e65fd34461f8934654fd9fc608a56780bbc2346fda04b28763e48970b6ee325a"
       },
       "ios": {
         "file": "shots/app-record-form/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 17760,
-        "sha256": "653982c2e35f620b9f01cfb8dced9bb1dadaa5516dcdd3ece45b850ff101c7e5"
+        "bytes": 13538,
+        "sha256": "2d8033fbd627893bae8e58f7490c6f5cca02d31561ebda3841c0a00829f54c95"
       },
       "web": {
         "file": "shots/app-record-form/web.webp",

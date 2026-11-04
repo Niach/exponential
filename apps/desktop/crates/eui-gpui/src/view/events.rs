@@ -366,9 +366,9 @@ impl SurfaceView {
             if l.root == root {
                 continue;
             }
-            let shift = if l.placement.is_none() && l.position != "point" { self.visible.top } else { 0.0 };
+            let (shift_x, shift) = self.layer_offset(l);
             if let Some(f) = self.frames.get(l.root as usize) {
-                if px_ >= f.x && px_ <= f.x + f.w && py >= f.y + shift && py <= f.y + shift + f.h {
+                if px_ >= f.x + shift_x && px_ <= f.x + shift_x + f.w && py >= f.y + shift && py <= f.y + shift + f.h {
                     return;
                 }
             }

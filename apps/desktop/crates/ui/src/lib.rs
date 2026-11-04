@@ -272,6 +272,7 @@ use gpui_component::dock::register_panel;
 /// navigation action handlers (§4.2). Must run once at bootstrap, after
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
+    eui_gpui::view::init(cx);
     // Thread 58cb32df: every motion token honours the OS's Reduce Motion.
     #[cfg(target_os = "macos")]
     theme::motion::set_reduce_motion_probe(macos_reduce_motion);

@@ -225,6 +225,41 @@ final class Round1PaintTests: XCTestCase {
         XCTAssertEqual(m.justDismissed, "pop", "the trigger's own press does not reopen it")
     }
 
+    /// #VAPP-252: a lifted modal lands in the stage (the safe area above the
+    /// keyboard), and the scrim covers what lies outside it.
+    func testLiftedModalsLandOnTheStage() {
+        let insets = EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0)
+        let stage = LayerStage(size: CGSize(width: 390, height: 748), insets: insets, homeInset: 34)
+        XCTAssertEqual(stage.cover, CGSize(width: 390, height: 844))
+        XCTAssertEqual(stage.coverOrigin, CGPoint(x: 0, y: -62))
+        let panel = CGSize(width: 342, height: 748)
+        XCTAssertEqual(stage.origin(position: "right", layerSize: panel), CGPoint(x: 48, y: 0))
+        XCTAssertEqual(stage.origin(position: "left", layerSize: panel), .zero)
+        XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 200)), CGPoint(x: 24, y: 274))
+        XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 740)).y, 8, "a tall Dialog stays clear of the top")
+        let sheet = CGSize(width: 358, height: 200)
+        XCTAssertEqual(stage.origin(position: "top", layerSize: sheet), CGPoint(x: 16, y: 0))
+        XCTAssertEqual(stage.origin(position: "bottom", layerSize: sheet), CGPoint(x: 16, y: 582), "on the screen's edge")
+        var typing = stage
+        typing.size.height = 448
+        typing.insets.bottom = 334
+        XCTAssertEqual(typing.origin(position: "bottom", layerSize: sheet), CGPoint(x: 16, y: 248), "above the keyboard")
+    }
+
+    /// #VAPP-252: lifted layers lay out against the window; what the host
+    /// sets meanwhile comes back when they close.
+    func testLiftedLayersBorrowTheViewportHeight() throws {
+        let m = try surface(root([node("t", "Text", props: .object(["text": .string("x")]))]))
+        XCTAssertFalse(m.liftedLayersOpen, "off by default")
+        m.setViewport(width: 358, height: 500)
+        m.overlayViewportHeight(748)
+        XCTAssertEqual(m.viewportHeight, 748)
+        m.setViewport(width: 358, height: 450)
+        XCTAssertEqual(m.viewportHeight, 748)
+        m.overlayViewportHeight(nil)
+        XCTAssertEqual(m.viewportHeight, 450)
+    }
+
     func testSheetDragsOnlyTowardItsEdge() {
         XCTAssertEqual(sheetOffset("bottom", 30, 50), CGPoint(x: 0, y: 50))
         XCTAssertEqual(sheetOffset("bottom", 30, -50), CGPoint(x: 0, y: 0))

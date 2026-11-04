@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- #VAPP-252: `SurfaceViewOptions::lift_layers` / `HostOptions::lift_layers` (default off): a modal layer hangs from the window, its scrim over all of it; `view::init` keeps Tab in the modal's focus trap under a host's window-wide Tab binding.
+
 ## 0.15.1 (2026-11-04)
 
 - No changes of its own; released with the SDK (EXP-1691's fixes landed in the core).

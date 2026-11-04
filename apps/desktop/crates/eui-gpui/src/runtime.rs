@@ -205,6 +205,9 @@ pub struct HostOptions {
     /// `navigate_target`). `None` = the host draws no screens, so a
     /// navigate is refused.
     pub navigate: Option<NavigateHook>,
+    /// #VAPP-252: every surface's modal layers hang from the window
+    /// ([`SurfaceViewOptions::lift_layers`]). Default off.
+    pub lift_layers: bool,
 }
 
 impl HostOptions {
@@ -246,6 +249,7 @@ impl Default for HostOptions {
             on_action_failed: None,
             read_only: false,
             navigate: None,
+            lift_layers: false,
         }
     }
 }
@@ -308,6 +312,7 @@ pub struct ExponentialHost {
     mode: Mode,
     formatter: Option<Arc<dyn eui_core::format::Formatter>>,
     read_only: bool,
+    lift_layers: bool,
     base: Rc<dyn HostPlugin>,
     on_send: Option<ValueObserver>,
     on_op: Option<ValueObserver>,
@@ -360,6 +365,7 @@ impl ExponentialHost {
             mode: options.mode,
             formatter: options.formatter,
             read_only: options.read_only,
+            lift_layers: options.lift_layers,
             base: options.plugin,
             on_send: options.on_send,
             on_op: options.on_op,
@@ -666,6 +672,7 @@ impl ExponentialHost {
                     host: plugin,
                     rounding: false,
                     formatter: self.formatter.clone(),
+                    lift_layers: self.lift_layers,
                     settings: self.read_only.then(|| eui_core::surface::SurfaceSettings {
                         mode: match self.mode {
                             Mode::Light => eui_core::theme::ModeSetting::Light,

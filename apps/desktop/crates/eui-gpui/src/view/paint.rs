@@ -1550,6 +1550,26 @@ impl SurfaceView {
         layer.placement.is_none() && layer.position != "point"
     }
 
+    /// #VAPP-252: a modal layer is open and hangs from the window.
+    pub(crate) fn layers_lifted(&self) -> bool {
+        self.lift_layers && self.layers.iter().any(|l| l.modal)
+    }
+
+    /// Where a layer paints, from its core frame: a viewport-placed one in
+    /// the region the host shows; #VAPP-252 under `lift_layers` a modal at
+    /// its place in the window, a popup anchored inside a modal with it.
+    pub(crate) fn layer_offset(&self, layer: &Layer) -> (f32, f32) {
+        if self.lift_layers && layer.class == LayerClass::Overlay {
+            let modal = if layer.modal { Some(layer) } else { self.layers.iter().take_while(|l| l.root != layer.root).filter(|l| l.modal).last() };
+            if let Some(modal) = modal {
+                let f = self.frames.get(modal.root as usize).copied().unwrap_or_default();
+                let (x, y) = window_layer_at(&modal.position, (f.w, f.h), self.window_size);
+                return (x - f32::from(self.origin.x) - f.x, y - f32::from(self.origin.y) - f.y);
+            }
+        }
+        (0.0, if Self::viewport_layer(layer) { self.visible.top } else { 0.0 })
+    }
+
     /// An open layer: the scrim (modal ones), the content root at its
     /// surface-coordinate frame (viewport-placed ones moved into the region
     /// the host shows), the enter animation, outside-press dismissal.
@@ -1562,22 +1582,28 @@ impl SurfaceView {
     pub(crate) fn paint_layer_at(&mut self, k: usize, layer: &Layer, exit: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let root = layer.root;
         let ghost = exit.is_some();
-        let shift = if Self::viewport_layer(layer) { self.visible.top } else { 0.0 };
+        let (shift_x, shift) = self.layer_offset(layer);
         let progress = exit.or_else(|| self.motion.layer_progress(&layer.owner, self.now()));
-        let mut container = div().absolute().left_0().top(px(shift));
+        let mut container = div().absolute().left(px(shift_x)).top(px(shift));
         if layer.modal {
             let theme = self.surface.theme().cloned();
             let owner_props = self.cache.index_of(&layer.owner).and_then(|o| self.cache.node(o)).map(|o| o.props.clone()).unwrap_or_default();
             let overlay = PaintStyle::from_visual(&part_visual(theme.as_deref(), self.surface.mode(), &layer.kind, "overlay", &owner_props, &["open".to_string()]));
             let scrim = overlay.bg.unwrap_or(gpui::black().opacity(0.5));
             let height = if self.visible.height > 0.0 { self.visible.height } else { self.surface_height.max(self.viewport_height) };
+            // #VAPP-252: lifted, the scrim is the whole window's.
+            let (left, top, w, h) = if self.lift_layers {
+                (-f32::from(self.origin.x) - shift_x, -f32::from(self.origin.y) - shift, self.window_size.0, self.window_size.1)
+            } else {
+                (0.0, 0.0, self.width, height)
+            };
             let scrim_el = div()
                 .id(SharedString::from(format!("{}.overlay{}", layer.owner, if ghost { ".exit" } else { "" })))
                 .absolute()
-                .left_0()
-                .top_0()
-                .w(px(self.width))
-                .h(px(height))
+                .left(px(left))
+                .top(px(top))
+                .w(px(w))
+                .h(px(h))
                 .bg(scrim)
                 .when_some(progress, |d, p| d.opacity(p));
             container = container.child(if ghost {
@@ -1591,7 +1617,7 @@ impl SurfaceView {
         }
         if self.cache.node(root).is_some_and(|n| !n.hidden) {
             let f = self.frames.get(root as usize).copied().unwrap_or_default();
-            let place = Place::at((f.x, f.y), (f.x, f.y + shift), None);
+            let place = Place::at((f.x, f.y), (f.x + shift_x, f.y + shift), None);
             let inner = self.paint_node(root, Place { origin: (f.x, f.y), ..place }, window, cx);
             // The root div sits at its own frame inside a wrapper at (0,0);
             // the wrapper owns the occlusion and the outside press.
@@ -1616,6 +1642,23 @@ impl SurfaceView {
             container = container.child(wrap);
         }
         container.into_any_element()
+    }
+}
+
+/// #VAPP-252: where a lifted modal of `size` lands in the window (`position`
+/// = the core's: `centered`, or the edge it hangs from). A Dialog is centred
+/// (`OVERLAY_PADDING` clear of the top when it is taller), a sheet on its
+/// edge; a top or bottom sheet keeps the surface's width, centred.
+fn window_layer_at(position: &str, size: (f32, f32), window: (f32, f32)) -> (f32, f32) {
+    let (w, h) = size;
+    let (win_w, win_h) = window;
+    let centre_x = (win_w - w) / 2.0;
+    match position {
+        "left" => (0.0, 0.0),
+        "right" => (win_w - w, 0.0),
+        "top" => (centre_x, 0.0),
+        "bottom" => (centre_x, win_h - h),
+        _ => (centre_x, ((win_h - h) / 2.0).max(eui_core::overlay::OVERLAY_PADDING as f32)),
     }
 }
 
@@ -1661,6 +1704,17 @@ fn gradient(g: &crate::paint::GradientPaint, w: f32, h: f32, radii: [f32; 4]) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lifted_modal_hangs_from_the_window() {
+        let window = (1000.0, 600.0);
+        assert_eq!(window_layer_at("centered", (400.0, 200.0), window), (300.0, 200.0));
+        assert_eq!(window_layer_at("centered", (400.0, 590.0), window), (300.0, 8.0), "a tall Dialog stays clear of the top");
+        assert_eq!(window_layer_at("right", (448.0, 600.0), window), (552.0, 0.0));
+        assert_eq!(window_layer_at("left", (448.0, 600.0), window), (0.0, 0.0));
+        assert_eq!(window_layer_at("bottom", (800.0, 300.0), window), (100.0, 300.0));
+        assert_eq!(window_layer_at("top", (800.0, 300.0), window), (100.0, 0.0));
+    }
 
     #[test]
     fn rounded_clips_pass_to_children_in_their_corners() {

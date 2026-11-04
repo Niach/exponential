@@ -114,9 +114,14 @@ private struct SurfaceBody: View {
 /// nodes the model focuses (non-field nodes keep a VIRTUAL focus the core
 /// paints as `focus` / `focus-visible`; text fields own their responder)
 /// and hands every key to `SurfaceModel.handleKey`.
-private struct KeyboardRouting: ViewModifier {
+struct KeyboardRouting: ViewModifier {
     let model: SurfaceModel
     var rootFocused: FocusState<Bool>.Binding
+    /// #VAPP-252: this is `ExponentialSurfaceLayers`' routing: while lifted
+    /// layers are open it owns the keys, not the surface's.
+    var onStage = false
+
+    private var active: Bool { onStage || !model.liftedLayersOpen }
 
     func body(content: Content) -> some View {
         content
@@ -134,10 +139,10 @@ private struct KeyboardRouting: ViewModifier {
                 guard let request, let n = model.node(request.index) else { return }
                 // Text fields take their own first responder (their views
                 // observe the request); everything else keys through the root.
-                if !n.isTextField { rootFocused.wrappedValue = true }
+                if !n.isTextField && active { rootFocused.wrappedValue = true }
             }
             .onChange(of: rootFocused.wrappedValue) { _, focused in
-                if !focused && model.focusedField == nil, model.focusedId != nil {
+                if !focused && active && model.focusedField == nil, model.focusedId != nil {
                     // Focus left the surface (another view took it).
                     model.blur()
                 }
@@ -184,11 +189,14 @@ enum SurfaceKeys {
 /// The file picker a FileUpload asks for (`pickFiles` when the host has no
 /// picker of its own): `.fileImporter`, the picked files read and handed to
 /// `SurfaceModel.filesPicked`.
-private struct FilePicking: ViewModifier {
+struct FilePicking: ViewModifier {
     let model: SurfaceModel
+    /// #VAPP-252: a presentation hangs off whoever is on top: the stage while
+    /// lifted layers are open, else the surface.
+    var onStage = false
 
     private var presented: Binding<Bool> {
-        Binding(get: { model.filePickRequest != nil }, set: { if !$0 { model.filePickFinished() } })
+        Binding(get: { model.filePickRequest != nil && onStage == model.liftedLayersOpen }, set: { if !$0 { model.filePickFinished() } })
     }
 
     func body(content: Content) -> some View {

@@ -82,6 +82,10 @@ pub struct SurfaceViewOptions {
     /// (`None` = the core's English one). The view re-binds once a minute so
     /// relative times move.
     pub formatter: Option<Arc<dyn eui_core::format::Formatter>>,
+    /// #VAPP-252: a modal layer (Dialog, Drawer) hangs from the WINDOW, its
+    /// scrim over all of it, like the web's fixed overlay. Off (the default)
+    /// = it paints against the surface's own box.
+    pub lift_layers: bool,
 }
 
 impl Default for SurfaceViewOptions {
@@ -99,8 +103,18 @@ impl Default for SurfaceViewOptions {
             expand_controls: None,
             fixed_measure: None,
             formatter: None,
+            lift_layers: false,
         }
     }
+}
+
+/// #VAPP-252: while a lifted modal is up, Tab stays out of the host's window
+/// wide focus cycling (a `Root` binding that wins over the key listeners and
+/// reaches what lies behind the scrim): the deeper `NoAction` lets the key
+/// fall through to the surface's focus trap. Run once at bootstrap, after the
+/// host's own bindings.
+pub fn init(cx: &mut App) {
+    cx.bind_keys([gpui::KeyBinding::new("tab", gpui::NoAction, Some("ExponentialUiModal")), gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("ExponentialUiModal"))]);
 }
 
 /// Numbers of the LAST layout pass.
@@ -281,6 +295,11 @@ pub struct SurfaceView {
     viewport_height: f32,
     visible: VisibleRegion,
     origin: gpui::Point<Pixels>,
+    /// #VAPP-252: [`SurfaceViewOptions::lift_layers`], the window they hang
+    /// from and whether the last pass laid out against it.
+    lift_layers: bool,
+    window_size: (f32, f32),
+    pass_lifted: bool,
     nodes_dirty: bool,
     cache: NodeCache,
     frames: Vec<Frame>,
@@ -508,6 +527,9 @@ impl SurfaceView {
             // Until the first prepaint sees the clip: the window.
             visible: VisibleRegion { left: 0.0, top: 0.0, height: window_size.1 },
             origin: gpui::Point::default(),
+            lift_layers: options.lift_layers,
+            window_size,
+            pass_lifted: false,
             nodes_dirty: true,
             cache: NodeCache::default(),
             frames: Vec::new(),
@@ -919,7 +941,14 @@ impl SurfaceView {
 
     /// One layout pass: states in, layout, caches refreshed.
     pub(crate) fn pass(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let visible_h = if self.viewport_height > 0.0 { self.viewport_height } else { self.visible.height };
+        self.pass_lifted = self.layers_lifted();
+        let visible_h = if self.pass_lifted {
+            self.window_size.1
+        } else if self.viewport_height > 0.0 {
+            self.viewport_height
+        } else {
+            self.visible.height
+        };
         let max_h = (visible_h > 0.0).then_some(visible_h);
         self.sync_appearance(window);
         self.surface.set_viewport(self.width, 0.0, max_h);
@@ -1440,7 +1469,18 @@ impl SurfaceView {
             self.width = f32::from(bounds.size.width);
             again = true;
         }
+        let viewport = window.viewport_size();
+        let window_size = (f32::from(viewport.width), f32::from(viewport.height));
+        if self.layers_lifted() && (window_size.1 - self.window_size.1).abs() > 0.5 {
+            again = true;
+        }
+        self.window_size = window_size;
         if again {
+            self.pass(window, cx);
+        }
+        // #VAPP-252: a modal that just opened (or closed) lays out against
+        // the window (or back against the surface's box).
+        if self.layers_lifted() != self.pass_lifted {
             self.pass(window, cx);
         }
         let now = self.clock();
@@ -1466,7 +1506,7 @@ impl SurfaceView {
             .w(px(self.width))
             .h(px(self.surface_height))
             .track_focus(&self.root_focus)
-            .key_context("ExponentialUiSurface")
+            .key_context(if self.layers_lifted() { "ExponentialUiSurface ExponentialUiModal" } else { "ExponentialUiSurface" })
             .on_key_down(cx.listener(Self::on_key))
             .on_key_up(cx.listener(Self::on_key_up))
             // Any pointer press ends keyboard mode (no `:focus-visible`) and

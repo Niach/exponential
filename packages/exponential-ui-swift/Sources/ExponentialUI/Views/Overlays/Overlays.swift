@@ -26,11 +26,23 @@ struct LayerView: View {
 /// the theme's `scale.popoverFrom` (anchored at its trigger's side) while
 /// it fades in on `motion.standard`, and leaves with a faster fade; a toast
 /// fades and rises in (none of it under reduced motion).
+///
+/// #VAPP-252: under `SurfaceOptions.liftsLayers` the first modal and what opens
+/// above it are not the surface's: they paint on the `stage` of
+/// `ExponentialSurfaceLayers`.
 struct PaintedLayers: View {
     let model: SurfaceModel
+    var stage: LayerStage? = nil
+
+    /// The layers this painter owns, in paint order.
+    private var shown: [LayerInfo] {
+        let all = PaintedLayers.stacked(model.layers)
+        guard model.options.liftsLayers, let first = all.firstIndex(where: \.modal) else { return stage == nil ? all : [] }
+        return stage == nil ? Array(all[..<first]) : Array(all[first...])
+    }
 
     var body: some View {
-        let ordered = PaintedLayers.stacked(model.layers)
+        let ordered = shown
         let lastModal = ordered.lastIndex(where: \.modal) ?? -1
         let outside = ordered.indices.filter { $0 > lastModal && PaintedLayers.dismissesOnOutsidePress(ordered[$0]) }
         // EXP-1259 (the EXP-1243 rules): enters `decelerate` at `standard`,
@@ -40,11 +52,13 @@ struct PaintedLayers: View {
         let enter = model.reducedMotion ? nil : Animation.timingCurve(0, 0, 0.2, 1, duration: (model.theme?.motion("standard") ?? 180) / 1000)
         let exit = model.reducedMotion ? nil : Animation.timingCurve(0.3, 0, 1, 1, duration: (model.theme?.motion("fast") ?? 120) / 1000)
         let from = CGFloat(model.theme?.scale("popoverFrom") ?? 0.96)
-        let cover = CGSize(width: max(model.surfaceSize.width, model.width), height: max(model.surfaceSize.height, model.viewportHeight))
+        let cover = stage?.cover ?? CGSize(width: max(model.surfaceSize.width, model.width), height: max(model.surfaceSize.height, model.viewportHeight))
+        let coverAt = stage?.coverOrigin ?? .zero
         ZStack(alignment: .topLeading) {
             ForEach(Array(ordered.enumerated()), id: \.element.id) { i, layer in
                 if layer.modal {
                     Scrim(layer: layer, model: model, size: cover)
+                        .offset(x: coverAt.x, y: coverAt.y)
                         .transition(enter.map { AnyTransition.opacity.animation($0) } ?? .identity)
                 }
                 if i == outside.first {
@@ -54,10 +68,11 @@ struct PaintedLayers: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .frame(width: cover.width, height: cover.height)
+                        .offset(x: coverAt.x, y: coverAt.y)
                         .onTapGesture { for l in owners.reversed() { model.dismissLayer(l.owner) } }
                         .accessibilityHidden(true)
                 }
-                PaintedLayer(layer: layer, model: model)
+                PaintedLayer(layer: layer, model: model, shift: stage?.shift(of: layer, in: ordered, surfaceWidth: model.width) ?? .zero)
                     .transition(enter.map { .asymmetric(insertion: (layer.layerClass == "toast" ? AnyTransition.opacity.combined(with: .offset(y: 8)) : AnyTransition.opacity.combined(with: .scale(scale: from, anchor: layer.position == "top" ? .bottom : .top))).animation($0), removal: exit.map { AnyTransition.opacity.animation($0) } ?? .identity) } ?? .identity)
             }
         }
@@ -72,6 +87,98 @@ struct PaintedLayers: View {
     /// Does a press outside layer `l` dismiss it (gpui `outside_press`)?
     static func dismissesOnOutsidePress(_ l: LayerInfo) -> Bool {
         !l.modal && l.layerClass == "overlay" && l.kind != "Tooltip"
+    }
+}
+
+/// #VAPP-252: the part of the window a lifted layer lives in: `size` = its
+/// safe area above the keyboard, `insets` = what lies outside it. The scrim
+/// covers all of it; the core laid the layers out at the surface's width and
+/// `size.height` (`overlayViewportHeight`), so a modal lands by the place the
+/// core gave it (`position`) and a popup opened inside it moves with it.
+struct LayerStage: Equatable {
+    var size: CGSize
+    var insets: EdgeInsets
+    /// The home indicator's inset: a bottom sheet rests on the screen's edge
+    /// unless the keyboard stands there.
+    var homeInset: CGFloat = 0
+
+    var cover: CGSize {
+        CGSize(width: size.width + insets.leading + insets.trailing, height: size.height + insets.top + insets.bottom)
+    }
+
+    var coverOrigin: CGPoint {
+        CGPoint(x: -insets.leading, y: -insets.top)
+    }
+
+    /// Where a modal of `layerSize` lands: a Dialog centred (`OVERLAY_PADDING`
+    /// clear of the top when taller), a sheet on its edge; a top or bottom
+    /// sheet keeps the surface's width, centred.
+    func origin(position: String, layerSize: CGSize) -> CGPoint {
+        let centreX = (size.width - layerSize.width) / 2
+        switch position {
+        case "left": return .zero
+        case "right": return CGPoint(x: size.width - layerSize.width, y: 0)
+        case "top": return CGPoint(x: centreX, y: 0)
+        case "bottom":
+            let edge = insets.bottom <= homeInset ? insets.bottom : 0
+            return CGPoint(x: centreX, y: size.height - layerSize.height + edge)
+        default: return CGPoint(x: centreX, y: max((size.height - layerSize.height) / 2, 8))
+        }
+    }
+
+    /// How far a layer moves from its core frame: a toast's bottom row
+    /// centres under the window's width; the rest follow the modal at or
+    /// below them.
+    func shift(of layer: LayerInfo, in ordered: [LayerInfo], surfaceWidth: CGFloat) -> CGPoint {
+        if layer.isToast { return CGPoint(x: (size.width - surfaceWidth) / 2, y: 0) }
+        let below = ordered.prefix { $0.id != layer.id }.last(where: \.modal)
+        guard let modal = layer.modal ? layer : below else { return .zero }
+        let at = origin(position: modal.position, layerSize: modal.frame.size)
+        return CGPoint(x: at.x - modal.frame.minX, y: at.y - modal.frame.minY)
+    }
+}
+
+/// #VAPP-252: the lifted layers of a surface with `SurfaceOptions.liftsLayers`
+/// (`SurfaceModel.liftedLayersOpen`): put this where the scrim should reach,
+/// over the whole window (a clear `fullScreenCover`), and the surface paints
+/// them no more. It holds the keyboard routing and the file picker while up;
+/// the surface's own stay out of the way.
+public struct ExponentialSurfaceLayers: View {
+    let model: SurfaceModel
+    @Environment(\.xuiReducedMotion) private var enclosingReducedMotion
+    @FocusState private var rootFocused: Bool
+    @State private var appeared = false
+    @State private var homeInset: CGFloat = 0
+
+    public init(model: SurfaceModel) {
+        self.model = model
+    }
+
+    public var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                // Inserted after the first frame, so the layers enter.
+                if appeared {
+                    PaintedLayers(model: model, stage: LayerStage(size: proxy.size, insets: proxy.safeAreaInsets, homeInset: homeInset))
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .onChange(of: proxy.size.height, initial: true) { _, height in model.overlayViewportHeight(height) }
+        }
+        .background {
+            Color.clear
+                .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { homeInset = $0 }
+                .ignoresSafeArea(.keyboard)
+        }
+        .environment(model)
+        .environment(\.layoutDirection, .leftToRight)
+        .primitiveTokens(model.primitiveTokens)
+        .environment(\.xuiRTL, model.isRTL)
+        .environment(\.xuiReducedMotion, model.reducedMotion || enclosingReducedMotion)
+        .modifier(KeyboardRouting(model: model, rootFocused: $rootFocused, onStage: true))
+        .modifier(FilePicking(model: model, onStage: true))
+        .onAppear { appeared = true }
+        .onDisappear { model.overlayViewportHeight(nil) }
     }
 }
 
@@ -104,12 +211,13 @@ private struct Scrim: View {
 private struct PaintedLayer: View {
     let layer: LayerInfo
     let model: SurfaceModel
+    var shift: CGPoint = .zero
     @State private var drag: CGSize = .zero
 
     var body: some View {
         let edge = PaintedLayer.sheetEdge(layer)
         LayerView(layer: layer, model: model)
-            .offset(x: layer.frame.minX + drag.width, y: layer.frame.minY + drag.height)
+            .offset(x: layer.frame.minX + shift.x + drag.width, y: layer.frame.minY + shift.y + drag.height)
             .modifier(LayerAccessibility(modal: layer.modal))
             .modifier(LayerHover(layer: layer, model: model))
             .gesture(sheetDrag(edge ?? ""), including: edge != nil && layer.dismissible ? .all : .subviews)
