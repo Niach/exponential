@@ -13,17 +13,24 @@ import { css } from "../style"
 import { bool, BuiltinIcon, num, parts, str, type PartFn } from "./shared"
 
 export function BoxNative(props: NativeProps): JSX.Element {
-  const pressable = () => bool(props.props.pressable) || Boolean(props.node.on?.press)
+  const ctx = useSurfaceContext()
+  // #EXP-1674: `Row.href` lands here and opens like a Link's (the policy decides).
+  const href = () => str(props.props.href)
+  const pressable = () => bool(props.props.pressable) || Boolean(props.node.on?.press) || Boolean(href())
+  const press = () => {
+    if (href()) ctx.openUrl(href())
+    void props.emit(`press`)
+  }
   const onKey = (e: KeyboardEvent) => {
     if (e.target !== e.currentTarget) return
     if (e.key === `Enter` || e.key === ` `) {
       e.preventDefault()
-      void props.emit(`press`)
+      press()
     }
   }
   return (
     <Show when={pressable()} fallback={<div {...props.rootProps}>{props.children}</div>}>
-      <div {...props.rootProps} data-pressable="true" role="button" tabindex="0" onClick={() => void props.emit(`press`)} onKeyDown={onKey}>
+      <div {...props.rootProps} data-pressable="true" role="button" tabindex="0" onClick={press} onKeyDown={onKey}>
         {props.children}
       </div>
     </Show>

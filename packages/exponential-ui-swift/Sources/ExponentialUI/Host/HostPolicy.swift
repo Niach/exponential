@@ -188,13 +188,16 @@ public struct HostPolicy {
     public var urls: UrlPolicy?
     /// Opens an allowed url (default: the system opener).
     public var openUrl: (@MainActor (URL) -> Void)?
+    /// #EXP-1674: a `hostLinks` Text's segments (default: none).
+    public var textLinks: (@MainActor (String) -> [TextLinkSegment]?)?
     public var media: MediaOptions?
 
-    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil) {
+    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil, textLinks: (@MainActor (String) -> [TextLinkSegment]?)? = nil) {
         self.functions = functions
         self.onFunctionCall = onFunctionCall
         self.urls = urls
         self.openUrl = openUrl
+        self.textLinks = textLinks
         self.media = media
     }
 }

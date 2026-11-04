@@ -8596,6 +8596,18 @@
       }
     },
     {
+      "name": "Button/href",
+      "node": {
+        "id": "button",
+        "component": "Button",
+        "props": {
+          "label": "Docs",
+          "variant": "default",
+          "href": "https://ui.exponential.at"
+        }
+      }
+    },
+    {
       "name": "Button/loading=true+pendingLabel",
       "node": {
         "id": "button",
@@ -10517,6 +10529,19 @@
           "title": "r/selfhosted",
           "meta": "312 posts",
           "pressable": false
+        }
+      }
+    },
+    {
+      "name": "Row/href",
+      "node": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "Docs",
+          "meta": "312 posts",
+          "pressable": true,
+          "href": "https://ui.exponential.at"
         }
       }
     },

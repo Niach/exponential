@@ -93,6 +93,8 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
       onClick={(e: MouseEvent) => {
         e.stopPropagation()
         if (hold || inert) return
+        // #EXP-1674: `href` opens like a Link's (the policy decides).
+        if (str(props.href)) ctx.openUrl(str(props.href))
         track(emit(`press`))
         if (submit) form.submit()
       }}

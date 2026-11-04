@@ -176,8 +176,11 @@ final class MarkdownLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
                 return
             }
             // Issue chips are rounded rects (Linear).
+            // #EXP-1674: a prose entity chip (a status glyph, no issue id) too.
             let isIssueRef = storage.attribute(
                 .markdownIssueRef, at: range.location, effectiveRange: nil) != nil
+                || storage.attribute(
+                    .markdownIssueRefStatus, at: range.location, effectiveRange: nil) != nil
             var boxes = [CGRect]()
             self.enumerateLineFragments(forGlyphRange: glyphs) { _, _, _, lineGlyphs, _ in
                 let intersect = NSIntersectionRange(lineGlyphs, glyphs)

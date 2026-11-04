@@ -30,6 +30,7 @@ import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
 import { WebMcpProvider } from "@/components/webmcp-provider"
 import { IssueRefProvider } from "@/components/issue-ref-provider"
+import { CardLinksHost } from "@/components/card-links-host"
 import { TeamStatusesProvider } from "@/hooks/use-team-statuses"
 import {
   GettingStartedProgressProvider,
@@ -185,6 +186,7 @@ function TeamLayout() {
         teamId={team?.id}
         teamSlug={teamSlug}
       >
+        <CardLinksHost teamSlug={teamSlug}>
         <MentionProvider teamId={team?.id}>
         {/* EXP-1074: THE issue context menu — one host above every list, row
             and chip that opts in with `issueMenuProps`. */}
@@ -275,6 +277,7 @@ function TeamLayout() {
           </IssueSearchProvider>
         </IssueContextMenuProvider>
         </MentionProvider>
+        </CardLinksHost>
       </IssueRefProvider>
       </GettingStartedProgressProvider>
       </TeamStatusesProvider>

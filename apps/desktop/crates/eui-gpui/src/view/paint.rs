@@ -933,7 +933,7 @@ impl SurfaceView {
                 let is_placeholder = text.is_empty() || (!ph.is_empty() && text == ph && !has_value(n));
                 natives::trigger_content(&lcx, if text.is_empty() { ph } else { text }, is_placeholder, lcx.str("icon"))
             }
-            ("Text", _) => self.paint_text(&lcx, window),
+            ("Text", _) => self.paint_text(&lcx, window, cx),
             ("Markdown", _) => self.paint_markdown(&lcx, index, window, cx),
             ("Button" | "Toggle", _) => natives::button(&lcx, &n.component, window),
             ("Link", _) => natives::link(&lcx),
@@ -1081,8 +1081,16 @@ impl SurfaceView {
     /// chrome its part carries (a tab's icon and count, an accordion
     /// chevron, an option's check, a sort arrow), typed table cells and the
     /// CodeBlock's tokens.
-    fn paint_text(&self, lcx: &LeafCx, window: &mut Window) -> AnyElement {
+    fn paint_text(&self, lcx: &LeafCx, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let n = lcx.node;
+        // #EXP-1674: a `hostLinks` Text (the Row subtitle) the host links part of.
+        if n.props.get("hostLinks").and_then(Value::as_bool) == Some(true) {
+            let text = display_text(n.props.get("text"));
+            let links = self.host.text_links(&text, cx);
+            if let Some(segments) = links.and_then(|links| eui_core::host::police_text_links(self.host.url_policy().as_ref(), &text, links)) {
+                return natives::linked_text(lcx, segments, self.host.clone());
+            }
+        }
         let owner = n.owner_component.as_deref().unwrap_or("");
         let part = n.part.as_deref();
         let shown_text = display_text(n.props.get("text"));

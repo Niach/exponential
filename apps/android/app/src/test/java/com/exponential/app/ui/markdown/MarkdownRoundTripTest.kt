@@ -35,6 +35,9 @@ class MarkdownRoundTripTest {
 
     @Test fun relativeLink() = assertStable("See [docs](/help/page) now")
 
+    /** #EXP-1674: the team shorthand is a link like any other (CONTRACT_FIXTURES `team_link`). */
+    @Test fun teamLink() = assertStable("See [x](~/settings/members) now")
+
     // --- Regression (REV2-19): formatting INSIDE link text must survive, and a
     // partly formatted link must stay ONE link. The parser overlaps the Link
     // mark with the marks nested in its text, so the serializer has to compose

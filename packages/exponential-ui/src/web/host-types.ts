@@ -59,6 +59,12 @@ export interface SourceOption {
   disabled?: boolean
 }
 
+/** One piece of a host's `textLinks` answer. */
+export interface TextLinkSegment {
+  text: string
+  href?: string
+}
+
 export interface HostPlugin<Icon = unknown, Markdown = unknown> {
   /** The icon registry: the catalog's `Icon` names → components. */
   icons?: IconMap<Icon>
@@ -71,6 +77,10 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
   /** Opens an href the URL policy allowed (`openUrl`, `Link`); default
    *  `window.open(url, "_blank")`. */
   openUrl?: (url: string) => void
+  /** #EXP-1674 (`catalog/host.json` urls): the text of a `hostLinks` Text (the
+   *  `Row` subtitle) as segments `{text, href?}` that concatenate back to it;
+   *  null = no links. eUI knows nothing of what they mean. */
+  textLinks?: (text: string) => TextLinkSegment[] | null
   /** The URL policy EVERY href passes (Link, markdown links, FileUpload
    *  file urls, openUrl): `catalog/host.json` urls. Unset = the default
    *  schemes; relative urls resolve against `baseUrl`, else `media.baseUrl`,

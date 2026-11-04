@@ -297,7 +297,8 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
   if (depth > MAX_DEPTH) throw new Error(`macro ${macro}: expansion deeper than ${MAX_DEPTH}`)
   const baseProps = propsAt(node.props, null)
   // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
-  if (node.on?.press && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
+  // #EXP-1674: so does an `href` (Row).
+  if ((node.on?.press || baseProps.href) && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
   const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues, built: [] }
   const ctx: ExprContext = { id: node.id, props: baseProps, vars: {} }
   const [root] = expandTemplate(def.root, exp, ctx, node.id)

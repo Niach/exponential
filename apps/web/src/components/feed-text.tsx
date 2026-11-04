@@ -6,9 +6,12 @@ import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useMentions, type MentionContextValue } from "@/components/mention-provider"
 import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { looksLikeMarkdown } from "@/lib/agent-feed"
+import { teamSlugOfPath } from "@/lib/app-link"
+import { agentCollection, boardCollection, sessionCollection } from "@/lib/collections"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { linkSegments } from "@/lib/linkify"
 import { createMentionRegExp } from "@/lib/mention-refs"
+import { chipBareAppLinks } from "@/lib/prose-links"
 
 // The run view's cheap text path (EXP-440), shared with every chat
 // (#EXP-1380 chats.json PERF): plain prose stays plain linkified text with
@@ -16,6 +19,31 @@ import { createMentionRegExp } from "@/lib/mention-refs"
 // renderer.
 
 const noop = () => {}
+
+/** #EXP-1674 (prose-links.json): agent prose with its bare in-app URLs
+ *  rewritten to their chips: an issue through THE `#IDENT` chip, any other
+ *  synced row as the entity chip's link run. Display text only. */
+export function useChippedProse(text: string): string {
+  const issueRefs = useIssueRefs()
+  if (typeof window === `undefined` || !text.includes(`://`)) return text
+  const teamId = issueRefs?.teamId
+  return chipBareAppLinks(text, window.location.origin, teamSlugOfPath(window.location.pathname), (kind, id) => {
+    switch (kind) {
+      case `issue`:
+        return issueRefs?.resolve(id)?.title
+      case `board`:
+        return boardCollection.toArray.find((board) => board.teamId === teamId && board.slug === id)?.name
+      case `session`: {
+        const session = sessionCollection.get(id)
+        return session && session.teamId === teamId ? session.title?.trim() || `Session` : null
+      }
+      case `agent`: {
+        const agent = agentCollection.get(id)
+        return agent && agent.teamId === teamId ? agent.name : null
+      }
+    }
+  })
+}
 
 /** The shared read-only markdown renderer — the same TipTap pipeline the issue
  *  and comment bodies use, in its compact `chat` presentation, so a feed bubble
@@ -32,11 +60,12 @@ export function FeedMarkdown({
   hardBreaks?: boolean
 }) {
   const onLinkClick = useAppLinkClick()
+  const markdown = useChippedProse(text)
   return (
     // EXP-1188: links to this instance route in-app, sources open a tab.
     <div onClickCapture={onLinkClick}>
       <MarkdownEditor
-        markdown={text}
+        markdown={markdown}
         editable={false}
         onChange={noop}
         appearance="chat"
@@ -68,7 +97,9 @@ export function FeedText({
   deferred?: boolean
 }) {
   const onLinkClick = useAppLinkClick()
-  if (looksLikeMarkdown(text)) {
+  // A rewritten entity link is markdown, so that row takes the markdown path.
+  const shown = useChippedProse(text)
+  if (looksLikeMarkdown(shown)) {
     return deferred ? (
       <DeferredFeedMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} />
     ) : (
@@ -77,7 +108,7 @@ export function FeedText({
   }
   return (
     <div className="whitespace-pre-wrap break-words" onClickCapture={onLinkClick}>
-      <IssueRefText text={text} />
+      <IssueRefText text={shown} />
     </div>
   )
 }

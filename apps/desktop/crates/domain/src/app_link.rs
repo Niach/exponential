@@ -282,6 +282,16 @@ pub enum LinkOpenOutcome {
     NotFound,
 }
 
+/// #EXP-1674: what a chat card's link may open (plan-card.json `linkCases`):
+/// in-app, or https out.
+pub fn card_link_opens(href: &str, origin: &str, team: Option<&str>) -> bool {
+    match classify_app_link_in_team(href, origin, team) {
+        AppLink::Ignore => false,
+        AppLink::External { url } => url.get(..8).is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://")),
+        _ => true,
+    }
+}
+
 /// #EXP-1674: THE open rule ×4 (`openCases`), checked in this order.
 /// Unreadable looks exactly like missing.
 pub fn link_open_outcome(member: bool, active_team: bool, found: bool, web_only: bool) -> LinkOpenOutcome {
@@ -499,6 +509,36 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "app-link fixture failures:\n{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn card_link_fixture_cases() {
+        #[derive(Deserialize)]
+        struct LinkCase {
+            name: String,
+            href: String,
+            #[serde(default, deserialize_with = "present")]
+            team: Option<Option<String>>,
+            opens: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CardFixture {
+            link_origin: String,
+            link_team: String,
+            link_cases: Vec<LinkCase>,
+        }
+        // Absent = the fixture's team; null = no team.
+        fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+            Option::<String>::deserialize(d).map(Some)
+        }
+        let fixture: CardFixture = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/plan-card.json"))
+            .expect("plan-card.json parses");
+        assert!(!fixture.link_cases.is_empty());
+        for case in fixture.link_cases {
+            let team = case.team.unwrap_or_else(|| Some(fixture.link_team.clone()));
+            assert_eq!(card_link_opens(&case.href, &fixture.link_origin, team.as_deref()), case.opens, "{}", case.name);
+        }
     }
 
     #[test]

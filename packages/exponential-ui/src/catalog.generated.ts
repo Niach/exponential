@@ -258,7 +258,7 @@ export interface ComponentProps {
   Chart: { kind: ChartKindValue; categories?: string[] | Dynamic; series: Shapes["series"][] | Dynamic; title?: string; height?: number; xLabel?: string; yLabel?: string; min?: number; max?: number; showAxes?: boolean; showGrid?: boolean; showLegend?: boolean; showValues?: boolean }
   Sparkline: { values: number[] | Dynamic; tone?: ToneValue; height?: number }
   StatTile: { label: string | Dynamic; value: string | Dynamic; delta?: string | Dynamic; tone?: ToneValue | Dynamic; trend?: number[] | Dynamic }
-  Button: { label?: string | Dynamic; icon?: IconName | Dynamic; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
+  Button: { label?: string | Dynamic; icon?: IconName | Dynamic; href?: string; variant?: VariantValue; size?: SizeValue; disabled?: boolean | Dynamic; loading?: boolean; pendingLabel?: string; submit?: boolean; hold?: boolean; holdingLabel?: string }
   Link: { label: string | Dynamic; href?: string; external?: boolean }
   Toggle: { label: string; icon?: IconName; pressed?: boolean | Dynamic; variant?: "default" | "outline"; size?: ControlSizeValue }
   Form: { name: string; disabled?: boolean | Dynamic; busy?: boolean | Dynamic; summary?: boolean }
@@ -282,7 +282,7 @@ export interface ComponentProps {
   FileUpload: { label?: string; name: string; accept?: string; multiple?: boolean; maxSize?: number; files?: Shapes["file"][] | Dynamic; hint?: string; disabled?: boolean }
   QrScanner: { hint?: string | Dynamic; formats?: string[]; label?: string; disabled?: boolean }
   Composer: { placeholder?: string; value?: string | Dynamic; submitLabel?: string; attachments?: boolean; busy?: boolean }
-  Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; depth?: number }
+  Row: { title: string | Dynamic; identifier?: string | Dynamic; subtitle?: string | Dynamic; meta?: string | Dynamic; value?: string | Dynamic; placeholder?: string; icon?: IconName | Dynamic; chevron?: RowChevronValue | Dynamic; selected?: boolean | Dynamic; density?: DensityValue; surface?: RowSurfaceValue; pressable?: boolean; href?: string; depth?: number }
   MessageBubble: { text: string | Dynamic; side?: MessageSideValue; time?: string | Dynamic; status?: MessageStatusValue | Dynamic; author?: string | Dynamic }
   TreeGuides: { depth: number; elbowAt?: number; tee?: boolean; passThrough?: number[] }
   Unknown: { component: string; catalogId?: string }

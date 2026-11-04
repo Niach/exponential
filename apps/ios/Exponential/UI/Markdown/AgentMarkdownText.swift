@@ -243,15 +243,51 @@ struct AgentMarkdownText: View {
             as NSString
     }
 
+    /// #EXP-1674 (prose-links.json): agent prose with its bare in-app URLs
+    /// rewritten to their chips, in the run's team. Display text only.
+    private static func chipped(_ text: String, context: AgentMarkdownContext?) -> String {
+        guard let context, let refs = context.issueRefs, refs.bareRefs, text.contains("://"),
+              let origin = context.baseURL?.absoluteString,
+              let pool = try? refs.db.pool(forAccountId: context.accountId)
+        else { return text }
+        let teamId = refs.teamId
+        func cell(_ sql: String, _ first: String, _ second: String) -> String? {
+            (try? pool.read { db -> String? in
+                try String.fetchOne(db, sql: sql, arguments: [first, second])
+            }) ?? nil
+        }
+        let team = (try? pool.read { db -> String? in
+            try String.fetchOne(db, sql: #"SELECT "slug" FROM "teams" WHERE "id" = ? LIMIT 1"#, arguments: [teamId])
+        }) ?? nil
+        return ProseLinks.chipBareAppLinks(text, origin: origin, team: team) { kind, id in
+            switch kind {
+            case .issue:
+                return IssueRefChipCache.chip(
+                    id.uppercased(), scope: .team(id: teamId), db: refs.db, accountId: context.accountId
+                )?.title
+            case .board:
+                return cell(#"SELECT "name" FROM "boards" WHERE "team_id" = ? AND "slug" = ? LIMIT 1"#, teamId, id)
+            case .session:
+                let exists = cell(#"SELECT "id" FROM "sessions" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, id)
+                guard exists != nil else { return nil }
+                let title = cell(#"SELECT "title" FROM "sessions" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, id)
+                return title.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? "Session"
+            case .agent:
+                return cell(#"SELECT "name" FROM "agents" WHERE "team_id" = ? AND "id" = ? LIMIT 1"#, teamId, id)
+            }
+        }
+    }
+
     /// Cache hit or a synchronous parse that populates the cache.
     private static func prototype(
-        _ text: String,
+        _ raw: String,
         context: AgentMarkdownContext?,
         options: MarkdownParseOptions,
         overrides: MarkdownStyle.Overrides
     ) -> IssueEditorModel {
         let refs = context?.issueRefs
         let accountId = context?.accountId ?? ""
+        let text = chipped(raw, context: context)
         let key = cacheKey(
             text: text, baseURL: context?.baseURL, options: options, overrides: overrides,
             refsKey: refs.map { "\(accountId)/\($0.teamId)/\($0.bareRefs)/\($0.mentionKey)" } ?? ""

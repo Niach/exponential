@@ -27,6 +27,7 @@ export function hostPlugin(host: ExponentialHost, base: HostPlugin = {}): HostPl
     openUrl: (url) => {
       host.openUrl(url)
     },
+    textLinks: (text) => host.textLinks(text),
     urls: host.urlPolicy(),
     media: host.mediaOptions(),
     mediaRequest: base.mediaRequest ?? ((src) => host.mediaRequest(src)),

@@ -110,3 +110,32 @@ export const STATUS_ICON_DATA_URIS: Record<StatusIconName, string> =
 export function statusIconDataUri(name: IconName | string): string {
   return STATUS_ICON_DATA_URIS[isStatusIconName(name) ? name : `circle-dashed`]
 }
+
+// #EXP-1674: the glyphs a prose EntityChip (prose-links.json) paints through
+// the same mask, one per chip kind (entity-chip.json `entityRefIcon`). Locked
+// against the registry like the status glyphs.
+export const PROSE_CHIP_ICON_BODIES = {
+  board: `<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M8 10v4"/><path d="M12 10v2"/><path d="M16 10v6"/>`,
+  session: `<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>`,
+  agent: `<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>`,
+} as const
+
+export type ProseChipIconKind = keyof typeof PROSE_CHIP_ICON_BODIES
+
+export function proseChipIconSvg(kind: ProseChipIconKind): string {
+  const attrs = Object.entries(STATUS_ICON_SVG_ATTRS)
+    .map(([key, value]) => `${key}="${value}"`)
+    .join(` `)
+  return `<svg xmlns="http://www.w3.org/2000/svg" ${attrs}>${PROSE_CHIP_ICON_BODIES[kind]}</svg>`
+}
+
+const PROSE_CHIP_DATA_URIS = Object.fromEntries(
+  (Object.keys(PROSE_CHIP_ICON_BODIES) as ProseChipIconKind[]).map((kind) => [
+    kind,
+    `url("data:image/svg+xml,${encodeURIComponent(proseChipIconSvg(kind))}")`,
+  ])
+) as Record<ProseChipIconKind, string>
+
+export function proseChipIconDataUri(kind: ProseChipIconKind): string {
+  return PROSE_CHIP_DATA_URIS[kind]
+}

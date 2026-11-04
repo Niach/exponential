@@ -57,6 +57,7 @@ import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.markdown.model.ParagraphAttrs
 import com.exponential.app.ui.markdown.media.AudioBlockView
 import com.exponential.app.ui.markdown.media.VideoBlockView
+import com.exponential.app.domain.ProseLinks
 import com.exponential.app.ui.markdown.model.RichText
 import com.exponential.app.ui.theme.resolvedStatusColor
 
@@ -81,8 +82,9 @@ fun MarkdownView(
     softBreaksAsNewlines: Boolean = false,
 ) {
     if (markdown.isBlank()) return
-    val blocks = remember(markdown, softBreaksAsNewlines) {
-        MarkdownParser.parseCached(markdown, softBreaksAsNewlines)
+    val shown = rememberChippedProse(markdown)
+    val blocks = remember(shown, softBreaksAsNewlines) {
+        MarkdownParser.parseCached(shown, softBreaksAsNewlines)
     }
     val issueRefs = LocalIssueRefs.current
     // The whole rendered document is one selection scope (EXP-534): long-press
@@ -518,7 +520,7 @@ internal fun annotateLine(
     // and a resolved `#IDENTIFIER` chip appends the issue TITLE (EXP-307, web
     // read-only parity), so the displayed string is no longer the source
     // string — every other span offset is mapped through [display].
-    val display = MentionDisplay.build(text, mentionPills, refPills)
+    val display = MentionDisplay.build(text, mentionPills, refPills, proseChipMarks(text, marks))
     val annotated = buildAnnotatedString {
         append(display.text)
         // Compose crashes if two `LinkAnnotation`s overlap (issue-detail crash,
@@ -562,14 +564,35 @@ internal fun annotateLine(
                 )
                 InlineKind.Link -> {
                     val href = m.href ?: continue
+                    val chipKind = ProseLinks.chipKind(href)
                     // EXP-1188: an ignored link (a placeholder host, another
                     // scheme) stays plain text — nothing to open.
                     val link = appLinkAnnotation(
                         href,
                         appLinks,
-                        TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
+                        // A prose chip wears the chip's paint, not the link's.
+                        if (chipKind != null) TextLinkStyles() else TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
                     ) ?: continue
                     addLinkGuarded(link, rawStart, rawEnd)
+                    if (chipKind != null) {
+                        // #EXP-1674 (prose-links.json): THE entity chip: the
+                        // kind's glyph over the spliced, hidden cell, the name.
+                        addStyle(SpanStyle(color = MdStyle.Text), start, end)
+                        addStyle(
+                            SpanStyle(color = Color.Transparent, letterSpacing = MdStyle.chipHashLetterSpacing),
+                            start,
+                            start + 1,
+                        )
+                        chipSpecs.add(
+                            IssueRefChipSpec(
+                                start = start,
+                                end = end,
+                                tokenStart = start,
+                                iconName = proseChipGlyph(chipKind),
+                                color = MdStyle.ChipToken,
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -694,6 +717,23 @@ internal const val MAX_CHIP_TITLE_CHARS = 60
  * above its identifier.
  */
 internal const val CHIP_GLYPH_CELL = "\u00A0"
+
+/** The registry glyph of a prose chip's kind: entity-chip.json `entityRefIcon`,
+ *  locked against [com.exponential.app.ui.components.entityConceptIcon] by
+ *  `MarkdownAnnotateTest`. */
+internal fun proseChipGlyph(kind: ProseLinks.ChipKind): String = when (kind) {
+    ProseLinks.ChipKind.Issue -> "file-text"
+    ProseLinks.ChipKind.Board -> "folder-kanban"
+    ProseLinks.ChipKind.Session -> "play"
+    ProseLinks.ChipKind.Agent -> "bot"
+}
+
+/** The link marks in a line that are prose chips (prose-links.json). */
+private fun proseChipMarks(text: String, marks: List<InlineMark>): List<InlineMark> =
+    marks.filter { m ->
+        m.kind == InlineKind.Link && m.href?.let(ProseLinks::chipKind) != null &&
+            m.start >= 0 && m.end <= text.length && m.end > m.start
+    }
 
 /**
  * Thread e4a04d22: the cell opening and closing a mention pill's display text.
@@ -838,8 +878,20 @@ internal class MentionDisplay private constructor(
             text: String,
             pills: List<Pair<Mentions.Match, MentionMember>>,
             refPills: List<Pair<IssueRefs.Match, IssueRefTarget>> = emptyList(),
+            /** #EXP-1674: prose chips: the glyph cell, then the name. */
+            chipMarks: List<InlineMark> = emptyList(),
         ): MentionDisplay {
-            val candidates = ArrayList<Candidate>(pills.size + refPills.size)
+            val candidates = ArrayList<Candidate>(pills.size + refPills.size + chipMarks.size)
+            for (mark in chipMarks) {
+                candidates.add(
+                    Candidate(
+                        mark.start, mark.end,
+                        CHIP_GLYPH_CELL + text.substring(mark.start, mark.end),
+                        isMention = false,
+                        glyphCell = true,
+                    ),
+                )
+            }
             for ((match, member) in pills) {
                 candidates.add(Candidate(match.start, match.end, mentionPillText(member.name), true))
             }

@@ -628,7 +628,11 @@ final class ExpAppHost {
                         action()
                     }
                 },
-                media: MediaOptions(baseUrl: origin, schemes: schemes, allowPrivate: ownHost)
+                media: MediaOptions(baseUrl: origin, schemes: schemes, allowPrivate: ownHost),
+                // #EXP-1674: a Row subtitle's `#IDENT` refs that resolve in the app's team.
+                textLinks: { text in
+                    LinkOpener.issueTextLinks(text, accountId: accountId, teamId: teamId, deps: deps)
+                }
             ),
             theme: ThemeHandle.builtin(appHostThemeId),
             mode: .dark,

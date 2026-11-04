@@ -560,6 +560,10 @@ final class HostBridge: HostPlugin {
 
     func openUrl(_ url: String) { host?.openURL(url) }
 
+    func textLinks(_ text: String) -> [TextLinkSegment]? {
+        host?.options.policy.textLinks?(text) ?? base?.textLinks(text)
+    }
+
     var urlPolicy: UrlPolicy? { host?.urlPolicy }
 
     var mediaOptions: MediaOptions? { host?.options.policy.media }

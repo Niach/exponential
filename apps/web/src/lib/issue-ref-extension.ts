@@ -4,7 +4,8 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import type { IconName } from "@exp/icons"
 import { createIssueRefRegExp, matchedIdentifier } from "@/lib/issue-refs"
-import { statusIconDataUri } from "@/lib/status-icon-svg"
+import { proseChipKind } from "@/lib/prose-links"
+import { proseChipIconDataUri, statusIconDataUri } from "@/lib/status-icon-svg"
 
 // Renders `#IDENTIFIER` issue references as clickable pills via inline
 // decorations — the document text stays the plain token, so the GFM markdown
@@ -55,6 +56,21 @@ function buildDecorations(
     if (node.type.name === `codeBlock`) return false
     if (!node.isText || !node.text) return undefined
     if (node.marks.some((mark) => mark.type.name === `code`)) return undefined
+
+    // #EXP-1674 (prose-links.json): a rewritten bare in-app URL paints as THE
+    // entity chip, its text already the title. Display-only: the rewrite never
+    // runs on an editable document.
+    const linkMark = node.marks.find((mark) => mark.type.name === `link`)
+    const chipKind = linkMark ? proseChipKind(String(linkMark.attrs.href ?? ``)) : null
+    if (chipKind && chipKind !== `issue`) {
+      decorations.push(
+        Decoration.inline(pos, pos + node.text.length, {
+          class: `issue-chip issue-ref-pill prose-entity-chip`,
+          style: `--issue-ref-status-icon: ${proseChipIconDataUri(chipKind)}`,
+        })
+      )
+      return undefined
+    }
 
     const regExp = createIssueRefRegExp({ bare })
     let match: RegExpExecArray | null

@@ -1,4 +1,5 @@
 import { linksIssues } from "@exp/domain-contract/session-kind"
+import { classifyAppLink } from "@/lib/app-link"
 import { viaAppOf } from "@/lib/emcp/via-app"
 import { mergeGate, mergeGateText } from "@exp/domain-contract/pr-checks"
 import { loadPullRequestChecks, pullRequestChecksBrief } from "@/lib/integrations/pr-checks"
@@ -473,6 +474,29 @@ export function showSurfaceProblem(surface: { root: Record<string, unknown> }, a
   if (surface.root.component === `Card`) return SHOW_CARD_ROOT_ERROR
   if (alone && textOnlyNode(surface.root)) return SHOW_TEXT_ONLY_ERROR
   return null
+}
+
+/** The literal `href`s of a nested surface: props or the flat form, children,
+ *  slots, a List's template. A bound or `{interpolated}` one is unknown here. */
+function surfaceHrefs(node: unknown, found: string[] = []): string[] {
+  if (!node || typeof node !== `object`) return found
+  const n = node as Record<string, unknown>
+  const props = n.props && typeof n.props === `object` ? (n.props as Record<string, unknown>) : {}
+  for (const href of [n.href, props.href]) {
+    if (typeof href === `string` && !href.includes(`{`)) found.push(href)
+  }
+  for (const child of [...(Array.isArray(n.children) ? n.children : []), ...(n.slots && typeof n.slots === `object` ? Object.values(n.slots) : []), n.template]) {
+    surfaceHrefs(child, found)
+  }
+  return found
+}
+
+/** #EXP-1674: a surface whose `href` opens nothing is refused (plan-card.json),
+ *  so the agent finds out now, not the person tapping it. Null = fine. */
+export function showSurfaceLinkProblem(surface: { root: Record<string, unknown> }, origin: string, team: string | null): string | null {
+  const dead = surfaceHrefs(surface.root).find((href) => classifyAppLink(href, origin, team).kind === `ignore`)
+  if (dead === undefined) return null
+  return `The surface links to \`${dead}\`, which opens nothing. Use an https URL, an in-app path (/t/<team>/...) or the team shorthand (~/issues/EXP-12, ~/settings/members).`
 }
 
 /** F38: `exponential_show {pictures}` with no surface: a Stack holding the
@@ -2917,6 +2941,9 @@ export function registerExponentialTools(
           // whole card, text alone.
           const problem = surface ? showSurfaceProblem(surface, !ask && !plan && !pictures?.length) : null
           if (problem) throw new Error(problem)
+          // `ignore` reads only a link's shape: any non-empty team expands `~/`.
+          const linkProblem = surface ? showSurfaceLinkProblem(surface, appBaseUrl(), own.teamId) : null
+          if (linkProblem) throw new Error(linkProblem)
           // S-3 stories.json: an explicit flag rides every kind.
           if (story !== undefined) card.story = story
           return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))

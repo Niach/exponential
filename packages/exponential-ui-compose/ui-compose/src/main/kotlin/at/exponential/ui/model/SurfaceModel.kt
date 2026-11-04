@@ -27,6 +27,7 @@ import at.exponential.ui.ffi.defaultThemeId
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.MediaRequest
 import at.exponential.ui.host.PaintError
+import at.exponential.ui.host.TextLinkSegment
 import at.exponential.ui.host.policedMediaRequest
 import at.exponential.ui.host.safeHref
 import at.exponential.ui.host.NoHost
@@ -532,6 +533,18 @@ class SurfaceModel(
     /** Open `url` when the URL policy allows it (every Link, markdown link and `openUrl`). */
     fun openHref(url: String) {
         href(url)?.let(host::openUrl)
+    }
+
+    /**
+     * #EXP-1674: a `hostLinks` Text's segments when the host links part of it,
+     * else null (the plain text): they must concatenate back to [text]; an href
+     * the URL policy denies stays text.
+     */
+    fun textLinkSegments(text: String): List<TextLinkSegment>? {
+        val segments = host.textLinks(text) ?: return null
+        if (segments.joinToString("") { it.text } != text) return null
+        val policed = segments.map { it.copy(href = it.href?.let(::href)) }
+        return policed.takeIf { list -> list.any { it.href != null } }
     }
 
     /** The media request for `src` (the host's `resolveUrl`, then the media policy); null = nothing loads. */

@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ReactNode } from "react"
+import { createContext, useContext, useMemo, useRef, type ReactNode } from "react"
 import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface, type HostPlugin, type IconMap } from "@exponential_app/eui-react"
 import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
@@ -117,24 +117,42 @@ export function cardMediaAllowed(src: string): boolean {
   return src.startsWith(`/api/attachments/`) || src.startsWith(`https://`)
 }
 
-function cardHost(): HostPlugin {
-  return planCardHost()
+/** #EXP-1674: what the app gives a card: THE opener (the card's team for
+ *  `~/`) and the Row subtitle's `#IDENT` links. No provider (the styleguide,
+ *  a specimen) = links open nothing. */
+export interface CardLinks {
+  /** A link the URL policy allowed (plan-card.json `linkCases` still decides). */
+  openUrl: (url: string) => void
+  textLinks: (text: string) => { text: string; href?: string }[] | null
+}
+
+const CardLinksContext = createContext<CardLinks | null>(null)
+
+export const CardLinksProvider = CardLinksContext.Provider
+
+export function useCardLinks(): CardLinks | null {
+  return useContext(CardLinksContext)
 }
 
 /** THE card host (the plan card's, and thread 58cb32df's `SurfaceCard`):
  *  `onAction` = the surface's action events (a surface card's `reply`). */
-export function planCardHost(onAction?: (event: { name: string; context: Record<string, unknown> }) => void): HostPlugin {
+export function planCardHost(
+  onAction?: (event: { name: string; context: Record<string, unknown> }) => void,
+  links?: CardLinks | null
+): HostPlugin {
   const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
   return {
     ...(onAction ? { onAction: (event) => onAction({ name: event.name, context: event.context }) } : {}),
     icons: CARD_ICONS,
     media: { baseUrl: origin },
-    urls: { baseUrl: origin },
+    // #EXP-1674: https, plus the instance's own scheme (a local http stack).
+    urls: { baseUrl: origin, schemes: origin.startsWith(`http://`) ? [`https`, `http`] : [`https`] },
     mediaRequest: (src) => (cardMediaAllowed(src) ? { url: new URL(src, origin).href, headers: {} } : null),
     // No transport: events reach nobody, every host function is denied
-    // (`set` runs inside the renderer), links open nothing.
+    // (`set` runs inside the renderer). Links go through the app's opener.
     onFunctionCall: () => undefined,
-    openUrl: () => {},
+    openUrl: (url) => links?.openUrl(url),
+    ...(links ? { textLinks: links.textLinks } : {}),
   }
 }
 
@@ -170,7 +188,8 @@ export function PlanCardSurface({
     data: { ...(surface.data ?? {}), ...(data ?? {}) },
   })
   if (dataRef) dataRef.current = state.data as Record<string, unknown>
-  const host = useMemo(cardHost, [])
+  const links = useCardLinks()
+  const host = useMemo(() => planCardHost(undefined, links), [links])
   return (
     <div
       data-testid={PLAN_CARD_TEST_IDS.surface}

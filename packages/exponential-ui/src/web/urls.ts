@@ -11,7 +11,7 @@
 // (FEED-128): one filter, both renderers.
 
 import { DEFAULT_MEDIA_SCHEMES, decideUrl, isPrivateHost, mediaRequest, safeHref, type MediaRequest, type UrlPolicy } from "@exponential_app/eui"
-import type { AnyHostPlugin as HostPlugin } from "./host-types"
+import type { AnyHostPlugin as HostPlugin, TextLinkSegment } from "./host-types"
 
 const documentBase = (): string | undefined => (typeof document !== `undefined` && document.baseURI ? document.baseURI : undefined)
 
@@ -46,6 +46,16 @@ export function urlPolicyOf(host: HostPlugin): UrlPolicy {
 /** The href a link may navigate to, or undefined (paint it as text). */
 export function linkHref(host: HostPlugin, href: unknown): string | undefined {
   return safeHref(urlPolicyOf(host), href)
+}
+
+/** #EXP-1674: a `hostLinks` Text's segments when the host links part of it,
+ *  else null (the plain text). Segments must concatenate back to `text`; an
+ *  href the URL policy denies stays text. */
+export function textLinkSegments(host: HostPlugin, text: string): TextLinkSegment[] | null {
+  const segments = host.textLinks?.(text)
+  if (!segments || segments.map((segment) => segment.text).join(``) !== text) return null
+  const policed = segments.map((segment) => ({ text: segment.text, href: segment.href ? linkHref(host, segment.href) : undefined }))
+  return policed.some((segment) => segment.href) ? policed : null
 }
 
 /** The media request for a src (`resolveUrl` rewrites first; the host's

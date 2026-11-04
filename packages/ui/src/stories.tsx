@@ -43,7 +43,7 @@ import { Input } from "./input"
 import { conceptIcon } from "./icons.generated"
 import { PictureCarousel } from "./picture-group"
 import { Pill } from "./pill"
-import { PlanCardCustomField, PlanCardOptions, planCardHost, questionAnswer, useSurfaceDataRef } from "./plan-card"
+import { PlanCardCustomField, PlanCardOptions, planCardHost, questionAnswer, useCardLinks, useSurfaceDataRef } from "./plan-card"
 
 // S-3 STORIES ×web (fixtures/stories.json; desktop crates/ui stories, iOS
 // ExpUI Stories, Android ui/stories): a session's own show cards (a plan, a
@@ -640,7 +640,8 @@ function StorySurface({
     data: { ...(surface.data ?? {}) },
   })
   dataRef.current = state.data as Record<string, unknown>
-  const host = useMemo(() => planCardHost(), [])
+  const links = useCardLinks()
+  const host = useMemo(() => planCardHost(undefined, links), [links])
   return (
     <div data-slot="story-surface" inert={disabled || undefined} className="min-w-0">
       <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />

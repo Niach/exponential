@@ -424,7 +424,8 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
     }
     let mut base_props = props_at(&node.props, None);
     // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
-    if node.on.as_ref().is_some_and(|o| o.contains_key("press")) && !base_props.contains_key("pressable") && view.components.get(macro_).is_some_and(|d| d.props.contains_key("pressable")) {
+    // #EXP-1674: so does an `href` (Row).
+    if (node.on.as_ref().is_some_and(|o| o.contains_key("press")) || base_props.get("href").is_some_and(|h| !h.is_null() && h != "")) && !base_props.contains_key("pressable") && view.components.get(macro_).is_some_and(|d| d.props.contains_key("pressable")) {
         base_props.insert("pressable".into(), Value::Bool(true));
     }
     let variants = responsive_variants(&node.props);

@@ -624,7 +624,7 @@ public final class IssueEditorModel {
     ) -> MarkdownChipDecorator.Result {
         if isDisplayOnly, let issueRefResolver, let issueRefTitleResolver {
             let decorated = IssueRefs.decorateForDisplay(
-                content,
+                IssueRefs.decorateProseChips(content),
                 resolver: issueRefResolver,
                 titleResolver: issueRefTitleResolver,
                 statusResolver: issueRefStatusResolver,

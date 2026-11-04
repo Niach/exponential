@@ -3186,6 +3186,9 @@
           "type": "icon",
           "bindable": true
         },
+        "href": {
+          "type": "url"
+        },
         "variant": {
           "type": "enum",
           "enum": "variant",
@@ -4187,6 +4190,9 @@
         "pressable": {
           "type": "boolean",
           "default": false
+        },
+        "href": {
+          "type": "url"
         },
         "depth": {
           "type": "number",

@@ -1091,6 +1091,10 @@ impl SteerSessionView {
         cx: &App,
     ) -> crate::markdown::MarkdownView {
         let view = view.on_open_link(crate::links::link_opener(self.ref_team_id(cx)));
+        let view = match self.ref_team_id(cx) {
+            Some(team_id) => view.chip_app_links(team_id),
+            None => view,
+        };
         let Some(resolver) = self.chips.clone() else {
             return view;
         };

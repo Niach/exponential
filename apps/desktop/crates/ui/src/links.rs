@@ -11,9 +11,10 @@
 use std::rc::Rc;
 
 use domain::app_link::{
-    app_path_team, classify_app_link, classify_app_link_in_team, expand_team_link, link_open_outcome,
+    app_path_team, card_link_opens, classify_app_link, classify_app_link_in_team, expand_team_link, link_open_outcome,
     AppLink, LinkOpenOutcome, NO_ACCESS,
 };
+use eui_core::host::TextLink;
 use gpui::{App, Window};
 use serde_json::Value;
 use sync::Store;
@@ -84,6 +85,58 @@ pub(crate) fn app_url_opener(team_id: Option<String>) -> Rc<dyn Fn(&str, &mut Ap
             cx.open_url(url);
         }
     })
+}
+
+/// #EXP-1674 (plan-card.json): `HostPlugin::open_url` of a chat card in
+/// `team_id` (`None` = the active team): in-app and https only.
+pub(crate) fn open_card_url(url: &str, team_id: Option<String>, cx: &mut App) {
+    let origin = link_origin(cx);
+    let href = team_shorthand_of(url, &origin).unwrap_or_else(|| url.to_string());
+    navigation::on_active_window(cx, move |window, cx| {
+        let team = team_id
+            .and_then(|team_id| team_slug_by_id(&team_id, cx))
+            .or_else(|| active_team_slug(window, cx));
+        if card_link_opens(&href, &origin, team.as_deref()) {
+            open_link(&href, team.as_deref(), window, cx);
+        }
+    });
+}
+
+/// #EXP-1674: the `#IDENT` refs of `text` that resolve in `team_id` (`None` =
+/// the active team) as the host's `text_links`; `None` = no link.
+pub(crate) fn issue_text_links(text: &str, team_id: Option<&str>, cx: &App) -> Option<Vec<TextLink>> {
+    if !text.contains('#') {
+        return None;
+    }
+    let team_id = match team_id {
+        Some(team_id) => team_id.to_string(),
+        None => {
+            let window = cx.active_window()?;
+            navigation::active_team_id(&navigation::nav_for_window_id(window.window_id(), cx)?, cx)?
+        }
+    };
+    let team = team_slug_by_id(&team_id, cx)?;
+    let mut segments = Vec::new();
+    let mut at = 0;
+    for token in crate::markdown::scan_issue_refs(text) {
+        let identifier = &text[token.start + 1..token.end];
+        if issue_by_identifier(&team_id, identifier, cx).is_none() {
+            continue;
+        }
+        let Some(href) = expand_team_link(&format!("~/issues/{identifier}"), Some(&team)) else { continue };
+        if token.start > at {
+            segments.push(TextLink { text: text[at..token.start].to_string(), href: None });
+        }
+        segments.push(TextLink { text: text[token.clone()].to_string(), href: Some(href) });
+        at = token.end;
+    }
+    if segments.is_empty() {
+        return None;
+    }
+    if at < text.len() {
+        segments.push(TextLink { text: text[at..].to_string(), href: None });
+    }
+    Some(segments)
 }
 
 /// THE opener. `team_slug` = the surface's team; `None` = the active team's.
@@ -319,6 +372,43 @@ fn land(landing: Landing, window: &mut Window, cx: &mut App) {
             }
         }
     }
+}
+
+/// #EXP-1674 (prose-links.json): agent prose with its bare in-app URLs
+/// rewritten to their chips, in `team_id`'s scope. Display text only.
+pub(crate) fn chip_prose_links(text: &str, team_id: Option<&str>, cx: &App) -> String {
+    use domain::prose_links::{chip_bare_app_links, ProseChipKind};
+    if !text.contains("://") {
+        return text.to_string();
+    }
+    let Some(team_id) = team_id else {
+        return text.to_string();
+    };
+    if Store::try_global(cx).is_none() {
+        return text.to_string();
+    }
+    let team = team_slug_by_id(team_id, cx);
+    let chips = crate::markdown::RefResolver::from_store(team_id.to_string()).issue_chip;
+    let resolve = |kind: ProseChipKind, id: &str| -> Option<String> {
+        match kind {
+            ProseChipKind::Issue => (chips)(&id.to_uppercase(), cx).map(|chip| chip.title),
+            ProseChipKind::Board => {
+                let store = Store::try_global(cx)?;
+                let boards = store.collections().boards.read(cx);
+                boards
+                    .iter()
+                    .find(|board| board.team_id == team_id && board.slug.as_deref().is_some_and(|slug| slug.eq_ignore_ascii_case(id)))
+                    .map(|board| board.name.clone())
+            }
+            ProseChipKind::Session => crate::session_data::session(id, cx)
+                .filter(|row| row.team_id.as_deref() == Some(team_id))
+                .map(|row| row.title.filter(|title| !title.trim().is_empty()).unwrap_or_else(|| "Session".to_string())),
+            ProseChipKind::Agent => crate::session_data::agent_def(id, cx)
+                .filter(|row| row.team_id.as_deref() == Some(team_id))
+                .and_then(|row| row.name),
+        }
+    };
+    chip_bare_app_links(text, &link_origin(cx), team.as_deref(), &resolve)
 }
 
 /// The instance origin, no trailing slash; empty when signed out.

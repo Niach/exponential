@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.SurfaceActionEvent
+import at.exponential.ui.host.TextLinkSegment
 import at.exponential.ui.host.MediaOptions
 import at.exponential.ui.host.MediaRule
 import at.exponential.ui.host.UrlPolicy
@@ -34,6 +35,10 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.images.resolveAccountForUrl
 import com.exponential.app.domain.CardSurface
 import com.exponential.app.domain.PlanCard
+import com.exponential.app.ui.markdown.LocalAppLinks
+import com.exponential.app.ui.markdown.openCardHref
+import com.exponential.app.ui.markdown.rememberAppLinkHandler
+import com.exponential.app.ui.markdown.rememberIssueTextLinks
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.EntryPoint
@@ -48,7 +53,8 @@ import kotlinx.serialization.json.JsonObject
  * Exponential UI CORE surface, painted by the real renderer (`:ui-compose`,
  * the UniFFI core). The card host: NO transport (actions and input edits go
  * nowhere), `set` the only function (the core's built-in; host functions
- * are never registered), media = `/api/attachments/…` against the app's
+ * are never registered), links = in-app and https through THE opener
+ * (#EXP-1674, plan-card.json), media = `/api/attachments/…` against the app's
  * instance WITH the account's bearer + https (its own host opted in past
  * VAPP-107's private-host rule, [cardAllowPrivate]). When the person answers, the
  * card reads [CardSurfaceHandle.snapshot]: the surface's data model, the
@@ -88,6 +94,8 @@ private class CardSurfaceHost(
     base: String?,
     token: String?,
     private val onActionEvent: ((name: String, context: JsonObject?) -> Unit)? = null,
+    private val onOpenUrl: (String) -> Unit = {},
+    private val onTextLinks: (String) -> List<TextLinkSegment>? = { null },
 ) : HostPlugin {
     private val origin = base?.trimEnd('/')
 
@@ -105,10 +113,16 @@ private class CardSurfaceHost(
         allowPrivate = ownHost,
     )
 
-    override val urlPolicy: UrlPolicy = UrlPolicy(schemes = listOf("https"), baseUrl = origin, allowPrivate = ownHost)
+    // #EXP-1674: https, plus the instance's own scheme (a local http dev stack).
+    override val urlPolicy: UrlPolicy = UrlPolicy(
+        schemes = listOfNotNull("https", origin?.substringBefore("://")?.takeIf { it == "http" }),
+        baseUrl = origin,
+        allowPrivate = ownHost,
+    )
 
-    /** Never opened from a card: links stay inert (no transport). */
-    override fun openUrl(url: String) {}
+    override fun openUrl(url: String) = onOpenUrl(url)
+
+    override fun textLinks(text: String): List<TextLinkSegment>? = onTextLinks(text)
 
     override fun onAction(event: SurfaceActionEvent) {
         val forward = onActionEvent ?: return
@@ -120,13 +134,15 @@ private class CardSurfaceHost(
 private fun cardHost(
     context: Context,
     onAction: ((name: String, context: JsonObject?) -> Unit)? = null,
+    onOpenUrl: (String) -> Unit = {},
+    onTextLinks: (String) -> List<TextLinkSegment>? = { null },
 ): HostPlugin {
     val auth = runCatching {
         EntryPointAccessors.fromApplication(context.applicationContext, CardSurfaceEntryPoint::class.java).authRepository()
     }.getOrNull()
     val base = auth?.instanceUrl?.value
     val token = auth?.let { a -> base?.let { resolveAccountForUrl(a.accounts.value, a.activeAccountId.value, it)?.token } }
-    return CardSurfaceHost(base, token, onAction)
+    return CardSurfaceHost(base, token, onAction, onOpenUrl, onTextLinks)
 }
 
 /**
@@ -142,12 +158,23 @@ internal fun rememberCardSurfaceModel(
     val context = LocalContext.current
     val latest = androidx.compose.runtime.rememberUpdatedState(onAction)
     val forward: ((String, JsonObject?) -> Unit)? = if (onAction == null) null else { name, ctx -> latest.value?.invoke(name, ctx) }
+    // #EXP-1674: the session or thread screen's handler knows the card's team;
+    // anywhere else, the active team. Read late: neither rebuilds the model.
+    val ownLinks = rememberAppLinkHandler()
+    val links = LocalAppLinks.current ?: ownLinks
+    val latestLinks = androidx.compose.runtime.rememberUpdatedState(links)
+    val latestTextLinks = androidx.compose.runtime.rememberUpdatedState(rememberIssueTextLinks(links?.teamId, links?.team))
     return remember(surface) {
         runCatching {
             SurfaceModel(
                 id = "card-${surface.root.hashCode()}",
                 options = SurfaceOptions(),
-                host = cardHost(context, forward),
+                host = cardHost(
+                    context,
+                    forward,
+                    onOpenUrl = { url -> latestLinks.value?.openCardHref(url) },
+                    onTextLinks = { text -> latestTextLinks.value(text) },
+                ),
             ) { error("set by ExponentialSurface") }.also { m ->
                 m.setNested(surface.root.toString())
                 surface.data?.forEach { (key, value) ->

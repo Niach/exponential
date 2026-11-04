@@ -507,6 +507,59 @@ fn button_face(cx: &LeafCx, component: &str, window: &Window, loading: bool) -> 
     row.into_any_element()
 }
 
+/// #EXP-1674: a `hostLinks` Text the host links part of, on one ellipsized
+/// line: the links in the text's own colour, underlined. A press on a link
+/// opens it through the host and never reaches a pressable Row behind it (the
+/// rest of the text presses the Row as usual).
+pub fn linked_text(cx: &LeafCx, segments: Vec<eui_core::host::TextLink>, host: Rc<dyn HostPlugin>) -> AnyElement {
+    let pieces: Vec<(String, Option<String>)> = segments
+        .into_iter()
+        .map(|segment| (crate::text::transform(&segment.text, cx.style.text_transform.as_deref()).replace('\n', " "), segment.href))
+        .collect();
+    let joined: String = pieces.iter().map(|(text, _)| text.as_str()).collect();
+    let text = crate::text::with_paragraph_direction(&joined, cx.rtl).into_owned();
+    // The paragraph's direction mark, when it got one, belongs to the first run.
+    let mut at = text.len() - joined.len();
+    let base = TextRun { len: 0, font: cx.font.clone(), color: cx.ink, background_color: None, underline: None, strikethrough: None };
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut ranges = Vec::new();
+    let mut hrefs = Vec::new();
+    if at > 0 {
+        runs.push(TextRun { len: at, ..base.clone() });
+    }
+    for (piece, href) in pieces {
+        let len = piece.len();
+        if len == 0 {
+            continue;
+        }
+        let underline = href.as_ref().map(|_| gpui::UnderlineStyle { thickness: px(1.0), color: Some(cx.ink), wavy: false });
+        runs.push(TextRun { len, underline, ..base.clone() });
+        if let Some(href) = href {
+            ranges.push(at..at + len);
+            hrefs.push(href);
+        }
+        at += len;
+    }
+    let styled = gpui::StyledText::new(SharedString::from(text)).with_runs(runs);
+    let layout = styled.layout().clone();
+    let probe = ranges.clone();
+    let links = gpui::InteractiveText::new(SharedString::from(format!("{}.links", cx.node.id)), styled).on_click(ranges, move |ix, _window, cx| {
+        if let Some(href) = hrefs.get(ix) {
+            host.open_url(href, cx);
+        }
+    });
+    let (x, y, w, h) = cx.inner();
+    aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w + 1.0)).h(px(h))), cx.align())
+        .truncate()
+        .on_mouse_down(gpui::MouseButton::Left, move |event: &gpui::MouseDownEvent, _window, cx| {
+            if layout.index_for_position(event.position).is_ok_and(|ix| probe.iter().any(|range| range.contains(&ix))) {
+                cx.stop_propagation();
+            }
+        })
+        .child(links)
+        .into_any_element()
+}
+
 /// A Link: underlined label (`letterSpacing` painted per glyph, as
 /// measured).
 /// A `Link`: underlined when the URL policy allows its href; a denied one

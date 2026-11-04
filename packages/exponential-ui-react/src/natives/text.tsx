@@ -2,6 +2,7 @@
 // → `data-xui-shimmer`, base-css), Markdown (`lines` truncation), Icon.
 
 import { displayString } from "@exponential_app/eui"
+import { textLinkSegments } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import { BuiltinMarkdown } from "../markdown"
@@ -9,7 +10,13 @@ import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { num, str } from "./shared"
 
+/** #EXP-1674: a host's text links: the text's own colour, underlined; a tap
+ *  opens through the URL policy and never presses the Row behind it. */
+export const TEXT_LINK_STYLE = { color: `inherit`, textDecoration: `underline` } as const
+
 export function TextNative({ props, rootProps }: NativeProps) {
+  const ctx = useSurfaceContext()
+  const segments = props.hostLinks === true ? textLinkSegments(ctx.host, displayString(props.text)) : null
   const lines = num(props.lines, 0)
   const align = props.align === `end` ? `end` : props.align === `center` ? `center` : props.align === `start` ? `start` : undefined
   // `align` is a base-layer rule (`data-xui-align`), so a node style
@@ -19,7 +26,28 @@ export function TextNative({ props, rootProps }: NativeProps) {
   const live = props.live === `polite` || props.live === `assertive` ? props.live : undefined
   return (
     <span {...(rootProps as Record<string, unknown>)} aria-live={live} aria-atomic={live ? true : undefined} data-xui-align={align} data-lines={lines > 0 ? lines : undefined} data-clamp={lines > 1 ? `` : undefined} data-xui-shimmer={props.shimmer === true ? `` : undefined} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)}>
-      {displayString(props.text)}
+      {segments
+        ? segments.map((segment, i) =>
+            segment.href ? (
+              <a
+                key={i}
+                href={segment.href}
+                data-xui-text-link=""
+                style={TEXT_LINK_STYLE}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  ctx.openUrl(segment.href!)
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                {segment.text}
+              </a>
+            ) : (
+              segment.text
+            )
+          )
+        : displayString(props.text)}
     </span>
   )
 }
