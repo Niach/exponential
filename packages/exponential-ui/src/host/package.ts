@@ -23,6 +23,9 @@ import { validatePackageActions, validatePackageEffects } from "./actions"
 import { packageTestIssues, validatePackageTests } from "./tests"
 import { validatePackageComponents } from "./components"
 import { fillScreenParams, validatePackageScreens } from "./screens"
+import { validatePackageShares } from "./share"
+import type { PackageShare } from "./share"
+import { fillRecordMacros, usesRecordMacros, type RecordMacroOptions } from "./record-macros"
 import type { PackageScreen } from "./screens"
 
 /** VAPP-161: the package format version this host reads
@@ -107,6 +110,8 @@ export interface AppPackage {
    *  templates a person can open, painted by the host as a sidebar or the
    *  phone bottom bar; `navigate {screen, params?}` opens one. */
   screens?: PackageScreen[]
+  /** VAPP-241: the public link definitions an owner can turn on (`host/share.ts`). */
+  share?: PackageShare[]
 }
 
 /** A package query's name. */
@@ -291,6 +296,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `query ${name} names no package query` })
       })
     }
+  // VAPP-217: a record macro's writes and rows need the package's allowlists.
+  issues.push(...recordMacroIssues(pkg))
   // VAPP-203: every template reduces clean, as the host will render it.
   issues.push(...validatePackageComponents(pkg, catalogIds, (extensions ?? []).flatMap((e) => (e.def ? [e.def] : []))))
   // VAPP-191: every expression in a template parses and type-checks.
@@ -300,6 +307,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   issues.push(...validatePackageActions(pkg))
   // VAPP-218: the screens, and every literal navigate target.
   issues.push(...validatePackageScreens(pkg))
+  // VAPP-241: the public link definitions.
+  issues.push(...validatePackageShares(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))
@@ -393,13 +402,15 @@ export function sourceAllowed(allowed: readonly string[] | undefined, source: st
 
 /** A template as the messages that create it: createSurface, the
  *  components, the merged initial data, one bindDataModel per binding. */
-export function templateMessages(pkg: AppPackage, templateId: string, surfaceId: string, data?: unknown): ServerMessage[] | null {
-  const template = pkg.templates[templateId]
-  if (!template) return null
+export function templateMessages(pkg: AppPackage, templateId: string, surfaceId: string, data?: unknown, options: RecordMacroOptions = {}): ServerMessage[] | null {
+  const raw = pkg.templates[templateId]
+  if (!raw) return null
+  // VAPP-217: RecordForm / RecordTable are filled from the package's kinds.
+  const template = usesRecordMacros(raw.components) ? { ...raw, ...fillRecordMacros(raw.components as unknown as Record<string, unknown>[], raw.bindings ?? [], pkg.records, options) } : raw
   const version = A2UI_VERSION
   const out: ServerMessage[] = [
     { version, createSurface: { surfaceId, catalogId: pkg.catalogId } },
-    { version, updateComponents: { surfaceId, components: template.components } },
+    { version, updateComponents: { surfaceId, components: template.components as AppTemplate[`components`] } },
   ]
   const merged = mergeData(template.data, data)
   if (merged !== undefined) out.push({ version, updateDataModel: { surfaceId, path: `/`, value: merged } })
@@ -415,4 +426,28 @@ export function mergeData(base: unknown, over: unknown): unknown {
   if (over === undefined) return base
   if (isObject(base) && isObject(over)) return { ...base, ...over }
   return over
+}
+
+/** VAPP-217: a RecordForm or an editable RecordTable writes through
+ *  `records.upsert` (a table also `records.delete`), and a RecordTable
+ *  follows `records:<kind>`: each must pass the package's `functions` and
+ *  `sources` allowlists, at the macro's component. */
+function recordMacroIssues(pkg: Record<string, unknown>): PackageIssue[] {
+  const issues: PackageIssue[] = []
+  if (!isObject(pkg.templates)) return issues
+  const functions = Array.isArray(pkg.functions) ? (pkg.functions as unknown[]).filter((f): f is string => typeof f === `string`) : []
+  const allows = (name: string) => functions.some((p) => matchesPattern(p, name))
+  for (const [id, template] of Object.entries(pkg.templates)) {
+    if (!isObject(template) || !Array.isArray(template.components)) continue
+    template.components.forEach((c, i) => {
+      if (!isObject(c) || (c.component !== `RecordForm` && c.component !== `RecordTable`)) return
+      const at = `/templates/${id}/components/${i}`
+      const writes = c.component === `RecordForm` ? c.readOnly !== true : c.editable !== false
+      if (writes && !allows(`records.upsert`)) issues.push({ path: at, message: `${c.component} writes with records.upsert: list it in functions` })
+      if (c.component === `RecordTable` && writes && !allows(`records.delete`)) issues.push({ path: at, message: `RecordTable deletes with records.delete: list it in functions` })
+      if (c.component === `RecordTable` && typeof c.kind === `string` && Array.isArray(pkg.sources) && !sourceAllowed(pkg.sources as string[], `records:${c.kind}`))
+        issues.push({ path: at, message: `RecordTable reads records:${c.kind}: list it in sources` })
+    })
+  }
+  return issues
 }

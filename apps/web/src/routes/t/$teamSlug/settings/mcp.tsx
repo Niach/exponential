@@ -8,13 +8,14 @@ import { pageTitle } from "@/lib/page-title"
 // #VAPP-185 (fixtures/settings-mcp.json): Settings › MCP, the merged page
 // (Endpoint, Servers, Clients, Access, Built-in tools). Every member reads
 // it; owner-only controls live inside each section. The servers' one-shot
-// deep links ride the URL (`?connect=<serverId>`, the OAuth callback's
+// deep links ride the URL (`?connect=<serverId>`, #VAPP-243 `?add=<name>`, the OAuth callback's
 // `?mcp=connected|failed&server=<id>[&error=]`) and are stripped once used.
 const nonEmpty = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
 
 export const validateMcpSettingsSearch = (search: Record<string, unknown>): McpSettingsRequest => ({
   connect: nonEmpty(search.connect),
+  add: nonEmpty(search.add),
   mcp: search.mcp === `connected` || search.mcp === `failed` ? search.mcp : undefined,
   server: nonEmpty(search.server),
   error: nonEmpty(search.error),

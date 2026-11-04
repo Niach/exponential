@@ -25,3 +25,4 @@
 - Pokretanje kodiranja prema agentu sada stiže do njega; razgovori s agentima ostaju obični
 - Timovi mogu imati vlastitu sliku
 - Plan sesije otvara se na vlastitoj kartici
+- Aplikacije prikazuju zapise kao obrasce, tablice, kalendare i vremenske crte

@@ -42,6 +42,10 @@ export interface PropSchema {
   items?: PropSchema
   /** `object`: the name of a shared shape in `defs`; none = any object. */
   shape?: string
+  /** VAPP-217: FILLED BY THE HOST (the record macros' fields, columns,
+   *  bindings), never written by an author: the model-facing prompt leaves
+   *  it out. */
+  host?: boolean
 }
 
 export interface DefSchema {

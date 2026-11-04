@@ -793,7 +793,14 @@ impl McpServersPane {
             _ => team_id.to_string(),
         };
         let pane = cx.entity().downgrade();
-        super::mcp_server_dialog::open(window, cx, team_id, config, device, pane);
+        super::mcp_server_dialog::open(window, cx, team_id, config, device, pane, None);
+    }
+
+    /// #VAPP-243: the add form pre-filled with an app's upstream name (an
+    /// owner's Add server on the app's Accounts row).
+    fn open_add_named(&mut self, name: String, team_id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let pane = cx.entity().downgrade();
+        super::mcp_server_dialog::open(window, cx, team_id.to_string(), None, None, pane, Some(name));
     }
 
     // -- render pieces --------------------------------------------------------
@@ -1090,8 +1097,20 @@ impl McpServersPane {
     }
 }
 
+/// #VAPP-243: an app's Add server waiting for this pane (set, then Settings
+/// › MCP opens; the pane's next render takes it and opens the add form).
+#[derive(Default)]
+pub(crate) struct PendingMcpAdd(pub Option<String>);
+
+impl gpui::Global for PendingMcpAdd {}
+
+/// Ask the MCP servers pane to open its add form with `name`.
+pub(crate) fn request_add(name: String, cx: &mut App) {
+    cx.set_global(PendingMcpAdd(Some(name)));
+}
+
 impl Render for McpServersPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(crate::controls::empty_state_list(
                 Icon::new(registry::UI_TEAM),
@@ -1101,6 +1120,13 @@ impl Render for McpServersPane {
         };
         self.ensure_loaded(&team_id, cx);
         let owner = super::is_owner(cx, &team_id);
+        if let Some(name) = cx.try_global::<PendingMcpAdd>().and_then(|p| p.0.clone()) {
+            cx.set_global(PendingMcpAdd(None));
+            if owner {
+                let team = team_id.clone();
+                cx.defer_in(window, move |this, window, cx| this.open_add_named(name, &team, window, cx));
+            }
+        }
 
         // EXP-810: authoring is owner-only, exactly like Remove — and always
         // offered to an owner, an empty list included (the band's pill IS

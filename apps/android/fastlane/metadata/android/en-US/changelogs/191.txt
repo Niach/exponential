@@ -1,0 +1,3 @@
+- Apps can show records as forms, tables, calendars and timelines
+- Chat cards are live: rows and buttons open links, #issue references link up
+- Owners can add a missing server for an app's upstream

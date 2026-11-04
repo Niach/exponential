@@ -807,189 +807,20 @@
       ]
     },
     "contacts": {
-      "data": {
-        "contacts": {
-          "rows": [],
-          "count": 0
-        },
-        "contactDraft": {
-          "open": false,
-          "name": "",
-          "email": "",
-          "company": ""
-        }
-      },
-      "bindings": [
-        {
-          "path": "/contacts",
-          "source": "records:contact?sort=name&order=asc&limit=500"
-        }
-      ],
       "components": [
         {
           "id": "root",
           "component": "Page",
           "title": "Contacts",
           "children": [
-            "contactsPanel",
-            "contactDialog"
-          ],
-          "slots": {
-            "trailing": "headerActions"
-          }
-        },
-        {
-          "id": "headerActions",
-          "component": "Stack",
-          "direction": "horizontal",
-          "gap": "sm",
-          "children": [
-            "newContact"
+            "contacts"
           ]
         },
         {
-          "id": "newContact",
-          "component": "Button",
-          "label": "Contact",
-          "icon": "ui-add",
-          "variant": "outline",
-          "on": {
-            "press": {
-              "functionCall": {
-                "call": "set",
-                "args": {
-                  "path": "/contactDraft/open",
-                  "value": true
-                }
-              }
-            }
-          }
-        },
-        {
-          "id": "contactsPanel",
-          "component": "List",
-          "divided": true,
-          "children": {
-            "componentId": "contactRow",
-            "path": "/contacts/rows",
-            "key": "id"
-          }
-        },
-        {
-          "id": "contactRow",
-          "component": "Row",
-          "title": {
-            "path": "name"
-          },
-          "subtitle": {
-            "path": "company"
-          },
-          "meta": {
-            "call": "expr",
-            "args": {
-              "expr": "orElse(e, '')",
-              "default": "",
-              "vars": {
-                "e": {
-                  "path": "email"
-                }
-              }
-            }
-          }
-        },
-        {
-          "id": "contactDialog",
-          "component": "Dialog",
-          "title": "New contact",
-          "open": {
-            "path": "/contactDraft/open"
-          },
-          "children": [
-            "contactForm"
-          ]
-        },
-        {
-          "id": "contactForm",
-          "component": "Form",
-          "name": "contact",
-          "children": [
-            "contactFields",
-            "contactActions"
-          ],
-          "on": {
-            "submit": {
-              "functionCall": {
-                "call": "actions.addContact",
-                "args": {
-                  "name": {
-                    "path": "/contactDraft/name"
-                  },
-                  "email": {
-                    "path": "/contactDraft/email"
-                  },
-                  "company": {
-                    "path": "/contactDraft/company"
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "id": "contactFields",
-          "component": "FieldGroup",
-          "columns": 2,
-          "children": [
-            "contactName",
-            "contactEmail",
-            "contactCompany"
-          ]
-        },
-        {
-          "id": "contactName",
-          "component": "Input",
-          "label": "Name",
-          "name": "name",
-          "value": {
-            "path": "/contactDraft/name"
-          }
-        },
-        {
-          "id": "contactEmail",
-          "component": "Input",
-          "label": "Email",
-          "name": "email",
-          "type": "email",
-          "value": {
-            "path": "/contactDraft/email"
-          }
-        },
-        {
-          "id": "contactCompany",
-          "component": "Input",
-          "label": "Company",
-          "name": "company",
-          "placeholder": "The company's name",
-          "value": {
-            "path": "/contactDraft/company"
-          }
-        },
-        {
-          "id": "contactActions",
-          "component": "FormActions",
-          "submit": "Add contact",
-          "cancel": true,
-          "on": {
-            "cancel": {
-              "functionCall": {
-                "call": "set",
-                "args": {
-                  "path": "/contactDraft/open",
-                  "value": false
-                }
-              }
-            }
-          }
+          "id": "contacts",
+          "component": "RecordTable",
+          "kind": "contact",
+          "query": "sort=name&order=asc&limit=500"
         }
       ]
     },

@@ -307,7 +307,7 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(copy["accounts"] as? [String: String], [
             "title": Apps.Copy.Accounts.title, "connect": Apps.Copy.Accounts.connect,
             "reconnect": Apps.Copy.Accounts.reconnect, "connected": Apps.Copy.Accounts.connected,
-            "notSetUp": Apps.Copy.Accounts.notSetUp,
+            "notSetUp": Apps.Copy.Accounts.notSetUp, "addServer": Apps.Copy.Accounts.addServer,
         ])
         XCTAssertEqual(copy["mcpTools"] as? [String: String], [
             "title": Apps.Copy.McpTools.title, "read": Apps.Copy.McpTools.read, "write": Apps.Copy.McpTools.write,

@@ -25,3 +25,4 @@
 - Começar a programar com um agente agora chega a ele; os chats de agentes são uma conversa simples
 - As equipas podem ter a sua própria imagem
 - O plano de uma sessão abre no seu próprio separador
+- As apps mostram registos como formulários, tabelas, calendários e cronologias

@@ -6179,6 +6179,508 @@
           }
         ]
       }
+    },
+    "RecordForm": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Form",
+        "props": {
+          "name": "{props.kind}",
+          "disabled": "{props.readOnly|false}"
+        },
+        "$on": {
+          "submit": "submit"
+        },
+        "children": [
+          {
+            "part": "unknown",
+            "component": "EmptyState",
+            "$if": "props.missing",
+            "props": {
+              "icon": "ui-error",
+              "title": "$string.unknownKind",
+              "size": "list"
+            }
+          },
+          {
+            "part": "fields",
+            "component": "FieldGroup",
+            "$if": {
+              "$not": "props.missing"
+            },
+            "props": {
+              "columns": 2
+            },
+            "children": [
+              {
+                "part": "field",
+                "component": "Box",
+                "$each": "props.fields",
+                "$as": "field",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "minWidth": 0,
+                  "gridColumn": {
+                    "$cond": [
+                      "field.wide",
+                      "1 / -1",
+                      "auto"
+                    ]
+                  }
+                },
+                "children": [
+                  {
+                    "part": "text",
+                    "component": "Input",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "text"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "value": "{field.value}",
+                      "placeholder": "{field.placeholder}",
+                      "checks": "{field.checks}"
+                    }
+                  },
+                  {
+                    "part": "textarea",
+                    "component": "Textarea",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "textarea"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "value": "{field.value}",
+                      "placeholder": "{field.placeholder}",
+                      "rows": 3,
+                      "autosize": true,
+                      "checks": "{field.checks}"
+                    }
+                  },
+                  {
+                    "part": "number",
+                    "component": "NumberField",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "number"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "value": "{field.value}",
+                      "min": "{field.min}",
+                      "max": "{field.max}",
+                      "step": "{field.step}",
+                      "precision": "{field.precision}",
+                      "placeholder": "{field.placeholder}",
+                      "checks": "{field.checks}"
+                    }
+                  },
+                  {
+                    "part": "switch",
+                    "component": "Switch",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "switch"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "checked": "{field.value}",
+                      "description": "{field.placeholder}"
+                    }
+                  },
+                  {
+                    "part": "select",
+                    "component": "Select",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "select"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "value": "{field.value}",
+                      "options": "{field.options}",
+                      "source": "{field.source}",
+                      "searchable": "{field.searchable|false}",
+                      "multiple": "{field.multiple|false}",
+                      "placeholder": "{field.placeholder}",
+                      "checks": "{field.checks}"
+                    }
+                  },
+                  {
+                    "part": "date",
+                    "component": "DatePicker",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "date"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "value": "{field.value}",
+                      "placeholder": "{field.placeholder}"
+                    }
+                  },
+                  {
+                    "part": "time",
+                    "component": "TimePicker",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "time"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "value": "{field.value}",
+                      "placeholder": "{field.placeholder}"
+                    }
+                  },
+                  {
+                    "part": "chips",
+                    "component": "ChipInput",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "chips"
+                      ]
+                    },
+                    "props": {
+                      "label": "{field.label}",
+                      "name": "{field.name}",
+                      "values": "{field.value}",
+                      "max": "{field.max}",
+                      "placeholder": "{field.placeholder}",
+                      "checks": "{field.checks}"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "part": "actions",
+            "component": "FormActions",
+            "$if": [
+              {
+                "$not": "props.readOnly"
+              },
+              {
+                "$not": "props.missing"
+              }
+            ],
+            "props": {
+              "submit": "{props.submitLabel|$string.save}",
+              "cancel": "{props.cancel|false}"
+            },
+            "$on": {
+              "cancel": "cancel"
+            }
+          }
+        ]
+      }
+    },
+    "RecordTable": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.md",
+          "minWidth": 0
+        },
+        "children": [
+          {
+            "part": "unknown",
+            "component": "EmptyState",
+            "$if": "props.missing",
+            "props": {
+              "icon": "ui-error",
+              "title": "$string.unknownKind",
+              "size": "list"
+            }
+          },
+          {
+            "part": "toolbar",
+            "component": "Toolbar",
+            "$if": {
+              "$not": "props.missing"
+            },
+            "children": [
+              {
+                "part": "count",
+                "component": "Text",
+                "props": {
+                  "text": "{props.count}",
+                  "variant": "muted"
+                }
+              }
+            ],
+            "slots": {
+              "trailing": {
+                "part": "add",
+                "component": "Button",
+                "$if": {
+                  "$map": {
+                    "from": "props.add",
+                    "cases": {
+                      "false": false
+                    },
+                    "default": true
+                  }
+                },
+                "props": {
+                  "label": "$string.add",
+                  "icon": "ui-add",
+                  "variant": "outline",
+                  "size": "sm"
+                },
+                "$on": {
+                  "press": "add"
+                }
+              }
+            }
+          },
+          {
+            "part": "loading",
+            "component": "Skeleton",
+            "$if": [
+              {
+                "$not": "props.missing"
+              },
+              "props.loading"
+            ],
+            "props": {
+              "rows": 3
+            }
+          },
+          {
+            "part": "table",
+            "component": "Table",
+            "$if": [
+              {
+                "$not": "props.missing"
+              },
+              {
+                "$not": "props.loading"
+              }
+            ],
+            "props": {
+              "columns": "{props.cols}",
+              "rows": "{props.rows}",
+              "density": "compact",
+              "stickyHeader": true,
+              "emptyText": "$string.noRecords"
+            },
+            "style": {
+              "@media (form-factor: phone)": {
+                "display": "none"
+              }
+            },
+            "slots": {
+              "menu": {
+                "part": "menu",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "justifyContent": "flex-end",
+                  "gap": "$spacing.xxs"
+                },
+                "children": [
+                  {
+                    "part": "edit",
+                    "component": "Button",
+                    "$if": {
+                      "$map": {
+                        "from": "props.editable",
+                        "cases": {
+                          "false": false
+                        },
+                        "default": true
+                      }
+                    },
+                    "props": {
+                      "icon": "ui-edit",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "$a11y": {
+                      "label": "$string.edit"
+                    },
+                    "$on": {
+                      "press": "edit"
+                    }
+                  },
+                  {
+                    "part": "delete",
+                    "component": "Button",
+                    "$if": {
+                      "$map": {
+                        "from": "props.editable",
+                        "cases": {
+                          "false": false
+                        },
+                        "default": true
+                      }
+                    },
+                    "props": {
+                      "icon": "ui-delete",
+                      "variant": "ghost",
+                      "size": "icon"
+                    },
+                    "$a11y": {
+                      "label": "$string.delete"
+                    },
+                    "$on": {
+                      "press": "delete"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "part": "list",
+            "component": "List",
+            "$if": [
+              {
+                "$not": "props.missing"
+              },
+              {
+                "$not": "props.loading"
+              }
+            ],
+            "props": {
+              "divided": true
+            },
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "children": [
+              "$children"
+            ]
+          },
+          {
+            "part": "editor",
+            "component": "Drawer",
+            "$if": [
+              {
+                "$not": "props.missing"
+              },
+              {
+                "$map": {
+                  "from": "props.editable",
+                  "cases": {
+                    "false": false
+                  },
+                  "default": true
+                }
+              }
+            ],
+            "props": {
+              "title": "{props.title}",
+              "open": "{props.editorOpen|false}",
+              "side": "right"
+            },
+            "children": [
+              {
+                "part": "form",
+                "component": "RecordForm",
+                "props": {
+                  "kind": "{props.kind}",
+                  "fields": "{props.fields}",
+                  "path": "{props.path}",
+                  "recordId": "{props.editorId}",
+                  "cancel": true
+                },
+                "$on": {
+                  "submit": "submit",
+                  "cancel": "cancel"
+                }
+              }
+            ]
+          },
+          {
+            "part": "confirm",
+            "component": "Dialog",
+            "$if": [
+              {
+                "$not": "props.missing"
+              },
+              {
+                "$map": {
+                  "from": "props.editable",
+                  "cases": {
+                    "false": false
+                  },
+                  "default": true
+                }
+              }
+            ],
+            "$a11y": {
+              "role": "alertdialog"
+            },
+            "props": {
+              "title": "$string.deleteRecord",
+              "description": "$string.deleteRecordBody",
+              "open": "{props.deleteOpen|false}"
+            },
+            "children": [
+              {
+                "part": "confirmForm",
+                "component": "Form",
+                "props": {
+                  "name": "delete"
+                },
+                "$on": {
+                  "submit": "confirm"
+                },
+                "children": [
+                  {
+                    "part": "confirmActions",
+                    "component": "FormActions",
+                    "props": {
+                      "submit": "$string.delete",
+                      "cancel": true,
+                      "destructive": true
+                    },
+                    "$on": {
+                      "cancel": "cancelDelete"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   }
 }

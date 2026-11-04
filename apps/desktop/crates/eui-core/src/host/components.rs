@@ -128,8 +128,18 @@ pub fn validate_package_components<S: AsRef<str>>(pkg: &Map<String, Value>, cata
             issues.extend(shape);
             continue;
         }
-        let Ok(flat) = list.iter().map(|c| serde_json::from_value::<FlatComponent>(Value::Object((*c).clone()))).collect::<Result<Vec<_>, _>>() else { continue };
-        let index: HashMap<&str, usize> = list.iter().enumerate().filter_map(|(i, c)| c.get("id").and_then(Value::as_str).map(|id| (id, i))).collect();
+        // VAPP-217: the record macros reduce FILLED, as template_messages
+        // sends them; an issue on a filled-in row (`<id>__row`) lands on its macro.
+        let values: Vec<Value> = list.iter().map(|c| Value::Object((*c).clone())).collect();
+        let reduced = if super::record_macros::uses_record_macros(&values) { super::record_macros::fill_record_macros(&values, &[], pkg.get("records"), false).0 } else { values };
+        let Ok(flat) = reduced.iter().map(|c| serde_json::from_value::<FlatComponent>(c.clone())).collect::<Result<Vec<_>, _>>() else { continue };
+        let mut index: HashMap<String, usize> = list.iter().enumerate().filter_map(|(i, c)| c.get("id").and_then(Value::as_str).map(|id| (id.to_string(), i))).collect();
+        for c in &reduced {
+            let Some(cid) = c.get("id").and_then(Value::as_str) else { continue };
+            if let Some(owner) = cid.strip_suffix("__row").and_then(|o| index.get(o).copied()) {
+                index.entry(cid.to_string()).or_insert(owner);
+            }
+        }
         let mut seen: HashSet<(String, String)> = HashSet::new();
         let mut push = |path: String, message: String, issues: &mut Vec<PackageIssue>| {
             if seen.insert((path.clone(), message.clone())) {

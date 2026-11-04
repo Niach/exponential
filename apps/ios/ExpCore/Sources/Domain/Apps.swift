@@ -131,6 +131,8 @@ public enum Apps {
             public static let reconnect = "Reconnect"
             public static let connected = "Connected"
             public static let notSetUp = "Not set up"
+            /// An owner's action on web and desktop (phones add no servers).
+            public static let addServer = "Add server"
         }
 
         /// #VAPP-243: the Settings tab's MCP tools group (the exposes switch).

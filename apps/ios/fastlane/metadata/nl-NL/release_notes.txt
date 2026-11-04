@@ -25,3 +25,4 @@
 - Coderen starten naar een agent komt nu aan; agentchats blijven een gewoon gesprek
 - Teams kunnen een eigen afbeelding hebben
 - Het plan van een sessie opent in een eigen tabblad
+- Apps tonen records als formulieren, tabellen, kalenders en tijdlijnen

@@ -352,6 +352,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
             }
         }
     }
+    // VAPP-217: a record macro's writes and rows need the package's allowlists.
+    issues.extend(super::record_macros::record_macro_issues(p).into_iter().map(|(path, message)| issue(path, message)));
     // VAPP-203: every template reduces clean, as the host will render it.
     issues.extend(super::components::validate_package_components(p, catalog_ids, view));
     // VAPP-191: every expression in a template parses and type-checks.
@@ -361,6 +363,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
     issues.extend(super::actions::validate_package_actions(p));
     // VAPP-218: the screens, and every literal navigate target.
     issues.extend(super::screens::validate_package_screens(p));
+    // VAPP-241: the public link definitions.
+    issues.extend(super::share::validate_package_shares(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }
@@ -455,7 +459,21 @@ pub fn package_sources(pkg: &Value) -> Option<Vec<String>> {
 /// package has no such template. `data` = the caller's data (`Some(Null)` is
 /// a value, unlike `None`).
 pub fn template_messages(pkg: &Value, template_id: &str, surface_id: &str, data: Option<&Value>) -> Option<Vec<Value>> {
-    let template = pkg.get("templates").and_then(|t| t.get(template_id)).filter(|t| super::js_truthy(t))?;
+    let raw = pkg.get("templates").and_then(|t| t.get(template_id)).filter(|t| super::js_truthy(t))?;
+    // VAPP-217: RecordForm / RecordTable are filled from the package's kinds.
+    let filled;
+    let template = match raw.get("components").and_then(Value::as_array) {
+        Some(list) if super::record_macros::uses_record_macros(list) => {
+            let bindings = raw.get("bindings").and_then(Value::as_array).cloned().unwrap_or_default();
+            let (components, bindings) = super::record_macros::fill_record_macros(list, &bindings, pkg.get("records"), false);
+            let mut t = raw.as_object().cloned().unwrap_or_default();
+            t.insert("components".into(), Value::Array(components));
+            t.insert("bindings".into(), Value::Array(bindings));
+            filled = Value::Object(t);
+            &filled
+        }
+        _ => raw,
+    };
     let version = A2UI_VERSION;
     let mut create = Map::new();
     create.insert("surfaceId".into(), Value::String(surface_id.into()));

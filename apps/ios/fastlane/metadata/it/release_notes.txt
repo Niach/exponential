@@ -25,3 +25,4 @@
 - Avviare il coding verso un agente ora lo raggiunge; le chat con gli agenti restano semplici
 - I team possono avere una propria immagine
 - Il piano di una sessione si apre nella sua scheda
+- Le app mostrano i record come moduli, tabelle, calendari e timeline

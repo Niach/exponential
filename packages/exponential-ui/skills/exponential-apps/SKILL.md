@@ -5,7 +5,7 @@ description: "Build or change an Exponential app (eApps): the package format (fo
 
 # Exponential apps
 
-> Generated from the eApps docs (eUI 0.13.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from the eApps docs (eUI 0.14.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 An Exponential app is **data, never code**: a declarative package (manifest, eUI templates, bindings, record kinds, a function allowlist, `exposes`, `upstreams`) stored per team, versioned in the DB, and painted by the same eUI renderers on web, desktop, iOS and Android, as well as Spezl and eDE.
 
@@ -17,8 +17,9 @@ Components and their props are NOT listed here: read exponential_apps {op: "cata
 
 ## Checklist
 
-- `formatVersion` is exactly 3; `sources` lists every source a binding follows (`[]` for none) and `functions` every function a press calls.
+- `formatVersion` is exactly 4; `sources` lists every source a binding follows (`[]` for none) and `functions` every function a press calls.
 - Declare every record kind with a schema; pick its `policy` (read/create/update/delete: member | author | owners; create never author) before writing screens.
+- A kind's add/edit form or its list of records = ONE `RecordForm` / `RecordTable` node (`references/records.md`, Record macros), never a hand-built Form or Table.
 - Prefer a named query (group, aggregate, running) over summing rows in expressions.
 - A field not in `required` may be missing: guard it (`has(r.f)`, `orElse(r.f, d)`), else the upsert is refused at that path. Every `{call: "expr"}` has a `default`.
 - Writes that must land together are one action; check inputs with `require` steps.
@@ -29,7 +30,7 @@ Components and their props are NOT listed here: read exponential_apps {op: "cata
 ## References (read on demand)
 
 - `references/package.md` — The package and its versions.
-- `references/records.md` — Records: kinds, policies, queries, writes.
+- `references/records.md` — Records: kinds, policies, queries, writes, RecordForm / RecordTable.
 - `references/import.md` — Importing a spreadsheet (CSV, TSV, xlsx) into records.
 - `references/expressions.md` — Expressions (CEL), functions and optional values.
 - `references/actions.md` — Actions: all-or-nothing writes, require.

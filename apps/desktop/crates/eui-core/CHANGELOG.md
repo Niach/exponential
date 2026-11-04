@@ -6,6 +6,13 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - **Breaking** #EXP-1674: `PACKAGE_FORMAT_VERSION` 4: a screen's `nav: false` and `exposed`; `host::nav_screens`, `host::cross_app_target`; `UrlPolicy::link_base` (`decide_url` expands `~/x` against it).
+
+## 0.14.0 (2026-11-04)
+
+- VAPP-217 (eApps U2): the `RecordForm` and `RecordTable` macros expand in the core, with the host's record fill (kind schema, row values, the form's submit as a records batch).
+- VAPP-232 (eApps U3): the `Calendar` and `Timeline` macros over the records query's month view (new reserved query params, month-view fields).
+- EXP-1674: `Row.href` / `Button.href` open through the host's `openUrl`.
+
 ## 0.13.0 (2026-11-03)
 
 - VAPP-232 (eApps U3, 1/3): calendar views in the records query (`host::calendar`): month weeks + lanes for spanning rows, week and timeline.

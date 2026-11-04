@@ -176,6 +176,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   motion: `Feedback`,
   calendar: `Surfaces`,
   timeline: `Surfaces`,
+  [`record-form`]: `Inputs & pickers`,
+  [`record-table`]: `Lists & rows`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
   [`phone-board-menu`]: `Inputs & pickers`,

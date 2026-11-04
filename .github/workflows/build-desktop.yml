@@ -173,12 +173,16 @@ jobs:
       - name: Require the production Linux + macOS assets
         # Linux + macOS failing is a broken release — fail loudly instead of
         # publishing a partial one. Windows never gates it (release-windows).
+        # The macOS paths are literal, not globs, so `nullglob` never drops
+        # them: the old array check always counted 2 and let desktop-v0.14.120
+        # publish as `latest` without a .dmg (every macOS download link then
+        # 404'd). Test each file for real.
         run: |
           shopt -s nullglob
           linux=(dist/Exponential-production-*.AppImage)
-          macos=(dist/Exponential-production.dmg dist/exp-desktop-production.zip)
-          [ ${#linux[@]} -gt 0 ] || { echo "missing production AppImage" >&2; exit 1; }
-          [ ${#macos[@]} -gt 0 ] || { echo "missing production macOS .dmg/.zip" >&2; exit 1; }
+          [ ${#linux[@]} -gt 0 ] || { echo "::error::missing production AppImage" >&2; exit 1; }
+          [ -s dist/Exponential-production.dmg ] || [ -s dist/exp-desktop-production.zip ] \
+            || { echo "::error::missing production macOS .dmg/.zip: not publishing a partial release" >&2; exit 1; }
       # EXP-376: the raw Windows .exe has no bundle to carry them, so the
       # Release page is the only route by which a Windows user receives the
       # Apache-2.0 License text (section 4(a)) and our NOTICE (section 4(d)).

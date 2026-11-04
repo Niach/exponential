@@ -130,7 +130,7 @@ export function componentBlock(name: string, def: ComponentDef, enums: Record<st
   if (def.children !== `none`) meta.push(def.children === `one` ? `one child` : `children`)
   if (def.slots?.length) meta.push(`slots: ${def.slots.join(`, `)}`)
   if (def.events?.length) meta.push(`on: ${def.events.join(`, `)}`)
-  const props = Object.entries(def.props)
+  const props = Object.entries(def.props).filter(([, s]) => !s.host)
   const body = terse
     ? [`  props: ${props.map(([p, s]) => `${p}${marksOf(s)}:${typeOf(s, enums)}`).join(`, `)}`]
     : props.map(([p, s]) => `  ${propLine(p, s, enums)}`)

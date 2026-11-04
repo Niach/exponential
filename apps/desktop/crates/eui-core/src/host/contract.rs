@@ -112,6 +112,12 @@ pub fn host_contract() -> Value {
                 "navigateFunction": super::screens::NAVIGATE_FUNCTION,
                 "paramsKey": super::screens::SCREEN_PARAMS_KEY,
             },
+            "share": {
+                "max": super::share::MAX_SHARES,
+                "namePattern": "^[a-z][a-z0-9_]{0,23}$",
+                "modes": ["submit", "view"],
+                "expiresMax": super::share::MAX_SHARE_EXPIRES_DAYS,
+            },
             "tests": {
                 "limits": {"tests": pt::PACKAGE_TEST_LIMIT_TESTS, "gotMax": pt::PACKAGE_TEST_LIMIT_GOT_MAX},
                 "defaults": {"now": pt::PACKAGE_TEST_DEFAULT_NOW, "as": pt::PACKAGE_TEST_DEFAULT_AS, "role": pt::PACKAGE_TEST_DEFAULT_ROLE},

@@ -25,3 +25,4 @@
 - Spustenie kódovania u agenta ho teraz zastihne; chaty s agentmi zostávajú obyčajnou konverzáciou
 - Tímy môžu mať vlastný obrázok
 - Plán relácie sa otvára na vlastnej karte
+- Aplikácie zobrazia záznamy ako formuláre, tabuľky, kalendáre a časové osi

@@ -1,0 +1,238 @@
+// VAPP-217 (eApps U2, fixtures/record-macros.json, docs/package-format.md
+// "Record macros"): the HOST half of the RecordForm and RecordTable macros.
+// A macro (catalog/macros.json) sees only its node's props, never the
+// package, so before a template's components are reduced the host FILLS
+// every RecordForm / RecordTable node from its kind's schema: the fields
+// (one per schema field, typed, with its checks), the table columns (the
+// Data tab's typed widths), the row binding, the draft path and the
+// actions (`records.upsert`, `records.delete`, the drawer and confirm
+// writes). The macro table then expands the filled node like any other.
+// Pure; the Rust core mirrors it (host::record_macros) and every
+// renderer gets it through `templateMessages`.
+
+import type { RecordField, RecordKind } from "./records"
+
+type Json = Record<string, unknown>
+type Binding = { path: string }
+
+/** One RecordForm field: `widget` picks the control (macros.json). */
+export interface RecordFormField {
+  name: string
+  label: string
+  widget: `text` | `textarea` | `number` | `switch` | `select` | `date` | `time` | `chips`
+  required: boolean
+  /** Spans both FieldGroup columns on wide frames. */
+  wide: boolean
+  value: Binding
+  placeholder?: string
+  options?: { label: string; value: string }[]
+  source?: string
+  searchable?: boolean
+  multiple?: boolean
+  min?: number
+  max?: number
+  step?: number
+  precision?: number
+  checks?: { condition: unknown; message: string }[]
+}
+
+/** The Data tab's typed column widths (domain-contract app-records.json
+ *  `dataTab.columns`). */
+export const RECORD_COLUMN_WIDTHS: Readonly<Record<string, number>> = { date: 104, time: 64, "date-time": 152, number: 64, integer: 64, boolean: 56 }
+export const RECORD_UPDATED_WIDTH = 88
+export const RECORD_MENU_WIDTH = 80
+/** A string longer than this (its `maxLength`) is a Textarea. */
+export const RECORD_LONG_TEXT = 200
+export const RECORD_FORM_ROOT = `/recordForm`
+export const RECORD_TABLE_ROOT = `/recordTable`
+
+const isObject = (v: unknown): v is Json => !!v && typeof v === `object` && !Array.isArray(v)
+
+/** `closeDate` / `close_date` → `Close date`. */
+export function fieldLabel(name: string): string {
+  const words = name
+    .replace(/_/g, ` `)
+    .replace(/([a-z0-9])([A-Z])/g, `$1 $2`)
+    .trim()
+    .toLowerCase()
+  return words ? words[0]!.toUpperCase() + words.slice(1) : name
+}
+
+/** The Data tab's column order: required (in order), then the rest by name. */
+export function recordColumns(kind: RecordKind): string[] {
+  const names = Object.keys(kind.schema.properties)
+  const required = (kind.schema.required ?? []).filter((n, i, all) => names.includes(n) && all.indexOf(n) === i)
+  return [...required, ...names.filter((n) => !required.includes(n)).sort()]
+}
+
+const isFile = (f: RecordField) => f.format === `attachment` || (f.type === `array` && f.items?.format === `attachment`)
+
+/** The form fields of a kind, values under `path`. Files are left out (a
+ *  FileUpload needs the host's upload flow). */
+export function recordFormFields(kind: RecordKind, path: string): RecordFormField[] {
+  const required = kind.schema.required ?? []
+  const refs = kind.refs ?? {}
+  return recordColumns(kind).flatMap((name): RecordFormField[] => {
+    const f = kind.schema.properties[name]!
+    if (isFile(f)) return []
+    const value = { path: `${path}/${name}` }
+    const out: RecordFormField = { name, label: fieldLabel(name), widget: `text`, required: required.includes(name), wide: false, value }
+    if (f.description) out.placeholder = f.description
+    const ref = refs[name]
+    if (ref === `member`) Object.assign(out, { widget: `select`, source: `exp:members`, searchable: true })
+    else if (ref === `issue`) Object.assign(out, { widget: `select`, source: `exp:issues`, searchable: true })
+    else if (f.type === `boolean`) out.widget = `switch`
+    else if (f.type === `number` || f.type === `integer`) {
+      out.widget = `number`
+      if (f.minimum !== undefined) out.min = f.minimum
+      if (f.maximum !== undefined) out.max = f.maximum
+      if (f.type === `integer`) Object.assign(out, { step: 1, precision: 0 })
+    } else if (f.type === `array`) {
+      if (f.items?.enum) Object.assign(out, { widget: `select`, multiple: true, options: f.items.enum.map((v) => ({ label: v, value: v })) })
+      else out.widget = `chips`
+      if (f.maxLength !== undefined) out.max = f.maxLength
+      out.wide = true
+    } else if (f.enum) Object.assign(out, { widget: `select`, options: f.enum.map((v) => ({ label: v, value: v })) })
+    else if (f.format === `date`) out.widget = `date`
+    else if (f.format === `time`) out.widget = `time`
+    else if (f.format === `date-time`) out.placeholder ??= `YYYY-MM-DDTHH:MM`
+    else if (f.maxLength === undefined || f.maxLength > RECORD_LONG_TEXT) Object.assign(out, { widget: `textarea`, wide: true })
+    const checks: { condition: unknown; message: string }[] = []
+    if (out.required && out.widget !== `switch`) checks.push({ condition: { call: `required`, args: { value } }, message: `$string.required` })
+    if (f.type === `string` && f.maxLength !== undefined && !f.enum && out.widget !== `select`)
+      checks.push({ condition: { call: `length`, args: { value, max: f.maxLength } }, message: `$string.invalidValue` })
+    if ((f.type === `number` || f.type === `integer`) && (f.minimum !== undefined || f.maximum !== undefined))
+      checks.push({ condition: { call: `numeric`, args: { value, ...(f.minimum !== undefined ? { min: f.minimum } : {}), ...(f.maximum !== undefined ? { max: f.maximum } : {}) } }, message: `$string.invalidValue` })
+    if (checks.length) out.checks = checks
+    return [out]
+  })
+}
+
+/** The table columns: the chosen fields (default every one, files left
+ *  out), typed and sized like the Data tab, then `updatedAt`, then the
+ *  row menu (when editable). */
+export function recordTableColumns(kind: RecordKind, columns: readonly string[] | undefined, editable: boolean): Json[] {
+  const names = (columns ?? recordColumns(kind)).filter((n) => kind.schema.properties[n] && !isFile(kind.schema.properties[n]!))
+  const out: Json[] = names.map((key) => {
+    const f = kind.schema.properties[key]!
+    const col: Json = { key, label: fieldLabel(key), sortable: true }
+    if (f.type === `number` || f.type === `integer`) Object.assign(col, { type: `number`, align: `end` })
+    else if (f.type === `boolean`) col.type = `boolean`
+    else if (f.format === `date`) col.type = `date`
+    const width = f.type === `string` ? (f.format ? RECORD_COLUMN_WIDTHS[f.format] : undefined) : RECORD_COLUMN_WIDTHS[f.type]
+    if (width !== undefined) col.width = width
+    else col.truncate = true
+    return col
+  })
+  out.push({ key: `updatedAt`, label: `Updated`, type: `relativeTime`, width: RECORD_UPDATED_WIDTH, sortable: true })
+  if (editable) out.push({ key: `menu`, label: ``, type: `slot`, slot: `menu`, width: RECORD_MENU_WIDTH })
+  return out
+}
+
+export interface RecordMacroOptions {
+  /** The viewer may only read (the app's access level): no Add, no edit. */
+  readOnly?: boolean
+}
+
+export interface FilledTemplate {
+  components: Json[]
+  /** The template's bindings plus one per RecordTable (its rows). */
+  bindings: { path: string; source: string }[]
+}
+
+const set = (path: string, value: unknown) => ({ functionCall: { call: `set`, args: { path, value } } })
+const setOn = (node: Json, event: string, action: unknown) => {
+  const on = (node.on = isObject(node.on) ? { ...node.on } : {}) as Json
+  if (on[event] === undefined) on[event] = action
+}
+
+/** The form's write: `records.upsert {kind, id?, data}`, data = one
+ *  binding per field. */
+function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown): Json {
+  const data: Json = {}
+  for (const f of fields) data[f.name] = f.value
+  const args: Json = { kind }
+  if (recordId !== undefined) args.id = recordId
+  args.data = data
+  return { functionCall: { call: `records.upsert`, args } }
+}
+
+/** Every RecordForm / RecordTable of a template's flat component list,
+ *  filled from `records`; other components untouched. Pure. A kind the
+ *  package does not declare fills `missing: true` (the macro's unknown
+ *  state). A RecordTable also gets a phone row component `<id>__row`
+ *  (appended) and the rows binding `/recordTable/<id>/rows`. */
+export function fillRecordMacros(components: readonly Json[], bindings: readonly { path: string; source: string }[] = [], records: Record<string, RecordKind> | undefined, options: RecordMacroOptions = {}): FilledTemplate {
+  const out: Json[] = []
+  const extra: Json[] = []
+  const binds = [...bindings]
+  for (const c of components) {
+    if (!isObject(c) || (c.component !== `RecordForm` && c.component !== `RecordTable`)) {
+      out.push(c)
+      continue
+    }
+    const node: Json = { ...c }
+    const id = String(node.id)
+    const kindName = typeof node.kind === `string` ? node.kind : ``
+    const kind = records && Object.prototype.hasOwnProperty.call(records, kindName) ? records[kindName] : undefined
+    if (!kind) {
+      node.missing = true
+      out.push(node)
+      continue
+    }
+    if (node.component === `RecordForm`) {
+      const path = typeof node.path === `string` ? node.path : `${RECORD_FORM_ROOT}/${id}`
+      const fields = recordFormFields(kind, path)
+      node.path = path
+      node.fields = fields
+      if (options.readOnly) node.readOnly = true
+      setOn(node, `submit`, upsertAction(kindName, fields, node.recordId))
+      out.push(node)
+      continue
+    }
+    const base = `${RECORD_TABLE_ROOT}/${id}`
+    const editable = node.editable !== false && !options.readOnly
+    const columns = Array.isArray(node.columns) ? node.columns.filter((x): x is string => typeof x === `string`) : undefined
+    const draft = `${base}/editor/draft`
+    const fields = recordFormFields(kind, draft)
+    node.title = kind.title ?? fieldLabel(kindName)
+    node.cols = recordTableColumns(kind, columns, editable)
+    node.rows = { path: `${base}/rows/rows` }
+    node.count = { call: `fill`, args: { template: `$string.recordCount`, params: { count: { call: `coalesce`, args: { values: [{ path: `${base}/rows/count` }, 0] } } } } }
+    node.loading = { call: `not`, args: { value: { path: `${base}/rows` } } }
+    if (options.readOnly) node.add = false
+    node.editable = editable
+    node.children = { componentId: `${id}__row`, path: `${base}/rows/rows`, key: `id` }
+    if (editable) {
+      node.fields = fields
+      node.path = draft
+      node.editorOpen = { path: `${base}/editor/open` }
+      node.editorId = { path: `${draft}/id` }
+      node.deleteOpen = { path: `${base}/delete/open` }
+      setOn(node, `add`, set(`${base}/editor`, { open: true, draft: {} }))
+      setOn(node, `edit`, set(`${base}/editor`, { open: true, draft: { path: `` } }))
+      setOn(node, `delete`, set(`${base}/delete`, { open: true, id: { path: `id` } }))
+      setOn(node, `submit`, upsertAction(kindName, fields, { path: `${draft}/id` }))
+      setOn(node, `cancel`, set(`${base}/editor/open`, false))
+      setOn(node, `confirm`, { functionCall: { call: `records.delete`, args: { id: { path: `${base}/delete/id` } } } })
+      setOn(node, `cancelDelete`, set(`${base}/delete/open`, false))
+    } else node.add = false
+    out.push(node)
+    // The phone list's row: the first column as the title, the second as
+    // the subtitle, the relative update time as the meta.
+    const shown = (columns ?? recordColumns(kind)).filter((n) => kind.schema.properties[n] && !isFile(kind.schema.properties[n]!))
+    const row: Json = { id: `${id}__row`, component: `Row`, title: { call: `coalesce`, args: { values: [{ call: `text`, args: { value: { path: shown[0] ?? `id` } } }, `—`] } } }
+    if (shown[1]) row.subtitle = { call: `coalesce`, args: { values: [{ call: `text`, args: { value: { path: shown[1] } } }, ``] } }
+    row.meta = { call: `formatRelativeTime`, args: { value: { path: `updatedAt` } } }
+    if (editable) row.on = { press: set(`${base}/editor`, { open: true, draft: { path: `` } }) }
+    extra.push(row)
+    const query = typeof node.query === `string` && node.query.trim() ? node.query.trim().replace(/^\?/, ``) : `sort=updatedAt&order=desc`
+    binds.push({ path: `${base}/rows`, source: `records:${kindName}?${query}` })
+  }
+  return { components: [...out, ...extra], bindings: binds }
+}
+
+/** True when a template uses a record macro (the fill pass has work). */
+export function usesRecordMacros(components: readonly unknown[]): boolean {
+  return components.some((c) => isObject(c) && (c.component === `RecordForm` || c.component === `RecordTable`))
+}

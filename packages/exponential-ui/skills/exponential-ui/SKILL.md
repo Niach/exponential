@@ -5,7 +5,7 @@ description: "Write Exponential UI (A2UI v0.9) surfaces: the component model, bi
 
 # Exponential UI
 
-> Generated from the eUI prompt and catalog (eUI 0.13.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from the eUI prompt and catalog (eUI 0.14.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 Exponential UI (eUI) paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `exponential_show` card, an app template and every other surface use this one model.
 
@@ -31,7 +31,7 @@ Their props are in exponential_apps {op: "catalog"} (only: [names] = just these)
 - navigation: Tabs, Segmented, Accordion, Collapsible, Pagination, Breadcrumb, Outline, Stepper
 - overlay: Dialog, Drawer, DockCard, AlertDialog, Popover, Tooltip, Menu, Toast
 - feedback: Badge, Alert, Chip, EmptyState, Progress, Meter, Ring, Spinner, Skeleton, VoiceWave
-- data: Table, Chart, Sparkline, StatTile, Calendar, Timeline
+- data: Table, Chart, Sparkline, StatTile, Calendar, Timeline, RecordForm, RecordTable
 - action: Button, Link, Toggle
 - input: Form, FieldGroup, FormActions, Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Switch, Slider, Rating, Select, SearchList, ChipInput, DatePicker, DateRangePicker, TimePicker, FileUpload, QrScanner, Composer
 

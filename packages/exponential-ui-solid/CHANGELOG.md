@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.14.0 (2026-11-04)
+
+- `Row.href` / `Button.href` open the URL; the record and calendar macros render (EXP-1674, VAPP-217, VAPP-232).
+
 ## 0.13.0 (2026-11-03)
 
 - Switch gains `size` (`default` | `compact`): the compact switch is a 28×16 track under a 12px thumb, as on the other renderers (#1853).

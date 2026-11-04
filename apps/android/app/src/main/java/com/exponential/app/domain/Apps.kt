@@ -118,6 +118,8 @@ object Apps {
         const val RECONNECT = "Reconnect"
         const val CONNECTED = "Connected"
         const val NOT_SET_UP = "Not set up"
+        /** An owner's action on web and desktop (phones add no servers). */
+        const val ADD_SERVER = "Add server"
     }
 
     /** #VAPP-243: the Settings tab's MCP tools group (`copy.mcpTools`). */

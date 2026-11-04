@@ -225,7 +225,7 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 | `queries` | Named structured queries, reusable by bindings and `exposes` (✅ Q1 for bindings, already in format 2) | 4.1 |
 | `automations` | Schedule, record event, Exponential event and webhook → one run | 7 |
 | `migrations` | Declarative record migrations between versions | 3.6 |
-| `share` | Public link definitions | 9.4 |
+| `share` | Public link definitions (`package-format.md`) | 9.4 |
 
 ### 2.2.1 What formatVersion 4 adds (✅ #EXP-1674)
 
@@ -644,16 +644,17 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 - ✅ `app_record_events` (§3.5, #VAPP-215).
 - ✅ (#VAPP-229, fixture `via-app.json`) `via_app_id` on comments (#VAPP-186), issues, sessions and `app_records`, so every write an app causes reads "via <app>" ×4. Only the server sets it, from the apps broker's own context: an exposed tool's `run.records` create, and the issues and sessions its `run.action` creates (later: automations, A1). An app's own UI writes as the viewer and carries none, because a client cannot claim an app. It shows on the issue detail's creation row (`created the issue · 2h · via Timesheet`), as one muted line in the session view's header, and in the Data tab's By cell (`Ana · via Timesheet`). A deleted app shows nothing. ✅ ×4: phones have no By cell (their Data rows carry no byline), so records show it on web and desktop only.
 
-### 9.4 Public links (🆕 P1, decided: Phase 7)
+### 9.4 Public links (P1, decided: Phase 7, §18 item 5)
 
-`share: [{name, template, mode: "submit" | "view", kind?, query?, expires?}]`:
+`share: [{name, mode: "submit" | "view", kind, fields?, query?, expires?}]` (the format: `package-format.md` "Public links"; the rules ×4: fixture `app-share.json`):
 
 - **submit:** a guest fills one `RecordForm` of one kind and creates exactly one record.
   - The guest sees nothing else.
-  - Rate-limited per IP, with optional email verification.
-  - The record's author is "Guest".
-- **view:** a frozen query rendered read-only. It is a snapshot computed by the server at view time, with no shape and no live sync to the guest.
-- URL: `/s/<token>`. An owner creates and revokes it, and it appears in Settings › Apps.
+  - Rate-limited per link and per hashed IP, with a honeypot field and no captcha; schema validation and the plan quota apply as to any write. Optional email verification is not built.
+  - A record needs a member as its author, so the owner who enabled the link is its sponsor (`author_id` = `created_by`, `share_name` = the link's name, `via` = `share:<name>` in the history). Clients DISPLAY such a record's author as "Guest".
+  - Every submission is audited in `app_share_submissions` (the IP only as a keyed hash).
+- **view:** a frozen query rendered read-only as a `RecordTable`. It is a snapshot computed by the server at view time, with no shape and no live sync to the guest, carrying only the named fields, no member data and no `exp:` source. Rendering a package template is a later step.
+- URL: `/s/<token>`, a random token. An owner turns a link on and off in the app's Settings tab, and can rotate its token. Expiry comes from the package's `expires`.
 - Billing: counts as one link, not a seat.
 
 ---
