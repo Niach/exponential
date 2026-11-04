@@ -9,5 +9,9 @@ declare module "solid-js" {
       checked: string | undefined
       value: string | undefined
     }
+    // An overlay trigger's toggle runs on the way down (natives/overlays.tsx).
+    interface CustomCaptureEvents {
+      click: MouseEvent
+    }
   }
 }

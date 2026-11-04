@@ -9,7 +9,7 @@
 // its alt text, as on every renderer.
 
 import { Fragment, createElement, useMemo, type MouseEvent, type ReactNode } from "react"
-import { linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { linkedMarkdown, linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { HostPlugin } from "./host"
 import { useMediaSource } from "./media"
 
@@ -52,7 +52,7 @@ function inline(nodes: readonly MarkdownInline[], host: HostPlugin): ReactNode[]
       case `em`:
         return <em key={k}>{inline(n.children, host)}</em>
       case `del`:
-        return <del key={k}>{n.text}</del>
+        return <del key={k}>{n.children ? inline(n.children, host) : n.text}</del>
       case `link`: {
         const href = linkHref(host, n.dest)
         const label = inline(n.children, host)
@@ -105,11 +105,14 @@ function blocks(tree: readonly MarkdownBlock[], host: HostPlugin): ReactNode[] {
 }
 
 export function renderMarkdown(text: string, host: HostPlugin = {}): ReactNode[] {
-  return blocks(parseMarkdown(text), host)
+  return blocks(linkedMarkdown(host, parseMarkdown(text)), host)
 }
 
-export function BuiltinMarkdown({ text, className, host }: { text: string; className?: string; host?: HostPlugin }) {
-  // Parsed once per text (and host), not on every parent render.
-  const tree = useMemo(() => renderMarkdown(text, host), [text, host])
-  return <div className={className ? `xui-md ${className}` : `xui-md`}>{tree}</div>
+const NO_HOST: HostPlugin = {}
+
+export function BuiltinMarkdown({ text, className, host = NO_HOST }: { text: string; className?: string; host?: HostPlugin }) {
+  // Parsed once per text, not on every parent render; the host's text links
+  // read live, like a `hostLinks` Text's.
+  const tree = useMemo(() => parseMarkdown(text), [text])
+  return <div className={className ? `xui-md ${className}` : `xui-md`}>{blocks(linkedMarkdown(host, tree), host)}</div>
 }

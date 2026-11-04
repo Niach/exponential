@@ -5,8 +5,8 @@ import { useIssueRefs } from "@/components/issue-ref-provider"
 import { appLinkPath, cardLinkOpens, classifyAppLink, isRoutedAppPath, issueTextLinks } from "@/lib/app-link"
 
 /** #EXP-1674 (plan-card.json): a chat card's links go through THE classifier;
- *  `~/x` = the team on screen (`linkBase`); a Row subtitle's `#IDENT` refs that
- *  resolve in the team become links. */
+ *  `~/x` = the team on screen (`linkBase`); the `#IDENT` refs of a Row subtitle
+ *  or a Markdown's text that resolve in the team become links. */
 export function CardLinksHost({ teamSlug, children }: { teamSlug: string; children: ReactNode }) {
   const navigate = useNavigate()
   const resolve = useIssueRefs()?.resolve

@@ -465,6 +465,76 @@ public enum Markdown {
         }
     }
 
+    /// `fixtures/markdown-text-links.json`: every text run through a host's
+    /// text links: `segments` = one piece's answer, policed, nil = text. Code,
+    /// link labels, block images and bare urls never ask; only the marks
+    /// change, so the layout is the same.
+    public static func linkText(_ blocks: [MarkdownBlock], _ segments: (String) -> [(text: String, href: String?)]?) -> [MarkdownBlock] {
+        func map(_ spans: [MarkdownInline]) -> [MarkdownInline] {
+            spans.flatMap { span -> [MarkdownInline] in
+                guard !span.code, span.link == nil else { return [span] }
+                return bareUrlPieces(span.text).flatMap { piece, isUrl -> [MarkdownInline] in
+                    var plain = span
+                    plain.text = piece
+                    guard !isUrl, let linked = segments(piece) else { return [plain] }
+                    return linked.map { segment in
+                        var out = span
+                        out.text = segment.text
+                        out.link = segment.href
+                        return out
+                    }
+                }
+            }
+        }
+        return blocks.map { b in
+            var out = b
+            switch b.kind {
+            case .paragraph, .heading, .listItem, .quote:
+                out.inlines = map(b.inlines)
+            case let .table(header, rows):
+                out.kind = .table(header: header.map(map), rows: rows.map { $0.map(map) })
+            case .codeBlock, .rule, .image:
+                break
+            }
+            return out
+        }
+    }
+
+    /// A run cut around its bare urls (`http://` or `https://`, any case, not
+    /// glued to an ASCII word character, up to the next ASCII space, tab or
+    /// newline); no empty piece.
+    static func bareUrlPieces(_ text: String) -> [(String, Bool)] {
+        let units = Array(text.utf8)
+        func isWord(_ c: UInt8) -> Bool { (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 }
+        func scheme(at i: Int) -> Bool {
+            for prefix in ["http://", "https://"] {
+                let p = Array(prefix.utf8)
+                if i + p.count <= units.count, (0..<p.count).allSatisfy({ (units[i + $0] >= 65 && units[i + $0] <= 90 ? units[i + $0] + 32 : units[i + $0]) == p[$0] }) { return true }
+            }
+            return false
+        }
+        var out: [(String, Bool)] = []
+        func piece(_ from: Int, _ to: Int, _ url: Bool) {
+            if to > from { out.append((String(decoding: units[from..<to], as: UTF8.self), url)) }
+        }
+        var at = 0
+        var i = 0
+        while i < units.count {
+            guard i == 0 || !isWord(units[i - 1]), scheme(at: i) else {
+                i += 1
+                continue
+            }
+            var end = i
+            while end < units.count, units[end] != 32, units[end] != 9, units[end] != 10 { end += 1 }
+            piece(at, i, false)
+            piece(i, end, true)
+            at = end
+            i = end
+        }
+        piece(at, units.count, false)
+        return out
+    }
+
     /// The plain text of some spans.
     public static func plain(_ inlines: [MarkdownInline]) -> String {
         inlines.map(\.text).joined()

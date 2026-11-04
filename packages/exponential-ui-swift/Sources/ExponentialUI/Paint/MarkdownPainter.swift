@@ -12,6 +12,15 @@ enum MarkdownPainter {
         Markdown.resolveImages(Markdown.parse(text)) { model.mediaRequest($0) != nil }
     }
 
+    /// `blocks` with the URL policy on every link, and the text a host's
+    /// `textLinks` links as links (the painter only: never a width).
+    @MainActor
+    static func painted(_ text: String, model: SurfaceModel) -> [MarkdownBlock] {
+        Markdown.linkText(Markdown.mapLinks(blocks(text, model: model), model.linkHref)) { piece in
+            model.textLinkSegments(piece)?.map { (text: $0.text, href: $0.href) }
+        }
+    }
+
     /// From the theme's `Markdown/*` recipes (the root's own text style is
     /// the body); plain metrics in geometry mode.
     static func styles(theme: ThemeHandle?, mode: Mode, body: TextStyle, props: Props) -> MarkdownStyles {
@@ -53,10 +62,8 @@ struct MarkdownView: View {
 
     /// The blocks as painted: images the media policy denies become their
     /// alt text (as the measurer saw them), links the URL policy denies
-    /// plain text.
-    private var blocks: [MarkdownBlock] {
-        Markdown.mapLinks(MarkdownPainter.blocks(text, model: model), model.linkHref)
-    }
+    /// plain text, and the text a host's `textLinks` links is a link too.
+    private var blocks: [MarkdownBlock] { MarkdownPainter.painted(text, model: model) }
 
     var body: some View {
         let blocks = self.blocks

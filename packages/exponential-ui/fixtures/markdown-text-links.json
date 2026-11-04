@@ -1,0 +1,59 @@
+{
+  "$comment": "(catalog/host.json urls): A Markdown's TEXT asks the host's `textLinks` hook, the one a `hostLinks` Text uses, and paints what it links as a markdown link: the `Markdown/link` look, opened through the URL policy and the host's opener. Replayed by every renderer (React and Solid share web/markdown.ts `linkMarkdownText`, Swift `Markdown.linkText`, Compose `Markdown.linkText`, gpui `markdown::link_text`). THE RULE: a text run = adjacent plain text spans of one format in a paragraph, heading, list item, quote or table cell; bold, italic and strike runs ask too and keep their format. Inline code, a fenced block, a block image's alt and the label of a markdown link NEVER ask. A BARE URL inside a run (`http://` or `https://`, any case, not glued to an ASCII word character before it, up to the next ASCII space, tab or newline) never asks either: only the pieces around it do. Each piece follows the hook's contract: the segments must concatenate back to the piece (else it stays text), a segment whose href the policy denies stays text, null = text. The measure never asks: a link only changes colour and underline, never a width. The hook of this replay: every `#` + uppercase letters + `-` + digits token of the piece that `known` lists links to its `known` value. The default URL policy applies (`javascript:` is denied). `links` = every link the document paints, markdown links too, in document order; everything else is text.",
+  "known": {
+    "ABC-1": "https://app.example/i/ABC-1",
+    "DEF-2": "https://app.example/i/DEF-2",
+    "BAD-9": "javascript:alert(1)"
+  },
+  "cases": [
+    { "name": "a ref in prose", "text": "see #ABC-1 now", "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }] },
+    {
+      "name": "several refs in order",
+      "text": "#ABC-1 and #DEF-2, #ABC-1",
+      "links": [
+        { "text": "#ABC-1", "href": "https://app.example/i/ABC-1" },
+        { "text": "#DEF-2", "href": "https://app.example/i/DEF-2" },
+        { "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }
+      ]
+    },
+    { "name": "an unknown ident stays text", "text": "see #ZZZ-9 now", "links": [] },
+    { "name": "a number is no ref", "text": "merged in #1758", "links": [] },
+    { "name": "an href the policy denies stays text", "text": "see #BAD-9 now", "links": [] },
+    { "name": "in bold", "text": "**#ABC-1** first", "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }] },
+    { "name": "in italic", "text": "*see #ABC-1*", "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }] },
+    { "name": "in strike", "text": "~~#ABC-1~~ done", "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }] },
+    { "name": "in a heading", "text": "## Fixes #ABC-1", "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }] },
+    {
+      "name": "in list items",
+      "text": "- first #ABC-1\n- [x] done #DEF-2",
+      "links": [
+        { "text": "#ABC-1", "href": "https://app.example/i/ABC-1" },
+        { "text": "#DEF-2", "href": "https://app.example/i/DEF-2" }
+      ]
+    },
+    { "name": "in a quote", "text": "> as #ABC-1 said", "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }] },
+    {
+      "name": "in a table",
+      "text": "| Issue | State |\n| --- | --- |\n| #ABC-1 | open |",
+      "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }]
+    },
+    { "name": "inline code never links", "text": "run `#ABC-1` now", "links": [] },
+    { "name": "a fenced block never links", "text": "```\n#ABC-1\n```", "links": [] },
+    { "name": "a block image's alt never links", "text": "![#ABC-1](https://app.example/a.png)", "links": [] },
+    { "name": "a markdown link's label stays its own link", "text": "[#ABC-1](https://x.example/a)", "links": [{ "text": "#ABC-1", "href": "https://x.example/a" }] },
+    { "name": "a markdown link's destination never links", "text": "[docs](https://x.example/#ABC-1)", "links": [{ "text": "docs", "href": "https://x.example/#ABC-1" }] },
+    { "name": "code in a markdown link", "text": "[`#ABC-1`](https://x.example/a)", "links": [{ "text": "#ABC-1", "href": "https://x.example/a" }] },
+    { "name": "a bare url never links", "text": "at https://x.example/#ABC-1 today", "links": [] },
+    { "name": "a bare url in parentheses never links", "text": "(HTTP://x.example/a_(b)#ABC-1)", "links": [] },
+    { "name": "a ref after a bare url links", "text": "https://x.example/#ABC-1 fixes #DEF-2", "links": [{ "text": "#DEF-2", "href": "https://app.example/i/DEF-2" }] },
+    { "name": "a ref glued to a slash outside a url links", "text": "see a/#ABC-1", "links": [{ "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }] },
+    {
+      "name": "a markdown link beside a ref",
+      "text": "[docs](https://x.example/a) for #ABC-1",
+      "links": [
+        { "text": "docs", "href": "https://x.example/a" },
+        { "text": "#ABC-1", "href": "https://app.example/i/ABC-1" }
+      ]
+    }
+  ]
+}

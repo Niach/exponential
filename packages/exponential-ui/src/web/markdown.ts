@@ -134,7 +134,8 @@ export type MarkdownInline =
   | { type: `code`; text: string }
   | { type: `strong`; children: MarkdownInline[] }
   | { type: `em`; children: MarkdownInline[] }
-  | { type: `del`; text: string }
+  /** `children` only when a host's text links reach into it. */
+  | { type: `del`; text: string; children?: MarkdownInline[] }
   | { type: `link`; dest: string; children: MarkdownInline[] }
 
 export type MarkdownBlock =
@@ -334,4 +335,74 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
   }
   flush()
   return blocks
+}
+
+/** One piece of a run a host's `textLinks` answered for (urls.ts `textLinkSegments`). */
+type TextLinkAsk = (text: string) => readonly { text: string; href?: string }[] | null
+
+const BARE_URL = /(?<![A-Za-z0-9_])https?:\/\/[^ \t\n]*/gi
+
+/** A text run's inlines: a bare url stays text, the pieces around it ask. */
+function linkRun(run: string, ask: TextLinkAsk): MarkdownInline[] {
+  const out: MarkdownInline[] = []
+  const piece = (text: string) => {
+    const segments = text ? ask(text) : null
+    if (!segments) return void (text && out.push(text))
+    for (const segment of segments) out.push(segment.href ? { type: `link`, dest: segment.href, children: [segment.text] } : segment.text)
+  }
+  let at = 0
+  for (const url of run.matchAll(BARE_URL)) {
+    piece(run.slice(at, url.index))
+    out.push(url[0])
+    at = url.index + url[0].length
+  }
+  piece(run.slice(at))
+  return out
+}
+
+function linkInlines(nodes: readonly MarkdownInline[], ask: TextLinkAsk): MarkdownInline[] {
+  const out: MarkdownInline[] = []
+  let run = ``
+  const flush = () => {
+    if (run) out.push(...linkRun(run, ask))
+    run = ``
+  }
+  for (const n of nodes) {
+    if (typeof n === `string`) {
+      run += n
+      continue
+    }
+    flush()
+    if (n.type === `strong` || n.type === `em`) out.push({ ...n, children: linkInlines(n.children, ask) })
+    else if (n.type === `del`) out.push({ ...n, children: linkRun(n.text, ask) })
+    else out.push(n)
+  }
+  flush()
+  return out
+}
+
+function linkList(list: MarkdownList, ask: TextLinkAsk): MarkdownList {
+  return { ...list, items: list.items.map((item) => ({ ...item, content: linkInlines(item.content, ask), children: item.children.map((c) => linkList(c, ask)) })) }
+}
+
+/** `fixtures/markdown-text-links.json`: a Markdown's text runs through a
+ *  host's text links (the hook's answer already policed): what it links is a
+ *  plain `link`, painted like any other. Code, link labels and bare urls never
+ *  ask. */
+export function linkMarkdownText(tree: readonly MarkdownBlock[], ask: TextLinkAsk): MarkdownBlock[] {
+  return tree.map((b) => {
+    switch (b.type) {
+      case `paragraph`:
+      case `heading`:
+        return { ...b, children: linkInlines(b.children, ask) }
+      case `quote`:
+        return { ...b, children: linkMarkdownText(b.children, ask) }
+      case `list`:
+        return { ...b, list: linkList(b.list, ask) }
+      case `table`:
+        return { ...b, head: b.head.map((h) => linkInlines(h, ask)), rows: b.rows.map((r) => r.map((c) => linkInlines(c, ask))) }
+      default:
+        return b
+    }
+  })
 }

@@ -60,6 +60,45 @@ final class SafeHostTests: XCTestCase {
         XCTAssertNil(m.textLinkSegments("#A-1 x"))
     }
 
+    /// `fixtures/markdown-text-links.json`: a Markdown's text asks the host's text links.
+    func testMarkdownTextAsksTheHostsTextLinks() throws {
+        guard Fixtures.available() else { return }
+        let f = try Fixtures.json("markdown-text-links.json")
+        final class Links: HostPlugin {
+            let known: [String: String]
+            init(known: [String: String]) { self.known = known }
+            func textLinks(_ text: String) -> [TextLinkSegment]? {
+                let ns = text as NSString
+                let re = try! NSRegularExpression(pattern: "#([A-Z]+-[0-9]+)")
+                var out: [TextLinkSegment] = []
+                var at = 0
+                for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                    guard let href = known[ns.substring(with: m.range(at: 1))] else { continue }
+                    out.append(TextLinkSegment(text: ns.substring(with: NSRange(location: at, length: m.range.location - at))))
+                    out.append(TextLinkSegment(text: ns.substring(with: m.range), href: href))
+                    at = m.range.location + m.range.length
+                }
+                if out.isEmpty { return nil }
+                out.append(TextLinkSegment(text: ns.substring(from: at)))
+                return out
+            }
+        }
+        let known = (f["known"]?.object ?? [:]).compactMapValues(\.string)
+        let m = try SurfaceModel(id: "md", options: SurfaceOptions(), host: Links(known: known))
+        let cases = f["cases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            var links: [[String]] = []
+            for block in MarkdownPainter.painted(c["text"]?.string ?? "", model: m) {
+                var spans = block.inlines
+                if case let .table(header, rows) = block.kind { spans = header.flatMap { $0 } + rows.flatMap { $0.flatMap { $0 } } }
+                links += spans.compactMap { span in span.link.map { [span.text, $0] } }
+            }
+            let expected = (c["links"]?.array ?? []).map { [$0["text"]?.string ?? "", $0["href"]?.string ?? ""] }
+            XCTAssertEqual(links, expected, c["name"]?.string ?? "?")
+        }
+    }
+
     func testDeniedHrefsNeverOpen() throws {
         // A bare plugin's default opener and a closure host both pass the policy.
         var opened: [String] = []

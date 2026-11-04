@@ -163,6 +163,22 @@
   ],
   "checks": [
     {
+      "name": "a built-in string message resolves through the surface's strings",
+      "data": {},
+      "checks": [
+        {
+          "condition": {
+            "path": "/agreed"
+          },
+          "message": "$string.required"
+        }
+      ],
+      "failing": [
+        "Required"
+      ],
+      "submitted": false
+    },
+    {
       "name": "an unseeded path fails",
       "data": {},
       "checks": [

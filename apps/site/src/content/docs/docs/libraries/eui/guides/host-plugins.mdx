@@ -26,7 +26,7 @@ A surface calls a function with `{"functionCall": {"call": "cart.add", "args": {
 
 `openUrl`, `Link`, `Button.href` and `Row.href` go through the URL policy: allowed schemes (default `https http mailto tel`; `schemes: ["https"]` for https only), an optional host allowlist, relative URLs against a base. Media rules add headers to matching image requests, for example an authorization header for your own API and nothing for anyone else's.
 
-An optional `textLinks(text)` turns parts of a `Row` subtitle into tappable spans: it answers segments `[{text, href?}]` that concatenate back to the text (else the text stays plain), each href passes the same policy, and a tap opens through `openUrl` without pressing the Row. The renderer knows nothing of what the links mean.
+An optional `textLinks(text)` turns parts of a `Row` subtitle or a `Markdown`'s text (never its code, a link's label or a bare url) into tappable spans: it answers segments `[{text, href?}]` that concatenate back to the text (else the text stays plain), each href passes the same policy, and a tap opens through `openUrl` without pressing the Row. The renderer knows nothing of what the links mean.
 
 Private hosts are denied by default, for links and media alike: `localhost`, `*.local`, loopback, link-local (the cloud metadata address included) and the private IPv4 and IPv6 ranges. A host opts names back in with `allowPrivate: ["localhost"]` (a dev setup) or `["*"]`; a `hosts` allowlist alone leaves them denied. The check is on the literal address after URL normalization and resolves no names. The whole model, limits included, is on the [security page](/docs/libraries/eui/reference/security/).
 

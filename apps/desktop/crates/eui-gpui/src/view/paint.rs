@@ -1239,6 +1239,12 @@ impl SurfaceView {
                 }
             }
         };
+        // A host's text links read live, like a `hostLinks` Text's.
+        let linked = {
+            let urls = self.host.url_policy();
+            markdown::link_text(&blocks, |piece| self.host.text_links(piece, cx).and_then(|links| eui_core::host::police_text_links(urls.as_ref(), piece, links)))
+        };
+        let blocks = linked.map_or(blocks, Rc::new);
         let ts = lcx.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
         let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &lcx.node.props);
