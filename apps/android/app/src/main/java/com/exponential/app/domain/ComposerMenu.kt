@@ -83,6 +83,20 @@ data class ComposerMenuConditions(
     }
 }
 
+/** EXP-1635 (composer-menu.json `addFile.phoneChoices`): add-file on a phone. */
+enum class ComposerAddFileChoice(val wire: String, val label: String, val icon: String) {
+    Camera("camera", "Camera", "ui-camera"),
+    Photos("photos", "Photos", "ui-photos"),
+    File("file", "File", "ui-file"),
+    ;
+
+    companion object {
+        /** The sub-choice's rows; Camera only on a device that has one. */
+        fun visible(hasCamera: Boolean): List<ComposerAddFileChoice> =
+            entries.filter { it != Camera || hasCamera }
+    }
+}
+
 sealed interface ComposerMenuEntry {
     data class Row(
         val id: ComposerMenuRowId,

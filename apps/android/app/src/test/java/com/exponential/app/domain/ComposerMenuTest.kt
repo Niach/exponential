@@ -20,6 +20,22 @@ class ComposerMenuTest {
     private fun JsonObject.string(key: String): String = getValue(key).jsonPrimitive.content
 
     @Test
+    fun `add-file's phone choices match the fixture`() {
+        val choices = fixture.getValue("addFile").jsonObject.getValue("phoneChoices").jsonArray.map { it.jsonObject }
+        assertEquals(choices.size, ComposerAddFileChoice.entries.size)
+        choices.zip(ComposerAddFileChoice.entries).forEach { (want, got) ->
+            assertEquals(want.string("id"), got.wire)
+            assertEquals(want.string("label"), got.label)
+            assertEquals(want.string("icon"), got.icon)
+        }
+        assertEquals(ComposerAddFileChoice.entries.toList(), ComposerAddFileChoice.visible(hasCamera = true))
+        assertEquals(
+            listOf(ComposerAddFileChoice.Photos, ComposerAddFileChoice.File),
+            ComposerAddFileChoice.visible(hasCamera = false),
+        )
+    }
+
+    @Test
     fun `the rows match the fixture's order, copy and glyphs`() {
         val rows = fixture.getValue("rows").jsonArray.map { it.jsonObject }
         assertEquals(rows.size, ComposerMenu.ROWS.size)
