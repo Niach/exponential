@@ -1533,6 +1533,27 @@ fn answer_button(facts: &QuestionFacts, cx: &mut App) -> AnyElement {
 
 #[cfg(test)]
 mod tests {
+    /// #EXP-1698: a long free answer wraps inside the card.
+    #[gpui::test]
+    fn a_long_free_answer_wraps_inside_the_card(cx: &mut gpui::TestAppContext) {
+        struct Card;
+        impl gpui::Render for Card {
+            fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+                let answer = "Wait for Apple. Keep watching App Store Connect with your own Monitor and roll out once it is ready. ".repeat(4);
+                div().w(px(300.)).child(crate::steer_viewer::ask_resolved_line(Some(&answer), false, cx))
+            }
+        }
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_view, cx) = cx.add_window_view(|_, _| Card);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let text = cx.debug_bounds("ask-resolved-text").expect("the answer is drawn");
+        assert!(f32::from(text.size.width) <= 300., "{:?}", text.size);
+        assert!(f32::from(text.size.height) > 40., "it wraps: {:?}", text.size);
+    }
+
     use super::*;
 
     /// Sandbox: the card's host plays no media and opens no picker (web's
