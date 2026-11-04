@@ -1,10 +1,10 @@
 import { useMemo } from "react"
 import { PLAN_PAGE_SPECIMEN, planRowLabel } from "@exp/domain-contract/plan-page"
 import { STORY_TAB } from "@exp/domain-contract/stories"
-import { threadAskRow, type TreeMessage } from "@exp/domain-contract/session-tree"
+import { THREAD_COPY, threadAskRow, type TreeMessage } from "@exp/domain-contract/session-tree"
 import { cn } from "./cn"
 import { PlanPage } from "./plan-page"
-import { THREAD_COPY, ThreadTabs } from "./session-thread-view"
+import { ThreadTabs } from "./session-thread-view"
 import { useSpecimenAttachmentSrc } from "./specimen-samples"
 
 // #EXP-1493: THE plan page's styleguide specimen (plan-page.json

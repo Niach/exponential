@@ -16,7 +16,7 @@ export const entry: StyleguideEntry = {
   status: {
     web: {
       state: `ok`,
-      symbol: `ThreadPlanCard`,
+      symbol: `PlanRail`,
       file: `packages/ui/src/plan-card.tsx`,
       note: `cards: session-thread-view.tsx; session view (tool-posted cards): agent-session.tsx`,
     },

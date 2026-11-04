@@ -53,8 +53,14 @@ import {
   stepLabel,
   stepperApplies,
 } from "@exp/domain-contract/plan-card"
-import { PLAN_PAGE_COPY } from "@exp/domain-contract/plan-page"
-import { AskAnsweredLine, AskCard, AskDismissedCard, AskPrompt } from "./ask-card"
+import {
+  PLAN_PAGE_COPY,
+  PLAN_PAGE_LAYOUT,
+  PLAN_PAGE_TEST_IDS,
+  planRowLabel,
+} from "@exp/domain-contract/plan-page"
+import {
+  AskDismissButton, AskAnsweredLine, AskCard, AskDismissedCard, AskPrompt } from "./ask-card"
 import {
   closedPicks,
   PlanCardCaption,
@@ -1080,7 +1086,18 @@ export function ThreadConversation(props: ThreadConversationProps) {
                     }
                   />
                 ) : (
-                  <ThreadPlanRow row={waiting} onOpen={() => onOpenPlan?.(waiting)} />
+                  <ThreadPlanRow
+                    row={waiting}
+                    onOpen={() => onOpenPlan?.(waiting)}
+                    onDismiss={
+                      onDismiss
+                        ? () => {
+                            latest.current.onDismiss?.(waiting.id)
+                            done()
+                          }
+                        : undefined
+                    }
+                  />
                 )
               }
             </WaitingCard>
@@ -1100,7 +1117,14 @@ export function ThreadConversation(props: ThreadConversationProps) {
           />
         )
       case `plan`:
-        return <ThreadPlanRow key={row.id} row={row} onOpen={() => onOpenPlan?.(row)} />
+        return (
+          <ThreadPlanRow
+            key={row.id}
+            row={row}
+            onOpen={() => onOpenPlan?.(row)}
+            onDismiss={onDismiss ? () => latest.current.onDismiss?.(row.id) : undefined}
+          />
+        )
       case `subagent`:
         return (
           <div
@@ -1846,9 +1870,12 @@ function usePlanForm(
 function ThreadPlanRow({
   row,
   onOpen,
+  onDismiss,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
   onOpen?: () => void
+  /** #EXP-1561: THE × while it waits (absent = none). */
+  onDismiss?: () => void
 }) {
   // #EXP-1561 (waiting-cards.json): a dismissed plan = ONE quiet line.
   if (row.decision === `dismissed`) {
@@ -1876,30 +1903,36 @@ function ThreadPlanRow({
   const waiting = row.decision === null
   const Lead = row.decision === `approved` ? PlanApprovedIcon : PlanRowIcon
   return (
-    <button
-      type="button"
+    <div
       data-slot="thread-plan"
       data-testid={PLAN_CARD_TEST_IDS.card}
       data-kind="plan"
       data-card-id={row.id}
       data-decision={row.decision ?? undefined}
-      className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-glass-stroke-card bg-glass-card px-3 text-left text-sm outline-none transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      className="flex w-full min-w-0 items-center rounded-xl border border-glass-stroke-card bg-glass-card text-sm transition-colors duration-fast hover:bg-glass-active"
       style={{ minHeight: PLAN_PAGE_LAYOUT.rowHeight }}
-      onClick={onOpen}
     >
-      <Lead
-        className={cn(
-          `size-4 shrink-0`,
-          waiting ? `text-yellow-400` : row.decision === `approved` ? `text-emerald-400` : `text-muted-foreground`
-        )}
-      />
-      <span className="min-w-0 truncate font-medium">{planRowLabel(row.plan)}</span>
-      <span className={cn(`shrink-0 text-xs`, waiting ? `text-yellow-400` : `text-muted-foreground`)}>
-        {waiting ? PLAN_PAGE_COPY.needsYou : planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)}
-      </span>
-      <span className="flex-1" />
-      <PlanRowChevron className="size-4 shrink-0 text-muted-foreground" />
-    </button>
+      <button
+        type="button"
+        data-testid="plan-row"
+        className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-xl px-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        onClick={onOpen}
+      >
+        <Lead
+          className={cn(
+            `size-4 shrink-0`,
+            waiting ? `text-yellow-400` : row.decision === `approved` ? `text-emerald-400` : `text-muted-foreground`
+          )}
+        />
+        <span className="min-w-0 truncate font-medium">{planRowLabel(row.plan)}</span>
+        <span className={cn(`shrink-0 text-xs`, waiting ? `text-yellow-400` : `text-muted-foreground`)}>
+          {waiting ? PLAN_PAGE_COPY.needsYou : planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)}
+        </span>
+        <span className="flex-1" />
+        <PlanRowChevron className="size-4 shrink-0 text-muted-foreground" />
+      </button>
+      {waiting && onDismiss && <span className="mr-2 flex shrink-0"><AskDismissButton onClick={onDismiss} /></span>}
+    </div>
   )
 }
 

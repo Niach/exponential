@@ -151,7 +151,7 @@ export function PlanPage({
           <h1
             key={at}
             data-slot="plan-title"
-            className="font-semibold leading-tight"
+            className={cn(`font-semibold leading-tight`, mobile && hasOutline && `pr-8`)}
             style={{ fontSize: PLAN_PAGE_LAYOUT.titleSize }}
           >
             {block.text}
