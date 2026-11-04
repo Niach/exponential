@@ -28,3 +28,4 @@
 - Az appok űrlapként, táblázatként, naptárként és idővonalként mutatják a rekordokat
 - Képek, linkek és szöveg megosztása más appokból csevegésbe vagy ügynöknek
 - A csevegések és kártyák linkjei a megfelelő képernyőt nyitják meg az appban
+- A bezárt űrlap zárva marad; egy sorra koppintva megnyílik a rekord

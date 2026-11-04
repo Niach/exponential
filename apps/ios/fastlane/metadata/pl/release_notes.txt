@@ -28,3 +28,4 @@
 - Aplikacje pokazują rekordy jako formularze, tabele, kalendarze i osie czasu
 - Udostępniaj obrazy, linki i tekst z innych aplikacji do czatu lub agentowi
 - Linki w czatach i kartach otwierają właściwy ekran w aplikacji
+- Zamknięty formularz pozostaje zamknięty; dotknięcie wiersza otwiera rekord

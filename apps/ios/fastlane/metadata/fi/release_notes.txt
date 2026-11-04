@@ -28,3 +28,4 @@
 - Sovellukset näyttävät tietueet lomakkeina, taulukoina, kalentereina ja aikajanoina
 - Jaa kuvia, linkkejä ja tekstiä muista sovelluksista keskusteluun tai agentille
 - Linkit keskusteluissa ja korteissa avaavat oikean näkymän sovelluksessa
+- Suljettu lomake pysyy suljettuna; rivin napautus avaa tietueen

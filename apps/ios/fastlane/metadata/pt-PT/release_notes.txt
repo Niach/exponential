@@ -28,3 +28,4 @@
 - As apps mostram registos como formulários, tabelas, calendários e cronologias
 - Partilhe imagens, ligações e texto de outras apps num chat ou com um agente
 - As ligações em chats e cartões abrem o ecrã certo na app
+- Um formulário fechado continua fechado; tocar numa linha abre o registo

@@ -28,3 +28,4 @@
 - Apps tonen records als formulieren, tabellen, kalenders en tijdlijnen
 - Deel afbeeldingen, links en tekst uit andere apps in een chat of met een agent
 - Links in chats en kaarten openen het juiste scherm in de app
+- Een gesloten formulier blijft dicht; een tik op een rij opent het record

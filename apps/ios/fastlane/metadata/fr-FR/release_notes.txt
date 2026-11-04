@@ -28,3 +28,4 @@
 - Les apps affichent les éléments en formulaires, tableaux, calendriers et frises
 - Partagez images, liens et texte d'autres apps dans une discussion ou vers un agent
 - Les liens des discussions et cartes ouvrent le bon écran dans l'app
+- Un formulaire fermé reste fermé ; toucher une ligne ouvre l'élément

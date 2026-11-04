@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.1 (2026-11-04)
+
+- EXP-1691: a dismissed bound overlay (Dialog, Drawer, Sheet) stays closed instead of reopening; a side Drawer panel sizes to its content, not the viewport; the record macros' widths match the Rust core (a RecordTable row tap opens the record); `pluralize` reads `{count}`; RecordTable's Updated column is 136 wide.
+
 ## 0.15.0 (2026-11-04)
 
 - **Breaking** (hence the minor): eApps packages are `formatVersion: 4` (a screen's `nav: false` and `exposed`, so apps can expose screens to each other); `harness.openIssue` and `harness.openDevice` are removed (links open in the app through `openUrl`). A version-3 package is migrated to 4 on the server.

@@ -28,3 +28,4 @@
 - Apps kan vise poster som formularer, tabeller, kalendere og tidslinjer
 - Del billeder, links og tekst fra andre apps til en chat eller en agent
 - Links i chats og kort åbner den rigtige skærm i appen
+- En lukket app-formular forbliver lukket; et tryk på en række åbner posten

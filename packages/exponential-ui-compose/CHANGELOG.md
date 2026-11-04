@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.1 (2026-11-04)
+
+- No changes of its own; released with the SDK (EXP-1691's fixes landed in the core).
+
 ## 0.15.0 (2026-11-04)
 
 - **Breaking** (over the core) #EXP-1674: `installPackage` refuses a package without `formatVersion: 4`. `Screens.nav`, `Screens.crossAppTarget`, `UrlPolicy.linkBase`.
