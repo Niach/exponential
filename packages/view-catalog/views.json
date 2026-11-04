@@ -75,6 +75,10 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/s/$token",
+      "reason": "A public link's guest page (VAPP-241): reached by a token, outside the app shell, and it has no seeded link to photograph."
+    },
+    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
