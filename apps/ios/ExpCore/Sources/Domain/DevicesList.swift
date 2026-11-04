@@ -2,10 +2,10 @@ import Foundation
 
 /// A-16 / EXP-1560: the Devices page card — which group a device sits in,
 /// whether it says "No account", which logins wear the attention badge (and
-/// what their preview says), the update line its `⋯` menu leads with, and how
+/// what their panel says), which account's panel is open, the update line its `⋯` menu leads with, and how
 /// many account icons show. Pure, and byte-locked by
 /// `packages/domain-contract/fixtures/devices-list.json` (`cases`), which
-/// every mirror replays (`cases`, `accountIcons`): the TS reference
+/// every mirror replays (`cases`, `accountIcons`, `accountPanelCases`): the TS reference
 /// `domain-contract/src/devices-list.ts` (`deviceListRow`), desktop `ui::machines` (`device_attention`), Android
 /// `domain/DevicesList.kt`. The fixture's `$comment` holds the rules.
 public enum DevicesList {
@@ -33,18 +33,18 @@ public enum DevicesList {
         public static let removeFromTeam = "Remove from this team"
         public static let moreAccounts = "More accounts"
         public static let longLivedRefused = "A long-lived login needs a Claude account on this machine."
-        /// EXP-1626 PERSIST LOGIN: the account menu's option on an existing
+        /// EXP-1626 PERSIST LOGIN: the account panel's option on an existing
         /// signed-in claude login (`persistLogin` without a token,
-        /// `renewPersistedLogin` with one; the account menu only, no renewal
+        /// `renewPersistedLogin` with one; the account panel only, no renewal
         /// reminder), the sign-in sheet's one muted line in that mode, and
-        /// the preview header's persisted line.
+        /// the panel's persisted line.
         public static let persistLogin = "Persist login"
         public static let renewPersistedLogin = "Renew persisted login"
         public static let persistNote = "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires."
         public static let persistedBrowser = "Persisted · usage from the browser login"
         public static let persistedToken = "Persisted · browser login expired, weekly usage only"
 
-        /// `copy.status`: the account preview's warning-tone status line.
+        /// `copy.status`: the account panel's warning-tone status line.
         public static func status(_ status: LoginStatus) -> String {
             switch status {
             case .needsRelogin: "Needs re-login"
@@ -62,6 +62,10 @@ public enum DevicesList {
         public static let iconSize: CGFloat = 28
         public static let markSize: CGFloat = 16
         public static let maxAccountIcons = 5
+        /// #EXP-1643: the device's own icon leading the card's top row.
+        public static let deviceIconSize: CGFloat = 20
+        /// #EXP-1643: above and below the account panel's hairline.
+        public static let panelGap: CGFloat = 12
     }
 
     /// An ISO-8601 stamp, with or without fractional seconds.
@@ -88,6 +92,17 @@ public enum DevicesList {
             return AccountIcons(visible: count, more: false)
         }
         return AccountIcons(visible: Card.maxAccountIcons - 1, more: true)
+    }
+
+    /// #EXP-1643 `openDeviceAccount` (`accountPanelCases`): the login a card's
+    /// panel shows. `remembered`, per device on this client: `.none` = this
+    /// device was never touched here, `.some(nil)` = closed by hand, a key =
+    /// the login opened last. A remembered login that is gone counts as
+    /// untouched: the only login when there is exactly one, else nothing.
+    public static func openDeviceAccount(loginKeys: [String], remembered: String??) -> String? {
+        if case .some(.none) = remembered { return nil }
+        if case let .some(.some(key)) = remembered, loginKeys.contains(key) { return key }
+        return loginKeys.count == 1 ? loginKeys[0] : nil
     }
 
     /// EXP-1560 `limitHit`: a FRESH usage window at ≥ 100% (fresh = not
@@ -196,7 +211,7 @@ public enum DevicesList {
         case updateQueued = "update_queued"
     }
 
-    /// EXP-1560: a login item's preview status line (`copy.status`).
+    /// EXP-1560: a login item's panel status line (`copy.status`).
     public enum LoginStatus: String, Equatable, Sendable {
         case needsRelogin = "needs_relogin"
         case signedOut = "signed_out"
@@ -208,7 +223,7 @@ public enum DevicesList {
         case update
     }
 
-    /// One attention item: a login's badge (+ its preview's status line) or
+    /// One attention item: a login's badge (+ its panel's status line) or
     /// the update line the card's `⋯` menu leads with.
     public struct AttentionItem: Equatable, Sendable, Identifiable {
         public let kind: ItemKind

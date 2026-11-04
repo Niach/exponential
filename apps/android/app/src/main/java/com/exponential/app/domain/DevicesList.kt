@@ -5,8 +5,8 @@ package com.exponential.app.domain
 // what their preview says), the update line its ⋯ menu leads with, and how
 // many account icons show. A pure mirror of the TS
 // reference `packages/domain-contract/src/devices-list.ts` (`deviceListRow`),
-// byte-locked by `fixtures/devices-list.json` (`cases` + `accountIcons`, replayed by
-// DevicesListTest). The fixture's `$comment` holds the rules.
+// byte-locked by `fixtures/devices-list.json` (`cases` + `accountIcons` +
+// `accountPanelCases`, replayed by DevicesListTest). The fixture's `$comment` holds the rules.
 //
 // An AGENT with no login profile (a CLI installed, never signed in) adds
 // nothing here: only reported login PROFILES are [DeviceListLogin]s.
@@ -108,6 +108,10 @@ object DevicesList {
         const val ICON_SIZE = 28
         const val MARK_SIZE = 16
         const val MAX_ACCOUNT_ICONS = 5
+        /** #EXP-1643: the device's own icon leading the card. */
+        const val DEVICE_ICON_SIZE = 20
+        /** #EXP-1643: above and below the account panel's hairline. */
+        const val PANEL_GAP = 12
     }
 
     /** EXP-1560: grid columns for a section [width] dp wide. */
@@ -123,6 +127,25 @@ object DevicesList {
         } else {
             AccountIcons(visible = Card.MAX_ACCOUNT_ICONS - 1, more = true)
         }
+
+    /** #EXP-1643: what this client remembers of a card's open account. */
+    sealed interface RememberedAccount {
+        /** This device was never touched here. */
+        data object Untouched : RememberedAccount
+
+        /** Closed by hand. */
+        data object Closed : RememberedAccount
+
+        /** The login opened last. */
+        data class Login(val key: String) : RememberedAccount
+    }
+
+    /** #EXP-1643: the login a card's panel shows (`fixture.accountPanelCases`). */
+    fun openDeviceAccount(loginKeys: List<String>, remembered: RememberedAccount): String? = when {
+        remembered == RememberedAccount.Closed -> null
+        remembered is RememberedAccount.Login && remembered.key in loginKeys -> remembered.key
+        else -> loginKeys.singleOrNull()
+    }
 
     /**
      * EXP-1560: `limitHit` — a FRESH usage window at ≥ 100% (fresh = not

@@ -1025,8 +1025,8 @@ pub(crate) fn usage_caption(state: UsageState, as_of: Option<&str>) -> Option<St
     }
 }
 
-/// EXP-862 — the entries a login's chip menu can offer, on a Devices row or
-/// on an Accounts row. The labels are byte-identical ×4 (Android
+/// EXP-862 — the actions a login offers (#EXP-1643: the account panel's icon
+/// buttons and its pill). The labels are byte-identical ×4 (Android
 /// `AgentAccountsRows.ACTION_*`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChipAction {
@@ -1034,7 +1034,7 @@ pub(crate) enum ChipAction {
     /// EXP-1533/1626: "Persist login" — a claude login's `claude
     /// setup-token` attached to THAT profile, offered only on an existing
     /// login that does NOT sign in; `renew` = the login already holds a
-    /// token ("Renew persisted login": the account menu is its only entry,
+    /// token ("Renew persisted login": the account panel is its only entry,
     /// there is no renewal reminder).
     Persist { renew: bool },
     SignOut,
@@ -1061,13 +1061,13 @@ impl ChipAction {
         }
     }
 
-    /// The entries that confirm before they act (a danger item in the menu).
+    /// The entries that confirm before they act (the panel's icon buttons).
     pub(crate) fn destructive(self) -> bool {
         matches!(self, ChipAction::SignOut | ChipAction::Remove)
     }
 }
 
-/// EXP-862 — what a login's chip menu offers, the SAME rule on every client,
+/// EXP-862 — what a login offers, the SAME rule on every client,
 /// in this fixed order:
 ///
 /// * a sign-in: signed out, or a credential that expired here;
@@ -1079,8 +1079,8 @@ impl ChipAction {
 /// * remove: always (EXP-944: signed out or not — a dead login is the one
 ///   people most want gone).
 ///
-/// The caller shows the menu only on an actionable device (mine, and this
-/// install or online); elsewhere the chip is a STATEMENT, not a control.
+/// The caller asks only on an actionable device (mine, and this install or
+/// online); elsewhere the login is a STATEMENT, not a control.
 pub(crate) fn chip_actions(
     signed_in: bool,
     health: coding::agent_accounts::Health,

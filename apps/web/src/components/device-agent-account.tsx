@@ -1,15 +1,13 @@
-// EXP-862: the account MENU — the one control every agent login wears — plus
+// EXP-862: the account ACTIONS — the one set every agent login wears — plus
 // the outcome view a finished `agent_login` command renders into.
 //
-// EXP-909: there is exactly ONE surface left that mounts it, the login rows
-// under a device (`device-logins.tsx`), and its trigger is that row's ghost ⋯.
-// The cross-device Accounts section and its per-machine chips are gone; the
-// rules below are unchanged, because they were always about one login on one
-// machine.
+// #EXP-1643: the one surface that mounts them is the device card's account
+// panel (`device-logins.tsx`, `DeviceAccountPanel`). The rules below are
+// unchanged, because they were always about one login on one machine.
 //
-// The menu is ONE rule, hand-mirrored ×4 (desktop `usage_bar.rs` /
-// `machines.rs`, iOS `DeviceLogins`, Android `AgentAccountsRows.chipActions`),
-// its entries in this fixed order:
+// They are ONE rule, hand-mirrored ×4 (desktop `usage_bar.rs` / `machines.rs`,
+// iOS `DeviceLogins`, Android `AgentAccountsRows.chipActions`), in this fixed
+// order:
 //
 //   - "Sign in": signed out, or a credential that expired here.
 //   - "Persist login" / "Renew persisted login" (EXP-1533, EXP-1626): claude
@@ -47,14 +45,10 @@ import {
   conceptIcon,
   Button,
   Input,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   DEVICE_READINESS_COPY,
   Prompt,
   toast,
+  type DeviceAccountPanelAction,
 } from "@exp/ui"
 import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { parseAgentLoginResult, accountName } from "@/lib/agent-usage"
@@ -72,11 +66,8 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
-const SignOutIcon = conceptIcon(`ui-sign-out`)
-const RemoveIcon = conceptIcon(`ui-delete`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)
-const PersistIcon = conceptIcon(`ui-clock`)
 
 /** The chip menu's entries, byte-identical ×4 (Android
  * `AgentAccountsRows.ACTION_*`). */
@@ -237,37 +228,34 @@ export function alreadyAddedCopy(email: string): string {
   return DEVICE_READINESS_COPY.alreadyAdded.replace(`{email}`, () => email)
 }
 
-/** THE account menu. The trigger is the caller's (the login rows draw a ghost
- * ⋯); everything behind it — the queued commands, the destructive confirm, the
- * failure toast — lives here so the rule cannot drift from the copy the other
- * three clients hold. */
-export function AccountChipMenu({
+/** THE account actions behind the panel (#EXP-1643): the queued commands, the
+ * destructive confirms, the failure toast. They live here so the rule cannot
+ * drift from the copy the other three clients hold. */
+export function useAccountActions({
   device,
   row,
   accountLabel,
   onSignIn,
   onPersistLogin,
-  header,
-  trigger,
 }: {
   /** The device that HOLDS this login (one of the caller's own). */
   device: SteerDevice
   row: AccountChipRow
-  /** What the remove confirm calls this login. Defaults to the login's own
-   *  address/label; a login row passes the text it rendered (`loginLabel`), so
-   *  the sentence names exactly what was clicked. */
+  /** What the confirms call this login (the text the row rendered). */
   accountLabel?: string
-  /** Open the sign-in for THIS login (`AgentLoginDialogHost` lives at the
-   *  route level; the caller owns the request so this module stays off the
-   *  dialog's import graph). Always the browser login (EXP-1626). */
+  /** Open the sign-in for THIS login (always the browser login, EXP-1626). */
   onSignIn: () => void
   /** EXP-1626: Persist login / Renew persisted login for THIS profile
-   *  (`persistLoginTarget`). Without it the menu offers neither. */
-  onPersistLogin?: () => void
-  /** A-16: the login's limits, drawn above the entries. */
-  header?: ReactNode
-  trigger: ReactNode
-}) {
+   *  (`persistLoginTarget`). */
+  onPersistLogin: () => void
+}): {
+  busy: boolean
+  signIn?: DeviceAccountPanelAction
+  persist?: DeviceAccountPanelAction
+  signOut?: DeviceAccountPanelAction
+  remove?: DeviceAccountPanelAction
+  confirms: ReactNode
+} {
   const [busy, setBusy] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [confirmSignOut, setConfirmSignOut] = useState(false)
@@ -296,8 +284,7 @@ export function AccountChipMenu({
       )
       // Both commands ride the owner→device queue and change NOTHING here
       // until the device's next heartbeat, so without this the click reads
-      // as dead. Same sentence as the desktop's notification
-      // (`accounts_section.rs`).
+      // as dead. Same sentence as the desktop's notification.
       toast.success(success)
     } catch (error) {
       // FEED-79: destructive, so no Retry.
@@ -307,110 +294,73 @@ export function AccountChipMenu({
     }
   }
 
-  // The login dialog is hosted elsewhere in the tree — hand off a tick after
-  // the menu closes, or the close's focus return swallows it.
-  const signIn = () => setTimeout(() => onSignIn(), 0)
-  const persistLogin = () => setTimeout(() => onPersistLogin?.(), 0)
-  const persist = onPersistLogin ? persistLoginAction(row) : null
+  const persist = persistLoginAction(row)
 
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          {header && (
-            <>
-              <div className="px-2 py-1.5">{header}</div>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          {actions.includes(ACTION_SIGN_IN) && (
-            <DropdownMenuItem onSelect={signIn}>
-              <SignInIcon />
-              {ACTION_SIGN_IN}
-            </DropdownMenuItem>
-          )}
-          {persist && actions.includes(persist) && (
-            <DropdownMenuItem onSelect={persistLogin}>
-              <PersistIcon />
-              {persist}
-            </DropdownMenuItem>
-          )}
-          {actions.includes(ACTION_SIGN_OUT) && (
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={busy}
-              onSelect={() => setConfirmSignOut(true)}
-            >
-              <SignOutIcon />
-              {ACTION_SIGN_OUT}
-            </DropdownMenuItem>
-          )}
-          {actions.includes(ACTION_REMOVE) && (
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={busy}
-              onSelect={() => setConfirmRemove(true)}
-            >
-              <RemoveIcon />
-              {ACTION_REMOVE}
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* EXP-1137: destructive too — the login needs a sign-in again. */}
-      <Prompt
-        open={confirmSignOut}
-        onOpenChange={setConfirmSignOut}
-        busy={busy}
-        title={`${ACTION_SIGN_OUT}?`}
-        body={signOutConfirmCopy(loginLabel, deviceLabel)}
-        actions={[
-          { label: `Cancel`, role: `cancel` },
-          {
-            label: `Sign out`,
-            role: `destructive`,
-            busy,
-            onSelect: () => {
-              setConfirmSignOut(false)
-              void queue(
-                `agent_profile_sign_out`,
-                `${deviceLabel} will sign this login out.`,
-                { verb: `sign out`, thing: `the login` }
-              )
+  return {
+    busy,
+    signIn: actions.includes(ACTION_SIGN_IN) ? { label: ACTION_SIGN_IN, onSelect: onSignIn } : undefined,
+    persist: persist && actions.includes(persist) ? { label: persist, onSelect: onPersistLogin } : undefined,
+    signOut: actions.includes(ACTION_SIGN_OUT)
+      ? { label: ACTION_SIGN_OUT, onSelect: () => setConfirmSignOut(true) }
+      : undefined,
+    remove: actions.includes(ACTION_REMOVE)
+      ? { label: ACTION_REMOVE, onSelect: () => setConfirmRemove(true) }
+      : undefined,
+    confirms: (
+      <>
+        {/* EXP-1137: destructive too — the login needs a sign-in again. */}
+        <Prompt
+          open={confirmSignOut}
+          onOpenChange={setConfirmSignOut}
+          busy={busy}
+          title={`${ACTION_SIGN_OUT}?`}
+          body={signOutConfirmCopy(loginLabel, deviceLabel)}
+          actions={[
+            { label: `Cancel`, role: `cancel` },
+            {
+              label: `Sign out`,
+              role: `destructive`,
+              busy,
+              onSelect: () => {
+                setConfirmSignOut(false)
+                void queue(
+                  `agent_profile_sign_out`,
+                  `${deviceLabel} will sign this login out.`,
+                  { verb: `sign out`, thing: `the login` }
+                )
+              },
             },
-          },
-        ]}
-      />
+          ]}
+        />
 
-      {/* Destructive, so it asks — and the sentence says in the same breath
-          that only this device's copy of the login goes. */}
-      <Prompt
-        open={confirmRemove}
-        onOpenChange={setConfirmRemove}
-        busy={busy}
-        title={`${ACTION_REMOVE}?`}
-        body={removeAccountConfirmCopy(loginLabel, deviceLabel)}
-        actions={[
-          { label: `Cancel`, role: `cancel` },
-          {
-            label: `Remove`,
-            role: `destructive`,
-            busy,
-            onSelect: () => {
-              setConfirmRemove(false)
-              void queue(
-                `agent_profile_remove`,
-                `${deviceLabel} will remove this login.`,
-                { verb: `remove`, thing: `the login` }
-              )
+        {/* Destructive, so it asks — and the sentence says in the same breath
+            that only this device's copy of the login goes. */}
+        <Prompt
+          open={confirmRemove}
+          onOpenChange={setConfirmRemove}
+          busy={busy}
+          title={`${ACTION_REMOVE}?`}
+          body={removeAccountConfirmCopy(loginLabel, deviceLabel)}
+          actions={[
+            { label: `Cancel`, role: `cancel` },
+            {
+              label: `Remove`,
+              role: `destructive`,
+              busy,
+              onSelect: () => {
+                setConfirmRemove(false)
+                void queue(
+                  `agent_profile_remove`,
+                  `${deviceLabel} will remove this login.`,
+                  { verb: `remove`, thing: `the login` }
+                )
+              },
             },
-          },
-        ]}
-      />
-    </>
-  )
+          ]}
+        />
+      </>
+    ),
+  }
 }
 
 /** The device's own sentence when a login command FAILED, else null. The
