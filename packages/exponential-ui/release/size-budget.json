@@ -33,12 +33,12 @@
     "gzip": 169977
   },
   "@exponential_app/eui/web": {
-    "bytes": 150815,
+    "bytes": 304014,
     "gzip": 47045
   },
   "@exponential_app/eui/web/primitives": {
     "bytes": 111440,
-    "gzip": 33300
+    "gzip": 69930
   },
   "@exponential_app/eui-solid/index": {
     "bytes": 722628,

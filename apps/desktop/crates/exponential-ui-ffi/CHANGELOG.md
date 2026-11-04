@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.2 (2026-11-04)
+
+- No API of its own; carries the core's `$string` checks, Markdown text links and narrow-phone layouts.
+
 ## 0.15.1 (2026-11-04)
 
 - No changes of its own; released with the SDK (EXP-1691's fixes landed in the core).

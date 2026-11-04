@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, it, test } from "bun:test"
 
 import fixture from "../fixtures/devices-list.json" with { type: "json" }
 import { openDeviceAccount, deviceCardAccountIcons, deviceCardColumns, deviceListRow, type DeviceListInput } from "./devices-list"

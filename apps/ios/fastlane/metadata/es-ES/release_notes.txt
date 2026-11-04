@@ -29,3 +29,4 @@
 - Comparte imágenes, enlaces y texto de otras apps en un chat o con un agente
 - Los enlaces en chats y tarjetas abren la pantalla correcta en la app
 - Un formulario cerrado sigue cerrado; tocar una fila abre el registro
+- Las líneas de tiempo y tablas anchas se leen bien en móviles estrechos

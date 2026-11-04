@@ -621,7 +621,7 @@
         "table-1k": {
           "firstPaintMs": 104.3,
           "scrollStepMs": 7.5,
-          "renderedRows": 36,
+          "renderedRows": 33,
           "sortMs": 21.5
         }
       },
@@ -672,7 +672,7 @@
         "table-1k": {
           "firstPaintMs": 117.5,
           "scrollStepMs": 6.2,
-          "renderedRows": 36,
+          "renderedRows": 33,
           "sortMs": 8.4
         },
         "records-25k": {
@@ -726,7 +726,7 @@
         "table-1k": {
           "firstPaintMs": 97.7,
           "scrollStepMs": 7.4,
-          "renderedRows": 36,
+          "renderedRows": 33,
           "sortMs": 22.4
         }
       }
@@ -854,7 +854,7 @@
     "mint": {
       "core": {
         "cold-start": {
-          "allocations": 245403,
+          "allocations": 245683,
           "coldStartMs": 21.3,
           "firstPaintMs": 15.1,
           "memoryMb": 30.4,

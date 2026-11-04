@@ -29,3 +29,4 @@
 - Share images, links and text from other apps into a chat or to an agent
 - Links in chats and cards open the right screen in the app
 - Closing an app's form keeps it closed; tapping a record row opens it
+- App timelines and wide tables read well on narrow phones

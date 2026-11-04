@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.2 (2026-11-04)
+
 - VAPP-250: readable on narrow phones. `Timeline` on the phone form factor keeps every column at least 72 wide inside one horizontal scroller (bands, columns and rows together), with the 96-wide label column and its header corners pinned; wide keeps the fr columns. `tableColumnMin` drops from 120 to 96, so a three-column Table fits a 360 pt phone; wider tables still scroll. A `position: sticky` node now paints above its siblings on web too (`z-index: 1`), as the natives already did.
 - A `Markdown`'s text asks the host's `textLinks` hook, the one a `Row` subtitle uses, on all five renderers (`fixtures/markdown-text-links.json`): what it links paints as a markdown link; code, a link's label and a bare url never ask.
 - A built-in `$string.<id>` message on a `checks` entry resolves through the surface's strings in the Rust core (Swift, Compose, gpui painted the literal `$string.required`).

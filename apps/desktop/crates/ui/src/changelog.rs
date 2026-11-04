@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-04-apps-read-better-on-phones",
+    date: "2026-11-04",
+    title: "Apps read better on phones",
+    summary: "Timelines and wide tables in apps read well on narrow phones, an app that fails to load keeps its shell, and #issue references in app text link up.",
+    body: r#"- **Narrow phones**: an app's timeline and three-column tables stay readable on a narrow phone, scrolling sideways instead of squeezing.
+- **Apps that fail to load**: when a stored app no longer validates, it keeps its shell and says what is wrong instead of a blank page.
+- **Dialogs and drawers**: on iPhone and desktop, an app's dialogs and drawers open above the whole window.
+- **Links**: #issue references in an app's text link to the issue, and an app's own links work on desktop and iPhone.
+- **Attention and usage**: the attention ring and the 5-hour and weekly usage windows look the same on every app."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_207: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-app-fixes",
     date: "2026-11-04",
     title: "App fixes",

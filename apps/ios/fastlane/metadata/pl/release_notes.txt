@@ -29,3 +29,4 @@
 - Udostępniaj obrazy, linki i tekst z innych aplikacji do czatu lub agentowi
 - Linki w czatach i kartach otwierają właściwy ekran w aplikacji
 - Zamknięty formularz pozostaje zamknięty; dotknięcie wiersza otwiera rekord
+- Osie czasu i szerokie tabele są czytelne na wąskich telefonach

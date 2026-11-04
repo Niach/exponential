@@ -29,3 +29,4 @@
 - Condividi immagini, link e testo da altre app in una chat o a un agente
 - I link nelle chat e nelle schede aprono la schermata giusta nell'app
 - Un modulo chiuso resta chiuso; toccare una riga apre il record
+- Timeline e tabelle larghe si leggono bene sui telefoni stretti
