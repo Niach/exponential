@@ -51,12 +51,12 @@ import com.exponential.app.ui.gettingstarted.GettingStartedCopy
 import com.exponential.app.ui.gettingstarted.GettingStartedStepKey
 import com.exponential.app.ui.styleguide.ComposerAddFileSpecimenScreen
 import com.exponential.app.ui.styleguide.ComposerAddFileSpecimenTestId
+import com.exponential.app.ui.styleguide.FeedbackStatesScreen
+import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ShareComposerSpecimenScreen
 import com.exponential.app.ui.styleguide.ShareComposerSpecimenTestId
 import com.exponential.app.ui.styleguide.ShareToSpecimenScreen
 import com.exponential.app.ui.styleguide.ShareToSpecimenTestId
-import com.exponential.app.ui.styleguide.FeedbackStatesScreen
-import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
 import com.exponential.app.ui.styleguide.AppConsentSpecimenScreen
 import com.exponential.app.ui.styleguide.AppConsentSpecimenTestId
@@ -92,6 +92,8 @@ import com.exponential.app.domain.Skills
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenTestId
+import com.exponential.app.ui.styleguide.DeviceAttentionSpecimenScreen
+import com.exponential.app.ui.styleguide.DeviceAttentionSpecimenTestId
 import com.exponential.app.ui.styleguide.TeamAvatarSpecimenScreen
 import com.exponential.app.ui.styleguide.TeamAvatarSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenScreen
@@ -155,6 +157,10 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card · sg_session-xref ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
  *   sg_settings-skills · sg_settings-skill ·
+ *   sg_app-record-table · sg_app-record-form · sg_app-calendar · sg_app-timeline · sg_app-connect ·
+ *   sg_app-publish · sg_app-versions-sweep · sg_app-version-preview · sg_app-record-history ·
+ *   sg_app-record-undo · sg_app-csv-import · sg_app-settings-links · sg_app-settings-automations ·
+ *   sg_device-attention ·
  *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
@@ -247,6 +253,8 @@ class StyleguideScreenshotsTest {
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             // #EXP-1645: the team mark and the General row.
             "sg_team-avatar",
+            // #EXP-1643: the device cards' attention badge + THE account panel.
+            "sg_device-attention",
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
             "sg_chat-selection",
@@ -280,6 +288,17 @@ class StyleguideScreenshotsTest {
         /** VAPP-176: the seeded Release checklist app, a DRAFT (no version, no
          *  editor session; Jonas's, so leaving it never discards it). */
         private const val DEMO_DRAFT_APP_SLUG = "release-checklist"
+
+        /** The walk's rich-apps step takes these. */
+        private val APP_RICH_SHOTS = arrayOf(
+            "sg_app-record-table", "sg_app-record-form", "sg_app-calendar", "sg_app-timeline", "sg_app-connect",
+            "sg_app-settings-links", "sg_app-settings-automations", "sg_app-publish", "sg_app-versions-sweep",
+            "sg_app-version-preview", "sg_app-csv-import", "sg_app-record-history", "sg_app-record-undo",
+        )
+
+        /** The CSV import shot: two good rows, one with a stage the schema refuses. */
+        private const val APP_CSV_CAPTURE_TEXT =
+            "name,stage,domain\nInitech,lead,initech.example\nUmbrella,active,umbrella.example\nBad,nosuch,x"
 
         /** VAPP-121: app-export.json `capture.importText` and its one issue. */
         private const val APP_IMPORT_CAPTURE_TEXT = """{"format":"exponential-app/1","app":{"name":"Todos"}}"""
@@ -1171,6 +1190,128 @@ class StyleguideScreenshotsTest {
             flow.settle(longer = true)
         }
 
+        // --- The rich demo apps (the seed's CRM, Leave planner, Ops desk, Team
+        // dashboard): RecordTable + RecordForm, Calendar + Timeline, the Connect
+        // banner, Public links + Accounts + Automations, Publish + the Versions
+        // sweep + a version's preview, CSV import, History, Undo. Undo is LAST,
+        // and tapped, so the record comes back.
+        if (ScreenshotFlow.anyRequested(*APP_RICH_SHOTS)) {
+            step("rich-apps") {
+                composeRule.onNode(hasTestTag("tab-apps")).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
+                openAppRun("crm")
+                composeRule.onNode(hasTestTag("${Apps.TestIds.PREVIEW_SCREENS}-contacts")).performClick()
+                flow.waitFor(hasContentDescription("Ada Novak", substring = true), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-record-table")
+                composeRule.onNode(hasContentDescription("Add")).performClick()
+                flow.waitFor(hasContentDescription("Cancel"), NAV_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-record-form")
+                composeRule.onNode(hasContentDescription("Cancel")).performClick()
+                flow.waitForGone(hasContentDescription("Cancel"), NAV_TIMEOUT)
+                leaveAppRun()
+
+                openAppRun("leave-planner")
+                flow.waitFor(hasContentDescription("Request leave"), SYNC_TIMEOUT)
+                flow.settle(longer = true)
+                flow.screenshot("sg_app-calendar")
+                composeRule.onNode(hasTestTag("${Apps.TestIds.PREVIEW_SCREENS}-timeline")).performClick()
+                flow.waitFor(hasContentDescription("Who is out"), NAV_TIMEOUT)
+                flow.settle(longer = true)
+                flow.screenshot("sg_app-timeline")
+                leaveAppRun()
+
+                openAppRun("ops-desk")
+                flow.waitFor(hasTestTag("exponential-ui-upstream-connect"), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-connect")
+                openEditorFromRun()
+                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
+                flow.waitFor(hasTestTag("app-editor-menu-settings"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag("app-editor-menu-settings")).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
+                flow.waitFor(hasText("Public links"), SYNC_TIMEOUT)
+                flow.waitFor(hasText("Accounts"), SYNC_TIMEOUT)
+                flow.waitFor(hasText("Webhooks"), SYNC_TIMEOUT)
+                Espresso.closeSoftKeyboard()
+                flow.settle()
+                flow.screenshot("sg_app-settings-links")
+                composeRule.onNode(hasText(Apps.Copy.MENU_DELETE)).performScrollTo()
+                flow.settle()
+                flow.screenshot("sg_app-settings-automations")
+                Espresso.pressBack()
+                flow.waitForGone(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
+                flow.settle()
+                Espresso.pressBack()
+                flow.waitFor(hasTestTag(Apps.TestIds.RUN), NAV_TIMEOUT)
+                leaveAppRun()
+
+                // Never presses Publish: the seed's v3 stays ahead of v2.
+                openAppRun("team-dashboard")
+                openEditorFromRun()
+                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.PUBLISH), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-publish")
+                composeRule.onNode(hasTestTag("app-editor-menu-versions")).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
+                flow.waitFor(hasText("Migrating records", substring = true), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-versions-sweep")
+                composeRule.onAllNodes(hasTestTag(Apps.TestIds.VERSION_PREVIEW))[0].performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.VIEWING), NAV_TIMEOUT)
+                flow.settle(longer = true)
+                flow.screenshot("sg_app-version-preview")
+                Espresso.pressBack()
+                flow.waitFor(hasTestTag(Apps.TestIds.RUN), NAV_TIMEOUT)
+                leaveAppRun()
+
+                openAppRun("crm")
+                openEditorFromRun()
+                composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.DATA}")).performClick()
+                flow.waitFor(hasTestTag(AppRecords.DataTestIds.ROW), SYNC_TIMEOUT)
+                flow.settle()
+                composeRule.onNode(hasTestTag(AppRecords.CsvTestIds.BUTTON)).performClick()
+                flow.waitFor(hasTestTag(AppRecords.CsvTestIds.TEXT), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag(AppRecords.CsvTestIds.TEXT)).performTextInput(APP_CSV_CAPTURE_TEXT)
+                Espresso.closeSoftKeyboard()
+                flow.waitFor(hasText("2 of 3 rows ready"), NAV_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-csv-import")
+                Espresso.pressBack()
+                flow.settle()
+                if (flow.exists(hasTestTag(AppRecords.CsvTestIds.DIALOG))) Espresso.pressBack()
+                flow.waitForGone(hasTestTag(AppRecords.CsvTestIds.DIALOG), NAV_TIMEOUT)
+                flow.settle()
+
+                // A delete + its Undo give the record a History worth showing.
+                deleteFirstRecord()
+                undoRecordWrite()
+                composeRule.onAllNodes(hasTestTag(AppRecords.DataTestIds.MENU))[0].performClick()
+                flow.waitFor(hasTestTag("app-data-row-edit"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag("app-data-row-edit")).performClick()
+                flow.waitFor(hasTestTag(AppRecords.DataTestIds.HISTORY_ROW), SYNC_TIMEOUT)
+                flow.waitFor(hasText(AppRecords.HistoryCopy.RESTORED), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-record-history")
+                Espresso.pressBack()
+                flow.waitForGone(hasTestTag(AppRecords.DataTestIds.FORM), NAV_TIMEOUT)
+                flow.settle()
+                deleteFirstRecord()
+                flow.settle()
+                flow.screenshot("sg_app-record-undo")
+                undoRecordWrite()
+
+                Espresso.pressBack()
+                flow.waitFor(hasTestTag(Apps.TestIds.RUN), NAV_TIMEOUT)
+                leaveAppRun()
+                composeRule.onNode(hasTestTag("tab-threads")).performClick()
+                flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
+                flow.settle(longer = true)
+            }
+        }
+
         // --- sg_agent-channel: an agent row opens its channel (the same
         // conversation screen): Triage's report (its bare FB-n chipped as
         // issue pills, EXP-760), the thread it started, the person's request
@@ -1774,6 +1915,8 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_phone-board-menu")
         show(TeamAvatarSpecimenTestId) { TeamAvatarSpecimenScreen() }
         flow.screenshot("sg_team-avatar")
+        show(DeviceAttentionSpecimenTestId) { DeviceAttentionSpecimenScreen() }
+        flow.screenshot("sg_device-attention")
         show(PhonePageHeaderSpecimenTestId) { PhonePageHeaderSpecimenScreen() }
         flow.screenshot("sg_phone-page-header")
         // --- sg_app-consent (VAPP-120, app-actions.json): the consent card an
@@ -1872,6 +2015,48 @@ class StyleguideScreenshotsTest {
      * carries on; [captureStyleguideScreenshots] fails at its end with the
      * list. Every step therefore starts from a tab of its own.
      */
+    /** The Apps list → that app's run view. */
+    private fun openAppRun(slug: String) {
+        val row = hasTestTag("${Apps.TestIds.ROW}-$slug")
+        flow.waitFor(row, SYNC_TIMEOUT)
+        composeRule.onNode(row).performClick()
+        flow.waitFor(hasTestTag(Apps.TestIds.RUN), NAV_TIMEOUT)
+        flow.settle()
+    }
+
+    /** The run view back to the Apps list. */
+    private fun leaveAppRun() {
+        Espresso.pressBack()
+        flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
+        flow.settle()
+    }
+
+    /** The run view's `…` › Edit app. */
+    private fun openEditorFromRun() {
+        composeRule.onNode(hasTestTag(Apps.TestIds.RUN_MENU)).performClick()
+        flow.waitFor(hasTestTag("app-run-edit"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("app-run-edit")).performClick()
+        flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
+        flow.settle()
+    }
+
+    /** The Data tab's first row › Delete + confirm, until the Undo toast shows. */
+    private fun deleteFirstRecord() {
+        composeRule.onAllNodes(hasTestTag(AppRecords.DataTestIds.MENU))[0].performClick()
+        flow.waitFor(hasTestTag("app-data-row-delete"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("app-data-row-delete")).performClick()
+        flow.waitFor(hasTestTag("app-data-delete-confirm"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("app-data-delete-confirm")).performClick()
+        flow.waitFor(hasText(AppRecords.HistoryCopy.UNDO), SYNC_TIMEOUT)
+    }
+
+    /** Taps the toast's Undo: the record comes back. */
+    private fun undoRecordWrite() {
+        composeRule.onNode(hasText(AppRecords.HistoryCopy.UNDO)).performClick()
+        flow.waitForGone(hasText(AppRecords.HistoryCopy.UNDO), SYNC_TIMEOUT)
+        flow.settle()
+    }
+
     private fun step(name: String, retry: Boolean = true, body: () -> Unit) {
         val attempts = if (retry) 2 else 1
         repeat(attempts) { attempt ->
@@ -2062,8 +2247,12 @@ class StyleguideScreenshotsTest {
      * is what the tab shows again, so pop back to the Team page itself.
      */
     private fun openTeamRoot() {
-        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
-        flow.settle()
+        // #EXP-1645: on the Team page itself a tap on the tab opens the team
+        // menu, which then swallows the next row's tap.
+        if (!flow.exists(hasTestTag("team-tab"))) {
+            composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
+            flow.settle()
+        }
         repeat(3) {
             if (!flow.exists(hasTestTag("team-tab"))) {
                 Espresso.pressBack()

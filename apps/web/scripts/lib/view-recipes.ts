@@ -191,6 +191,71 @@ async function recipeOpenAppImport(page: Page): Promise<void> {
   await page.getByTestId(`app-import-issues`).waitFor({ state: `visible`, timeout: 15_000 })
 }
 
+/** VAPP-217: the RecordTable's Add: the RecordForm for the kind. */
+async function recipeOpenRecordForm(page: Page): Promise<void> {
+  const add = page.getByRole(`button`, { name: `Add` }).filter({ visible: true }).first()
+  await add.waitFor({ state: `visible`, timeout: 30_000 })
+  await add.click()
+  await page.getByRole(`dialog`).getByRole(`button`, { name: `Save` }).waitFor({ state: `visible`, timeout: 15_000 })
+}
+
+/** The Data tab's first row `…` menu (the row actions sit after the toolbar). */
+async function openDataRowMenu(page: Page): Promise<void> {
+  const more = page.getByTestId(`app-data-row-menu`).filter({ visible: true }).first()
+  await more.waitFor({ state: `visible`, timeout: 30_000 })
+  await more.click()
+}
+
+/** VAPP-211: a Data row's Edit: the form with its History rows. */
+async function recipeOpenRecordHistory(page: Page): Promise<void> {
+  await openDataRowMenu(page)
+  await page.getByRole(`menuitem`, { name: `Edit` }).click()
+  await page.getByTestId(`app-data-history`).waitFor({ state: `visible`, timeout: 15_000 })
+}
+
+/** VAPP-211: delete a row: the Undo toast. The row is added first, so the lanes
+ *  (every form factor, one stack) never eat each other's seeded records. */
+async function recipeOpenRecordUndo(page: Page): Promise<void> {
+  const name = `Undo ${Date.now()}`
+  await page.evaluate(async (name) => {
+    const shape = (await (await fetch(`/api/shapes/apps?offset=-1`)).json()) as { value?: { id: string; slug: string } }[]
+    const id = shape.find((m) => m.value?.slug === `crm`)?.value?.id
+    await fetch(`/api/trpc/apps.records.upsert`, { method: `POST`, headers: { "content-type": `application/json` }, body: JSON.stringify({ id, kind: `company`, data: { name, stage: `lead` }, via: `editor` }) })
+  }, name)
+  const row = page.getByTestId(`app-data-row`).filter({ hasText: name }).filter({ visible: true }).first()
+  await row.waitFor({ state: `visible`, timeout: 30_000 })
+  await row.getByTestId(`app-data-row-menu`).click()
+  await page.getByRole(`menuitem`, { name: `Delete` }).click()
+  const confirm = page.getByRole(`alertdialog`).or(page.getByRole(`dialog`)).getByRole(`button`, { name: /^Delete/ })
+  if (await appears(confirm, 1_500)) await confirm.click()
+  await page.getByRole(`button`, { name: `Undo` }).waitFor({ state: `visible`, timeout: 15_000 })
+}
+
+/** VAPP-219: the Data tab's Import…, a CSV pasted, the mapping + preview shown. */
+async function recipeOpenCsvImport(page: Page): Promise<void> {
+  const button = page.getByRole(`button`, { name: /^Import/ }).filter({ visible: true }).first()
+  await button.waitFor({ state: `visible`, timeout: 30_000 })
+  await button.click()
+  const dialog = page.getByRole(`dialog`)
+  await dialog.locator(`textarea`).fill(`name,stage,domain\nInitech,lead,initech.example\nUmbrella,active,umbrella.example\nHooli,nosuch,hooli.example\n`)
+  await dialog.getByRole(`button`, { name: `Import 2` }).waitFor({ state: `visible`, timeout: 15_000 })
+}
+
+/** eApps V1: the last Versions row's Preview (an old version, read-only). */
+async function recipeOpenAppVersionPreview(page: Page): Promise<void> {
+  const preview = page.getByRole(`button`, { name: `Preview` }).filter({ visible: true }).last()
+  await preview.waitFor({ state: `visible`, timeout: 30_000 })
+  await preview.click()
+  await page.getByTestId(`app-editor-viewing`).filter({ visible: true }).first().waitFor({ state: `visible`, timeout: 15_000 })
+}
+
+/** VAPP-243: Settings down to its last group: the MCP tools, Automations and Webhooks. */
+async function recipeScrollAppSettingsEnd(page: Page): Promise<void> {
+  const row = page.getByTestId(`app-settings-webhooks`).filter({ visible: true }).first()
+  await row.waitFor({ state: `visible`, timeout: 30_000 })
+  await row.scrollIntoViewIfNeeded()
+}
+
 /**
  * EXP-1558: THE consent card (VAPP-120, app-actions.json) the way a person
  * raises it, as the natives' specimen words it: the seeded Working hours
@@ -952,6 +1017,12 @@ export const RECIPES: Record<string, Recipe> = {
   openAppPreviewTab: recipeOpenAppPreviewTab,
   openAppExport: recipeOpenAppExport,
   openAppImport: recipeOpenAppImport,
+  openRecordForm: recipeOpenRecordForm,
+  openRecordHistory: recipeOpenRecordHistory,
+  openRecordUndo: recipeOpenRecordUndo,
+  openCsvImport: recipeOpenCsvImport,
+  openAppVersionPreview: recipeOpenAppVersionPreview,
+  scrollAppSettingsEnd: recipeScrollAppSettingsEnd,
   openAppConsent: recipeOpenAppConsent,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,

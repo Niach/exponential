@@ -75,10 +75,6 @@
   ],
   "excludedRoutes": [
     {
-      "route": "/s/$token",
-      "reason": "A public link's guest page (VAPP-241): reached by a token, outside the app shell, and it has no seeded link to photograph."
-    },
-    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
@@ -2569,7 +2565,7 @@
       "web": {
         "route": "/t/$teamSlug/app-editor/team-dashboard?frame=phone",
         "anchor": {
-          "testId": "app-preview-template",
+          "testId": "app-editor-preview",
           "timeoutMs": 30000
         },
         "settleMs": 1500
@@ -2582,7 +2578,7 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The seeded Team dashboard app (two templates since VAPP-179: dashboard and list); `?frame=phone` opens the Phone frame.",
+        "web": "The seeded Team dashboard app; `?frame=phone` opens the Phone frame. It runs v2 with one template, so the template Select (two or more templates, on the head v3) stays out of the shot.",
         "web-mobile": "Phones have no preview toolbar (VAPP-179 is web ≥ md + desktop).",
         "desktop": "`app:<slug>:<tab>:<frame>` opens the editor on that tab and frame.",
         "ios": "Phones have no preview toolbar (VAPP-179 is web ≥ md + desktop).",
@@ -2666,6 +2662,548 @@
         "env": {
           "EXP_DEV_SCREEN": "app:working-hours"
         }
+      }
+    },
+    {
+      "id": "app-record-table",
+      "group": "coding",
+      "title": "App · RecordTable",
+      "blurb": "VAPP-217 + VAPP-242: the CRM sample's Contacts screen running: the RecordTable macro with its seeded rows (phones: one row per record).",
+      "order": 64,
+      "web": {
+        "route": "/t/$teamSlug/apps/crm/contacts",
+        "anchor": {
+          "testId": "app-run",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "run:crm/contacts"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-record-table",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-record-table",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "`EXP_DEV_SCREEN=run:crm/contacts`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-record-form",
+      "group": "coding",
+      "title": "App · RecordForm",
+      "blurb": "VAPP-217: the RecordTable's Add opens the RecordForm for the kind (a side sheet on wide, a bottom sheet on phones).",
+      "order": 65,
+      "web": {
+        "route": "/t/$teamSlug/apps/crm/contacts",
+        "anchor": {
+          "testId": "app-run",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800,
+        "recipe": "openRecordForm"
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-record-form",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-record-form",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "Manual: the state needs real clicks the EXP_DEV_* drive cannot reach, so a refresh must not overwrite it: run:crm/contacts, then a click on Add: the open form. Drive it by hand on the seeded stack with a fresh data dir and What's new dismissed, then write `.shots-raw/desktop/app-record-form.png`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-calendar",
+      "group": "coding",
+      "title": "App · Calendar",
+      "blurb": "VAPP-232: the Leave planner sample's month: bars across days on wide; phones show the compact month with the selected day's list.",
+      "order": 66,
+      "web": {
+        "route": "/t/$teamSlug/apps/leave-planner",
+        "anchor": {
+          "testId": "app-run",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "run:leave-planner"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-calendar",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-calendar",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "`EXP_DEV_SCREEN=run:leave-planner`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-timeline",
+      "group": "coding",
+      "title": "App · Timeline",
+      "blurb": "VAPP-232: the Leave planner's next twelve weeks per person.",
+      "order": 67,
+      "web": {
+        "route": "/t/$teamSlug/apps/leave-planner/timeline",
+        "anchor": {
+          "testId": "app-run",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "run:leave-planner/timeline"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-timeline",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-timeline",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "`EXP_DEV_SCREEN=run:leave-planner/timeline`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-connect",
+      "group": "coding",
+      "title": "App · Connect banner",
+      "blurb": "VAPP-180: a binding answered disconnected: the host banner above the running app with its Connect action (Ops desk reads `sentry`, which the demo user has not connected).",
+      "order": 68,
+      "web": {
+        "route": "/t/$teamSlug/apps/ops-desk",
+        "anchor": {
+          "testId": "app-run",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "run:ops-desk"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-connect",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-connect",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "`EXP_DEV_SCREEN=run:ops-desk`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-publish",
+      "group": "coding",
+      "title": "App · Publish",
+      "blurb": "eApps V1: the head (v3) is ahead of the published v2: the header's version pill reads v2 and Publish is offered.",
+      "order": 69,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/team-dashboard",
+        "anchor": {
+          "testId": "app-editor-preview",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/app-editor/team-dashboard",
+        "recipe": "openAppPreviewTab",
+        "anchor": {
+          "testId": "app-editor-preview",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:team-dashboard"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-publish",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-publish",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "`EXP_DEV_SCREEN=app:team-dashboard`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-versions-sweep",
+      "group": "coding",
+      "title": "App · Versions sweep",
+      "blurb": "eApps R8: a Versions row's record sweep (`Migrating records 12 of 40`) in the row's caption, beside Current / Published.",
+      "order": 70,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/team-dashboard?tab=versions",
+        "anchor": {
+          "testId": "app-editor-versions",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:team-dashboard:versions"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-versions-sweep",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-versions-sweep",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "`EXP_DEV_SCREEN=app:team-dashboard:versions`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-version-preview",
+      "group": "coding",
+      "title": "App · read-only preview",
+      "blurb": "eApps V1: a Versions row's Preview: the Viewing v1 band (Publish, Restore, Current) over the old version painted read-only.",
+      "order": 71,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/team-dashboard?tab=versions",
+        "anchor": {
+          "testId": "app-editor-viewing",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000,
+        "recipe": "openAppVersionPreview"
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-version-preview",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-version-preview",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "Manual: the state needs real clicks the EXP_DEV_* drive cannot reach, so a refresh must not overwrite it: app:team-dashboard:versions, then v1's Preview: Viewing v1. Drive it by hand on the seeded stack with a fresh data dir and What's new dismissed, then write `.shots-raw/desktop/app-version-preview.png`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-record-history",
+      "group": "coding",
+      "title": "App · record history",
+      "blurb": "VAPP-211: a Data tab row's Edit: the record form with its History rows (who, when, Restore).",
+      "order": 72,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/crm?tab=data",
+        "anchor": {
+          "testId": "app-editor-data",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800,
+        "recipe": "openRecordHistory"
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-record-history",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-record-history",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "Manual: the state needs real clicks the EXP_DEV_* drive cannot reach, so a refresh must not overwrite it: app:crm:data, a company created and edited first, then its row's Edit: the History rows. Drive it by hand on the seeded stack with a fresh data dir and What's new dismissed, then write `.shots-raw/desktop/app-record-history.png`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-record-undo",
+      "group": "coding",
+      "title": "App · Undo",
+      "blurb": "VAPP-211: deleting a record raises the `Record deleted` toast with Undo; the shot restores the row afterwards.",
+      "order": 73,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/crm?tab=data",
+        "anchor": {
+          "testId": "app-editor-data",
+          "timeoutMs": 30000
+        },
+        "settleMs": 300,
+        "recipe": "openRecordUndo"
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-record-undo",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-record-undo",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "Manual: the state needs real clicks the EXP_DEV_* drive cannot reach, so a refresh must not overwrite it: app:crm:data, then a created company's Delete: the Undo toast. Drive it by hand on the seeded stack with a fresh data dir and What's new dismissed, then write `.shots-raw/desktop/app-record-undo.png`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-csv-import",
+      "group": "coding",
+      "title": "App · CSV import",
+      "blurb": "VAPP-219: the Data tab's Import…: the pasted CSV, the field mapping and the row preview with its per-row issue.",
+      "order": 74,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/crm?tab=data",
+        "anchor": {
+          "testId": "app-editor-data",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800,
+        "recipe": "openCsvImport"
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-csv-import",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-csv-import",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "Manual: the state needs real clicks the EXP_DEV_* drive cannot reach, so a refresh must not overwrite it: app:crm:data, then Import… with a pasted CSV whose last row has a bad stage: the mapping and the row issue. Drive it by hand on the seeded stack with a fresh data dir and What's new dismissed, then write `.shots-raw/desktop/app-csv-import.png`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-settings-links",
+      "group": "coding",
+      "title": "App settings · links and accounts",
+      "blurb": "VAPP-241 + VAPP-243: Ops desk's Settings: Record access, Public links (one on, one off) and the Accounts rows (Connect, Add server).",
+      "order": 75,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/ops-desk?tab=settings",
+        "anchor": {
+          "testId": "app-editor-settings",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "app:ops-desk"
+        },
+        "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-settings-links",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-settings-links",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "`app:<slug>` opened on its Settings tab, like `app-settings`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-settings-automations",
+      "group": "coding",
+      "title": "App settings · tools and automations",
+      "blurb": "VAPP-183 + VAPP-220 + VAPP-237: Ops desk's Settings further down: the MCP tools switches, Automations (a running one, a paused one with its reason) and Webhooks.",
+      "order": 76,
+      "web": {
+        "route": "/t/$teamSlug/app-editor/ops-desk?tab=settings",
+        "anchor": {
+          "testId": "app-editor-settings",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800,
+        "recipe": "scrollAppSettingsEnd"
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "manual"
+        }
+      },
+      "ios": {
+        "shot": "sg_app-settings-automations",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-settings-automations",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "VAPP-242/243: the seed's rich demo apps (scripts/lib/demo-sample-apps.ts).",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "Manual: the state needs real clicks the EXP_DEV_* drive cannot reach, so a refresh must not overwrite it: app:ops-desk:settings scrolled to the end: MCP tools, Automations, Webhooks. Drive it by hand on the seeded stack with a fresh data dir and What's new dismissed, then write `.shots-raw/desktop/app-settings-automations.png`.",
+        "ios": "The live walk in the styleguide screenshot suite.",
+        "android": "The live walk in the styleguide screenshot suite."
+      }
+    },
+    {
+      "id": "app-guest",
+      "group": "coding",
+      "title": "App · public link",
+      "blurb": "VAPP-241 (fixtures/app-share.json): a public link's guest page: Ops desk's `signup` form, outside the app shell, for a visitor without an account. Web only: every client's link opens it in the browser.",
+      "order": 77,
+      "web": {
+        "route": "/s/$shareToken",
+        "auth": "anonymous",
+        "anchor": {
+          "text": "Lead",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "`$shareToken` = the seed's fixed token on Ops desk's enabled `signup` link.",
+        "web-mobile": "Inherits web at the phone's width.",
+        "desktop": "A public link opens in the browser.",
+        "ios": "A public link opens in the browser.",
+        "android": "A public link opens in the browser."
+      }
+    },
+    {
+      "id": "device-attention",
+      "group": "coding",
+      "title": "Device attention",
+      "blurb": "EXP-1560: the device row's attention badge and its login menu (the styleguide's device attention entry).",
+      "order": 79,
+      "ios": {
+        "shot": "sg_device-attention",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_device-attention",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "The specimen in StyleguideScreenshots, shot sg_device-attention.",
+        "android": "The specimen in StyleguideScreenshotsTest, shot sg_device-attention.",
+        "web-mobile": "The styleguide entry shows it on web; no route of its own.",
+        "web": "The styleguide entry shows it on web; no route of its own.",
+        "desktop": "The styleguide entry shows it on desktop; no route of its own."
       }
     },
     {
@@ -7435,7 +7973,7 @@
       "group": "coding",
       "title": "Share composer",
       "blurb": "Step 2 of sharing into Exponential (EXP-1635, share-targets.json): THE composer prefilled with the share, the agent row on the pick, nothing sent until Send.",
-      "order": 64,
+      "order": 80,
       "ios": {
         "shot": "sg_share-composer",
         "lane": "styleguide"
@@ -7456,7 +7994,7 @@
       "group": "coding",
       "title": "Team mark",
       "blurb": "The team mark (#EXP-1645): the team's image, else a group glyph, and the General row that uploads it.",
-      "order": 65,
+      "order": 81,
       "ios": {
         "shot": "sg_team-avatar",
         "lane": "styleguide"

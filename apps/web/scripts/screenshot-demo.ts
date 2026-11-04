@@ -440,6 +440,11 @@ export const DEMO_APP_ID = `c4b1d7e2-5a90-4f3c-8e6d-2b7a9c0f1d35`
 /** VAPP-122: the `app` view's subject is the Working hours app (records). */
 export const DEMO_APP_SLUG = `working-hours`
 /** The Team dashboard app (three versions, no editor session): the list's second app. */
+/** VAPP-243: Ops desk, the app declaring every server-side capability (lib/demo-sample-apps.ts). */
+export const DEMO_OPS_APP_ID = `e6d3f9a4-7c12-4b5e-a08f-4d9c1e2f3a57`
+export const DEMO_OPS_APP_SLUG = `ops-desk`
+/** Its enabled Public link's token (`/s/<token>`): a fixed one, so the `app-guest` view has a route. */
+export const DEMO_OPS_SHARE_TOKEN = `opsDeskSignupDemoToken0000000000000000000000`
 export const DEMO_APP_DASHBOARD_ID = `d5c2e8f3-6b01-4a4d-9f7e-3c8b0d1e2f46`
 export const DEMO_APP_DASHBOARD_SLUG = `team-dashboard`
 export const DEMO_APP_DASHBOARD_VERSION_IDS = [

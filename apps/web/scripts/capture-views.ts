@@ -50,6 +50,7 @@ import {
   DEMO_AGENT_ID,
   DEMO_SKILL_ID,
   DEMO_APP_SLUG,
+  DEMO_OPS_SHARE_TOKEN,
   DEMO_APP_ID,
   DEMO_DIFF_THREAD_ID,
   DEMO_GUIDE_THREAD_ID,
@@ -155,6 +156,7 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     .replaceAll(`$agentId`, DEMO_AGENT_ID)
     .replaceAll(`$skillId`, DEMO_SKILL_ID)
     .replaceAll(`$appSlug`, DEMO_APP_SLUG)
+    .replaceAll(`$shareToken`, DEMO_OPS_SHARE_TOKEN)
     .replaceAll(`$appId`, DEMO_APP_ID)
     // SLOP-2: an action is a page too, and the seed pins its id the same way.
     .replaceAll(`$actionId`, DEMO_ACTION_ID)
