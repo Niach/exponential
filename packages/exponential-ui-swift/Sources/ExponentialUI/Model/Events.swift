@@ -562,8 +562,9 @@ extension SurfaceModel {
         }
         if surface.scrollTo(id: n.id, x: Float(offset.x), y: Float(offset.y)) {
             layoutNeeded = true
-            // An anchored layer inside the container follows it now.
-            if !layers.isEmpty { pass() }
+            // An anchored layer inside the container follows it now, and so
+            // does a `position: sticky` node (VAPP-250).
+            if !layers.isEmpty || hasStickyNodes { pass() }
         }
     }
 

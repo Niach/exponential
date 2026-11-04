@@ -10,9 +10,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalDensity
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.ScrollInfo
@@ -37,7 +39,7 @@ internal fun ContainerContent(index: Int, node: NodeInfo, model: SurfaceModel, s
     val origin = model.frame(index).topLeft
     val scroll = model.scrolls[index]
     if (scroll != null && (scroll.scrollX || scroll.scrollY)) {
-        ScrollContainer(node, model, size, kids, origin, scroll)
+        ScrollContainer(node, model, size, kids, origin, scroll, style.sides)
     } else {
         ChildrenLayout(size, kids, origin, model)
     }
@@ -76,7 +78,7 @@ internal fun ChildrenLayout(size: Size, kids: List<Int>, origin: Offset, model: 
  * list is involved: the core windows.
  */
 @Composable
-internal fun ScrollContainer(node: NodeInfo, model: SurfaceModel, size: Size, kids: List<Int>, origin: Offset, scroll: ScrollInfo) {
+internal fun ScrollContainer(node: NodeInfo, model: SurfaceModel, size: Size, kids: List<Int>, origin: Offset, scroll: ScrollInfo, sides: List<Float>) {
     val sx = rememberScrollState()
     val sy = rememberScrollState()
     val density = LocalDensity.current.density
@@ -96,7 +98,11 @@ internal fun ScrollContainer(node: NodeInfo, model: SurfaceModel, size: Size, ki
         if (scroll.scrollX) max(scroll.contentWidth, size.width) else size.width,
         if (scroll.scrollY) max(scroll.contentHeight, size.height) else size.height,
     )
-    var m: Modifier = Modifier.fillMaxSize()
+    // VAPP-250: a scroller clips at its padding box (CSS): what scrolls never
+    // shows through its border, or beside a node pinned at the padding edge.
+    var m: Modifier = Modifier.fillMaxSize().drawWithContent {
+        clipRect(sides[3] * density, sides[0] * density, this.size.width - sides[1] * density, this.size.height - sides[2] * density) { this@drawWithContent.drawContent() }
+    }
     if (scroll.scrollY) m = m.verticalScroll(sy)
     if (scroll.scrollX) m = m.horizontalScroll(sx)
     Box(m) {

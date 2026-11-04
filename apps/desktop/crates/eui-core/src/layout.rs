@@ -46,7 +46,7 @@ pub const SKELETON_REDUCED_OPACITY: f64 = 0.6;
 pub const SEARCH_LIST_FADE: f32 = 24.0;
 /// EXP-1548: the narrowest a Table column without a `width` gets (px); a
 /// table whose columns need more than its box scrolls horizontally.
-pub const TABLE_COLUMN_MIN: f32 = 84.0;
+pub const TABLE_COLUMN_MIN: f32 = 96.0;
 
 #[cfg(test)]
 mod tests {
