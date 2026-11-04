@@ -724,6 +724,21 @@ pub fn record(data_dir: &Path, record: RunRecord) {
     save(data_dir, &registry);
 }
 
+/// #EXP-1412: marks the entry [`prune_older_than`] leaves for a run that had
+/// an agent session: no [`RunRecord`] (every build carries it as an unknown
+/// entry, the next prune or a new record of the session drops it), only the
+/// fact that the session did run ([`was_pruned`]).
+const PRUNED_RUN_KEY: &str = "prunedRun";
+
+/// #EXP-1412: the retention prune dropped this session's record of a run that
+/// did start, so "no record" here does not mean it never ran.
+pub fn was_pruned(data_dir: &Path, session_id: &str) -> bool {
+    let _guard = locked(data_dir);
+    load_registry(data_dir).unknown.iter().any(|entry| {
+        entry_session_id(entry) == Some(session_id) && entry.get(PRUNED_RUN_KEY).and_then(serde_json::Value::as_bool) == Some(true)
+    })
+}
+
 /// EXP-886: drop every record whose `recorded_at` is before `cutoff` (unix
 /// seconds) — the "Keep session history" window, applied at boot and when
 /// the setting shrinks. Unknown entries take the same rule where they expose
@@ -734,8 +749,13 @@ pub fn prune_older_than(data_dir: &Path, cutoff: u64) -> usize {
     let _guard = locked(data_dir);
     let mut registry = load_registry(data_dir);
     let before = registry.records.len() + registry.unknown.len();
+    let mut started = Vec::new();
     registry.records.retain(|record| {
-        record.recorded_at >= cutoff || record.host_pid.is_some_and(crate::process::is_alive)
+        let keep = record.recorded_at >= cutoff || record.host_pid.is_some_and(crate::process::is_alive);
+        if !keep && crate::pickup::run_started(record) {
+            started.push(record.session_id.clone());
+        }
+        keep
     });
     registry.unknown.retain(|entry| {
         let live = entry
@@ -746,6 +766,10 @@ pub fn prune_older_than(data_dir: &Path, cutoff: u64) -> usize {
     });
     let removed = before - (registry.records.len() + registry.unknown.len());
     if removed > 0 {
+        let now = now_secs();
+        registry.unknown.extend(started.iter().map(|id| {
+            serde_json::json!({ "sessionId": id, "recordedAt": now, PRUNED_RUN_KEY: true })
+        }));
         save(data_dir, &registry);
         log::info!("run registry: pruned {removed} record(s) past the session history window");
     }

@@ -899,7 +899,6 @@ impl SteerSessionView {
             this.pending_dial = PendingDial(Some(events_tx));
             this.dial_pending(cx);
             this.seed_from_journal(cx);
-            this.seed_stream_slots(cx);
         }
         // EXP-773: a journal source is the whole transcript, already on disk.
         // Fold it into the SAME reducer the wire feeds, then mark the run
@@ -1022,17 +1021,38 @@ impl SteerSessionView {
     /// until a publisher is back, and the screen sat on "The agent is
     /// starting" forever while the transcript was on this disk. The room's
     /// replay (`activity_reset`) replaces it once the run publishes again.
+    ///
+    /// #EXP-1412: the file is read off the UI thread. The memo's slots wait
+    /// for the answer: a journal is fresher and keeps them out.
     fn seed_from_journal(&mut self, cx: &mut gpui::Context<Self>) {
-        if !self.feed.is_empty()
-            || crate::session_data::session(&self.session_id, cx).is_none_or(|row| row.is_ended())
-        {
+        let row = crate::session_data::session(&self.session_id, cx).filter(|_| self.feed.is_empty());
+        let seeds = match row {
+            // The device id is asked for only with a row: no row, no store.
+            Some(row) => may_seed_from_journal(&row, &crate::queries::own_device_id(cx)),
+            None => false,
+        };
+        if !seeds {
+            self.seed_stream_slots(cx);
             return;
         }
-        let Some(events) = steer::read_journal(&crate::coding_flow::coding_data_dir(cx), &self.session_id)
-        else {
+        let data_dir = crate::coding_flow::coding_data_dir(cx);
+        let session_id = self.session_id.clone();
+        let read = cx.background_spawn(async move { steer::read_journal(&data_dir, &session_id) });
+        cx.spawn(async move |this, cx| {
+            let events = read.await.unwrap_or_default();
+            let _ = this.update(cx, |this, cx| this.apply_journal_seed(events, cx));
+        })
+        .detach();
+    }
+
+    /// The journal's answer: too late if the room's replay or a followed
+    /// engine got here first.
+    fn apply_journal_seed(&mut self, events: Vec<steer::frames::ActivityEvent>, cx: &mut gpui::Context<Self>) {
+        if !self.feed.is_empty() || self.feed.is_staging() || !matches!(self.source, FeedSource::Remote { .. }) {
             return;
-        };
+        }
         if events.is_empty() {
+            self.seed_stream_slots(cx);
             return;
         }
         for event in events {
@@ -1041,6 +1061,7 @@ impl SteerSessionView {
         self.refresh_derived();
         self.journal_seeded = true;
         self.list.scroll_to_end();
+        cx.notify();
     }
 
     /// The builtin agent behind this session, for the usage sheet's device
@@ -1871,6 +1892,8 @@ impl SteerSessionView {
                 }
             }
             ViewerEvent::Reset => {
+                // #EXP-1412: the room's replay replaces the journal's seed.
+                self.journal_seeded = false;
                 self.feed.apply_reset();
                 self.staging_started = Some(Instant::now());
                 self.arm_staging_swap(cx);
@@ -9126,6 +9149,11 @@ mod work_elapsed_tests {
     }
 }
 
+/// #EXP-1412: whether a relay view may start from this machine's journal.
+fn may_seed_from_journal(row: &domain::rows::SessionRow, device_id: &str) -> bool {
+    !row.is_ended() && row.on_device(device_id)
+}
+
 #[cfg(test)]
 mod tests {
     /// EXP-1266: the transcript menu's Copy dispatches after the native menu
@@ -9161,6 +9189,21 @@ mod tests {
         assert!(!follows_engine(false, false), "our own engine is still live");
         assert!(!follows_engine(true, true), "nothing live to follow");
         assert!(!follows_engine(false, true));
+    }
+    /// #EXP-1412: only a live row hosted by this device seeds from its local
+    /// journal: a moved session's transcript here is stale.
+    #[test]
+    fn a_journal_seed_needs_a_live_row_on_this_device() {
+        let row = |status: &str, device: Option<&str>| domain::rows::SessionRow {
+            status: Some(status.to_string()),
+            device_id: device.map(str::to_string),
+            ..domain::rows::SessionRow::default()
+        };
+        assert!(super::may_seed_from_journal(&row("idle", Some("here")), "here"));
+        assert!(super::may_seed_from_journal(&row("running", Some("here")), "here"));
+        assert!(!super::may_seed_from_journal(&row("idle", Some("there")), "here"));
+        assert!(!super::may_seed_from_journal(&row("idle", None), "here"));
+        assert!(!super::may_seed_from_journal(&row("ended", Some("here")), "here"));
     }
     #[test]
     fn synthetic_row_ids_stay_below_the_working_row() {

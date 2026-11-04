@@ -2232,21 +2232,35 @@ fn missing_base_branch(error: &str) -> Option<&str> {
 /// through [`resume_session`]'s no-record leg, and that run's first report
 /// clears the flag.
 fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps) {
-    let reason = start_failure(error);
     log::warn!("pickup: session {session_id} failed to start: {error}");
-    if let Err(err) = device_reply(&deps.coding.trpc, session_id, &reason) {
+    say_start_failed(&deps.coding.trpc, session_id, &start_failure(error), Some(&deps.device_id), || {
+        let tried: Vec<String> =
+            tried.iter().filter(|id| locked(&deps.live.consuming).insert((*id).clone())).cloned().collect();
+        if !tried.is_empty() {
+            if let Err(err) = session_device::consume(&deps.coding.trpc, session_id, &tried) {
+                log::warn!("pickup: tried messages of session {session_id} not consumed yet: {err}");
+                consume_off_thread(deps, session_id, tried, || {});
+            }
+        }
+    });
+}
+
+/// #EXP-1412: how a start that never ran ends, [`fail_start`]'s and
+/// [`settle_unstarted_on`]'s alike: the reason as the session's reply (which
+/// wakes its listeners), `before_report`, then [`start_failed_report`].
+fn say_start_failed(
+    trpc: &api::trpc::TrpcClient,
+    session_id: &str,
+    reason: &str,
+    device_id: Option<&str>,
+    before_report: impl FnOnce(),
+) {
+    if let Err(err) = device_reply(trpc, session_id, reason) {
         log::warn!("pickup: start failure of session {session_id} not replied: {err}");
     }
-    let tried: Vec<String> =
-        tried.iter().filter(|id| locked(&deps.live.consuming).insert((*id).clone())).cloned().collect();
-    if !tried.is_empty() {
-        if let Err(err) = session_device::consume(&deps.coding.trpc, session_id, &tried) {
-            log::warn!("pickup: tried messages of session {session_id} not consumed yet: {err}");
-            consume_off_thread(deps, session_id, tried, || {});
-        }
-    }
-    let report = start_failed_report(Some(&deps.device_id), &crate::agent_accounts::now_iso());
-    if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
+    before_report();
+    let report = start_failed_report(device_id, &crate::agent_accounts::now_iso());
+    if let Err(err) = session_device::report(trpc, session_id, &report) {
         log::warn!("pickup: failed start of session {session_id} not reported: {err}");
     }
 }
@@ -2693,7 +2707,7 @@ pub enum ReclaimStep {
     Waiting,
     /// EXP-1374 (FEED-135): claimed by the process that left it, never
     /// spawned (no run record here: the claim consumed its first message,
-    /// the worktree or the spawn never came): [`settle_unstarted`] says so
+    /// the worktree or the spawn never came): [`settle_unstarted_on`] says so
     /// and idles it, so the sender learns it never ran.
     Unstarted,
 }
@@ -2705,12 +2719,17 @@ pub enum ReclaimStep {
 /// a session (the host restarted or the spawn died mid-start) names nothing
 /// to continue: the claim consumed its first message and no turn ran, so it
 /// is [`ReclaimStep::Unstarted`] — said and idled — never a silent idle.
+///
+/// #EXP-1412: a record the retention prune dropped counts: that run did start.
 pub fn reclaim_recorded(data_dir: &std::path::Path, session_id: &str) -> bool {
-    crate::run_registry::get(data_dir, session_id).is_some_and(|record| run_started(&record))
+    crate::run_registry::get(data_dir, session_id).map_or_else(
+        || crate::run_registry::was_pruned(data_dir, session_id),
+        |record| run_started(&record),
+    )
 }
 
 /// FEED-153: the record names an agent session (see [`reclaim_recorded`]).
-fn run_started(record: &RunRecord) -> bool {
+pub(crate) fn run_started(record: &RunRecord) -> bool {
     let set = |id: &Option<String>| id.as_deref().is_some_and(|id| !id.trim().is_empty());
     set(&record.acp_session_id) || set(&record.agent_native_session_id)
 }
@@ -2738,23 +2757,12 @@ pub const UNSTARTED_REPLY: &str = "Could not start: the runner restarted before 
 /// [`ReclaimStep::Unstarted`]: replied ([`UNSTARTED_REPLY`], waking its
 /// listeners like any refusal), then reported idle AND failed
 /// ([`start_failed_report`], EXP-1542): `Couldn't start` under Needs you
-/// like every other failed start, never plain Idle. Prefer [`settle_unstarted_on`]:
-/// without the device id the idle skips the server's stale-host guard.
-pub fn settle_unstarted(trpc: &api::trpc::TrpcClient, session_id: &str) {
-    settle_unstarted_on(trpc, session_id, None);
-}
-
-/// [`settle_unstarted`] stamped with THIS host's device id (EXP-1252), so
-/// a stale copy of a session that moved to another device idles nothing.
+/// like every other failed start, never plain Idle. Stamped with THIS host's
+/// device id (EXP-1252), so a stale copy of a session that moved to another
+/// device idles nothing.
 pub fn settle_unstarted_on(trpc: &api::trpc::TrpcClient, session_id: &str, device_id: Option<&str>) {
     log::warn!("pickup: session {session_id} was claimed but never started here");
-    if let Err(err) = device_reply(trpc, session_id, UNSTARTED_REPLY) {
-        log::warn!("pickup: unstarted session {session_id} not replied: {err}");
-    }
-    let report = start_failed_report(device_id, &crate::agent_accounts::now_iso());
-    if let Err(err) = session_device::report(trpc, session_id, &report) {
-        log::warn!("pickup: unstarted session {session_id} not reported: {err}");
-    }
+    say_start_failed(trpc, session_id, UNSTARTED_REPLY, device_id, || {});
 }
 
 /// NEW-5: the continuation turn a session gets when its host restarted
@@ -4154,6 +4162,55 @@ mod tests {
             RunRecord { agent_native_session_id: Some("native-1".to_string()), ..record(&dir.0, "s2") },
         );
         assert!(reclaim_recorded(&dir.0, "s2"));
+    }
+
+    /// #EXP-1412: a long run whose record "Keep session history" pruned did
+    /// start: never "Could not start". A pruned record that never had an
+    /// agent session leaves nothing, and a new record of the session (a
+    /// fresh claim, not started yet) replaces the mark.
+    #[test]
+    fn a_pruned_run_is_not_unstarted() {
+        let dir = temp_dir("pickup-reclaim-pruned");
+        let aged = |id: &str, acp: Option<&str>| RunRecord {
+            acp_session_id: acp.map(str::to_string),
+            host_pid: None,
+            recorded_at: 1,
+            ..record(&dir.0, id)
+        };
+        crate::run_registry::record(&dir.0, aged("ran", Some("acp-1")));
+        crate::run_registry::record(&dir.0, aged("prepared", None));
+        assert_eq!(crate::run_registry::prune_older_than(&dir.0, 100), 2);
+        assert!(crate::run_registry::get(&dir.0, "ran").is_none());
+        assert!(reclaim_recorded(&dir.0, "ran"));
+        assert!(!reclaim_recorded(&dir.0, "prepared"));
+        assert!(!reclaim_recorded(&dir.0, "other"));
+        let row = |id: &str, status: &str, busy: bool| SessionRow {
+            id: id.to_string(),
+            status: Some(status.to_string()),
+            busy,
+            ..SessionRow::default()
+        };
+        let step = |row: &SessionRow| reclaim_step(row, false, reclaim_recorded(&dir.0, &row.id));
+        assert_eq!(step(&row("ran", "running", false)), ReclaimStep::Idle);
+        assert_eq!(step(&row("ran", "running", true)), ReclaimStep::Continue);
+        assert_eq!(step(&row("prepared", "running", false)), ReclaimStep::Unstarted);
+        // No run to continue from: the mid-turn leg idles it, in silence.
+        assert!(crate::run_registry::get(&dir.0, "ran").is_none());
+        crate::run_registry::record(&dir.0, record(&dir.0, "ran"));
+        assert!(!reclaim_recorded(&dir.0, "ran"), "a new record replaces the mark");
+    }
+
+    /// #EXP-1412: a busy row with no record and a pending input replays; it
+    /// never says "Could not start" (the replay starts it).
+    #[test]
+    fn a_busy_row_with_no_record_and_a_pending_input_replays() {
+        let row = SessionRow {
+            id: "s".to_string(),
+            status: Some("running".to_string()),
+            busy: true,
+            ..SessionRow::default()
+        };
+        assert_eq!(reclaim_step(&row, true, false), ReclaimStep::Replay);
     }
 
     /// EXP-1341: a pending message wakes a persistent root through Resume
