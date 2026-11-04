@@ -94,12 +94,16 @@ public enum Chats {
         }
         public enum Team {
             /// `{members}` / `{boards}`.
-            public static let meta = "{members} members · {boards} boards"
+            public static let meta = "{members} · {boards}"
+            public static let member = "member"
+            public static let members = "members"
+            public static let board = "board"
+            public static let boards = "boards"
             public static let `switch` = "Teams"
 
             public static func metaLine(members: Int, boards: Int) -> String {
-                meta.replacingOccurrences(of: "{members}", with: String(members))
-                    .replacingOccurrences(of: "{boards}", with: String(boards))
+                meta.replacingOccurrences(of: "{members}", with: "\(members) \(members == 1 ? member : Self.members)")
+                    .replacingOccurrences(of: "{boards}", with: "\(boards) \(boards == 1 ? board : Self.boards)")
             }
         }
         public static let inbox = "Inbox"

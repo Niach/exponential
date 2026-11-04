@@ -26,13 +26,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.domain.Apps
+import com.exponential.app.ui.components.ChatMenuItem
+import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.icons.ExpIcons
@@ -96,6 +96,7 @@ fun AppRunScreen(
                     menu = if (entry != null && (canManage || entry.publishedVersion > 0)) {
                         {
                             AppRunMenu(
+                                title = entry.name,
                                 canEdit = canManage,
                                 canExport = entry.publishedVersion > 0,
                                 canDelete = canManage,
@@ -168,9 +169,11 @@ fun AppRunScreen(
     }
 }
 
-/** VAPP-242 `run.menu`: Edit app, Export, Delete app (in that order). */
+/** VAPP-242 `run.menu`: Edit app, Export, Delete app (in that order), THE
+ *  Menu's bottom sheet titled by the app. */
 @Composable
 private fun AppRunMenu(
+    title: String,
     canEdit: Boolean,
     canExport: Boolean,
     canDelete: Boolean,
@@ -187,41 +190,48 @@ private fun AppRunMenu(
             borderless = true,
             modifier = Modifier.padding(end = 8.dp).testTag(Apps.TestIds.RUN_MENU),
         )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (canEdit) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                    text = { Text(Apps.Copy.MENU_EDIT) },
-                    onClick = {
-                        open = false
-                        onEdit()
-                    },
-                    modifier = Modifier.testTag("app-run-edit"),
+    }
+    if (open) {
+        ChatMenuSheet(
+            title = title,
+            onDismiss = { open = false },
+            testTag = "app-menu-sheet",
+            items = buildList {
+                if (canEdit) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_EDIT,
+                        icon = ExpIcons.uiEdit,
+                        onClick = {
+                            open = false
+                            onEdit()
+                        },
+                        testTag = "app-run-edit",
+                    ),
                 )
-            }
-            if (canExport) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
-                    text = { Text(Apps.Copy.MENU_EXPORT) },
-                    onClick = {
-                        open = false
-                        onExport()
-                    },
-                    modifier = Modifier.testTag("app-run-export"),
+                if (canExport) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_EXPORT,
+                        icon = ExpIcons.uiShare,
+                        onClick = {
+                            open = false
+                            onExport()
+                        },
+                        testTag = "app-run-export",
+                    ),
                 )
-            }
-            if (canDelete) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                    text = { Text(Apps.Copy.MENU_DELETE) },
-                    destructive = true,
-                    onClick = {
-                        open = false
-                        onDelete()
-                    },
-                    modifier = Modifier.testTag("app-run-delete"),
+                if (canDelete) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_DELETE,
+                        icon = ExpIcons.uiDelete,
+                        onClick = {
+                            open = false
+                            onDelete()
+                        },
+                        destructive = true,
+                        testTag = "app-run-delete",
+                    ),
                 )
-            }
-        }
+            },
+        )
     }
 }

@@ -45,6 +45,8 @@ export interface DevicePickerProps extends PickerSurfaceProps {
    *  Exponential), marked while `value` is null (the Picker's none row). */
   noneLabel?: string
   onNone?: () => void
+  /** The trigger's text while nothing is picked. */
+  triggerLabel?: string
 }
 
 export function devicePickerItems(devices: readonly DevicePickerDevice[]): PickerItem[] {

@@ -7,6 +7,7 @@ import { APPS_COPY, APPS_PREVIEW, APPS_SCREENS, APPS_TEST_IDS, previewTemplate, 
 import { appReactExtension, conceptIcon, EmptyState, PhoneTab, PhoneTabBar, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@exp/ui"
 import { AppSurfaceBoundary } from "@/components/apps/app-surface-boundary"
 import { ConsentCard, HostBanner, createAppHost, createConsentGate, type AppHostOptions } from "@/lib/exponential-ui-host"
+import { useIssueRefs } from "@/components/issue-ref-provider"
 import type { ScreenRequest } from "@/lib/app-screens"
 
 /** VAPP-198: who the preview runs as. */
@@ -66,7 +67,15 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
     [consent, router, pkg, appId, teamId, me, runAs, hasShell, migrateFrom]
   )
   // VAPP-221: a FileUpload's bytes go to the app host (apps.json `appFiles`).
-  const plugin = useMemo(() => ({ icons: exponentialUiIcons, onUpload: (files: File[], target: { name: string }) => host.upload(files, target) }), [host])
+  // #EXP-1674: `textLinks` reads the issues at paint time and nothing else
+  // repaints a surface when they sync, so a new plugin repaints it (the team
+  // layout's IssueRefProvider already holds the query; no surface state resets).
+  const issueCount = useIssueRefs()?.rows.length ?? 0
+  const plugin = useMemo(
+    () => ({ icons: exponentialUiIcons, onUpload: (files: File[], target: { name: string }) => host.upload(files, target) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [host, issueCount]
+  )
   const [appliedHost, setAppliedHost] = useState<typeof host | null>(null)
   useEffect(() => {
     if (templateId) {
@@ -102,10 +111,10 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
 
 /** The frame's classes and the outer centring (the run view has neither
  *  border nor radius; the Phone frame is `phoneWidth` px, centred). */
-function previewFrame(variant: `frame` | `run`, frame: `desktop` | `phone`, className: string | undefined) {
+function previewFrame(variant: `frame` | `run`, frame: `desktop` | `phone`, className: string | undefined, phone = false) {
   const run = variant === `run`
   return {
-    frameClass: `relative min-h-0 bg-background ${run ? `` : `rounded-[12px] border border-border`} ${frame === `desktop` ? `flex-1 ${className ?? ``}` : `shrink-0`}`,
+    frameClass: `relative min-h-0 ${run && phone ? `` : `bg-background`} ${run ? `` : `rounded-[12px] border border-border`} ${frame === `desktop` ? `flex-1 ${className ?? ``}` : `shrink-0`}`,
     frameStyle: {
       ...(run ? {} : { borderRadius: APPS_PREVIEW.radius }),
       ...(frame === `phone` ? { width: APPS_PREVIEW.phoneWidth, maxWidth: `100%` } : {}),
@@ -152,9 +161,9 @@ type AppPreviewProps = {
 }
 
 export function AppPreview(props: AppPreviewProps) {
-  const { pkg, template = null, screen = null, frame = `desktop`, variant = `frame`, className, glyph = NavAppsIcon } = props
+  const { pkg, template = null, screen = null, frame = `desktop`, variant = `frame`, phone = false, className, glyph = NavAppsIcon } = props
   const resetKey = useMemo(() => JSON.stringify([pkg, template, screen]), [pkg, template, screen])
-  const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className)
+  const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className, phone)
   return (
     <AppSurfaceBoundary
       resetKey={resetKey}
@@ -216,7 +225,7 @@ function AppPreviewBody({
     </div>
   )
   const open = (id: string) => onScreen?.({ screen: id, params: {} })
-  const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className)
+  const { frameClass, frameStyle, testId, outer } = previewFrame(variant, frame, className, phone)
   const surface = !shell || !resolved ? (
     <div className={`${frameClass} overflow-y-auto`} style={{ ...frameStyle, padding: APPS_PREVIEW.padding }} data-testid={testId}>
       {content}

@@ -725,6 +725,8 @@ data class ChatMenuItem(
     /** #EXP-1611: non-null = a submenu entry; a pick PUSHES these rows as
      *  the menu's page (the header `…`'s Checks). */
     val submenu: List<ChatMenuItem>? = null,
+    /** The muted trailing meta (the app editor's Versions count). */
+    val meta: String? = null,
 )
 
 /** The icon CONCEPT of a chat menu entry (chats.json `menuCases`). */
@@ -749,8 +751,9 @@ fun ChatMenuSheet(
     title: String,
     items: List<ChatMenuItem>,
     onDismiss: () -> Unit,
+    testTag: String = "chat-menu",
 ) {
-    GlassSheet(title = title, onDismiss = onDismiss, modifier = Modifier.testTag("chat-menu")) {
+    GlassSheet(title = title, onDismiss = onDismiss, modifier = Modifier.testTag(testTag)) {
         ChatMenuRows(items)
         Spacer(Modifier.height(16.dp))
     }
@@ -776,6 +779,15 @@ fun ChatMenuRows(items: List<ChatMenuItem>) {
                     onClick = item.onClick,
                     labelColor = if (item.destructive) MaterialTheme.colorScheme.error else Color.White.copy(alpha = 0.9f),
                     leading = { Icon(item.icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp)) },
+                    trailing = item.meta?.let { meta ->
+                        {
+                            Text(
+                                meta,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
+                    },
                 )
             }
         }

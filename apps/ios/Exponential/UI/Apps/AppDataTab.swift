@@ -608,7 +608,16 @@ struct AppRecordFormSheet: View {
             },
             title: title
         ) {
-            GlassPickerRowLabel(title, value: shown)
+            // The field's label sits above (`label(_:)`), the row reads the value.
+            HStack(spacing: 8) {
+                Text(shown)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                AppIcon(AppIcons.uiChevronRight, size: 12)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
                 .font(.subheadline)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)

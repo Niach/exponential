@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import { CHATS_COPY } from "@exp/domain-contract/chats"
+import { CHATS_COPY, teamMeta } from "@exp/domain-contract/chats"
 import {
   SETTINGS_NAV_PHONE_ROWS,
   SETTINGS_NAV_ROWS,
@@ -78,13 +78,6 @@ const ReportBugIcon = conceptIcon(`nav-report-bug`)
 const SignOutIcon = conceptIcon(`nav-sign-out`)
 
 const ROW = `flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left text-[15px] text-foreground outline-none transition-colors duration-fast active:bg-glass-active/50 focus-visible:bg-glass-active/50`
-
-/** `copy.team.meta`: `{members} members · {boards} boards`. */
-export function teamMeta(members: number, boards: number): string {
-  return CHATS_COPY.team.meta
-    .replace(`{members}`, String(members))
-    .replace(`{boards}`, String(boards))
-}
 
 /** The team ids holding an unread notification: an issue-less row names
  *  its team, an issue row resolves through its issue's board. */

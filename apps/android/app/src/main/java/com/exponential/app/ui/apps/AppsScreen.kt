@@ -40,13 +40,13 @@ import com.exponential.app.domain.Apps
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.ChatMenuItem
+import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
@@ -256,46 +256,53 @@ private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onEdit: () -> Unit
             size = 32.dp,
             modifier = Modifier.testTag("${Apps.TestIds.ROW}-menu-${app.slug}"),
         )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+    }
+    if (open) {
+        ChatMenuSheet(
+            title = app.name,
+            onDismiss = { open = false },
+            testTag = "app-menu-sheet",
             // VAPP-242 (`run.menu`): Edit app first (the creator or an owner).
-            if (canManage) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                    text = { Text(Apps.Copy.MENU_EDIT) },
-                    onClick = {
-                        open = false
-                        onEdit()
-                    },
-                    modifier = Modifier.testTag("apps-row-edit"),
+            items = buildList {
+                if (canManage) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_EDIT,
+                        icon = ExpIcons.uiEdit,
+                        onClick = {
+                            open = false
+                            onEdit()
+                        },
+                        testTag = "apps-row-edit",
+                    ),
                 )
-            }
-            if (app.publishedVersion > 0) {
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
-                    text = { Text(AppExport.Copy.EXPORT) },
-                    onClick = {
-                        open = false
-                        onExport()
-                    },
+                if (app.publishedVersion > 0) add(
+                    ChatMenuItem(
+                        label = AppExport.Copy.EXPORT,
+                        icon = ExpIcons.uiShare,
+                        onClick = {
+                            open = false
+                            onExport()
+                        },
+                    ),
                 )
-            }
-            if (canManage) {
-            GlassMenuItem(
-                leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                text = { Text(Apps.Copy.MENU_DELETE) },
-                destructive = true,
-                onClick = {
-                    open = false
-                    onDelete()
-                },
-            )
-            }
-        }
+                if (canManage) add(
+                    ChatMenuItem(
+                        label = Apps.Copy.MENU_DELETE,
+                        icon = ExpIcons.uiDelete,
+                        onClick = {
+                            open = false
+                            onDelete()
+                        },
+                        destructive = true,
+                    ),
+                )
+            },
+        )
     }
 }
 
 /** VAPP-242 THE NEW MENU (`run.newMenu`, testId `newMenu`): the band's
- *  `New app` pill opens the existing menu: New app (ui-add), Import… (ui-file). */
+ *  `New app` pill opens THE Menu's bottom sheet: New app (ui-add), Import… (ui-file). */
 @Composable
 private fun AppsNewMenu(onNew: () -> Unit, onImport: () -> Unit, creating: Boolean) {
     var open by remember { mutableStateOf(false) }
@@ -308,30 +315,37 @@ private fun AppsNewMenu(onNew: () -> Unit, onImport: () -> Unit, creating: Boole
             enabled = !creating,
             modifier = Modifier.testTag(Apps.TestIds.NEW_APP),
         )
-        GlassDropdownMenu(
-            expanded = open,
-            onDismissRequest = { open = false },
-            modifier = Modifier.testTag(Apps.TestIds.NEW_MENU),
-        ) {
-            GlassMenuItem(
-                leadingIcon = { Icon(ExpIcons.uiAdd, contentDescription = null) },
-                text = { Text(Apps.Copy.NEW_APP) },
-                onClick = {
-                    open = false
-                    onNew()
-                },
-                modifier = Modifier.testTag("apps-new-menu-new"),
-            )
-            GlassMenuItem(
-                leadingIcon = { Icon(ExpIcons.uiFile, contentDescription = null) },
-                text = { Text(Apps.Copy.IMPORT) },
-                onClick = {
-                    open = false
-                    onImport()
-                },
-                modifier = Modifier.testTag(Apps.TestIds.IMPORT_APP),
-            )
-        }
+    }
+    if (open) {
+        ChatMenuSheet(
+            title = Apps.Copy.NEW_APP,
+            onDismiss = { open = false },
+            testTag = Apps.TestIds.NEW_MENU,
+            items = buildList {
+                add(
+                    ChatMenuItem(
+                        label = Apps.Copy.NEW_APP,
+                        icon = ExpIcons.uiAdd,
+                        onClick = {
+                            open = false
+                            onNew()
+                        },
+                        testTag = "apps-new-menu-new",
+                    ),
+                )
+                add(
+                    ChatMenuItem(
+                        label = Apps.Copy.IMPORT,
+                        icon = ExpIcons.uiFile,
+                        onClick = {
+                            open = false
+                            onImport()
+                        },
+                        testTag = Apps.TestIds.IMPORT_APP,
+                    ),
+                )
+            },
+        )
     }
 }
 

@@ -16,7 +16,7 @@
 // probes it to detect the sign-in kind, so the owner only confirms a name.
 // Everything technical (auth override, transport, header/env names, scopes)
 // hides behind "Advanced".
-import { useEffect, useMemo, useRef, useState } from "react"
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
@@ -87,6 +87,8 @@ import {
   nameFromUrl,
   sameMcpUrl,
   validateMcpServerDraft,
+  mcpDialogLine,
+  type McpDialogField,
   type McpServerDraft,
   type McpServerRow,
 } from "@/lib/mcp-servers"
@@ -1063,6 +1065,7 @@ function RunsOnRow({ value, current, onChange }: { value: string | null; current
       noneLabel={SETTINGS_MCP.runsOnServer}
       onNone={() => onChange(null)}
       devices={devices}
+      triggerLabel={SETTINGS_MCP.runsOnServer}
       emptyText="No devices"
       data-testid="mcp-runs-on"
     />
@@ -1109,6 +1112,16 @@ function McpServerDialog({
     setDraft((current) => ({ ...current, ...fields }))
   const http = draft.transport === `http`
   const validation = validateMcpServerDraft(draft)
+  const [touched, setTouched] = useState<ReadonlySet<McpDialogField>>(() => new Set())
+  const [attempted, setAttempted] = useState(false)
+  const touch = (field: McpDialogField) => setTouched((current) => new Set(current).add(field))
+  const fieldEvents = (field: McpDialogField) => ({
+    onBlur: () => touch(field),
+    onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === `Enter`) setAttempted(true)
+    },
+  })
+  const line = mcpDialogLine(draft, touched, attempted)
   const authOptions: PickerItem[] = [
     { value: `none`, label: MCP_AUTH_LABELS.none },
     ...(http ? [{ value: `oauth`, label: MCP_AUTH_LABELS.oauth }] : []),
@@ -1138,6 +1151,8 @@ function McpServerDialog({
                 setNote(picked.note)
                 setFocus(picked.focus ?? null)
                 setAdvanced(false)
+                setTouched(new Set())
+                setAttempted(false)
                 setStep(`form`)
               }}
               onManual={() => {
@@ -1147,6 +1162,8 @@ function McpServerDialog({
                 })
                 setNote(null)
                 setAdvanced(true)
+                setTouched(new Set())
+                setAttempted(false)
                 setStep(`form`)
               }}
             />
@@ -1163,7 +1180,11 @@ function McpServerDialog({
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
-                onChange={(event) => patch({ name: event.target.value })}
+                {...fieldEvents(`name`)}
+                onChange={(event) => {
+                  touch(`name`)
+                  patch({ name: event.target.value })
+                }}
               />
               {http && (
                 <GlassInputRow
@@ -1177,7 +1198,11 @@ function McpServerDialog({
                   inputMode="url"
                   // A template pick: the host is what the owner types next.
                   autoFocus={focus === `url`}
-                  onChange={(event) => patch({ url: event.target.value })}
+                  {...fieldEvents(`url`)}
+                  onChange={(event) => {
+                    touch(`url`)
+                    patch({ url: event.target.value })
+                  }}
                 />
               )}
               <RunsOnRow value={draft.deviceId} current={currentDevice} onChange={(deviceId) => patch({ deviceId })} />
@@ -1254,7 +1279,11 @@ function McpServerDialog({
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    onChange={(event) => patch({ command: event.target.value })}
+                    {...fieldEvents(`command`)}
+                    onChange={(event) => {
+                      touch(`command`)
+                      patch({ command: event.target.value })
+                    }}
                   />
                 )}
                 {!http && (
@@ -1295,7 +1324,7 @@ function McpServerDialog({
                 )}
               </GlassGroup>
             )}
-            <FieldError className="px-1">{error ?? validation}</FieldError>
+            <FieldError className="px-1">{error ?? line}</FieldError>
           </DialogBody>
         )}
 
@@ -1313,18 +1342,22 @@ function McpServerDialog({
           ) : null}
           <DialogCancel disabled={busy} />
           {step === `form` && (
-            <Button
-              disabled={validation !== null}
-              pending={busy}
-              pendingLabel={FEEDBACK_WORDS.pending.save}
-              onClick={() => onSubmit(draft)}
-            >
-              {mode === `edit`
-                ? `Save`
-                : draft.auth === `oauth`
-                  ? `Save and connect`
-                  : `Add server`}
-            </Button>
+            // A press on the disabled button counts as trying to submit.
+            <span className="flex" onPointerDown={() => setAttempted(true)}>
+              <Button
+                className="flex-1"
+                disabled={validation !== null}
+                pending={busy}
+                pendingLabel={FEEDBACK_WORDS.pending.save}
+                onClick={() => onSubmit(draft)}
+              >
+                {mode === `edit`
+                  ? `Save`
+                  : draft.auth === `oauth`
+                    ? `Save and connect`
+                    : `Add server`}
+              </Button>
+            </span>
           )}
         </DialogFooter>
       </DialogContent>

@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest"
-import { isTeamMcp, sharedSummary } from "@/lib/mcp-servers"
+import fixture from "@exp/domain-contract/fixtures/settings-mcp.json"
+import { EMPTY_MCP_SERVER_DRAFT, type McpDialogField, type McpServerDraft, mcpDialogLine, isTeamMcp, sharedSummary } from "@/lib/mcp-servers"
 
 // FEED-73: shared MCP connections. A team MCP = no sign-in, or at least one
 // member shares their connection.
+
+describe(`mcpDialogLine`, () => {
+  for (const c of fixture.dialogLineCases) {
+    it(c.name, () => {
+      const draft = { ...EMPTY_MCP_SERVER_DRAFT, ...c.draft } as McpServerDraft
+      const line = mcpDialogLine(draft, new Set(c.touched as McpDialogField[]), c.attempted)
+      expect(line !== null).toBe(c.shows)
+    })
+  }
+})
 
 describe(`isTeamMcp`, () => {
   it(`counts a no-sign-in server and a shared one, never an unshared sign-in`, () => {

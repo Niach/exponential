@@ -350,7 +350,7 @@ public enum AppRecords {
         /// The wide table's fixed columns (pt); phones draw no table.
         public enum Columns {
             public static let byWidth: Double = 96
-            public static let updatedWidth: Double = 88
+            public static let updatedWidth: Double = 112
             public static let menuWidth: Double = 40
             public static let minWidth: Double = 64
             public static let gap: Double = 8
