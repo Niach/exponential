@@ -86,6 +86,8 @@ import com.exponential.app.domain.Skills
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenTestId
+import com.exponential.app.ui.styleguide.TeamAvatarSpecimenScreen
+import com.exponential.app.ui.styleguide.TeamAvatarSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenTestId
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenScreen
@@ -235,6 +237,8 @@ class StyleguideScreenshotsTest {
             // #EXP-1611: the Merge pill's check states + the Checks submenu.
             "sg_pr-checks",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
+            // #EXP-1645: the team mark and the General row.
+            "sg_team-avatar",
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
             "sg_chat-selection",
@@ -1751,6 +1755,8 @@ class StyleguideScreenshotsTest {
         // #EXP-1384: the board menu open over its strip, the page header.
         show(PhoneBoardMenuSpecimenTestId) { PhoneBoardMenuSpecimenScreen() }
         flow.screenshot("sg_phone-board-menu")
+        show(TeamAvatarSpecimenTestId) { TeamAvatarSpecimenScreen() }
+        flow.screenshot("sg_team-avatar")
         show(PhonePageHeaderSpecimenTestId) { PhonePageHeaderSpecimenScreen() }
         flow.screenshot("sg_phone-page-header")
         // --- sg_app-consent (VAPP-120, app-actions.json): the consent card an

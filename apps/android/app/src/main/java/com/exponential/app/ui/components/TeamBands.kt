@@ -1,6 +1,9 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -34,7 +37,7 @@ fun <T> teamBands(
     return if (orphans.isEmpty()) known else known + TeamBand(null, orphans)
 }
 
-/** EXP-1186: the team band — THE section header, led by the team avatar. */
+/** EXP-1186: the team band — THE section header, led by the team mark. */
 @Composable
 fun TeamSectionHeader(
     team: TeamEntity,
@@ -44,7 +47,14 @@ fun TeamSectionHeader(
     SectionHeader(
         team.name,
         modifier = modifier.testTag("team-band"),
-        leading = { TeamAvatar(team, size = 16.dp) },
+        leading = {
+            // #EXP-1645: the glyph takes the band title's colour.
+            CompositionLocalProvider(
+                LocalContentColor provides MaterialTheme.colorScheme.onSurface.copy(alpha = SectionBandTitleAlpha),
+            ) {
+                TeamAvatar(team.iconUrl, size = 16.dp)
+            }
+        },
         trailing = trailing,
     )
 }

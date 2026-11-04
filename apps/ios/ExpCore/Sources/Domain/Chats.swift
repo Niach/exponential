@@ -26,6 +26,7 @@ public enum Chats {
         }
         public enum BoardMenu {
             public static let newBoard = "New board"
+            public static let newTeam = "New team"
         }
         public enum Filters {
             public static let all = "All"
@@ -230,6 +231,7 @@ public enum Chats {
         public enum BoardTab {
             public static let caret = "nav-team-switcher"
             public static let caretSize: Double = 10
+            public static let caretGap: Double = 2
         }
 
         /// `shell.boardMenu` (motion tokens by name).

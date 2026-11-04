@@ -254,7 +254,7 @@ export function TeamSidebar({
                     className="min-w-0 flex-1 h-10"
                     aria-label="Team switcher"
                   >
-                    <TeamAvatar name={team?.name ?? teamSlug} size={28} />
+                    <TeamAvatar iconUrl={team?.iconUrl} size={28} />
                     <span className="text-sm font-semibold truncate">
                       {team?.name ?? teamSlug}
                     </span>
@@ -287,7 +287,7 @@ export function TeamSidebar({
                         else void whileBlocking(blockingLabel(`switchTeam`, ws.name), go)
                       }}
                     >
-                      <TeamAvatar name={ws.name} size={20} />
+                      <TeamAvatar iconUrl={ws.iconUrl} size={20} />
                       <span className="truncate">{ws.name}</span>
                       {ws.slug === teamSlug ? (
                         <UiCheckIcon className="ml-auto h-4 w-4" />

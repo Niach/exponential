@@ -204,6 +204,27 @@ public final class AttachmentsApi: Sendable {
         contentType: String,
         media: MediaUploadParts? = nil
     ) async throws -> UploadedAttachment {
+        let responseData = try await post(
+            accountId: accountId,
+            path: path,
+            data: data,
+            filename: filename,
+            contentType: contentType,
+            media: media
+        )
+        return try JSONDecoder().decode(UploadedAttachment.self, from: responseData)
+    }
+
+    /// The authed multipart POST every upload route shares; answers the 2xx body.
+    /// Internal (not private): `AttachmentsApi+TeamImage.swift` posts through it.
+    func post(
+        accountId: String,
+        path: String,
+        data: Data,
+        filename: String,
+        contentType: String,
+        media: MediaUploadParts?
+    ) async throws -> Data {
         guard let baseUrl = instanceUrl(for: accountId) else {
             throw AttachmentsError.noInstanceUrl
         }
@@ -235,7 +256,7 @@ public final class AttachmentsApi: Sendable {
             let text = String(data: responseData, encoding: .utf8) ?? ""
             throw AttachmentsError.httpError(response.statusCode, text)
         }
-        return try JSONDecoder().decode(UploadedAttachment.self, from: responseData)
+        return responseData
     }
 
     /// The multipart body of an upload. Hand-rolled: the quoted `name="file"`

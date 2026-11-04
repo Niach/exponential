@@ -114,3 +114,30 @@ struct AttachmentImageLoader {
         return try await URLSession.shared.data(from: resolved).0
     }
 }
+
+extension TeamImageLoader {
+    /// #EXP-1645: the team mark's fetch (team-image.json: "fetched like any
+    /// attachment"): the attachment loader on `accountId`'s instance (the active
+    /// account's when the surrounding view names none), sharing its decoded cache.
+    @MainActor
+    static func signedIn(_ deps: AppDependencies) -> TeamImageLoader {
+        func loader(_ accountId: String) -> AttachmentImageLoader {
+            let account = accountId.isEmpty ? (deps.auth.activeAccountId ?? "") : accountId
+            return AttachmentImageLoader(
+                baseURL: deps.auth.instanceBaseURL(forAccountId: account),
+                accountId: account,
+                httpClient: deps.httpClient,
+                pendingImages: [:]
+            )
+        }
+        return TeamImageLoader(
+            cached: { src, accountId in
+                AttachmentURL.resolve(src, baseURL: loader(accountId).baseURL)
+                    .flatMap { MarkdownImageCache.shared.image(for: $0.absoluteString) }
+            },
+            load: { src, accountId in
+                try? await loader(accountId).load(src)
+            }
+        )
+    }
+}

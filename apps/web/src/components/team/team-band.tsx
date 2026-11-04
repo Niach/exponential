@@ -10,13 +10,13 @@ export function TeamBandHeader({
   team,
   trailing,
 }: {
-  team: Pick<Team, `id` | `name`>
+  team: Pick<Team, `id` | `name` | `iconUrl`>
   trailing?: ReactNode
 }) {
   return (
     <div data-testid={`team-band-${team.id}`}>
       <GlassSectionHeader
-        leading={<TeamAvatar name={team.name} size={16} />}
+        leading={<TeamAvatar iconUrl={team.iconUrl} size={16} />}
         label={team.name}
         trailing={trailing}
       />

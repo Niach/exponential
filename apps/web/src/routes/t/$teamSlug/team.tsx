@@ -287,7 +287,7 @@ function TeamTabPage() {
       >
         <MobilePageHeader teamSlug={teamSlug} title={teamName} />
         <div className="flex flex-col items-center gap-3 pb-2 text-center">
-          <TeamAvatar name={teamName} size={84} />
+          <TeamAvatar iconUrl={team?.iconUrl} size={84} />
           <p className="text-sm text-muted-foreground">{teamMeta(members.length, boards.length)}</p>
         </div>
 
@@ -300,7 +300,7 @@ function TeamTabPage() {
               aria-current={row.slug === teamSlug ? `true` : undefined}
               onClick={() => switchTeam(row.slug, row.name)}
             >
-              <TeamAvatar name={row.name} size={24} />
+              <TeamAvatar iconUrl={row.iconUrl} size={24} />
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
               {row.slug === teamSlug ? (
                 <CheckIcon className="size-5 shrink-0" />

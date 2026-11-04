@@ -330,6 +330,8 @@ pub struct ChatsBar {
 pub struct ChatsBoardTab {
     pub caret: String,
     pub caret_size: f32,
+    /// #EXP-1645: after the glyph's right edge; the caret is out of flow.
+    pub caret_gap: f32,
 }
 
 /// `shell.boardMenu` (#EXP-1384): the strip morphed into the board menu.
