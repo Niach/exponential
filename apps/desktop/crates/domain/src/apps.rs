@@ -161,6 +161,10 @@ pub struct AppsAutomationsCopy {
     pub failed: String,
     pub ok: String,
     pub never: String,
+    /// #VAPP-243: `Runs as {name}`.
+    pub runs_as: String,
+    /// #VAPP-243: a pause's reason, by `sponsorStates` word.
+    pub paused_reasons: std::collections::BTreeMap<String, String>,
 }
 
 /// VAPP-198: `copy.runAs.*`.
@@ -874,6 +878,16 @@ pub fn policy_kinds(records: Option<&serde_json::Value>) -> Vec<String> {
     kinds
 }
 
+/// #VAPP-243 (`automationSponsorCases`): who an automation runs as, or why
+/// it is paused (a pause wins); `None` = the trigger line alone.
+pub fn automation_sponsor(paused: Option<&str>, sponsor_name: Option<&str>) -> Option<String> {
+    let copy = &APPS.copy.automations;
+    if let Some(paused) = paused.filter(|p| !p.is_empty()) {
+        return Some(copy.paused_reasons.get(paused).cloned().unwrap_or_else(|| copy.paused.clone()));
+    }
+    sponsor_name.filter(|n| !n.is_empty()).map(|name| copy.runs_as.replace("{name}", name))
+}
+
 /// `Delete {name}?`.
 pub fn delete_title(name: &str) -> String {
     APPS.copy.delete_title.replace("{name}", name)
@@ -1268,6 +1282,18 @@ mod tests {
         assert_eq!(APPS.test_ids.webhooks, fixture["testIds"]["webhooks"].as_str().unwrap());
         assert_eq!(APPS.test_ids.webhook_row, fixture["testIds"]["webhookRow"].as_str().unwrap());
         assert_eq!(APPS.test_ids.webhook_secret, fixture["testIds"]["webhookSecret"].as_str().unwrap());
+    }
+
+    #[test]
+    fn automation_sponsor_cases_replay() {
+        let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).unwrap();
+        let all = fixture["automationSponsorCases"]["cases"].as_array().unwrap();
+        assert!(!all.is_empty());
+        for case in all {
+            let name = case["name"].as_str().unwrap();
+            let got = automation_sponsor(case["paused"].as_str(), case["sponsorName"].as_str());
+            assert_eq!(got.as_deref(), case["expected"].as_str(), "{name}");
+        }
     }
 
     #[test]

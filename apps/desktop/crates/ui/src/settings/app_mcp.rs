@@ -208,6 +208,12 @@ pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDe
             let view =
                 domain::apps::automation_row(on.as_ref().unwrap_or(&unknown), automation.paused.as_deref(), automation.last_status.as_deref());
             let (trigger, label) = (if on.is_some() { view.trigger } else { String::new() }, view.label);
+            // #VAPP-243: who it runs as, or why it is paused.
+            let trigger = match domain::apps::automation_sponsor(automation.paused.as_deref(), automation.sponsor_name.as_deref()) {
+                Some(sponsor) if trigger.is_empty() => sponsor,
+                Some(sponsor) => format!("{trigger} · {sponsor}"),
+                None => trigger,
+            };
             crate::surface::glass_row_shell()
                 .justify_between()
                 .gap_3()

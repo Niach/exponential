@@ -336,6 +336,13 @@ class AppEditorViewModel @Inject constructor(
         appTools.map { tools -> tools?.automations.orEmpty().mapNotNull { it.toRowInput() } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #VAPP-243: per automation name, who it runs as or why it is paused
+     *  (`Apps.automationSponsor`); absent = the trigger line alone. */
+    val automationSponsors: StateFlow<Map<String, String>> =
+        appTools.map { tools ->
+            tools?.automations.orEmpty().mapNotNull { a -> Apps.automationSponsor(a.paused, a.sponsorName)?.let { a.name to it } }.toMap()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     /** #VAPP-238: the published package's webhooks (package order); empty = no group. */
     val hooks: StateFlow<List<AppHookDto>> =
         appTools.map { it?.hooks.orEmpty() }

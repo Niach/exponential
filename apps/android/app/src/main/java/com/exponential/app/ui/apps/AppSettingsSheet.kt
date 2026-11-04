@@ -85,6 +85,7 @@ internal fun AppSettingsBody(
     val granted by viewModel.grantedTools.collectAsStateWithLifecycle()
     val grantBusy by viewModel.grantBusy.collectAsStateWithLifecycle()
     val automations by viewModel.automations.collectAsStateWithLifecycle()
+    val automationSponsors by viewModel.automationSponsors.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val mcpTools by viewModel.mcpTools.collectAsStateWithLifecycle()
     val mcpToolBusy by viewModel.mcpToolBusy.collectAsStateWithLifecycle()
@@ -421,7 +422,7 @@ internal fun AppSettingsBody(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                row.trigger,
+                                automationSponsors[automation.name]?.let { "${row.trigger} · $it" } ?: row.trigger,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = muted,
                                 maxLines = 1,

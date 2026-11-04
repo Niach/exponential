@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react"
 import { Button, GlassGroup, Pill, Prompt, Switch, toast } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, webhookRow } from "@exp/domain-contract/apps"
+import { accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, automationSponsor, webhookRow } from "@exp/domain-contract/apps"
 import { promptActions, rotateWebhookSecretPrompt } from "@/lib/prompts"
 
 // #VAPP-183: an app's MCP side on its settings page (web + desktop, the
@@ -142,11 +142,12 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
           <GlassGroup>
             {data.automations.map((a) => {
               const row = automationRow(a)
+              const sponsor = automationSponsor(a.paused, a.sponsorName)
               return (
                 <div key={a.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.automationRow}-${a.name}`}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-mono text-sm">{a.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">{row.trigger}</div>
+                    <div className="truncate text-xs text-muted-foreground">{sponsor ? `${row.trigger} · ${sponsor}` : row.trigger}</div>
                   </div>
                   <Pill size="sm" className="shrink-0">
                     {row.label}

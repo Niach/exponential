@@ -152,6 +152,8 @@ data class AppAutomationDto(
     val on: JsonElement? = null,
     val tool: String = "",
     val paused: String? = null,
+    /** #VAPP-243: the member a run acts as (name, else email); null when paused or unknown. */
+    val sponsorName: String? = null,
     val lastRunAt: String? = null,
     val lastStatus: String? = null,
     val lastError: String? = null,

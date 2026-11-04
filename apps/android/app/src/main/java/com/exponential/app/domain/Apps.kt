@@ -89,6 +89,13 @@ object Apps {
         const val FAILED = "Failed"
         const val OK = "OK"
         const val NEVER = "Not run yet"
+        /** #VAPP-243: who a run acts as, or why it is paused. */
+        const val RUNS_AS = "Runs as {name}"
+        val PAUSED_REASONS: Map<String, String> = mapOf(
+            "sponsorGone" to "Its sponsor is no longer on the team",
+            "sponsorReadOnly" to "Its sponsor has read-only access",
+            "sponsorNotAllowed" to "Only an owner can make it run as someone else",
+        )
     }
 
     /** #VAPP-238: the Settings tab's Webhooks group (`copy.webhooks`). */
@@ -340,6 +347,13 @@ object Apps {
             AutomationStatus.NEVER -> AutomationsCopy.NEVER
         }
         return AutomationRow(trigger, status, label)
+    }
+
+    /** #VAPP-243 (`automationSponsorCases`): who an automation runs as, or
+     *  why it is paused (a pause wins); null = the trigger line alone. */
+    fun automationSponsor(paused: String?, sponsorName: String?): String? {
+        if (!paused.isNullOrEmpty()) return AutomationsCopy.PAUSED_REASONS[paused] ?: AutomationsCopy.PAUSED
+        return sponsorName?.takeIf { it.isNotEmpty() }?.let { AutomationsCopy.RUNS_AS.replace("{name}", it) }
     }
 
     // #VAPP-238 (fixture `webhookRowCases`): one row of the Settings tab's

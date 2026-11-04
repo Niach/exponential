@@ -70,6 +70,10 @@ pub struct AppAutomation {
     /// Why it does not run (the sponsor is gone or read-only), else `None`.
     #[serde(default)]
     pub paused: Option<String>,
+    /// #VAPP-243: the member a run acts as (name, else email); `None` when
+    /// paused or unknown.
+    #[serde(default)]
+    pub sponsor_name: Option<String>,
     #[serde(default)]
     pub last_run_at: Option<String>,
     #[serde(default)]

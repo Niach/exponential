@@ -88,8 +88,13 @@ class AppsTest {
             "update" to Apps.AutomationsCopy.UPDATE, "delete" to Apps.AutomationsCopy.DELETE,
             "event" to Apps.AutomationsCopy.EVENT, "webhook" to Apps.AutomationsCopy.WEBHOOK, "paused" to Apps.AutomationsCopy.PAUSED,
             "failed" to Apps.AutomationsCopy.FAILED, "ok" to Apps.AutomationsCopy.OK, "never" to Apps.AutomationsCopy.NEVER,
+            "runsAs" to Apps.AutomationsCopy.RUNS_AS,
         )
-        assertEquals(copy.keys, expectedCopy.keys)
+        assertEquals(copy.keys - "pausedReasons", expectedCopy.keys)
+        assertEquals(
+            copy["pausedReasons"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content },
+            Apps.AutomationsCopy.PAUSED_REASONS,
+        )
         for ((key, value) in expectedCopy) assertEquals(key, copy[key]!!.jsonPrimitive.content, value)
 
         val cases = fixture["automationRowCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
@@ -116,6 +121,21 @@ class AppsTest {
             assertEquals(name, expected["trigger"]!!.jsonPrimitive.content, got.trigger)
             assertEquals(name, expected["status"]!!.jsonPrimitive.content, got.status.wire)
             assertEquals(name, expected["label"]!!.jsonPrimitive.content, got.label)
+        }
+    }
+
+    // #VAPP-243: automationSponsor replays `automationSponsorCases`.
+    @Test
+    fun `automationSponsorCases replay`() {
+        val cases = fixture["automationSponsorCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        fun opt(obj: JsonObject, key: String) = obj[key]?.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+        for (case in cases) {
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                opt(case, "expected"),
+                Apps.automationSponsor(opt(case, "paused"), opt(case, "sponsorName")),
+            )
         }
     }
 
