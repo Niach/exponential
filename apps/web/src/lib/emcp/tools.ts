@@ -703,6 +703,14 @@ export function registerExponentialTools(
   // authenticates the agent). A foreign or vanished id resolves to null and
   // every tool degrades to its header-less behaviour; the header is an
   // identifier, never a credential.
+  /** #EXP-1674: a team page's absolute URL for a reply (null when the team is gone). */
+  async function teamPageUrl(teamId: string, page: string): Promise<string | null> {
+    const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, teamId)).limit(1)
+    if (!team) return null
+    const origin = process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin
+    return `${origin}/t/${encodeURIComponent(team.slug)}/${page}`
+  }
+
   async function loadCallerSession(): Promise<CallerSession | null> {
     if (!sessionId) return null
     const root = alias(sessions, `root`)
@@ -2614,7 +2622,7 @@ export function registerExponentialTools(
         if ((messages ?? 20) > 0 && tree.root.id !== own?.rootId) {
           await markTreesReadBy(db, own?.userId ?? user.id, tree.root.teamId, [tree.root.id], new Date())
         }
-        return ok(tree)
+        return ok({ ...tree, url: await teamPageUrl(tree.root.teamId, `sessions/${tree.root.id}`) })
       } catch (e) {
         return err(e)
       }
@@ -4080,7 +4088,7 @@ export function registerExponentialTools(
       try {
         const result = await caller(user, request).apps.get({ slug, teamId: await appsTeam(teamId), version })
         const { package: _omit, draftPackage: _draft, ...app } = result.app
-        return ok({ ...app, version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package) })
+        return ok({ ...app, url: await teamPageUrl(app.teamId, `apps/${app.slug}`), version: result.version, package: result.package, linkableScreens: linkableScreens(app.slug, result.package) })
       } catch (e) {
         return err(e)
       }

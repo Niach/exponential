@@ -17,6 +17,8 @@ import { resolveTeamAccess } from "@/lib/auth/access"
 import { boardVisible } from "@/lib/board-visibility"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { PR_BODY_MAX, prBodyFromStories } from "@/lib/pr-body"
+import { expandTeamLinksInMarkdown } from "@/lib/app-link"
+import { appBaseUrl } from "@/lib/notification-email-policy"
 import { compareCommitMessages, linkedIssuesOfPullRequest, loadStoryPictures, storiesUrlFor } from "@/lib/pr-stories"
 import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import {
@@ -175,6 +177,13 @@ async function loadRoot(rootId: string): Promise<{ id: string; teamId: string } 
 async function threadUrlFor(teamId: string, rootId: string): Promise<string | null> {
   const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, teamId)).limit(1)
   return team ? storiesUrlFor(team.slug, rootId) : null
+}
+
+/** #EXP-1674: a PR body leaves the app, so its `~/x` links go absolute. */
+async function withAbsoluteLinks(teamId: string, body: string): Promise<string> {
+  if (!body.includes(`](~/`)) return body
+  const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, teamId)).limit(1)
+  return team ? expandTeamLinksInMarkdown(body, team.slug, appBaseUrl()) : body
 }
 
 interface IssueForPr {
@@ -407,7 +416,10 @@ export async function openPullRequest(args: {
       repoFullName: repo.fullName,
       prNumber: existing.number,
       token,
-      fields: { title: args.title, ...(body !== undefined ? { body: body.slice(0, PR_BODY_MAX) } : {}) },
+      fields: {
+        title: args.title,
+        ...(body !== undefined ? { body: (await withAbsoluteLinks(repo.teamId, body)).slice(0, PR_BODY_MAX) } : {}),
+      },
     })
     if (args.draft !== undefined && args.draft !== (existing.state === `draft`)) {
       await setPullRequestDraft({ repo: repo.fullName, prNumber: existing.number, draft: args.draft, token })
@@ -436,7 +448,7 @@ export async function openPullRequest(args: {
       })
     ).base
   if (root) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, pictures, notRun })
-  const body = args.body ?? (root ? await storyBody(base) : ``)
+  const body = await withAbsoluteLinks(repo.teamId, args.body ?? (root ? await storyBody(base) : ``))
 
   // EXP-494: the initiator is claimed BEFORE the GitHub call, so the
   // `opened` webhook (which beats our own write) fires attributed.
@@ -860,7 +872,10 @@ export async function updatePullRequest(args: {
       repoFullName: repo.fullName,
       prNumber: pr.number,
       token,
-      fields: { title: args.title, body: args.body },
+      fields: {
+        title: args.title,
+        body: args.body === undefined ? undefined : await withAbsoluteLinks(repo.teamId, args.body),
+      },
     })
     if (args.title !== undefined) {
       await db
@@ -983,7 +998,7 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
         const token = await tokens.get(pr.repositoryId)!
         const repoFullName = repoFromPrUrl(pr.url)
         if (!token || !repoFullName) continue
-        const body = prBodyFromStories({
+        const storyBody = prBodyFromStories({
           title: pr.title ?? ``,
           issues: await linkedIssuesOfPullRequest(pr.id),
           commits: await compareCommitMessages({ repo: repoFullName, base: pr.base, head: pr.head, token }),
@@ -995,6 +1010,7 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
           notRun: pr.notRun,
           storiesUrl: threadUrl,
         })
+        const body = await withAbsoluteLinks(root.teamId, storyBody)
         await patchPullDescription({ repoFullName, prNumber: pr.number, token, fields: { body } })
       } catch (err) {
         console.warn(`[pull-requests] body sync of ${pr.url} failed`, err)

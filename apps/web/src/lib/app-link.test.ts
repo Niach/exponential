@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { cardLinkOpens, classifyAppLink, isRoutedAppPath, crossAppLink, issueTextLinks, linkOpenOutcome, ROUTED_APP_PREFIXES, type AppLink } from "./app-link"
+import { cardLinkOpens, classifyAppLink, expandTeamLinksInMarkdown, isRoutedAppPath, crossAppLink, issueTextLinks, linkOpenOutcome, ROUTED_APP_PREFIXES, type AppLink } from "./app-link"
 import planCard from "@exp/domain-contract/fixtures/plan-card.json"
 
 // EXP-1188: the ×4 contract — desktop `domain::app_link`, iOS `AppLinkTests`,
@@ -27,6 +27,22 @@ describe(`classifyAppLink`, () => {
       expect(classifyAppLink(c.href, fixture.origin, c.team === undefined ? fixture.team : c.team)).toEqual(c.link)
     })
   }
+})
+
+describe(`expandTeamLinksInMarkdown`, () => {
+  const expand = (markdown: string) => expandTeamLinksInMarkdown(markdown, `acme`, `https://app.example`)
+
+  it(`makes a team link absolute`, () => {
+    expect(expand(`See [the plan](~/sessions/a/plan/b) and [x](~/issues/EXP-1?y=1).`)).toBe(
+      `See [the plan](https://app.example/t/acme/sessions/a/plan/b) and [x](https://app.example/t/acme/issues/EXP-1?y=1).`
+    )
+  })
+
+  it(`leaves code, other links and refused paths as written`, () => {
+    for (const same of [`\`[x](~/inbox)\``, "```\n[x](~/inbox)\n```", `[x](https://a.example/b)`, `[x](~/../admin)`, `~/inbox`]) {
+      expect(expand(same)).toBe(same)
+    }
+  })
 })
 
 describe(`linkOpenOutcome`, () => {
