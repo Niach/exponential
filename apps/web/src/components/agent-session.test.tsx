@@ -43,7 +43,8 @@ vi.mock(`@/components/session-account-switch`, () => ({
 let messages: unknown[] = []
 const answerMutate = vi.fn(async (_input: unknown, _opts?: unknown) => ({ txid: 1 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => messages }))
-vi.mock(`@/hooks/use-open-plan`, () => ({ useOpenPlan: () => () => undefined }))
+const openPlan = vi.hoisted(() => vi.fn())
+vi.mock(`@/hooks/use-open-plan`, () => ({ useOpenPlan: () => openPlan }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { answer: { mutate: answerMutate } } } }))
 vi.mock(`@/lib/collections`, () => ({
   messageCollection: { utils: { awaitTxId: async () => undefined }, get: () => undefined },
@@ -398,7 +399,7 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     settled: true,
   }
 
-  it(`S-3: a waiting card never docks; it answers inline through sessions.answer, never the relay`, () => {
+  it(`#EXP-1662: a waiting plan never docks; it is ONE row that opens the plan tab`, () => {
     messages = [planMessage()]
     snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `Planned.` }, proposeCall] })
     render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
@@ -406,13 +407,11 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     expect(screen.queryByTestId(`dock-card`)).toBeNull()
     expect(screen.getByTestId(`composer`)).toBeTruthy()
     const card = screen.getByTestId(`session-tool-card`)
-    expect(card.textContent).toContain(`Which layout?`)
-    fireEvent.click(within(card).getByTestId(`plan-card-question`).querySelector(`[data-testid="plan-card-option"]`)!)
-    fireEvent.click(card.querySelector(`[data-slot="plan-card-decide"][data-decision="approved"]`)!)
-    expect(answerMutate).toHaveBeenCalledWith(
-      { messageId: `m-plan`, decision: `approved`, answers: { q: [`Two`] } },
-      expect.anything()
-    )
+    expect(card.textContent).toContain(`Plan: Lift the partition`)
+    expect(card.textContent).toContain(`Needs you`)
+    expect(card.textContent).not.toContain(`Which layout?`)
+    fireEvent.click(within(card).getByTestId(`plan-row`))
+    expect(openPlan).toHaveBeenCalledWith(session.id, `m-plan`)
   })
 
   it(`an answered card sits after the call that posted it; an engine card is the relay's`, () => {
