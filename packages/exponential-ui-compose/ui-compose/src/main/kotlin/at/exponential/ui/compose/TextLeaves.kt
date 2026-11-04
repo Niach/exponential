@@ -385,7 +385,8 @@ private val TASK_ON: Props = mapOf("checked" to JsonValue.Bool(true))
  * `Markdown`: the host's renderer when it has one, else the primitives'
  * `MarkdownView` with the measurer's [MarkdownPainter.styles] and fonts,
  * so the painted document is the measured height. Every link href passes
- * the host's URL policy (denied = plain text) and opens through the host;
+ * the host's URL policy (denied = plain text) and opens through the host,
+ * the text its `textLinks` links too (`fixtures/markdown-text-links.json`);
  * block images load through its media policy (denied = a paragraph of the
  * alt text, as the measurer lays it out; failed = the alt text in the box).
  */
@@ -433,6 +434,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             onLink = { model.openHref(it) },
             linkPolicy = remember(model, model.host) { { href: String -> model.href(href) } },
             imagePolicy = remember(model, model.host) { { src: String -> model.mediaRequest(src) != null } },
+            textLinks = { piece -> model.textLinkSegments(piece)?.map { it.text to it.href } },
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)
                 if (picture != null) {

@@ -235,12 +235,15 @@ fun MarkdownView(
     onLink: ((String) -> Unit)? = null,
     linkPolicy: ((String) -> String?)? = null,
     imagePolicy: ((String) -> Boolean)? = null,
+    textLinks: ((String) -> List<Pair<String, String?>>?)? = null,
     image: (@Composable (src: String, alt: String) -> Unit)? = null,
 ) {
-    val blocks = remember(text, linkPolicy, imagePolicy) {
+    val parsed = remember(text, linkPolicy, imagePolicy) {
         val parsed = Markdown.parse(text).let { if (imagePolicy == null) it else Markdown.resolveImages(it, imagePolicy) }
         if (linkPolicy == null) parsed else Markdown.policeLinks(parsed, linkPolicy)
     }
+    // A host's text links read live, like a `hostLinks` Text's.
+    val blocks = if (textLinks == null) parsed else Markdown.linkText(parsed, textLinks)
     val outer = LocalDensity.current
     val pinned = remember(outer.density) { Density(outer.density, 1f) }
     CompositionLocalProvider(LocalDensity provides pinned) {

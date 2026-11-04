@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
 import { CORE_CATALOG_ID, ExponentialHost, MEDIA_LIMITS, MemoryTransport, reduceNested } from "@exponential_app/eui"
 import type { ClientMessage, NestedNode } from "@exponential_app/eui"
+import markdownTextLinks from "@exponential_app/eui/fixtures/markdown-text-links.json"
 import { ExponentialSurface } from "./surface"
 import { HostSurface } from "./host-surface"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -382,4 +383,48 @@ describe(`#EXP-1674: a host's text links in a Row subtitle`, () => {
     paint({ id: `t`, component: `Text`, props: { text: `#A-1` } }, { textLinks: hook })
     expect(hook).not.toHaveBeenCalled()
   })
+})
+
+describe(`fixtures/markdown-text-links.json: a Markdown's text asks the host's text links`, () => {
+  const known: Record<string, string> = markdownTextLinks.known
+  const textLinks = (text: string) => {
+    const segments: { text: string; href?: string }[] = []
+    let at = 0
+    for (const m of text.matchAll(/#([A-Z]+-\d+)/g)) {
+      const href = known[m[1]!]
+      if (!href) continue
+      segments.push({ text: text.slice(at, m.index) }, { text: m[0], href })
+      at = m.index + m[0].length
+    }
+    return segments.length ? [...segments, { text: text.slice(at) }] : null
+  }
+  for (const c of markdownTextLinks.cases) {
+    it(c.name, () => {
+      const root = paint({ id: `m`, component: `Markdown`, props: { text: c.text } }, { textLinks })
+      expect([...root.querySelectorAll(`a`)].map((a) => ({ text: a.textContent, href: a.getAttribute(`href`) }))).toEqual(c.links)
+    })
+  }
+  it(`a tap opens through the host, in the Markdown link's look`, () => {
+    const openUrl = vi.fn()
+    const a = paint({ id: `m`, component: `Markdown`, props: { text: `see #ABC-1` } }, { textLinks, openUrl }).querySelector(`a`)!
+    expect(a.className).toContain(`xui-Markdown-link`)
+    fireEvent.click(a)
+    expect(openUrl).toHaveBeenCalledWith(`https://app.example/i/ABC-1`)
+  })
+  it(`no hook, the plain text`, () => {
+    expect(paint({ id: `m`, component: `Markdown`, props: { text: `see #ABC-1` } }).querySelector(`a`)).toBeNull()
+  })
+})
+
+describe(`an overlay's trigger slot`, () => {
+  for (const [component, props] of [[`Dialog`, { title: `T` }], [`Dialog`, { title: `T`, open: false }], [`Dialog`, { title: `T`, open: { path: `/o` } }], [`Drawer`, { title: `T` }], [`Popover`, {}]] as const) {
+    it(`a Button opens the ${component} ${JSON.stringify(props)}, and still presses`, () => {
+      const onAction = vi.fn()
+      const c = paint({ id: `d`, component, props, slots: { trigger: { id: `t`, component: `Button`, props: { label: `Open` }, on: { press: { event: { name: `pressed` } } } } }, children: [{ id: `x`, component: `Text`, props: { text: `Inside` } }] } as unknown as NestedNode, { onAction })
+      expect(document.body.textContent).not.toContain(`Inside`)
+      fireEvent.click(c.querySelector(`[data-xui-id="t"]`)!)
+      expect(document.body.textContent).toContain(`Inside`)
+      expect(onAction).toHaveBeenCalledTimes(1)
+    })
+  }
 })

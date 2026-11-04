@@ -228,6 +228,78 @@ pub fn parse_for(host: &dyn crate::host::HostPlugin, text: &str) -> Vec<Block> {
     resolve_urls(parse(text), |h| eui_core::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
 }
 
+/// `fixtures/markdown-text-links.json`: every text run through a host's text
+/// links: `segments` = one piece's answer, policed, `None` = text. Code, link
+/// labels, block images and bare urls never ask; only the marks change, so the
+/// layout is the same. `None` = nothing linked (the blocks stand).
+pub fn link_text(blocks: &[Block], segments: impl Fn(&str) -> Option<Vec<eui_core::host::TextLink>>) -> Option<Vec<Block>> {
+    let mut linked = false;
+    let mut spans = |list: &[Inline]| -> Vec<Inline> {
+        let mut out = Vec::with_capacity(list.len());
+        for span in list {
+            if span.code || span.link.is_some() {
+                out.push(span.clone());
+                continue;
+            }
+            for (piece, is_url) in bare_url_pieces(&span.text) {
+                match if is_url { None } else { segments(piece) } {
+                    Some(answer) => {
+                        linked = true;
+                        out.extend(answer.into_iter().map(|segment| Inline { text: segment.text, link: segment.href, ..span.clone() }));
+                    }
+                    None => out.push(Inline { text: piece.to_string(), ..span.clone() }),
+                }
+            }
+        }
+        out
+    };
+    let out: Vec<Block> = blocks
+        .iter()
+        .map(|b| {
+            let mut b = b.clone();
+            match &mut b.kind {
+                BlockKind::Table { header, rows } => {
+                    for cell in header.iter_mut().chain(rows.iter_mut().flatten()) {
+                        *cell = spans(&cell[..]);
+                    }
+                }
+                BlockKind::CodeBlock | BlockKind::Rule | BlockKind::Image { .. } => {}
+                _ => b.inlines = spans(&b.inlines[..]),
+            }
+            b
+        })
+        .collect();
+    linked.then_some(out)
+}
+
+/// A run cut around its bare urls (`http://` or `https://`, any case, not glued
+/// to an ASCII word character, up to the next ASCII space, tab or newline); no
+/// empty piece.
+fn bare_url_pieces(text: &str) -> Vec<(&str, bool)> {
+    let bytes = text.as_bytes();
+    let starts = |i: usize, prefix: &str| bytes.len() >= i + prefix.len() && bytes[i..i + prefix.len()].eq_ignore_ascii_case(prefix.as_bytes());
+    let mut out = Vec::new();
+    let (mut at, mut i) = (0, 0);
+    while i < bytes.len() {
+        let glued = i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+        if glued || !(starts(i, "http://") || starts(i, "https://")) {
+            i += 1;
+            continue;
+        }
+        let end = bytes[i..].iter().position(|c| matches!(c, b' ' | b'\t' | b'\n')).map_or(bytes.len(), |n| i + n);
+        if i > at {
+            out.push((&text[at..i], false));
+        }
+        out.push((&text[i..end], true));
+        at = end;
+        i = end;
+    }
+    if at < bytes.len() {
+        out.push((&text[at..], false));
+    }
+    out
+}
+
 /// A delimited run `ddTEXTdd` at the start of `s` → (TEXT, consumed).
 fn delimited<'a>(s: &'a str, delim: &str) -> Option<(&'a str, usize)> {
     let rest = s.strip_prefix(delim)?;
@@ -1121,6 +1193,56 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `fixtures/markdown-text-links.json`: a Markdown's text asks the host's text links.
+    #[test]
+    fn markdown_text_asks_the_hosts_text_links() {
+        use eui_core::host::{police_text_links, safe_href, TextLink};
+        let path = format!("{}/../../../../packages/exponential-ui/fixtures/markdown-text-links.json", env!("CARGO_MANIFEST_DIR"));
+        let f: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).expect("fixture")).expect("json");
+        let hook = |text: &str| -> Option<Vec<TextLink>> {
+            let mut out = Vec::new();
+            let mut at = 0;
+            let mut from = 0;
+            while let Some(n) = text[from..].find('#') {
+                let start = from + n;
+                let letters = text[start + 1..].find(|c: char| !c.is_ascii_uppercase()).unwrap_or(text.len() - start - 1);
+                let dash = start + 1 + letters;
+                let digits = text[dash..].strip_prefix('-').map_or(0, |rest| rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len()));
+                from = start + 1;
+                if letters == 0 || digits == 0 {
+                    continue;
+                }
+                let end = dash + 1 + digits;
+                let Some(href) = f["known"][&text[start + 1..end]].as_str() else { continue };
+                out.push(TextLink { text: text[at..start].to_string(), href: None });
+                out.push(TextLink { text: text[start..end].to_string(), href: Some(href.to_string()) });
+                at = end;
+                from = end;
+            }
+            if out.is_empty() {
+                return None;
+            }
+            out.push(TextLink { text: text[at..].to_string(), href: None });
+            Some(out)
+        };
+        let cases = f["cases"].as_array().expect("cases");
+        assert!(!cases.is_empty());
+        for c in cases {
+            let blocks = resolve_urls(parse(c["text"].as_str().unwrap()), |h| safe_href(None, h).is_some(), |_| true);
+            let painted = link_text(&blocks, |piece| hook(piece).and_then(|links| police_text_links(None, piece, links))).unwrap_or(blocks);
+            let mut links = Vec::new();
+            for block in &painted {
+                let mut spans: Vec<&Inline> = block.inlines.iter().collect();
+                if let BlockKind::Table { header, rows } = &block.kind {
+                    spans.extend(header.iter().flatten());
+                    spans.extend(rows.iter().flatten().flatten());
+                }
+                links.extend(spans.iter().filter_map(|s| s.link.as_ref().map(|href| serde_json::json!({"text": s.text, "href": href}))));
+            }
+            assert_eq!(serde_json::Value::Array(links), c["links"], "{}", c["name"]);
+        }
+    }
 
     #[test]
     fn table_columns_mirror_in_rtl() {

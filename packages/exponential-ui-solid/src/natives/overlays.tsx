@@ -39,7 +39,10 @@ import { bindStyle, createDragToDismiss, createFocusScope, createLayer, createMe
 // Shared pieces of the overlays
 // ---------------------------------------------------------------------------
 
-/** Radix's triggers write `type="button"` on the slot wrapper span too. */
+/** Radix's triggers write `type="button"` on the slot wrapper span too. Their
+ *  toggle runs on the way down (`oncapture:click`): a Button in the slot stops
+ *  its click (so it never presses a Row behind it), which must not stop the
+ *  overlay it opens. */
 const TYPE_BUTTON: Attrs = { type: `button` }
 
 /** An overlay's `open`: local mirror, bound path written, `change {open}`. */
@@ -197,7 +200,7 @@ function ModalNative(props: NativeProps & { kind: `Dialog` | `Drawer` }): JSX.El
     <>
       <div {...overlayRootProps(props.rootProps, hasTrigger(), props.node.slots?.trigger)}>
         <Show when={hasTrigger()}>
-          <span ref={triggerEl} class="xui-trigger" {...TYPE_BUTTON} aria-haspopup="dialog" aria-expanded={open()} aria-controls={contentId} data-state={state()} onClick={() => onOpenChange(!untrack(open))}>
+          <span ref={triggerEl} class="xui-trigger" {...TYPE_BUTTON} aria-haspopup="dialog" aria-expanded={open()} aria-controls={contentId} data-state={state()} oncapture:click={() => onOpenChange(!untrack(open))}>
             {props.slots.trigger}
           </span>
         </Show>
@@ -356,7 +359,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
             aria-expanded={open()}
             aria-controls={contentId}
             data-state={state()}
-            onClick={() => setOpen(!untrack(open))}
+            oncapture:click={() => setOpen(!untrack(open))}
             onPointerEnter={(e) => hoverMode() && e.pointerType !== `touch` && schedule(true)}
             onPointerLeave={(e) => hoverMode() && e.pointerType !== `touch` && schedule(false)}
             onFocusIn={() => hoverMode() && schedule(true)}

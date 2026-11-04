@@ -7,7 +7,7 @@
 
 import { For, Show, createMemo, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { linkedMarkdown, linkHref, mediaRequestOf, parseMarkdown, type MarkdownBlock, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { HostPlugin } from "./host"
 import { createMediaSource } from "./media"
 import { css } from "./style"
@@ -55,7 +55,7 @@ function inline(nodes: readonly MarkdownInline[], host: HostPlugin): JSX.Element
       case `em`:
         return <em>{inline(n.children, host)}</em>
       case `del`:
-        return <del>{n.text}</del>
+        return <del>{n.children ? inline(n.children, host) : n.text}</del>
       case `link`: {
         const href = linkHref(host, n.dest)
         const label = inline(n.children, host)
@@ -139,7 +139,7 @@ function blocks(tree: readonly MarkdownBlock[], host: HostPlugin): JSX.Element[]
 
 /** The markdown tree of `text` as Solid elements. */
 export function renderMarkdown(text: string, host: HostPlugin = {}): JSX.Element[] {
-  return blocks(parseMarkdown(text), host)
+  return blocks(linkedMarkdown(host, parseMarkdown(text)), host)
 }
 
 export function BuiltinMarkdown(props: { text: string; class?: string; host?: HostPlugin }): JSX.Element {

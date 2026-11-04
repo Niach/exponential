@@ -118,6 +118,42 @@ class SafeHostTest {
         assertNull(m.textLinkSegments("#A-1 x"))
     }
 
+    /** `fixtures/markdown-text-links.json`: a Markdown's text asks the host's text links. */
+    @Test
+    fun markdownTextAsksTheHostsTextLinks() {
+        Fixtures.require()
+        val f = Fixtures.json("markdown-text-links.json")
+        val known = f["known"]!!.obj!!.mapValues { it.value.string!! }
+        val host = object : HostPlugin {
+            override fun textLinks(text: String): List<at.exponential.ui.host.TextLinkSegment>? {
+                val out = ArrayList<at.exponential.ui.host.TextLinkSegment>()
+                var from = 0
+                for (m in Regex("#([A-Z]+-[0-9]+)").findAll(text)) {
+                    val href = known[m.groupValues[1]] ?: continue
+                    out.add(at.exponential.ui.host.TextLinkSegment(text.substring(from, m.range.first)))
+                    out.add(at.exponential.ui.host.TextLinkSegment(m.value, href))
+                    from = m.range.last + 1
+                }
+                if (out.isEmpty()) return null
+                out.add(at.exponential.ui.host.TextLinkSegment(text.substring(from)))
+                return out
+            }
+        }
+        val m = SurfaceModel("markdown-links", host = host, scope = CoroutineScope(Dispatchers.Unconfined), shaper = noShaper)
+        val cases = f["cases"]!!.array!!
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val blocks = Markdown.resolveImages(Markdown.parse(c["text"]!!.string!!)) { m.mediaRequest(it) != null }
+            val painted = Markdown.linkText(Markdown.policeLinks(blocks) { m.href(it) }) { piece -> m.textLinkSegments(piece)?.map { it.text to it.href } }
+            val links = painted.flatMap { block ->
+                val kind = block.kind
+                val spans = if (kind is MarkdownBlockKind.Table) kind.header.flatten() + kind.rows.flatten().flatten() else block.inlines
+                spans.filter { it.link != null }.map { it.text to it.link!! }
+            }
+            assertEquals(c["name"]!!.string, c["links"]!!.array!!.map { it["text"]!!.string!! to it["href"]!!.string!! }, links)
+        }
+    }
+
     // Media
 
     @Test

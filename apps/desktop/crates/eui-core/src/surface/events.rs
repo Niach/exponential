@@ -1254,8 +1254,9 @@ impl Surface {
     /// Validation `checks` of a field evaluated against the data model: the
     /// messages of the failing ones. The reference's `failingChecks`: a check
     /// WITH a `condition` fails when it resolves to nothing (an unseeded
-    /// path), `null`, `false` or `""` (0 passes); a message that is not a
-    /// string reads `$string.invalidValue` (round 2).
+    /// path), `null`, `false` or `""` (0 passes); a `$string.<id>` message
+    /// resolves through the surface's strings; a message that is not a string
+    /// reads `$string.invalidValue` (round 2).
     pub fn failing_checks(&self, id: &str) -> Vec<String> {
         let Some(node) = self.source_node(id) else { return vec![] };
         let scope = self.scope_of(id);
@@ -1270,7 +1271,7 @@ impl Surface {
                         let Some(cond) = c.get("condition") else { return false };
                         check_fails(crate::data::resolve_value(cond, &ctx).as_ref())
                     })
-                    .map(|c| c.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| self.strings.get("invalidValue").cloned().unwrap_or_else(|| "Invalid value".into())))
+                    .map(|c| c.get("message").and_then(Value::as_str).map(|message| crate::strings::resolve_string(message, &self.strings).to_string()).unwrap_or_else(|| self.strings.get("invalidValue").cloned().unwrap_or_else(|| "Invalid value".into())))
                     .collect()
             })
             .unwrap_or_default()

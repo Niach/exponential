@@ -46,10 +46,12 @@ function useOpenState(node: NativeProps[`node`], scope: string, external: boolea
 }
 
 /** The slot wrapper Radix anchors to and clicks through (forwardRef so the
- *  popper can measure it; the rest of the props are Radix's). */
-const Trigger = forwardRef<HTMLSpanElement, HTMLAttributes<HTMLSpanElement> & { children?: ReactNode }>(function Trigger({ children, ...rest }, ref) {
+ *  popper can measure it; the rest of the props are Radix's). The toggle runs
+ *  on the way down: a Button in the slot stops its click (so it never presses
+ *  a Row behind it), which must not stop the overlay it opens. */
+const Trigger = forwardRef<HTMLSpanElement, HTMLAttributes<HTMLSpanElement> & { children?: ReactNode }>(function Trigger({ children, onClick, ...rest }, ref) {
   return (
-    <span ref={ref} className="xui-trigger" {...rest}>
+    <span ref={ref} className="xui-trigger" onClickCapture={onClick} {...rest}>
       {children}
     </span>
   )

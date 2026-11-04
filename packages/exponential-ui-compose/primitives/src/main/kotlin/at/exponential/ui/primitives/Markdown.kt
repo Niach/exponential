@@ -530,6 +530,52 @@ object Markdown {
         }
     }
 
+    /**
+     * `fixtures/markdown-text-links.json`: every text run through a host's text
+     * links: [segments] = one piece's answer, policed (text to href), null =
+     * text. Code, link labels, block images and bare urls never ask; only the
+     * marks change, so the layout is the same.
+     */
+    fun linkText(blocks: List<MarkdownBlock>, segments: (String) -> List<Pair<String, String?>>?): List<MarkdownBlock> {
+        fun spans(list: List<MarkdownInline>): List<MarkdownInline> = list.flatMap { span ->
+            if (span.code || span.link != null) return@flatMap listOf(span)
+            bareUrlPieces(span.text).flatMap { (piece, isUrl) ->
+                val linked = if (isUrl) null else segments(piece)
+                linked?.map { (text, href) -> span.copy(text = text, link = href) } ?: listOf(span.copy(text = piece))
+            }
+        }
+        return blocks.map { b ->
+            when (val kind = b.kind) {
+                is MarkdownBlockKind.Table -> b.copy(kind = kind.copy(header = kind.header.map(::spans), rows = kind.rows.map { r -> r.map(::spans) }))
+                is MarkdownBlockKind.Image, MarkdownBlockKind.CodeBlock, MarkdownBlockKind.Rule -> b
+                else -> b.copy(inlines = spans(b.inlines))
+            }
+        }
+    }
+
+    /** A run cut around its bare urls (`http://` or `https://`, any case, not glued to an ASCII word character, up to the next ASCII space, tab or newline); no empty piece. */
+    internal fun bareUrlPieces(text: String): List<Pair<String, Boolean>> {
+        fun isWord(c: Char) = c in '0'..'9' || c in 'A'..'Z' || c in 'a'..'z' || c == '_'
+        val out = ArrayList<Pair<String, Boolean>>()
+        var at = 0
+        var i = 0
+        while (i < text.length) {
+            val url = (i == 0 || !isWord(text[i - 1])) && (text.startsWith("http://", i, ignoreCase = true) || text.startsWith("https://", i, ignoreCase = true))
+            if (!url) {
+                i++
+                continue
+            }
+            var end = i
+            while (end < text.length && text[end] != ' ' && text[end] != '\t' && text[end] != '\n') end++
+            if (i > at) out.add(text.substring(at, i) to false)
+            out.add(text.substring(i, end) to true)
+            at = end
+            i = end
+        }
+        if (text.length > at) out.add(text.substring(at) to false)
+        return out
+    }
+
     /** The plain text of some spans. */
     fun plain(inlines: List<MarkdownInline>): String = inlines.joinToString("") { it.text }
 
