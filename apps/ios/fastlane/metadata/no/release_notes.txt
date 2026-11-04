@@ -24,3 +24,4 @@
 - Innlimte bilder vises som miniatyrer i chatter
 - Start koding til en agent når nå frem; agentchatter forblir en vanlig samtale
 - Team kan ha sitt eget bilde
+- En økts plan åpnes i sin egen fane

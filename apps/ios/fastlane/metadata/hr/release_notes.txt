@@ -24,3 +24,4 @@
 - Zalijepljene slike prikazuju se kao sličice
 - Pokretanje kodiranja prema agentu sada stiže do njega; razgovori s agentima ostaju obični
 - Timovi mogu imati vlastitu sliku
+- Plan sesije otvara se na vlastitoj kartici

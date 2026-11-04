@@ -1,0 +1,3 @@
+- A session's plan opens as its own tab; the conversation keeps one row for it
+- Questions from a plan float above the composer until you answer them
+- App automations show who sponsors them and why they paused

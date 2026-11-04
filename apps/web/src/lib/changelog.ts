@@ -25,6 +25,24 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-plan-is-a-tab`,
+    date: `2026-11-04`,
+    title: `The plan is a tab`,
+    summary: `A session's plan opens as its own tab under the strip, the conversation keeps one row for it, and questions float above the composer.`,
+    body: `- **Plan tab**: the plan opens in its own tab, full width under the session strip, on the same background as the conversation; the tabs stay where they are.
+- **One row**: the conversation shows the plan as a single row that opens the tab, instead of the whole plan inline.
+- **Questions**: a plan's open questions float above the composer until you answer them.`,
+  },
+  {
+    id: `2026-11-04-team-images-device-cards`,
+    date: `2026-11-04`,
+    title: `Team images and device cards`,
+    summary: `Teams can have their own image, phones get the team switcher, and device cards expand to show an account's plan and limits.`,
+    body: `- **Team image**: owners can give a team its own image; it shows as the team mark everywhere, with the switcher caret beside it, and phones get the team switcher too.
+- **Device cards**: tap an account on a device card to expand it and see its email, plan and limits; the card remembers it. On phones the actions open as a bottom sheet.
+- **Sending into a locked thread**: a message sent into an idle end-to-end encrypted thread without a key now sets the key up instead of failing.`,
+  },
+  {
     id: `2026-11-04-agent-chats-reach-agents`,
     date: `2026-11-04`,
     title: `Start coding to an agent now reaches it`,

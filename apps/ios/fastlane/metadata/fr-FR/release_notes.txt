@@ -24,3 +24,4 @@
 - Les images collées s'affichent en miniatures
 - Lancer le codage vers un agent l'atteint désormais ; ses discussions restent simples
 - Les équipes peuvent avoir leur propre image
+- Le plan d'une session s'ouvre dans son propre onglet

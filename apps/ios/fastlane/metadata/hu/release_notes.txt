@@ -24,3 +24,4 @@
 - A beillesztett képek bélyegképként jelennek meg
 - A kódolás indítása egy ügynöknek most célba ér; az ügynökcsevegések egyszerű beszélgetések
 - A csapatoknak saját képük lehet
+- A munkamenet terve saját lapon nyílik meg
