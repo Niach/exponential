@@ -120,6 +120,9 @@ pub struct AppDetailPane {
     mcp_for: Option<(String, i64)>,
     mcp_busy: Option<String>,
     connect_generation: u64,
+    /// #VAPP-254: the upstream whose server is being written (every Select
+    /// waits).
+    upstream_busy: Option<String>,
     /// #VAPP-238: the hook whose secret is being minted or rotated, and the
     /// secrets this pane minted (hook name → secret): SHOWN ONCE, held in
     /// memory only, never refetched, gone with the pane or another app.
@@ -166,6 +169,7 @@ impl AppDetailPane {
             mcp_for: None,
             mcp_busy: None,
             connect_generation: 0,
+            upstream_busy: None,
             hook_busy: None,
             hook_secrets: std::collections::HashMap::new(),
             share_busy: None,
@@ -477,6 +481,49 @@ impl AppDetailPane {
                     Ok(_) if this.mcp_for.as_ref().map(|(id, _)| id) != Some(&for_app) => {}
                     Ok(data) => this.mcp = Some(data),
                     Err(err) => crate::action_error::failed_action_err("save", "the link", &err, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// #VAPP-254 (`upstreamPickerCases`): an owner's pick on an Accounts row
+    /// saves at once (`none` = null), then the rows re-read (the resolved
+    /// server and the viewer's connection are the server's); a failure = the
+    /// failed-action toast and the old value.
+    pub(crate) fn pick_upstream_server(&mut self, upstream: String, value: String, cx: &mut gpui::Context<Self>) {
+        let (Some(data), Some((app_id, _))) = (self.mcp.as_ref(), self.mcp_for.clone()) else { return };
+        if self.upstream_busy.is_some() {
+            return;
+        }
+        let server_id = Some(value).filter(|value| value != domain::apps::UPSTREAM_PICKER_NONE);
+        let current = data.upstreams.iter().find(|row| row.name == upstream).and_then(|row| row.server_id.as_ref());
+        if server_id.as_ref() == current {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the server", None, cx);
+            return;
+        };
+        self.upstream_busy = Some(upstream.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let for_app = app_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::app_access::set_upstream_mapping(&trpc, &app_id, &upstream, server_id.as_deref())
+                        .and_then(|()| api::app_access::app_tools(&trpc, &app_id))
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.upstream_busy = None;
+                match result {
+                    // Another app on show by now: drop the answer.
+                    Ok(_) if this.mcp_for.as_ref().map(|(id, _)| id) != Some(&for_app) => {}
+                    Ok(data) => this.mcp = Some(data),
+                    Err(err) => crate::action_error::failed_action_err("save", "the server", &err, cx),
                 }
                 cx.notify();
             });
@@ -801,7 +848,7 @@ impl Render for AppDetailPane {
                 let busy = self.mcp_busy.clone();
                 // VAPP-241: the published package's public links first (the web's order).
                 body.children(super::app_mcp::shares_group(&data, self.share_busy.as_deref(), cx))
-                    .children(super::app_mcp::accounts_group(&data, busy.as_deref(), cx))
+                    .children(super::app_mcp::accounts_group(&data, busy.as_deref(), self.upstream_busy.as_deref(), cx))
                     .children(super::app_mcp::tools_group(&data, busy.as_deref(), cx))
                     // #VAPP-220: the published package's automations, read-only.
                     .children(super::app_mcp::automations_group(&data, cx))

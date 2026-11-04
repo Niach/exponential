@@ -10,6 +10,12 @@
 //! field: one row per signed template (a click = `apps.importTemplate` at
 //! once, then its editor) and the `Include sample records` switch row; a
 //! draft's `Start from a template` pill opens the same dialog.
+//! #VAPP-254 (apps.json `upstreamPickerCases`): a file that passes its check
+//! and declares upstreams gets, for an owner, the Accounts group: one row per
+//! upstream with its Select at the exact-name default; the picks go in
+//! `apps.import {upstreamMappings}`.
+
+use std::collections::HashMap;
 
 use gpui::{
     div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
@@ -23,13 +29,16 @@ use gpui_component::{
 };
 use sync::Store;
 
-use api::apps::ImportIssue;
+use api::app_access::AppServer;
+use api::apps::{ImportIssue, ImportUpstream, UpstreamMapping};
 use domain::app_export::{more_issues_label, APP_EXPORT_COPY, APP_EXPORT_LIMITS};
 use domain::app_templates::{APP_TEMPLATES, APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS};
+use domain::apps::{upstream_picker, APPS, UPSTREAM_PICKER_NONE};
 
 use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::navigation::{navigate, Screen};
+use crate::settings::app_mcp::{server_options, upstream_select, APP_MCP_COPY};
 
 /// The dialog's content size (the field + its issues).
 const IMPORT_SIZE: (f32, f32) = (416., 640.);
@@ -63,12 +72,30 @@ pub(crate) fn open_import(window: &mut Window, cx: &mut App, team_id: String, te
     });
 }
 
+/// #VAPP-254: the owner's picks for `apps.import`, in the file's upstream
+/// order: `none` (nothing fills it) is no mapping, an untouched row keeps its
+/// exact-name default.
+fn import_mappings(upstreams: &[ImportUpstream], picks: &HashMap<String, String>) -> Vec<UpstreamMapping> {
+    upstreams
+        .iter()
+        .filter_map(|upstream| {
+            let picked = picks.get(&upstream.name).filter(|value| *value != UPSTREAM_PICKER_NONE)?;
+            Some(UpstreamMapping { upstream: upstream.name.clone(), server_id: picked.clone() })
+        })
+        .collect()
+}
+
 pub(crate) struct AppImportView {
     team_id: String,
     pending: crate::feedback::Pending,
     import_text: Entity<TextareaState>,
     /// The server's issues for the current text; None = unchecked / empty.
     issues: Option<Vec<ImportIssue>>,
+    /// #VAPP-254: the checked file's upstreams, what an owner may pick (empty
+    /// for a member, who sees no group) and the picks (upstream → Select value).
+    upstreams: Vec<ImportUpstream>,
+    servers: Vec<AppServer>,
+    picks: HashMap<String, String>,
     /// The debounced `apps.validateImport` (replacing it cancels).
     validate: Option<Task<()>>,
     import_focused: bool,
@@ -94,6 +121,9 @@ impl AppImportView {
             pending: crate::feedback::Pending::default(),
             import_text,
             issues: None,
+            upstreams: Vec::new(),
+            servers: Vec::new(),
+            picks: HashMap::new(),
             validate: None,
             import_focused: false,
             with_records: false,
@@ -109,6 +139,7 @@ impl AppImportView {
         if text.trim().is_empty() {
             self.validate = None;
             self.issues = None;
+            self.set_upstreams(Vec::new(), Vec::new());
             cx.notify();
             return;
         }
@@ -128,13 +159,30 @@ impl AppImportView {
                 if this.import_text.read(cx).value().to_string() != text {
                     return;
                 }
-                this.issues = Some(match result {
-                    Ok(output) => output.issues,
-                    Err(_) => vec![ImportIssue { path: "/".into(), message: "could not be checked".into() }],
-                });
+                match result {
+                    Ok(output) => {
+                        this.issues = Some(output.issues);
+                        this.set_upstreams(output.upstreams, output.servers);
+                    }
+                    Err(_) => {
+                        this.issues = Some(vec![ImportIssue { path: "/".into(), message: "could not be checked".into() }]);
+                        this.set_upstreams(Vec::new(), Vec::new());
+                    }
+                }
                 cx.notify();
             });
         }));
+    }
+
+    /// #VAPP-254: a new check's upstreams; a pick stays while its upstream
+    /// and server do (an edit to the text never loses the owner's choice).
+    fn set_upstreams(&mut self, upstreams: Vec<ImportUpstream>, servers: Vec<AppServer>) {
+        self.picks.retain(|name, value| {
+            upstreams.iter().any(|upstream| upstream.name == *name)
+                && (value == UPSTREAM_PICKER_NONE || servers.iter().any(|server| server.id == *value))
+        });
+        self.upstreams = upstreams;
+        self.servers = servers;
     }
 
     /// `Choose file`: the native open panel; the file's text fills the field.
@@ -258,6 +306,52 @@ impl AppImportView {
             )]))
     }
 
+    /// #VAPP-254: the Accounts group (`importUpstreams`), `None` until the
+    /// file passes its check, for a member, or with nothing to map.
+    fn render_upstreams(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
+        if !self.issues.as_ref().is_some_and(Vec::is_empty) || self.upstreams.is_empty() {
+            return None;
+        }
+        let test_ids = &APPS.test_ids;
+        let servers = server_options(&self.servers);
+        let view = cx.entity().downgrade();
+        let mut rows = Vec::with_capacity(self.upstreams.len());
+        for upstream in &self.upstreams {
+            let value = self.picks.get(&upstream.name).or(upstream.server_id.as_ref());
+            // No servers (a member, a team without any) = no group.
+            let picker = upstream_picker(&upstream.name, value.map(String::as_str), &servers, APP_MCP_COPY.no_server)?;
+            let row_id = format!("{}-{}", test_ids.import_upstream, upstream.name);
+            let (view, name) = (view.clone(), upstream.name.clone());
+            let select = upstream_select(
+                SharedString::from(format!("{row_id}-picker")),
+                picker,
+                self.pending.active(),
+                move |value, cx| {
+                    let name = name.clone();
+                    let _ = view.update(cx, |this, cx| {
+                        this.picks.insert(name, value);
+                        cx.notify();
+                    });
+                },
+                cx,
+            );
+            rows.push(
+                crate::surface::glass_row_shell()
+                    .justify_between()
+                    .gap_3()
+                    .child(div().id(SharedString::from(row_id)).flex_1().min_w_0().text_sm().truncate().child(upstream.name.clone()))
+                    .child(select),
+            );
+        }
+        Some(
+            v_flex()
+                .id(SharedString::from(test_ids.import_upstreams.clone()))
+                .gap_3()
+                .child(crate::surface::glass_section_header(APP_MCP_COPY.accounts, None, cx))
+                .child(crate::surface::glass_group_rows(rows)),
+        )
+    }
+
     /// `Import`: `apps.import`, then the new app's editor (Create's path).
     fn run_import(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.pending.active() || !self.issues.as_ref().is_some_and(Vec::is_empty) {
@@ -269,12 +363,13 @@ impl AppImportView {
             return;
         };
         let text = self.import_text.read(cx).value().to_string();
+        let mappings = import_mappings(&self.upstreams, &self.picks);
         self.pending.start(cx);
         cx.notify();
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::apps::import(&trpc, &team_id, &text) })
+                .spawn(async move { api::apps::import(&trpc, &team_id, &text, &mappings) })
                 .await;
             match result {
                 Ok(output) => {
@@ -355,6 +450,7 @@ impl AppImportView {
                 ),
             )
             .children(issue_rows)
+            .children(self.render_upstreams(cx))
             .child(div().flex_1())
             .child(
                 h_flex()
@@ -385,3 +481,32 @@ impl Render for AppImportView {
 
 use gpui::{InteractiveElement as _, StatefulInteractiveElement as _, prelude::FluentBuilder as _};
 use gpui_component::Sizable as _;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn upstream(name: &str) -> ImportUpstream {
+        ImportUpstream { name: name.into(), server_id: None, server_name: None }
+    }
+
+    #[test]
+    fn the_picks_become_the_mappings() {
+        let upstreams = [upstream("crm"), upstream("mail"), upstream("wiki")];
+        let picks: HashMap<String, String> = [
+            ("wiki".to_string(), "s3".to_string()),
+            ("crm".to_string(), "s2".to_string()),
+            ("mail".to_string(), UPSTREAM_PICKER_NONE.to_string()),
+            ("gone".to_string(), "s9".to_string()),
+        ]
+        .into();
+        assert_eq!(
+            import_mappings(&upstreams, &picks),
+            vec![
+                UpstreamMapping { upstream: "crm".into(), server_id: "s2".into() },
+                UpstreamMapping { upstream: "wiki".into(), server_id: "s3".into() },
+            ]
+        );
+        assert!(import_mappings(&upstreams, &HashMap::new()).is_empty());
+    }
+}
