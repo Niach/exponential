@@ -605,6 +605,49 @@ async function recipeOpenComposerSkillsMenu(page: Page): Promise<void> {
   await page.getByText(`incident-triage`).filter({ visible: true }).first().waitFor({ timeout: 15_000 })
 }
 
+/** EXP-1635: on a phone, Photo or file pushes Camera | Photos | File. */
+async function recipeOpenComposerAddFile(page: Page): Promise<void> {
+  await recipeOpenComposerMenuTemporary(page)
+  await page.getByTestId(`agent-composer-menu-add-file`).filter({ visible: true }).first().click()
+  await page.getByTestId(`agent-composer-menu-add-file-camera`).first().waitFor({ timeout: 15_000 })
+  await page.mouse.move(0, 0)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+}
+
+/** EXP-1635: `/share` goes home with nothing pending, so a share is written
+ *  where the service worker stashes one (keys: `public/sw.js`). */
+async function recipeOpenShareTargets(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const swatch = async (color: string) => {
+      const canvas = new OffscreenCanvas(96, 96)
+      const context = canvas.getContext(`2d`)
+      if (context) {
+        context.fillStyle = color
+        context.fillRect(0, 0, 96, 96)
+      }
+      return canvas.convertToBlob({ type: `image/png` })
+    }
+    const cache = await caches.open(`exponential-share`)
+    await cache.put(`/__share/file/0`, new Response(await swatch(`#3b82f6`)))
+    await cache.put(`/__share/file/1`, new Response(await swatch(`#f59e0b`)))
+    await cache.put(
+      `/__share/meta`,
+      Response.json({
+        title: ``,
+        text: `Crash on launch`,
+        url: ``,
+        files: [
+          { name: `crash-1.png`, type: `image/png`, lastModified: 0 },
+          { name: `crash-2.png`, type: `image/png`, lastModified: 0 },
+        ],
+      })
+    )
+  })
+  await page.goto(`/share`)
+  await page.getByTestId(`share-targets-preview`).waitFor({ timeout: 20_000 })
+  await page.mouse.move(0, 0)
+}
+
 /** NEW-2: the home composer's `/` menu — the team's prompts. */
 async function recipeTypeSlashInComposer(page: Page): Promise<void> {
   const field = page.getByTestId(`agent-composer-field`).filter({ visible: true }).first()
@@ -927,6 +970,8 @@ export const RECIPES: Record<string, Recipe> = {
   typeIssueRef: recipeTypeIssueRef,
   openComposerMenuTemporary: recipeOpenComposerMenuTemporary,
   openComposerSkillsMenu: recipeOpenComposerSkillsMenu,
+  openComposerAddFile: recipeOpenComposerAddFile,
+  openShareTargets: recipeOpenShareTargets,
   typeSlashInComposer: recipeTypeSlashInComposer,
   typeSlashInSessionComposer: recipeTypeSlashInSessionComposer,
   scrollToWorkCards: recipeScrollToWorkCards,
