@@ -67,6 +67,18 @@ final class Round2PainterTests: XCTestCase {
         XCTAssertEqual(m.sticky[head]?.height ?? 0, 120, accuracy: 1, "\(m.sticky) scroll \(String(describing: m.scroll(m.index(of: "root")!)))")
     }
 
+    /// VAPP-250: a scroll the VIEW reports moves the pins too (the phone Timeline's labels).
+    func testAReportedScrollPinsTheTimelineLabels() throws {
+        let m = try makeModel(fixed: true)
+        let columns: [JSONValue] = (0..<12).map { .object(["key": .string("w\($0)"), "label": .string("\($0) Nov")]) }
+        m.setData(path: "/road", value: .object(["timeline": .object(["columns": .array(columns), "bands": .array([]), "rows": .array([.object(["key": .string("Anna"), "index": .number(0), "lanes": .number(1), "count": .number(0), "items": .array([])])])])]))
+        try m.setNested(json: #"{"id":"t","component":"Timeline","props":{"source":"/road"}}"#)
+        guard let root = m.index(of: "t"), let head = m.nodes.first(where: { $0.id.hasSuffix(".rowHead.Anna") && !$0.removed })?.index else { return XCTFail("no timeline \(m.issues) \(m.nodes.map(\.id))") }
+        XCTAssertNotNil(m.scroll(root), "the root scrolls on a phone")
+        m.scrollReported(root, offset: CGPoint(x: 200, y: 0))
+        XCTAssertEqual(m.sticky[head]?.width ?? 0, 200, accuracy: 1, "\(m.sticky)")
+    }
+
     func testKeyframeFramesComeFromTheCore() throws {
         let m = try makeModel(fixed: true)
         try m.setNested(json: #"{"id":"p","component":"Box","props":{"style":{"animation":"pulse","opacity":0.5,"width":10,"height":10}}}"#)

@@ -3956,7 +3956,10 @@
                     "flexShrink": 0,
                     "minWidth": 0,
                     "@media (form-factor: phone)": {
-                      "width": "30%"
+                      "width": 96,
+                      "position": "sticky",
+                      "insetInlineStart": 0,
+                      "backgroundColor": "$color.background"
                     },
                     "paddingHorizontal": "$spacing.sm",
                     "paddingVertical": "$spacing.xs",
@@ -4009,7 +4012,29 @@
               ],
               "style": {
                 "display": "flex",
-                "flexDirection": "row"
+                "flexDirection": "row",
+                "@media (form-factor: phone)": {
+                  "minWidth": {
+                    "call": "add",
+                    "args": {
+                      "a": 96,
+                      "b": {
+                        "call": "mul",
+                        "args": {
+                          "a": 72,
+                          "b": {
+                            "call": "len",
+                            "args": {
+                              "value": {
+                                "path": "/road/timeline/columns"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
               },
               "recipe": {
                 "macro": "Timeline",
@@ -4032,7 +4057,10 @@
                     "flexShrink": 0,
                     "minWidth": 0,
                     "@media (form-factor: phone)": {
-                      "width": "30%"
+                      "width": 96,
+                      "position": "sticky",
+                      "insetInlineStart": 0,
+                      "backgroundColor": "$color.background"
                     },
                     "borderRightWidth": "$border.hairline"
                   },
@@ -4084,7 +4112,29 @@
               "style": {
                 "display": "flex",
                 "flexDirection": "row",
-                "borderTopWidth": "$border.hairline"
+                "borderTopWidth": "$border.hairline",
+                "@media (form-factor: phone)": {
+                  "minWidth": {
+                    "call": "add",
+                    "args": {
+                      "a": 96,
+                      "b": {
+                        "call": "mul",
+                        "args": {
+                          "a": 72,
+                          "b": {
+                            "call": "len",
+                            "args": {
+                              "value": {
+                                "path": "/road/timeline/columns"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
               },
               "recipe": {
                 "macro": "Timeline",
@@ -4099,7 +4149,29 @@
               "children": [],
               "style": {
                 "display": "flex",
-                "flexDirection": "column"
+                "flexDirection": "column",
+                "@media (form-factor: phone)": {
+                  "minWidth": {
+                    "call": "add",
+                    "args": {
+                      "a": 96,
+                      "b": {
+                        "call": "mul",
+                        "args": {
+                          "a": 72,
+                          "b": {
+                            "call": "len",
+                            "args": {
+                              "value": {
+                                "path": "/road/timeline/columns"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
               },
               "recipe": {
                 "macro": "Timeline",
@@ -4120,7 +4192,12 @@
             "overflow": "hidden",
             "borderRadius": "$radius.lg",
             "borderWidth": "$border.hairline",
-            "minHeight": "$control.row"
+            "minHeight": "$control.row",
+            "@media (form-factor: phone)": {
+              "overflowX": "auto",
+              "overflowY": "hidden",
+              "backgroundColor": "$color.background"
+            }
           },
           "recipe": {
             "macro": "Timeline",
@@ -4384,7 +4461,10 @@
                   "flexShrink": 0,
                   "minWidth": 0,
                   "@media (form-factor: phone)": {
-                    "width": "30%"
+                    "width": 96,
+                    "position": "sticky",
+                    "insetInlineStart": 0,
+                    "backgroundColor": "$color.background"
                   },
                   "display": "flex",
                   "flexDirection": "column",

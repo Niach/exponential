@@ -66,16 +66,9 @@ struct ScrollContainer: View {
                 }
             }
             .coordinateSpace(name: space)
-            .onPreferenceChange(ScrollOffsetKey.self) { offset in
-                // Rubber-banding past an edge reports the clamped offset.
-                let clamped = CGPoint(
-                    x: min(max(0, content.width - size.width), max(0, offset.x)),
-                    y: min(max(0, content.height - size.height), max(0, offset.y))
-                )
-                if clamped == tracker.reported { return }
-                tracker.reported = clamped
-                model.scrollReported(index, offset: clamped)
-            }
+            .onPreferenceChange(ScrollOffsetKey.self) { report($0, content: content) }
+            // VAPP-250: the preference alone stays silent on current iOS.
+            .modifier(ScrollGeometryReport { report($0, content: content) })
             .onChange(of: jump) { _, j in
                 guard j != nil else { return }
                 proxy.scrollTo(anchor, anchor: .topLeading)
@@ -95,6 +88,42 @@ struct ScrollContainer: View {
             }
         }
         .frame(width: size.width, height: size.height)
+        .clipShape(PaddingBox(sides: model.styles[safe: index]?.borderWidths ?? [0, 0, 0, 0]))
+    }
+
+    private func report(_ offset: CGPoint, content: CGSize) {
+        // Rubber-banding past an edge reports the clamped offset.
+        let clamped = CGPoint(
+            x: min(max(0, content.width - size.width), max(0, offset.x)),
+            y: min(max(0, content.height - size.height), max(0, offset.y))
+        )
+        if clamped == tracker.reported { return }
+        tracker.reported = clamped
+        model.scrollReported(index, offset: clamped)
+    }
+}
+
+/// The scroll view's own offset, where the platform has it.
+private struct ScrollGeometryReport: ViewModifier {
+    let report: (CGPoint) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, macOS 15, *) {
+            content.onScrollGeometryChange(for: CGPoint.self, of: { $0.contentOffset }, action: { _, offset in report(offset) })
+        } else {
+            content
+        }
+    }
+}
+
+/// VAPP-250: a scroller clips at its padding box (CSS): what scrolls never
+/// shows through its border, or beside a node pinned at the padding edge.
+private struct PaddingBox: Shape {
+    /// The border widths `[top, right, bottom, left]`.
+    let sides: [CGFloat]
+
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX + sides[3], y: rect.minY + sides[0], width: max(0, rect.width - sides[1] - sides[3]), height: max(0, rect.height - sides[0] - sides[2])))
     }
 }
 

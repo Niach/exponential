@@ -21,6 +21,8 @@ name: record-compose-fixtures
 # kitchen sink's motion node: the Compose goldens + `Motion.png`).
 # VAPP-232 (2026-11-03): re-recorded for the core catalog's Calendar and
 # Timeline (their component images `Calendar.png` + `Timeline.png`).
+# VAPP-250 (2026-11-04): re-recorded for the phone Timeline (one scroller, a
+# pinned label column), `tableColumnMin` 96 and the dashboard's Timeline.
 
 on:
   workflow_dispatch: {}

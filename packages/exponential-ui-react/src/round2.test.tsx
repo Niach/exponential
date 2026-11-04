@@ -302,6 +302,7 @@ describe(`style keys as CSS (§2)`, () => {
     const root = { id: `s`, component: `Box`, props: {}, children: [], style: { animation: `shimmer`, position: `sticky`, top: 0 } }
     const css = compileNodeSheet([root], `sh`, theme).css
     expect(css).toContain(`position:sticky`)
+    expect(css).toContain(`z-index:1`) // VAPP-250: above its siblings, as on the natives
     expect(css).toMatch(/\.xui-n-s::after\{content:"";position:absolute;inset:0;[^}]*linear-gradient\(90deg, color-mix\(in srgb, var\(--xui-color-background\) 0%, transparent\) calc\(var\(--xui-band, 1\) \* 100% \+ 0%\)/)
   })
 })

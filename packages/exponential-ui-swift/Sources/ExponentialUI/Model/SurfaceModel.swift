@@ -138,6 +138,8 @@ public final class SurfaceModel {
     @ObservationIgnored var passDepth = 0
     /// The offsets the native scroll views reported (by container slot).
     @ObservationIgnored var reportedOffsets: [Int: CGPoint] = [:]
+    /// VAPP-250: a `position: sticky` node exists, so a reported scroll lays out.
+    @ObservationIgnored var hasStickyNodes = false
     @ObservationIgnored var baseTheme: ThemeHandle?
     @ObservationIgnored var appliedSettings: FfiSettings?
     @ObservationIgnored var interaction: [String: InteractionState] = [:]
@@ -573,6 +575,7 @@ public final class SurfaceModel {
         }
         if changed == nil || changed?.isEmpty == false || inks.count != nodes.count {
             styles = st
+            hasStickyNodes = st.contains { $0.sticky }
             if ts != textStyles { textStyles = ts }
             computeInks()
         }

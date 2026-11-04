@@ -300,11 +300,13 @@ struct ChildrenLayout: View {
     var body: some View {
         var rel: [Int: CGRect] = [:]
         for k in kids { rel[k] = model.frame(k).offsetBy(dx: -origin.x, dy: -origin.y) }
+        // VAPP-250: read in `body`: ForEach's closure runs outside its observation.
+        let pins = model.sticky
         return FrameLayout(size: size, frames: rel) {
             ForEach(kids, id: \.self) { k in
                 NodeView(index: k)
                     // Round 2: a sticky node / pinned section header moves by the core's offset.
-                    .modifier(StickyModifier(offset: model.sticky[k]))
+                    .modifier(StickyModifier(offset: pins[k]))
                     .layoutValue(key: NodeIndexKey.self, value: k)
                     // VoiceOver reads in PAINT order (slots are not pre-order).
                     .accessibilitySortPriority(model.accessibilityPriority(k))
