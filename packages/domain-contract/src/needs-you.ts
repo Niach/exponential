@@ -22,6 +22,8 @@ export interface NeedsYouSessionInput {
   status: string
   agentId: string | null
   userId: string | null
+  /** #EXP-1699: the session works now (a PR row waits on a person only when none does). */
+  busy?: boolean
 }
 
 export interface NeedsYouMessageInput {
@@ -35,14 +37,27 @@ export interface NeedsYouMessageInput {
   card: Record<string, unknown> | null
 }
 
+/** #EXP-1699: the pull requests shape's row, as far as the fold reads it. */
+export interface NeedsYouPullRequestInput {
+  id: string
+  rootSessionId: string | null
+  number: number
+  title: string
+  state: string
+  checksState: string | null
+  basePullRequestId: string | null
+  createdAt: string
+}
+
 export interface NeedsYouRow {
-  /** The waiting card's message: the origin's for a mirror it may read. */
+  /** The waiting card's message (the origin's for a mirror it may read), or the PR's id. */
   messageId: string
   sessionId: string
   rootId: string
-  kind: `plan` | `question`
-  /** `plan` = the chat's Plan tab; `card` = its card in the Conversation. */
-  opens: `plan` | `card`
+  kind: `plan` | `question` | `pr`
+  /** `plan` = the chat's Plan tab; `card` = its card in the Conversation;
+   *  `results` = its Results tab; `chat` = an agent conversation. */
+  opens: `plan` | `card` | `results` | `chat`
   title: string
   chat: string
   meta: string
@@ -109,12 +124,46 @@ function rowOf(
   }
 }
 
-/** THE fold: one row per waiting card, once, newest first. */
+/** #EXP-1699: the PRs ready to merge (`prCases`). */
+function pullRequestRows(input: {
+  now: number
+  me: string | null
+  sessions: readonly NeedsYouSessionInput[]
+  pullRequests: readonly NeedsYouPullRequestInput[]
+}): NeedsYouRow[] {
+  const sessions = new Map(input.sessions.map((session) => [session.id, session]))
+  const open = new Set(input.pullRequests.filter((pr) => pr.state === `open`).map((pr) => pr.id))
+  const working = new Set(input.sessions.filter((session) => session.busy === true).map((session) => session.rootId))
+  return input.pullRequests.flatMap((pr): NeedsYouRow[] => {
+    const root = pr.rootSessionId ? sessions.get(pr.rootSessionId) : undefined
+    if (!root || pr.state !== `open` || pr.checksState !== `success`) return []
+    if (root.agentId !== null && root.userId !== input.me) return []
+    if (working.has(root.id) || (pr.basePullRequestId !== null && open.has(pr.basePullRequestId))) return []
+    return [
+      {
+        messageId: pr.id,
+        sessionId: root.id,
+        rootId: root.id,
+        kind: `pr`,
+        opens: root.agentId === null ? `results` : `chat`,
+        title: pr.title,
+        chat: root.name,
+        meta: `#${pr.number}`,
+        age: resultAge(ms(pr.createdAt), input.now),
+        createdAt: pr.createdAt,
+      },
+    ]
+  })
+}
+
+/** THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready to
+ *  merge, newest first. */
 export function needsYou(input: {
   now: number
   me: string | null
   sessions: readonly NeedsYouSessionInput[]
   messages: readonly NeedsYouMessageInput[]
+  pullRequests?: readonly NeedsYouPullRequestInput[]
 }): NeedsYouRow[] {
   // Another member's agent conversation is theirs (chats.json `listAgents`).
   const live = input.sessions.filter(
@@ -132,7 +181,15 @@ export function needsYou(input: {
     // The card itself beats its mirror's copy of it.
     if (own || !rows.has(row.messageId)) rows.set(row.messageId, row)
   }
-  return [...rows.values()].sort(
+  return [
+    ...rows.values(),
+    ...pullRequestRows({
+      now: input.now,
+      me: input.me,
+      sessions: input.sessions,
+      pullRequests: input.pullRequests ?? [],
+    }),
+  ].sort(
     (a, b) => ms(b.createdAt) - ms(a.createdAt) || (a.messageId < b.messageId ? 1 : a.messageId > b.messageId ? -1 : 0)
   )
 }
