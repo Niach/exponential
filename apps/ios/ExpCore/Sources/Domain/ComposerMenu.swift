@@ -20,7 +20,7 @@ public enum ComposerMenu {
     }
 
     public enum RowId: String, Equatable, Sendable, CaseIterable {
-        /// "Photo or file" (iOS keeps its Photo | File sub-choice).
+        /// "Photo or file" (phones open `AddFileChoice`).
         case addFile = "add-file"
         /// "Issue": launch = the implement subject picker; session / agent
         /// = the same issue search list, a pick inserts `#IDENT` at the caret.
@@ -167,6 +167,29 @@ public enum ComposerMenu {
         Row(id: .skills, kind: .submenu, label: "Skills", codexLabel: nil, icon: "ui-docs", surfaces: [.launch], when: [.temporary, .skills]),
         Row(id: .computerUse, kind: .toggle, label: "Computer use", codexLabel: nil, icon: "nav-computer", surfaces: [.launch], when: [.temporary, .computerUse]),
     ]
+
+    /// EXP-1635: fixture `addFile.phoneChoices`, the phones' Photo or file
+    /// sub-choice in order.
+    public enum AddFileChoice: String, CaseIterable, Sendable {
+        case camera, photos, file
+
+        public var label: String {
+            switch self {
+            case .camera: "Camera"
+            case .photos: "Photos"
+            case .file: "File"
+            }
+        }
+
+        /// Concept (`packages/icons/icons.json`).
+        public var icon: String {
+            switch self {
+            case .camera: "ui-camera"
+            case .photos: "ui-photos"
+            case .file: "ui-file"
+            }
+        }
+    }
 
     public static let plusTestId = "agent-composer-plus-button"
     public static let menuTestId = "agent-composer-menu"

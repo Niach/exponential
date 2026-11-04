@@ -245,6 +245,8 @@ let sharedInfoPlist: [String: Plist.Value] = [
     // NEW-69: a call with an agent streams the microphone to the member's
     // voice device.
     "NSMicrophoneUsageDescription": .string("Exponential uses the microphone for calls with your agents."),
+    // EXP-1635: the composer's + Camera row.
+    "NSCameraUsageDescription": .string("Exponential uses the camera to attach a photo to your message."),
     // Self-hosted instances are a product feature and commonly live on plain
     // HTTP inside a LAN (and http://localhost:5173 in dev/screenshot runs) —
     // allow local networking only; everything else stays ATS-default (HTTPS).

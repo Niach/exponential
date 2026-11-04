@@ -17,6 +17,15 @@ final class ComposerMenuTests: XCTestCase {
         return try XCTUnwrap(json as? [String: Any])
     }
 
+    /// EXP-1635: the phones' Photo or file sub-choice.
+    func testAddFilePhoneChoicesMatchTheFixture() throws {
+        let addFile = try XCTUnwrap(try fixture()["addFile"] as? [String: Any])
+        let choices = try XCTUnwrap(addFile["phoneChoices"] as? [[String: String]])
+        XCTAssertEqual(choices.map { $0["id"] ?? "" }, ComposerMenu.AddFileChoice.allCases.map(\.rawValue))
+        XCTAssertEqual(choices.map { $0["label"] ?? "" }, ComposerMenu.AddFileChoice.allCases.map(\.label))
+        XCTAssertEqual(choices.map { $0["icon"] ?? "" }, ComposerMenu.AddFileChoice.allCases.map(\.icon))
+    }
+
     private func wire(_ layout: [ComposerMenu.Entry]) -> [String] {
         layout.map { entry in
             switch entry {
