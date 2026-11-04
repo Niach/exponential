@@ -116,7 +116,7 @@ impl Builder<'_, '_> {
             "Dialog" => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "borderRadius": "$radius.xl", "width": "100%"}),
             "Drawer" => match placement {
                 LayerPlacement::Edge(OverlaySide::Top | OverlaySide::Bottom) => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "width": "100%"}),
-                _ => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "height": "100%"}),
+                _ => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "height": "100%", "width": "100%"}),
             },
             "Tooltip" => json!({"display": "flex", "flexDirection": "row", "paddingHorizontal": "$spacing.sm", "paddingVertical": "$spacing.xs", "borderRadius": "$radius.md"}),
             "Menu" => json!({"display": "flex", "flexDirection": "column", "padding": "$spacing.xs", "borderRadius": "$radius.md", "minWidth": 160}),

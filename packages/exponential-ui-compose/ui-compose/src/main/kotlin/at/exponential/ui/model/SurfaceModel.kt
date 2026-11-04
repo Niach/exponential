@@ -691,6 +691,24 @@ class SurfaceModel(
     /** The host set the visible height itself ([setViewport]): the surface's own measurement no longer moves it. */
     private var hostViewport = false
 
+    /** While set, a side Drawer lays out against the window ([overlayViewportHeight]); the visible height it replaced. */
+    private var viewportBeforeOverlay: Float? = null
+
+    /**
+     * A side Drawer hangs from the whole window: its height for the layout
+     * while it is up, null = back to the height it replaced.
+     */
+    internal fun overlayViewportHeight(height: Float?) {
+        if (height != null) {
+            if (viewportBeforeOverlay == null) viewportBeforeOverlay = viewportHeight
+            applyViewport(width, height, maxHeight)
+        } else {
+            val before = viewportBeforeOverlay ?: return
+            viewportBeforeOverlay = null
+            applyViewport(width, before, maxHeight)
+        }
+    }
+
     /** The surface's width from its own layout (`ExponentialSurface`). */
     internal fun setSurfaceWidth(width: Float) = applyViewport(width, viewportHeight, maxHeight)
 
@@ -704,7 +722,7 @@ class SurfaceModel(
      * few more rows.
      */
     internal fun autoViewportHeight(height: Float) {
-        if (hostViewport) return
+        if (hostViewport || viewportBeforeOverlay != null) return
         viewportJob?.cancel()
         viewportJob = null
         val d = height - viewportHeight

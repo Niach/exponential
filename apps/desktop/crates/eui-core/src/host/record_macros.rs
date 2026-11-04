@@ -23,7 +23,7 @@ fn column_width(field: &Map<String, Value>) -> Option<i64> {
     }
 }
 
-pub const RECORD_UPDATED_WIDTH: i64 = 88;
+pub const RECORD_UPDATED_WIDTH: i64 = 136;
 pub const RECORD_MENU_WIDTH: i64 = 80;
 /// A string longer than this (its `maxLength`) is a Textarea.
 pub const RECORD_LONG_TEXT: f64 = 200.0;

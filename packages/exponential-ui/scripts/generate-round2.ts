@@ -98,6 +98,7 @@ const FORMAT_CALLS: { name: string; call: string; args: Record<string, unknown> 
     [`in-1200-years`, 1200 * 365 * DAY],
   ] as [string, number][]).map(([name, delta]) => ({ name: `relative/${name}`, call: `formatRelativeTime`, args: { value: NOW + delta, now: NOW } })),
   { name: `relative/iso-now-arg`, call: `formatRelativeTime`, args: { value: `2026-10-13`, now: `2026-10-14T12:00:00Z` } },
+  { name: `plural/count`, call: `pluralize`, args: { value: 1200, zero: `No blockers`, one: `{count} blocker`, other: `{count} blockers` } },
   { name: `plural/zero-arm`, call: `pluralize`, args: { value: 0, zero: `none`, one: `one item`, other: `many items` } },
   { name: `plural/zero-other`, call: `pluralize`, args: { value: 0, one: `one item`, other: `many items` } },
   { name: `plural/one`, call: `pluralize`, args: { value: 1, one: `one item`, other: `many items` } },

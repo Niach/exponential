@@ -172,7 +172,7 @@
         "fixtures/format.json"
       ],
       "unit": "call or value",
-      "cases": 86,
+      "cases": 87,
       "check": "Resolve each format call through the English fallback (`zoned`: at the case's `offsetMinutes`): the string equals `expected` exactly; display each value in a text prop: equals `expected`. A platform Formatter may run too, at en-US / UTC (`zoned`: `timeZone`), comparing after U+202F and U+00A0 → space."
     },
     {

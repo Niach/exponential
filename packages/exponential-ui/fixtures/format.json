@@ -651,6 +651,19 @@
       "expected": "yesterday"
     },
     {
+      "name": "plural/count",
+      "call": {
+        "call": "pluralize",
+        "args": {
+          "value": 1200,
+          "zero": "No blockers",
+          "one": "{count} blocker",
+          "other": "{count} blockers"
+        }
+      },
+      "expected": "1,200 blockers"
+    },
+    {
       "name": "plural/zero-arm",
       "call": {
         "call": "pluralize",

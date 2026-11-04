@@ -648,7 +648,8 @@ struct AppVersionsSheet: View {
                 Text([when.isEmpty ? who : "\(who)\(UserMessageCaption.separator)\(when)", migration].compactMap { $0 }.joined(separator: UserMessageCaption.separator))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
+                    // The sweep's progress is the line's point: it wraps, never ellipsizes.
+                    .lineLimit(migration == nil ? 1 : 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if kind == .published {
@@ -808,11 +809,11 @@ struct AppSettingsSheet: View {
                 .accessibilityIdentifier("app-settings-records")
             policiesGroup(app)
             tools(app)
+            shareLinksGroup
             accountsGroup
             mcpToolsGroup
             automationsGroup
             webhooksGroup
-            shareLinksGroup
             actions(app)
         }
     }
@@ -1120,14 +1121,14 @@ struct AppSettingsSheet: View {
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(automation.name)
-                    .font(.subheadline)
+                    .font(.subheadline.monospaced())
                     .foregroundStyle(.white)
                     .lineLimit(1)
+                // Why it is paused is the line's point: it wraps, never cut in the middle.
                 Text(line)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .lineLimit(2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             GlassPill(row.label)

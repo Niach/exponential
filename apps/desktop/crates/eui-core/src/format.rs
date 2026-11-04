@@ -1004,10 +1004,17 @@ pub fn call_format_function(name: &str, args: &Map<String, Value>, formatter: &d
             let n = to_num(a("value"));
             if !n.is_finite() {
                 arm("other")
-            } else if n == 0.0 && a("zero").is_some() {
-                a("zero").cloned()
             } else {
-                arm(formatter.plural(n).as_str()).or_else(|| arm("other"))
+                // An arm's `{count}` reads the value through the same formatter.
+                let count = |v: Option<Value>| match v {
+                    Some(Value::String(s)) => Some(Value::String(s.replace("{count}", &formatter.number(n, NumberOptions::default())))),
+                    other => other,
+                };
+                if n == 0.0 && a("zero").is_some() {
+                    count(a("zero").cloned())
+                } else {
+                    count(arm(formatter.plural(n).as_str()).or_else(|| arm("other")))
+                }
             }
         }
         _ => return None,

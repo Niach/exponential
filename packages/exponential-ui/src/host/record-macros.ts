@@ -39,7 +39,7 @@ export interface RecordFormField {
 /** The Data tab's typed column widths (domain-contract app-records.json
  *  `dataTab.columns`). */
 export const RECORD_COLUMN_WIDTHS: Readonly<Record<string, number>> = { date: 104, time: 64, "date-time": 152, number: 64, integer: 64, boolean: 56 }
-export const RECORD_UPDATED_WIDTH = 88
+export const RECORD_UPDATED_WIDTH = 136
 export const RECORD_MENU_WIDTH = 80
 /** A string longer than this (its `maxLength`) is a Textarea. */
 export const RECORD_LONG_TEXT = 200

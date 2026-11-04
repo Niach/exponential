@@ -719,7 +719,8 @@ private fun AppVersionsList(
                             ).joinToString(" · "),
                             color = muted,
                             style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
+                            // The sweep's words sit after the author and time.
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }

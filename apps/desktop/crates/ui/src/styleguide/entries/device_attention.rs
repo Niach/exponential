@@ -121,7 +121,7 @@ fn macbook() -> DeviceCard {
                 "sg-device-macbook",
                 "claude",
                 "b",
-                "danny@yourev.at",
+                "alex@acme.example",
                 "Max",
                 Health::NeedsRelogin,
                 vec![
@@ -143,7 +143,7 @@ fn mint() -> DeviceCard {
         LATEST,
         vec![
             login("sg-device-mint", "claude", "a", "danny@straehhuber.com", "max", Health::Ok, Vec::new()),
-            login("sg-device-mint", "claude", "b", "danny@yourev.at", "max", Health::Ok, Vec::new()),
+            login("sg-device-mint", "claude", "b", "alex@acme.example", "max", Health::Ok, Vec::new()),
             login("sg-device-mint", "codex", "c", "ops@yourev.at", "pro", Health::Ok, Vec::new()),
         ],
     )

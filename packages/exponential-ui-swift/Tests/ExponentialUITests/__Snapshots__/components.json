@@ -22282,9 +22282,9 @@
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          180,
+          30,
           0,
-          210,
+          360,
           800
         ],
         "id" : "record-table.editor.content",
@@ -22297,9 +22297,9 @@
       {
         "component" : "Text",
         "frame" : [
-          205,
+          55,
           25,
-          160,
+          310,
           28
         ],
         "id" : "record-table.editor.title",
@@ -22308,9 +22308,9 @@
       {
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           69,
-          160,
+          310,
           324
         ],
         "id" : "record-table.editor.body",
@@ -22319,9 +22319,9 @@
       {
         "component" : "Form",
         "frame" : [
-          205,
+          55,
           69,
-          160,
+          310,
           324
         ],
         "id" : "record-table.editor.form"
@@ -22329,9 +22329,9 @@
       {
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           69,
-          160,
+          310,
           276
         ],
         "id" : "record-table.editor.form.fields"
@@ -22339,9 +22339,9 @@
       {
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           69,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.0"
@@ -22349,9 +22349,9 @@
       {
         "component" : "Input",
         "frame" : [
-          205,
+          55,
           69,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.0.text"
@@ -22359,9 +22359,9 @@
       {
         "component" : "Text",
         "frame" : [
-          205,
+          55,
           69,
-          160,
+          310,
           20
         ],
         "id" : "record-table.editor.form.fields.field.0.text.label",
@@ -22372,9 +22372,9 @@
         "border" : 1,
         "component" : "Input",
         "frame" : [
-          205,
+          55,
           93,
-          160,
+          310,
           36
         ],
         "id" : "record-table.editor.form.fields.field.0.text.field",
@@ -22384,9 +22384,9 @@
       {
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           141,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.1"
@@ -22394,9 +22394,9 @@
       {
         "component" : "NumberField",
         "frame" : [
-          205,
+          55,
           141,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.1.number"
@@ -22404,9 +22404,9 @@
       {
         "component" : "Text",
         "frame" : [
-          205,
+          55,
           141,
-          160,
+          310,
           20
         ],
         "id" : "record-table.editor.form.fields.field.1.number.label",
@@ -22417,9 +22417,9 @@
         "border" : 1,
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           165,
-          160,
+          310,
           36
         ],
         "id" : "record-table.editor.form.fields.field.1.number.field",
@@ -22430,7 +22430,7 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          218,
+          68,
           167,
           32,
           32
@@ -22442,9 +22442,9 @@
       {
         "component" : "NumberField",
         "frame" : [
-          252,
+          102,
           173,
-          66,
+          216,
           20
         ],
         "id" : "record-table.editor.form.fields.field.1.number.input",
@@ -22466,9 +22466,9 @@
       {
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           213,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.2"
@@ -22476,9 +22476,9 @@
       {
         "component" : "Select",
         "frame" : [
-          205,
+          55,
           213,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.2.select"
@@ -22486,9 +22486,9 @@
       {
         "component" : "Text",
         "frame" : [
-          205,
+          55,
           213,
-          160,
+          310,
           20
         ],
         "id" : "record-table.editor.form.fields.field.2.select.label",
@@ -22499,9 +22499,9 @@
         "border" : 1,
         "component" : "Select",
         "frame" : [
-          205,
+          55,
           237,
-          160,
+          310,
           36
         ],
         "id" : "record-table.editor.form.fields.field.2.select.trigger",
@@ -22511,9 +22511,9 @@
       {
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           285,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.3"
@@ -22521,9 +22521,9 @@
       {
         "component" : "DatePicker",
         "frame" : [
-          205,
+          55,
           285,
-          160,
+          310,
           60
         ],
         "id" : "record-table.editor.form.fields.field.3.date"
@@ -22531,9 +22531,9 @@
       {
         "component" : "Text",
         "frame" : [
-          205,
+          55,
           285,
-          160,
+          310,
           20
         ],
         "id" : "record-table.editor.form.fields.field.3.date.label",
@@ -22544,9 +22544,9 @@
         "border" : 1,
         "component" : "DatePicker",
         "frame" : [
-          205,
+          55,
           309,
-          160,
+          310,
           36
         ],
         "id" : "record-table.editor.form.fields.field.3.date.trigger",
@@ -22556,9 +22556,9 @@
       {
         "component" : "Box",
         "frame" : [
-          205,
+          55,
           361,
-          160,
+          310,
           32
         ],
         "id" : "record-table.editor.form.actions"

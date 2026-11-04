@@ -207,7 +207,7 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
                 <div key={a.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.automationRow}-${a.name}`}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-mono text-sm">{a.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">{sponsor ? `${row.trigger} · ${sponsor}` : row.trigger}</div>
+                    <div className="line-clamp-2 text-xs text-muted-foreground">{sponsor ? `${row.trigger} · ${sponsor}` : row.trigger}</div>
                   </div>
                   <Pill size="sm" className="shrink-0">
                     {row.label}

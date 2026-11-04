@@ -6,7 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
@@ -25,9 +27,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -37,6 +41,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -44,6 +49,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -165,7 +171,11 @@ internal fun NativeOverlays(model: SurfaceModel) {
     if (model.options.overlays != OverlayPresentation.Native) return
     for (layer in model.modalLayers) {
         key(layer.owner) {
-            if (layer.kind == "Drawer") DrawerLayer(model, layer) else DialogLayer(model, layer)
+            when {
+                layer.kind != "Drawer" -> DialogLayer(model, layer)
+                layer.position == "left" || layer.position == "right" -> SideDrawerLayer(model, layer)
+                else -> DrawerLayer(model, layer)
+            }
         }
     }
     for (layer in model.layers) {
@@ -223,6 +233,53 @@ private fun DrawerLayer(model: SurfaceModel, layer: LayerInfo) {
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             LayerView(layer)
+        }
+    }
+}
+
+/**
+ * A Drawer on a side edge: a full-screen dialog window holding the scrim and,
+ * against that edge, the layer tree at the core's size, the window's height
+ * (back / a scrim tap dismiss unless pinned). A bottom sheet is [DrawerLayer]'s.
+ */
+@Composable
+private fun SideDrawerLayer(model: SurfaceModel, layer: LayerInfo) {
+    val dismissible = model.dismissible(layer.owner)
+    val scrim = model.part("Dialog", "overlay", emptyMap()).style.background ?: Color.Black.copy(alpha = 0.5f)
+    Dialog(
+        onDismissRequest = { if (dismissible) model.dismissLayer(layer.owner) },
+        properties = DialogProperties(
+            dismissOnBackPress = dismissible,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        // The scrim below is the core's colour; the window adds none of its own.
+        (LocalView.current.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(scrim)
+                    .pointerInput(layer.owner) {
+                        detectTapGestures { if (dismissible) model.dismissLayer(layer.owner) }
+                    }
+                    .hiddenFromAccessibility(),
+            )
+            val edge = if (layer.position == "left") AbsoluteAlignment.TopLeft else AbsoluteAlignment.TopRight
+            // The core sizes the panel to the viewport, and a surface that hugs
+            // its content has a short one: hand it the window while this is up.
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val windowHeight = maxHeight.value
+                DisposableEffect(model, windowHeight) {
+                    model.overlayViewportHeight(windowHeight)
+                    onDispose { model.overlayViewportHeight(null) }
+                }
+                Box(Modifier.align(edge)) {
+                    LayerView(layer)
+                }
+            }
         }
     }
 }

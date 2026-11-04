@@ -115,7 +115,7 @@ private fun logins(device: SteerDevice): List<AgentProfileUsageRow> {
     )
     return listOf(
         row("claude", "work", "work@yourev.at", AgentHealth.Ok),
-        row("claude", "danny", "danny@yourev.at", AgentHealth.NeedsRelogin),
-        row("codex", "danny", "danny@yourev.at", AgentHealth.Ok),
+        row("claude", "danny", "alex@acme.example", AgentHealth.NeedsRelogin),
+        row("codex", "danny", "alex@acme.example", AgentHealth.Ok),
     )
 }
