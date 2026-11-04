@@ -21,7 +21,7 @@ data class SharedPayload(
     val text: String?,
     val subject: String?,
     val imageUris: List<Uri>,
-    /** EXP-1635: the non-image files (`*/*`), the chat path's file attachments. */
+    /** EXP-1635: the non-image files, the chat path's file attachments. */
     val files: List<SharedFile> = emptyList(),
     /** A shared file over the upload cap: left unread, the composer refuses it. */
     val oversizeFiles: Boolean = false,

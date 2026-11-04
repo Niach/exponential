@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
  * pick lands in [readComposerPick], so the host's caps + toasts apply.
  */
 @Stable
-class ComposerAttachPicker internal constructor(
+class ComposerAttachPicker(
     val choices: List<ComposerAddFileChoice>,
     private val launchChoice: (ComposerAddFileChoice) -> Unit,
 ) {

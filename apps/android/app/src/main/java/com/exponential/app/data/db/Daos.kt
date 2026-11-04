@@ -349,7 +349,7 @@ abstract class SessionDao {
         AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
         ORDER BY updated_at DESC LIMIT :limit""",
     )
-    fun observeRecentChats(teamId: String, limit: Int): Flow<List<SessionEntity>>
+    abstract fun observeRecentChats(teamId: String, limit: Int): Flow<List<SessionEntity>>
 
     @Query("SELECT * FROM sessions ORDER BY created_at, id")
     abstract fun rawObserveAll(): Flow<List<SessionEntity>>

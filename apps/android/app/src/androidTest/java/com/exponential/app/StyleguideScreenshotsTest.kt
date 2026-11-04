@@ -49,6 +49,12 @@ import com.exponential.app.domain.SearchList
 import androidx.activity.compose.setContent
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
 import com.exponential.app.ui.gettingstarted.GettingStartedStepKey
+import com.exponential.app.ui.styleguide.ComposerAddFileSpecimenScreen
+import com.exponential.app.ui.styleguide.ComposerAddFileSpecimenTestId
+import com.exponential.app.ui.styleguide.ShareComposerSpecimenScreen
+import com.exponential.app.ui.styleguide.ShareComposerSpecimenTestId
+import com.exponential.app.ui.styleguide.ShareToSpecimenScreen
+import com.exponential.app.ui.styleguide.ShareToSpecimenTestId
 import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
@@ -228,6 +234,8 @@ class StyleguideScreenshotsTest {
             // session walk (in the transcript, as web and desktop shoot them).
             "sg_feedback-states", "sg_comment-call-card",
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
+            // EXP-1635: the share flow's two steps + the + menu's sub-choice.
+            "sg_share-targets", "sg_share-composer", "sg_composer-add-file",
             // S-3: THE inter-session link line.
             "sg_session-xref",
             // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
@@ -1673,6 +1681,15 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag(testId), NAV_TIMEOUT)
             flow.settle()
         }
+
+        // --- EXP-1635: step 1 of a share, the composer a pick lands on, the
+        // + menu's Camera | Photos | File.
+        show(ShareToSpecimenTestId) { ShareToSpecimenScreen() }
+        flow.screenshot("sg_share-targets")
+        show(ShareComposerSpecimenTestId) { ShareComposerSpecimenScreen() }
+        flow.screenshot("sg_share-composer")
+        show(ComposerAddFileSpecimenTestId) { ComposerAddFileSpecimenScreen() }
+        flow.screenshot("sg_composer-add-file")
 
         // --- sg_feedback-states: the six feedback kinds (EXP-1275). A
         // capture-only screen, every kind drawn by its real primitive and the
