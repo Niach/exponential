@@ -16,6 +16,9 @@ export interface BriefInput {
   /** The person's text (the composer, an agent's spawn request …). */
   text?: string | null
   issues?: BriefIssue[]
+  /** EXP-1686: a new agent conversation holds no rows: its first message's
+   *  `issue_brief` is the Issues section, as stored. */
+  issueBrief?: string | null
   /** A CHILD session's parent. */
   parent?: { title: string; depth: number; branch: string | null } | null
 }
@@ -63,6 +66,16 @@ export function withIssueBrief(body: string, issueBrief: string | null | undefin
   return text ? `${text}\n\n${brief}` : brief
 }
 
+/** EXP-1686 (`forwardTextCases`): the person's text of a forward to an agent,
+ *  the refs first, composed before the client seals it: the bubble is their
+ *  record of what was sent. */
+export function agentForwardText(text: string, identifiers: readonly string[]): string {
+  if (identifiers.length === 0) return text
+  const refs = identifiers.map((identifier) => `#${identifier}`).join(` `)
+  const body = text.trim()
+  return body ? `${refs}\n\n${body}` : refs
+}
+
 export function composeBrief(input: BriefInput): string {
   const sections: string[] = []
   const section = (heading: string, body: string) => {
@@ -70,6 +83,7 @@ export function composeBrief(input: BriefInput): string {
   }
   section(fixture.headings.request, (input.text ?? ``).trim())
   section(fixture.headings.issues, issuesBody(input.issues ?? []))
+  if (input.issueBrief?.trim()) sections.push(input.issueBrief.trim())
   if (input.parent) {
     const template = input.parent.branch ? fixture.parent : fixture.parentNoBranch
     section(

@@ -1,4 +1,4 @@
-import { isPersistent } from "@exp/domain-contract/session-kind"
+import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
 import { isAssistantConversation, turnHasMemberInput } from "@/lib/agents/assistant-chat"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
@@ -417,6 +417,12 @@ export const sessionsRouter = router({
       const userId = ctx.session.user.id
       const session = await loadSessionForUser(userId, input.sessionId)
       await assertCanSteer(userId, session)
+      // #EXP-1686: an agent's conversation links nothing: an older client's
+      // "+" delivers the same message a send does.
+      if (!linksIssues(session)) {
+        const { txid } = await sendSession({ userId, input: { sessionId: session.id, issueIds: input.issueIds } })
+        return { txid }
+      }
       const { txid, identifiers } = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const { linked } = await linkIssues(tx, {

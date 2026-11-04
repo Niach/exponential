@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/session-brief.json" with { type: "json" }
-import { composeBrief, composeIssueBrief, withIssueBrief } from "./session-brief"
+import { agentForwardText, composeBrief, composeIssueBrief, withIssueBrief } from "./session-brief"
 
 describe(`session brief fixture (EXP-1291)`, () => {
   for (const entry of fixture.cases) {
@@ -25,4 +25,10 @@ describe(`session brief fixture (EXP-1291)`, () => {
     expect(new TextEncoder().encode(brief).length).toBeLessThanOrEqual(65536)
     expect(brief.endsWith(`\n…`)).toBe(true)
   })
+
+  for (const entry of fixture.forwardTextCases) {
+    test(`forward text: ${entry.name}`, () => {
+      expect(agentForwardText(entry.text, entry.identifiers)).toBe(entry.expected)
+    })
+  }
 })

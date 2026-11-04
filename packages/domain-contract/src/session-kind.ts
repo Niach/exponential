@@ -13,6 +13,9 @@ export interface SessionTraits {
   persistent: boolean
   /** The kind whose definition carries triggers (the server fires them). */
   triggers: boolean
+  /** EXP-1686: a `session_issues` row may land on it (a conversation: never,
+   *  issues reach it as a message). */
+  linksIssues: boolean
 }
 
 /** The kinds the contract knows. */
@@ -33,6 +36,10 @@ export function sessionKindOf(session: { agentId?: string | null }): SessionKind
 /** A persistent session (an agent's conversation): it idles instead of ending. */
 export const isPersistent = (session: { agentId?: string | null }): boolean =>
   sessionTraits(sessionKindOf(session)).persistent
+
+/** EXP-1686: whether the session may hold issue rows. */
+export const linksIssues = (session: { agentId?: string | null }): boolean =>
+  sessionTraits(sessionKindOf(session)).linksIssues
 
 /** The kinds that never end. */
 export const PERSISTENT_KINDS = (Object.keys(KINDS) as SessionKindName[]).filter(

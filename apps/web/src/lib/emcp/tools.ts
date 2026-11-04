@@ -1,3 +1,4 @@
+import { linksIssues } from "@exp/domain-contract/session-kind"
 import { viaAppOf } from "@/lib/emcp/via-app"
 import { mergeGate, mergeGateText } from "@exp/domain-contract/pr-checks"
 import { loadPullRequestChecks, pullRequestChecksBrief } from "@/lib/integrations/pr-checks"
@@ -168,7 +169,7 @@ import {
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { markTreesReadBy } from "@/lib/sessions/reads"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
-import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
+import { AGENT_CONVERSATION_LINK_MESSAGE, linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { escalateCard } from "@/lib/sessions/escalate"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
 import {
@@ -1425,6 +1426,7 @@ export function registerExponentialTools(
           if (target.teamId !== board.teamId) {
             throw new Error(`Session not found in this board's team`)
           }
+          if (!linksIssues(target)) throw new Error(AGENT_CONVERSATION_LINK_MESSAGE)
           rootId = target.id
         } else if (link) {
           if (!own) throw new Error(noSessionMessage(`exponential_issues_create`, `sessionId`))
@@ -2928,7 +2930,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_link`,
     {
-      description: `Link issues (UUIDs or identifiers) to a session (sessionId, default your own): it holds them, a session with a repository takes them (In progress). Same team only.`,
+      description: `Link issues (UUIDs or identifiers) to a session (sessionId, default your own): it holds them, a session with a repository takes them (In progress). Same team only. An agent's conversation links none: refused.`,
       inputSchema: strictInput({
         issueIds: z.array(z.string().min(1)).min(1).max(30),
         sessionId: uuidString.optional(),
