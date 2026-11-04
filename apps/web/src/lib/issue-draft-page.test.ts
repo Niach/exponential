@@ -48,7 +48,7 @@ describe(`issue draft page (contract fixture)`, () => {
 describe(`the share search param (EXP-1635)`, () => {
   it(`round-trips the Share to page's opener`, () => {
     const { search } = newDraftNavigation({ teamSlug: `acme`, share: true })
-    expect(parseIssueDraftSearch(search)).toMatchObject({ share: `1` })
+    expect(parseIssueDraftSearch({ ...search })).toMatchObject({ share: `1` })
   })
 })
 
