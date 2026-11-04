@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import os
 
 // EXP-1459: what a person writes into a session is sealed to the tree's key
 // before it leaves the phone (contract addenda 1+2, 2026-10-30):
@@ -15,7 +14,6 @@ import os
 // eNet in this build, the install not registered yet) the plaintext goes:
 // unprefixed bodies stay legal.
 
-private let logger = Logger(subsystem: "at.exponential", category: "SessionSealer")
 
 /// `sessions.answer` with the card sealed: only the clear part is checked
 /// server-side.

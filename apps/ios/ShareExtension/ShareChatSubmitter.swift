@@ -74,21 +74,12 @@ final class ShareChatSubmitter {
                 accountId: accountId, sessionId: root.id,
                 data: attachment.data, filename: attachment.filename, contentType: attachment.contentType
             )
-        case let .agent(id, conversation):
-            try await deps.attachmentsApi.uploadTeamSessionImage(
-                accountId: accountId, teamId: conversation?.teamId ?? agentTeamId(accountId: accountId, agentId: id),
-                data: attachment.data, filename: attachment.filename, contentType: attachment.contentType
-            )
-        case let .newThread(teamId, _, _):
+        case let .agent(_, teamId, _), let .newThread(teamId, _, _):
             try await deps.attachmentsApi.uploadTeamSessionImage(
                 accountId: accountId, teamId: teamId,
                 data: attachment.data, filename: attachment.filename, contentType: attachment.contentType
             )
         }
-    }
-
-    private func agentTeamId(accountId: String, agentId: String) -> String {
-        SharedShareMirror.read(accountId: accountId)?.agents.first { $0.id == agentId }?.teamId ?? ""
     }
 
     private func post(
@@ -99,7 +90,7 @@ final class ShareChatSubmitter {
         let root: SealRoot?
         var rows: [String] = []
         switch destination {
-        case let .agent(id, conversation):
+        case let .agent(id, _, conversation):
             input = .agent(agentId: id, text: text, attachmentIds: attachments)
             root = conversation?.sealRoot
         case let .chat(chat):

@@ -42,7 +42,7 @@ struct ShareAttachment: Identifiable, Sendable {
 enum ShareChatDestination: Equatable, Sendable {
     /// The viewer's conversation with an agent (`conversation` nil = none
     /// yet, the send creates it).
-    case agent(id: String, conversation: MirroredSealRoot?)
+    case agent(id: String, teamId: String, conversation: MirroredSealRoot?)
     /// An existing chat (direct share).
     case chat(MirroredSealRoot)
     /// A Temporary session on a device.

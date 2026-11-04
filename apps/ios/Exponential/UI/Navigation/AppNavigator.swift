@@ -336,6 +336,12 @@ struct AppNavigator: View {
         )) {
             StorySpecimensScreen(kind: UITestingStyleguide.requested ?? "story-ring")
         }
+        // EXP-1635: the share extension's pages + the attach menu (capture only).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(ShareSpecimens.kinds.contains) == true
+        )) {
+            ShareSpecimens(kind: UITestingStyleguide.requested ?? "share-to")
+        }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
 

@@ -35,8 +35,8 @@ enum ShareItemExtractor {
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     if let url = await loadURL(provider) {
                         if url.isFileURL {
-                            if let image = images.count < maxImages ? loadImageFromFile(url) : nil {
-                                images.append(image)
+                            if UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+                                if images.count < maxImages, let image = loadImageFromFile(url) { images.append(image) }
                             } else if files.count < maxFiles, let file = loadFile(url) {
                                 files.append(file)
                             }
@@ -46,7 +46,9 @@ enum ShareItemExtractor {
                     }
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
                     if let text = await loadText(provider) { texts.append(text) }
-                } else if files.count < maxFiles, provider.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
+                } else if files.count < maxFiles,
+                          !provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
+                          provider.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
                     if let file = await loadFile(provider) { files.append(file) }
                 }
             }
@@ -117,8 +119,7 @@ enum ShareItemExtractor {
     }
 
     private static func loadImageFromFile(_ url: URL) -> SharedImage? {
-        guard UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
-              let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }
         let utType = UTType(filenameExtension: url.pathExtension) ?? .image
         return normalizeImage(data: data, utType: utType, suggestedName: url.lastPathComponent)
     }

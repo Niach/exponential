@@ -89,7 +89,7 @@ struct ShareChatComposerPage: View {
 
     private var destination: ShareChatDestination? {
         if let chat = context.chat { return .chat(chat.root) }
-        if let agent = rowState.agent { return .agent(id: agent.id, conversation: agent.conversation) }
+        if let agent = rowState.agent { return .agent(id: agent.id, teamId: agent.teamId, conversation: agent.conversation) }
         guard let device, let teamId = context.teamId else { return nil }
         return .newThread(teamId: teamId, deviceId: device.deviceId, rowIds: device.rowIds)
     }
