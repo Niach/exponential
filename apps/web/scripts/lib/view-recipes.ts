@@ -607,7 +607,9 @@ async function recipeOpenComposerSkillsMenu(page: Page): Promise<void> {
 
 /** EXP-1635: on a phone, Photo or file pushes Camera | Photos | File. */
 async function recipeOpenComposerAddFile(page: Page): Promise<void> {
-  await recipeOpenComposerMenuTemporary(page)
+  const plus = page.getByTestId(`agent-composer-plus-button`).filter({ visible: true }).first()
+  await plus.waitFor({ timeout: 30_000 })
+  await plus.click()
   await page.getByTestId(`agent-composer-menu-add-file`).filter({ visible: true }).first().click()
   await page.getByTestId(`agent-composer-menu-add-file-camera`).first().waitFor({ timeout: 15_000 })
   await page.mouse.move(0, 0)
@@ -643,7 +645,7 @@ async function recipeOpenShareTargets(page: Page): Promise<void> {
       })
     )
   })
-  await page.goto(`/share`)
+  await page.goto(new URL(`/share`, page.url()).href)
   await page.getByTestId(`share-targets-preview`).waitFor({ timeout: 20_000 })
   await page.mouse.move(0, 0)
 }
