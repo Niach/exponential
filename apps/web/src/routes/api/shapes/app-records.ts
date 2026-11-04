@@ -26,6 +26,8 @@ export const APP_RECORD_COLUMNS = [
   `updated_by`,
   // VAPP-229: the app whose tool created it ("via <app>", via-app.json).
   `via_app_id`,
+  // VAPP-241: the public link that created it (app-share.json: reads Guest).
+  `share_name`,
   `created_at`,
   `updated_at`,
 ]

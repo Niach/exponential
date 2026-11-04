@@ -12,6 +12,7 @@ import { authedProcedure, router } from "@/lib/trpc"
 import { invalidateAppShapeRules } from "@/lib/apps/records-shape"
 import { automationRows } from "@/lib/apps/automations"
 import { hookRows, rotateHookSecret } from "@/lib/apps/webhooks"
+import { enableShareLink, revokeShareLink, rotateShareLink, shareRows } from "@/lib/apps/share-links"
 
 // #VAPP-183: who may use which app's MCP tools (@exp/emcp access.json).
 // The member × app POLICY (Settings › MCP Access): owners set a level per
@@ -176,6 +177,8 @@ export const appAccessRouter = router({
       automations: await automationRows(app),
       // #VAPP-237: the published package's webhooks (URL, minted or not).
       hooks: await hookRows({ id: input.appId, package: app.package }),
+      // VAPP-241: the public links, owners only (the rows carry the guest URLs).
+      shares: (await shareRows({ id: input.appId, package: app.package })).map((row) => (me.role === `owner` ? row : { ...row, url: null })),
     }
   }),
 
@@ -192,6 +195,23 @@ export const appAccessRouter = router({
       if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
       await memberOrNotFound(ctx.session.user.id, app.teamId)
       return rotateHookSecret(ctx.session.user.id, app, input.name)
+    }),
+
+  /** VAPP-241: turn a public link on, rotate its token or turn it off (owners). */
+  setShareLink: authedProcedure
+    .input(z.object({ appId: uuid, name: z.string().min(1).max(24), action: z.enum([`enable`, `rotate`, `revoke`]) }))
+    .mutation(async ({ ctx, input }) => {
+      const [app] = await ctx.db
+        .select({ id: apps.id, teamId: apps.teamId, package: apps.package })
+        .from(apps)
+        .where(and(eq(apps.id, input.appId), isNull(apps.deletedAt)))
+        .limit(1)
+      if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+      assertOwner((await memberOrNotFound(ctx.session.user.id, app.teamId)).role)
+      if (input.action === `enable`) await enableShareLink(ctx.session.user.id, app, input.name)
+      else if (input.action === `rotate`) await rotateShareLink(app, input.name)
+      else await revokeShareLink(app, input.name)
+      return { ok: true as const }
     }),
 
   /** Switch an exposed tool off (or back on) for every client (owners). */
