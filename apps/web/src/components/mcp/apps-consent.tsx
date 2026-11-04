@@ -21,6 +21,7 @@ import {
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import type { ConsentApp, ConsentTeam } from "@/lib/emcp/apps-consent"
+import { APPS_COPY } from "@exp/domain-contract/apps"
 
 // #VAPP-182: the consent of the apps endpoint (`/api/mcp/apps`, reached as
 // `/auth/consent?resource=apps`): ONE team, all its apps (including later
@@ -233,6 +234,21 @@ export function AppsConsent({
                   ) : u.state ? (
                     <span key={u.name} className="text-xs text-muted-foreground">
                       {UPSTREAM_LABELS[u.state]}
+                    </span>
+                  ) : !u.serverId && team?.isOwner ? (
+                    // #VAPP-243: the team has no server of that name; an owner adds it.
+                    <Button
+                      key={u.name}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => window.open(`/t/${team.slug}/settings/mcp?add=${encodeURIComponent(u.name)}`, `_blank`, `noopener`)}
+                    >
+                      {`${APPS_COPY.accounts.addServer} ${u.name}`}
+                    </Button>
+                  ) : !u.serverId ? (
+                    <span key={u.name} className="text-xs text-muted-foreground">
+                      {APPS_COPY.accounts.notSetUp}
                     </span>
                   ) : null
                 )}

@@ -25,6 +25,8 @@ pub(crate) struct AppMcpCopy {
     pub connect: &'static str,
     pub reconnect: &'static str,
     pub no_server: &'static str,
+    /// #VAPP-243: an owner's action on a `Not set up` row.
+    pub add_server: &'static str,
     /// `UPSTREAM_LABELS.connected` (packages/emcp/fixtures/upstream.json).
     pub connected: &'static str,
 }
@@ -37,6 +39,7 @@ pub(crate) const APP_MCP_COPY: AppMcpCopy = AppMcpCopy {
     connect: "Connect",
     reconnect: "Reconnect",
     no_server: "Not set up",
+    add_server: "Add server",
     connected: "Connected",
 };
 
@@ -102,6 +105,17 @@ pub(crate) fn accounts_group(
         .iter()
         .map(|upstream| {
             let trailing = match account_trailing(upstream) {
+                // #VAPP-243: an owner adds the team server of that exact name.
+                AccountTrailing::NotSetUp if data.can_toggle => {
+                    let name = upstream.name.clone();
+                    Button::new(SharedString::from(format!("app-account-{}-add", upstream.name)))
+                        .outline()
+                        .cursor_pointer()
+                        .web_sm()
+                        .label(APP_MCP_COPY.add_server)
+                        .on_click(cx.listener(move |this, _, window, cx| this.add_upstream_server(name.clone(), window, cx)))
+                        .into_any_element()
+                }
                 AccountTrailing::NotSetUp | AccountTrailing::Connected => div()
                     .flex_shrink_0()
                     .text_sm()

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { Button, GlassGroup, Pill, Prompt, Switch, toast } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
@@ -23,6 +24,7 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
   const [busy, setBusy] = useState<string | null>(null)
   const [secrets, setSecrets] = useState<Record<string, string>>({})
   const [rotateTarget, setRotateTarget] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     let cancelled = false
@@ -97,7 +99,16 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
               return (
                 <div key={u.name} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.accountRow}-${u.name}`}>
                   <div className="min-w-0 truncate text-sm">{u.name}</div>
-                  {row.action && u.serverId ? (
+                  {row.status === `notSetUp` && data.canToggle ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void navigate({ to: `/t/$teamSlug/settings/mcp`, params: { teamSlug }, search: { add: u.name } })}
+                      data-testid={`${APPS_TEST_IDS.accountRow}-${u.name}-add`}
+                    >
+                      {APPS_COPY.accounts.addServer}
+                    </Button>
+                  ) : row.action && u.serverId ? (
                     <Button size="sm" variant="outline" pending={busy === u.serverId} disabled={busy !== null} onClick={() => void connect(u.serverId!, u.auth)}>
                       {row.actionLabel}
                     </Button>

@@ -178,7 +178,7 @@ class AppsTest {
         val expectedAccounts = mapOf(
             "title" to Apps.AccountsCopy.TITLE, "connect" to Apps.AccountsCopy.CONNECT,
             "reconnect" to Apps.AccountsCopy.RECONNECT, "connected" to Apps.AccountsCopy.CONNECTED,
-            "notSetUp" to Apps.AccountsCopy.NOT_SET_UP,
+            "notSetUp" to Apps.AccountsCopy.NOT_SET_UP, "addServer" to Apps.AccountsCopy.ADD_SERVER,
         )
         assertEquals(accounts.keys, expectedAccounts.keys)
         for ((key, value) in expectedAccounts) assertEquals(key, accounts[key]!!.jsonPrimitive.content, value)
