@@ -676,6 +676,9 @@ function digestMessage(m: TreeMessage, body: string = digestText(m.body)): Diges
         ...(typeof m.card.question === `string` ? { question: cut(digestText(m.card.question)) } : {}),
         ...(typeof m.card.plan === `string` ? { plan: cut(digestText(m.card.plan)) } : {}),
         ...(typeof m.card.title === `string` ? { title: cut(m.card.title) } : {}),
+        // #FEED-191: an `ask` mirror names its origin card (needs-you.json).
+        ...(m.card.kind === `ask` && typeof m.card.sessionId === `string` ? { sessionId: m.card.sessionId } : {}),
+        ...(m.card.kind === `ask` && typeof m.card.messageId === `string` ? { messageId: m.card.messageId } : {}),
       }
     : null
   return {

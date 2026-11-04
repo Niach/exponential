@@ -6,7 +6,7 @@
 import fixture from "../fixtures/needs-you.json" with { type: "json" }
 import { askDockLabel, askDockTitle } from "./ask-dock"
 import { askPreview } from "./chats"
-import { planCounts, planCountsLine, planRowLabel } from "./plan-page"
+import { planRowLabel } from "./plan-page"
 import { resultAge } from "./results-tab"
 import type { TreeMessage } from "./session-tree"
 import { cardState } from "./waiting-cards"
@@ -75,6 +75,8 @@ const QUESTION_PREFIX = fixture.prefix.question
 function rowOf(
   message: NeedsYouMessageInput,
   sessions: ReadonlyMap<string, NeedsYouSessionInput>,
+  /** Every session the viewer may read, ended ones included. */
+  readable: ReadonlyMap<string, NeedsYouSessionInput>,
   now: number
 ): NeedsYouRow | null {
   const card = message.card
@@ -100,25 +102,28 @@ function rowOf(
       title: plan
         ? planRowLabel(String(card.plan ?? ``))
         : askDockTitle(String(card.question ?? ``)) || askDockLabel(`question`),
-      meta: plan ? planCountsLine(planCounts(card)) : ``,
+      meta: ``,
     }
   }
   if (card.kind !== `ask` || message.answeredAt !== null) return null
   // A mirror: the origin's own ids where the viewer may read it, else the
-  // mirror's, with the neutral copy (chats.json `askPreview`).
+  // mirror's, with the neutral copy (chats.json `askPreview`). A digest from
+  // before it kept `messageId` opens the origin's chat, no card to reach.
   const origin = typeof card.sessionId === `string` ? card.sessionId : message.authorSessionId
-  const originSession = origin ? sessions.get(origin) : undefined
-  const preview = askPreview(message as unknown as TreeMessage, new Set(sessions.keys()))
-  const readable = Boolean(originSession) && typeof card.messageId === `string`
+  const originSession = origin ? readable.get(origin) : undefined
+  const preview = askPreview(message as unknown as TreeMessage, new Set(readable.keys()))
+  const opaque = preview.text === fixture.private.plan || preview.text === fixture.private.question
+  const target = opaque ? undefined : originSession
+  const named = target && typeof card.messageId === `string` ? String(card.messageId) : null
   const plan = preview.kind === `plan`
   return {
     ...base,
-    messageId: readable ? String(card.messageId) : message.id,
-    sessionId: readable ? originSession!.id : session.id,
-    rootId: readable ? originSession!.rootId : root.id,
-    chat: readable ? (sessions.get(originSession!.rootId)?.name ?? root.name) : root.name,
+    messageId: named ?? message.id,
+    sessionId: target ? target.id : session.id,
+    rootId: target ? target.rootId : root.id,
+    chat: target ? (readable.get(target.rootId)?.name ?? root.name) : root.name,
     kind: plan ? `plan` : `question`,
-    opens: plan && readable ? `plan` : `card`,
+    opens: plan && named ? `plan` : `card`,
     title: preview.text.startsWith(QUESTION_PREFIX) ? preview.text.slice(QUESTION_PREFIX.length) : preview.text,
     meta: ``,
   }
@@ -166,20 +171,30 @@ export function needsYou(input: {
   pullRequests?: readonly NeedsYouPullRequestInput[]
 }): NeedsYouRow[] {
   // Another member's agent conversation is theirs (chats.json `listAgents`).
-  const live = input.sessions.filter(
-    (session) => session.status !== `ended` && (session.agentId === null || session.userId === input.me)
+  const readable = new Map(
+    input.sessions
+      .filter((session) => session.agentId === null || session.userId === input.me)
+      .map((session) => [session.id, session])
   )
-  const sessions = new Map(live.map((session) => [session.id, session]))
+  const sessions = new Map([...readable].filter(([, session]) => session.status !== `ended`))
   const rows = new Map<string, NeedsYouRow>()
   const seen = new Set<string>()
+  const unnamed: NeedsYouRow[] = []
   for (const message of input.messages) {
     if (seen.has(message.id)) continue
     seen.add(message.id)
-    const row = rowOf(message, sessions, input.now)
+    const row = rowOf(message, sessions, readable, input.now)
     if (!row) continue
-    const own = message.id === row.messageId
+    // An older digest's mirror naming only a session waits until every card is known.
+    if (message.id === row.messageId && row.sessionId !== message.sessionId) unnamed.push(row)
     // The card itself beats its mirror's copy of it.
-    if (own || !rows.has(row.messageId)) rows.set(row.messageId, row)
+    else if (message.id === row.messageId || !rows.has(row.messageId)) rows.set(row.messageId, row)
+  }
+  const waitingIn = new Set([...rows.values()].map((row) => row.sessionId))
+  for (const row of unnamed) {
+    if (waitingIn.has(row.sessionId)) continue
+    waitingIn.add(row.sessionId)
+    rows.set(row.messageId, row)
   }
   return [
     ...rows.values(),
