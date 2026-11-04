@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- EXP-1635: the system share sheet's direct rows (share-targets.json), the
+     dynamic shortcuts DirectShareShortcuts publishes under this category. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <share-target android:targetClass="com.exponential.app.MainActivity">
+        <data android:mimeType="*/*" />
+        <category android:name="com.exponential.app.category.SHARE_TARGET" />
+    </share-target>
+</shortcuts>

@@ -127,20 +127,31 @@
                 <data android:scheme="exponential" android:host="github-connected" />
             </intent-filter>
 
-            <!-- Share target: a shared link/text or a single image becomes a new issue. -->
+            <!-- Share target (EXP-1635): anything shared lands on Share to; the
+                 chat path takes every type, New issue takes text and images. -->
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/*" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="*/*" />
             </intent-filter>
 
-            <!-- Share target: multiple shared images become one new issue. -->
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="*/*" />
             </intent-filter>
+
+            <!-- EXP-1635: text selected in any app, the same flow with text only. -->
+            <intent-filter android:label="@string/process_text_label">
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- EXP-1635: the sharing shortcuts' <share-target> (DirectShareShortcuts). -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/share_shortcuts" />
         </activity>
 
         <!-- EXP-297: hands cached issue attachments to external viewers and

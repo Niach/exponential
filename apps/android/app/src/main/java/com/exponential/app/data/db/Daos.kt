@@ -341,6 +341,16 @@ abstract class SessionDao {
     abstract suspend fun appConversation(appId: String, userId: String): SessionEntity?
 
     // Every visible session (the Threads list derives groups per tree off it).
+    // EXP-1635: a team's newest chats (the sharing shortcuts): roots that are
+    // neither an agent's conversation nor an app's editor, unarchived.
+    @Query(
+        """SELECT * FROM sessions WHERE team_id = :teamId AND parent_id IS NULL
+        AND agent_id IS NULL AND app_id IS NULL
+        AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
+        ORDER BY updated_at DESC LIMIT :limit""",
+    )
+    fun observeRecentChats(teamId: String, limit: Int): Flow<List<SessionEntity>>
+
     @Query("SELECT * FROM sessions ORDER BY created_at, id")
     abstract fun rawObserveAll(): Flow<List<SessionEntity>>
     fun observeAll(): Flow<List<SessionEntity>> = rawObserveAll().openedSessions()

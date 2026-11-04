@@ -118,7 +118,7 @@ class MainActivity : ComponentActivity() {
             shareParseScope.launch {
                 val payload = ShareIntentParser.parse(appContext, intent) ?: return@launch
                 if (seq == shareParseSeq) {
-                    bus.openShare(payload.text, payload.subject, payload.imageUris)
+                    bus.openShare(payload)
                 }
             }
             return

@@ -1,6 +1,8 @@
 package com.exponential.app
 
 import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.ShareTargets
 import com.exponential.app.ui.components.Blocking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -38,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -392,6 +395,33 @@ class AppViewModel @Inject constructor(
         val account = accountId ?: auth.activeAccountId.value ?: return null
         if (teamId == null) return null
         return teamSelection.planTeamSwitch(databaseHolder, account, teamId)
+    }
+
+    /**
+     * EXP-1635: where a sharing shortcut's id leads for THIS viewer, null when
+     * `parseDirectShareId` rejects it or the agent or chat is no longer theirs
+     * to see (share-targets.json: step 1 takes over).
+     */
+    suspend fun resolveDirectShare(id: String): com.exponential.app.data.ChatShareRoute? {
+        val target = ShareTargets.parseDirectShareId(id) ?: return null
+        val account = auth.activeAccountId.value ?: return null
+        val db = databaseHolder.database(forAccountId = account)
+        return when (target.kind) {
+            ShareTargets.Kind.Agent -> {
+                val row = db.agentDefinitionDao().observeById(target.id).first() ?: return null
+                val visible = SessionTree.listAgents(
+                    listOf(SessionTree.agentDefinition(row)),
+                    emptyList(),
+                    row.teamId,
+                    auth.userId.value,
+                )
+                if (visible.isEmpty()) null else com.exponential.app.data.ChatShareRoute(row.teamId, pick = row.id)
+            }
+            ShareTargets.Kind.Chat -> {
+                val row = db.sessionDao().observeById(target.id).first() ?: return null
+                com.exponential.app.data.ChatShareRoute(row.teamId, sessionId = row.id)
+            }
+        }
     }
 
     fun applyTeamSwitch(switch: TeamSwitch) {

@@ -99,6 +99,8 @@ internal fun AgentComposer(
     starting: ComposerStarting? = null,
     /** EXP-1249: the "+" — opens the composer menu. */
     onOpenMenu: () -> Unit,
+    /** EXP-1635: the "+"'s add-file menu ([ComposerAttachMenu]), anchored here. */
+    attachMenu: @Composable () -> Unit = {},
     onRemoveImage: (Int) -> Unit,
     submitLabel: String,
     canSubmit: Boolean,
@@ -157,13 +159,16 @@ internal fun AgentComposer(
         },
         tools = {
             // EXP-1249 ×4: the "+" is the composer's ONLY tool.
-            ComposerToolButton(
-                ExpIcons.uiAdd,
-                contentDescription = ComposerMenu.PLUS_LABEL,
-                onClick = onOpenMenu,
-                enabled = !sending,
-                modifier = Modifier.testTag(ComposerMenu.PLUS_TEST_ID),
-            )
+            Box {
+                ComposerToolButton(
+                    ExpIcons.uiAdd,
+                    contentDescription = ComposerMenu.PLUS_LABEL,
+                    onClick = onOpenMenu,
+                    enabled = !sending,
+                    modifier = Modifier.testTag(ComposerMenu.PLUS_TEST_ID),
+                )
+                attachMenu()
+            }
         },
         submit = {
             // EXP-827: the round send glyph, icon-only ×4 — the chips above the

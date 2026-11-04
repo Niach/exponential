@@ -1,0 +1,64 @@
+package com.exponential.app.ui.share
+
+import android.content.Context
+import com.exponential.app.data.ChatShare
+import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.domain.ShareTargets
+import com.exponential.app.domain.STEER_ATTACHMENT_REJECTED
+import com.exponential.app.ui.agent.ComposerPick
+import com.exponential.app.ui.agent.readComposerPick
+import com.exponential.app.ui.markdown.MarkdownMediaUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+internal interface ShareSelectionEntryPoint {
+    fun teamSelection(): TeamSelection
+}
+
+/** The app-singleton holding the waiting [ChatShare], for the composers. */
+internal fun shareSelection(context: Context): TeamSelection =
+    dagger.hilt.android.EntryPointAccessors
+        .fromApplication(context.applicationContext, ShareSelectionEntryPoint::class.java)
+        .teamSelection()
+
+/** share-targets.json `shareChatText`: what the payload leaves in the composer. */
+fun chatShareText(share: DeepLinkBus.Target.ShareContent): String = ShareTargets.shareChatText(
+    text = share.text,
+    subject = share.subject,
+    url = null,
+    hasImages = share.imageUris.isNotEmpty() || share.files.isNotEmpty(),
+)
+
+/**
+ * The prefill ([ChatShare]): the text, then each image and file as an ordinary
+ * pick through the composer's own [onPick], so its caps + toasts apply.
+ * Nothing is sent here. [onText] gets the text with the composer's own draft
+ * kept ahead of it.
+ */
+suspend fun deliverChatShare(
+    context: Context,
+    share: DeepLinkBus.Target.ShareContent,
+    currentDraft: String,
+    onText: (String) -> Unit,
+    onPick: (ComposerPick) -> Unit,
+) {
+    val text = chatShareText(share)
+    if (text.isNotEmpty()) {
+        onText(listOf(currentDraft.trimEnd(), text).filter { it.isNotEmpty() }.joinToString("\n\n"))
+    }
+    for (uri in share.imageUris) onPick(readComposerPick(context, uri))
+    for (file in share.files) {
+        val bytes = withContext(Dispatchers.IO) { MarkdownMediaUtils.readBytes(context, file.uri) }
+        onPick(
+            if (bytes == null) {
+                ComposerPick.Refused("That file could not be read")
+            } else {
+                ComposerPick.Read(file.uri, bytes, file.filename, file.mime)
+            },
+        )
+    }
+    if (share.oversizeFiles) onPick(ComposerPick.Refused(STEER_ATTACHMENT_REJECTED))
+}

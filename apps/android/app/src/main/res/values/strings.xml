@@ -2,4 +2,6 @@
 <resources>
     <!-- app_name is provided per product flavor via resValue in build.gradle.kts
          (production = "Exponential", staging = "Exp Staging"). -->
+    <!-- EXP-1635: the text selection toolbar's row. -->
+    <string name="process_text_label">Share to Exponential</string>
 </resources>
