@@ -7,7 +7,8 @@ import {
 
 // Asset names are a three-way contract: build-desktop.yml publishes them, the
 // desktop self-updater (updater::expected_asset_name) downloads them, and
-// these links (plus apps/site/src/components/landing/links.ts) point users at them.
+// the redirect endpoint behind these links (plus apps/site/src/components/landing/links.ts)
+// resolves them.
 describe(`desktopDownloadHref`, () => {
   it(`maps macOS user agents to the .dmg`, () => {
     expect(
@@ -16,7 +17,7 @@ describe(`desktopDownloadHref`, () => {
       )
     ).toBe(DESKTOP_ASSET_URLS.macos)
     expect(DESKTOP_ASSET_URLS.macos).toMatch(
-      /\/latest\/download\/Exponential-production\.dmg$/
+      /^\/api\/download\/desktop\/macos$/
     )
   })
 
@@ -27,7 +28,7 @@ describe(`desktopDownloadHref`, () => {
       )
     ).toBe(DESKTOP_ASSET_URLS.windows)
     expect(DESKTOP_ASSET_URLS.windows).toMatch(
-      /\/latest\/download\/Exponential-production-x86_64-windows\.exe$/
+      /^\/api\/download\/desktop\/windows$/
     )
   })
 
@@ -36,7 +37,7 @@ describe(`desktopDownloadHref`, () => {
       desktopDownloadHref(`Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101`)
     ).toBe(DESKTOP_ASSET_URLS.linux)
     expect(DESKTOP_ASSET_URLS.linux).toMatch(
-      /\/latest\/download\/Exponential-production-x86_64\.AppImage$/
+      /^\/api\/download\/desktop\/linux$/
     )
   })
 

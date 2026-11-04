@@ -1,8 +1,8 @@
 //! In-app update check + self-update pipeline (masterplan v5 §11.2, EXP-22).
 //!
 //! The app hits the GitHub Releases API at launch and then every
-//! [`RECHECK_INTERVAL`] while running (non-blocking, offline-safe) — when the
-//! latest published `desktop-v*` release is newer than the compiled version it
+//! [`RECHECK_INTERVAL`] while running (non-blocking, offline-safe) — when a
+//! published `desktop-v*` release is newer than the compiled version it
 //! flips a global that the [`crate::shell::Shell`] shell renders as a
 //! dismissible banner. The old launch-only, daily-debounced check meant a
 //! long-running IDE (or one sharing its stamp file with dev runs) effectively
@@ -10,10 +10,11 @@
 //! could stay silent forever.
 //!
 //! When the running install can self-update (see [`updater::capability`]) AND
-//! the release carries the asset this platform needs, the banner's button runs
+//! a newer release carries the asset this platform needs (EXP-1693: the newest
+//! such release, not just the newest release), the banner's button runs
 //! the full pipeline in-app: download (with progress) → SHA256SUMS verify →
 //! swap → "Restart to update" (gpui `set_restart_path` + `restart`). In every
-//! other case — dev builds, unwritable installs, releases without our asset
+//! other case — dev builds, unwritable installs, no newer release with our asset
 //! (which is also the macOS signing gate: unsigned releases ship a `.zip`,
 //! not the `.dmg`) — the button falls back to opening the release page, i.e.
 //! the original banner-only behavior. Failures mid-pipeline degrade the same
@@ -34,17 +35,18 @@ use std::{
 use gpui::{App, AppContext as _, Entity, Global};
 use serde::Deserialize;
 
-/// GitHub Releases "latest published, non-draft, non-prerelease" endpoint —
-/// the exact URL the packet spec names. `EXP_UPDATE_API` overrides it at
-/// runtime so the whole pipeline can be driven against a fixture release
-/// (dev/testing only; release builds never set it).
-const RELEASES_API: &str = "https://api.github.com/repos/Niach/exponential/releases/latest";
+/// GitHub's release list (EXP-1693: `releases/latest` is one release, which
+/// may lack this platform's asset, and it can point at any tag family). 30
+/// releases hold about ten desktop ones across the repo's release trains, at a
+/// third of the 100-release payload. `EXP_UPDATE_API` overrides it at runtime so
+/// the whole pipeline can be driven against a fixture release list (dev/testing
+/// only; release builds never set it).
+const RELEASES_API: &str = "https://api.github.com/repos/Niach/exponential/releases?per_page=30";
 /// Human release page — the banner's fallback link when a release omits its
 /// own `html_url`.
 const RELEASES_PAGE: &str = "https://github.com/Niach/exponential/releases/latest";
 /// Only desktop releases (`desktop-v1.2.3`) drive the desktop banner — the repo
-/// also ships web `v*` and `android-v*` tags whose versions are unrelated, and
-/// `releases/latest` can point at any of them.
+/// also ships web `v*` and `android-v*` tags whose versions are unrelated.
 const DESKTOP_TAG_PREFIX: &str = "desktop-v";
 /// Re-check cadence while the app runs. One unauthenticated Releases-API call
 /// per interval (limit: 60/h/IP) — an IDE left open for days still learns
@@ -560,6 +562,10 @@ struct Release {
     tag_name: String,
     html_url: Option<String>,
     #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+    #[serde(default)]
     assets: Vec<ReleaseAsset>,
 }
 
@@ -567,11 +573,13 @@ struct Release {
 struct ReleaseAsset {
     name: String,
     browser_download_url: String,
+    /// `uploaded` once complete; anything else is a partial upload.
+    state: Option<String>,
 }
 
 /// Blocking fetch + compare. `Ok(Some)` = a newer desktop release,
-/// `Ok(None)` = up to date / non-desktop latest, `Err(())` = network/parse
-/// failure (don't record the check so we retry).
+/// `Ok(None)` = up to date, `Err(())` = network/parse failure (don't record
+/// the check so we retry).
 fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
     // The app's one shared HTTP client (EXP-304). GitHub is a different host
     // from the instance, so this just gets its own pooled connection — but it
@@ -593,23 +601,49 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
     // client is built without the `json` feature (image_paste.rs relies on the
     // same).
     let body = response.text().map_err(|_| ())?;
-    let release: Release = serde_json::from_str(&body).map_err(|err| {
+    let releases: Vec<Release> = serde_json::from_str(&body).map_err(|err| {
         log::warn!("[ui] update: release check returned malformed JSON: {err}");
     })?;
 
-    // Only desktop releases carry a version comparable to ours.
-    let Some(version) = release.tag_name.strip_prefix(DESKTOP_TAG_PREFIX) else {
-        return Ok(None);
-    };
-    if is_newer(version, current_version()) {
-        Ok(Some(UpdateInfo {
-            version: version.to_string(),
-            url: release.html_url.unwrap_or_else(|| RELEASES_PAGE.to_string()),
-            plan: build_plan(&release.assets),
-        }))
-    } else {
-        Ok(None)
+    let info = select_release(&releases, current_version(), build_plan);
+    if info.as_ref().is_some_and(|info| info.plan.is_none()) {
+        // Answer the "why is there only a browser button" question from the
+        // log too (EXP-316) — the blocking view surfaces the same reason.
+        match updater::self_update_unavailable_reason() {
+            Some(reason) => log::info!("[ui] update: self-update unavailable: {reason}"),
+            None => log::info!("[ui] update: no newer release carries this platform's asset — banner-only"),
+        }
     }
+    Ok(info)
+}
+
+/// EXP-1693: what to offer from the published desktop releases newer than
+/// `current`: the newest one this install can apply, so a release still
+/// missing our asset (Windows' leg attaches late, a macOS notarization flake)
+/// doesn't hide the one before it. No appliable one = the newest, banner-only
+/// (the browser fallback, which is also the macOS signing gate). The API lists
+/// by creation date, so versions are compared, not list positions.
+fn select_release(
+    releases: &[Release],
+    current: &str,
+    plan_for: impl Fn(&[ReleaseAsset]) -> Option<UpdatePlan>,
+) -> Option<UpdateInfo> {
+    let mut newer: Vec<(&str, &Release)> = releases
+        .iter()
+        .filter(|release| !release.draft && !release.prerelease)
+        .filter_map(|release| Some((release.tag_name.strip_prefix(DESKTOP_TAG_PREFIX)?, release)))
+        .filter(|(version, _)| is_newer(version, current))
+        .collect();
+    newer.sort_by_key(|(version, _)| std::cmp::Reverse(parse_semver(version)));
+    let (version, release, plan) = newer
+        .iter()
+        .find_map(|&(version, release)| plan_for(&release.assets).map(|plan| (version, release, Some(plan))))
+        .or_else(|| newer.first().map(|&(version, release)| (version, release, None)))?;
+    Some(UpdateInfo {
+        version: version.to_string(),
+        url: release.html_url.clone().unwrap_or_else(|| RELEASES_PAGE.to_string()),
+        plan,
+    })
 }
 
 /// Pair the install capability with the checked release's assets. `None`
@@ -617,36 +651,22 @@ fn fetch_latest() -> Result<Option<UpdateInfo>, ()> {
 /// doesn't carry both our asset and the checksums file.
 fn build_plan(assets: &[ReleaseAsset]) -> Option<UpdatePlan> {
     let updater::Capability::SelfUpdate(strategy) = updater::capability() else {
-        // Answer the "why is there only a browser button" question from the
-        // log too (EXP-316) — the blocking view surfaces the same reason.
-        if let Some(reason) = updater::self_update_unavailable_reason() {
-            log::info!("[ui] update: self-update unavailable: {reason}");
-        }
         return None;
     };
     let asset_name = updater::expected_asset_name(&strategy);
     let find = |name: &str| {
         assets
             .iter()
-            .find(|asset| asset.name == name)
+            .find(|asset| asset.name == name && asset.state.as_deref().is_none_or(|state| state == "uploaded"))
             .map(|asset| asset.browser_download_url.clone())
     };
-    match (find(&asset_name), find(updater::SUMS_ASSET)) {
-        (Some(asset_url), Some(sums_url)) => Some(UpdatePlan {
-            asset_url,
-            sums_url,
-            sig_url: find(updater::SIG_ASSET),
-            asset_name,
-            strategy,
-        }),
-        _ => {
-            log::info!(
-                "[ui] update: release lacks {asset_name} or {} — banner-only",
-                updater::SUMS_ASSET
-            );
-            None
-        }
-    }
+    Some(UpdatePlan {
+        asset_url: find(&asset_name)?,
+        sums_url: find(updater::SUMS_ASSET)?,
+        sig_url: find(updater::SIG_ASSET),
+        asset_name,
+        strategy,
+    })
 }
 
 /// Numeric `major.minor.patch` compare (pre-release/build metadata ignored —
@@ -701,6 +721,66 @@ mod tests {
         assert!(build_plan(&[]).is_none());
     }
 
+    /// EXP-1693: `plan_for` stands in for the capability: a release with an
+    /// asset named `ours` is appliable.
+    fn pick(releases: &str, current: &str) -> Option<(String, bool)> {
+        let releases: Vec<Release> = serde_json::from_str(releases).unwrap();
+        select_release(&releases, current, |assets| {
+            assets.iter().any(|asset| asset.name == "ours").then(|| UpdatePlan {
+                asset_name: "ours".to_string(),
+                asset_url: String::new(),
+                sums_url: String::new(),
+                sig_url: None,
+                strategy: updater::Strategy::AppImage { appimage: PathBuf::new() },
+            })
+        })
+        .map(|info| (info.version, info.plan.is_some()))
+    }
+
+    const OURS: &str = r#"[{"name":"ours","browser_download_url":"u"}]"#;
+
+    #[test]
+    fn select_falls_back_to_the_newest_release_with_the_asset() {
+        let list = format!(
+            r#"[{{"tag_name":"desktop-v1.3.0","assets":[]}},
+                {{"tag_name":"android-v9.0.0","assets":{OURS}}},
+                {{"tag_name":"desktop-v1.2.0","assets":{OURS}}},
+                {{"tag_name":"desktop-v1.1.0","assets":{OURS}}}]"#
+        );
+        assert_eq!(pick(&list, "1.0.0"), Some(("1.2.0".to_string(), true)));
+    }
+
+    #[test]
+    fn select_compares_versions_not_list_order() {
+        let list = format!(
+            r#"[{{"tag_name":"desktop-v1.1.0","assets":{OURS}}},
+                {{"tag_name":"desktop-v1.10.0","assets":{OURS}}},
+                {{"tag_name":"desktop-v1.9.0","assets":{OURS}}}]"#
+        );
+        assert_eq!(pick(&list, "1.0.0"), Some(("1.10.0".to_string(), true)));
+    }
+
+    #[test]
+    fn select_goes_banner_only_when_no_newer_release_has_the_asset() {
+        // 1.2.0 has the asset but is the running version: never a downgrade.
+        let list = format!(
+            r#"[{{"tag_name":"desktop-v1.3.0","assets":[]}},
+                {{"tag_name":"desktop-v1.2.0","assets":{OURS}}}]"#
+        );
+        assert_eq!(pick(&list, "1.2.0"), Some(("1.3.0".to_string(), false)));
+        assert_eq!(pick(&list, "1.3.0"), None);
+    }
+
+    #[test]
+    fn select_skips_drafts_and_prereleases() {
+        let list = format!(
+            r#"[{{"tag_name":"desktop-v1.4.0","draft":true,"assets":{OURS}}},
+                {{"tag_name":"desktop-v1.3.0","prerelease":true,"assets":{OURS}}},
+                {{"tag_name":"desktop-v1.2.0","assets":{OURS}}}]"#
+        );
+        assert_eq!(pick(&list, "1.0.0"), Some(("1.2.0".to_string(), true)));
+    }
+
     /// Headless end-to-end (Linux): a fixture "GitHub" serves the release
     /// JSON, SHA256SUMS.txt, and the AppImage bytes; `$APPIMAGE` points at a
     /// temp file. check → plan → pipeline must swap the file and finish with
@@ -730,11 +810,11 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let release_json = format!(
-            r#"{{"tag_name":"desktop-v99.0.0","html_url":"http://{addr}/releases",
+            r#"[{{"tag_name":"desktop-v99.0.0","html_url":"http://{addr}/releases",
                 "assets":[
                   {{"name":"{}","browser_download_url":"http://{addr}/sums"}},
                   {{"name":"{asset_name}","browser_download_url":"http://{addr}/asset"}}
-                ]}}"#,
+                ]}}]"#,
             updater::SUMS_ASSET
         );
         let sums = format!("{digest}  {asset_name}\n");
