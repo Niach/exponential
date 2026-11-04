@@ -211,6 +211,7 @@ let shareExtensionSources: SourceFilesList = [
     "ExpUI/Sources/ColorHex.swift",
     "ExpUI/Sources/DesignTokens.generated.swift",
     "ExpUI/Sources/GlassTokens.swift",
+    "ExpUI/Sources/Motion.swift",
     "ExpUI/Sources/GlassComposer.swift",
     "ExpUI/Sources/AgentBubbleCircle.swift",
     "ExpUI/Sources/ComposerAgentRowView.swift",

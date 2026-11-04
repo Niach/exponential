@@ -1,25 +1,5 @@
 import Foundation
 
-/// A pending attachment of the extension's composer.
-struct ShareAttachment: Identifiable, Sendable {
-    let id = UUID()
-    let data: Data
-    let filename: String
-    let contentType: String
-    let isImage: Bool
-}
-
-/// Where a chat send goes.
-enum ShareChatDestination: Equatable, Sendable {
-    /// The viewer's conversation with an agent (`conversation` nil = none
-    /// yet, the send creates it).
-    case agent(id: String, conversation: MirroredSealRoot?)
-    /// An existing chat (direct share).
-    case chat(MirroredSealRoot)
-    /// A Temporary session on a device.
-    case newThread(teamId: String, deviceId: String, rowIds: [String])
-}
-
 /// A failed send, worded per feedback-states.json `errors`.
 struct ShareChatError: Error, LocalizedError {
     let title: String
@@ -117,7 +97,7 @@ final class ShareChatSubmitter {
         let attachments = attachmentIds.isEmpty ? nil : attachmentIds
         let input: SessionsSendInput
         let root: SealRoot?
-        var rowIds: [String: [String]] = [:]
+        var rows: [String] = []
         switch destination {
         case let .agent(id, conversation):
             input = .agent(agentId: id, text: text, attachmentIds: attachments)
@@ -126,7 +106,7 @@ final class ShareChatSubmitter {
             input = .message(sessionId: chat.id, text: text, attachmentIds: attachments)
             root = chat.sealRoot
         case let .newThread(teamId, deviceId, ids):
-            rowIds[deviceId] = ids
+            rows = ids
             // EXP-993: a phone never picks a free request's repository: the
             // team's FIRST one anchors it (none = the agent's scratch dir).
             let repositories = try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)
@@ -136,6 +116,7 @@ final class ShareChatSubmitter {
             )
             root = nil
         }
+        let rowIds = rows
         var prepared = await deps.sealing.prepare(
             accountId: accountId,
             input,
@@ -143,7 +124,7 @@ final class ShareChatSubmitter {
             mentions: nil,
             deviceIds: { id in
                 guard let id, !id.isEmpty else { return [] }
-                return (rowIds[id] ?? []) + [id]
+                return rowIds + [id]
             }
         )
         prepared.input.clientMessageId = messageKey(for: text ?? "")

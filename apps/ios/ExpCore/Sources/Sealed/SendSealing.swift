@@ -100,7 +100,7 @@ public struct SendSealing: Sendable {
         _ input: SessionsSendInput,
         root: SealRoot?,
         mentions: [String]?,
-        deviceIds: (String?) -> [String]
+        deviceIds: @Sendable (String?) -> [String]
     ) async -> PreparedSend {
         guard crypto.isAvailable else { return PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil) }
         switch input {

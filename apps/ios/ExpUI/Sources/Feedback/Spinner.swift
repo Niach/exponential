@@ -174,6 +174,7 @@ extension PendingLabel where Icon == EmptyView {
 
 // MARK: - Placeholder
 
+#if !SHARE_EXTENSION
 /// (3) PLACEHOLDER — skeleton rows in the real row geometry: the row's own
 /// height, a dot where its glyph sits, bars where its text sits, one slow
 /// opacity pulse (`FeedbackStates.Placeholder`), static under Reduce Motion.
@@ -257,3 +258,4 @@ public struct SkeletonRows: View {
             .frame(width: max(0, width), height: CGFloat(FeedbackStates.Placeholder.barHeight))
     }
 }
+#endif
