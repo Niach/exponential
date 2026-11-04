@@ -477,24 +477,26 @@ export async function recordSessionActivityInTx(
     if (!id || !Number.isFinite(at)) continue
     latest.set(id, Math.max(latest.get(id) ?? 0, Math.min(at, now.getTime())))
   }
-  let moved = 0
-  for (const [id, at] of latest) {
-    const stamp = new Date(at)
-    const updated = await tx
-      .update(sessions)
-      .set({ lastActivityAt: stamp })
-      .where(
-        and(
-          beatScope(device),
-          eq(sessions.id, id),
-          inArray(sessions.status, [...LIVE]),
-          sql`COALESCE(${sessions.lastActivityAt}, '-infinity'::timestamptz) < ${stamp}`
-        )
+  if (latest.size === 0) return 0
+  // #EXP-1406: one statement however many sessions the beat lists.
+  const beats = sql.join(
+    [...latest].map(([id, at]) => sql`(${id}::uuid, ${new Date(at).toISOString()}::timestamptz)`),
+    sql`, `
+  )
+  const moved = await tx
+    .update(sessions)
+    .set({ lastActivityAt: sql`beat.at` })
+    .from(sql`(VALUES ${beats}) AS beat(id, at)`)
+    .where(
+      and(
+        beatScope(device),
+        sql`${sessions.id} = beat.id`,
+        inArray(sessions.status, [...LIVE]),
+        sql`COALESCE(${sessions.lastActivityAt}, '-infinity'::timestamptz) < beat.at`
       )
-      .returning({ id: sessions.id })
-    moved += updated.length
-  }
-  return moved
+    )
+    .returning({ id: sessions.id })
+  return moved.length
 }
 
 /** EXP-1374: a sign of life the server saw itself (an MCP call by the

@@ -1051,8 +1051,10 @@ export const sessionsRouter = router({
             .set({ mentionUserIds: input.mentionUserIds?.length ? input.mentionUserIds : null })
             .where(eq(messages.id, messageId))
         }
-        // EXP-1374: a message is a sign of life (the stuck rule).
-        await tx.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, session.id))
+        // EXP-1374: a message is a sign of life (the stuck rule). #EXP-1406:
+        // and it moves the thread in the lists, so it bumps `updated_at` itself.
+        const replied = new Date()
+        await tx.update(sessions).set({ lastActivityAt: replied, updatedAt: replied }).where(eq(sessions.id, session.id))
         if (asks) {
           await tx
             .update(sessions)

@@ -58,6 +58,7 @@ pub use eagent::codex_app_server;
 pub use eagent::codex_sessions;
 pub use eagent::codex_trust;
 pub mod context_layout;
+pub mod continue_attempts;
 pub mod device_doctor;
 pub mod direct_inbox;
 pub mod doctor;
