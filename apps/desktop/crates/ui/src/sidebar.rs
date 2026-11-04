@@ -1805,22 +1805,22 @@ pub(crate) fn render_left_column_header(
     let active_team = active_team_id(nav, cx);
     // EXP-1075: the rail's Running section is the ACTIVE team's runs now, so
     // the switcher carries the others — a dot per team, never a count.
-    let teams: Vec<(String, String, bool, Option<Hsla>)> = Store::global(cx)
+    let teams: Vec<(String, String, bool, Option<Hsla>, Option<String>)> = Store::global(cx)
         .collections()
         .teams_sorted(cx)
         .into_iter()
         .map(|team| {
             let active = Some(team.id.as_str()) == active_team.as_deref();
             let dot = team_run_dot(live.get(&team.id));
-            (team.id, team.name, active, dot)
+            (team.id, team.name, active, dot, team.icon_url)
         })
         .collect();
     // The trigger's own dot folds every OTHER team into one: amber wins over
     // green, because a run asking a question is the thing you must be told.
     let elsewhere = teams
         .iter()
-        .filter(|(_, _, active, _)| !*active)
-        .filter_map(|(id, _, _, _)| live.get(id))
+        .filter(|(_, _, active, _, _)| !*active)
+        .filter_map(|(id, _, _, _, _)| live.get(id))
         .fold(crate::session_data::TeamLiveRuns::default(), |mut acc, runs| {
             acc.count += runs.count;
             acc.needs_input |= runs.needs_input && runs.count > 0;
@@ -1828,12 +1828,12 @@ pub(crate) fn render_left_column_header(
         });
     let elsewhere_tone = team_run_dot(Some(&elsewhere));
     // The trigger names the ACTIVE team; nothing synced yet degrades to
-    // the app letter (`team_avatar`'s own fallback) and an empty label.
-    let team_name: SharedString = teams
-        .iter()
-        .find(|(_, _, active, _)| *active)
-        .map(|(_, name, _, _)| SharedString::from(name.clone()))
+    // the glyph (`team_avatar`'s own fallback) and an empty label.
+    let active_row = teams.iter().find(|(_, _, active, _, _)| *active);
+    let team_name: SharedString = active_row
+        .map(|(_, name, _, _, _)| SharedString::from(name.clone()))
         .unwrap_or_default();
+    let team_icon = active_row.and_then(|(_, _, _, _, icon)| icon.clone());
     // EXP-449: `active_board_id` falls back to the team's first board, so
     // this is `None` only when nothing is in scope at all.
     let board_id = active_board_id(nav, cx);
@@ -1849,7 +1849,7 @@ pub(crate) fn render_left_column_header(
                 .w_full()
                 .gap_2()
                 .items_center()
-                .child(crate::user_avatar::team_avatar(&team_name, 28.))
+                .child(crate::user_avatar::team_avatar(team_icon.as_deref(), 28., cx))
                 .child(
                     div()
                         .flex_1()
@@ -1891,29 +1891,27 @@ pub(crate) fn render_left_column_header(
             // shown, even with a single team (EXP-434: no teams=1 special
             // case anywhere).
             let mut menu = menu;
-            for (id, name, active, dot) in &teams {
+            for (id, name, active, dot, icon) in &teams {
                 let label = SharedString::from(name.clone());
+                let icon = icon.clone();
                 let switch = Box::new(SwitchTeam {
                     team_id: id.clone(),
                 });
                 // EXP-1075: the ACTIVE team never wears a dot — its runs are
                 // the rail's Running section, right there. Every other team
                 // with live runs of mine gets the trailing [`rail_dot`].
-                match (*active, *dot) {
-                    (false, Some(tone)) => {
-                        menu = menu.menu_element_with_check(false, switch, move |_window, _cx| {
-                            h_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .items_center()
-                                .justify_between()
-                                .gap_2()
-                                .child(div().truncate().child(label.clone()))
-                                .child(rail_dot(tone))
-                        });
-                    }
-                    _ => menu = menu.menu_with_check(label, *active, switch),
-                }
+                let dot = if *active { None } else { *dot };
+                // #EXP-1645: each row leads with the team's mark (web parity).
+                menu = menu.menu_element_with_check(*active, switch, move |_window, cx| {
+                    h_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .items_center()
+                        .gap_2()
+                        .child(crate::user_avatar::team_avatar(icon.as_deref(), 20., cx))
+                        .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                        .children(dot.map(rail_dot))
+                });
             }
             menu.separator()
                 .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))

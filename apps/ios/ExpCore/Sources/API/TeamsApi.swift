@@ -86,23 +86,28 @@ public struct UpdateTeamInput: Encodable, Sendable {
     /// VAPP-201: the team time zone. nil = unchanged, `.some(nil)` = clear
     /// it (sent as JSON null: each device's own zone).
     public var timeZone: String??
+    /// #EXP-1645: the team image. nil = unchanged, `.some(nil)` = remove it
+    /// (sent as JSON null); a new image goes through the upload route.
+    public var iconUrl: String??
 
     public init(
         teamId: String,
         name: String? = nil,
         yoloMode: Bool? = nil,
         agentPrompt: String? = nil,
-        timeZone: String?? = nil
+        timeZone: String?? = nil,
+        iconUrl: String?? = nil
     ) {
         self.teamId = teamId
         self.name = name
         self.yoloMode = yoloMode
         self.agentPrompt = agentPrompt
         self.timeZone = timeZone
+        self.iconUrl = iconUrl
     }
 
     private enum CodingKeys: String, CodingKey {
-        case teamId, name, yoloMode, agentPrompt, timeZone
+        case teamId, name, yoloMode, agentPrompt, timeZone, iconUrl
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -113,6 +118,9 @@ public struct UpdateTeamInput: Encodable, Sendable {
         try c.encodeIfPresent(agentPrompt, forKey: .agentPrompt)
         if let timeZone {
             if let timeZone { try c.encode(timeZone, forKey: .timeZone) } else { try c.encodeNil(forKey: .timeZone) }
+        }
+        if let iconUrl {
+            if let iconUrl { try c.encode(iconUrl, forKey: .iconUrl) } else { try c.encodeNil(forKey: .iconUrl) }
         }
     }
 }

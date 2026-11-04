@@ -6,8 +6,10 @@
 //! Apps · Team in order, each an icon over its label and as wide as its
 //! label (+ `tabPaddingX` each side, at least `tabMinWidth`), the selected
 //! one on the glass-active pill. The Board tab = the active board's glyph +
-//! name (on the board view the chevrons caret after the label); the Team tab
-//! = the active team's avatar + name; a dot on Chats. Beside it, `gap` away,
+//! name; the Team tab = the team mark (#EXP-1645: this specimen's team has no
+//! image, so the glyph) + name; a dot on Chats. #EXP-1645 (`shell.boardTab`):
+//! the chevrons caret sits BESIDE the glyph, out of flow, while the tab can open
+//! its menu: Board on the board view, Team on the Team page. Beside the capsule, `gap` away,
 //! the two-armed new chat (`action-chat`) / new issue (`nav-create-issue`)
 //! capsule at the same height. Four states (the web specimen's): Board
 //! selected on the board view, Chats and Team selected, then the drag LENS
@@ -70,7 +72,7 @@ fn tab(tab: Tab, look: Look, caret: bool, cx: &App) -> AnyElement {
         Tab::Board => (board.to_string(), board_glyph(board_icon, board_color, 20.)),
         Tab::Chats => (tabs.chats.clone(), concept(registry::NAV_THREADS)),
         Tab::Apps => (tabs.apps.clone(), concept(registry::NAV_APPS)),
-        Tab::Team => (TEAM.to_string(), crate::user_avatar::team_avatar(TEAM, 20.)),
+        Tab::Team => (TEAM.to_string(), crate::user_avatar::team_glyph(20.)),
     };
     let glyph = div().relative().child(glyph).when_dot(tab == Tab::Chats);
     tab_cell(glyph.into_any_element(), label, caret, look, cx).into_any_element()
@@ -85,17 +87,27 @@ pub(crate) fn screen_tab(icon: crate::icons::ExpIcon, label: String, selected: b
     tab_cell(glyph, label, false, look, cx)
 }
 
-/// One tab cell: the glyph over its label (+ the board caret), `look` = at
+/// One tab cell: the glyph (+ the caret beside it) over its label, `look` = at
 /// rest, the selected pill, or under the drag lens.
 fn tab_cell(glyph: AnyElement, label: String, caret: bool, look: Look, cx: &App) -> Div {
     let bar = &CHATS.shell.bar;
     let color = look_color(look, cx);
-    let mut line = h_flex()
-        .items_center()
-        .gap(px(2.))
-        .child(div().text_size(px(10.)).text_color(color).child(SharedString::from(label)));
+    let line = div().text_size(px(10.)).text_color(color).child(SharedString::from(label));
+    // Out of flow, `caretGap` after the glyph's right edge and centred on it:
+    // showing it never changes the tab's width.
+    let mut glyph = div().relative().text_color(color).child(glyph);
     if caret {
-        line = line.child(Icon::new(registry::NAV_TEAM_SWITCHER).with_size(px(CHATS.shell.board_tab.caret_size)).text_color(color));
+        let board_tab = &CHATS.shell.board_tab;
+        glyph = glyph.child(
+            h_flex()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left_full()
+                .ml(px(board_tab.caret_gap))
+                .items_center()
+                .child(Icon::new(registry::NAV_TEAM_SWITCHER).with_size(px(board_tab.caret_size)).text_color(color)),
+        );
     }
     let mut cell = v_flex()
         .relative()
@@ -171,7 +183,7 @@ pub(crate) fn tabs(selected: Tab, dragging: bool, cx: &App) -> AnyElement {
                 (false, true, _) => Look::Selected,
                 (false, false, _) => Look::Rest,
             };
-            tab(t, look, t == Tab::Board && selected == Tab::Board, cx)
+            tab(t, look, t == selected && matches!(t, Tab::Board | Tab::Team), cx)
         }))
         .into_any_element()
 }
@@ -233,5 +245,7 @@ mod tests {
         assert_eq!(CHATS.shell.tabs, ["board", "chats", "apps", "team"]);
         assert_eq!(TABS.len(), CHATS.shell.tabs.len());
         assert_eq!(CHATS.shell.board_tab.caret, "nav-team-switcher");
+        assert_eq!(CHATS.shell.board_tab.caret_size, 10.);
+        assert_eq!(CHATS.shell.board_tab.caret_gap, 2.);
     }
 }

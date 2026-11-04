@@ -63,6 +63,12 @@ internal fun updateTeamTimeZoneInput(teamId: String, timeZone: String?): JsonObj
     put("timeZone", timeZone?.let(::JsonPrimitive) ?: JsonNull)
 }
 
+/** #EXP-1645: `teams.update {teamId, iconUrl: null}`: the same literal null. */
+internal fun updateTeamIconInput(teamId: String): JsonObject = buildJsonObject {
+    put("teamId", teamId)
+    put("iconUrl", JsonNull)
+}
+
 @Serializable
 private data class TeamIdInput(val teamId: String)
 
@@ -75,7 +81,10 @@ data class TeamAgentPrompt(
 )
 
 @Singleton
-class TeamsApi @Inject constructor(private val trpc: TrpcClient) {
+class TeamsApi @Inject constructor(
+    private val trpc: TrpcClient,
+    private val uploads: IssueImagesApi,
+) {
 
     /** Oldest non-feedback membership team, or null when the user has none
      * (`teams.getDefault` — the non-creating replacement for ensureDefault). */
@@ -124,6 +133,25 @@ class TeamsApi @Inject constructor(private val trpc: TrpcClient) {
             accountId,
             path = "teams.update",
             input = updateTeamTimeZoneInput(teamId, timeZone),
+            inputSerializer = JsonElement.serializer(),
+        )
+    }
+
+    /** #EXP-1645: the team image, owners only; answers the new `iconUrl`. */
+    suspend fun uploadIcon(
+        accountId: String,
+        teamId: String,
+        bytes: ByteArray,
+        filename: String,
+        contentType: String,
+    ): String = uploads.uploadTeamIcon(accountId, teamId, bytes, filename, contentType)
+
+    /** #EXP-1645: remove the team image, owners only. */
+    suspend fun removeIcon(accountId: String, teamId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "teams.update",
+            input = updateTeamIconInput(teamId),
             inputSerializer = JsonElement.serializer(),
         )
     }

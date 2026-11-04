@@ -487,7 +487,7 @@ function Tabs({ selected, dragging = false }: { selected: BarTab; dragging?: boo
         label={ACTIVE_BOARD.name}
         icon={<BoardGlyph board={ACTIVE_BOARD} className="size-5" />}
         selected={selected === `board`}
-        trailing={selected === `board` ? <BoardCaretIcon className="size-2.5 shrink-0" /> : undefined}
+        caret={selected === `board` ? <BoardCaretIcon className="size-2.5 shrink-0" /> : undefined}
       />
       <PhoneTab
         label={COPY.tabs.chats}
@@ -501,7 +501,7 @@ function Tabs({ selected, dragging = false }: { selected: BarTab; dragging?: boo
         selected={selected === `apps`}
         lensPreview={dragging ? { offset: -10 } : undefined}
       />
-      <PhoneTab label={TEAM} icon={<TeamAvatar name={TEAM} size={20} />} selected={selected === `team`} />
+      <PhoneTab label={TEAM} icon={<TeamAvatar iconUrl={null} size={20} />} selected={selected === `team`} caret={selected === `team` ? <BoardCaretIcon className="size-2.5 shrink-0" /> : undefined} />
     </PhoneTabBar>
   )
 }

@@ -128,6 +128,7 @@ import { Route as TTeamSlugAppsAppSlugRouteImport } from './routes/t/$teamSlug/a
 import { Route as TTeamSlugAppEditorAppSlugRouteImport } from './routes/t/$teamSlug/app-editor/$appSlug'
 import { Route as TTeamSlugAgentsAgentIdRouteImport } from './routes/t/$teamSlug/agents/$agentId'
 import { Route as ApiTeamsTeamIdSessionFilesRouteImport } from './routes/api/teams/$teamId/session-files'
+import { Route as ApiTeamsTeamIdIconRouteImport } from './routes/api/teams/$teamId/icon'
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
 import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/issue-drafts/$draftId/files'
@@ -779,6 +780,11 @@ const ApiTeamsTeamIdSessionFilesRoute =
     path: '/api/teams/$teamId/session-files',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiTeamsTeamIdIconRoute = ApiTeamsTeamIdIconRouteImport.update({
+  id: '/api/teams/$teamId/icon',
+  path: '/api/teams/$teamId/icon',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSessionsSessionIdFilesRoute =
   ApiSessionsSessionIdFilesRouteImport.update({
     id: '/api/sessions/$sessionId/files',
@@ -1030,6 +1036,7 @@ export interface FileRoutesByFullPath {
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
+  '/api/teams/$teamId/icon': typeof ApiTeamsTeamIdIconRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
@@ -1173,6 +1180,7 @@ export interface FileRoutesByTo {
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
+  '/api/teams/$teamId/icon': typeof ApiTeamsTeamIdIconRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
@@ -1321,6 +1329,7 @@ export interface FileRoutesById {
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
+  '/api/teams/$teamId/icon': typeof ApiTeamsTeamIdIconRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/app-editor/$appSlug': typeof TTeamSlugAppEditorAppSlugRoute
@@ -1469,6 +1478,7 @@ export interface FileRouteTypes {
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
+    | '/api/teams/$teamId/icon'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
@@ -1612,6 +1622,7 @@ export interface FileRouteTypes {
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
+    | '/api/teams/$teamId/icon'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
@@ -1759,6 +1770,7 @@ export interface FileRouteTypes {
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
+    | '/api/teams/$teamId/icon'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/app-editor/$appSlug'
@@ -1890,6 +1902,7 @@ export interface RootRouteChildren {
   ApiIssueDraftsDraftIdFilesRoute: typeof ApiIssueDraftsDraftIdFilesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
   ApiSessionsSessionIdFilesRoute: typeof ApiSessionsSessionIdFilesRoute
+  ApiTeamsTeamIdIconRoute: typeof ApiTeamsTeamIdIconRoute
   ApiTeamsTeamIdSessionFilesRoute: typeof ApiTeamsTeamIdSessionFilesRoute
   Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
   ApiAppsHooksAppIdNameRoute: typeof ApiAppsHooksAppIdNameRoute
@@ -2730,6 +2743,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiTeamsTeamIdSessionFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/teams/$teamId/icon': {
+      id: '/api/teams/$teamId/icon'
+      path: '/api/teams/$teamId/icon'
+      fullPath: '/api/teams/$teamId/icon'
+      preLoaderRoute: typeof ApiTeamsTeamIdIconRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sessions/$sessionId/files': {
       id: '/api/sessions/$sessionId/files'
       path: '/api/sessions/$sessionId/files'
@@ -3181,6 +3201,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiIssueDraftsDraftIdFilesRoute: ApiIssueDraftsDraftIdFilesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
   ApiSessionsSessionIdFilesRoute: ApiSessionsSessionIdFilesRoute,
+  ApiTeamsTeamIdIconRoute: ApiTeamsTeamIdIconRoute,
   ApiTeamsTeamIdSessionFilesRoute: ApiTeamsTeamIdSessionFilesRoute,
   Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute:
     Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute,

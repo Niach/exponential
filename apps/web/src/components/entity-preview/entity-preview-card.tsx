@@ -396,7 +396,7 @@ function MemberCard({ user }: { user: User }) {
 function TeamCard({ team }: { team: Team }) {
   return (
     <EntityPreviewCard
-      icon={<TeamAvatar name={team.name} size={14} />}
+      icon={<TeamAvatar iconUrl={team.iconUrl} size={14} />}
       eyebrow={nounEyebrow(`team`)}
       title={team.name}
       subtitle={team.slug}

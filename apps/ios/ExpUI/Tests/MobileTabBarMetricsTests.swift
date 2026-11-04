@@ -18,6 +18,8 @@ final class MobileTabBarMetricsTests: XCTestCase {
         XCTAssertEqual(MobileTabBarMetrics.lensScale, 1.12, accuracy: 0.0001)
         XCTAssertEqual(MobileTabBarMetrics.cancelDistance, 56)
         XCTAssertEqual(MobileTabBarMetrics.caretSize, 10)
+        XCTAssertEqual(MobileTabBarMetrics.caretGap, 2)
+        XCTAssertEqual(MobileTabBarMetrics.caretOffset, 12)
     }
 
     func testTheTouchTargetsPassTheHigMinimum() {

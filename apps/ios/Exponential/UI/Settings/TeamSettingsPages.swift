@@ -1,7 +1,9 @@
 import ExpUI
 import ExpCore
+import PhotosUI
 import SwiftUI
 import GRDB
+import UniformTypeIdentifiers
 
 /// #EXP-1381 (fixtures/settings-nav.json): the Team page's phone rows, each
 /// opening its OWN page (the row's label as the title, the native back) that
@@ -96,9 +98,121 @@ private func observePage<T: Equatable & Sendable>(
 
 // MARK: - General
 
+/// #EXP-1645 (team-image.json): the General row (web `TeamImageRow`): the
+/// label, the mark, the Upload pill opening the composers' Photo | File choice
+/// (a phone's library and its Files app are two pickers), and, only with an
+/// image, the icon-only Remove.
+struct TeamImageRow: View {
+    let iconUrl: String?
+    var busy = false
+    var enabled = true
+    var onPick: (PendingCommentAttachment) -> Void = { _ in }
+    var onPickFailed: (String?) -> Void = { _ in }
+    var onRemove: () -> Void = {}
+
+    @State private var choiceOpen = false
+    @State private var choiceAnchor: CGRect = .zero
+    @State private var photoPicker = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var fileImporter = false
+
+    private var canAct: Bool { enabled && !busy }
+
+    private var hasImage: Bool {
+        if case .image = TeamImage.mark(iconUrl: iconUrl) { return true }
+        return false
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(TeamImage.Copy.row)
+                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            TeamAvatar(iconUrl: iconUrl, size: CGFloat(TeamImage.Row.markSize))
+                .foregroundStyle(.white)
+            uploadPill
+            if hasImage {
+                Button(action: onRemove) {
+                    AppIcon(AppIcons.uiDelete, size: 16)
+                        .foregroundStyle(.white.opacity(canAct ? TextOpacity.secondary : TextOpacity.quaternary))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!canAct)
+                .accessibilityLabel(TeamImage.Copy.remove)
+                .accessibilityIdentifier(TeamImage.TestIds.remove)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(TeamImage.TestIds.row)
+        .background {
+            Color.clear
+                .photosPicker(isPresented: $photoPicker, selection: $photoItem, matching: .images)
+        }
+        .background {
+            Color.clear
+                .fileImporter(
+                    isPresented: $fileImporter,
+                    allowedContentTypes: TeamImage.Upload.accept.compactMap { UTType(mimeType: $0) }
+                ) { result in
+                    guard case let .success(url) = result else { return }
+                    Task { deliver(await AttachmentPicks.readPickedFile(at: url)) }
+                }
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                deliver(await AttachmentPicks.ingestPhotoItem(item))
+                photoItem = nil
+            }
+        }
+    }
+
+    private var uploadPill: some View {
+        GlassPill(
+            TeamImage.Copy.upload,
+            mode: .action {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { choiceOpen = true }
+            },
+            enabled: canAct
+        ) {
+            if busy {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
+            }
+        }
+        .fixedSize()
+        .accessibilityIdentifier(TeamImage.TestIds.upload)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+            choiceAnchor = frame
+        }
+        .steerAttachChoiceMenu(
+            isPresented: $choiceOpen,
+            anchor: choiceAnchor,
+            onPhoto: { photoPicker = true },
+            onFile: { fileImporter = true }
+        )
+    }
+
+    private func deliver(_ outcome: AttachmentPickOutcome) {
+        if let attachment = outcome.attachment {
+            onPick(attachment)
+        } else {
+            onPickFailed(outcome.failure)
+        }
+    }
+}
+
 /// General ×4 (web `general-section.tsx`): the General band over the Name
 /// row (label left, value right, saves on submit and on leaving the field),
-/// Yolo mode, the Team prompt (raw monospace field, byte counter, autosaves),
+/// the Team image row (#EXP-1645), the time zone, Yolo mode, the Team prompt (raw monospace field, byte counter, autosaves),
 /// then the Danger zone (delete team, owner only; EXP-364: an owner may
 /// delete ANY team).
 private struct TeamGeneralPage: View {
@@ -125,6 +239,8 @@ private struct TeamGeneralPage: View {
     /// VAPP-201: the zone pick while its write is in flight (`.some(nil)` =
     /// clearing it).
     @State private var zonePending: String??
+    /// #EXP-1645: the team image's upload or removal is in flight.
+    @State private var imageBusy = false
     /// nil = still loading (the field stays a skeleton, so a blur can never
     /// save an empty draft over a prompt that has not arrived).
     @State private var prompt: String?
@@ -147,6 +263,17 @@ private struct TeamGeneralPage: View {
                     GlassSectionBand("General")
                     VStack(spacing: 0) {
                         nameRow(team)
+                        Rectangle()
+                            .fill(GlassTokens.strokeCard)
+                            .frame(height: GlassTokens.hairline)
+                        TeamImageRow(
+                            iconUrl: team.iconUrl,
+                            busy: imageBusy,
+                            enabled: data.isOwner,
+                            onPick: { uploadImage($0) },
+                            onPickFailed: { failedImage(verb: "upload", description: $0) },
+                            onRemove: { removeImage() }
+                        )
                         Rectangle()
                             .fill(GlassTokens.strokeCard)
                             .frame(height: GlassTokens.hairline)
@@ -320,6 +447,44 @@ private struct TeamGeneralPage: View {
                 )
             }
         }
+    }
+
+    /// #EXP-1645 (team-image.json `upload`): the server normalises the pick and
+    /// the shape delivers the new `icon_url`.
+    private func uploadImage(_ file: PendingCommentAttachment) {
+        guard data.isOwner, !imageBusy else { return }
+        imageBusy = true
+        Task {
+            defer { imageBusy = false }
+            do {
+                _ = try await deps.attachmentsApi.uploadTeamImage(
+                    accountId: accountId,
+                    teamId: teamId,
+                    data: file.data,
+                    filename: file.filename,
+                    contentType: file.contentType
+                )
+            } catch {
+                failedImage(verb: "upload", description: error.trpcUserMessage)
+            }
+        }
+    }
+
+    private func removeImage() {
+        guard data.isOwner, !imageBusy else { return }
+        imageBusy = true
+        Task {
+            defer { imageBusy = false }
+            do {
+                try await deps.teamsApi.update(accountId: accountId, UpdateTeamInput(teamId: teamId, iconUrl: .some(nil)))
+            } catch {
+                failedImage(verb: "remove", description: error.trpcUserMessage)
+            }
+        }
+    }
+
+    private func failedImage(verb: String, description: String?) {
+        toaster.error(FeedbackStates.Errors.title(verb: verb, thing: "the team image"), description: description)
     }
 
     /// VAPP-201 (team-zone.json): THE schedule zone picker, `Device time

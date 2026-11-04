@@ -2,6 +2,7 @@ package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
+import com.exponential.app.domain.TeamImage
 import com.exponential.app.domain.TeamZone
 import com.exponential.app.ui.components.SectionBand
 import androidx.compose.ui.text.SpanStyle
@@ -9,6 +10,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -110,6 +114,7 @@ import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.ScheduleZonePicker
+import com.exponential.app.ui.components.TeamImageRow
 import com.exponential.app.ui.components.InlineStatus
 import com.exponential.app.ui.components.InlineStatusState
 import com.exponential.app.ui.components.SwitchRow
@@ -280,6 +285,15 @@ private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewMod
     val nameSaving by viewModel.teamNameSaving.collectAsStateWithLifecycle()
     val yoloBusy by viewModel.yoloBusy.collectAsStateWithLifecycle()
     val zoneBusy by viewModel.zoneBusy.collectAsStateWithLifecycle()
+    val imageBusy by viewModel.imageBusy.collectAsStateWithLifecycle()
+    // #EXP-1645: the composer's two system pickers (the files one is the way
+    // to an SVG, which the photo picker never offers).
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
+        uri?.let(viewModel::uploadTeamImage)
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let(viewModel::uploadTeamImage)
+    }
     val prompt by viewModel.prompt.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
     var name by remember(team.id, team.name) { mutableStateOf(team.name) }
@@ -298,6 +312,18 @@ private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewMod
                     onFocusLost = { viewModel.renameTeam(name) },
                     trailing = if (nameSaving) ({ InlineStatus(InlineStatusState.Saving) }) else null,
                     modifier = Modifier.testTag("team-name"),
+                )
+                // #EXP-1645 (team-image.json): directly under Name; owners only.
+                GroupDivider()
+                TeamImageRow(
+                    iconUrl = team.iconUrl,
+                    busy = imageBusy,
+                    enabled = state.isOwner,
+                    onPickPhoto = {
+                        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    onPickFile = { filePicker.launch(TeamImage.Upload.ACCEPT.toTypedArray()) },
+                    onRemove = { viewModel.removeTeamImage() },
                 )
                 // VAPP-201 (team-zone.json): THE schedule zone picker,
                 // `Device time zone` (= null) first; owners only.

@@ -98,8 +98,9 @@ import kotlinx.coroutines.launch
 // BOARD MENU: the whole strip MORPHS into one glass panel (`shell.boardMenu`).
 // DRAG (`shell.bar.drag`): a press lifts the selection LENS under the finger,
 // a drag moves it along the bar, the lift selects the tab under it (a lift
-// far above / below cancels). The Team tab = the active team's avatar + name;
-// a dot on Chats. Overlaid above the NavHost; AppNavHost shows it only on the
+// far above / below cancels). The Team tab = the active team's mark + name; on
+// the Team page it carries the caret and its tap opens the SAME panel over the
+// member's teams (#EXP-1645, `shell.teamTab`). A dot on Chats. Overlaid above the NavHost; AppNavHost shows it only on the
 // top-level routes.
 
 // Bottom contentPadding for scrollable content on screens the floating bar
@@ -125,15 +126,61 @@ class BottomBarSuppression {
 /** Null outside the nav shell (previews, tests) — every read is optional. */
 val LocalBottomBarSuppression = staticCompositionLocalOf<BottomBarSuppression?> { null }
 
-/** The board menu's content (`shell.boardMenu`): the active team's boards in
- *  sidebar order, the active one, and New board for a viewer who may create
- *  boards (null = no row). */
-data class PhoneBoardMenu(
-    val boards: List<BoardEntity>,
-    val activeBoardId: String?,
-    val onSelect: (BoardEntity) -> Unit,
-    val onNewBoard: (() -> Unit)?,
+/** One row of the strip's menu: its glyph (at the tab's glyph size), its name,
+ *  and whether it is the active one (lit, with the check). */
+data class PhoneBoardMenuRow(
+    val id: String,
+    val label: String,
+    val active: Boolean,
+    val glyph: @Composable () -> Unit,
 )
+
+/** The strip's menu (`shell.boardMenu`): the rows, then the muted create row
+ *  ([newLabel]; null [onNew] = no row). [boards] = the Board tab's, [teams] =
+ *  the Team tab's (`shell.teamTab`, #EXP-1645). */
+data class PhoneBoardMenu(
+    val rows: List<PhoneBoardMenuRow>,
+    val onSelect: (String) -> Unit,
+    val onNew: (() -> Unit)?,
+    val newLabel: String,
+) {
+    companion object {
+        /** The active team's boards in sidebar order, New board for a viewer
+         *  who may create boards. */
+        fun boards(
+            boards: List<BoardEntity>,
+            activeBoardId: String?,
+            onSelect: (BoardEntity) -> Unit,
+            onNewBoard: (() -> Unit)?,
+        ) = PhoneBoardMenu(
+            rows = boards.map { board ->
+                PhoneBoardMenuRow(board.id, board.name, board.id == activeBoardId) {
+                    BoardIcon(board, size = TabGlyphSize)
+                }
+            },
+            onSelect = { id -> boards.firstOrNull { it.id == id }?.let(onSelect) },
+            onNew = onNewBoard,
+            newLabel = Chats.Copy.BOARD_MENU_NEW_BOARD,
+        )
+
+        /** The member's teams, then New team. */
+        fun teams(
+            teams: List<TeamEntity>,
+            activeTeamId: String?,
+            onSelect: (TeamEntity) -> Unit,
+            onNewTeam: () -> Unit,
+        ) = PhoneBoardMenu(
+            rows = teams.map { team ->
+                PhoneBoardMenuRow(team.id, team.name, team.id == activeTeamId) {
+                    TeamAvatar(team.iconUrl, size = TabGlyphSize)
+                }
+            },
+            onSelect = { id -> teams.firstOrNull { it.id == id }?.let(onSelect) },
+            onNew = onNewTeam,
+            newLabel = Chats.Copy.BOARD_MENU_NEW_TEAM,
+        )
+    }
+}
 
 /** One tab of the capsule, as the bar draws it. */
 private class PhoneTab(
@@ -160,8 +207,11 @@ fun BottomNavBar(
     /** The board view is up: the Board tab wears the caret and its tap opens
      *  the board menu (the caller's [onSelectTab] decides). */
     onBoardView: Boolean,
-    /** The ACTIVE team: the Team tab's avatar + label (null = `copy.tabs.team`). */
+    /** The ACTIVE team: the Team tab's mark + label (null = `copy.tabs.team`). */
     team: TeamEntity?,
+    /** The Team page is up: the Team tab wears the caret and its tap opens the
+     *  team menu (the caller's [onSelectTab] decides). */
+    onTeamPage: Boolean = false,
     /** EXP-1327: a green dot on Chats while a chat runs. */
     chatsRunning: Boolean,
     /** An amber dot on Chats while a chat needs a person. */
@@ -175,7 +225,8 @@ fun BottomNavBar(
     onCompose: () -> Unit,
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
-    /** The board menu's rows; [menuOpen] morphs the strip into it. */
+    /** The open menu's rows (the board's or the team's); [menuOpen] morphs the
+     *  strip into it. */
     boardMenu: PhoneBoardMenu? = null,
     menuOpen: Boolean = false,
     onMenuOpenChange: (Boolean) -> Unit = {},
@@ -220,7 +271,8 @@ fun BottomNavBar(
                 key = key,
                 label = team?.name?.takeIf { it.isNotBlank() } ?: Chats.Copy.TABS.getValue(key),
                 testTag = Chats.TestIds.TAB_TEAM,
-                glyph = { TeamAvatar(team, size = TabGlyphSize) },
+                glyph = { TeamAvatar(team?.iconUrl, size = TabGlyphSize) },
+                caret = onTeamPage,
             )
         }
     }
@@ -548,7 +600,7 @@ private fun TabCapsule(
     }
 }
 
-/** One tab: its glyph over its label (+ the caret), the selected one on the
+/** One tab: its glyph (+ the caret beside it) over its label, the selected one on the
  *  glass-active pill (cross-faded, EXP-523) unless a press lifted it, a dot
  *  on its glyph. */
 @Composable
@@ -617,6 +669,20 @@ private fun TabItem(
         ) {
             Box {
                 CompositionLocalProvider(LocalContentColor provides tint) { tab.glyph() }
+                if (tab.caret) {
+                    // #EXP-1645 (`shell.boardTab`): beside the glyph, out of
+                    // flow (a layout offset): the tab's width never changes
+                    // and the label keeps all its room.
+                    Icon(
+                        ExpIcons.navTeamSwitcher,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .offset(x = (Chats.Shell.BoardTab.CARET_SIZE + Chats.Shell.BoardTab.CARET_GAP).dp)
+                            .size(Chats.Shell.BoardTab.CARET_SIZE.dp),
+                        tint = tint,
+                    )
+                }
                 if (tab.dotColor != null) {
                     Box(
                         modifier = Modifier
@@ -629,25 +695,13 @@ private fun TabItem(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    tab.label,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp, letterSpacing = 0.sp),
-                    color = tint,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (tab.caret) {
-                    Spacer(Modifier.width(2.dp))
-                    Icon(
-                        ExpIcons.navTeamSwitcher,
-                        contentDescription = null,
-                        modifier = Modifier.size(Chats.Shell.BoardTab.CARET_SIZE.dp),
-                        tint = tint,
-                    )
-                }
-            }
+            Text(
+                tab.label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp, letterSpacing = 0.sp),
+                color = tint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -667,7 +721,7 @@ private fun BoardMenuPanel(
     reduce: Boolean,
     onClose: () -> Unit,
 ) {
-    val rowCount = menu.boards.size + if (menu.onNewBoard != null) 1 else 0
+    val rowCount = menu.rows.size + if (menu.onNew != null) 1 else 0
     val stripHeight = BottomNavDefaults.BarHeight
     val openHeight = (
         minOf(rowCount, Chats.Shell.BoardMenu.MAX_VISIBLE_ROWS) * Chats.Shell.BoardMenu.ROW_HEIGHT +
@@ -699,22 +753,21 @@ private fun BoardMenuPanel(
                 .verticalScroll(rememberScrollState())
                 .padding(Chats.Shell.Bar.PADDING.dp),
         ) {
-            menu.boards.forEach { board ->
-                val active = board.id == menu.activeBoardId
+            menu.rows.forEach { row ->
                 BoardMenuRow(
-                    label = board.name,
-                    active = active,
+                    label = row.label,
+                    active = row.active,
                     muted = false,
-                    glyph = { BoardIcon(board, size = TabGlyphSize) },
+                    glyph = row.glyph,
                     onClick = {
-                        menu.onSelect(board)
+                        menu.onSelect(row.id)
                         onClose()
                     },
                 )
             }
-            menu.onNewBoard?.let { onNewBoard ->
+            menu.onNew?.let { onNew ->
                 BoardMenuRow(
-                    label = Chats.Copy.BOARD_MENU_NEW_BOARD,
+                    label = menu.newLabel,
                     active = false,
                     muted = true,
                     glyph = {
@@ -727,7 +780,7 @@ private fun BoardMenuPanel(
                     },
                     onClick = {
                         onClose()
-                        onNewBoard()
+                        onNew()
                     },
                 )
             }
@@ -756,7 +809,9 @@ private fun BoardMenuRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(TabGlyphSize), contentAlignment = Alignment.Center) { glyph() }
+        Box(Modifier.size(TabGlyphSize), contentAlignment = Alignment.Center) {
+            CompositionLocalProvider(LocalContentColor provides GlassMenuDefaults.TextColor) { glyph() }
+        }
         Text(
             label,
             style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
