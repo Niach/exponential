@@ -235,7 +235,7 @@ fn resolve(link: &AppLink, team_id: Option<&str>, cx: &App) -> Target {
         // `settings-nav.json` `visible: owner`: not an owner reads as missing.
         AppLink::Settings { section, .. }
             if matches!(section.as_str(), "general" | "widget")
-                && !team_id.is_some_and(|team_id| crate::settings::is_owner(cx, team_id)) =>
+                && !crate::settings::is_owner(cx, team_id) =>
         {
             Target::NotFound(None)
         }
