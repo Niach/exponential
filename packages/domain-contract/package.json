@@ -66,6 +66,7 @@
     "./fixtures/*": "./fixtures/*",
     "./team-image": "./src/team-image.ts",
     "./team-zone": "./src/team-zone.ts",
-    "./via-app": "./src/via-app.ts"
+    "./via-app": "./src/via-app.ts",
+    "./app-share": "./src/app-share.ts"
   }
 }

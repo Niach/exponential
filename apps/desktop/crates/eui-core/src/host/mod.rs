@@ -28,6 +28,7 @@ pub mod record_store;
 pub mod records;
 pub mod router;
 pub mod screens;
+pub mod share;
 pub mod signature;
 pub mod sources;
 pub mod tests;
