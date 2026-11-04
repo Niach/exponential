@@ -146,14 +146,17 @@ export function planFromSubscription(subscription: ActiveSubscription | null): {
 // An admin-granted comp tier (teams.comp_tier) acts as a FLOOR over the
 // Creem-derived tier — effective plan = max of the two by rank (EXP-49).
 export async function getTeamPlan(
-  teamId: string
+  teamId: string,
+  // Inside a transaction, pass it: a second pool connection taken while this
+  // one holds a lock deadlocks the pool (the dogfood wedge, spec §20).
+  executor: Pick<typeof db, `select`> = db
 ): Promise<{ plan: PlanTier; limits: PlanLimits }> {
   if (!isCloudInstance()) {
     return { plan: `unlimited`, limits: PLAN_LIMITS.unlimited }
   }
 
   const [[sub], [ws]] = await Promise.all([
-    db
+    executor
       .select({
         productId: creem_subscriptions.productId,
         seats: creem_subscriptions.seats,
@@ -167,7 +170,7 @@ export async function getTeamPlan(
       )
       .orderBy(desc(creem_subscriptions.seats))
       .limit(1),
-    db
+    executor
       .select({ compTier: teams.compTier })
       .from(teams)
       .where(eq(teams.id, teamId))
@@ -491,7 +494,7 @@ export async function countTeamAppRecords(teamId: string, tx: Pick<typeof db, `s
 // advisory lock (`apps.ts`), so two creates at the limit cannot both pass.
 export async function assertCanCreateAppRecord(teamId: string, tx: Pick<typeof db, `select`> = db, adding = 1): Promise<void> {
   if (!isCloudInstance()) return
-  const [{ limits }, count] = await Promise.all([getTeamPlan(teamId), countTeamAppRecords(teamId, tx)])
+  const [{ limits }, count] = await Promise.all([getTeamPlan(teamId, tx), countTeamAppRecords(teamId, tx)])
   assertAppRecordCreatable(limits, count, adding)
 }
 
