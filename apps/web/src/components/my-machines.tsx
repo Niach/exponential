@@ -40,6 +40,7 @@ import {
   conceptIcon,
   Button,
   GlassCard,
+  getDeviceIcon,
   Pill,
   GlassSectionHeader,
   Menu,
@@ -323,7 +324,7 @@ function DeviceGroups({
   return (
     <div className="flex flex-col pt-2">
       {online.length > 0 && (
-        <div className="grid" style={grid} data-testid="device-grid">
+        <div className="grid items-start" style={grid} data-testid="device-grid">
           {online.map(render)}
         </div>
       )}
@@ -332,7 +333,7 @@ function DeviceGroups({
           <div className="px-3 pt-3 pb-2 text-xs text-muted-foreground">
             {DEVICES_LIST_COPY.offline}
           </div>
-          <div className="grid" style={grid}>
+          <div className="grid items-start" style={grid}>
             {offline.map(render)}
           </div>
         </>
