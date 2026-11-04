@@ -43,7 +43,7 @@ const { BUS_COPY, busLine, privateText } = await import(`@/lib/sessions/bus`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
 const { getSessionTree } = await import(`@/lib/sessions/tree`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
-const { PRIVATE_PR_LEAD, PRIVATE_REPORT_LEAD } = await import(
+const { PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } = await import(
   `@exp/domain-contract/chats`
 )
 
@@ -164,11 +164,13 @@ async function openPr(w: Awaited<ReturnType<typeof managed>>, sessionId: string,
 }
 
 describe.skipIf(!ready.ok)(`#EXP-1408: a private chat's bus lines into a shared conversation`, () => {
-  it(`S-3: a turn reply never reaches the watching agent conversation; the thread's own parent keeps the text`, async () => {
+  it(`#FEED-194: a turn reply reaches the starting agent's shared conversation as the neutral line; the thread's own parent keeps the text`, async () => {
     const w = await managed(true)
     await w.host.claim({ sessionId: w.thread, deviceId: w.deviceId })
     await w.host.reply({ sessionId: w.thread, body: SECRET })
-    expect((await fromSession(w.conversation, w.thread)).filter((m) => m.card === null)).toEqual([])
+    expect((await fromSession(w.conversation, w.thread)).filter((m) => m.card === null)).toMatchObject([
+      { authorKind: `agent`, body: privateText({ id: w.thread }, PRIVATE_REPLY_LEAD), consumedAt: null },
+    ])
     // Inside the private tree (same reader) the child's reply reaches its parent whole.
     await w.host.claim({ sessionId: w.childId, deviceId: w.deviceId })
     await w.host.reply({ sessionId: w.childId, body: SECRET })
@@ -243,8 +245,8 @@ describe.skipIf(!ready.ok)(`#EXP-1408: a visible origin keeps its text`, () => {
     const pr = await openPr(w, w.thread, 13)
     await endSession({ userId: w.owner, sessionId: w.thread, summary: SECRET })
     const rows = await fromSession(w.conversation, w.thread)
-    // S-3: no turn relay into a watching agent conversation.
-    expect(rows.find((m) => m.card === null && m.authorKind === `agent`)).toBeUndefined()
+    // #FEED-194: the agent that started the thread hears its turn, whole.
+    expect(rows.find((m) => m.card === null && m.authorKind === `agent`)).toMatchObject({ body: SECRET, consumedAt: null })
     expect(rows.find((m) => kindOf(m) === `report`)).toMatchObject({
       body: SECRET,
       card: { kind: `report`, summary: SECRET },

@@ -335,8 +335,11 @@ fn bus_relay_turn(ctx: &mut Ctx, child: &HubSession, body: &str, sealed: bool, c
     if text_.is_empty() {
         return;
     }
-    // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn.
-    let skip = |_: &HubState, listener: &HubSession| listener.agent_id.is_some() && Some(&listener.id) != child.parent_id.as_ref();
+    // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn;
+    // #FEED-194: unless it is the agent that started the thread.
+    let skip = |_: &HubState, listener: &HubSession| {
+        listener.agent_id.is_some() && Some(&listener.id) != child.parent_id.as_ref() && listener.agent_id != child.started_by_agent_id
+    };
     let mut message = Deliver::new(AuthorKind::Agent, text_.to_string(), None, true);
     message.hidden = Some(Line::new(copy::private_text(&child.id, text(&["privateReplyLead"])), None));
     message.skip = Some(&skip);

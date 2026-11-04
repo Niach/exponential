@@ -233,10 +233,11 @@ export function privateText(child: Pick<Session, `id`>, lead: string): string {
  *  as the child's own message. Blank = nothing. S-3: a team agent's
  *  conversation that WATCHES the child (not its parent) is not woken per
  *  turn: it hears the child's ask, wall, PR and report only, so a busy
- *  thread never spams its agent. */
+ *  thread never spams its agent. #FEED-194: the agent that STARTED the
+ *  thread does hear each turn: it asked for the work and waits on it. */
 export async function busRelayTurn(
   tx: Tx,
-  child: Pick<Session, `id` | `parentId`>,
+  child: Pick<Session, `id` | `parentId` | `startedByAgentId`>,
   body: string,
   originMessageId: string | null = null,
   /** EXP-1458: a sealed body's copies for listeners in other trees. */
@@ -252,7 +253,8 @@ export async function busRelayTurn(
     hidden: { body: privateText(child, PRIVATE_REPLY_LEAD), card: null },
     waking: true,
     originMessageId,
-    skip: (listener) => listener.agentId !== null && listener.id !== child.parentId,
+    skip: (listener) =>
+      listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId,
   })
 }
 

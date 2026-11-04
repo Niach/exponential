@@ -1,5 +1,5 @@
 {
-  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it; EXP-1536: a failed start, `start_failed`, is never said: its reply already woke the reader, and the device's next report without `blocked` clears it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused.",
+  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns, unless S is a thread that agent started (#FEED-194: `startedByAgentId` = its agent: it asked for the work, so each turn reply wakes it)), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it; EXP-1536: a failed start, `start_failed`, is never said: its reply already woke the reader, and the device's next report without `blocked` clears it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused.",
   "cases": [
     {
       "name": "a child's turn reply wakes its parent as the child's own message",
@@ -196,6 +196,127 @@
           "result": {
             "sessionId": "c1",
             "messageId": "m1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "#FEED-194: the team agent that started a thread hears each turn; another agent's watching conversation and a child's turn do not reach it",
+      "given": {
+        "sessions": [
+          {
+            "id": "a1",
+            "agentId": "ag1"
+          },
+          {
+            "id": "a2",
+            "agentId": "ag2",
+            "wakeOn": [
+              "r2"
+            ]
+          },
+          {
+            "id": "r2",
+            "startedByAgentId": "ag1"
+          },
+          {
+            "id": "c2",
+            "parentId": "r2"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.watch",
+            "at": 1000,
+            "data": {
+              "watcherId": "a1",
+              "ids": [
+                "r2",
+                "c2"
+              ]
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "a1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 60000,
+            "data": {
+              "sessionId": "r2",
+              "body": "The PDF is done."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "The PDF is done.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "a1",
+              "authorKind": "agent",
+              "authorSessionId": "r2",
+              "body": "The PDF is done.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.reply",
+            "at": 61000,
+            "data": {
+              "sessionId": "c2",
+              "body": "Child progress."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c2",
+              "authorKind": "agent",
+              "authorSessionId": null,
+              "body": "Child progress.",
+              "card": null,
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "c2",
+              "body": "Child progress.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c2",
+            "messageId": "m3"
           }
         }
       ]

@@ -263,8 +263,10 @@ function busRelayTurn(ctx: Ctx, child: HubSession, body: string, sealed: boolean
     card: null,
     hidden: { body: privateText(child.id, copy.privateReplyLead), card: null },
     waking: true,
-    // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn.
-    skip: (listener) => listener.agentId !== null && listener.id !== child.parentId,
+    // A team agent's conversation that only WATCHES the child hears its ask, wall, PR and report, never each turn;
+    // #FEED-194: unless it is the agent that started the thread.
+    skip: (listener) =>
+      listener.agentId !== null && listener.id !== child.parentId && listener.agentId !== child.startedByAgentId,
   })
 }
 
