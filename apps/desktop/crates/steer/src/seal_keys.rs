@@ -38,7 +38,7 @@ use std::time::Duration;
 
 use api::error::ApiError;
 use api::session_keys::{CreateKey, HeldKey, InstallWrap, PairWrap, PendingWrap, RootKey};
-use coding::sealing::{self, Keyring, SealService};
+use coding::sealing::{self, Keyring, SealError, SealService};
 use enet_core::sealed::{generate_tree_key, public_key_from_b64, unwrap_tree_key, wrap_tree_key};
 use enet_core::PushKeypair;
 
@@ -339,7 +339,7 @@ impl SealService for KeyHolder {
         Some(self.inner.install_public)
     }
 
-    fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String> {
+    fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
         if let Some(current) = self.inner.keyring.current(root_id) {
             return Ok(current);
         }
@@ -347,7 +347,7 @@ impl SealService for KeyHolder {
         if let Some(current) = self.inner.keyring.current(root_id) {
             return Ok(current);
         }
-        if let Some(found) = self.lookup(root_id)? {
+        if let Some(found) = self.lookup(root_id).map_err(SealError::NoKey)? {
             return Ok(found);
         }
         // The root has no key: this install is its first content writer.
@@ -359,11 +359,12 @@ impl SealService for KeyHolder {
                 Ok((1, public))
             }
             // Another writer keyed it first: use theirs.
-            Err(Created::Conflict) => {
-                self.lookup(root_id)?.ok_or_else(|| "the tree was keyed concurrently but has no key".to_string())
-            }
-            Err(Created::Refused) => Err("sessionKeys.create refused this install".to_string()),
-            Err(Created::Failed(err)) => Err(err),
+            Err(Created::Conflict) => self
+                .lookup(root_id)
+                .map_err(SealError::NoKey)?
+                .ok_or_else(|| SealError::NoKey("the tree was keyed concurrently but has no key".to_string())),
+            Err(Created::Refused) => Err(SealError::NotReader),
+            Err(Created::Failed(err)) => Err(SealError::NoKey(err)),
         }
     }
 
@@ -430,6 +431,8 @@ mod tests {
         readers: Mutex<Vec<(String, [u8; 32])>>,
         /// Who may rotate (the starter's installs, the executing device).
         rotators: Vec<String>,
+        /// Installs `create` answers 404 (not a reader of the tree).
+        strangers: Vec<String>,
         roots: Mutex<HashMap<String, (u32, String)>>,
         wraps: Mutex<Vec<(String, u32, String, String)>>,
         creates: Mutex<Vec<(String, u32, String)>>,
@@ -445,6 +448,9 @@ mod tests {
     impl KeyApi for FakeKeys {
         fn create(&self, input: &CreateKey) -> Result<(), ApiError> {
             *self.attempts.lock().unwrap() += 1;
+            if self.strangers.contains(&input.install_id) {
+                return Err(ApiError::Http { status: 404, message: "Session not found".into() });
+            }
             let mut roots = self.roots.lock().unwrap();
             // `createTreeKeyInTx`: epoch 1 on a keyless tree, else exactly
             // `seal_epoch + 1` by a rotator.
@@ -550,6 +556,17 @@ mod tests {
         let holder = KeyHolder::new("device".into(), &device, api, Keyring::in_memory());
         assert_eq!(holder.ensure_key("root").unwrap(), (1, theirs.public));
         assert_eq!(holder.public_key("other").unwrap(), None);
+    }
+
+    /// #FEED-188: what a sender tells apart: plaintext stays legal in a
+    /// keyless tree it may not key, never after a failure it can retry.
+    #[test]
+    fn a_stranger_may_not_key_a_tree() {
+        let phone = PushKeypair::generate();
+        let api = Arc::new(FakeKeys { strangers: vec!["phone".into()], ..Default::default() });
+        let holder = KeyHolder::new("phone".into(), &phone, api.clone(), Keyring::in_memory());
+        assert_eq!(holder.ensure_key("root"), Err(SealError::NotReader));
+        assert!(api.creates.lock().unwrap().is_empty());
     }
 
     /// The synced root row of a keyed tree, flagged for rotation or not.

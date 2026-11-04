@@ -602,7 +602,7 @@ pub(crate) mod fake_seal {
         fn install_id(&self) -> Option<String> {
             Some("install-1".into())
         }
-        fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String> {
+        fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), sealing::SealError> {
             if let Some(current) = self.keyring.current(root_id) {
                 return Ok(current);
             }
