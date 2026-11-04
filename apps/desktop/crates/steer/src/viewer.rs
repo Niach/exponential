@@ -964,6 +964,8 @@ impl Run {
 
     fn spawn_relay(&mut self) {
         self.relay_reopen_at = None;
+        // This round's relay leg is opening: its stall has nothing left to do.
+        self.stall_at = None;
         // `fallbacks` counts once the leg is available (`RelayAvailable`).
         let gen = self.next_gen();
         let (out, out_rx) = flume::unbounded();
@@ -1162,7 +1164,9 @@ impl Run {
         }
         if self.enet_redial_at.is_some_and(|at| at <= now) {
             self.enet_redial_at = None;
-            if self.carriers.active != Some(Carrier::Enet) {
+            if redial_is_a_start(self.carriers, self.relay_reopen_at.is_some()) {
+                self.step(CarrierEvent::Start);
+            } else if self.carriers.active != Some(Carrier::Enet) {
                 self.spawn_enet();
             }
         }
@@ -1191,6 +1195,14 @@ impl Run {
         }
         self.stats.ended();
     }
+}
+
+/// #EXP-1679 (`fallback` STARTING REDIAL): a redial with nothing active, no
+/// relay leg and no relay reopen due is a new round, a `start` with its stall.
+/// Without it the relay's next try waits for this eNet attempt to fail: up to
+/// `sendTimeoutMs` + `joinTimeoutMs` per endpoint, on top of the backoff.
+fn redial_is_a_start(carriers: CarrierState, relay_reopen_due: bool) -> bool {
+    carriers.active.is_none() && !carriers.relay_open && !relay_reopen_due
 }
 
 fn carrier_code(carrier: Option<Carrier>) -> u8 {
@@ -1243,11 +1255,11 @@ async fn enet_leg(
     msgs: flume::Sender<LegMsg>,
     out: flume::Receiver<LegOut>,
 ) {
-    let deadline = Instant::now() + timings.join_timeout;
     match join_over_enet(source.as_ref(), &session_id, timings.join_timeout).await {
         Ok(link) => {
             let path = conn_stats::enet_path(link.node.chat_path(&link.device));
-            run_leg(Carrier::Enet, gen, Wire::Enet(link), path, deadline, &timings, &msgs, &out).await;
+            let synced_by = link.synced_by;
+            run_leg(Carrier::Enet, gen, Wire::Enet(link), path, synced_by, &timings, &msgs, &out).await;
         }
         Err(class) => {
             let _ = msgs.send(LegMsg::Failed { carrier: Carrier::Enet, gen, failure: LegFailure::NoFeed(class) });
@@ -1379,6 +1391,8 @@ struct EnetLink {
     session_id: String,
     sub: enet_steer::ViewerSubscription,
     held: VecDeque<String>,
+    /// When this endpoint's `activity_synced` is due.
+    synced_by: Instant,
 }
 
 impl EnetLink {
@@ -1419,6 +1433,9 @@ const LEAVE_FRAME: &str = r#"{"t":"leave"}"#;
 /// DISCOVERY: `join` each install running the session, newest first, until
 /// one answers with its `activity_reset` within `join_timeout` (the
 /// replay then streams; its `activity_synced` is due by the same deadline).
+/// #EXP-1679: the deadline starts at THAT endpoint's join, as on the other
+/// clients: counted from the leg's start, discovery and an earlier unanswered
+/// endpoint spent it, and the leg dropped a feed that had just answered.
 /// `Err` = NO FEED, with its class.
 async fn join_over_enet(
     source: Option<&Arc<dyn EnetViewerSource>>,
@@ -1451,6 +1468,7 @@ async fn join_over_enet(
             continue;
         }
         let deadline = tokio::time::Instant::now() + join_timeout;
+        let synced_by = Instant::now() + join_timeout;
         loop {
             let Ok(Ok(frame)) = tokio::time::timeout_at(deadline, sub.frames.recv_async()).await else {
                 log::debug!("steer viewer: eNet join to {} unanswered", crate::enet::endpoint_hex(&device));
@@ -1471,7 +1489,7 @@ async fn join_over_enet(
                 Some("activity_reset") => {
                     log::info!("steer viewer: joined {session_id} over eNet");
                     let held = VecDeque::from([frame]);
-                    return Ok(EnetLink { node, device, session_id: session_id.to_string(), sub, held });
+                    return Ok(EnetLink { node, device, session_id: session_id.to_string(), sub, held, synced_by });
                 }
                 // A frame of an earlier feed of this pair: not this join's.
                 _ => {}
@@ -1633,6 +1651,17 @@ mod tests {
             let delay = backoff.next_delay_equal_jitter();
             assert!(delay >= Duration::from_millis(cap / 2) && delay < Duration::from_millis(cap), "retries {retries}");
         }
+    }
+
+    /// #EXP-1679: only an idle redial is a new round.
+    #[test]
+    fn an_idle_redial_is_a_start() {
+        let idle = CarrierState::INITIAL;
+        assert!(redial_is_a_start(idle, false));
+        assert!(!redial_is_a_start(idle, true), "the relay's own reopen is due");
+        assert!(!redial_is_a_start(CarrierState { active: None, relay_open: true }, false));
+        assert!(!redial_is_a_start(CarrierState { active: Some(Carrier::Relay), relay_open: true }, false));
+        assert!(!redial_is_a_start(CarrierState { active: Some(Carrier::Enet), relay_open: false }, false));
     }
 
     #[test]
