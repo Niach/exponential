@@ -26,3 +26,5 @@
 - Los equipos pueden tener su propia imagen
 - El plan de una sesión se abre en su propia pestaña
 - Las apps muestran registros como formularios, tablas, calendarios y líneas de tiempo
+- Comparte imágenes, enlaces y texto de otras apps en un chat o con un agente
+- Los enlaces en chats y tarjetas abren la pantalla correcta en la app

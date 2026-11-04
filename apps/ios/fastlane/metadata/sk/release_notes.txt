@@ -26,3 +26,5 @@
 - Tímy môžu mať vlastný obrázok
 - Plán relácie sa otvára na vlastnej karte
 - Aplikácie zobrazia záznamy ako formuláre, tabuľky, kalendáre a časové osi
+- Zdieľajte obrázky, odkazy a text z iných aplikácií do chatu alebo agentovi
+- Odkazy v chatoch a kartách otvárajú správnu obrazovku v aplikácii

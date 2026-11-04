@@ -1,0 +1,4 @@
+- Share images, links and text from other apps into a chat or to an agent
+- The + menu has Camera, Photos and File
+- Links in chats and cards open the right screen in the app
+- Owners can share an app through a public link

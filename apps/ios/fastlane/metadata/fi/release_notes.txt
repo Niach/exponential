@@ -26,3 +26,5 @@
 - Tiimeillä voi olla oma kuva
 - Istunnon suunnitelma avautuu omaan välilehteensä
 - Sovellukset näyttävät tietueet lomakkeina, taulukoina, kalentereina ja aikajanoina
+- Jaa kuvia, linkkejä ja tekstiä muista sovelluksista keskusteluun tai agentille
+- Linkit keskusteluissa ja korteissa avaavat oikean näkymän sovelluksessa

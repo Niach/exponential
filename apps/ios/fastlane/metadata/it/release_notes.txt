@@ -26,3 +26,5 @@
 - I team possono avere una propria immagine
 - Il piano di una sessione si apre nella sua scheda
 - Le app mostrano i record come moduli, tabelle, calendari e timeline
+- Condividi immagini, link e testo da altre app in una chat o a un agente
+- I link nelle chat e nelle schede aprono la schermata giusta nell'app

@@ -26,3 +26,5 @@
 - Team kan ha sitt eget bilde
 - En økts plan åpnes i sin egen fane
 - Apper viser poster som skjemaer, tabeller, kalendere og tidslinjer
+- Del bilder, lenker og tekst fra andre apper til en chat eller en agent
+- Lenker i chatter og kort åpner riktig skjerm i appen

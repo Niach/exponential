@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.0 (2026-11-04)
+
+- **Breaking** (hence the minor): eApps packages are `formatVersion: 4` (a screen's `nav: false` and `exposed`, so apps can expose screens to each other); `harness.openIssue` and `harness.openDevice` are removed (links open in the app through `openUrl`). A version-3 package is migrated to 4 on the server.
 - **Breaking** #EXP-1674: `formatVersion` 4 (a version-3 package is `format version 3 is no longer read: write 4`). A screen may carry `nav: false` (a detail screen outside the navigation; `MAX_SCREENS` counts only navigation screens; a package with only `nav: false` screens is refused) and `exposed: {description, params?}` (its public contract). `navScreens(pkg)`; `resolveScreen` falls back to the first in the navigation. `crossAppTarget(pkg, screen, params)`: what a link from another app may open. `UrlPolicy.linkBase`: `decideUrl` expands `~/x` against it, denies it without one, and refuses `~//` and a `.` or `..` segment in any spelling the URL parser reads as one.
 
 ## 0.14.0 (2026-11-04)

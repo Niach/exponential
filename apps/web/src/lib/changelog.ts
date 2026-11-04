@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-links-open-in-the-app`,
+    date: `2026-11-04`,
+    title: `Links open in the app`,
+    summary: `Links in chats, cards and apps now open the right screen in Exponential instead of the browser, apps can open each other's screens, and owners can share an app through a public link.`,
+    body: `- **In-app links**: a link to an issue, a session, a settings page or a plan in a chat, a card or an app opens that screen in the app, on every platform.
+- **Apps open apps**: an app can expose screens, and other apps link straight to them.
+- **Public links**: owners can share an app through a link people outside the team can open and fill in.
+- **Update your apps**: apps are now format 4; an app you haven't updated shows an update prompt until it is.`,
+  },
+  {
     id: `2026-11-04-share-into-chats`,
     date: `2026-11-04`,
     title: `Share into a chat or to an agent`,

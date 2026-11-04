@@ -26,3 +26,5 @@
 - Echipele pot avea propria imagine
 - Planul unei sesiuni se deschide în propria filă
 - Aplicațiile arată înregistrări ca formulare, tabele, calendare și cronologii
+- Partajează imagini, linkuri și text din alte aplicații într-un chat sau unui agent
+- Linkurile din chaturi și carduri deschid ecranul potrivit în aplicație
