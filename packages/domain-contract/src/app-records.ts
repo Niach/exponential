@@ -6,6 +6,7 @@
 // (`@exponential_app/eui/host/query`, one evaluator ×4,
 // packages/exponential-ui fixtures/records-query.json).
 
+import { APP_SHARE_COPY } from "./app-share"
 import fixture from "../fixtures/app-records.json" with { type: "json" }
 import { APPS_COPY } from "./apps"
 
@@ -298,7 +299,7 @@ export const APP_RECORD_HISTORY = fixture.history
 export const APP_HISTORY_COPY = fixture.history.copy
 
 export type RecordEventOp = `create` | `update` | `delete` | `restore`
-export type RecordEventVia = `editor` | `app` | `mcp` | `action` | `import` | `migration`
+export type RecordEventVia = `editor` | `app` | `mcp` | `action` | `import` | `migration` | `share:${string}`
 
 /** The part of an event the pure rules read. */
 export interface RecordEventCore {
@@ -312,6 +313,8 @@ export interface RecordEvent extends RecordEventCore {
   id: string
   actor: string | null
   createdAt: string
+  /** VAPP-241: `share:<name>` = a guest's submission (app-share.json). */
+  via?: string
 }
 
 /** The write that undoes an event: a delete, or a restore of `data`. */
@@ -375,7 +378,7 @@ export function historyRows(events: readonly RecordEvent[], names: Readonly<Reco
   return events.map((event, i) => ({
     id: event.id,
     label: eventLabel(event),
-    who: (event.actor !== null ? names[event.actor] : undefined) ?? fallback,
+    who: event.via?.startsWith(`share:`) ? APP_SHARE_COPY.guest : ((event.actor !== null ? names[event.actor] : undefined) ?? fallback),
     at: event.createdAt,
     restorable: i > 0 && event.op !== `delete`,
   }))

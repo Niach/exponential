@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-04-app-public-links",
+    date: "2026-11-04",
+    title: "Public links for apps",
+    summary: "An app can offer a public form or a read-only list through a private link, on web first.",
+    body: r#"- **Form links**: a guest fills one form and creates one record, shown as Guest in the app.
+- **View links**: a guest reads a snapshot of the fields the app names, nothing else.
+- **Owner control**: an owner turns a link on in the app's Settings, copies it, or replaces it with a new one."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_203: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-app-record-macros",
     date: "2026-11-04",
     title: "Record forms and tables in apps",

@@ -229,7 +229,7 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 
 ### 2.2.1 What formatVersion 4 adds (✅ #EXP-1674)
 
-A screen's `nav: false` and `exposed` (§5.1). A version 3 package is a valid version 4 package, so migration `0250_eapps_format_v4` moved the stored ones (`apps.package`, `apps.draft_package`, `app_versions.package`) up, as `0237` did for version 3; a client that has not updated shows the update prompt below.
+A screen's `nav: false` and `exposed` (§5.1). A version 3 package is a valid version 4 package, so migration `0251_eapps_format_v4` moved the stored ones (`apps.package`, `apps.draft_package`, `app_versions.package`) up, as `0237` did for version 3; a client that has not updated shows the update prompt below.
 
 A host refuses a newer `formatVersion` (✅ today), so old clients show "Update Exponential to open this app" instead of a broken screen.
 

@@ -361,7 +361,7 @@ export async function listRecords(
 export async function upsertRecord(
   userId: string,
   ref: AppRef,
-  input: { kind: string; data: Record<string, unknown>; recordId?: string; newId?: string; writeId?: string; author?: string; via?: RecordWriteVia; viaAppId?: string },
+  input: { kind: string; data: Record<string, unknown>; recordId?: string; newId?: string; writeId?: string; author?: string; via?: RecordWriteVia; viaAppId?: string; shareName?: string },
   executor: Executor = defaultDb
 ): Promise<{ txid: number; id: string; created: boolean; eventId: string }> {
   if (input.recordId && input.newId) throw new TRPCError({ code: `BAD_REQUEST`, message: `Pass recordId (an update) or newId (a create), not both` })
@@ -439,7 +439,7 @@ export async function upsertRecord(
         .insert(appRecords)
         // VAPP-229: an app's tool (the broker, never a client) = "via <app>".
         // VAPP-235: an outbox create brings its client id (`newId`).
-        .values({ ...(input.newId ? { id: input.newId } : {}), appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId, viaAppId: input.viaAppId ?? null, schemaVersion: app.publishedVersion })
+        .values({ ...(input.newId ? { id: input.newId } : {}), appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId, viaAppId: input.viaAppId ?? null, shareName: input.shareName ?? null, schemaVersion: app.publishedVersion })
         .onConflictDoNothing({ target: appRecords.id })
         .returning({ id: appRecords.id })
       if (!row) throw idTaken()

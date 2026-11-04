@@ -264,6 +264,7 @@ export const ROUTED_APP_PREFIXES: readonly string[] = [
   `integrations`,
   `invite`,
   `onboarding`,
+  `s`,
   `support`,
   `t`,
 ]

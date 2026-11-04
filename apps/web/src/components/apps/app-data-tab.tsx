@@ -1,5 +1,6 @@
 import { useAppNames } from "@/hooks/use-apps"
 import { withViaApp } from "@exp/domain-contract/via-app"
+import { shareByline } from "@exp/domain-contract/app-share"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY } from "@exp/domain-contract/apps"
@@ -89,6 +90,8 @@ interface DataRecord {
   authorId: string | null
   /** VAPP-229: the app whose tool created it ("via <app>"). */
   viaAppId: string | null
+  /** VAPP-241: the public link that created it: reads Guest. */
+  shareName?: string | null
   updatedAt: string
 }
 
@@ -207,7 +210,7 @@ export function AppDataTab({
   const names = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u.name])), [users])
   // VAPP-229 (via-app.json): an app's tool wrote it = `· via <app>`.
   const appNames = useAppNames()
-  const author = (record: DataRecord) => withViaApp(recordByline(record, names, APPS_COPY.byAgent), record.viaAppId ? appNames.get(record.viaAppId) : null)
+  const author = (record: DataRecord) => withViaApp(shareByline(record.shareName, recordByline(record, names, APPS_COPY.byAgent)), record.viaAppId ? appNames.get(record.viaAppId) : null)
 
   const grid = {
     gridTemplateColumns: [

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-share.json" with { type: "json" }
-import { linkState, shareByline, shareFields, shareRowSubtitle, underShareCaps, type ShareLinkState, type ShareMode, type ShareSchema } from "./app-share"
+import { historyRows } from "./app-records"
+import { linkState, shareByline, shareFields, shareRowSubtitle, shareSwitchOn, underShareCaps, type ShareLinkState, type ShareMode, type ShareSchema } from "./app-share"
 
 describe(`app-share.json`, () => {
   test.each(fixture.stateCases)(`linkState: $name`, (c) => expect(linkState(c.link, c.declared, c.now)).toBe(c.state as ShareLinkState))
@@ -10,5 +11,10 @@ describe(`app-share.json`, () => {
     expect(shareFields(c.schema as ShareSchema, c.fields)).toEqual(c.view)
   })
   test.each(fixture.bylineCases)(`shareByline: $name`, (c) => expect(shareByline(c.shareName, c.byline)).toBe(c.text))
+  test.each(fixture.historyCases)(`history: $name`, (c) => {
+    const event = { id: `e`, op: `create` as const, before: null, patch: {}, actor: c.actor, via: c.via, createdAt: `2026-11-04T00:00:00Z` }
+    expect(historyRows([event], c.names, `?`)[0]!.who).toBe(c.who)
+  })
+  test.each(fixture.switchCases)(`shareSwitchOn: $state`, (c) => expect(shareSwitchOn(c.state as ShareLinkState)).toBe(c.on))
   test.each(fixture.rowCases)(`shareRowSubtitle: $name`, (c) => expect(shareRowSubtitle(c.mode as ShareMode, c.state as ShareLinkState, c.expiresAt)).toBe(c.text))
 })
