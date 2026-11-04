@@ -61,7 +61,7 @@ must not share, the script splits per instance: the work dir (so checkouts,
 `$RUNNER_TEMP/dd` and `$RUNNER_TEMP/dd-test`, never `~/Library/Developer/Xcode`,
 whose kept GRDB modulemap is read-only and fails Copy Module Map), the tuist
 and SwiftPM caches (`TUIST_XDG_CACHE_HOME`, `EXP_SWIFTPM_CACHE` =
-`~/actions-runner-2/_cache{,/swiftpm}`), the sccache server port (4226, 4227; the cache dir stays shared),
+`~/actions-runner-2/_cache{,/swiftpm}`; test-ios's Actions cache of `Tuist/.build` is keyed on `github.workspace`, its `workspace-state.json` holds absolute paths), the sccache server port (4226, 4227; the cache dir stays shared),
 `TMPDIR` (`~/actions-runner-2/_tmp`: the swift-ios bench's fixed DerivedData)
 and the simulator (`IOS_SIM_DEVICE_NAME` = `iPhone 17 Pro Max (macbook-2)`;
 swift-ios shuts down the device it booted). Shared on purpose: rustup, the
