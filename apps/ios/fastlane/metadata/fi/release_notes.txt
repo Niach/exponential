@@ -20,3 +20,5 @@
 - Offline-tilassa tehdyt muutokset lähetetään, kun olet taas verkossa
 - Sovelluksissa voi olla useita näkymiä ja ne voivat tuoda taulukon
 - Kelluva painike pitää puhelun käden ulottuvilla
+- Sovellukset avautuvat sivupalkista koko näytölle; muokkain on rattaan takana
+- Liitetyt kuvat näkyvät keskusteluissa pikkukuvina

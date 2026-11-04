@@ -20,3 +20,5 @@
 - Izmjene napravljene izvan mreže šalju se kad se ponovno povežete
 - Aplikacije mogu imati više zaslona i uvesti proračunsku tablicu
 - Plutajuća oznaka drži poziv nadohvat ruke
+- Aplikacije se iz bočne trake otvaraju preko cijelog zaslona; uređivač je iza zupčanika
+- Zalijepljene slike prikazuju se kao sličice

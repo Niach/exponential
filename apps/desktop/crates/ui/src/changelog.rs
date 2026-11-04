@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-04-pasted-images",
+    date: "2026-11-04",
+    title: "Pasted images reach the agent and show in chats",
+    summary: "Images you paste travel with the message when an agent hands work on, and chat messages with text and images show their thumbnails.",
+    body: r#"- **Handed-on images**: when an agent delegates a task, the images you pasted go with it by reference, instead of being lost or re-uploaded.
+- **Thumbnails**: a chat message with text and images shows the images as thumbnails under the text, on every app."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_197: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-apps-run-full-screen",
     date: "2026-11-03",
     title: "Apps open full screen",

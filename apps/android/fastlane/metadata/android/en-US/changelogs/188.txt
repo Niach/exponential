@@ -1,0 +1,3 @@
+- Apps open full screen from the sidebar; the editor is behind the gear
+- Pasted images show as thumbnails in chats
+- App settings list the app's accounts and MCP tools

@@ -20,3 +20,5 @@
 - Zmiany wprowadzone offline są wysyłane po powrocie do sieci
 - Aplikacje mogą mieć kilka ekranów i importować arkusz
 - Pływający przycisk trzyma rozmowę pod ręką
+- Aplikacje otwierają się na pełnym ekranie z paska bocznego; edytor jest pod zębatką
+- Wklejone obrazy pokazują się w czacie jako miniatury

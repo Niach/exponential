@@ -20,3 +20,5 @@
 - Los cambios hechos sin conexión se envían al volver a estar en línea
 - Las apps pueden tener varias pantallas e importar una hoja de cálculo
 - Una píldora flotante mantiene tu llamada a mano mientras usas la app
+- Las apps se abren a pantalla completa desde la barra lateral; el editor está tras el engranaje
+- Las imágenes pegadas se ven como miniaturas en los chats

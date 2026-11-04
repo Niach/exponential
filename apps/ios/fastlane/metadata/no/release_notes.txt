@@ -20,3 +20,5 @@
 - Endringer gjort offline sendes når du er på nett igjen
 - Apper kan ha flere skjermer og importere et regneark
 - En flytende pille holder samtalen innen rekkevidde
+- Apper åpnes i fullskjerm fra sidepanelet; redigeringen ligger bak tannhjulet
+- Innlimte bilder vises som miniatyrer i chatter

@@ -20,3 +20,5 @@
 - Le modifiche fatte offline vengono inviate quando torni online
 - Le app possono avere più schermate e importare un foglio di calcolo
 - Una pillola fluttuante tiene la chiamata a portata di mano
+- Le app si aprono a schermo intero dalla barra laterale; l'editor è dietro l'ingranaggio
+- Le immagini incollate appaiono come miniature nelle chat

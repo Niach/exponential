@@ -20,3 +20,5 @@
 - Les modifications hors ligne sont envoyées dès votre retour en ligne
 - Les apps ont plusieurs écrans et importent un tableur
 - Une pastille flottante garde votre appel à portée de main
+- Les apps s'ouvrent en plein écran depuis la barre latérale ; l'éditeur est derrière l'engrenage
+- Les images collées s'affichent en miniatures
