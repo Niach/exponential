@@ -880,8 +880,15 @@ struct MainNavigator: View {
 
     /// The team menu's rows: the Team page's list, every server's teams.
     private var teamMenuRows: [MobileTabBar.TeamRow] {
-        (teamLoader?.groups ?? []).flatMap { group in
-            group.teams.map { MobileTabBar.TeamRow(team: $0, accountId: group.accountId) }
+        let groups = teamLoader?.groups ?? []
+        return groups.flatMap { group in
+            group.teams.map {
+                MobileTabBar.TeamRow(
+                    team: $0,
+                    accountId: group.accountId,
+                    server: groups.count > 1 ? group.hostname : nil
+                )
+            }
         }
     }
 

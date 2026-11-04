@@ -71,6 +71,8 @@ struct MobileTabBar: View {
     struct TeamRow: Identifiable {
         let team: TeamEntity
         let accountId: String
+        /// The server's name, only with several servers (the Team page's rule).
+        var server: String?
 
         var id: String { "\(accountId)/\(team.id)" }
     }
@@ -370,7 +372,7 @@ struct MobileTabBar: View {
 
     private func teamRow(_ row: TeamRow) -> some View {
         let active = row.team.id == team?.id
-        return menuRow(name: row.team.name, active: active) {
+        return menuRow(name: row.team.name, detail: row.server, active: active) {
             closeMenu()
             if !active { onSelectTeam(row) }
         } glyph: {
@@ -383,6 +385,7 @@ struct MobileTabBar: View {
 
     private func menuRow<Glyph: View>(
         name: String,
+        detail: String? = nil,
         active: Bool,
         action: @escaping () -> Void,
         @ViewBuilder glyph: () -> Glyph
@@ -391,11 +394,20 @@ struct MobileTabBar: View {
             HStack(spacing: 12) {
                 glyph()
                     .frame(width: 20, height: 20)
-                Text(name)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
                 Spacer(minLength: 0)
                 if active {
                     AppIcon(AppIcons.uiCheck, size: 16)
@@ -410,7 +422,7 @@ struct MobileTabBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(name)
+        .accessibilityLabel(detail.map { "\(name), \($0)" } ?? name)
         .accessibilityAddTraits(active ? .isSelected : [])
         .accessibilityIdentifier(Chats.TestIds.boardMenuRow)
     }

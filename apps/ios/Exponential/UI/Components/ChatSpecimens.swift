@@ -354,7 +354,7 @@ struct PhoneBoardMenuSpecimens: View {
                         id: "t2", name: "Launch Studio", slug: "launch-studio", iconUrl: TeamAvatarSpecimens.sampleUrl,
                         createdAt: "", updatedAt: ""
                     ),
-                ].map { MobileTabBar.TeamRow(team: $0, accountId: "") },
+                ].map { MobileTabBar.TeamRow(team: $0, accountId: "", server: "exponential.at") },
                 onNewTeam: {},
                 specimen: teamMenu ? .teamMenuOpen : .menuOpen
             )

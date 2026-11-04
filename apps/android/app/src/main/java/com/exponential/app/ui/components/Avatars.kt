@@ -252,18 +252,21 @@ fun TeamImageRow(
                 modifier = Modifier.testTag(TeamImage.TestIds.UPLOAD),
             )
             GlassDropdownMenu(expanded = pickerOpen, onDismissRequest = { pickerOpen = false }) {
+                // The markdown toolbar's attach menu: the same two rows.
                 GlassMenuItem(
-                    text = { Text(TEAM_IMAGE_PICK_PHOTO) },
-                    onClick = {
-                        pickerOpen = false
-                        onPickPhoto()
-                    },
-                )
-                GlassMenuItem(
-                    text = { Text(TEAM_IMAGE_PICK_FILE) },
+                    leadingIcon = { Icon(ExpIcons.uiAttach, contentDescription = null) },
+                    text = { Text("Files") },
                     onClick = {
                         pickerOpen = false
                         onPickFile()
+                    },
+                )
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.editorImage, contentDescription = null) },
+                    text = { Text("Photo library") },
+                    onClick = {
+                        pickerOpen = false
+                        onPickPhoto()
                     },
                 )
             }
@@ -282,9 +285,6 @@ fun TeamImageRow(
         }
     }
 }
-
-private const val TEAM_IMAGE_PICK_PHOTO = "Photo library"
-private const val TEAM_IMAGE_PICK_FILE = "Files"
 
 /**
  * #EXP-1383 (agent-settings.json `actor` / `assignee`): an AGENT where a
