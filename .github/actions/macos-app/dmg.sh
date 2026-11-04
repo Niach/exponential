@@ -50,10 +50,26 @@ if [ -n "${NOTARY_KEY_PATH:-}" ] && [ -n "${NOTARY_KEY_ID:-}" ] && [ -n "${NOTAR
   if [ -n "$IDENTITY" ]; then
     codesign --force --timestamp --sign "$IDENTITY" "$DMG"
   fi
-  xcrun notarytool submit "$DMG" \
-    --key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
-  # Staple the ticket so Gatekeeper validates offline.
-  xcrun stapler staple "$DMG"
+  # The notary service is a network call: a hosted runner that drops off the
+  # network for a moment ("The Internet connection appears to be offline",
+  # desktop-v0.14.120) must not cost the macOS asset. Retry with a backoff;
+  # a submission the service REJECTS (status Invalid) fails every attempt
+  # the same way, so it still fails the job after the last one.
+  for attempt in 1 2 3 4; do
+    if xcrun notarytool submit "$DMG" \
+      --key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait; then
+      break
+    fi
+    [ "$attempt" = 4 ] && { echo "notarytool submit failed after 4 attempts" >&2; exit 1; }
+    echo "notarytool submit failed (attempt ${attempt}/4) — retrying in $((attempt * 30))s …" >&2
+    sleep $((attempt * 30))
+  done
+  # Staple the ticket so Gatekeeper validates offline (also a network call).
+  for attempt in 1 2 3; do
+    xcrun stapler staple "$DMG" && break
+    [ "$attempt" = 3 ] && { echo "stapler staple failed after 3 attempts" >&2; exit 1; }
+    sleep 20
+  done
   xcrun stapler validate "$DMG"
   echo "notarized + stapled: $DMG"
 else
