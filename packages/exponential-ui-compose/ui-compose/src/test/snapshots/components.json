@@ -31581,7 +31581,7 @@
     ]
   },
   "Table\/wide" : {
-    "height" : 196,
+    "height" : 256,
     "nodes" : [
       {
         "component" : "Table",
@@ -31589,7 +31589,7 @@
           0,
           0,
           390,
-          196
+          256
         ],
         "id" : "table"
       },
@@ -31598,7 +31598,7 @@
         "frame" : [
           0,
           0,
-          816,
+          672,
           33
         ],
         "id" : "table.header",
@@ -31620,7 +31620,7 @@
         "frame" : [
           96,
           0,
-          120,
+          96,
           32
         ],
         "id" : "table.headerCell.1",
@@ -31629,9 +31629,9 @@
       {
         "component" : "Text",
         "frame" : [
-          216,
+          192,
           0,
-          120,
+          96,
           32
         ],
         "id" : "table.headerCell.2",
@@ -31640,9 +31640,9 @@
       {
         "component" : "Text",
         "frame" : [
-          336,
+          288,
           0,
-          120,
+          96,
           32
         ],
         "id" : "table.headerCell.3",
@@ -31651,9 +31651,9 @@
       {
         "component" : "Text",
         "frame" : [
-          456,
+          384,
           0,
-          120,
+          96,
           32
         ],
         "id" : "table.headerCell.4",
@@ -31662,9 +31662,9 @@
       {
         "component" : "Text",
         "frame" : [
-          576,
+          480,
           0,
-          120,
+          96,
           32
         ],
         "id" : "table.headerCell.5",
@@ -31673,9 +31673,9 @@
       {
         "component" : "Text",
         "frame" : [
-          696,
+          576,
           0,
-          120,
+          96,
           32
         ],
         "id" : "table.headerCell.6",
@@ -31686,8 +31686,8 @@
         "frame" : [
           0,
           33,
-          816,
-          163
+          672,
+          223
         ],
         "id" : "table.body",
         "part" : "body"
@@ -31697,8 +31697,8 @@
         "frame" : [
           0,
           33,
-          816,
-          81
+          672,
+          101
         ],
         "id" : "table.row.a",
         "part" : "row"
@@ -31709,7 +31709,7 @@
           0,
           33,
           96,
-          80
+          100
         ],
         "id" : "table.cell.a.0",
         "part" : "cell"
@@ -31719,8 +31719,8 @@
         "frame" : [
           96,
           33,
-          120,
-          80
+          96,
+          100
         ],
         "id" : "table.cell.a.1",
         "part" : "cell"
@@ -31728,10 +31728,10 @@
       {
         "component" : "Text",
         "frame" : [
-          216,
+          192,
           33,
-          120,
-          80
+          96,
+          100
         ],
         "id" : "table.cell.a.2",
         "part" : "cell"
@@ -31739,10 +31739,10 @@
       {
         "component" : "Text",
         "frame" : [
-          336,
+          288,
           33,
-          120,
-          80
+          96,
+          100
         ],
         "id" : "table.cell.a.3",
         "part" : "cell"
@@ -31750,10 +31750,10 @@
       {
         "component" : "Text",
         "frame" : [
-          456,
+          384,
           33,
-          120,
-          80
+          96,
+          100
         ],
         "id" : "table.cell.a.4",
         "part" : "cell"
@@ -31761,10 +31761,10 @@
       {
         "component" : "Text",
         "frame" : [
-          576,
+          480,
           33,
-          120,
-          80
+          96,
+          100
         ],
         "id" : "table.cell.a.5",
         "part" : "cell"
@@ -31772,10 +31772,10 @@
       {
         "component" : "Text",
         "frame" : [
-          696,
+          576,
           33,
-          120,
-          80
+          96,
+          100
         ],
         "id" : "table.cell.a.6",
         "part" : "cell"
@@ -31784,9 +31784,9 @@
         "component" : "Box",
         "frame" : [
           0,
-          114,
-          816,
-          41
+          134,
+          672,
+          61
         ],
         "id" : "table.row.b",
         "part" : "row"
@@ -31795,9 +31795,9 @@
         "component" : "Text",
         "frame" : [
           0,
-          114,
+          134,
           96,
-          40
+          60
         ],
         "id" : "table.cell.b.0",
         "part" : "cell"
@@ -31806,9 +31806,9 @@
         "component" : "Text",
         "frame" : [
           96,
-          114,
-          120,
-          40
+          134,
+          96,
+          60
         ],
         "id" : "table.cell.b.1",
         "part" : "cell"
@@ -31816,10 +31816,10 @@
       {
         "component" : "Text",
         "frame" : [
-          216,
-          114,
-          120,
-          40
+          192,
+          134,
+          96,
+          60
         ],
         "id" : "table.cell.b.2",
         "part" : "cell"
@@ -31827,10 +31827,10 @@
       {
         "component" : "Text",
         "frame" : [
-          336,
-          114,
-          120,
-          40
+          288,
+          134,
+          96,
+          60
         ],
         "id" : "table.cell.b.3",
         "part" : "cell"
@@ -31838,10 +31838,10 @@
       {
         "component" : "Text",
         "frame" : [
-          456,
-          114,
-          120,
-          40
+          384,
+          134,
+          96,
+          60
         ],
         "id" : "table.cell.b.4",
         "part" : "cell"
@@ -31849,10 +31849,10 @@
       {
         "component" : "Text",
         "frame" : [
-          576,
-          114,
-          120,
-          40
+          480,
+          134,
+          96,
+          60
         ],
         "id" : "table.cell.b.5",
         "part" : "cell"
@@ -31860,10 +31860,10 @@
       {
         "component" : "Text",
         "frame" : [
-          696,
-          114,
-          120,
-          40
+          576,
+          134,
+          96,
+          60
         ],
         "id" : "table.cell.b.6",
         "part" : "cell"
@@ -31872,9 +31872,9 @@
         "component" : "Box",
         "frame" : [
           0,
-          155,
-          816,
-          41
+          195,
+          672,
+          61
         ],
         "id" : "table.row.c",
         "part" : "row"
@@ -31883,9 +31883,9 @@
         "component" : "Text",
         "frame" : [
           0,
-          155,
+          195,
           96,
-          40
+          60
         ],
         "id" : "table.cell.c.0",
         "part" : "cell"
@@ -31894,9 +31894,9 @@
         "component" : "Text",
         "frame" : [
           96,
-          155,
-          120,
-          40
+          195,
+          96,
+          60
         ],
         "id" : "table.cell.c.1",
         "part" : "cell"
@@ -31904,10 +31904,10 @@
       {
         "component" : "Text",
         "frame" : [
-          216,
-          155,
-          120,
-          40
+          192,
+          195,
+          96,
+          60
         ],
         "id" : "table.cell.c.2",
         "part" : "cell"
@@ -31915,10 +31915,10 @@
       {
         "component" : "Text",
         "frame" : [
-          336,
-          155,
-          120,
-          40
+          288,
+          195,
+          96,
+          60
         ],
         "id" : "table.cell.c.3",
         "part" : "cell"
@@ -31926,10 +31926,10 @@
       {
         "component" : "Text",
         "frame" : [
-          456,
-          155,
-          120,
-          40
+          384,
+          195,
+          96,
+          60
         ],
         "id" : "table.cell.c.4",
         "part" : "cell"
@@ -31937,10 +31937,10 @@
       {
         "component" : "Text",
         "frame" : [
-          576,
-          155,
-          120,
-          40
+          480,
+          195,
+          96,
+          60
         ],
         "id" : "table.cell.c.5",
         "part" : "cell"
@@ -31948,10 +31948,10 @@
       {
         "component" : "Text",
         "frame" : [
-          696,
-          155,
-          120,
-          40
+          576,
+          195,
+          96,
+          60
         ],
         "id" : "table.cell.c.6",
         "part" : "cell"
@@ -33425,6 +33425,7 @@
     "height" : 32,
     "nodes" : [
       {
+        "bg" : "#0a0a0a",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -33442,6 +33443,7 @@
     "height" : 32,
     "nodes" : [
       {
+        "bg" : "#0a0a0a",
         "border" : 1,
         "component" : "Box",
         "frame" : [
@@ -33459,6 +33461,7 @@
     "height" : 32,
     "nodes" : [
       {
+        "bg" : "#0a0a0a",
         "border" : 1,
         "component" : "Box",
         "frame" : [
