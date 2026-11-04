@@ -61,7 +61,13 @@ pub fn local_doctor(settings: &coding::Settings, data_dir: &Path, deep: bool) ->
         // handshake.
         deep_probe_codex_acp(settings, &mut report.codex);
     }
-    device_doctor::current(settings, data_dir, &report)
+    let mut doctor = device_doctor::current(settings, data_dir, &report);
+    // #FEED-192: the key holder lives in the daemon's process, so read its
+    // state; with no daemon running there is no holder to report on.
+    if super::daemon::daemon_pid(data_dir).is_some() {
+        device_doctor::add_key_holder(&mut doctor, !device_doctor::key_holder_marker(data_dir).exists());
+    }
+    doctor
 }
 
 fn glyph(state: DoctorState) -> &'static str {

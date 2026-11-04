@@ -36,6 +36,8 @@ pub const KEY_DISK: &str = "disk";
 pub const KEY_WORKTREE_PREFIX: &str = "worktree-";
 /// NEW-57: the voice group's desktop audio row (see [`add_desktop_audio`]).
 pub const KEY_DESKTOP_AUDIO: &str = "desktop_audio";
+/// #FEED-192: the storage row of a key holder that is not running.
+pub const KEY_KEY_HOLDER: &str = "key_holder";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -527,6 +529,30 @@ pub fn add_storage(
     }
 }
 
+/// #FEED-192: the row of a key holder that is not running (a warning, no
+/// pill, never a blocker); a running holder adds none.
+pub fn add_key_holder(doctor: &mut DeviceDoctor, running: bool) {
+    if running {
+        return;
+    }
+    let mut row = item(KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action)
+        .detail("Key holder not running · restart while signed in and online".to_string());
+    row.label = Some("Encryption keys".to_string());
+    doctor.items.push(row);
+}
+
+/// #FEED-192: present while the daemon's key holder is not running. The
+/// holder lives in the daemon's process, so `exponential doctor` reads this.
+pub fn key_holder_marker(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join("cli-key-holder-missing")
+}
+
+/// Keeps [`key_holder_marker`] in step with the daemon's holder (best effort).
+pub fn record_key_holder(data_dir: &Path, missing: bool) {
+    let marker = key_holder_marker(data_dir);
+    let _ = if missing { std::fs::write(&marker, "") } else { std::fs::remove_file(&marker) };
+}
+
 /// The fixture's `diskFree` template.
 pub fn disk_free(size: &str) -> String {
     format!("{size} free")
@@ -946,6 +972,15 @@ mod tests {
             assert_eq!(copy[key].as_str().unwrap(), text, "{key}");
         }
         assert_eq!(disk_free("{size}"), copy["diskFree"].as_str().unwrap());
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_key_holder(&mut doctor, true);
+        assert!(doctor.items.is_empty(), "a running holder adds no row");
+        add_key_holder(&mut doctor, false);
+        let row = &doctor.items[0];
+        assert_eq!((row.key.as_str(), row.group, row.state), (KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action));
+        assert_eq!(row.action, None);
+        assert_eq!(row.label.as_deref(), copy["keyHolderLabel"].as_str());
+        assert_eq!(row.detail.as_deref(), copy["keyHolderNotRunning"].as_str());
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),
             copy["needsVersion"].as_str().unwrap()

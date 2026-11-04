@@ -53,9 +53,12 @@
     "diskFree": "{size} free",
     "keptUncommitted": "Uncommitted changes",
     "keptUnpushed": "Unpushed commits",
-    "keptFailed": "Cleanup failed"
+    "keptFailed": "Cleanup failed",
+    "keyHolderLabel": "Encryption keys",
+    "keyHolderNotRunning": "Key holder not running · restart while signed in and online"
   },
   "rules": [
+    "#FEED-192: a device whose key holder is not running (signed out, offline or its install not registered, past the one-minute start grace) adds ONE storage row: key `key_holder`, its own `label` = keyHolderLabel, state action (the warning tone, no pill), detail = keyHolderNotRunning. It cannot read or write encrypted chats until then, and it still runs everything else: never a blocker. A running holder adds no row. `exponential doctor` reads the daemon's state, since the holder lives in the daemon's process.",
     "The computer_use item IS the switch row: label + switch, no glyph, no detail. Its switch writes launch_defaults.computerUse. state off = switch off; ok/action = on.",
     "Items with `parent` (the OS permission rows) render indented under their parent and only while the parent is not off.",
     "An action renders as ONE trailing pill. On the device itself every action is offered. For ANOTHER device only actions with remote=true are offered (update -> device command agent_update {agent}; sign_in -> the existing remote agent_login flow); a non-remote action renders no pill.",
@@ -285,6 +288,24 @@
       "localPrimary": null,
       "remotePills": { "codex": "sign_in" },
       "composerWarning": "disk"
+    },
+    {
+      "name": "#FEED-192: the key holder not running: a warning with no pill, never a blocker",
+      "doctor": {
+        "checkedAt": "2026-11-05T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" },
+          { "key": "disk", "group": "storage", "state": "ok", "detail": "214 GB free" },
+          { "key": "key_holder", "group": "storage", "label": "Encryption keys", "state": "action", "detail": "Key holder not running · restart while signed in and online" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "composerWarning": null
     }
   ]
 }

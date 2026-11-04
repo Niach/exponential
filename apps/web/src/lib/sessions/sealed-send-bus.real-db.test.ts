@@ -369,18 +369,23 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     await expect(
       endSession({ userId: w.owner, sessionId: child3, sealedReport: { ...sealedReport, summary: `leak` } })
     ).rejects.toThrow(/encrypted report/)
-    // #FEED-185: a plaintext summary into the keyed tree is refused (it
-    // would sit on the server in clear) and nothing ends or lands; an end
-    // without a summary still ends.
+    // #FEED-192: ending never needs an encrypted body: a plaintext summary
+    // into the keyed tree is dropped (never stored, not in the report) and
+    // the session still ends.
     const child4 = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: sealBody(tree.publicKey, 1, `c4`) } })).sessionId
-    const beforePlain = (await messagesOf(child4)).length
-    await expect(endSession({ userId: w.owner, sessionId: child4, summary: `closing words in clear` })).rejects.toThrow(
-      PLAIN_IN_SEALED_TREE_MESSAGE
-    )
-    expect((await row(child4)).status).not.toBe(`ended`)
-    expect((await messagesOf(child4)).length).toBe(beforePlain)
-    await endSession({ userId: w.owner, sessionId: child4 })
+    const dropped = await endSession({ userId: w.owner, sessionId: child4, summary: `closing words in clear` })
+    expect(dropped.summaryDropped).toBe(true)
     expect((await row(child4)).status).toBe(`ended`)
+    expect(JSON.stringify(await messagesOf(child4))).not.toContain(`closing words in clear`)
+    const reports4 = (await fromChild(rootId, child4)).filter(isReport)
+    expect(reports4).toMatchObject([{ body: REPORT_FALLBACK }])
+    expect(JSON.stringify(reports4)).not.toContain(`closing words in clear`)
+    // A thread started in clear has no key: it counts as unsealed, its summary stays.
+    const clear = (await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `in clear` } })).sessionId
+    const kept = await endSession({ userId: w.owner, sessionId: clear, summary: `clear closing words` })
+    expect(kept.summaryDropped).toBe(false)
+    expect((await row(clear)).status).toBe(`ended`)
+    expect(JSON.stringify(await messagesOf(clear))).toContain(`clear closing words`)
     // A sealed summary string never becomes a clear summary.
     await endSession({ userId: w.owner, sessionId: child3, summary: sealBody(tree.publicKey, 1, `words`) })
     expect((await fromChild(rootId, child3)).filter(isReport)).toMatchObject([{ body: REPORT_FALLBACK }])

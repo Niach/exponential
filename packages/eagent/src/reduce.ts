@@ -951,13 +951,12 @@ export function reduce(state: HubState, event: HubEvent): Outcome {
         break
       case `session.end`: {
         const top = session(ctx.state, data.sessionId as string)
-        // #FEED-185: a plaintext summary into a keyed tree is refused like a send; an end without one still ends.
-        const summary = (data.summary as string | undefined)?.trim()
-        if (summary && data.summarySealed !== true && isLive(top) && ctx.state.sessions[top.rootId]?.sealEpoch != null)
-          refuse(`invalid`, copy.plainInSealedTree)
+        // #FEED-192: ending never needs an encrypted body: a plaintext summary into a keyed tree is dropped, never stored.
+        const plain = (data.summary as string | undefined)?.trim() && data.summarySealed !== true
+        const dropped = plain && ctx.state.sessions[top.rootId]?.sealEpoch != null
         const endedIds = endRows(ctx, liveSubtree(ctx.state, top), {
           id: top.id,
-          summary: (data.summary as string | undefined) ?? null,
+          summary: dropped ? null : ((data.summary as string | undefined) ?? null),
           summarySealed: data.summarySealed === true,
         })
         result = { sessionId: top.id, endedIds }

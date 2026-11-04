@@ -818,7 +818,13 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let device_doctor = {
                 let settings =
                     coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-                coding::device_doctor::current(&settings, &ctx.data_dir, &doctor)
+                let mut device = coding::device_doctor::current(&settings, &ctx.data_dir, &doctor);
+                // #FEED-192: says so when the key holder is not running
+                // (the marker is what `exponential doctor` reads).
+                let missing = coding::sealing::key_holder_missing();
+                coding::device_doctor::record_key_holder(&ctx.data_dir, missing);
+                coding::device_doctor::add_key_holder(&mut device, !missing);
+                device
             };
             let doctor_key = coding::device_doctor::items_key(&device_doctor);
             let send_doctor = include_optional && sent_doctor.as_ref() != Some(&doctor_key);
