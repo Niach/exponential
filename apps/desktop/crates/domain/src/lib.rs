@@ -130,6 +130,7 @@ pub mod composer_agent_row;
 pub mod composer_send;
 // EXP-1162: the detail chrome (title collapse + edge strips), fixture-locked ×4.
 pub mod detail_chrome;
+pub mod devices_list;
 pub mod diff;
 pub mod diff_tree;
 // N-12: THE Dock (the cards over the composer, the pile, auto-open), fixture-locked ×4.

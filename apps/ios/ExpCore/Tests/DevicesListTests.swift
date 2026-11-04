@@ -64,6 +64,8 @@ final class DevicesListTests: XCTestCase {
         XCTAssertEqual((card["iconSize"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.iconSize))
         XCTAssertEqual((card["markSize"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.markSize))
         XCTAssertEqual(card["maxAccountIcons"] as? Int, DevicesList.Card.maxAccountIcons)
+        XCTAssertEqual((card["deviceIconSize"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.deviceIconSize))
+        XCTAssertEqual((card["panelGap"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.panelGap))
         // A 390pt phone's section (16pt page padding each side) = 1 column.
         XCTAssertEqual(DevicesList.columns(width: 358), 1)
         XCTAssertEqual(DevicesList.columns(width: 1100), 4)
@@ -89,6 +91,25 @@ final class DevicesListTests: XCTestCase {
             )
             XCTAssertEqual(got.visible, expect["visible"] as? Int, name)
             XCTAssertEqual(got.more, expect["more"] as? Bool, name)
+        }
+    }
+
+    /// #EXP-1643: `accountPanelCases` — key absent = never touched, null =
+    /// closed by hand, a key = the login opened last.
+    func testAccountPanelCasesReplay() throws {
+        let cases = try XCTUnwrap(try fixture()["accountPanelCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let loginKeys = try XCTUnwrap(testCase["loginKeys"] as? [String], name)
+            let remembered: String?? = testCase.keys.contains("remembered")
+                ? .some(testCase["remembered"] as? String)
+                : .none
+            XCTAssertEqual(
+                DevicesList.openDeviceAccount(loginKeys: loginKeys, remembered: remembered),
+                testCase["expect"] as? String,
+                name
+            )
         }
     }
 

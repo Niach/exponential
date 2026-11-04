@@ -23,11 +23,11 @@ import SwiftUI
 /// from its shapes, so the list never waits on the steer relay.
 ///
 /// EXP-909: every device card LISTS ITS OWN LOGINS (`DeviceLogins`) — since
-/// EXP-1560 as brand-mark icons on the card's bottom row, each opening (own
-/// machines only) the menu that signs it in, signs it out, or removes it,
-/// under its usage windows; a login's trouble is the amber badge on its icon,
-/// never inline text. A login belongs to the machine that holds it, and that
-/// is where it reads.
+/// EXP-1560 as brand-mark icons on the card's bottom row; #EXP-1643 a tap
+/// expands the card with that login's panel: its usage windows and (own, online
+/// machines only) what signs it in, signs it out, or removes it. A login's
+/// trouble is the amber badge on its icon. A login belongs to the machine that
+/// holds it, and that is where it reads.
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -426,10 +426,12 @@ struct AgentsView: View {
     }
 
     /// EXP-1560: one machine, one CARD (THE GlassCard surface, padding
-    /// `Card.padding`), two rows. TOP: [name + version (warning tone when MY
-    /// machine is outdated) + the default star] over [the status line + the
-    /// Shared tag], the `⋯` (Device actions) top-right. BOTTOM: the logins
-    /// as icons (`DeviceLogins`), badged when they need attention.
+    /// `Card.padding`), two rows. TOP (`DeviceCardHeader`): #EXP-1643 the
+    /// device's own icon, then [name + version (warning tone when MY machine
+    /// is outdated) + the default star] over [the status line + the Shared
+    /// tag], the `⋯` (Device actions) top-right. BOTTOM: the logins as icons
+    /// (`DeviceLogins`), badged when they need attention, and the open
+    /// account's panel under them; the card grows, its neighbours stay.
     private func deviceCard(_ vm: AgentsViewModel, _ device: SteerDevice) -> some View {
         let row = listRow(vm, device)
         // Only my own machine's update is mine to act on (web, Android).
@@ -437,57 +439,32 @@ struct AgentsView: View {
         let updateItem = row.attention.first { $0.kind != .login }
         let settings = device.isMine && device.isRegistered
         let dropShareTeamId = dropShareTeamId(device)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 6) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(deviceName(device))
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white)
+        return VStack(alignment: .leading, spacing: 12) {
+            DeviceCardHeader(
+                icon: DeviceIconDisplay.iconName(for: device),
+                name: deviceName(device),
+                version: device.version,
+                outdated: outdated,
+                isDefault: device.isDefaultDevice,
+                accessibilityName: device.owner.map { "\(device.deviceLabel), shared by \($0.name)" } ?? device.deviceLabel,
+                accessibilityId: "device-row-\(device.deviceId)"
+            ) {
+                HStack(spacing: 6) {
+                    deviceStatusLine(device)
+                    // EXP-432: one of the caller's own machines shared
+                    // with any team says so (a teammate's is attributed
+                    // in the accessibility label only). A phone is never
+                    // a listed device, so the `This device` tag never
+                    // applies here.
+                    if device.owner == nil, !device.sharedTeamIds.isEmpty {
+                        Text("Shared")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                             .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(-1)
-                        if let version = device.version, !version.isEmpty {
-                            Text("v\(version)")
-                                .font(.caption2)
-                                .foregroundStyle(
-                                    outdated
-                                        ? DesignTokens.Semantic.yellow
-                                        : .white.opacity(TextOpacity.tertiary)
-                                )
-                                .lineLimit(1)
-                                .fixedSize()
-                        }
-                        // EXP-622: the machine every device picker prefills.
-                        if device.isDefaultDevice {
-                            AppIcon(AppIcons.uiDeviceDefault, size: AppIcon.Size.small)
-                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                                .accessibilityLabel("Default device")
-                        }
-                    }
-                    HStack(spacing: 6) {
-                        deviceStatusLine(device)
-                        // EXP-432: one of the caller's own machines shared
-                        // with any team says so (a teammate's is attributed
-                        // in the accessibility label only). A phone is never
-                        // a listed device, so the `This device` tag never
-                        // applies here.
-                        if device.owner == nil, !device.sharedTeamIds.isEmpty {
-                            Text("Shared")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                                .lineLimit(1)
-                                .fixedSize()
-                        }
+                            .fixedSize()
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(
-                    device.owner.map { "\(device.deviceLabel), shared by \($0.name)" } ?? device.deviceLabel
-                )
-                .accessibilityIdentifier("device-row-\(device.deviceId)")
-
+            } trailing: {
                 // EXP-1560: the `⋯`; a card with no item keeps the slot empty.
                 if DeviceCardMenu.hasItems(
                     updateItem: updateItem,
@@ -496,6 +473,7 @@ struct AgentsView: View {
                 ) {
                     DeviceCardMenu(
                         deviceId: device.deviceId,
+                        deviceName: deviceName(device),
                         updateItem: updateItem,
                         updating: isUpdating(device),
                         onUpdate: { requestUpdate(device) },
@@ -519,7 +497,7 @@ struct AgentsView: View {
             }
 
             // EXP-849/EXP-862/EXP-909: the machine's logins with the repairs
-            // on them; a teammate's shared server previews read-only.
+            // on them; a teammate's shared server expands read-only.
             DeviceLogins(
                 viewModel: vm,
                 device: device,
@@ -540,7 +518,7 @@ struct AgentsView: View {
         .accessibilityIdentifier("device-card-\(device.deviceId)")
     }
 
-    /// The sign-in sheet on ONE login (its icon's account menu's Sign in) —
+    /// The sign-in sheet on ONE login (its account panel's Sign in) —
     /// the agent's normal browser login (EXP-1626).
     private func signIn(_ device: SteerDevice, agent: String, profileId: String?) {
         loginTarget = AgentLoginTarget(
@@ -552,7 +530,7 @@ struct AgentsView: View {
     }
 
     /// EXP-1626 PERSIST LOGIN: "Persist login" / "Renew persisted login"
-    /// (account menu only) — the same sign-in sheet, long-lived on THIS
+    /// (account panel only) — the same sign-in sheet, long-lived on THIS
     /// existing profile: the machine attaches a one-year token to it and
     /// never touches the browser login it holds.
     private func persistLogin(_ device: SteerDevice, row: AgentProfileUsageRow) {
@@ -589,7 +567,7 @@ struct AgentsView: View {
     /// "Update queued" without a spinner instead of "Updating…" forever.
     ///
     /// EXP-862: nothing here says anything about SIGN-INS any more. A login's
-    /// state is its icon's badge + its preview's status line (EXP-1560).
+    /// state is its icon's badge + its panel's status line (EXP-1560).
     @ViewBuilder
     private func deviceStatusLine(_ device: SteerDevice) -> some View {
         HStack(spacing: 5) {
@@ -599,10 +577,7 @@ struct AgentsView: View {
                 ProgressView().controlSize(.mini).tint(.white)
                 Text("Updating…")
             } else if device.isOnline {
-                Circle()
-                    .fill(DesignTokens.Semantic.green)
-                    .frame(width: 6, height: 6)
-                Text("Online")
+                DeviceOnlineStatus()
             } else {
                 Text(lastSeenCaption(device))
             }

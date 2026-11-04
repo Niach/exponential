@@ -104,7 +104,11 @@ function useOpenAccount(deviceId: string, loginKeys: readonly string[]) {
   const toggle = (key: string) => {
     const next = open === key ? null : key
     setRemembered(next)
-    localStorage.setItem(OPEN_ACCOUNTS_KEY, JSON.stringify({ ...readOpenAccounts(), [deviceId]: next }))
+    try {
+      localStorage.setItem(OPEN_ACCOUNTS_KEY, JSON.stringify({ ...readOpenAccounts(), [deviceId]: next }))
+    } catch {
+      // Storage refused (private mode): it stays open for this visit only.
+    }
   }
   return { open, toggle }
 }
