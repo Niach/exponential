@@ -163,8 +163,10 @@ fun IssueDraftScreen(
     val leaveChoices = IssueDraftPage.leaveChoices(canKeep = !viewModel.deferUploads)
     // EXP-1272: a reopened draft never asks, it keeps (only where the mode
     // offers Keep: share and parent mode write no row, so never reopen one).
+    // EXP-1635 (share-targets.json): an untouched share prefill is still the
+    // share, Back returns to Share to with it; only the viewer's edits ask.
     fun prompt() = IssueDraftPage.prompt(
-        hasContent,
+        hasContent && !(shareMode && !viewModel.editedShare),
         reopened = state.reopened && IssueDraftPage.LeaveChoice.Keep in leaveChoices,
         creating = state.creating,
     )

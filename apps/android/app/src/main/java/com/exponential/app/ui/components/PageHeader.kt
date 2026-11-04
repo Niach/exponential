@@ -57,6 +57,8 @@ fun PageHeader(
     /** A pushed page's back control, drawn before the title. */
     onBack: (() -> Unit)? = null,
     actions: PageHeaderActions? = LocalPageHeaderActions.current,
+    /** EXP-1635: false = no Search + Inbox circles (a share's own step). */
+    buttons: Boolean = true,
 ) {
     val circle = Chats.Shell.Header.CIRCLE.dp
     Row(
@@ -80,7 +82,7 @@ fun PageHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        Chats.Shell.Header.BUTTONS.forEach { concept ->
+        if (buttons) Chats.Shell.Header.BUTTONS.forEach { concept ->
             when (concept) {
                 "nav-search" -> BarCircle(
                     onClick = { actions?.onSearch?.invoke() },

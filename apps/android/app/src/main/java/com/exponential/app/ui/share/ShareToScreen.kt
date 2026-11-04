@@ -66,7 +66,7 @@ fun ShareToScreen(
     Scaffold(
         containerColor = Color.Transparent,
         modifier = Modifier.testTag(ShareTargets.TEST_ID_PAGE),
-        topBar = { PageHeader(title = ShareTargets.TITLE, onBack = onBack, modifier = Modifier.statusBarsPadding()) },
+        topBar = { PageHeader(title = ShareTargets.TITLE, onBack = onBack, buttons = false, modifier = Modifier.statusBarsPadding()) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),

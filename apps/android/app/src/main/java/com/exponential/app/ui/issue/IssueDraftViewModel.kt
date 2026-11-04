@@ -290,6 +290,9 @@ class IssueDraftViewModel @Inject constructor(
     private var pendingStatusId: String? = statusArg
     private var userEdited = false
 
+    /** The viewer typed into the page (the share prefill alone is not an edit). */
+    val editedShare: Boolean get() = userEdited
+
     // Declared before `init`, which starts the debounce collector.
     private val textEdits = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private val saveMutex = Mutex()
