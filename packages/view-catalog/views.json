@@ -2430,7 +2430,7 @@
       "group": "coding",
       "title": "App (running)",
       "blurb": "VAPP-242: an app RUNNING full screen (fixtures/apps.json THE RUN VIEW): the published package through the same app host as the editor's preview, the screens shell (the sidebar rows on wide, the phone tab bar on phones), records as the viewer; phones add the detail header with the … menu (Edit app, Export, Delete app). A sidebar row's plain click opens it.",
-      "order": 60,
+      "order": 61,
       "web": {
         "route": "/t/$teamSlug/apps/$appSlug",
         "anchor": {
