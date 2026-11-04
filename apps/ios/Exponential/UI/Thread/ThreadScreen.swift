@@ -194,15 +194,22 @@ struct ThreadScreen: View {
         return plans.first { $0.id == target }
     }
 
+    /// chats.json AGENT CHAT: an agent's chat's pages: the Conversation, and
+    /// the plan tab while it holds a plan.
+    private func agentChatPages(_ view: SessionThreadView) -> [ThreadPage] {
+        Chats.agentChatTabs(holdsPlan: shownPlan(view) != nil).contains("plan") ? [.conversation, .plan(nil)] : [.conversation]
+    }
+
     /// EVERY page the strip reaches (the Conversation, the plan, each issue of
     /// the tree, each session under the root, Stories): what a pill, a landing
     /// or a pick may open in place. An app editor's chat has the
-    /// Conversation alone (its band replaces the strip), and so has an
-    /// agent's chat (EXP-1686, chats.json AGENT CHAT). NEW-46: on a
+    /// Conversation alone (its band replaces the strip); an agent's chat that
+    /// and the plan it holds (chats.json AGENT CHAT). NEW-46: on a
     /// `transcript` thread with ONE session the Conversation tab IS that
     /// session's page (one page, not two); `bubbles` keeps the Conversation.
     private func reachable(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
-        guard editor == nil, !rows.isAgent else { return [.conversation] }
+        guard editor == nil else { return [.conversation] }
+        if rows.isAgent { return agentChatPages(view) }
         let main = rows.chatMode == .transcript ? view.mainSessionId : nil
         let plan: [ThreadPage] = shownPlan(view) == nil ? [] : [.plan(nil)]
         return plan + view.tabs.flatMap { tab -> [ThreadPage] in
@@ -220,7 +227,8 @@ struct ThreadScreen: View {
     /// the plan) · (chips: the one issue | group: the item opened from the group, only while it is
     /// the shown page) · Stories; `+` and the group tab are never pages.
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
-        guard editor == nil, !rows.isAgent else { return [.conversation] }
+        guard editor == nil else { return [.conversation] }
+        if rows.isAgent { return agentChatPages(view) }
         let conversation = resolved(.conversation)
         let group = ThreadStripGroup(tabs: view.tabs)
         let middle: [ThreadPage] = if let single = group.single {
@@ -263,8 +271,11 @@ struct ThreadScreen: View {
                 ZStack {
                     FacePager(
                         pages: pages(rows, view),
-                        // EXP-1686: an agent's chat is one page, whatever a route named.
-                        selection: Binding(get: { rows.isAgent ? ThreadPage.conversation : page }, set: { switchPage($0) })
+                        // chats.json AGENT CHAT: only a page of its tabs, whatever a route named.
+                        selection: Binding(
+                            get: { rows.isAgent && !agentChatPages(view).contains(page) ? ThreadPage.conversation : page },
+                            set: { switchPage($0) }
+                        )
                     ) { page in
                         pageView(page, rows: rows, view: view)
                     }
@@ -513,10 +524,11 @@ struct ThreadScreen: View {
     // MARK: - Header
 
     /// The band under the nav row: THE strip (the pager) on a thread; an
-    /// agent's chat is the conversation only, no strip (EXP-1686).
+    /// agent's chat has none but while it holds a plan (chats.json AGENT CHAT):
+    /// Conversation and the plan tab.
     @ViewBuilder
     private func header(rows: ThreadRows, view: SessionThreadView) -> some View {
-        if !rows.isAgent {
+        if !rows.isAgent || agentChatPages(view).count > 1 {
             threadStrip(rows: rows, view: view)
         }
     }
@@ -536,13 +548,13 @@ struct ThreadScreen: View {
                 selectPage(next)
             },
             onIssueMenu: { issueId in openMenu(issueId: issueId) },
-            onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
+            onAdd: canEdit && !rows.isAgent ? { openMenu(issueId: nil) } : nil,
             onOpenGroup: {
                 UIApplication.endEditing()
                 groupOpen = true
             },
-            storiesDot: storyTab?.unseen ?? false,
-            waiting: waitingChips,
+            storiesDot: rows.isAgent ? nil : (storyTab?.unseen ?? false),
+            waiting: rows.isAgent ? nil : waitingChips,
             onOpenWaiting: {
                 UIApplication.endEditing()
                 waitingOpen = true

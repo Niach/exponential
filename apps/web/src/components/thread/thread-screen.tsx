@@ -85,7 +85,7 @@ import {
   type SessionRow,
   type SessionThreadView,
 } from "@/lib/session-tree"
-import { threadChatMode, threadStripMode, type ThreadRow } from "@exp/domain-contract/session-tree"
+import { agentChatTabs, threadChatMode, threadStripMode, type ThreadRow } from "@exp/domain-contract/session-tree"
 import { planRowLabel, planTabTarget } from "@exp/domain-contract/plan-page"
 
 // EXP-1293 Threads v2 / S-3: THE thread screen (fixture session-thread.json
@@ -357,17 +357,21 @@ export function ThreadScreen({
   // EXP-1343 / #EXP-1433: phones page Conversation · (the one issue | the
   // item open from the group) · Stories (swipe AND tap); a tap slides the
   // new page in from the side it sits on.
+  const agentChat = threadChatMode(root) === `bubbles`
   const pages = useMemo(
-    () => threadPages({ single: singleIssue, open: stripOpen ? threadPageOf(tab) : null, plan: tabPlan !== null }),
+    () =>
+      agentChat
+        ? (agentChatTabs(tabPlan !== null) as ThreadPage[])
+        : threadPages({ single: singleIssue, open: stripOpen ? threadPageOf(tab) : null, plan: tabPlan !== null }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [singleIssue, stripOpen?.kind, stripOpen?.id, tabPlan !== null]
+    [agentChat, singleIssue, stripOpen?.kind, stripOpen?.id, tabPlan !== null]
   )
   const page = threadPageOf(tab)
   const showPage = (next: ThreadPage) => {
     if (isMobile) {
       // The pages around the move: a page opened from the group joins them.
       const item = next === `conversation` || next === `stories` || next === `plan` ? (stripOpen ? page : null) : next
-      primeTabEnter(threadPages({ single: singleIssue, open: item, plan: tabPlan !== null }), page, next)
+      primeTabEnter(agentChat ? pages : threadPages({ single: singleIssue, open: item, plan: tabPlan !== null }), page, next)
     }
     go(threadPageSearch(next))
   }
@@ -430,8 +434,8 @@ export function ThreadScreen({
   // STORIES TAB: every story of the tree (the chip's dot, the body).
   const storyTab = useStoryTab(team.id, root.id)
   // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation
-  // only: no strip.
-  const tabs = threadChatMode(root) === `bubbles` ? null : (
+  // only: no strip, but for Conversation and the plan tab while it holds a plan.
+  const tabs = agentChat && !agentChatTabs(tabPlan !== null).includes(`plan`) ? null : (
     <ThreadTabs
       variant={isMobile ? `pager` : `bar`}
       conversation={{
@@ -443,9 +447,9 @@ export function ThreadScreen({
           (mainSession !== null && tab.kind === `session` && tab.sessionId === mainSession.id),
         onSelect: () => (mainSession ? go({}) : showPage(`conversation`)),
       }}
-      issues={stripIssues}
-      add={menu.addMenu}
-      sessions={stripSessions}
+      issues={agentChat ? [] : stripIssues}
+      add={agentChat ? undefined : menu.addMenu}
+      sessions={agentChat ? [] : stripSessions}
       open={stripOpen}
       onOpenIssue={pickIssue}
       onOpenSession={pickSession}
@@ -459,13 +463,17 @@ export function ThreadScreen({
             }
           : undefined
       }
-      waiting={{ cards: waitingCards, onSelect: selectWaiting }}
-      stories={{
-        label: STORY_TAB.copy.label,
-        active: tab.kind === `stories`,
-        dot: storyTab.ring?.unseen ?? false,
-        onSelect: () => showPage(`stories`),
-      }}
+      waiting={agentChat ? undefined : { cards: waitingCards, onSelect: selectWaiting }}
+      stories={
+        agentChat
+          ? undefined
+          : {
+              label: STORY_TAB.copy.label,
+              active: tab.kind === `stories`,
+              dot: storyTab.ring?.unseen ?? false,
+              onSelect: () => showPage(`stories`),
+            }
+      }
     />
   )
 

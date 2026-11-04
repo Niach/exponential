@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.plan.OpenPlanPage
@@ -787,7 +788,7 @@ fun ThreadContent(
     val stripTabs = remember(view?.tabs, agent != null, storiesPage != null, hasPlan) {
         view?.tabs?.let { tabs ->
             when {
-                agent != null && hasPlan -> listOf(SessionTree.ThreadTab.Conversation, SessionTree.ThreadTab.Plan)
+                agent != null -> Chats.AgentChat.tabs(hasPlan).map { if (it == "plan") SessionTree.ThreadTab.Plan else SessionTree.ThreadTab.Conversation }
                 else -> threadTabsWithPlan(if (agent == null && storiesPage != null) tabs + SessionTree.ThreadTab.Stories else tabs, hasPlan)
             }
         }
