@@ -1770,8 +1770,8 @@ fn account_icon(
                     crate::controls::ide_chrome().fill_card_opaque,
                     cx,
                 )
-                .top(px(4.))
-                .right(px(4.)),
+                .top(px(4. - crate::run_rows::RUN_BADGE_RING_PX))
+                .right(px(4. - crate::run_rows::RUN_BADGE_RING_PX)),
             )
         })
         .into_any_element()

@@ -44,6 +44,8 @@ pub(crate) fn mark_badge_tone(state: SessionState) -> Option<&'static str> {
 /// The run mark's square (= one indent level) and its badge, ×4.
 const RUN_MARK_PX: f32 = domain::list_item::MARK;
 const RUN_BADGE_PX: f32 = 6.;
+/// The ring around the dot, wholly outside it.
+pub(crate) const RUN_BADGE_RING_PX: f32 = 2.;
 
 /// EXP-1294 — a session's lead: the agent's working mark while it works, else
 /// its plain mark with the state's corner badge ([`mark_badge_tone`]).
@@ -64,8 +66,8 @@ pub(crate) fn run_mark(
         |this, tone| {
             this.child(
                 mark_badge(tone, theme::tokens::BACKGROUND.to_hsla(), cx)
-                    .top(gpui::px(-2.))
-                    .right(gpui::px(-2.)),
+                    .top(gpui::px(-2. - RUN_BADGE_RING_PX))
+                    .right(gpui::px(-2. - RUN_BADGE_RING_PX)),
             )
         },
     )
@@ -78,11 +80,18 @@ pub(crate) fn run_mark(
 pub(crate) fn mark_badge(tone: &str, ground: gpui::Hsla, cx: &App) -> gpui::Div {
     div()
         .absolute()
-        .size(gpui::px(RUN_BADGE_PX))
+        .size(gpui::px(RUN_BADGE_PX + 2. * RUN_BADGE_RING_PX))
         .rounded_full()
-        .bg(crate::work_card::session_tone_color(tone, cx))
-        .border_1()
-        .border_color(ground)
+        .bg(ground)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .size(gpui::px(RUN_BADGE_PX))
+                .rounded_full()
+                .bg(crate::work_card::session_tone_color(tone, cx)),
+        )
 }
 
 /// EXP-1294 — everything ONE session row draws ([`run_row`]).

@@ -108,7 +108,7 @@ export function DeviceAccountPanel({
             {persisted}
           </span>
         )}
-        {status && <span className="text-xs text-amber-500">{status}</span>}
+        {status && <span className="text-xs text-yellow-400">{status}</span>}
       </div>
       <UsageWindows windows={windows} density="full" stale={stale} />
       {children}

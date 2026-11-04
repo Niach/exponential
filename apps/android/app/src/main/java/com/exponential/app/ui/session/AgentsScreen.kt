@@ -1044,7 +1044,7 @@ private fun DeviceLoginIcon(
                 agent = row.agent,
                 state = if (item != null) SessionTree.SessionState.NeedsYou else null,
                 size = DevicesList.Card.MARK_SIZE.dp,
-                badgeSize = 7.dp,
+                badgeSize = 6.dp,
                 badgeRing = GlassTokens.OpaqueCardFill,
             )
         }

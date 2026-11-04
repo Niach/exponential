@@ -1,7 +1,6 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -17,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -166,14 +166,17 @@ fun AgentRunMark(
                     .align(Alignment.TopEnd)
                     .offset(x = badgeSize / 3, y = -(badgeSize / 3))
                     .size(badgeSize)
-                    .background(badge, CircleShape)
                     .then(
                         if (badgeRing != null) {
-                            Modifier.border(1.5.dp, badgeRing, CircleShape)
+                            // The ring lies wholly outside the dot (`devices-list.json`).
+                            Modifier.drawBehind {
+                                drawCircle(badgeRing, radius = badgeSize.toPx() / 2 + 2.dp.toPx())
+                            }
                         } else {
                             Modifier
                         },
                     )
+                    .background(badge, CircleShape)
                     .testTag("run-mark-badge"),
             )
         }

@@ -34,7 +34,7 @@ struct UsageWindows: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(cards) { card in
                 windowRow(card)
             }
@@ -58,7 +58,7 @@ struct UsageWindows: View {
                 // EXP-1627: the title never truncates; the reset caption
                 // gives way first.
                 Text(card.title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.system(size: DesignTokens.Typography.Size.xs))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -118,7 +118,7 @@ struct AgentUsageMini: View {
                     VStack(spacing: 2) {
                         HStack(spacing: 4) {
                             Text(window.label)
-                                .font(.caption2)
+                                .font(.system(size: 10))
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)
                             AgentUsageTrack(
@@ -128,14 +128,14 @@ struct AgentUsageMini: View {
                             )
                             .frame(width: 24)
                             Text(window.percent.map { "\(Int($0.rounded()))%" } ?? "—")
-                                .font(.caption2.monospacedDigit())
+                                .font(.system(size: 10).monospacedDigit())
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
                         // Centred under its own bar, and only where there is a
                         // reset to name (`miniWindowReset`).
                         if let reset = resetCaption(window) {
                             Text(reset)
-                                .font(.caption2)
+                                .font(.system(size: 10))
                                 .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                                 .lineLimit(1)
                         }

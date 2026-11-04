@@ -468,7 +468,7 @@ function DeviceCard({
             {device.version && (
               <span
                 // Only my own machine's update is mine to act on.
-                className={`shrink-0 text-[10px] ${mine && outdated ? `text-amber-500` : `text-muted-foreground/60`}`}
+                className={`shrink-0 text-[10px] ${mine && outdated ? `text-yellow-400` : `text-muted-foreground/60`}`}
                 title={mine && outdated ? `Update available: ${latest}` : undefined}
               >
                 v{device.version}

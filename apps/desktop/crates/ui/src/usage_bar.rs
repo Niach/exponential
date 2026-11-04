@@ -62,7 +62,7 @@ pub(crate) fn severity(percent: u8) -> Severity {
 }
 
 /// The fill color for a severity: muted for normal, the shared YELLOW token
-/// for warning (the web's `bg-amber-500`), the theme's danger for danger.
+/// for warning (the web's `yellow-400`), the theme's danger for danger.
 pub(crate) fn severity_color(severity: Severity, cx: &App) -> Hsla {
     match severity {
         // EXP-698: a NORMAL bar is not a "muted" thing, it is the glass
@@ -386,7 +386,7 @@ pub(crate) fn render_usage_windows(usage: &AgentUsage, now_epoch: i64, cx: &App)
     let mut body = v_flex()
         .w_full()
         .min_w_0()
-        .gap_2()
+        .gap_1p5()
         .when(age.is_some(), |this| this.opacity(0.5));
     for card in cards {
         body = body.child(
@@ -401,17 +401,20 @@ pub(crate) fn render_usage_windows(usage: &AgentUsage, now_epoch: i64, cx: &App)
                         .items_baseline()
                         .gap_2()
                         .text_xs()
+                        // EXP-1627: the title never truncates; the reset
+                        // caption gives way.
                         .child(
                             div()
                                 .flex_1()
-                                .min_w_0()
-                                .truncate()
+                                .whitespace_nowrap()
                                 .child(SharedString::from(card.title.clone())),
                         )
                         .when(!card.caption.is_empty(), |this| {
                             this.child(
                                 div()
-                                    .flex_shrink_0()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_2xs()
                                     .text_color(muted)
                                     .child(SharedString::from(card.caption.clone())),
                             )
@@ -466,7 +469,6 @@ pub(crate) fn render_usage_mini(
     now_epoch: Option<i64>,
     cx: &App,
 ) -> Option<AnyElement> {
-    use crate::controls::WebText as _;
     let windows = mini_windows(usage);
     if windows.is_empty() {
         return None;
@@ -477,7 +479,7 @@ pub(crate) fn render_usage_mini(
         .min_w_0()
         .items_start()
         .gap_2()
-        .text_2xs()
+        .text_size(px(10.))
         .text_color(muted);
     for window in windows {
         let reset = mini_window_reset(&window, now_epoch);

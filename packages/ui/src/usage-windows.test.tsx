@@ -37,6 +37,23 @@ describe(`UsageWindows`, () => {
     expect(container.textContent).toContain(`as of 2h ago`)
   })
 
+  it(`#EXP-1691: the warning meter wears semantic.yellow at every density, the rest the Meter's own`, () => {
+    for (const density of [`full`, `mini`, `hover`] as const) {
+      const { container } = render(<UsageWindows windows={WINDOWS} density={density} />)
+      const meters = container.querySelectorAll(`[data-slot=meter]`)
+      expect(meters[1]!.className).toContain(`bg-yellow-400`)
+      expect(meters[1]!.className).not.toContain(`bg-amber-500`)
+      expect(meters[2]!.className).toContain(`bg-destructive`)
+    }
+  })
+
+  it(`#EXP-1691: a full window's title is 12 regular, its caption 11`, () => {
+    const { getByText } = render(<UsageWindows windows={WINDOWS} />)
+    expect(getByText(`Current session`).className).toContain(`text-xs`)
+    expect(getByText(`Current session`).className).not.toContain(`font-medium`)
+    expect(getByText(`resets in 1h 4m`).className).toContain(`text-[11px]`)
+  })
+
   it(`an explicit tone beats the percent's own`, () => {
     const { container } = render(
       <UsageWindows windows={[{ key: `a`, label: `5h`, percent: 99, tone: `normal` }]} />

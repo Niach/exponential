@@ -62,7 +62,7 @@ export const RUN_MARK_BADGE_CLASS: Record<
   Exclude<RunMarkState, `working` | `ended`>,
   string
 > = {
-  needs_input: `bg-amber-500`,
+  needs_input: `bg-yellow-400`,
   review: `bg-emerald-500`,
   done: `bg-sky-500`,
 }

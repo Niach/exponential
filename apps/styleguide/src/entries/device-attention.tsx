@@ -38,7 +38,7 @@ function Icon({ agent, attention, open = false }: { agent: string; attention: bo
       <AgentRunMark
         agent={agent}
         state={attention ? `needs_input` : undefined}
-        ringClassName="ring-glass-card-opaque"
+        ringClassName="ring-card-opaque"
         className="size-4 [&>svg]:size-4"
       />
     </Button>
@@ -63,7 +63,7 @@ function Card({ name, version, outdated, status, preview }: {
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="min-w-0 truncate text-sm font-medium">{name}</span>
-            <span className={`shrink-0 text-[10px] ${outdated ? `text-amber-500` : `text-muted-foreground/60`}`}>
+            <span className={`shrink-0 text-[10px] ${outdated ? `text-yellow-400` : `text-muted-foreground/60`}`}>
               v{version}
             </span>
           </div>

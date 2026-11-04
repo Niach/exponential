@@ -1686,15 +1686,15 @@
         "file": "shots/device-attention/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 23434,
-        "sha256": "e6494bd33c279532edfd1c1073dac363c221dcebb8612314d138b1df7c09e2de"
+        "bytes": 20852,
+        "sha256": "0a09ba8fc4ca628dcdc6c89be4d8faca35c87c59a10aa897de9603415487f7b4"
       },
       "ios": {
         "file": "shots/device-attention/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 23702,
-        "sha256": "93accf7a978367462433ca9410bee6ff9af662050d48a10c7bd0874c469538da"
+        "bytes": 21210,
+        "sha256": "f987dd972ffe4dd04414287e7c98cdfa0e02c15c553c83ca27caa246b4f464d9"
       }
     },
     "device-readiness": {
