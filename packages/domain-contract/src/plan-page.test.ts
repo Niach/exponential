@@ -2,11 +2,23 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/plan-page.json" with { type: "json" }
-import { mosaicTiles, planBlocks, planCounts, planCountsLine, planOutline, planPageFor, planPagePath } from "./plan-page"
+import { mosaicTiles, planBlocks, planCounts, planCountsLine, planOutline, planPageFor, planPagePath, planRowLabel, planTabTarget } from "./plan-page"
 
 describe(`planBlocks`, () => {
   for (const entry of fixture.blockCases) {
     test(entry.name, () => expect(planBlocks(entry.markdown)).toEqual(entry.expected as never))
+  }
+})
+
+describe(`planTabTarget`, () => {
+  for (const entry of fixture.tabCases) {
+    test(entry.name, () => expect(planTabTarget(entry.plans)).toBe(entry.expect))
+  }
+})
+
+describe(`planRowLabel`, () => {
+  for (const entry of fixture.rowLabelCases) {
+    test(JSON.stringify(entry.plan), () => expect(planRowLabel(entry.plan)).toBe(entry.expect))
   }
 })
 

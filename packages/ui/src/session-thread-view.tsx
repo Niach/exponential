@@ -178,6 +178,7 @@ export function ThreadTabs({
   onOpenIssue,
   onOpenSession,
   stories,
+  plan,
   waiting,
   variant = `bar`,
   menuOpen,
@@ -185,6 +186,8 @@ export function ThreadTabs({
 }: {
   /** NEW-6 (N-1): absent on a single-session thread (no Conversation tab). */
   conversation?: { label: string; active: boolean; onSelect: () => void }
+  /** #EXP-1662: the plan tab (plan-page.json), right after Conversation. */
+  plan?: { label: string; active: boolean; waiting: boolean; onSelect: () => void }
   /** #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
    *  cards, Conversation order; a pick scrolls to that card. */
   waiting?: { cards: readonly WaitingCardInput[]; onSelect: (id: string) => void; menuOpen?: boolean }
@@ -239,6 +242,24 @@ export function ThreadTabs({
         <ConversationIcon className="size-3.5 shrink-0" />
         {!pager && conversation.label}
       </Button>
+      )}
+      {plan && (
+        <StripChip
+          role="tab"
+          aria-selected={plan.active}
+          data-testid={PLAN_PAGE_TEST_IDS.tab}
+          active={plan.active}
+          boxClassName="min-w-0 shrink"
+          boxProps={{ style: { maxWidth: PLAN_PAGE_LAYOUT.tabMaxWidth } }}
+          lead={<PlanRowIcon className="size-3.5 shrink-0" />}
+          label={
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 truncate">{pager ? PLAN_PAGE_COPY.title : plan.label}</span>
+              {plan.waiting && <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-yellow-400" />}
+            </span>
+          }
+          onClick={plan.onSelect}
+        />
       )}
       {waiting && (
         <ThreadWaitingChips cards={waiting.cards} phone={pager} onSelect={waiting.onSelect} menuOpen={waiting.menuOpen} />
@@ -1059,38 +1080,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
                     }
                   />
                 ) : (
-                  <ThreadPlanCard
-                    row={waiting}
-                    renderText={renderText}
-                    attachmentSrc={attachmentSrc}
-                    busy={pending?.has(waiting.id) ?? false}
-                    headerAction={
-                      onOpenPlan ? (
-                        <span className="ml-auto flex shrink-0 items-center gap-3">
-                          <OpenPlanLink onOpen={() => onOpenPlan(waiting)} />
-                          {openChat}
-                        </span>
-                      ) : (
-                        openChat
-                      )
-                    }
-                    onDismiss={
-                      onDismiss
-                        ? () => {
-                            latest.current.onDismiss?.(waiting.id)
-                            done()
-                          }
-                        : undefined
-                    }
-                    onDecide={
-                      onDecide
-                        ? (input) => {
-                            latest.current.onDecide?.(waiting.id, input)
-                            done()
-                          }
-                        : undefined
-                    }
-                  />
+                  <ThreadPlanRow row={waiting} onOpen={() => onOpenPlan?.(waiting)} />
                 )
               }
             </WaitingCard>
@@ -1110,18 +1100,7 @@ export function ThreadConversation(props: ThreadConversationProps) {
           />
         )
       case `plan`:
-        return (
-          <ThreadPlanCard
-            key={row.id}
-            row={row}
-            renderText={renderText}
-            attachmentSrc={attachmentSrc}
-            busy={pending?.has(row.id) ?? false}
-            headerAction={onOpenPlan && row.decision !== `superseded` ? <OpenPlanLink onOpen={() => onOpenPlan(row)} /> : undefined}
-            onDismiss={onDismiss ? () => latest.current.onDismiss?.(row.id) : undefined}
-            onDecide={onDecide ? (input) => latest.current.onDecide?.(row.id, input) : undefined}
-          />
-        )
+        return <ThreadPlanRow key={row.id} row={row} onOpen={() => onOpenPlan?.(row)} />
       case `subagent`:
         return (
           <div
@@ -1861,39 +1840,21 @@ function usePlanForm(
   return { decided, interactive, approveIssue, feedback, setFeedback, decide, block, surfaceData }
 }
 
-/** EXP-1316/1280: a plan row IN THE TRANSCRIPT = THE plan card ×4
- *  (plan-card.json): the markdown (pictures inline, a pending upload renders
- *  nothing), the inline surface, every question; closed once decided (the
- *  picks highlighted, the decision label + the feedback). N-12: a pending
- *  card the viewer may decide lives in THE Dock (`ThreadDock`) and opens as
- *  `ThreadPlanSheet`; a read-only viewer sees it here without controls. */
-function ThreadPlanCard({
+/** #EXP-1662: a plan in the Conversation = ONE row (plan-page.json); a press
+ *  opens the thread's plan tab on it. A superseded or dismissed plan keeps its
+ *  one closed line. */
+function ThreadPlanRow({
   row,
-  renderText,
-  attachmentSrc,
-  busy,
-  headerAction,
-  onDismiss,
-  onDecide,
+  onOpen,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
-  renderText: (text: string) => ReactNode
-  attachmentSrc: (attachmentId: string) => string
-  busy: boolean
-  /** #EXP-1464: the header's trailing link (`Open chat`). */
-  headerAction?: ReactNode
-  /** #EXP-1561: THE × while it waits (absent = none). */
-  onDismiss?: () => void
-  onDecide?: (input: ThreadPlanDecision) => void
+  onOpen?: () => void
 }) {
-  const form = usePlanForm(row, busy, onDecide)
-  const [rejecting, setRejecting] = useState(false)
   // #EXP-1561 (waiting-cards.json): a dismissed plan = ONE quiet line.
   if (row.decision === `dismissed`) {
     return <AskDismissedCard plan title={askDockTitle(row.plan)} data-card-id={row.id} />
   }
-  // FEED-140: a plan the agent replaced paints closed and collapsed to
-  // `copy.superseded`, never its body.
+  // FEED-140: a plan the agent replaced paints closed, never its body.
   if (row.decision === `superseded`) {
     return (
       <AskCard
@@ -1912,56 +1873,33 @@ function ThreadPlanCard({
       </AskCard>
     )
   }
+  const waiting = row.decision === null
+  const Lead = row.decision === `approved` ? PlanApprovedIcon : PlanRowIcon
   return (
-    <AskCard
-      plan
-      label={ASK_DOCK_COPY.planReady}
-      meta={headerAction}
-      onDismiss={!form.decided && !busy ? onDismiss : undefined}
+    <button
+      type="button"
       data-slot="thread-plan"
       data-testid={PLAN_CARD_TEST_IDS.card}
       data-kind="plan"
       data-card-id={row.id}
       data-decision={row.decision ?? undefined}
+      className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-glass-stroke-card bg-glass-card px-3 text-left text-sm outline-none transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      style={{ minHeight: PLAN_PAGE_LAYOUT.rowHeight }}
+      onClick={onOpen}
     >
-      <div className="text-sm">{renderText(stripPendingUploads(row.plan))}</div>
-      {row.surface && (
-        <PlanCardSurface
-          surface={row.surface}
-          data={form.decided ? row.surfaceData : null}
-          disabled={!form.interactive}
-          dataRef={form.surfaceData}
-          testKey={row.id}
-        />
-      )}
-      {row.questions.map((question) => form.block(question, attachmentSrc))}
-      {busy && !form.decided && <AskPrompt options={[]} answerable={false} locked={{ labels: [] }} onAnswer={noop} />}
-      {/* FEED-140: a waiting card carries its decision inline too (the
-          dock's sheet holds the same). */}
-      {form.interactive && (
-        <div className="mt-3 flex flex-col gap-2" data-slot="thread-plan-decision">
-          <PlanCardFooter
-            decision={{
-              approveIssue: form.approveIssue,
-              rejecting,
-              onRejecting: setRejecting,
-              feedback: form.feedback,
-              onFeedback: form.setFeedback,
-              onDecide: form.decide,
-              busy,
-            }}
-          />
-        </div>
-      )}
-      {form.decided && (
-        <AskAnsweredLine answer={planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)} />
-      )}
-      {form.decided && row.feedback && (
-        <div data-testid={PLAN_CARD_TEST_IDS.feedback} className="mt-1 text-xs text-muted-foreground">
-          {PLAN_CARD_COPY.feedbackLine.replace(`{feedback}`, () => row.feedback ?? ``)}
-        </div>
-      )}
-    </AskCard>
+      <Lead
+        className={cn(
+          `size-4 shrink-0`,
+          waiting ? `text-yellow-400` : row.decision === `approved` ? `text-emerald-400` : `text-muted-foreground`
+        )}
+      />
+      <span className="min-w-0 truncate font-medium">{planRowLabel(row.plan)}</span>
+      <span className={cn(`shrink-0 text-xs`, waiting ? `text-yellow-400` : `text-muted-foreground`)}>
+        {waiting ? PLAN_PAGE_COPY.needsYou : planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)}
+      </span>
+      <span className="flex-1" />
+      <PlanRowChevron className="size-4 shrink-0 text-muted-foreground" />
+    </button>
   )
 }
 
@@ -2054,23 +1992,9 @@ export function ThreadPlanSheet({
   )
 }
 
-const FullscreenIcon = conceptIcon(`ui-fullscreen`)
-
-/** #EXP-1493: a plan card's `Open plan` (plan-page.json WAYS IN): the
- *  header's trailing link, the open-chat link's look + `ui-fullscreen`. */
-function OpenPlanLink({ onOpen }: { onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      data-testid="open-plan"
-      className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground active:opacity-70"
-      onClick={onOpen}
-    >
-      <FullscreenIcon className="size-3.5" />
-      {PLAN_PAGE_COPY.openPlan}
-    </button>
-  )
-}
+const PlanRowIcon = conceptIcon(`coding-plan`)
+const PlanApprovedIcon = conceptIcon(`ui-check`)
+const PlanRowChevron = conceptIcon(`ui-chevron-right`)
 
 /** A decided plan's closing lines: the decision label + the feedback. */
 function PlanClosedLines({ row }: { row: Extract<ThreadRow, { type: `plan` }> }) {
@@ -2089,23 +2013,21 @@ function PlanClosedLines({ row }: { row: Extract<ThreadRow, { type: `plan` }> })
   )
 }
 
-/** #EXP-1493: THE plan page's RAIL (plan-page.json, wide): the questions
- *  heading + THE stepper (one question at a time, Back / Next) and, pinned
- *  at its foot, THE decision; decided = the closed card (every question's
- *  picks, the decision label, the feedback). */
+/** #EXP-1662: THE floating questions panel's body (plan-page.json `panel`): THE
+ *  stepper (one question at a time, Back / Next) and, pinned at its foot, THE
+ *  decision; decided = the closed card (every question's picks, the decision
+ *  label, the feedback). */
 export function PlanRail({
   row,
   attachmentSrc = defaultAttachmentSrc,
   busy,
   onDecide,
-  heading,
   className,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
   attachmentSrc?: (attachmentId: string) => string
   busy: boolean
   onDecide?: (input: ThreadPlanDecision) => void
-  heading: string
   className?: string
 }) {
   const form = usePlanForm(row, busy, onDecide)
@@ -2117,17 +2039,12 @@ export function PlanRail({
   const last = page >= count - 1
   return (
     <div data-testid="plan-rail" className={cn(`flex min-h-0 flex-col gap-3`, className)}>
-      {count > 0 && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{heading}</span>
-          {question && count > 1 && (
-            <span data-testid={PLAN_CARD_TEST_IDS.step} className="ml-auto text-xs text-muted-foreground">
-              {stepLabel(page + 1, count)}
-            </span>
-          )}
-        </div>
+      {question && count > 1 && (
+        <span data-testid={PLAN_CARD_TEST_IDS.step} className="shrink-0 self-end text-xs text-muted-foreground">
+          {stepLabel(page + 1, count)}
+        </span>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="min-h-0 flex-auto overflow-y-auto overscroll-contain">
         <div data-testid={PLAN_CARD_TEST_IDS.card} data-kind="plan" data-page={page}>
           {question
             ? form.block(question, attachmentSrc, `mt-0`)

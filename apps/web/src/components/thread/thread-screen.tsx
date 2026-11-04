@@ -31,6 +31,7 @@ import {
   type ThreadStripIssue,
   type ThreadStripOpen,
   type ThreadTreeRow,
+  PlanPage,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
 import { SessionLiveTail, useSessionDock } from "@/components/agent-session"
@@ -55,7 +56,6 @@ import { useChatActions } from "@/components/thread/chat-menu"
 import { ChatHeaderTitle } from "@/components/thread/chat-header"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { BackStackButton, InPlaceSession } from "@/components/thread/session-body"
-import { useOpenPlan } from "@/hooks/use-open-plan"
 import { useSessionNav, useXrefAgent } from "@/hooks/use-session-nav"
 import { backSearch } from "@/lib/session-back"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
@@ -85,7 +85,8 @@ import {
   type SessionRow,
   type SessionThreadView,
 } from "@/lib/session-tree"
-import { threadChatMode, threadStripMode } from "@exp/domain-contract/session-tree"
+import { threadChatMode, threadStripMode, type ThreadRow } from "@exp/domain-contract/session-tree"
+import { planRowLabel, planTabTarget } from "@exp/domain-contract/plan-page"
 
 // EXP-1293 Threads v2 / S-3: THE thread screen (fixture session-thread.json
 // ×4): the header (title + ONE tab strip), the Conversation (THE Dock, the
@@ -97,7 +98,9 @@ import { threadChatMode, threadStripMode } from "@exp/domain-contract/session-tr
 // both render it; the route owns the `?tab=` search and how it navigates.
 
 export type ThreadSearch = {
-  tab?: `issue` | `session` | `stories`
+  tab?: `issue` | `session` | `stories` | `plan`
+  /** #EXP-1662: the plan card a row opened (`tab=plan`; else `planTabTarget`). */
+  plan?: string
   issue?: string
   /** The session open in place (`tab=session`). */
   session?: string
@@ -117,7 +120,7 @@ export function validateThreadSearch(search: Record<string, unknown>): ThreadSea
   const pick = (value: unknown) => (typeof value === `string` && value ? value : undefined)
   // The retired `?tab=guide` lands on its successor, the Stories tab.
   const tab =
-    search.tab === `issue` || search.tab === `session` || search.tab === `stories`
+    search.tab === `issue` || search.tab === `session` || search.tab === `stories` || search.tab === `plan`
       ? search.tab
       : search.tab === `guide`
         ? `stories`
@@ -128,6 +131,7 @@ export function validateThreadSearch(search: Record<string, unknown>): ThreadSea
     ...(section ? { section } : {}),
     ...(section && pick(search.file) ? { file: pick(search.file) } : {}),
     ...(tab === `issue` && pick(search.issue) ? { issue: pick(search.issue) } : {}),
+    ...(tab === `plan` && pick(search.plan) ? { plan: pick(search.plan) } : {}),
     ...(tab === `session` && pick(search.session) ? { session: pick(search.session) } : {}),
     ...(pick(search.from) ? { from: pick(search.from) } : {}),
     ...backSearch(search.back),
@@ -246,11 +250,21 @@ export function ThreadScreen({
   // bubbles, never the root's raw work in place.
   const mainSession =
     view.mainSessionId && threadChatMode(root) !== `bubbles` ? (rowsById.get(view.mainSessionId) ?? null) : null
+  // #EXP-1662 (plan-page.json): the thread's plan tab.
+  const planRows = useMemo(
+    () => view.rows.filter((row): row is Extract<ThreadRow, { type: `plan` }> => row.type === `plan`),
+    [view.rows]
+  )
+  const tabPlanId = planTabTarget(planRows)
+  const tabPlan = planRows.find((row) => row.id === tabPlanId) ?? null
+  const shownPlan = search.tab === `plan` ? (planRows.find((row) => row.id === search.plan) ?? tabPlan) : null
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
       : search.tab === `stories`
         ? { kind: `stories` as const }
+        : shownPlan
+          ? { kind: `plan` as const }
         : search.tab === `session` && focused && focused.id !== root.id
         ? { kind: `session` as const, sessionId: focused.id }
         : mainSession
@@ -344,16 +358,16 @@ export function ThreadScreen({
   // item open from the group) · Stories (swipe AND tap); a tap slides the
   // new page in from the side it sits on.
   const pages = useMemo(
-    () => threadPages({ single: singleIssue, open: stripOpen ? threadPageOf(tab) : null }),
+    () => threadPages({ single: singleIssue, open: stripOpen ? threadPageOf(tab) : null, plan: tabPlan !== null }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [singleIssue, stripOpen?.kind, stripOpen?.id]
+    [singleIssue, stripOpen?.kind, stripOpen?.id, tabPlan !== null]
   )
   const page = threadPageOf(tab)
   const showPage = (next: ThreadPage) => {
     if (isMobile) {
       // The pages around the move: a page opened from the group joins them.
-      const item = next === `conversation` || next === `stories` ? (stripOpen ? page : null) : next
-      primeTabEnter(threadPages({ single: singleIssue, open: item }), page, next)
+      const item = next === `conversation` || next === `stories` || next === `plan` ? (stripOpen ? page : null) : next
+      primeTabEnter(threadPages({ single: singleIssue, open: item, plan: tabPlan !== null }), page, next)
     }
     go(threadPageSearch(next))
   }
@@ -362,7 +376,11 @@ export function ThreadScreen({
   // #EXP-1562 (waiting-cards.json CHIPS): the WAITING cards' chips; a pick
   // shows the Conversation, scrolls the card to the centre and rings it.
   const waitingCards = useMemo(
-    () => threadPendingAsks(view.rows, () => null).map(({ id, kind, text }) => ({ id, kind, text })),
+    // #EXP-1662: a plan's chip is the plan tab; these are the questions.
+    () =>
+      threadPendingAsks(view.rows, () => null)
+        .filter((ask) => ask.kind !== `plan`)
+        .map(({ id, kind, text }) => ({ id, kind, text })),
     [view.rows]
   )
   const [scrollTo, setScrollTo] = useState<{ id: string; at: number } | null>(null)
@@ -429,6 +447,16 @@ export function ThreadScreen({
       open={stripOpen}
       onOpenIssue={pickIssue}
       onOpenSession={pickSession}
+      plan={
+        tabPlan
+          ? {
+              label: planRowLabel((shownPlan ?? tabPlan).plan),
+              active: tab.kind === `plan`,
+              waiting: (shownPlan ?? tabPlan).decision === null,
+              onSelect: () => showPage(`plan`),
+            }
+          : undefined
+      }
       waiting={{ cards: waitingCards, onSelect: selectWaiting }}
       stories={{
         label: STORY_TAB.copy.label,
@@ -484,6 +512,15 @@ export function ThreadScreen({
         </div>
       </div>
     )
+  } else if (tab.kind === `plan` && shownPlan) {
+    body = (
+      <ThreadPlanBody
+        row={shownPlan}
+        mobile={isMobile}
+        canDecide={permissions.isMember}
+        topInset={topInset}
+      />
+    )
   } else if (tab.kind === `issue`) {
     const issue = issuesById.get(tab.issueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
@@ -518,6 +555,7 @@ export function ThreadScreen({
         busy={root.busy}
         onOpenSession={openRowSession}
         onOpenXref={nav.open}
+        onOpenPlan={(id) => go({ tab: `plan`, plan: id })}
         agentFor={agentFor}
         tree={rows}
         topInset={topInset}
@@ -688,6 +726,33 @@ export function ThreadScreen({
   )
 }
 
+/** #EXP-1662: the plan tab's body (plan-page.json). */
+function ThreadPlanBody({
+  row,
+  mobile,
+  canDecide,
+  topInset,
+}: {
+  row: Extract<ThreadRow, { type: `plan` }>
+  mobile: boolean
+  canDecide: boolean
+  topInset: number
+}) {
+  const { answer, pending } = useAnswerMessage()
+  return (
+    <PlanPage
+      key={row.id}
+      className="min-h-0 flex-1"
+      row={row}
+      mobile={mobile}
+      renderText={renderThreadText}
+      busy={pending.has(row.id)}
+      onDecide={canDecide ? (input) => void answer(row.id, input) : undefined}
+      topInset={topInset}
+    />
+  )
+}
+
 function ConversationBody({
   teamId,
   view,
@@ -697,6 +762,7 @@ function ConversationBody({
   busy,
   onOpenSession,
   onOpenXref,
+  onOpenPlan,
   agentFor,
   tree,
   topInset = 0,
@@ -710,6 +776,8 @@ function ConversationBody({
   canReply: boolean
   /** The ROOT's busy: Stop stops the root, so a busy child never shows it. */
   busy: boolean
+  /** #EXP-1662: a plan row opens the plan tab on that plan. */
+  onOpenPlan: (messageId: string) => void
   /** A session card opens that session in place (EXP-1316). */
   onOpenSession: (sessionId: string) => void
   /** S-3: an xref opens its session on the back stack. */
@@ -731,7 +799,6 @@ function ConversationBody({
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
   const { answer, pending } = useAnswerMessage()
   const unqueue = useUnqueueMessage()
-  const openPlan = useOpenPlan()
   const { data: session } = useSession()
   // EXP-1316 (1n): the session feed's scroll — opens at the newest row,
   // follows while pinned, THE jump button once scrolled up.
@@ -833,7 +900,7 @@ function ConversationBody({
             onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
             onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
             onDismiss={canReply ? (id) => void answer(id, { dismissed: true }) : undefined}
-            onOpenPlan={(plan) => openPlan(plan.sessionId, plan.id)}
+            onOpenPlan={(plan) => onOpenPlan(plan.id)}
             pending={pending}
             docked={dockedIds}
             viewerId={session?.user?.id ?? null}

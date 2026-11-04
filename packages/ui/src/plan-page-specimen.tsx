@@ -1,7 +1,10 @@
 import { useMemo } from "react"
-import { PLAN_PAGE_SPECIMEN } from "@exp/domain-contract/plan-page"
+import { PLAN_PAGE_SPECIMEN, planRowLabel } from "@exp/domain-contract/plan-page"
+import { STORY_TAB } from "@exp/domain-contract/stories"
 import { threadAskRow, type TreeMessage } from "@exp/domain-contract/session-tree"
+import { cn } from "./cn"
 import { PlanPage } from "./plan-page"
+import { THREAD_COPY, ThreadTabs } from "./session-thread-view"
 import { useSpecimenAttachmentSrc } from "./specimen-samples"
 
 // #EXP-1493: THE plan page's styleguide specimen (plan-page.json
@@ -22,6 +25,8 @@ const message: TreeMessage = {
   authorSessionId: `plan-specimen-session`,
 }
 const row = threadAskRow(message) as Extract<ReturnType<typeof threadAskRow>, { type: `plan` }>
+
+const noop = () => {}
 
 const text = (markdown: string) => (
   <div className="flex flex-col gap-2">
@@ -55,20 +60,28 @@ export function PlanPageSpecimen({ size = `wide` }: { size?: `wide` | `phone` })
   return (
     <div
       data-testid="plan-page-specimen"
-      className="relative overflow-hidden rounded-3xl border border-glass-stroke-card bg-background"
+      className="relative flex flex-col overflow-hidden rounded-3xl border border-glass-stroke-card bg-glass-card-opaque"
       style={{ width: wide ? 1280 : 390, height: wide ? 720 : 760, maxWidth: `100%` }}
     >
+      <div className={cn(`shrink-0 border-b border-border`, wide ? `px-10 pt-6 pb-3` : `px-3 pt-4 pb-2`)}>
+        <div className="text-lg font-semibold">{PLAN_PAGE_SPECIMEN.chatName}</div>
+        <ThreadTabs
+          className="mt-4"
+          variant={wide ? `bar` : `pager`}
+          conversation={{ label: THREAD_COPY.conversation, active: false, onSelect: noop }}
+          plan={{ label: planRowLabel(plan.plan), active: true, waiting: true, onSelect: noop }}
+          issues={[]}
+          stories={{ label: STORY_TAB.copy.label, active: false, dot: false, onSelect: noop }}
+        />
+      </div>
       <PlanPage
+        className="min-h-0 flex-1"
         row={plan}
-        chatName={PLAN_PAGE_SPECIMEN.chatName}
         mobile={!wide}
         renderText={text}
         attachmentSrc={attachmentSrc}
         busy={false}
         onDecide={() => {}}
-        onBack={() => {}}
-        onClose={wide ? () => {} : undefined}
-        onOpenChat={() => {}}
         initialActive={PLAN_PAGE_SPECIMEN.activeSection}
       />
     </div>
