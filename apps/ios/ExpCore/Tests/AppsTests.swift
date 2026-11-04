@@ -127,7 +127,8 @@ final class AppsTests: XCTestCase {
             "webhookSecret": Apps.TestIds.webhookSecret,
             "previewScreens": Apps.TestIds.previewScreens,
             "run": Apps.TestIds.run, "runMenu": Apps.TestIds.runMenu, "newMenu": Apps.TestIds.newMenu,
-            "accounts": Apps.TestIds.accounts, "accountRow": Apps.TestIds.accountRow,
+            "accounts": Apps.TestIds.accounts, "importUpstreams": Apps.TestIds.importUpstreams, "importUpstream": Apps.TestIds.importUpstream,
+            "accountRow": Apps.TestIds.accountRow,
             "mcpTools": Apps.TestIds.mcpTools, "mcpToolRow": Apps.TestIds.mcpToolRow,
             "policies": Apps.TestIds.policies, "policyRow": Apps.TestIds.policyRow,
         ])

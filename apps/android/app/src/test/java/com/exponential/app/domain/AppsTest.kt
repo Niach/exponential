@@ -372,6 +372,7 @@ class AppsTest {
             "previewScreens" to Apps.TestIds.PREVIEW_SCREENS,
             "run" to Apps.TestIds.RUN, "runMenu" to Apps.TestIds.RUN_MENU, "newMenu" to Apps.TestIds.NEW_MENU,
             "accounts" to Apps.TestIds.ACCOUNTS, "accountRow" to Apps.TestIds.ACCOUNT_ROW,
+            "importUpstreams" to Apps.TestIds.IMPORT_UPSTREAMS, "importUpstream" to Apps.TestIds.IMPORT_UPSTREAM,
             "mcpTools" to Apps.TestIds.MCP_TOOLS, "mcpToolRow" to Apps.TestIds.MCP_TOOL_ROW,
             "policies" to Apps.TestIds.POLICIES, "policyRow" to Apps.TestIds.POLICY_ROW,
         )
