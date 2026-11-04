@@ -153,14 +153,28 @@ private data class AppUpstreamReadInput(val id: String, val source: String)
 @Serializable
 private data class AppImportInput(val teamId: String, val text: String)
 
+/** #VAPP-254: an owner's pick on the import step (`apps.import`). */
+@Serializable
+data class AppUpstreamMapping(val upstream: String, val serverId: String)
+
+@Serializable
+private data class AppImportCreateInput(val teamId: String, val text: String, val upstreamMappings: List<AppUpstreamMapping>)
+
 @Serializable
 data class AppImportIssue(val path: String = "", val message: String = "")
+
+/** #VAPP-254: one upstream the file declares and its exact-name default. */
+@Serializable
+data class AppImportUpstreamDto(val name: String = "", val serverId: String? = null, val serverName: String? = null)
 
 @Serializable
 data class AppValidateImportResult(
     val issues: List<AppImportIssue> = emptyList(),
     val name: String? = null,
     val records: Int = 0,
+    val upstreams: List<AppImportUpstreamDto> = emptyList(),
+    /** What an owner may pick; empty for a member. */
+    val servers: List<AppServerDto> = emptyList(),
 )
 
 /** VAPP-234 `apps.importTemplate` (fixtures/app-templates.json). */
@@ -359,12 +373,12 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
         )
 
     /** VAPP-121: create the app [text] describes (package as v1, its records). */
-    suspend fun importApp(accountId: String, teamId: String, text: String): AppImportResult =
+    suspend fun importApp(accountId: String, teamId: String, text: String, upstreamMappings: List<AppUpstreamMapping> = emptyList()): AppImportResult =
         trpc.mutation(
             accountId,
             path = "apps.import",
-            input = AppImportInput(teamId, text),
-            inputSerializer = AppImportInput.serializer(),
+            input = AppImportCreateInput(teamId, text, upstreamMappings),
+            inputSerializer = AppImportCreateInput.serializer(),
             outputSerializer = AppImportResult.serializer(),
         )
 }

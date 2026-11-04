@@ -181,13 +181,15 @@ class AppsViewModel @Inject constructor(
     fun records(appId: String): Flow<List<AppRecordEntity>> =
         dbFlow.scopedQuery(emptyList<AppRecordEntity>()) { it.appRecordDao().observeByApp(appId) }
 
-    /** VAPP-121: the server's issues with [text] (`apps.validateImport`);
-     *  null = the check itself failed (the step keeps Import disabled). */
-    suspend fun validateImport(text: String): List<AppExport.Issue>? {
+    /** VAPP-121: the server's issues with [text] (`apps.validateImport`), #VAPP-254
+     *  with its upstreams and the servers an owner may pick; null = the check
+     *  itself failed (the step keeps Import disabled). */
+    suspend fun validateImport(text: String): AppImportCheck? {
         val team = selection.selectedId.value ?: return null
         val accountId = auth.activeAccountId.value ?: return null
         return try {
-            api.validateImport(accountId, team, text).issues.map { AppExport.Issue(it.path, it.message) }
+            val check = api.validateImport(accountId, team, text)
+            AppImportCheck(check.issues.map { AppExport.Issue(it.path, it.message) }, check.upstreams, check.servers)
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
             null
@@ -195,10 +197,10 @@ class AppsViewModel @Inject constructor(
     }
 
     /** VAPP-121: Import → `apps.import`; [onCreated] opens the new app's editor. */
-    fun importApp(text: String, onCreated: (String) -> Unit) {
+    fun importApp(text: String, upstreamMappings: List<com.exponential.app.data.api.AppUpstreamMapping>, onCreated: (String) -> Unit) {
         val team = selection.selectedId.value ?: return
-        write("import", { importApp(text, onCreated) }) { accountId ->
-            onCreated(api.importApp(accountId, team, text).app.id)
+        write("import", { importApp(text, upstreamMappings, onCreated) }) { accountId ->
+            onCreated(api.importApp(accountId, team, text, upstreamMappings).app.id)
         }
     }
 
@@ -363,6 +365,34 @@ class AppEditorViewModel @Inject constructor(
     val accounts: StateFlow<List<com.exponential.app.data.api.AppUpstreamDto>> =
         appTools.map { it?.upstreams.orEmpty() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #VAPP-254: what an owner may pick for an upstream; empty for a member. */
+    val upstreamServers: StateFlow<List<com.exponential.app.data.api.AppServerDto>> =
+        appTools.map { it?.servers.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _upstreamBusy = MutableStateFlow<String?>(null)
+    /** The upstream whose pick is saving (every picker waits). */
+    val upstreamBusy: StateFlow<String?> = _upstreamBusy
+
+    /** #VAPP-254 `appAccess.setUpstreamMapping` at once (`none` = cleared), then
+     *  re-read the rows; a failure = the failed-action toast and the old value. */
+    fun setUpstreamMapping(upstream: String, value: String) {
+        if (_upstreamBusy.value != null) return
+        val accountId = auth.activeAccountId.value ?: return
+        _upstreamBusy.value = upstream
+        viewModelScope.launch {
+            try {
+                accessApi.setUpstreamMapping(accountId, appId, upstream, value.takeUnless { it == Apps.UPSTREAM_PICKER_NONE })
+                refreshTools()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("save", "the server", trpcErrorMessage(t, ""))
+            } finally {
+                _upstreamBusy.value = null
+            }
+        }
+    }
 
     /** The optimistic MCP tool switches (name → enabled) over `appTools.tools`. */
     private val toolOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())

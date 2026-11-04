@@ -824,7 +824,7 @@ private fun AppChatPane(
             busy = busy,
             onDismiss = { importing = false },
             onValidate = apps::validateImport,
-            onImport = { text -> apps.importApp(text) { id -> importing = false; onOpenApp(id) } },
+            onImport = { text, upstreamMappings -> apps.importApp(text, upstreamMappings) { id -> importing = false; onOpenApp(id) } },
             onTemplate = { template, includeRecords ->
                 apps.importTemplate(template, includeRecords) { id -> importing = false; onOpenApp(id) }
             },

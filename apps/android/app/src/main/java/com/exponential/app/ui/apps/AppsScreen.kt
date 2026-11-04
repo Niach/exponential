@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.primitives.EmptyStateSize
+import com.exponential.app.data.api.AppUpstreamMapping
 import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.AppTemplates
 import com.exponential.app.domain.Apps
@@ -143,8 +144,8 @@ fun AppsScreen(
             busy = busy,
             onDismiss = { importing = false },
             onValidate = viewModel::validateImport,
-            onImport = { text ->
-                viewModel.importApp(text) { id ->
+            onImport = { text, upstreamMappings ->
+                viewModel.importApp(text, upstreamMappings) { id ->
                     importing = false
                     onOpenApp(id)
                 }
@@ -352,34 +353,44 @@ private fun AppsNewMenu(onNew: () -> Unit, onImport: () -> Unit, creating: Boole
 /** VAPP-121 / VAPP-176: Import… = its own sheet, the import step: the
  *  monospace field, Choose file, the server's issues and Import. VAPP-234
  *  (fixtures/app-templates.json): the templates step above it (a row =
- *  [onTemplate] at once, the sample-records switch). */
+ *  [onTemplate] at once, the sample-records switch). #VAPP-254: an owner's
+ *  Accounts group under the step (`upstreamPickerCases`). */
 @Composable
 fun AppImportSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
-    onValidate: suspend (String) -> List<AppExport.Issue>?,
-    onImport: (text: String) -> Unit,
+    onValidate: suspend (String) -> AppImportCheck?,
+    onImport: (text: String, upstreamMappings: List<AppUpstreamMapping>) -> Unit,
     onTemplate: (template: String, includeRecords: Boolean) -> Unit = { _, _ -> },
 ) {
     // Plain remember: an import may be up to 4 MB, far past the Binder limit for saved state.
     var text by remember { mutableStateOf("") }
-    val issues = rememberImportIssues(text, onValidate)
+    val check = rememberImportCheck(text, onValidate)
+    val issues = check?.issues
+    var picks by remember { mutableStateOf(mapOf<String, String>()) }
     GlassSheet(
         title = AppExport.Copy.IMPORT_TITLE,
         onDismiss = onDismiss,
         modifier = Modifier.testTag("app-import-dialog"),
         primaryAction = SheetPrimaryAction(
             label = AppExport.Copy.IMPORT_ACTION,
-            onClick = { if (issues?.isEmpty() == true) onImport(text) },
+            onClick = { if (check != null && issues?.isEmpty() == true) onImport(text, importUpstreamMappings(check.upstreams, picks)) },
             enabled = issues?.isEmpty() == true && !busy,
             loading = busy,
             testTag = "app-import-confirm",
         ),
     ) {
-        AppTemplatesStep(busy = busy, onTemplate = onTemplate)
-        Spacer(Modifier.height(12.dp))
-        AppImportStep(text = text, onTextChange = { text = it }, issues = issues)
-        Spacer(Modifier.height(8.dp))
+        // #VAPP-254: the Accounts group grows the step past the sheet's cap.
+        Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+            AppTemplatesStep(busy = busy, onTemplate = onTemplate)
+            Spacer(Modifier.height(12.dp))
+            AppImportStep(text = text, onTextChange = { text = it }, issues = issues)
+            if (check != null && issues?.isEmpty() == true && check.upstreams.isNotEmpty() && check.servers.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                AppImportUpstreams(check, picks, enabled = !busy) { upstream, value -> picks = picks + (upstream to value) }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 

@@ -185,6 +185,28 @@ class AppsTest {
         }
     }
 
+    // #VAPP-254: clearing a mapping travels as a literal null under the shared Json.
+    @Test
+    fun `setUpstreamMapping input keeps a literal null`() {
+        val shared = kotlinx.serialization.json.Json { explicitNulls = false }
+        val encode = { serverId: String? ->
+            shared.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), com.exponential.app.data.api.setUpstreamMappingInput("a", "crm", serverId))
+        }
+        assertEquals("""{"appId":"a","upstream":"crm","serverId":null}""", encode(null))
+        assertEquals("""{"appId":"a","upstream":"crm","serverId":"s1"}""", encode("s1"))
+    }
+
+    // #VAPP-254: the import step's picks skip `none` and names the file dropped.
+    @Test
+    fun `importUpstreamMappings keeps real picks only`() {
+        val upstreams = listOf(com.exponential.app.data.api.AppImportUpstreamDto("crm"), com.exponential.app.data.api.AppImportUpstreamDto("stripe"), com.exponential.app.data.api.AppImportUpstreamDto("sentry"))
+        val picks = mapOf("crm" to "s1", "stripe" to Apps.UPSTREAM_PICKER_NONE, "gone" to "s2")
+        assertEquals(
+            listOf(com.exponential.app.data.api.AppUpstreamMapping("crm", "s1")),
+            com.exponential.app.ui.apps.importUpstreamMappings(upstreams, picks),
+        )
+    }
+
     // #VAPP-254: upstreamPicker + accountCaption replay `upstreamPickerCases`.
     @Test
     fun `upstreamPickerCases replay`() {

@@ -61,6 +61,7 @@ import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.settings.middleTruncate
@@ -94,6 +95,8 @@ internal fun AppSettingsBody(
     val automations by viewModel.automations.collectAsStateWithLifecycle()
     val automationSponsors by viewModel.automationSponsors.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val upstreamServers by viewModel.upstreamServers.collectAsStateWithLifecycle()
+    val upstreamBusy by viewModel.upstreamBusy.collectAsStateWithLifecycle()
     val mcpTools by viewModel.mcpTools.collectAsStateWithLifecycle()
     val mcpToolBusy by viewModel.mcpToolBusy.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -392,6 +395,8 @@ internal fun AppSettingsBody(
         // ── Accounts (#VAPP-243) ─────────────────────────────────────────
         // The upstreams the app declares, each with my OWN connection:
         // the muted state, or Connect / Reconnect (the web page in the browser).
+        // #VAPP-254 (`upstreamPickerCases`): the real server on a second muted
+        // line when it differs; an owner's server picker before the trailing state.
         if (accounts.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.ACCOUNTS)) {
             Text(
                 Apps.AccountsCopy.TITLE,
@@ -403,20 +408,39 @@ internal fun AppSettingsBody(
                 accounts.forEachIndexed { index, account ->
                     if (index > 0) GroupDivider()
                     val row = Apps.accountRow(account.toRowInput())
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                    val caption = Apps.accountCaption(account.name, account.serverName)
+                    // N-14: inside a sheet the picker's rows open under the whole row.
+                    InlinePickerRow(
+                        modifier = Modifier.testTag("${Apps.TestIds.ACCOUNT_ROW}-${account.name}"),
+                        rowModifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("${Apps.TestIds.ACCOUNT_ROW}-${account.name}")
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        scroll = false,
                     ) {
-                        Text(
-                            account.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                account.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (caption != null) {
+                                Text(
+                                    caption,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        UpstreamPickerPill(
+                            name = account.name,
+                            serverId = account.serverId,
+                            servers = upstreamServers,
+                            testTag = "${Apps.TestIds.ACCOUNT_ROW}-${account.name}-picker",
+                            enabled = upstreamBusy == null,
+                            onPick = { viewModel.setUpstreamMapping(account.name, it) },
                         )
                         val serverId = account.serverId
                         if (row.action != null && row.actionLabel != null && serverId != null) {

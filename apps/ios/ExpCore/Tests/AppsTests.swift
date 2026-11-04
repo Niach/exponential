@@ -284,6 +284,18 @@ final class AppsTests: XCTestCase {
         }
     }
 
+    // #VAPP-254: clearing a mapping travels as a literal null (the router requires the key).
+    func testUpstreamMappingInputKeepsNull() throws {
+        let cleared = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            AppUpstreamMappingInput(appId: "a", upstream: "crm", serverId: nil)
+        )) as? [String: Any]
+        XCTAssertTrue(cleared?["serverId"] is NSNull)
+        let picked = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            AppUpstreamMappingInput(appId: "a", upstream: "crm", serverId: "s1")
+        )) as? [String: Any]
+        XCTAssertEqual(picked?["serverId"] as? String, "s1")
+    }
+
     // #VAPP-254: `upstreamPicker` + `accountCaption` replay `upstreamPickerCases`.
     func testUpstreamPickerCases() throws {
         let block = try XCTUnwrap(try fixture()["upstreamPickerCases"] as? [String: Any])
