@@ -143,7 +143,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration", "v99_message_attachment_ids"]
+             "v98_app_version_migration", "v99_message_attachment_ids",
+             "v100_app_record_share_name"]
         )
     }
 
@@ -208,7 +209,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration", "v99_message_attachment_ids"]
+             "v98_app_version_migration", "v99_message_attachment_ids",
+             "v100_app_record_share_name"]
         )
     }
 
@@ -745,7 +747,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration", "v99_message_attachment_ids"]
+             "v98_app_version_migration", "v99_message_attachment_ids",
+             "v100_app_record_share_name"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -858,7 +861,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration", "v99_message_attachment_ids"]
+             "v98_app_version_migration", "v99_message_attachment_ids",
+             "v100_app_record_share_name"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3315,7 +3319,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "app_records"),
             ["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at",
-             "author_id", "updated_by", "via_app_id"]
+             "author_id", "updated_by", "via_app_id", "share_name"]
         )
         try pool.read { db in
             let indexes = try db.indexes(on: "app_records").map(\.columns)
@@ -4156,6 +4160,9 @@ final class DatabaseMigrationTests: XCTestCase {
             {"id":"r-1","app_id":"a-1","team_id":"t","kind":"entry","data":{},"via_app_id":"a-1",
              "created_at":"x","updated_at":"x"}
             """#.utf8))
+        // The entity carries every later column (v100 `share_name`,
+        // #VAPP-241): migrate to the head before saving the row.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in
             try issue.save(db)
             try session.save(db)
@@ -4173,6 +4180,51 @@ final class DatabaseMigrationTests: XCTestCase {
              "created_at":"x","updated_at":"x"}
             """#.utf8))
         XCTAssertNil(legacy.viaAppId)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #VAPP-241: v100 adds `app_records.share_name`, resetting ONLY the
+    // app-records cursor so synced rows re-arrive carrying it; wire rows
+    // round-trip through the store.
+    func testAppRecordShareNameAdded() throws {
+        let pool = try makePool("vapp241-share-name")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v99_message_attachment_ids")
+        try pool.write { db in
+            for shape in ["app-records", "apps", "issues"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "app_records").contains("share_name"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v100_app_record_share_name"))
+        XCTAssertTrue(try columnNames(pool, "app_records").contains("share_name"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1'"
+            )
+            XCTAssertEqual(reset, ["app-records"])
+        }
+        let record = try JSONDecoder().decode(AppRecordEntity.self, from: Data(#"""
+            {"id":"r-1","app_id":"a-1","team_id":"t","kind":"entry","data":{},"share_name":"signup",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        try pool.write { db in try record.save(db) }
+        try pool.read { db in
+            XCTAssertEqual(try AppRecordEntity.fetchOne(db, key: "r-1")?.shareName, "signup")
+        }
+        // A pre-rotation row (no key) decodes as nil.
+        let legacy = try JSONDecoder().decode(AppRecordEntity.self, from: Data(#"""
+            {"id":"r-2","app_id":"a-1","team_id":"t","kind":"entry","data":{},
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertNil(legacy.shareName)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

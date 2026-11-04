@@ -324,6 +324,7 @@ class AppRecordsTest {
         patch = dataOf(v["patch"]),
         actor = v["actor"]?.string,
         createdAt = v["createdAt"]?.string ?: "",
+        via = v["via"]?.string,
     )
 
     /** Numbers by value (2 == 2.0). */

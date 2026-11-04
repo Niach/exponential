@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,10 +42,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.json.JsonValue
 import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppRecords
+import com.exponential.app.domain.AppShare
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.shareRowSubtitle
+import com.exponential.app.domain.shareSwitchOn
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.DestructiveButton
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSwitch
 import com.exponential.app.ui.components.GlassTextField
@@ -100,6 +107,8 @@ internal fun AppSettingsBody(
     val hooks by viewModel.hooks.collectAsStateWithLifecycle()
     val canManageHooks by viewModel.canManageHooks.collectAsStateWithLifecycle()
     val hookBusy by viewModel.hookBusy.collectAsStateWithLifecycle()
+    val shares by viewModel.shares.collectAsStateWithLifecycle()
+    val shareBusy by viewModel.shareBusy.collectAsStateWithLifecycle()
     // #VAPP-238: minted secrets live in this screen's memory only (never
     // saved, never refetched): gone when the tab or sheet closes.
     var secrets by remember(app.id) { mutableStateOf(mapOf<String, String>()) }
@@ -293,6 +302,92 @@ internal fun AppSettingsBody(
             }
         }
         Spacer(Modifier.height(16.dp))
+
+        // ── Public links (VAPP-241) ──────────────────────────────────────
+        // Everyone reads the rows; an owner switches a link and, while it is
+        // on, copies it or mints a new one from the `…` menu.
+        if (shares.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(AppShare.TestIds.SHARE_LINKS)) {
+            Text(
+                AppShare.Copy.TITLE,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            OptionGroup {
+                shares.forEachIndexed { index, share ->
+                    if (index > 0) GroupDivider()
+                    val on = share.state == AppShare.State.ON
+                    val url = share.url
+                    val editable = canManageHooks && shareBusy == null
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("${AppShare.TestIds.SHARE_ROW}-${share.name}")
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                share.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                shareRowSubtitle(share.mode, share.state, share.expiresAt),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (canManageHooks && on && url != null) {
+                            var menu by remember(share.name) { mutableStateOf(false) }
+                            Box {
+                                CircleIconButton(
+                                    ExpIcons.uiMore,
+                                    contentDescription = "Menu for ${share.name}",
+                                    onClick = { menu = true },
+                                    borderless = true,
+                                    modifier = Modifier.testTag("${AppShare.TestIds.SHARE_ROW}-${share.name}-menu"),
+                                )
+                                GlassDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    GlassMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiCopy, contentDescription = null) },
+                                        text = { Text(AppShare.Copy.COPY_LINK) },
+                                        onClick = {
+                                            menu = false
+                                            clipboard.setText(AnnotatedString(url))
+                                            toaster.success(Apps.WebhooksCopy.COPIED)
+                                        },
+                                    )
+                                    GlassMenuItem(
+                                        leadingIcon = { Icon(ExpIcons.uiRefresh, contentDescription = null) },
+                                        text = { Text(AppShare.Copy.NEW_LINK) },
+                                        enabled = editable,
+                                        onClick = {
+                                            menu = false
+                                            viewModel.setShareLink(share.name, AppShare.Action.ROTATE)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (canManageHooks) {
+                            GlassSwitch(
+                                checked = shareSwitchOn(share.state),
+                                onCheckedChange = if (editable) ({ next ->
+                                    viewModel.setShareLink(share.name, if (next) AppShare.Action.ENABLE else AppShare.Action.REVOKE)
+                                }) else null,
+                                enabled = editable,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
 
         // ── Accounts (#VAPP-243) ─────────────────────────────────────────
         // The upstreams the app declares, each with my OWN connection:

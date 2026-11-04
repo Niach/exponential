@@ -195,6 +195,18 @@ data class AppHookDto(
 @Serializable
 data class AppHookSecretDto(val name: String = "", val url: String = "", val secret: String = "")
 
+/** VAPP-241 (app-share.json): one `appAccess.appTools` public link; [url] only
+ *  for owners, [expiresAt] a date. */
+@Serializable
+data class AppShareDto(
+    val name: String = "",
+    val mode: String = "submit",
+    val kind: String = "",
+    val state: String = "off",
+    val url: String? = null,
+    val expiresAt: String? = null,
+)
+
 /** #VAPP-243: one `appAccess.appTools` upstream: the team's server of that
  *  name (null = none) and the viewer's OWN connection state. */
 @Serializable
@@ -224,6 +236,7 @@ data class AppToolsDto(
     val tools: List<AppMcpToolDto> = emptyList(),
     val automations: List<AppAutomationDto> = emptyList(),
     val hooks: List<AppHookDto> = emptyList(),
+    val shares: List<AppShareDto> = emptyList(),
 )
 
 @Serializable
@@ -231,6 +244,9 @@ private data class AppToolsInput(val appId: String)
 
 @Serializable
 private data class AppHookRotateInput(val appId: String, val name: String)
+
+@Serializable
+private data class AppShareLinkInput(val appId: String, val name: String, val action: String)
 
 @Serializable
 private data class AppToolEnabledInput(val appId: String, val tool: String, val enabled: Boolean)
@@ -290,6 +306,11 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
             AppHookRotateInput.serializer(),
             AppHookSecretDto.serializer(),
         )
+
+    /** VAPP-241: enable, rotate or revoke a public link (owner); [action] = [com.exponential.app.domain.AppShare.Action]. */
+    suspend fun setShareLink(accountId: String, appId: String, name: String, action: String) {
+        trpc.mutationUnit(accountId, "appAccess.setShareLink", AppShareLinkInput(appId, name, action), AppShareLinkInput.serializer())
+    }
 
     /** #VAPP-243: switch one exposed tool off (or back on) for every client (owners). */
     suspend fun setToolEnabled(accountId: String, appId: String, tool: String, enabled: Boolean) {

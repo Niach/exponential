@@ -395,6 +395,7 @@ final class AppRecordsTests: XCTestCase {
             id: item["id"] as? String ?? "",
             op: item["op"] as? String ?? "",
             actor: item["actor"] as? String,
+            via: item["via"] as? String,
             before: object(item["before"]),
             patch: object(item["patch"]),
             createdAt: item["createdAt"] as? String ?? ""

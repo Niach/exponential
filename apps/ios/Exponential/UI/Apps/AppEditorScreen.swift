@@ -724,6 +724,9 @@ struct AppSettingsSheet: View {
     @State private var hookBusy: String?
     @State private var rotateTarget: String?
     @State private var showRotate = false
+    /// VAPP-241: the published package's public links (`appAccess.appTools`).
+    @State private var shares: [AppShareWire] = []
+    @State private var shareBusy: String?
     @FocusState private var nameFocused: Bool
     @FocusState private var descriptionFocused: Bool
 
@@ -809,6 +812,7 @@ struct AppSettingsSheet: View {
             mcpToolsGroup
             automationsGroup
             webhooksGroup
+            shareLinksGroup
             actions(app)
         }
     }
@@ -1236,6 +1240,72 @@ struct AppSettingsSheet: View {
         .accessibilityIdentifier(Apps.TestIds.webhookSecret)
     }
 
+    /// VAPP-241 (app-share.json): `copy.title` (shown when the published
+    /// package declares shares): one row per share, the name over
+    /// `shareRowSubtitle`; an owner (`canToggle`) gets the switch (on =
+    /// enable, off = revoke) and, while on, the `…` with Copy link / New link.
+    @ViewBuilder
+    private var shareLinksGroup: some View {
+        if !shares.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(AppShare.Copy.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(Array(shares.enumerated()), id: \.offset) { _, share in
+                        shareRow(share)
+                    }
+                }
+                .glassSection()
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(AppShare.TestIds.shareLinks)
+        }
+    }
+
+    private func shareRow(_ share: AppShareWire) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(share.name)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(AppShare.shareRowSubtitle(share.mode, share.state, expiresAt: share.expiresAt))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if canToggle, share.state == .on, let url = share.url {
+                GlassMenu {
+                    GlassMenuItem(AppShare.Copy.copyLink, icon: AppIcons.uiCopy) {
+                        UIPasteboard.general.string = url
+                        toaster.success(Apps.Copy.Webhooks.copied)
+                    }
+                    GlassMenuItem(AppShare.Copy.newLink, icon: AppIcons.uiRefresh, enabled: shareBusy == nil) {
+                        setShare(share.name, .rotate)
+                    }
+                } label: {
+                    GhostIconLabel(AppIcons.uiMore)
+                        .accessibilityLabel(share.name)
+                }
+            }
+            if canToggle {
+                GlassToggleRow(nil, isOn: Binding(
+                    get: { AppShare.shareSwitchOn(share.state) },
+                    set: { setShare(share.name, $0 ? .enable : .revoke) }
+                ))
+                .disabled(shareBusy != nil)
+                .accessibilityLabel("\(AppShare.Copy.title): \(share.name)")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(AppShare.TestIds.shareRow)-\(share.name)")
+    }
+
     /// Export (once the app has a version) and, at the end, Delete app (the
     /// creator or an owner).
     @ViewBuilder
@@ -1278,6 +1348,7 @@ struct AppSettingsSheet: View {
             mcpTools = []
             automations = []
             hooks = []
+            shares = []
             canToggle = false
             return
         }
@@ -1292,6 +1363,7 @@ struct AppSettingsSheet: View {
         mcpTools = summary?.tools ?? []
         automations = summary?.automations ?? []
         hooks = summary?.hooks ?? []
+        shares = summary?.shares ?? []
         canToggle = summary?.canToggle ?? false
     }
 
@@ -1315,6 +1387,24 @@ struct AppSettingsSheet: View {
                 }
             } catch {
                 toaster.error(FeedbackStates.Errors.title(verb: verb, thing: "the secret"), description: error.trpcUserMessage)
+            }
+        }
+    }
+
+    /// VAPP-241 `appAccess.setShareLink`, then the rows reread (the state,
+    /// expiry and URL are the server's). A failure = the failed-action toast.
+    private func setShare(_ name: String, _ action: AppShareAction) {
+        guard canToggle, shareBusy == nil, let app = model.app else { return }
+        shareBusy = name
+        let api = deps.appsApi
+        let account = accountId
+        Task {
+            defer { shareBusy = nil }
+            do {
+                try await api.setShareLink(accountId: account, appId: app.id, name: name, action: action)
+                shares = try await api.tools(accountId: account, appId: app.id).shares
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the link"), description: error.trpcUserMessage)
             }
         }
     }

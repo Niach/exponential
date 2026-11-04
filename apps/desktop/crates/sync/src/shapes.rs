@@ -883,9 +883,10 @@ pub const SHAPES: [ShapeSpec; 34] = [
         // proxy; `deleted_at` + the `app_deleted_at` mirror stay server-side
         // (a trashed record simply leaves the shape). VAPP-187: `author_id`
         // (whose record it is) + `updated_by` (the last writer). #VAPP-229:
-        // `via_app_id` (the app whose tool created it; healed onto existing
-        // stores by `heal_missing_columns`).
-        columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "via_app_id", "created_at", "updated_at"],
+        // `via_app_id` (the app whose tool created it), VAPP-241: `share_name`
+        // (the public link that created it); both healed onto existing stores
+        // by `heal_missing_columns`.
+        columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "via_app_id", "share_name", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
     ShapeSpec {
@@ -1106,7 +1107,7 @@ mod tests {
         assert_eq!(records.path, "/api/shapes/app-records");
         assert_eq!(
             records.columns,
-            &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "via_app_id", "created_at", "updated_at"]
+            &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "via_app_id", "share_name", "created_at", "updated_at"]
         );
         assert!(!records.columns.contains(&"deleted_at"));
         assert!(!records.columns.contains(&"app_deleted_at"));
@@ -1373,6 +1374,7 @@ mod tests {
             ("issues", "via_app_id"),
             ("sessions", "via_app_id"),
             ("app_records", "via_app_id"),
+            ("app_records", "share_name"),
         ] {
             assert!(shape_by_name(shape).unwrap().columns.contains(&column), "{shape} needs {column}");
         }
