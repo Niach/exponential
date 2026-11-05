@@ -36,3 +36,5 @@
 - A csevegőlista csoportosított, körök és szűrők nélkül
 - A csapat tulajdonosai választják ki, melyik MCP-szerver szolgálja ki egy app kapcsolatait
 - Mindenhol ugyanaz a megjelenés: egy csevegőfejléc, és a titkosított csevegés fájlja fájlsorként jelenik meg
+- Az appok rekordjaiban dátum- és időválasztó van, a tulajdonosok kiválaszthatják a szerzőt
+- A tulajdonosok a Beállításokban adják meg, mikor jár le egy nyilvános hivatkozás

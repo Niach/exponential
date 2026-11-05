@@ -36,3 +36,5 @@
 - Zoznam chatov je zoskupený, bez kruhov a filtrov
 - Vlastníci tímu vyberú, ktorý MCP server obslúži každé pripojenie aplikácie
 - Rovnaký vzhľad všade: jedna hlavička chatu a súbor v šifrovanom chate sa zobrazí ako riadok súboru
+- Záznamy v aplikáciách majú výber dátumu a času a vlastníci môžu zvoliť autora
+- Vlastníci nastavia v Nastaveniach, kedy verejný odkaz vyprší

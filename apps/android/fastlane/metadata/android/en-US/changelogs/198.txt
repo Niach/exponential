@@ -1,0 +1,3 @@
+- App records have date and time pickers, and owners can pick the author
+- Owners set when a public link expires from Settings
+- A record row on a phone has its own Delete

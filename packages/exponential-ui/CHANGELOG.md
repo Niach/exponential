@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.0 (2026-11-05)
+
 - RecordForm: a `date-time` field is a DatePicker + TimePicker pair in the team zone (the new expression function `dateTime(day, time?)`). RecordTable: a phone's row has its own Delete.
 - RecordForm: a team owner's first field is Author (`records.upsert` gets `author`); a refused save shows under the form (`form {error, close}`, `RecordRefusal`) and the RecordTable's editor stays open until it lands. Member and issue ref Selects read real lists (`/recordMembers`, `/recordIssues`), past `sources` for these two.
 

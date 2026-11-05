@@ -36,3 +36,5 @@
 - La liste des chats est groupée, sans cercles ni filtres
 - Les propriétaires choisissent quel serveur MCP de l'équipe sert chaque connexion d'une app
 - Le même aspect partout : un seul en-tête de chat, et un fichier dans un chat chiffré s'affiche comme une ligne de fichier
+- Les fiches des apps ont des sélecteurs de date et d'heure, et les propriétaires choisissent l'auteur
+- Les propriétaires fixent l'expiration d'un lien public dans les Réglages
