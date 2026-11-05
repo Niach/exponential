@@ -74,7 +74,8 @@ final class AppSourcesTests: XCTestCase {
                 name: try XCTUnwrap(item["source"] as? String),
                 params: try XCTUnwrap(item["params"] as? [String: String], name),
                 store: store,
-                me: item["me"] as? String
+                me: item["me"] as? String,
+                access: item["access"] as? String
             )
             // CardJSON objects compare key-order-insensitively.
             let expected = CardJSON(any: item["expected"]) ?? .null

@@ -62,9 +62,10 @@ function PackageSurface({ pkg, templateId, screen, onNavigate, mode, appId, team
         me,
         grantedTools: () => grants.current,
         runAs,
+        access: readOnly ? `read` : `write`,
         migrateFrom,
       }),
-    [consent, router, pkg, appId, teamId, me, runAs, hasShell, migrateFrom]
+    [consent, router, pkg, appId, teamId, me, runAs, readOnly, hasShell, migrateFrom]
   )
   // VAPP-221: a FileUpload's bytes go to the app host (apps.json `appFiles`).
   // #EXP-1674: `textLinks` reads the issues at paint time and nothing else

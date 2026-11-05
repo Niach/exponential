@@ -453,7 +453,7 @@ final class ExpAppHost {
         let installed = packages
         let hosting = packages.first.map(JSONValue.parse)
         let scope = AppHostStore.RecordsScope(
-            appId: appId, teamId: teamId, me: me, records: hosting?["records"],
+            appId: appId, teamId: teamId, me: me, access: readOnly ? "read" : "write", records: hosting?["records"],
             migrateFrom: (hosting?["migrations"]?.array?.isEmpty == false) ? migrateFrom : nil,
             migrations: hosting.flatMap { $0["migrations"] }.map { JSONValue.object(["migrations": $0]) }
         )
@@ -934,7 +934,7 @@ enum AppHostStore {
             switch name {
             case "issues": boards = true; issues = true; users = true
             case "boards": boards = true
-            case "members": members = true; users = true
+            case "members", "me": members = true; users = true
             case "sessions": sessions = true
             case "comments": boards = true; issues = true; comments = true; users = true
             case "attachments": boards = true; issues = true; attachments = true; users = true
@@ -1008,7 +1008,7 @@ enum AppHostStore {
     ) -> (() -> Void)? {
         var last: String?
         let push = { (store: AppSources.Store) in
-            let json = AppSources.sourceValue(name: name, params: params, store: store, me: scope.me)?.compactString ?? "null"
+            let json = AppSources.sourceValue(name: name, params: params, store: store, me: scope.me, access: scope.access)?.compactString ?? "null"
             guard json != last else { return }
             last = json
             emit(JSONValue.parse(json))
@@ -1037,6 +1037,8 @@ enum AppHostStore {
         let appId: String?
         let teamId: String?
         let me: String?
+        /// VAPP-206: the viewer's app access (`exp:me`).
+        var access: String? = nil
         /// VAPP-214: the hosting package's `records` (its kinds' `computed`
         /// fields apply on read).
         var records: JSONValue? = nil

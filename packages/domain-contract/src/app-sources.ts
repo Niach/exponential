@@ -94,6 +94,8 @@ export interface SourceStore {
 export interface SourceContext {
   /** The viewer's user id (null = signed out). */
   me: string | null
+  /** VAPP-206: the viewer's app access (`exp:me`; absent = write). */
+  access?: string | null
 }
 
 const text = (v: unknown): string => (v === null || v === undefined ? `` : String(v))
@@ -185,6 +187,14 @@ export function membersValue(store: SourceStore, params: Record<string, string>,
   return { rows: rows.slice(0, limitOf(params)), count: rows.length, me: ctx.me }
 }
 
+/** VAPP-206: the viewer, so a package's `visible` reads their team role and
+ *  app access. */
+export function meValue(store: SourceStore, ctx: SourceContext) {
+  const member = store.members.find((m) => m.userId === ctx.me)
+  const user = store.users.find((u) => u.id === ctx.me)
+  return { id: ctx.me, name: user?.name ?? ``, email: user?.email ?? null, avatar: user?.image ?? null, role: member?.role ?? null, access: ctx.access ?? `write` }
+}
+
 export function sessionsValue(store: SourceStore, params: Record<string, string>, ctx: SourceContext) {
   const rows = store.sessions
     .filter((s) => s.parentId === null && s.appId === null)
@@ -255,6 +265,8 @@ export function sourceValue(name: string, params: Record<string, string>, store:
       return boardsValue(store, params)
     case `members`:
       return membersValue(store, params, ctx)
+    case `me`:
+      return meValue(store, ctx)
     case `sessions`:
       return sessionsValue(store, params, ctx)
     case `comments`:

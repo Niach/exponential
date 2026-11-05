@@ -1,9 +1,10 @@
 {
-  "$comment": "VAPP-119 the `exp:` binding SOURCES ×4 beyond devices (web-pinned per platform) and records (app-records.json): what an app host emits for `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments` and `exp:attachments` over the team's synced rows, the SAME on web (TanStack DB), desktop (the store), iOS (GRDB) and Android (Room): the TS reference `app-sources.ts` (`sourceValue(name, params, store, {me})`); desktop `domain::app_sources`, iOS `AppSources.swift`, Android `AppSources.kt` replay every case of `cases` over `store` (one team's rows, ISO timestamps). QUERY (params as `parseSource` gives them): `limit` (`limits.default`, capped at `limits.max`); issues: `board=<id|slug>` (unknown = empty), `status=<anchor>`, `priority=<p>`, `assignee=<userId|me|none>`, `search=<text>` (case-insensitive substring of title or identifier), `sort=sortOrder|updatedAt|createdAt` (sortOrder asc by default, the timestamps desc), `order=asc|desc`; sessions: `status=`, `mine=1`; comments / attachments: `issue=<identifier|id>` (REQUIRED: without a resolvable issue the value is null). VALUES: issues {rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value: identifier, label: `identifier title`}], count}; boards {rows: [{id, slug, name, prefix, icon, color, value: id, label: name}] (live boards by sortOrder, then name), count}; members {rows: [{id, name, email, avatar, role, value: id, label: name}] (by name), count, me}; the `value` + `label` pair makes a row a Select / ChipInput option (`shape: option`), so an app binds the rows straight into `options` / `suggestions`; sessions {rows: [{id, title, status, busy, needsInput, kind: thread|agent, updatedAt}] (roots only, no app editor sessions, newest first), count}; comments {rows: [{id, body, author, authorName, parent, source, createdAt}] (oldest first), count}; attachments {rows: [{id, name, type, size, url: /api/attachments/<id> (the media policy resolves it), width, height, uploader, uploaderName, createdAt}] (oldest first), count}. `count` counts before the limit; ties sort by id; text compares by code points (no locale). A name outside `sources` emits null.",
+  "$comment": "VAPP-119 the `exp:` binding SOURCES ×4 beyond devices (web-pinned per platform) and records (app-records.json): what an app host emits for `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments` and `exp:attachments` over the team's synced rows, the SAME on web (TanStack DB), desktop (the store), iOS (GRDB) and Android (Room): the TS reference `app-sources.ts` (`sourceValue(name, params, store, {me})`); desktop `domain::app_sources`, iOS `AppSources.swift`, Android `AppSources.kt` replay every case of `cases` over `store` (one team's rows, ISO timestamps). QUERY (params as `parseSource` gives them): `limit` (`limits.default`, capped at `limits.max`); issues: `board=<id|slug>` (unknown = empty), `status=<anchor>`, `priority=<p>`, `assignee=<userId|me|none>`, `search=<text>` (case-insensitive substring of title or identifier), `sort=sortOrder|updatedAt|createdAt` (sortOrder asc by default, the timestamps desc), `order=asc|desc`; sessions: `status=`, `mine=1`; comments / attachments: `issue=<identifier|id>` (REQUIRED: without a resolvable issue the value is null). VALUES: issues {rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value: identifier, label: `identifier title`}], count}; boards {rows: [{id, slug, name, prefix, icon, color, value: id, label: name}] (live boards by sortOrder, then name), count}; members {rows: [{id, name, email, avatar, role, value: id, label: name}] (by name), count, me}; the `value` + `label` pair makes a row a Select / ChipInput option (`shape: option`), so an app binds the rows straight into `options` / `suggestions`; sessions {rows: [{id, title, status, busy, needsInput, kind: thread|agent, updatedAt}] (roots only, no app editor sessions, newest first), count}; comments {rows: [{id, body, author, authorName, parent, source, createdAt}] (oldest first), count}; attachments {rows: [{id, name, type, size, url: /api/attachments/<id> (the media policy resolves it), width, height, uploader, uploaderName, createdAt}] (oldest first), count}. `count` counts before the limit; ties sort by id; text compares by code points (no locale). A name outside `sources` emits null. VAPP-206: `exp:me` = the viewer: {id, name, email, avatar, role, access}: role = their team role, null when they are no member; access = the app access the host passes (`access`, absent = write); id null when signed out.",
   "sources": [
     "issues",
     "boards",
     "members",
+    "me",
     "sessions",
     "comments",
     "attachments"
@@ -814,6 +815,64 @@
       "params": {},
       "me": "u1",
       "expected": null
+    },
+    {
+      "name": "me: an owner",
+      "source": "me",
+      "params": {},
+      "me": "u1",
+      "access": "write",
+      "expected": {
+        "id": "u1",
+        "name": "Alex Carter",
+        "email": "alex@acme.dev",
+        "avatar": "https://cdn.example/alex.png",
+        "role": "owner",
+        "access": "write"
+      }
+    },
+    {
+      "name": "me: a member who may only read",
+      "source": "me",
+      "params": {},
+      "me": "u2",
+      "access": "read",
+      "expected": {
+        "id": "u2",
+        "name": "Jonas Weber",
+        "email": "jonas@acme.dev",
+        "avatar": null,
+        "role": "member",
+        "access": "read"
+      }
+    },
+    {
+      "name": "me: no team role, access defaults to write",
+      "source": "me",
+      "params": {},
+      "me": "stranger",
+      "expected": {
+        "id": "stranger",
+        "name": "",
+        "email": null,
+        "avatar": null,
+        "role": null,
+        "access": "write"
+      }
+    },
+    {
+      "name": "me: signed out",
+      "source": "me",
+      "params": {},
+      "me": null,
+      "expected": {
+        "id": null,
+        "name": "",
+        "email": null,
+        "avatar": null,
+        "role": null,
+        "access": "write"
+      }
     }
   ]
 }

@@ -617,7 +617,7 @@ fun rememberAppHost(
         fun sourceStore(name: String): Flow<AppSources.Store> = when (name) {
             "issues" -> combine(teamBoards, teamIssues, sourceUsers) { b, i, u -> AppSources.Store(boards = b, issues = i, users = u) }
             "boards" -> teamBoards.map { AppSources.Store(boards = it) }
-            "members" -> combine(teamMembers, sourceUsers) { m, u -> AppSources.Store(members = m, users = u) }
+            "members", "me" -> combine(teamMembers, sourceUsers) { m, u -> AppSources.Store(members = m, users = u) }
             "sessions" -> teamSessions.map { AppSources.Store(sessions = it) }
             "comments" -> combine(teamIssues, teamComments, sourceUsers) { i, c, u -> AppSources.Store(issues = i, comments = c, users = u) }
             "attachments" -> combine(teamIssues, teamAttachments, sourceUsers) { i, a, u -> AppSources.Store(issues = i, attachments = a, users = u) }
@@ -731,7 +731,7 @@ fun rememberAppHost(
                     AppHostValues.devices(rows, now)
                 }
                 in AppSources.SOURCES -> sourceStore(source.name).map { store ->
-                    AppSources.sourceValue(source.name, source.params, store, me)
+                    AppSources.sourceValue(source.name, source.params, store, me, if (readOnly) "read" else "write")
                 }
                 else -> flowOf(null)
             }

@@ -421,7 +421,9 @@ impl Feeds {
         match query {
             Query::Devices => self.devices.clone(),
             Query::Source { name, params } => {
-                domain::app_sources::source_value(name, params, &self.sources.store, self.sources.me.as_deref())
+                // VAPP-206: `exp:me` reads the viewer's app access.
+                let access = self.records.scope.as_ref().map(|s| if s.read_only { "read" } else { "write" });
+                domain::app_sources::source_value_as(name, params, &self.sources.store, self.sources.me.as_deref(), access)
             }
             Query::Records(query) => records_feed_value(&self.records, query, &now_iso()),
         }
