@@ -63,6 +63,7 @@ import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.DockSheetScope
+import com.exponential.app.ui.components.FloatingBarEdge
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.LocalSpecimenPicture
 import com.exponential.app.ui.components.detailHazeSource
@@ -169,15 +170,30 @@ fun PlanPageContent(
                     .testTag(PlanPage.TestIds.OUTLINE_TOGGLE),
             )
         }
-        PlanQuestionsPanel(
-            row = row,
-            onDecidePlan = onDecidePlan,
-            maxHeight = (maxHeight - topInset) * PlanPage.Panel.MAX_HEIGHT_FRACTION,
+        val panelMaxHeight = (maxHeight - topInset) * PlanPage.Panel.MAX_HEIGHT_FRACTION
+        // EXP-1676: the page's ground under the panel, so the document never
+        // shows beneath it (iOS `floatingBarEdge`).
+        FloatingBarEdge(
+            bottomInset = bottomInset,
+            ground = true,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(start = gap, end = gap, bottom = gap + bottomInset)
-                .onSizeChanged { if (it.height != panelHeightPx) panelHeightPx = it.height },
-        )
+                .fillMaxWidth()
+                .padding(bottom = bottomInset),
+        ) {
+            Box(
+                contentAlignment = Alignment.BottomCenter,
+                modifier = Modifier.fillMaxWidth().padding(start = gap, end = gap, bottom = gap),
+            ) {
+                PlanQuestionsPanel(
+                    row = row,
+                    onDecidePlan = onDecidePlan,
+                    maxHeight = panelMaxHeight,
+                    modifier = Modifier
+                        .onSizeChanged { if (it.height != panelHeightPx) panelHeightPx = it.height },
+                )
+            }
+        }
     }
     if (outlineOpen) {
         // Scroll-spy: the last section whose heading passed the top.

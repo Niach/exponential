@@ -1009,6 +1009,8 @@ fun ThreadContent(
                             bottomInset = bottomInset,
                             // An expanded composer card is its own surface.
                             visible = !composerExpanded,
+                            // EXP-1676: the transcript never shows under the band.
+                            ground = true,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
