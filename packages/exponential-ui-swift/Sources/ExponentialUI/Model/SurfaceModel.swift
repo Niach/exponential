@@ -250,16 +250,23 @@ public final class SurfaceModel {
     public func setNested(json: String) throws -> FfiApplyOutcome {
         if var c = Self.benchCounters { c.calls += 1; c.bytesIn += json.utf8.count; Self.benchCounters = c }
         let out = try surface.setNested(nestedJson: json)
+        componentsJSON = "[]"
         paintFailures.removeAll()
         invalidate(structure: true)
         return out
     }
+
+    /// VAPP-240: the flat component list as set, its props still raw (a
+    /// `{path}` binding); empty for a nested surface.
+    public var components: [JSONValue] { JSONValue.parse(componentsJSON).array ?? [] }
+    private var componentsJSON = "[]"
 
     /// A flat component list.
     @discardableResult
     public func setComponents(json: String) throws -> FfiApplyOutcome {
         if var c = Self.benchCounters { c.calls += 1; c.bytesIn += json.utf8.count; Self.benchCounters = c }
         let out = try surface.setComponents(componentsJson: json)
+        componentsJSON = json
         paintFailures.removeAll()
         invalidate(structure: true)
         return out

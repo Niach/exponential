@@ -6,6 +6,7 @@ import at.exponential.ui.extension.ExtensionContext
 import at.exponential.ui.extension.ExtensionLeaf
 import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.host.ExponentialHost
+import at.exponential.ui.host.FilePickRequest
 import at.exponential.ui.host.FunctionCallInfo
 import at.exponential.ui.host.FunctionDecision
 import at.exponential.ui.host.FunctionPolicy
@@ -131,6 +132,19 @@ class HostTest {
         val out = StringBuilder()
         for (b in bytes) out.append(d.decode(byteArrayOf(b), 1))
         assertEquals("21 °C ✓", out.toString())
+    }
+
+    /** VAPP-240: a surface's components read back raw (a `{path}` binding), and a file request names its surface. */
+    @Test
+    fun aSurfaceReadsItsComponentsRaw() {
+        val t = MemoryTransport()
+        val h = host(HostOptions(transport = t))
+        h.connect()
+        t.feed(create())
+        t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"FileUpload","files":{"path":"/draft/files"}}]}}"""))
+        val m = h.surface("s1")!!
+        assertEquals("/draft/files", m.components.first()["files"]?.get("path")?.string)
+        assertEquals("s1", FilePickRequest(m, "root", null, false).surfaceId)
     }
 
     @Test

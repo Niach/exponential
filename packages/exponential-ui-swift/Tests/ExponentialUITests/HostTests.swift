@@ -100,6 +100,19 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(recorder.actions.map(\.name), ["refresh"])
     }
 
+    /// VAPP-240: a surface's components read back raw (a `{path}` binding), and a
+    /// file request names its surface.
+    func testASurfaceReadsItsComponentsRaw() async throws {
+        let host = ExponentialHost(HostOptions())
+        host.receive(create("s1"))
+        host.receive(msg("updateComponents", .object(["surfaceId": .string("s1"), "components": .array([
+            .object(["id": .string("root"), "component": .string("FileUpload"), "files": .object(["path": .string("/draft/files")])]),
+        ])])))
+        let model = try XCTUnwrap(host.surface("s1"))
+        XCTAssertEqual(model.components.first?["files"]?["path"]?.string, "/draft/files")
+        XCTAssertEqual(FilePickRequest(surfaceId: "s1", componentId: "root", accept: nil, multiple: false).surfaceId, "s1")
+    }
+
     func testSourcesBindAndCancel() async throws {
         let transport = MemoryTransport()
         var emits: [String: (JSONValue?) -> Void] = [:]

@@ -513,14 +513,20 @@ class SurfaceModel(
     fun setNested(json: String): FfiApplyOutcome {
         benchCounters?.sent(json.length)
         val out = surface.setNested(json)
+        componentsJson = "[]"
         invalidate(true)
         return out
     }
+
+    /** VAPP-240: the flat component list as set, its props still raw (a `{path}` binding); empty for a nested surface. */
+    val components: List<JsonValue> get() = JsonValue.parse(componentsJson).array.orEmpty()
+    private var componentsJson = "[]"
 
     /** A flat component list. Throws `UiException`. */
     fun setComponents(json: String): FfiApplyOutcome {
         benchCounters?.sent(json.length)
         val out = surface.setComponents(json)
+        componentsJson = json
         invalidate(true)
         return out
     }
