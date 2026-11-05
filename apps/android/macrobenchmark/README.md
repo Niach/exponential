@@ -20,7 +20,7 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
    TMPDIR=/tmp/<you>-tmp/ SCREENSHOT_FEED_QUEUED=1 SCREENSHOT_FEED_REPEAT=40 SCREENSHOT_FEED_NO_QUESTION=1 SCREENSHOT_FEED_TURN_TICKS=3600 bun run screenshots:desktop
    ```
 
-   Leave the stub running: its eNet node serves the 40× scripted feed for the demo session, then one live `turn` tick per second (a working agent's clock, tokens and "Writing…"). `SCREENSHOT_FEED_QUEUED=1` keeps one queued message on the session: since S-3 a waiting plan or question is a story, not a Dock card, so the Dock journeys need this synced card to measure. A stub started without the flag removes it. Give the stub its own `TMPDIR`: every stub otherwise shares one eNet identity, and the app may dial another worktree's stub.
+   Leave the stub running: its eNet node serves the 40× scripted feed for the demo session, then one live `turn` tick per second (a working agent's clock, tokens and "Writing…"). `SCREENSHOT_FEED_QUEUED=1` keeps one queued message on the session: since S-3 a waiting plan or question is not a Dock card, so the Dock journeys need this synced card to measure. A stub started without the flag removes it. Give the stub its own `TMPDIR`: every stub otherwise shares one eNet identity, and the app may dial another worktree's stub.
 2. Web server: the emulator must be a trusted origin. Run vite with `BETTER_AUTH_TRUSTED_ORIGINS` including `http://10.0.2.2:<port>`.
 3. Build and install the app:
 

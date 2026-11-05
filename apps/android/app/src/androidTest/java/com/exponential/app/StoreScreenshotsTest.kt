@@ -246,7 +246,7 @@ class StoreScreenshotsTest {
         flow.settle()
 
         // S-3: the PR review slide (5_review) is retired with the Guide tab
-        // it walked (stories replace the Guide; iOS retired 05_review too).
+        // it walked (the Results tab replaces the Guide; iOS retired 05_review too).
 
         // NEW-7: the Actions slide is gone with the tab (prompts replaced
         // actions: the composer's `/` menu and Settings → Prompts).

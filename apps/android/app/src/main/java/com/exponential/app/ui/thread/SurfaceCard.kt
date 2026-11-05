@@ -70,10 +70,10 @@ fun SurfaceCard(
     animate: Boolean,
     onReply: (String) -> Unit,
     modifier: Modifier = Modifier,
-    /** false = no title caption (the story viewer's header names it). */
+    /** false = no title caption (the host names it). */
     showTitle: Boolean = true,
     /** #EXP-1432: false = THE renderer with NO card chrome (no frame fill,
-     *  hairline, glow or inset: the story viewer's surface frame). */
+     *  hairline, glow or inset). */
     chrome: Boolean = true,
 ) {
     val reduce = LocalReduceMotion.current

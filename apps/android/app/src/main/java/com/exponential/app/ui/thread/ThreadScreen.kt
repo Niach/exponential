@@ -342,7 +342,7 @@ fun ThreadScreen(
     }
 
     // N-12: THE Dock (dock.json): the suggested-tasks rows with an open item
-    // ride the Dock. S-3: a waiting plan or question stays inline (a story).
+    // ride the Dock. S-3: a waiting plan or question stays inline.
     val dockedIds = remember(view) { threadDockedIds(view?.rows.orEmpty()) }
     // #EXP-1464 (thread-row-action.json `open`): a session opens where it
     // lives (inbox-route.json `sessionTarget`, [sessionTargetRoute]): my agent

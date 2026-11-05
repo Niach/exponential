@@ -16,7 +16,7 @@ import org.junit.Test
 
 /**
  * Thread 58cb32df: the chat-list styleguide specimen draws THE FIXTURE ×4 —
- * chats.json `listCases[0].expected` and `bubbleCases[0].expected`, what the
+ * chats.json `listCases[0].expected`, what the
  * web entry and the desktop twin render. The app has no fixture at runtime,
  * so [ChatListSpecimen] spells it and this proves it equal.
  */
@@ -54,14 +54,6 @@ class ChatSpecimenFixtureTest {
                     },
                 ),
             )
-            put(
-                "counts",
-                buildJsonObject {
-                    put("needs_you", list.counts.needsYou)
-                    put("running", list.counts.running)
-                    put("unread", list.counts.unread)
-                },
-            )
             put("archived", list.archived)
         }
         assertEquals(expected, actual)
@@ -77,29 +69,6 @@ class ChatSpecimenFixtureTest {
             ),
             chatSelectionSpecimenActions().map { it.action to it.sessionIds },
         )
-    }
-
-    @Test
-    fun `the bubbles specimen is bubbleCases 0 expected`() {
-        val expected = fixture.getValue("bubbleCases").jsonArray[0].jsonObject.getValue("expected")
-        val actual = JsonArray(
-            ChatListSpecimen.BUBBLES.map { b ->
-                buildJsonObject {
-                    put("agentId", b.agent.agentId)
-                    put("teamId", b.agent.teamId)
-                    put("name", b.agent.name)
-                    put("icon", b.agent.icon)
-                    put("color", b.agent.color)
-                    put("busy", b.agent.busy)
-                    put("needsYou", b.agent.needsYou)
-                    put("assistant", b.agent.assistant)
-                    put("ring", nullable(b.ring?.wire))
-                }
-            },
-        )
-        assertEquals(expected, actual)
-        // The chips read the counts through chatFilterLabel.
-        assertEquals("Needs you 1", Chats.chatFilterLabel(Chats.ChatFilter.NeedsYou, ChatListSpecimen.LIST.counts))
     }
 
     @Test
