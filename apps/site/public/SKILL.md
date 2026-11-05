@@ -115,7 +115,7 @@ notifications).
   starts a child; `{appId, text}` messages the caller's editor session of an
   app. Every transition of a session comes back as a message.
 - **show** (inside a session only, no op): one card per turn (a surface, a
-  question with options, or a plan); cards with pictures are stories, which
+  question with options, or a plan); cards with pictures are results, which
   a PR body shows.
 - **sessions**: `get` (a tree: title, issues, PRs, children, latest
   messages; no id = the caller's own), `list`, `link`, `unlink`,
