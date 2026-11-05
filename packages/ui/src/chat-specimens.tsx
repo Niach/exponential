@@ -400,7 +400,20 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   )
 }
 
-export function ChatTranscriptSpecimen() {
+export function ChatTranscriptSpecimen({ single = false }: { single?: boolean }) {
+  const isMobile = useIsMobile()
+  // The shot (`?dev=chat-transcript`): only the layout this form factor really
+  // draws, as desktop (transcript) and the phones (bubbles) shoot it. The
+  // styleguide entry keeps both labelled, and the enter replay.
+  if (single) {
+    return (
+      <TooltipProvider>
+        <div data-testid="chat-transcript-specimen" className="w-[42rem] max-w-full">
+          <Transcript layout={isMobile ? `bubbles` : `transcript`} />
+        </div>
+      </TooltipProvider>
+    )
+  }
   return (
     <TooltipProvider>
       <div data-testid="chat-transcript-specimen" className="flex flex-wrap items-start gap-6">
