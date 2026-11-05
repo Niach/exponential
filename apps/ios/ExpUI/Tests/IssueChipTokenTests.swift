@@ -90,9 +90,5 @@ final class IssueChipTokenTests: XCTestCase {
         XCTAssertEqual(
             MarkdownStyle.resolvedBodyFont(nil).pointSize, MarkdownStyle.bodyFont.pointSize)
         XCTAssertEqual(DesignTokens.Transcript.bodySize, 14)
-        XCTAssertNotEqual(
-            MarkdownStyle.resolvedBodyFont(DesignTokens.Transcript.bodySize).pointSize,
-            MarkdownStyle.bodyFont.pointSize
-        )
     }
 }

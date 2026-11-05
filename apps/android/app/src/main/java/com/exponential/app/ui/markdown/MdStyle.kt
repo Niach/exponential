@@ -135,8 +135,12 @@ object MdStyle {
     // so one essay-length cell cannot push the rest off the horizontal scroll.
     val tableCellMinWidth = 56.dp
     val tableCellMaxWidth = 280.dp
-    val tableCellPadX = 8.dp
-    val tableCellPadY = 6.dp
+    // Web `th, td` 0.3rem 0.6rem; `.tiptap-chat` 0.2rem 0.45rem at 13px.
+    val tableCellPadX = 9.6.dp
+    val tableCellPadY = 4.8.dp
+    val chatTableCellPadX = 7.2.dp
+    val chatTableCellPadY = 3.2.dp
+    val chatTableFontSize = 13.sp
     val tableBorderWidth = 1.dp
 
     // Mention pill geometry (web `font-size: 0.8125rem; font-weight: 500;

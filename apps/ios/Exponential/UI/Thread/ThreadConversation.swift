@@ -136,7 +136,8 @@ struct ThreadConversationView: View {
             onAnswered: { [$answeredSessions] sessionId in $answeredSessions.wrappedValue.insert(sessionId) }
         )
         let start = windowStart(all, pinned: pinnedStart)
-        LazyVStack(alignment: .leading, spacing: 14) {
+        // S-3: web's `gap-2.5` in bubbles, `gap-4` in a transcript.
+        LazyVStack(alignment: .leading, spacing: bubbles ? 10 : 16) {
             // S-3: who started the viewed session, atop the Conversation.
             if let origin = view.origin {
                 SessionXrefHeader(xref: origin, agent: rows.xrefMark(origin)) { onOpenXref(origin) }
@@ -225,6 +226,7 @@ struct ThreadConversationView: View {
     /// One row with its inputs resolved here (indexed lookups, #EXP-1380).
     private func rowView(_ row: ThreadRow) -> ThreadConversationRow {
         var item = ThreadConversationRow(row: row, teamId: rows.root.teamId, handlers: handlers)
+        item.bubbles = bubbles
         item.arrived = arrived(row.id) && !Self.isSurface(row)
         item.animateSurface = arrived(row.id)
         item.canAnswer = canAnswer
@@ -236,11 +238,12 @@ struct ThreadConversationView: View {
             if author == DomainContract.messageAuthorKindAgent {
                 item.time = at.flatMap(clock)
             } else if author != DomainContract.messageAuthorKindSystem {
-                // EXP-1553 (chats.json TRANSCRIPT ×4): the time (+ queued)
-                // inside the bubble, bottom-right, no name (Android's
-                // `ChatBubble`, web's phone bubble).
+                // EXP-1553 (chats.json CHAT MODE ×4): a chat's bubble has the
+                // time (+ queued) inside it, bottom-right, no name; EXP-1676:
+                // a transcript's caption reads `<name> · <time>` under it.
+                let author = bubbles ? nil : rows.user(id: authorId)
                 item.caption = UserMessageCaption.text(
-                    name: nil,
+                    name: author?.name ?? author?.email,
                     at: at.flatMap { WireTimestamps.parse($0) },
                     queued: queued
                 )
@@ -358,6 +361,9 @@ struct ThreadConversationRow: View, Equatable {
     var animateSurface = false
     var canAnswer = true
     var answeringId: String?
+    /// S-3 CHAT MODE: `bubbles` (an agent conversation) or the transcript's
+    /// rows (a thread, EXP-1676).
+    var bubbles = true
     /// The agent bubble's / divider's `HH:mm`.
     var time: String?
     /// A person's bubble caption (`UserMessageCaption`).
@@ -397,7 +403,7 @@ struct ThreadConversationRow: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row && lhs.teamId == rhs.teamId && lhs.arrived == rhs.arrived
             && lhs.animateSurface == rhs.animateSurface && lhs.canAnswer == rhs.canAnswer
-            && lhs.answeringId == rhs.answeringId && lhs.time == rhs.time && lhs.caption == rhs.caption
+            && lhs.answeringId == rhs.answeringId && lhs.bubbles == rhs.bubbles && lhs.time == rhs.time && lhs.caption == rhs.caption
             && lhs.removable == rhs.removable && lhs.action == rhs.action && lhs.waitingCard == rhs.waitingCard
             && lhs.docked == rhs.docked
             && lhs.pending == rhs.pending && lhs.eventIssue == rhs.eventIssue
@@ -450,10 +456,18 @@ struct ThreadConversationRow: View, Equatable {
             if author == DomainContract.messageAuthorKindSystem {
                 ThreadEventLine(text: body)
             } else if author == DomainContract.messageAuthorKindAgent {
-                // EXP-1373: the agent's text on the left in a card-fill
-                // bubble, its time bottom-right.
-                AgentChatBubble(time: time) {
-                    AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                // EXP-1373: a chat's agent text on the left in a card-fill
+                // bubble, its time bottom-right; EXP-1676: a transcript's is
+                // the plain text (web `thread-agent`).
+                Group {
+                    if bubbles {
+                        AgentChatBubble(time: time) {
+                            AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                        }
+                    } else {
+                        AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .accessibilityIdentifier("thread-message")
             } else {
@@ -462,8 +476,8 @@ struct ThreadConversationRow: View, Equatable {
                     context: markdownContext,
                     caption: caption,
                     onRemove: removable ? { onUnqueue(id) } : nil,
-                    leadingGap: ChatBubbleMetrics.personLeadingGap,
-                    inBubbleCaption: true
+                    leadingGap: bubbles ? ChatBubbleMetrics.personLeadingGap : ChatBubbleMetrics.transcriptLeadingGap,
+                    inBubbleCaption: bubbles
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("thread-message")

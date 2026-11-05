@@ -977,6 +977,7 @@ fun ThreadContent(
                             .imePadding(),
                     ) {
                         ThreadConversation(
+                            bubbles = agent != null,
                             rows = view.rows,
                             rootId = view.rootId,
                             meta = meta,

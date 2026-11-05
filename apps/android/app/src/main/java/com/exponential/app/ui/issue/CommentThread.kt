@@ -202,7 +202,8 @@ fun CommentThread(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Activity",
+                // EXP-1676: web's `Activity (N)`: the drawn events + every comment.
+                (visibleEvents.size + threads.count).let { if (it > 0) "Activity ($it)" else "Activity" },
                 style = MaterialTheme.typography.labelMedium,
                 color = CommentMeta,
                 // Stable hook for the store-screenshot test (mirrors the iOS

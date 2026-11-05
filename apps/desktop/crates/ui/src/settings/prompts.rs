@@ -631,8 +631,6 @@ impl Render for PromptPage {
         if !read_only {
             let disabled = !self.can_submit(cx);
             let off = disabled && !self.submitting;
-            let (primary, primary_foreground) =
-                (cx.theme().primary, cx.theme().primary_foreground);
             form = form.child(
                 h_flex().min_w_0().justify_end().gap_2().child(self.pending.apply(
                     Button::new("prompt-submit")
@@ -641,18 +639,6 @@ impl Render for PromptPage {
                         .web_sm()
                         .label(submit_label(creating))
                         .disabled(off)
-                        // EXP-1557: disabled = the SAME primary button at 50%
-                        // (web Button `disabled:opacity-50`), not the
-                        // component's 15% tint with muted text, which read
-                        // as a different, dark control. The refinement is
-                        // replayed over the component's disabled style.
-                        .when(off, |button| {
-                            button
-                                .bg(primary)
-                                .border_color(primary)
-                                .text_color(primary_foreground)
-                                .opacity(0.5)
-                        })
                         .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
                     crate::feedback::PENDING_SAVE,
                     cx,

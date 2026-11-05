@@ -807,9 +807,10 @@ export interface ThreadConversationProps {
    *  question card STAYS inline at its place with its actions (the dock
    *  holds it too); only the other docked rows (suggestions) leave. */
   docked?: ReadonlySet<string>
-  /** Thread 58cb32df (chats.json TRANSCRIPT): `bubbles` = the phones' chat
-   *  bubbles (the person right, the agent's text left in a bg-card bubble
-   *  with its time, new live bubbles rise in); `transcript` = web wide. */
+  /** chats.json CHAT MODE: `bubbles` = an agent conversation's chat bubbles
+   *  (the person right, the agent's text left in a bg-card bubble with its
+   *  time, new live bubbles rise in); `transcript` = a thread, every form
+   *  factor (EXP-1676). */
   layout?: `transcript` | `bubbles`
   /** A row's `HH:mm` (the bubbles' time). */
   messageTime?: (row: Extract<ThreadRow, { type: `message` }>) => string | null

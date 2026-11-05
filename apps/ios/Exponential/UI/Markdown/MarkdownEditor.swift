@@ -763,7 +763,8 @@ struct BlockTextEditor: UIViewRepresentable {
             // The cell is one line of prose, so the keyboard offers "next" and
             // autocapitalisation stays sentence-shaped like every other block.
             tv.returnKeyType = returnKeyType
-            tv.textContainerInset = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+            // Web `th, td` 0.3rem 0.6rem (UIKit adds its 5pt fragment padding).
+            tv.textContainerInset = UIEdgeInsets(top: 4.8, left: 4.6, bottom: 4.8, right: 4.6)
         } else {
             // Polish P50: a body starts flush with its header (author name,
             // issue title), so UIKit's 5pt line-fragment padding goes.

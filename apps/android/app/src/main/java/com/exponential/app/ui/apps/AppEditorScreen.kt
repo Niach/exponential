@@ -1027,6 +1027,7 @@ private fun AppEditorConversation(
             )
         }
         ThreadConversation(
+            bubbles = true,
             rows = v.rows,
             rootId = v.rootId,
             meta = meta,

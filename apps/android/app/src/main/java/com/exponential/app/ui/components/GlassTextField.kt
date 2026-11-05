@@ -135,9 +135,10 @@ private val GlassFieldRadius = 12.dp
 val GlassFieldShape = RoundedCornerShape(GlassFieldRadius)
 
 /**
- * A trailing-aligned field (the [TextFieldRow] value) puts its placeholder at
- * the SAME edge in the field's own type, like web's `text-right` input and
- * iOS `.multilineTextAlignment(.trailing)`; every other field keeps M3's.
+ * The placeholder draws in the field's OWN type (web's input inherits its
+ * font: EXP-1676, a mono field has a mono placeholder); a trailing-aligned
+ * field (the [TextFieldRow] value) also puts it at the same edge, one line,
+ * like web's `text-right` input and iOS `.multilineTextAlignment(.trailing)`.
  */
 @Composable
 private fun GlassPlaceholder(text: String, fieldStyle: TextStyle) {
@@ -151,7 +152,7 @@ private fun GlassPlaceholder(text: String, fieldStyle: TextStyle) {
             modifier = Modifier.fillMaxWidth(),
         )
     } else {
-        Text(text, color = color)
+        Text(text, style = fieldStyle.copy(color = color))
     }
 }
 

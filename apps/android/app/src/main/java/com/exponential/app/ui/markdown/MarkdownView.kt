@@ -26,6 +26,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.ui.components.ExpCheckbox
 import androidx.compose.ui.Modifier
@@ -47,6 +50,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.exponential.app.domain.PlanCard
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import coil3.compose.AsyncImagePainter
 import com.exponential.app.ui.markdown.model.BlockKind
@@ -411,7 +415,12 @@ private fun ListItemView(
  */
 @Composable
 internal fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier = Modifier) {
-    if (line.chips.isEmpty()) {
+    // EXP-1676: the chat's tinted code span is boxed ×4; a span can paint its
+    // fill but not the hairline (web `.agent-feed code`).
+    val codeSpans = remember(line.text) {
+        line.text.spanStyles.filter { it.item.background == DesignTokens.Semantic.CodeFill }
+    }
+    if (line.chips.isEmpty() && codeSpans.isEmpty()) {
         // EXP-1521: no chip to paint, no layout to keep (most lines).
         Text(text = line.text, style = style, modifier = modifier)
         return
@@ -421,7 +430,23 @@ internal fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier 
         text = line.text,
         style = style,
         onTextLayout = { layout = it },
-        modifier = modifier.drawIssueRefChips(line.chips) { layout },
+        modifier = modifier
+            .drawIssueRefChips(line.chips) { layout }
+            .drawBehind {
+                val result = layout ?: return@drawBehind
+                for (span in codeSpans) {
+                    runCatching {
+                        drawPath(
+                            result.getPathForRange(span.start, span.end),
+                            DesignTokens.Semantic.CodeStroke,
+                            style = Stroke(
+                                width = 1.dp.toPx(),
+                                pathEffect = PathEffect.cornerPathEffect(4.dp.toPx()),
+                            ),
+                        )
+                    }
+                }
+            },
     )
 }
 

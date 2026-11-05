@@ -12,6 +12,8 @@ extension NSAttributedString.Key {
     public static let markdownCodeBlockLang = NSAttributedString.Key("exp.markdownCodeBlockLang")
     public static let markdownBlockquote = NSAttributedString.Key("exp.markdownBlockquote")
     public static let markdownInlineCode = NSAttributedString.Key("exp.markdownInlineCode")
+    /// EXP-1676: a chat's tinted code span: the layout manager draws its hairline.
+    public static let markdownInlineCodeBoxed = NSAttributedString.Key("exp.markdownInlineCodeBoxed")
     public static let markdownImageURL = NSAttributedString.Key("exp.markdownImageURL")
     public static let markdownImageAlt = NSAttributedString.Key("exp.markdownImageAlt")
     public static let markdownStrikethrough = NSAttributedString.Key("exp.markdownStrikethrough")
@@ -84,7 +86,19 @@ public enum MarkdownStyle {
 
     // `nonisolated(unsafe)`: these are immutable font/color constants that
     // never mutate, so opting out of strict-concurrency checking is safe.
-    public nonisolated(unsafe) static let bodyFont = PlatformFont.preferredFont(forTextStyle: .body)
+    /// EXP-1676: web's `.tiptap-content` 14px ×4 (Android `MdStyle.bodySize`),
+    /// through `UIFontMetrics` so it keeps Dynamic Type.
+    public nonisolated(unsafe) static let bodyFont: PlatformFont = {
+        #if canImport(UIKit)
+        UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 14))
+        #else
+        PlatformFont.systemFont(ofSize: 14)
+        #endif
+    }()
+    /// EXP-1676: the leading that makes web's 1.625 line box at 14pt.
+    public static let editorLeading: CGFloat = 6
+    /// EXP-1676: web's `.tiptap-content p` / task `li` 0.5rem rhythm.
+    public static let paragraphGap: CGFloat = 8
     public nonisolated(unsafe) static let textColor = PlatformColor.white.withAlphaComponent(0.9)
     public nonisolated(unsafe) static let linkColor = PlatformColor(red: 0.42, green: 0.64, blue: 1.0, alpha: 1.0)
     public nonisolated(unsafe) static let codeBackground = PlatformColor.white.withAlphaComponent(0.08)
@@ -134,6 +148,9 @@ public enum MarkdownStyle {
     /// Android `MdStyle.TableBorder`/`TableHeaderBg`).
     public nonisolated(unsafe) static let tableBorder = PlatformColor.white.withAlphaComponent(0.16)
     public nonisolated(unsafe) static let tableHeaderBackground = PlatformColor.white.withAlphaComponent(0.06)
+    /// EXP-1676: web's `th` weight as a text stroke: a bold FONT would serialize
+    /// as `**cell**` (the wire reads the bold off the font's traits).
+    public static let tableHeaderStroke: CGFloat = -2.5
     /// Cell width bounds. A cell hugs its content between these — narrower
     /// would make one-character columns unreadable, wider would push the row
     /// off a phone before the horizontal scroller earns its keep.
@@ -193,7 +210,9 @@ public enum MarkdownStyle {
     public static func headingFont(level: Int, bodySize: CGFloat? = nil) -> PlatformFont {
         let sizes: [CGFloat] = [0, 24, 20, 18, 16, 15, 14]
         guard let bodySize else {
-            let size = level >= 1 && level <= 6 ? sizes[level] : bodyFont.pointSize
+            // EXP-1676: web `.tiptap-content h1/h2/h3` (1.25rem, 1.1rem, 1rem).
+            let document: [CGFloat] = [0, 20, 17.6, 16]
+            let size = level >= 1 && level <= 3 ? document[level] : bodyFont.pointSize
             return PlatformFont.systemFont(ofSize: size, weight: .semibold)
         }
         // EXP-1280 (plan-card.json `card.headingScale`, ×4): the display
@@ -223,10 +242,18 @@ public enum MarkdownStyle {
     public static let textInsetY: CGFloat = 4
 
     /// The paragraph style a plain run gets. `lineSpacing` nil is the editors'
-    /// 4pt leading; the transcript passes what its line-height token needs.
+    /// leading; the transcript passes what its line-height token needs.
     public static func paragraphStyle(lineSpacing: CGFloat? = nil) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.lineSpacing = lineSpacing ?? 4
+        style.lineSpacing = lineSpacing ?? editorLeading
+        style.paragraphSpacing = paragraphGap
+        return style
+    }
+
+    /// A code fence's lines pack: the leading, never the paragraph gap.
+    public static func codeBlockParagraphStyle(lineSpacing: CGFloat? = nil) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing ?? editorLeading
         return style
     }
 
@@ -236,7 +263,7 @@ public enum MarkdownStyle {
     /// off `.markdownBlockquote` only.
     public static func blockquoteParagraphStyle(lineSpacing: CGFloat? = nil) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.lineSpacing = lineSpacing ?? 4
+        style.lineSpacing = lineSpacing ?? editorLeading
         style.headIndent = 14
         style.firstLineHeadIndent = 14
         return style
@@ -254,7 +281,8 @@ public enum MarkdownStyle {
 
     public static var baseAttributes: [NSAttributedString.Key: Any] {
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
+        paragraphStyle.lineSpacing = editorLeading
+        paragraphStyle.paragraphSpacing = paragraphGap
         return [
             .font: bodyFont,
             .foregroundColor: textColor,

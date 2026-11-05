@@ -46,7 +46,8 @@ import com.exponential.app.ui.theme.pressScale
  * and no visible hairline (web's dialog footer / the desktop `.primary()`
  * button / iOS `GlassSubmitButton` — one look on all four clients). The old
  * `white.opacity(0.15)` fill read as a disabled control on a #18181B sheet.
- * Disabled is unchanged: `0.06` fill, `0.10` hairline, tertiary label.
+ * EXP-1676: disabled = web's `disabled:opacity-50`: the same paint, whole
+ * button at half.
  */
 @Composable
 fun GlassSubmitButton(
@@ -60,28 +61,16 @@ fun GlassSubmitButton(
     // EXP-1243 (D17): the primary button presses to 0.97.
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val content = if (enabled) {
-        DesignTokens.Palette.PrimaryForeground
-    } else {
-        Color.White.copy(alpha = TextEmphasis.Tertiary)
-    }
+    val content = DesignTokens.Palette.PrimaryForeground
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         modifier = modifier
             .fillMaxWidth()
             .pressScale(pressed && enabled)
+            .alpha(if (enabled) 1f else 0.5f)
             .clip(shape)
-            .background(
-                if (enabled) DesignTokens.Palette.Primary else GlassTokens.CardFill,
-                shape,
-            )
-            .border(
-                GlassTokens.Hairline,
-                // The fill carries the shape on its own once it is opaque.
-                if (enabled) Color.Transparent else GlassTokens.StrokeCard,
-                shape,
-            )
+            .background(DesignTokens.Palette.Primary, shape)
             .then(
                 if (enabled) {
                     Modifier.clickable(

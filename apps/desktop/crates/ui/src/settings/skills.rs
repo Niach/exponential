@@ -659,7 +659,6 @@ impl Render for SkillPage {
         let mut form = v_flex().min_w_0().gap_3().child(identity).child(body).child(default_group);
         if !read_only {
             let off = !self.can_submit(cx) && !self.submitting;
-            let (primary, primary_foreground) = (cx.theme().primary, cx.theme().primary_foreground);
             form = form.child(
                 h_flex().min_w_0().justify_end().gap_2().child(self.pending.apply(
                     Button::new("skill-submit")
@@ -668,10 +667,6 @@ impl Render for SkillPage {
                         .web_sm()
                         .label(spec::SAVE)
                         .disabled(off)
-                        // The prompt page's disabled face (EXP-1557).
-                        .when(off, |button| {
-                            button.bg(primary).border_color(primary).text_color(primary_foreground).opacity(0.5)
-                        })
                         .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
                     crate::feedback::PENDING_SAVE,
                     cx,

@@ -2,11 +2,13 @@ package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -15,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.text.font.FontWeight
@@ -40,8 +43,8 @@ import com.exponential.app.ui.markdown.model.TableData
 @Composable
 internal fun TableBlockView(table: TableData, issueRefs: IssueRefHandler?) {
     if (table.columnCount == 0) return
-    TableScrollBox {
-        TableGridLayout(columnCount = table.columnCount, rowCount = table.rows.size + 1) {
+    TableScrollBox { viewport ->
+        TableGridLayout(columnCount = table.columnCount, rowCount = table.rows.size + 1, viewport = viewport) {
             for (col in 0 until table.columnCount) {
                 TableReadCell(table.header.getOrNull(col), table.alignmentAt(col), header = true, issueRefs)
             }
@@ -65,12 +68,12 @@ internal fun TableRowEditView(model: EditorModel, row: EditorRow.Table) {
     val table = row.table
     if (table.columnCount == 0) return
     val toolbar = rememberTableCellTextToolbar { model.deleteTableRow(row.id) }
-    TableScrollBox {
+    TableScrollBox { viewport ->
         CompositionLocalProvider(LocalTextToolbar provides toolbar) {
-            TableGridLayout(columnCount = table.columnCount, rowCount = table.rows.size + 1) {
+            TableGridLayout(columnCount = table.columnCount, rowCount = table.rows.size + 1, viewport = viewport) {
                 for (col in 0 until table.columnCount) {
                     val cell = table.header.getOrNull(col) ?: continue
-                    key(cell.id) { TableCellField(model, cell) }
+                    key(cell.id) { TableCellField(model, cell, header = true) }
                 }
                 for (bodyRow in table.rows) {
                     for (col in 0 until table.columnCount) {
@@ -83,15 +86,27 @@ internal fun TableRowEditView(model: EditorModel, row: EditorRow.Table) {
     }
 }
 
-/** A table wider than the surface scrolls sideways rather than squeezing its columns. */
+/**
+ * A table wider than the surface scrolls sideways rather than squeezing its
+ * columns; a narrower one fills it (web `table { width: 100% }`, EXP-1676).
+ * The column's width reaches the grid as state, read in its measure pass (no
+ * subcomposition: a table can sit in a row that asks intrinsics).
+ */
 @Composable
-private fun TableScrollBox(content: @Composable () -> Unit) {
+private fun TableScrollBox(content: @Composable (viewport: () -> Int) -> Unit) {
+    val viewport = remember { mutableIntStateOf(0) }
     Box(
         modifier = Modifier
+            .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .layout { measurable, constraints ->
+                if (constraints.hasBoundedWidth) viewport.intValue = constraints.maxWidth
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+            }
             .horizontalScroll(rememberScrollState()),
     ) {
-        content()
+        content { viewport.intValue }
     }
 }
 
@@ -110,16 +125,19 @@ private fun TableReadCell(
     val body = LocalMarkdownBodyStyle.current
     val text = cell?.text.orEmpty()
     val marks = cell?.marks.orEmpty()
+    // Web's `.tiptap-chat` table: 13px, tighter cells; a document's keeps 14.
+    val chat = body != MdStyle.body
     ChipText(
         line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
         // EXP-787: a table reads at whatever body measure is in force.
         style = body.copy(
+            fontSize = if (chat) MdStyle.chatTableFontSize else body.fontSize,
             fontWeight = if (header) FontWeight.SemiBold else null,
             textAlign = alignment.toTextAlign(),
         ),
         modifier = Modifier.padding(
-            horizontal = MdStyle.tableCellPadX,
-            vertical = MdStyle.tableCellPadY,
+            horizontal = if (chat) MdStyle.chatTableCellPadX else MdStyle.tableCellPadX,
+            vertical = if (chat) MdStyle.chatTableCellPadY else MdStyle.tableCellPadY,
         ),
     )
 }
@@ -131,7 +149,7 @@ private fun TableReadCell(
  * works unchanged and the model recognises the id as a cell.
  */
 @Composable
-private fun TableCellField(model: EditorModel, cell: TableCell) {
+private fun TableCellField(model: EditorModel, cell: TableCell, header: Boolean = false) {
     val run = remember(cell.id, cell.text, cell.marks) {
         EditorRow.TextRun(
             id = cell.id,
@@ -145,6 +163,7 @@ private fun TableCellField(model: EditorModel, cell: TableCell) {
         row = run,
         placeholder = null,
         singleLine = true,
+        header = header,
         modifier = Modifier.padding(
             horizontal = MdStyle.tableCellPadX,
             vertical = MdStyle.tableCellPadY,
@@ -170,7 +189,8 @@ internal data class TableGeometry(
  * row. A column is as wide as its widest cell's intrinsic width, floored at
  * [MdStyle.tableCellMinWidth] and capped at [MdStyle.tableCellMaxWidth] so one
  * essay-length cell cannot push every other column out of reach; a row is as
- * tall as its tallest cell. The hairline grid and the header tint are painted
+ * tall as its tallest cell; a table narrower than [viewport] shares the rest
+ * in proportion to the columns' widths (CSS `table-layout: auto; width: 100%`). The hairline grid and the header tint are painted
  * behind the cells from the measured geometry, which is why an editable cell
  * (whose own height grows as it wraps) still gets a continuous border.
  */
@@ -179,6 +199,7 @@ internal fun TableGridLayout(
     columnCount: Int,
     rowCount: Int,
     modifier: Modifier = Modifier,
+    viewport: () -> Int = { 0 },
     content: @Composable () -> Unit,
 ) {
     val geometry = remember { mutableStateOf(TableGeometry()) }
@@ -199,6 +220,16 @@ internal fun TableGridLayout(
             val natural = measurable.maxIntrinsicWidth(Constraints.Infinity)
                 .coerceIn(minCellWidth, maxCellWidth)
             if (natural > widths[col]) widths[col] = natural
+        }
+        val natural = widths.sum()
+        val spare = viewport() - natural
+        if (spare > 0 && natural > 0) {
+            var given = 0
+            for (col in 0 until columnCount) {
+                val share = if (col == columnCount - 1) spare - given else spare * widths[col] / natural
+                given += share
+                widths[col] += share
+            }
         }
         val placeables = measurables.mapIndexed { index, measurable ->
             val width = widths[index % columnCount]

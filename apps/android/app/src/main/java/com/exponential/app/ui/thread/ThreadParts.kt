@@ -1001,6 +1001,10 @@ fun ThreadConversation(
      *  the bubbles' times ([meta]) and the divider pills share, so both read
      *  the same zone; a host formatting its bubbles otherwise passes its own. */
     clock: (wire: String) -> String? = ::clockTime,
+    /** S-3 CHAT MODE (session-thread.json `chatModeCases`): an agent's (or
+     *  app editor's) conversation paints chat bubbles; a thread keeps the
+     *  transcript's rows (EXP-1676). */
+    bubbles: Boolean = false,
 ) {
     // #EXP-1464 (thread-row-action.json): the expanded session rows (by row
     // id) and the sessions the viewer answered from one (client-held).
@@ -1097,7 +1101,8 @@ fun ThreadConversation(
             state = state,
             modifier = Modifier.fillMaxSize().testTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
             contentPadding = contentPadding,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            // S-3: web's `gap-2.5` in bubbles, `gap-4` in a transcript.
+            verticalArrangement = Arrangement.spacedBy(if (bubbles) 10.dp else 16.dp),
         ) {
             if (origin != null) {
                 item(key = "__origin__") { SessionXref(origin, onOpenXref) }
@@ -1117,10 +1122,11 @@ fun ThreadConversation(
             items(painted, key = { it.id }) { row ->
                 Box(Modifier.liveArrival(arrivals(row.id))) {
                 when (row) {
-                    // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the
-                    // conversation as CHAT BUBBLES, a thread and an agent's
-                    // chat alike: the person's on the right, the agent's in a
-                    // card-fill bubble on the left, each with its time.
+                    // chats.json CHAT MODE: an agent's chat paints CHAT BUBBLES:
+                    // the person's on the right, the agent's in a card-fill
+                    // bubble on the left, each with its time. EXP-1676: a
+                    // thread paints the transcript's rows: the agent's plain
+                    // text, the person's bubble over `<name> · <time>`.
                     is SessionTree.ThreadRow.MessageRow -> {
                         val rowMeta = meta(row)
                         // S-3: a row from ANOTHER session = its link header
@@ -1132,13 +1138,35 @@ fun ThreadConversation(
                         ) {
                             row.xref?.let { SessionXref(it, onOpenXref) }
                             when (row.author) {
-                                "user", "agent" -> ChatBubble(
-                                    text = row.body,
-                                    fromPerson = row.author == "user",
-                                    time = rowMeta?.time,
-                                    queued = row.queued,
-                                    onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
-                                )
+                                "agent" -> if (bubbles) {
+                                    ChatBubble(text = row.body, fromPerson = false, time = rowMeta?.time)
+                                } else {
+                                    MarkdownView(
+                                        markdown = row.body,
+                                        softBreaksAsNewlines = true,
+                                        modifier = Modifier.fillMaxWidth().testTag("thread-agent-message"),
+                                    )
+                                }
+                                "user" -> {
+                                    val unqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null
+                                    if (bubbles) {
+                                        ChatBubble(
+                                            text = row.body,
+                                            fromPerson = true,
+                                            time = rowMeta?.time,
+                                            queued = row.queued,
+                                            onUnqueue = unqueue,
+                                        )
+                                    } else {
+                                        TranscriptPersonBubble(
+                                            text = row.body,
+                                            name = rowMeta?.authorName,
+                                            time = rowMeta?.time,
+                                            queued = row.queued,
+                                            onUnqueue = unqueue,
+                                        )
+                                    }
+                                }
                                 else -> ThreadEventLine(row.body)
                             }
                         }
@@ -1620,6 +1648,63 @@ fun ChatBubble(
                         color = Muted,
                         maxLines = 1,
                         modifier = Modifier.testTag(if (queued) "thread-message-queued" else "chat-bubble-time"),
+                    )
+                    if (onUnqueue != null) UnqueueButton(onUnqueue)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * EXP-1676: the person's row in a thread's transcript (web `UserMessageBubble`
+ * variant transcript): right, max 70%, the glass fill under the strong
+ * hairline, the muted caption `<name> · <time>` (+ ` · queued` and the revoke
+ * ✕) UNDER the bubble.
+ */
+@Composable
+private fun TranscriptPersonBubble(
+    text: String,
+    name: String?,
+    time: String?,
+    queued: Boolean,
+    onUnqueue: (() -> Unit)?,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val column = maxWidth
+        val shape = RoundedCornerShape(12.dp)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = column * 0.7f)
+                    .clip(shape)
+                    .background(GlassTokens.RowFillActive, shape)
+                    .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("thread-message-bubble"),
+            ) {
+                MarkdownView(markdown = text, softBreaksAsNewlines = true)
+            }
+            val caption = listOfNotNull(
+                name?.takeIf { it.isNotEmpty() },
+                time?.takeIf { it.isNotEmpty() },
+                ThreadUiCopy.QUEUED.takeIf { queued },
+            ).joinToString(" · ")
+            if (caption.isNotEmpty() || onUnqueue != null) {
+                Row(
+                    modifier = Modifier.padding(end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        caption,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Muted,
+                        maxLines = 1,
+                        modifier = Modifier.testTag(if (queued) "thread-message-queued" else "user-message-caption"),
                     )
                     if (onUnqueue != null) UnqueueButton(onUnqueue)
                 }
