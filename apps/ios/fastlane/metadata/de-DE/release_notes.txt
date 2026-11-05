@@ -30,3 +30,4 @@
 - Links in Chats und Karten öffnen den richtigen Bildschirm in der App
 - Ein geschlossenes App-Formular bleibt zu; ein Tippen auf eine Zeile öffnet den Eintrag
 - Zeitleisten und breite Tabellen in Apps sind auf schmalen Handys gut lesbar
+- Der Plan einer Sitzung bleibt mit seiner Tab-Leiste geöffnet

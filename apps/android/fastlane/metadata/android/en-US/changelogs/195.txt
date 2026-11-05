@@ -1,0 +1,2 @@
+- A session's plan stays open, with its tab strip
+- Long answers wrap inside their card

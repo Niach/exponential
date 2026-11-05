@@ -30,3 +30,4 @@
 - Odkazy v chatech a kartách otevírají správnou obrazovku v aplikaci
 - Zavřený formulář aplikace zůstane zavřený; klepnutí na řádek otevře záznam
 - Časové osy a široké tabulky v aplikacích jsou na úzkých telefonech čitelné
+- Plán sezení zůstane otevřený i s pruhem karet

@@ -30,3 +30,4 @@
 - Linkit keskusteluissa ja korteissa avaavat oikean näkymän sovelluksessa
 - Suljettu lomake pysyy suljettuna; rivin napautus avaa tietueen
 - Aikajanat ja leveät taulukot ovat luettavia kapeilla puhelimilla
+- Istunnon suunnitelma pysyy auki välilehtipalkkeineen

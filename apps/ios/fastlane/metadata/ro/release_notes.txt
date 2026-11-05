@@ -30,3 +30,4 @@
 - Linkurile din chaturi și carduri deschid ecranul potrivit în aplicație
 - Un formular închis rămâne închis; atingerea unui rând deschide înregistrarea
 - Cronologiile și tabelele late se citesc bine pe telefoane înguste
+- Planul unei sesiuni rămâne deschis, cu bara de file
