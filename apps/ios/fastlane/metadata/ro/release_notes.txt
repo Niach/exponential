@@ -31,3 +31,7 @@
 - Un formular închis rămâne închis; atingerea unui rând deschide înregistrarea
 - Cronologiile și tabelele late se citesc bine pe telefoane înguste
 - Planul unei sesiuni rămâne deschis, cu bara de file
+- Poveștile dispar: fila Rezultate păstrează ce ți-au arătat agenții
+- Are nevoie de tine adună planurile și întrebările care te așteaptă
+- Lista de chaturi este grupată, fără cercuri și filtre
+- Proprietarii echipei aleg ce server MCP deservește fiecare conexiune a unei aplicații

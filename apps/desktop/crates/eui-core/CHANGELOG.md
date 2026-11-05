@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.3 (2026-11-05)
+
+- The icon list follows the app: `thread-stories` is gone, `thread-results` and `nav-needs-you` are new (FEED-191).
+
 ## 0.15.2 (2026-11-04)
 
 - EXP-1691: a built-in `$string.<id>` message on a `checks` entry resolves through the surface's strings; a Markdown's text asks the host's `textLinks` hook (`#IDENT` links). VAPP-250: the narrow-phone Timeline and 3-column Table layouts.

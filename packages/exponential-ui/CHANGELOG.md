@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.3 (2026-11-05)
+
+- The icon list follows the app: `thread-stories` is gone, `thread-results` and `nav-needs-you` are new (FEED-191).
+
 ## 0.15.2 (2026-11-04)
 
 - VAPP-250: readable on narrow phones. `Timeline` on the phone form factor keeps every column at least 72 wide inside one horizontal scroller (bands, columns and rows together), with the 96-wide label column and its header corners pinned; wide keeps the fr columns. `tableColumnMin` drops from 120 to 96, so a three-column Table fits a 360 pt phone; wider tables still scroll. A `position: sticky` node now paints above its siblings on web too (`z-index: 1`), as the natives already did.

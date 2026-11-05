@@ -31,3 +31,7 @@
 - Een gesloten formulier blijft dicht; een tik op een rij opent het record
 - Tijdlijnen en brede tabellen zijn goed leesbaar op smalle telefoons
 - Het plan van een sessie blijft open, met zijn tabbalk
+- Verhalen zijn weg: het tabblad Resultaten bewaart wat agents je lieten zien
+- Heeft je nodig verzamelt de plannen en vragen die op je wachten
+- De chatlijst is gegroepeerd, zonder cirkels of filterchips
+- Teameigenaren kiezen welke MCP-server elke verbinding van een app invult

@@ -31,3 +31,7 @@
 - Ett stängt formulär förblir stängt; ett tryck på en rad öppnar posten
 - Tidslinjer och breda tabeller går att läsa på smala telefoner
 - En sessions plan förblir öppen med sitt flikfält
+- Berättelser är borta: Resultat-fliken sparar det agenterna visade dig
+- Behöver dig samlar planer och frågor som väntar på dig
+- Chattlistan är grupperad, utan cirklar och filterchips
+- Teamägare väljer vilken MCP-server som fyller varje anslutning i en app

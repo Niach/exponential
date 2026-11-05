@@ -31,3 +31,7 @@
 - Et lukket skjema forblir lukket; et trykk på en rad åpner posten
 - Tidslinjer og brede tabeller kan leses på smale telefoner
 - En økts plan forblir åpen med fanelinjen
+- Historier er borte: Resultater-fanen tar vare på det agentene viste deg
+- Trenger deg samler planer og spørsmål som venter på deg
+- Chatlisten er gruppert, uten sirkler og filterbrikker
+- Teameiere velger hvilken MCP-server som dekker hver av en apps tilkoblinger

@@ -31,3 +31,7 @@
 - Un modulo chiuso resta chiuso; toccare una riga apre il record
 - Timeline e tabelle larghe si leggono bene sui telefoni stretti
 - Il piano di una sessione resta aperto, con la sua barra delle schede
+- Le storie spariscono: la scheda Risultati tiene ciò che ti hanno mostrato gli agenti
+- Ti aspetta raccoglie i piani e le domande che attendono te
+- L'elenco chat è raggruppato, senza cerchi né filtri
+- I proprietari scelgono quale server MCP del team serve ogni connessione di un'app

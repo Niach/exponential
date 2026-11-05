@@ -31,3 +31,7 @@
 - Un formulaire fermé reste fermé ; toucher une ligne ouvre l'élément
 - Les frises et tableaux larges se lisent bien sur les téléphones étroits
 - Le plan d'une session reste ouvert, avec sa barre d'onglets
+- Les stories disparaissent : l'onglet Résultats garde ce que les agents vous ont montré
+- Vous attend regroupe les plans et questions qui vous attendent
+- La liste des chats est groupée, sans cercles ni filtres
+- Les propriétaires choisissent quel serveur MCP de l'équipe sert chaque connexion d'une app

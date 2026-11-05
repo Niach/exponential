@@ -31,3 +31,7 @@
 - Zamknięty formularz pozostaje zamknięty; dotknięcie wiersza otwiera rekord
 - Osie czasu i szerokie tabele są czytelne na wąskich telefonach
 - Plan sesji pozostaje otwarty wraz z paskiem kart
+- Relacje zniknęły: karta Wyniki zachowuje to, co pokazali ci agenci
+- Potrzebuje cię zbiera plany i pytania, które na ciebie czekają
+- Lista czatów jest pogrupowana, bez kółek i filtrów
+- Właściciele zespołu wybierają, który serwer MCP obsługuje każde połączenie aplikacji

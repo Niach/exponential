@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.3 (2026-11-05)
+
+- The icon list follows the app: `thread-stories` is gone, `thread-results` and `nav-needs-you` are new (FEED-191).
+
 ## 0.15.2 (2026-11-04)
 
 - VAPP-250: a scroll container clips at its padding box, so what scrolls never shows through its border or beside a node pinned at the padding edge.

@@ -31,3 +31,7 @@
 - Um formulário fechado continua fechado; tocar numa linha abre o registo
 - Cronologias e tabelas largas leem-se bem em telemóveis estreitos
 - O plano de uma sessão fica aberto, com a sua barra de separadores
+- As histórias desaparecem: o separador Resultados guarda o que os agentes te mostraram
+- Precisa de ti reúne os planos e perguntas à tua espera
+- A lista de chats está agrupada, sem círculos nem filtros
+- Os proprietários escolhem que servidor MCP serve cada ligação de uma app

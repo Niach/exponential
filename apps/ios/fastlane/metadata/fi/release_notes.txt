@@ -31,3 +31,7 @@
 - Suljettu lomake pysyy suljettuna; rivin napautus avaa tietueen
 - Aikajanat ja leveät taulukot ovat luettavia kapeilla puhelimilla
 - Istunnon suunnitelma pysyy auki välilehtipalkkeineen
+- Tarinat poistuvat: keskustelun Tulokset-välilehti säilyttää, mitä agentit näyttivät
+- Tarvitsee sinua kokoaa sinua odottavat suunnitelmat ja kysymykset
+- Keskustelulista on ryhmitelty, ilman ympyröitä ja suodattimia
+- Tiimin omistajat valitsevat, mikä MCP-palvelin hoitaa kunkin sovelluksen yhteyden

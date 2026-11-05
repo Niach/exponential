@@ -1,0 +1,4 @@
+- Stories are gone: a chat's Results tab keeps what its agents showed you
+- Needs you collects the plans and questions waiting on you
+- The chat list is grouped, with no circles or filter chips
+- Team owners pick which team MCP server fills each app connection

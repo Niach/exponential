@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.3 (2026-11-05)
+
+- The icon list follows the app: `thread-stories` is gone, `thread-results` and `nav-needs-you` are new (FEED-191).
+
 ## 0.15.2 (2026-11-04)
 
 - No API of its own; carries the core's `$string` checks, Markdown text links and narrow-phone layouts.
