@@ -3794,6 +3794,8 @@
         "root",
         "unknown",
         "fields",
+        "authorField",
+        "author",
         "field",
         "text",
         "textarea",
@@ -3806,6 +3808,7 @@
         "day",
         "clock",
         "chips",
+        "error",
         "actions"
       ],
       "props": []

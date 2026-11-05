@@ -11,6 +11,7 @@ import type { AppPackage } from "./package"
 import { RECORDS_SCHEME, parseRecordsSource, recordsValue, type RecordRow, type RecordsContext } from "./query"
 import { validateRecord, withoutNulls } from "./records"
 import { RECORDS_BATCH_FUNCTION, applyRecordBatch, type ActionWrite } from "./actions"
+import { RecordRefusal } from "./record-macros"
 import type { SourceResolver } from "./sources"
 
 /** The write functions (no consent card: the app's own rows). */
@@ -121,7 +122,7 @@ export function recordsHost(
         if (id && !base) throw new Error(`record ${id} not found`)
         const kind = base?.kind ?? String(args.kind ?? ``)
         const issues = validateRecord(schemaOf(kind), base ? { ...base.data, ...data } : data)
-        if (issues.length) throw new Error(`records: ${issues.map((i) => `${i.path || `/`} ${i.message}`).join(`; `)}`)
+        if (issues.length) throw new RecordRefusal(`records: ${issues.map((i) => `${i.path || `/`} ${i.message}`).join(`; `)}`)
         return store.upsert({ kind, data, ...(id ? { id } : {}) })
       },
       "records.delete": async (args) => {

@@ -4504,6 +4504,25 @@
           "type": "boolean",
           "default": false,
           "host": true
+        },
+        "error": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "author": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "authorOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "bindable": true,
+          "host": true
         }
       },
       "events": [
@@ -4600,6 +4619,25 @@
         "missing": {
           "type": "boolean",
           "default": false,
+          "host": true
+        },
+        "error": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "author": {
+          "type": "string",
+          "bindable": true,
+          "host": true
+        },
+        "authorOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "bindable": true,
           "host": true
         }
       }

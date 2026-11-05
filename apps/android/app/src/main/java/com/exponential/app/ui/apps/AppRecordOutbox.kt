@@ -100,7 +100,8 @@ class AppRecordOutbox @Inject constructor(
     /** A host call's answer: landed (the server's answer), refused, or queued (answer from the entry). */
     sealed class Answer {
         data class Done(val upsert: AppRecordUpsertResult? = null, val batch: AppRecordBatchResult? = null) : Answer()
-        data class Refused(val message: String?) : Answer()
+        /** [invalid] = invalid input (BAD_REQUEST): a record form shows it inline. */
+        data class Refused(val message: String?, val invalid: Boolean = false) : Answer()
         data object Queued : Answer()
     }
 
@@ -109,6 +110,7 @@ class AppRecordOutbox @Inject constructor(
         val upsert: AppRecordUpsertResult? = null,
         val batch: AppRecordBatchResult? = null,
         val message: String? = null,
+        val invalid: Boolean = false,
     )
 
     /** Flush at launch, on a sign-in, when an account's sync comes back and on every sync kick. */
@@ -175,7 +177,7 @@ class AppRecordOutbox @Inject constructor(
         val sent = waiter.await()
         return when (sent.outcome) {
             AppRecords.OutboxOutcome.DONE -> Answer.Done(sent.upsert, sent.batch)
-            AppRecords.OutboxOutcome.REFUSED -> Answer.Refused(sent.message)
+            AppRecords.OutboxOutcome.REFUSED -> Answer.Refused(sent.message, sent.invalid)
             else -> Answer.Queued
         }
     }
@@ -249,7 +251,11 @@ class AppRecordOutbox @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            Sent(AppRecords.outboxOutcome(entry, resultOf(e)), message = e.message)
+            Sent(
+                AppRecords.outboxOutcome(entry, resultOf(e)),
+                message = e.message,
+                invalid = e is TrpcException && (e.code == "BAD_REQUEST" || (e.code == null && e.status?.value == 400)),
+            )
         }
     }
 

@@ -15328,6 +15328,51 @@
               "description": "Filled by the host.",
               "default": false
             },
+            "error": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "Filled by the host."
+            },
+            "author": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "Filled by the host."
+            },
+            "authorOptions": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/option"
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "Filled by the host."
+            },
             "on": {
               "type": "object",
               "properties": {
@@ -15512,6 +15557,51 @@
               "type": "boolean",
               "description": "Filled by the host.",
               "default": false
+            },
+            "error": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "Filled by the host."
+            },
+            "author": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "Filled by the host."
+            },
+            "authorOptions": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/option"
+                  }
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "Filled by the host."
             },
             "style": {
               "$ref": "#/$defs/Style"

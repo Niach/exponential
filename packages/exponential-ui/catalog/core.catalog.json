@@ -5949,6 +5949,28 @@
           "default": false,
           "description": "Filled by the host.",
           "host": true
+        },
+        "error": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "author": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "authorOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
         }
       },
       "events": [
@@ -6130,6 +6152,28 @@
         "missing": {
           "type": "boolean",
           "default": false,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "error": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "author": {
+          "type": "string",
+          "bindable": true,
+          "description": "Filled by the host.",
+          "host": true
+        },
+        "authorOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "option"
+          },
+          "bindable": true,
           "description": "Filled by the host.",
           "host": true
         }

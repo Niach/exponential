@@ -29,6 +29,17 @@ pub const RECORD_MENU_WIDTH: i64 = 80;
 pub const RECORD_LONG_TEXT: f64 = 200.0;
 pub const RECORD_FORM_ROOT: &str = "/recordForm";
 pub const RECORD_TABLE_ROOT: &str = "/recordTable";
+/// The team's members and issues the macros' Selects read (one binding per
+/// surface, outside the package's `sources`: the macro's own).
+pub const RECORD_MEMBERS_PATH: &str = "/recordMembers";
+pub const RECORD_ISSUES_PATH: &str = "/recordIssues";
+const MEMBERS_SOURCE: &str = "exp:members";
+const ISSUES_SOURCE: &str = "exp:issues";
+
+/// A record macro's own source at its own path passes any `sources`.
+pub fn is_record_macro_binding(path: &str, source: &str) -> bool {
+    (path == RECORD_MEMBERS_PATH && source == MEMBERS_SOURCE) || (path == RECORD_ISSUES_PATH && source == ISSUES_SOURCE)
+}
 
 /// `closeDate` / `close_date` → `Close date`.
 pub fn field_label(name: &str) -> String {
@@ -111,7 +122,8 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
         let mut widget = "text";
         if reference == Some("member") || reference == Some("issue") {
             widget = "select";
-            o.insert("source".into(), json!(if reference == Some("member") { "exp:members" } else { "exp:issues" }));
+            let list = if reference == Some("member") { RECORD_MEMBERS_PATH } else { RECORD_ISSUES_PATH };
+            o.insert("options".into(), json!({"path": format!("{list}/rows")}));
             o.insert("searchable".into(), json!(true));
         } else if ty == "boolean" {
             widget = "switch";
@@ -244,8 +256,39 @@ fn date_time_value(f: &Value) -> Value {
     json!({"call": "cond", "args": {"if": f.get("date"), "then": {"call": "dateTime", "args": {"date": f.get("date"), "time": f.get("time")}}, "else": f.get("value")}})
 }
 
+fn my_id() -> Value {
+    json!({"path": format!("{RECORD_MEMBERS_PATH}/me")})
+}
+
+/// The Author Select's options: the members for a team owner, else none (so
+/// no picker).
+fn author_options() -> Value {
+    let rows = json!({"path": format!("{RECORD_MEMBERS_PATH}/rows")});
+    let mine = json!({"call": "filter", "args": {"items": rows, "where": {"id": my_id(), "role": "owner"}}});
+    json!({"call": "cond", "args": {"if": {"call": "lt", "args": {"a": 0, "b": {"call": "len", "args": {"value": mine}}}}, "then": rows, "else": null}})
+}
+
+/// The form's `author`: an owner's pick, only when it moved off the record's
+/// author (domain-contract app-records.json `formAuthor`), else nothing.
+fn author_arg(path: &str) -> Value {
+    let picked = json!({"path": format!("{path}Author")});
+    let base = json!({"path": format!("{path}AuthorBase")});
+    json!({"call": "cond", "args": {"if": author_options(), "then": {"call": "cond", "args": {"if": {"call": "or", "args": {"values": [{"call": "not", "args": {"value": picked}}, {"call": "eq", "args": {"a": picked, "b": base}}]}}, "then": null, "else": picked}}, "else": null}})
+}
+
+fn has_issue_ref(fields: &[Value]) -> bool {
+    let rows = format!("{RECORD_ISSUES_PATH}/rows");
+    fields.iter().any(|f| f.get("options").and_then(|o| o.get("path")).and_then(Value::as_str) == Some(rows.as_str()))
+}
+
+fn bind_once(binds: &mut Vec<Value>, source: &str, path: &str) {
+    if !binds.iter().any(|b| b.get("path").and_then(Value::as_str) == Some(path)) {
+        binds.push(json!({"path": path, "source": source}));
+    }
+}
+
 /// Opens the editor on a row: the draft = the row, a date-time's parts = its
-/// day and time in the team zone.
+/// day and time in the team zone, the Author = the row's.
 fn edit_action(base: &str, fields: &[Value]) -> Value {
     let mut parts = Map::new();
     for f in fields {
@@ -253,14 +296,14 @@ fn edit_action(base: &str, fields: &[Value]) -> Value {
         let value = json!({"path": name});
         parts.insert(name.into(), json!({"date": {"call": "formatDate", "args": {"value": value, "format": "yyyy-MM-dd"}}, "time": {"call": "formatDate", "args": {"value": value, "format": "HH:mm"}}}));
     }
-    let mut editor = json!({"open": true, "draft": {"path": ""}});
+    let mut editor = json!({"open": true, "draft": {"path": ""}, "draftAuthor": {"call": "coalesce", "args": {"values": [{"path": "authorId"}, my_id()]}}, "draftAuthorBase": {"path": "authorId"}});
     if !parts.is_empty() {
         editor["draftParts"] = Value::Object(parts);
     }
     set(&format!("{base}/editor"), editor)
 }
 
-fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>) -> Value {
+fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>, path: &str, close: Option<&str>) -> Value {
     let mut data = Map::new();
     for f in fields {
         if let (Some(name), Some(value)) = (f.get("name").and_then(Value::as_str), f.get("value")) {
@@ -277,6 +320,12 @@ fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>) -> Val
         args.insert("id".into(), id.clone());
     }
     args.insert("data".into(), Value::Object(data));
+    args.insert("author".into(), author_arg(path));
+    let mut form = json!({"error": format!("{path}Error")});
+    if let Some(close) = close {
+        form["close"] = json!(close);
+    }
+    args.insert("form".into(), form);
     json!({"functionCall": {"call": "records.upsert", "args": args}})
 }
 
@@ -319,8 +368,17 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
             if read_only {
                 node.insert("readOnly".into(), json!(true));
             }
+            if node.get("readOnly") != Some(&Value::Bool(true)) {
+                node.insert("error".into(), json!({"path": format!("{path}Error")}));
+                node.insert("author".into(), json!({"path": format!("{path}Author")}));
+                node.insert("authorOptions".into(), author_options());
+                bind_once(&mut binds, MEMBERS_SOURCE, RECORD_MEMBERS_PATH);
+            }
+            if has_issue_ref(&fields) {
+                bind_once(&mut binds, ISSUES_SOURCE, RECORD_ISSUES_PATH);
+            }
             let record_id = node.get("recordId").cloned();
-            set_on(&mut node, "submit", upsert_action(&kind_name, &fields, record_id.as_ref()));
+            set_on(&mut node, "submit", upsert_action(&kind_name, &fields, record_id.as_ref(), &path, None));
             out.push(Value::Object(node));
             continue;
         }
@@ -343,13 +401,20 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         if editable {
             node.insert("fields".into(), Value::Array(fields.clone()));
             node.insert("path".into(), json!(draft));
+            node.insert("error".into(), json!({"path": format!("{draft}Error")}));
+            node.insert("author".into(), json!({"path": format!("{draft}Author")}));
+            node.insert("authorOptions".into(), author_options());
+            bind_once(&mut binds, MEMBERS_SOURCE, RECORD_MEMBERS_PATH);
+            if has_issue_ref(&fields) {
+                bind_once(&mut binds, ISSUES_SOURCE, RECORD_ISSUES_PATH);
+            }
             node.insert("editorOpen".into(), json!({"path": format!("{base}/editor/open")}));
             node.insert("editorId".into(), json!({"path": format!("{draft}/id")}));
             node.insert("deleteOpen".into(), json!({"path": format!("{base}/delete/open")}));
-            set_on(&mut node, "add", set(&format!("{base}/editor"), json!({"open": true, "draft": {}})));
+            set_on(&mut node, "add", set(&format!("{base}/editor"), json!({"open": true, "draft": {}, "draftAuthor": my_id(), "draftAuthorBase": my_id()})));
             set_on(&mut node, "edit", edit_action(&base, &fields));
             set_on(&mut node, "delete", set(&format!("{base}/delete"), json!({"open": true, "id": {"path": "id"}})));
-            set_on(&mut node, "submit", upsert_action(&kind_name, &fields, Some(&json!({"path": format!("{draft}/id")}))));
+            set_on(&mut node, "submit", upsert_action(&kind_name, &fields, Some(&json!({"path": format!("{draft}/id")})), &draft, Some(format!("{base}/editor/open").as_str())));
             set_on(&mut node, "cancel", set(&format!("{base}/editor/open"), json!(false)));
             set_on(&mut node, "confirm", json!({"functionCall": {"call": "records.delete", "args": {"id": {"path": format!("{base}/delete/id")}}}}));
             set_on(&mut node, "cancelDelete", set(&format!("{base}/delete/open"), json!(false)));
