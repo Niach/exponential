@@ -332,6 +332,16 @@ const failAction = (message: string): never => {
 
 const issueText = (issues: PackageIssue[]) => issues.map((i) => `${i.path || `/`} ${i.message}`).join(`; `)
 
+/** VAPP-207: a bad param in words (the toast): `stage must be one of a, b`. */
+const paramIssueText = (issues: PackageIssue[]) =>
+  issues
+    .map((i) => {
+      const field = i.path.replace(/^\//, ``)
+      if (i.message === `required` || i.message === `not in the schema`) return `${field} is ${i.message}`
+      return `${field} must be ${i.message.startsWith(`one of `) ? i.message.replaceAll(`|`, `, `) : i.message}`
+    })
+    .join(`; `)
+
 /** Run a package action against one snapshot: its plan, or the error that
  *  discards it whole (a false `require` = its message; else `step <i>: …`). */
 export function runAction(pkg: Record<string, unknown>, name: string, params: unknown, ctx: ActionContext = {}): ActionResult {
@@ -342,7 +352,7 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
   if (!isObject(p)) return { error: `params is an object` }
   if (isObject(action.params)) {
     const issues = validateRecord(action.params as unknown as RecordSchema, p)
-    if (issues.length) return { error: `params: ${issueText(issues)}` }
+    if (issues.length) return { error: paramIssueText(issues) }
   }
   const vars: Record<string, unknown> = { params: p, data: ctx.data ?? null, me: ctx.me ?? null }
   const records = isObject(pkg.records) ? pkg.records : {}

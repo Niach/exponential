@@ -119,8 +119,10 @@ function seedData(row: Record<string, unknown>): Record<string, unknown> {
 }
 
 /** A test's store: its `records`, ids `<kind>-<n>` unless given, authored
- *  by `author` (else the test's member), stamped `now`. */
-function seedRows(records: unknown, me: string, now: string): RecordRow[] {
+ *  by `author`, else the fixed seed author `defaults.as` and never the test's
+ *  `as` (VAPP-207: "can bob read ada's rows" must not pass because the rows
+ *  became bob's), stamped `now`. */
+function seedRows(records: unknown, now: string): RecordRow[] {
   const rows: RecordRow[] = []
   if (!isObject(records)) return rows
   for (const kind of Object.keys(records).sort()) {
@@ -128,7 +130,7 @@ function seedRows(records: unknown, me: string, now: string): RecordRow[] {
     if (!Array.isArray(list)) continue
     list.forEach((row, j) => {
       if (!isObject(row)) return
-      const author = typeof row.author === `string` ? row.author : me
+      const author = typeof row.author === `string` ? row.author : PACKAGE_TEST_DEFAULTS.as
       rows.push({ id: typeof row.id === `string` ? row.id : `${kind}-${j + 1}`, kind, data: seedData(row), createdBy: author, authorId: author, createdAt: now, updatedAt: now })
     })
   }
@@ -158,7 +160,7 @@ function runTest(pkg: Record<string, unknown>, t: Record<string, unknown>): unkn
   const role = typeof t.role === `string` ? t.role : PACKAGE_TEST_DEFAULTS.role
   const kinds = isObject(pkg.records) ? pkg.records : undefined
   // eApps R3: the test reads what its member may read, and writes under the policy.
-  const stored = seedRows(t.records, me, now)
+  const stored = seedRows(t.records, now)
   const rows = readableRows(stored, kinds, { id: me, role })
   if (isObject(t.expr)) {
     const vars: Record<string, unknown> = {}

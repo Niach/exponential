@@ -1908,7 +1908,7 @@
           }
         },
         "expect": {
-          "error": "params: /stage one of prospect|qualified|proposal|won|lost"
+          "error": "stage must be one of prospect, qualified, proposal, won, lost"
         }
       },
       {
@@ -2401,6 +2401,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "cwW1fggMqDAkxSkOrRyISVeud38FaaOTSUy5fsAS7odwu1EOvkOBx8WTogW3FKQJdFQS_zbE_KnXPGJhWRo2DA"
+    "value": "yX3MrQSJYxf4lW_V-QmpOAjOtH2Rl8xAqKgtZCC7YT8budPaJLrnklMTgVhqZ9_EfyTphAt03dZIFpnz0_cVCw"
   }
 }

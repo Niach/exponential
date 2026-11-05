@@ -18,7 +18,7 @@ genUI paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `e
 - Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List (anything past a screen); a row of controls is a Toolbar, fields side by side a FieldGroup, the Cancel/submit row FormActions; Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer around it.
 - Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-height, max-height in px or $breakpoint.sm|md|lg|xl; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.
 - Prefer catalog components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token, never #hex (light and dark both apply). Built-in copy (Cancel, Search…) is localized: leave it unset.
-- One default Button per screen (the FormActions submit or the main action); the rest outline, secondary or ghost.
+- One default Button per screen (the FormActions submit or main action); the rest outline, secondary or ghost.
 
 ## Components
 
