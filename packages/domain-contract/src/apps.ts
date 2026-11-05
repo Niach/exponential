@@ -108,6 +108,15 @@ export function versionMigration(row: VersionMigration): string | null {
   return null
 }
 
+/** #VAPP-256 (`rollbackCases`): whether publishing `target` rolls back past a
+ *  version whose sweep ran, so the Publish asks first. */
+export function rollbackWarns(published: number, target: number, rows: readonly { number: number; migrationState?: string | null }[]): boolean {
+  return target < published && rows.some((row) => row.number > target && row.migrationState != null)
+}
+
+export const rollbackTitle = (n: number): string => APPS_COPY.rollbackTitle.replace(`{n}`, String(n))
+export const rollbackBody = (n: number): string => APPS_COPY.rollbackBody.replace(`{n}`, String(n))
+
 /** A name → its slug: lowercase ASCII letters, digits and single dashes,
  *  diacritics stripped, cut at the cap, `app` when nothing is left; a taken
  *  slug gets `-2`, `-3`, … */

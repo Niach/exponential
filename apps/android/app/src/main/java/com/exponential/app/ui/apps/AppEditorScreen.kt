@@ -176,6 +176,14 @@ fun AppEditorScreen(
     val canWrite = (myAccess ?: "write") == "write"
     var exportOpen by rememberSaveable { mutableStateOf(false) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
+    // #VAPP-256 (`rollbackCases`): a rollback past a migrated version asks
+    // first; every other publish goes through at once.
+    var rollbackTarget by rememberSaveable { mutableStateOf<Int?>(null) }
+    val requestPublish: (Int) -> Unit = { number ->
+        val rows = versions.map { (it.number ?: 0) to it.migrationState }
+        if (Apps.rollbackWarns(app?.publishedVersion ?: 0, number, rows)) rollbackTarget = number
+        else viewModel.publish(number)
+    }
     // VAPP-177: the `…` menu's sheet (`versions` / `settings`), null = none.
     var sheet by rememberSaveable { mutableStateOf(viewModel.initialTab.sheet) }
     FailedActionToast(failure, onShown = viewModel::clearFailure)
@@ -293,7 +301,7 @@ fun AppEditorScreen(
                         canPublish = canWrite && viewing?.number != entry.publishedVersion,
                         canRestore = canWrite && viewing?.number != entry.headVersion,
                         publishing = publishing,
-                        onPublish = { viewing?.number?.let(viewModel::publish) },
+                        onPublish = { viewing?.number?.let(requestPublish) },
                         restoring = restoring,
                         onRestore = viewModel::restore,
                         onHead = viewModel::clearViewing,
@@ -332,7 +340,7 @@ fun AppEditorScreen(
                         sheet = null
                         tab = EditorTab.Preview
                     },
-                    onPublish = viewModel::publish,
+                    onPublish = requestPublish,
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
@@ -359,6 +367,27 @@ fun AppEditorScreen(
     if (exportOpen && entry != null) {
         AppExportSheet(app = entry, records = records, onDismiss = { exportOpen = false })
     }
+    rollbackTarget?.let { number ->
+        GlassAlert(
+            title = Apps.rollbackTitle(number),
+            body = Apps.rollbackBody(number),
+            onDismiss = { rollbackTarget = null },
+            trailing = listOf(
+                GlassAlertAction("Cancel", onClick = { rollbackTarget = null }),
+                GlassAlertAction(
+                    Apps.Copy.PUBLISH,
+                    primary = true,
+                    testTag = "app-rollback-confirm",
+                    onClick = {
+                        rollbackTarget = null
+                        viewModel.publish(number)
+                    },
+                ),
+            ),
+            defaultAction = 0,
+        )
+    }
+
     if (deleteOpen && entry != null) {
         GlassAlert(
             title = Apps.deleteTitle(entry.name),

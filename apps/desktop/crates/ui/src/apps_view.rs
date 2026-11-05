@@ -195,6 +195,22 @@ pub(crate) fn delete_prompt(name: &str) -> Prompt {
     }
 }
 
+static ROLLBACK_ACTIONS: [Action; 2] = [
+    Action { id: "cancel", label: "Cancel", role: Role::Cancel },
+    Action { id: "app-rollback-confirm", label: "Publish", role: Role::Primary },
+];
+
+/// #VAPP-256 (`rollbackCases`): `Roll back to v{n}?` + the warning, Return cancels.
+pub(crate) fn rollback_prompt(n: i64) -> Prompt {
+    Prompt {
+        id: "rollback-app",
+        title: domain::apps::rollback_title(n),
+        body: Some(domain::apps::rollback_body(n)),
+        actions: &ROLLBACK_ACTIONS,
+        focus: "cancel",
+    }
+}
+
 pub(crate) fn confirm_delete(
     app_id: String,
     name: String,
