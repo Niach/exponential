@@ -110,7 +110,8 @@ impl Ede {
         let serial = SERIAL_COUNTER.next_serial();
 
         if state == ButtonState::Pressed {
-            self.hotkeys_pointer_pressed();
+            let hit = self.surface_under(pointer.current_location()).map(|(s, _)| s);
+            self.hotkeys_pointer_pressed(hit.as_ref());
         }
         if state == ButtonState::Pressed && self.is_locked() {
             self.lock_pointer_focus();
@@ -157,6 +158,7 @@ impl Ede {
         let keyboard = self.seat.get_keyboard().unwrap();
         let locked = self.is_locked();
         let listening = self.shell_listening();
+        let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some());
         let action = keyboard.input::<Action, _>(self, keycode, state, serial, time, |ede, mods, handle| {
             if !bindings {
                 return FilterResult::Forward;
@@ -168,6 +170,10 @@ impl Ede {
                     Some(action @ Action::SwitchVt(_)) if state == KeyState::Pressed => FilterResult::Intercept(action),
                     _ => FilterResult::Forward,
                 };
+            }
+            if state == KeyState::Pressed && sym == keysyms::KEY_Escape && popup_focused {
+                ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::PopupsDismiss);
+                return FilterResult::Intercept(Action::Hotkey);
             }
             let (keep, hotkey) = crate::hotkeys::decide(&mut ede.hotkeys, mods, sym, state, listening);
             if hotkey.is_some() {

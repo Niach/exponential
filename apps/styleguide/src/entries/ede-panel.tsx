@@ -5,6 +5,9 @@ import panel from "../../../ede/ui/panel.json"
 import menu from "../../../ede/ui/menu.json"
 import switcher from "../../../ede/ui/switcher.json"
 import osd from "../../../ede/ui/osd.json"
+import notifications from "../../../ede/ui/notifications.json"
+import center from "../../../ede/ui/notification-center.json"
+import trayMenu from "../../../ede/ui/tray-menu.json"
 import type { StyleguideEntry } from "./types.ts"
 
 // #EDE-10 / #EDE-11 / #EDE-12: eDE's factory shell documents (apps/ede/ui),
@@ -18,6 +21,24 @@ const PANEL = panel as unknown as { root: NestedNode; data: Record<string, unkno
 const MENU = menu as unknown as { root: NestedNode }
 const SWITCHER = switcher as unknown as { root: NestedNode }
 const OSD = osd as unknown as { root: NestedNode }
+const NOTIFICATIONS = notifications as unknown as { root: NestedNode }
+const CENTER = center as unknown as { root: NestedNode }
+const TRAY_MENU = trayMenu as unknown as { root: NestedNode }
+
+const SAMPLE_NOTIFICATIONS = {
+  toasts: [{ id: 1, app: `Thunderbird`, summary: `Release notes for 1.4`, body: `Danny: the eDE M1 demo runs on Friday, bring the VM.`, icon: ``, actions: [{ key: `open`, label: `Open` }, { key: `archive`, label: `Archive` }], urgency: 1, at: `11:58` }],
+  list: [
+    { id: 1, app: `Thunderbird`, summary: `Release notes for 1.4`, body: `Danny: the eDE M1 demo runs on Friday, bring the VM.`, icon: ``, actions: [], urgency: 1, at: `11:58` },
+    { id: 2, app: `Software`, summary: `Updates installed`, body: `12 packages were updated.`, icon: ``, actions: [], urgency: 0, at: `11:40` },
+  ],
+  count: 2,
+}
+const SAMPLE_TRAY_MENU = { service: `demo/network`, title: `Network`, items: [
+  { id: 1, label: `Connect to Wi-Fi`, enabled: true, separator: false, checked: false, checkable: false, depth: 0 },
+  { id: 2, label: `Airplane mode`, enabled: true, separator: false, checked: false, checkable: true, depth: 0 },
+  { id: 3, label: ``, enabled: true, separator: true, checked: false, checkable: false, depth: 0 },
+  { id: 4, label: `Settings…`, enabled: true, separator: false, checked: false, checkable: false, depth: 0 },
+] }
 
 const SAMPLE_APPS = [
   { id: `org.gnome.Calculator.desktop`, name: `Calculator`, comment: `Perform arithmetic, scientific or financial calculations`, exec: `gnome-calculator`, icon: `` },
@@ -36,7 +57,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EDE-10`,
   title: `eDE panel`,
-  blurb: `The desktop environment's factory shell documents: the panel (apps/ede/ui/panel.json: the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface), the launcher menu (menu.json, the panel's own popup surface: search, the installed apps, the power row), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails) and the OSD (osd.json, the media keys' level). Agents and people edit these files; ede-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
+  blurb: `The desktop environment's factory shell documents: the panel (apps/ede/ui/panel.json: the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface), the launcher menu (menu.json, the panel's own popup surface: search, the installed apps, the power row), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json) and a tray item's dbusmenu (tray-menu.json). Agents and people edit these files; ede-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
   status: {
     web: {
       state: `ok`,
@@ -51,7 +72,7 @@ export const entry: StyleguideEntry = {
   island: () => (
     <div className="flex flex-col gap-3">
       <span className="text-xs text-muted-foreground">panel.json · a top layer surface</span>
-      <ExponentialUiTree id="ede-panel" node={PANEL.root} data={{ ...PANEL.data, time: `12:00`, windows: [{ id: `w1`, title: `Firefox`, focused: true }, { id: `w2`, title: `Terminal`, focused: false }] }} formFactor="wide" />
+      <ExponentialUiTree id="ede-panel" node={PANEL.root} data={{ ...PANEL.data, time: `12:00`, windows: [{ id: `w1`, title: `Firefox`, focused: true }, { id: `w2`, title: `Terminal`, focused: false }], tray: [{ service: `demo/network`, title: `Network`, status: `Active`, icon: `` }], notifications: { count: 2 } }} formFactor="wide" />
       <span className="text-xs text-muted-foreground">menu.json · the panel's popup surface (the launcher)</span>
       <div style={{ width: 360 }}>
         <ExponentialUiTree id="ede-menu" node={MENU.root} data={{ query: ``, apps: SAMPLE_APPS }} formFactor="wide" />
@@ -63,6 +84,18 @@ export const entry: StyleguideEntry = {
       <span className="text-xs text-muted-foreground">osd.json · the media keys' level</span>
       <div style={{ width: 280 }}>
         <ExponentialUiTree id="ede-osd" node={OSD.root} data={{ osd: { icon: `media-volume-down`, level: 45, label: `45%` } }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">notifications.json · toasts, an on-demand top-right surface</span>
+      <div style={{ width: 380 }}>
+        <ExponentialUiTree id="ede-notifications" node={NOTIFICATIONS.root} data={{ notifications: SAMPLE_NOTIFICATIONS }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">notification-center.json · the bell's popup</span>
+      <div style={{ width: 380 }}>
+        <ExponentialUiTree id="ede-notification-center" node={CENTER.root} data={{ notifications: SAMPLE_NOTIFICATIONS }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">tray-menu.json · a tray item's dbusmenu as the tray's popup</span>
+      <div style={{ width: 280 }}>
+        <ExponentialUiTree id="ede-tray-menu" node={TRAY_MENU.root} data={{ traymenu: SAMPLE_TRAY_MENU }} formFactor="wide" />
       </div>
     </div>
   ),

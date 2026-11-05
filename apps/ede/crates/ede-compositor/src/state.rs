@@ -344,7 +344,17 @@ impl Ede {
                 l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
             })
         };
-        layer_hit(Layer::Overlay)
+        // A layer's popups are drawn above the whole layer (the scene), so
+        // they take the hit first.
+        let popup_hit = |layer| {
+            layers.layers_on(layer).rev().find_map(|l| {
+                let loc = layers.layer_geometry(l)?.loc + output_geo.loc;
+                l.surface_under(pos - loc.to_f64(), WindowSurfaceType::POPUP | WindowSurfaceType::SUBSURFACE).map(|(s, p)| (s, (p + loc).to_f64()))
+            })
+        };
+        popup_hit(Layer::Overlay)
+            .or_else(|| popup_hit(Layer::Top))
+            .or_else(|| layer_hit(Layer::Overlay))
             .or_else(|| layer_hit(Layer::Top))
             .or_else(|| {
                 self.space.element_under(pos).and_then(|(window, location)| {

@@ -40,7 +40,25 @@ fonts are embedded); app icons come from the installed icon themes as
 `panel.json` (top, 40 px exclusive zone, the launcher button, the taskbar,
 the clock), `menu.json` (the panel's popup: search, apps, the power row),
 `switcher.json` and `osd.json` (`onDemand` overlays the shell opens on a
-hotkey and closes again).
+hotkey and closes again), `notifications.json` (the toasts, top-right, on
+demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
+(a tray item's menu as the tray's popup). A click outside an open popup, or
+Escape in it, closes it.
+
+### Notifications and the tray (#EDE-12)
+
+The shell is the session's `org.freedesktop.Notifications` server (toasts
+with the app's icon and actions, the app's timeout or 6 s, critical ones
+stay; the history behind the panel's bell with its count) and its
+`org.kde.StatusNotifierWatcher` + host: items register, the panel shows
+their icon (a theme name, the item's own theme path, or its pixmap), a
+click activates the item or opens its `com.canonical.dbusmenu` as a popup
+and a row press sends the item its `clicked` event. Nested under another
+desktop the well-known names stay with that desktop and the objects answer
+on the shell's unique bus name (`scripts/tray-demo.py --watcher :1.N`
+registers a sample item; `gdbus call --dest :1.N …Notify` a sample toast).
+Host functions: `ede.notify_close {id}`, `ede.notify_action {id, key}`,
+`ede.notify_clear`, `ede.tray {service}`, `ede.tray_menu {service, id}`.
 
 ### Hotkeys (#EDE-12)
 

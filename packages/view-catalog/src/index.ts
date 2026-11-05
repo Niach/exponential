@@ -208,7 +208,8 @@ export interface DesktopCapture {
  * popup document first (the menu); `size` is the virtual output.
  */
 export interface EdeCapture {
-  popup?: boolean
+  /** Popup documents to open before the capture (`menu`, `notification-center`). */
+  popup?: string[]
   /** On-demand layer documents to open before the capture (`switcher`, `osd`). */
   open?: string[]
   size?: `${number}x${number}`

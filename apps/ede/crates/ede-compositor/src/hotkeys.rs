@@ -35,6 +35,8 @@ pub mod names {
     pub const MEDIA_PLAY: &str = "media.play";
     pub const MEDIA_NEXT: &str = "media.next";
     pub const MEDIA_PREV: &str = "media.prev";
+    /// A click outside the shell's open popups, or Escape in one: close them.
+    pub const POPUPS_DISMISS: &str = "popups.dismiss";
 }
 
 /// What a key did, decided inside the keyboard filter.
@@ -50,6 +52,8 @@ pub enum Hotkey {
     Terminal,
     /// A media key the shell shows an OSD for; `None` of a shell = the app gets it.
     Media(&'static str),
+    /// Escape in a shell popup.
+    PopupsDismiss,
 }
 
 impl Hotkey {
@@ -64,6 +68,7 @@ impl Hotkey {
             Hotkey::Screenshot => names::SCREENSHOT,
             Hotkey::Terminal => names::TERMINAL,
             Hotkey::Media(name) => name,
+            Hotkey::PopupsDismiss => names::POPUPS_DISMISS,
         }
     }
 }
@@ -174,9 +179,23 @@ impl Ede {
         self.focus(target);
     }
 
-    /// A pointer press ends a pending Super (Super+click is not a menu).
-    pub fn hotkeys_pointer_pressed(&mut self) {
+    /// A pointer press ends a pending Super (Super+click is not a menu); a
+    /// press outside the shell's open popups dismisses them, as menus do.
+    pub fn hotkeys_pointer_pressed(&mut self, hit: Option<&smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>) {
         self.hotkeys.super_pending = false;
+        if self.layer_popups_open() && !hit.is_some_and(|s| self.popups.find_popup(s).is_some()) {
+            self.emit(ede_protocol::events::HOTKEY, json!({ "name": names::POPUPS_DISMISS }));
+        }
+    }
+
+    /// Does a layer surface (the shell) have a popup mapped?
+    pub fn layer_popups_open(&self) -> bool {
+        use smithay::desktop::PopupManager;
+        self.space.outputs().any(|o| {
+            let map = smithay::desktop::layer_map_for_output(o);
+            let any = map.layers().any(|l| PopupManager::popups_for_surface(l.wl_surface()).next().is_some());
+            any
+        })
     }
 }
 

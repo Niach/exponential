@@ -8019,7 +8019,7 @@
       "id": "ede-panel",
       "group": "ede",
       "title": "eDE · panel",
-      "blurb": "The factory panel (apps/ede/ui/panel.json): the launcher button, the taskbar and the clock in a 40 px top layer surface on the headless compositor's 1280×720 output.",
+      "blurb": "The factory panel (apps/ede/ui/panel.json): the launcher button, the taskbar, the tray items, the bell with its count and the clock in a 40 px top layer surface on the headless compositor's 1280×720 output.",
       "order": 1,
       "ede": {
         "size": "1280x720",
@@ -8041,7 +8041,9 @@
       "order": 2,
       "ede": {
         "size": "1280x720",
-        "popup": true,
+        "popup": [
+          "menu"
+        ],
         "settleMs": 2500
       },
       "notes": {
@@ -8085,6 +8087,69 @@
           "osd"
         ],
         "settleMs": 2000
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
+      }
+    },
+    {
+      "id": "ede-notifications",
+      "group": "ede",
+      "title": "eDE · toasts",
+      "blurb": "The factory toasts (apps/ede/ui/notifications.json): the shell is the session's notification server; new notifications stack top-right with the app, the time, the summary, the body and the app's actions (sample ones in the golden).",
+      "order": 5,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "notifications"
+        ],
+        "settleMs": 2000
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
+      }
+    },
+    {
+      "id": "ede-notification-center",
+      "group": "ede",
+      "title": "eDE · notification centre",
+      "blurb": "The factory notification centre (apps/ede/ui/notification-center.json): the panel's bell opens the session's history as a popup, each entry closable, all clearable.",
+      "order": 6,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "notification-center"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
+      }
+    },
+    {
+      "id": "ede-tray-menu",
+      "group": "ede",
+      "title": "eDE · tray menu",
+      "blurb": "The factory tray menu (apps/ede/ui/tray-menu.json): a StatusNotifierItem's dbusmenu as a popup under the panel's tray (a sample item in the golden).",
+      "order": 7,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "tray-menu"
+        ],
+        "settleMs": 2500
       },
       "notes": {
         "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",

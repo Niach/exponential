@@ -1452,6 +1452,7 @@ dependencies = [
  "ede-ui",
  "eui-core",
  "eui-gpui",
+ "futures-util",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
@@ -1463,6 +1464,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-subscriber",
+ "zbus",
 ]
 
 [[package]]

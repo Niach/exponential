@@ -909,7 +909,7 @@ async function captureEde(views: string[], outcomes: LaneOutcome[]): Promise<voi
     const cmd = [
       script,
       `--out`, out,
-      ...(capture?.popup ? [`--popup`] : []),
+      ...(capture?.popup ?? []).flatMap((name) => [`--popup`, name]),
       ...(capture?.open ?? []).flatMap((name) => [`--open`, name]),
       ...(capture?.size ? [`--size`, capture.size] : []),
       ...(capture?.settleMs ? [`--settle`, String(capture.settleMs)] : []),

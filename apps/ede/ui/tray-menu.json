@@ -1,0 +1,20 @@
+{
+  "$comment": "eDE's factory tray menu (#EDE-12): a tray item's dbusmenu (com.canonical.dbusmenu over the session bus), opened as a popup under the panel's tray area when the item has one (an item without a menu is activated instead). /traymenu holds the item and its rows, one submenu level flattened; a row press sends the item its clicked event (ede.tray_menu).",
+  "surface": {"popup": {"parent": "panel", "anchor": "tray", "placement": "bottom-end", "size": {"width": 280, "height": 360}}, "functions": ["ede.tray_menu"]},
+  "root": {
+    "id": "traymenu",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.sm", "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "children": [
+      {"id": "traymenu-title", "component": "Text", "props": {"text": {"path": "/traymenu/title"}, "variant": "caption"}},
+      {"id": "traymenu-scroll", "component": "ScrollArea", "props": {"maxHeight": 310}, "children": [
+        {"id": "traymenu-list", "component": "List", "props": {"gap": "none"}, "template": {"component": "traymenu-row", "path": "/traymenu/items", "key": "id"}, "children": []},
+        {"id": "traymenu-row", "component": "Box", "children": [
+          {"id": "traymenu-sep", "component": "Separator", "visible": {"path": "separator"}},
+          {"id": "traymenu-entry", "component": "Row", "props": {"title": {"path": "label"}, "density": "compact", "pressable": true, "selected": {"path": "checked"}}, "visible": {"call": "not", "args": {"value": {"path": "separator"}}}, "on": {"press": {"functionCall": {"call": "ede.tray_menu", "args": {"service": {"path": "/traymenu/service"}, "id": {"path": "id"}}}}}}
+        ]}
+      ]}
+    ]
+  },
+  "data": {"traymenu": {"service": "", "title": "", "items": []}}
+}
