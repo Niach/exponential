@@ -476,7 +476,6 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
 /// A Chats list section header (`copy.sections`).
 pub(crate) fn chat_section_header(label: &str, cx: &App) -> AnyElement {
     div()
-        .px(px(ROW_PAD))
         .pt_2()
         .pb_1()
         .text_xs()
