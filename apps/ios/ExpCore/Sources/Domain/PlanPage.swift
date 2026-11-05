@@ -26,6 +26,8 @@ public enum PlanPage {
 
     public enum Layout {
         public static let outlineWidth: Double = 240
+        /// #FEED-191: the wide questions rail (phones keep the floating panel).
+        public static let railWidth: Double = 360
         public static let columnMaxWidth: Double = 720
         public static let columnPaddingWide: Double = 28
         public static let columnPaddingPhone: Double = 18

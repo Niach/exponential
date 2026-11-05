@@ -59,7 +59,7 @@ final class PlanPageTests: XCTestCase {
         let layout = try XCTUnwrap(f["layout"] as? [String: Any])
         XCTAssertEqual(num(layout["outlineWidth"]), PlanPage.Layout.outlineWidth)
         XCTAssertEqual(num(layout["columnMaxWidth"]), PlanPage.Layout.columnMaxWidth)
-        XCTAssertNil(layout["railWidth"])
+        XCTAssertEqual(num(layout["railWidth"]), PlanPage.Layout.railWidth)
         XCTAssertNil(layout["headerHeight"])
         XCTAssertEqual(
             layout["columnPadding"] as? [String: Double],
