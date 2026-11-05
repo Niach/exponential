@@ -946,6 +946,11 @@ final class SyncApplyTests: XCTestCase {
                 authorKind: DomainContract.messageAuthorKindUser, authorId: "u1", body: "Go",
                 createdAt: at, updatedAt: at
             ).save(db)
+            // A child's link is the thread's too (the strip's count ×4).
+            try SessionIssueEntity(
+                id: "si-c", sessionId: "t-child", issueId: "i3", teamId: "ws1", sortOrder: 3,
+                createdAt: at, updatedAt: at
+            ).save(db)
             // i1 sits in BOTH ws1 threads; i2 only in t-new (linked first).
             try SessionIssueEntity(
                 id: "si-b", sessionId: "t-new", issueId: "i1", teamId: "ws1", sortOrder: 2,
@@ -971,6 +976,7 @@ final class SyncApplyTests: XCTestCase {
         }
         try seedIssue(id: "i1", title: "First")
         try seedIssue(id: "i2", title: "Second")
+        try seedIssue(id: "i3", title: "On a child")
 
         try await pool.read { db in
             XCTAssertEqual(
@@ -996,9 +1002,9 @@ final class SyncApplyTests: XCTestCase {
             XCTAssertEqual(try SessionQueries.messages(db: db, rootId: "t-new").map(\.id), ["m1", "m2"])
             XCTAssertEqual(try SessionQueries.messages(db: db, sessionId: "t-child").map(\.id), ["m2"])
             XCTAssertEqual(
-                try SessionQueries.sessionIssues(db: db, rootId: "t-new").map(\.id), ["si-a", "si-b"]
+                try SessionQueries.sessionIssues(db: db, rootId: "t-new").map(\.id), ["si-a", "si-b", "si-c"]
             )
-            XCTAssertEqual(try SessionQueries.issues(db: db, rootId: "t-new").map(\.id), ["i2", "i1"])
+            XCTAssertEqual(try SessionQueries.issues(db: db, rootId: "t-new").map(\.id), ["i2", "i1", "i3"])
             XCTAssertEqual(
                 try SessionQueries.rootsHoldingIssue(db: db, issueId: "i1").map(\.id), ["t-new", "t-old"]
             )
