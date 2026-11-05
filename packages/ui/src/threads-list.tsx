@@ -109,7 +109,7 @@ export interface ThreadsListDevice {
  *  `threadRowWord` + `threadInStack`, `threads-list.json` ×4). `teamPrs` =
  *  the team's PRs (a stack edge may cross threads). */
 export function threadWordOf(
-  row: Pick<ThreadsListRow, `busy` | `needsYou`>,
+  row: Pick<ThreadsListRow, `busy` | `needsYou` | `offline`>,
   prs: readonly ThreadsListPr[],
   teamPrs: readonly ThreadsListPr[] = prs
 ): ThreadRowWord | null {
@@ -118,6 +118,7 @@ export function threadWordOf(
     busy: row.busy,
     needsYou: row.needsYou,
     inStack: threadInStack(prs, teamPrs),
+    offline: row.offline ?? false,
   })
 }
 

@@ -35,6 +35,8 @@ export interface TreeSession {
     window?: string | null
     resetsAt?: string | null
     resume?: boolean | null
+    /** EXP-1374: since when its device could continue it (absent = never back). */
+    resumeSince?: string | null
   } | null
   shared: boolean
   title: string | null
@@ -222,6 +224,8 @@ export interface SessionCard {
 export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: SessionState): string {
   if (state === `needs_you`) {
     const kind = session.blocked?.kind
+    // #EXP-1703: `device_offline` names it only while the device is away.
+    if (kind === `device_offline` && session.blocked?.resumeSince) return SESSION_CARD_COPY.states[state]
     const word = kind ? (SESSION_CARD_COPY.blockedKinds as Record<string, string>)[kind] : undefined
     if (word) return word
   }
@@ -261,21 +265,47 @@ export function sessionCard(
   }
 }
 
-/** EXP-1374: the Dock card of a background session, and (#EXP-1405) of a
- *  queued one waiting for its device (a dock.json `banner` source without
- *  its `kind`), null otherwise. S-3: an interruption has no card. */
+/** #EXP-1703: on a person because its device stayed away (#EXP-1675): it
+ *  needs you, its flag is `device_offline` and its device never came back. */
+export function sessionOffline(
+  session: Pick<TreeSession, `status` | `needsInput` | `blocked`>
+): boolean {
+  return (
+    session.status !== `ended` &&
+    session.needsInput &&
+    session.blocked?.kind === `device_offline` &&
+    !session.blocked.resumeSince
+  )
+}
+
+/** EXP-1374: the Dock card of a background session, (#EXP-1405) of a
+ *  queued one waiting for its device and (#EXP-1703) of one whose device
+ *  stayed away (a dock.json `banner` source without its `kind`), null
+ *  otherwise. S-3: a plain interruption has no card. */
 export interface SessionBanner {
-  id: `background` | `queued`
+  id: `background` | `queued` | `offline`
   icon: string
   label: string
   text: string
-  tone: `muted`
-  action: null
+  tone: `muted` | `warning`
+  /** #EXP-1703: `Move` opens the device-move picker. */
+  action: string | null
 }
 
 export function sessionBanner(
-  session: Pick<TreeSession, `status` | `needsInput` | `busy` | `background`>
+  session: Pick<TreeSession, `status` | `needsInput` | `busy` | `background` | `blocked`>,
+  deviceName: string | null = null
 ): SessionBanner | null {
+  if (sessionOffline(session)) {
+    return {
+      id: `offline`,
+      icon: cardFixture.bannerIcons.offline,
+      label: cardFixture.bannerLabels.offline,
+      text: cardFixture.banner.offline.replace(`{device}`, deviceName || cardFixture.bannerDevice),
+      tone: `warning`,
+      action: cardFixture.bannerActions.offline,
+    }
+  }
   if (session.status === `ended` || session.needsInput) return null
   const id = session.status === `queued` ? `queued` : session.busy && session.background ? `background` : null
   if (!id) return null
@@ -1183,6 +1213,8 @@ export interface ThreadsListRow {
    *  the viewer's read of the root). */
   unread: boolean
   activityAt: string
+  /** #EXP-1703: `treeOffline` (set only when true; absent = false). */
+  offline?: boolean
 }
 
 /** EXP-1312: a thread row's lead outside the Threads tab (home Running band,
@@ -1308,6 +1340,7 @@ export function partitionThreads(input: {
       needsYou,
       unread: unreadAt(newestAgentInTree.get(root.id), root.id),
       activityAt: activity,
+      ...(needsYou && treeOffline(tree) ? { offline: true } : {}),
     }
     // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
     // child sessions, only the root ones'): a row is a ROOT, never a child;
@@ -1417,7 +1450,7 @@ export function listAgents(
 /** EXP-1309/1318: the ONE quiet trailing word of a thread row ×4. Keys;
  *  `THREAD_ROW_WORDS` = the copy (EXP-1339: `merged` has none, it only
  *  turns the lead violet). */
-export type ThreadRowWord = `stack` | `readyToMerge` | `merged` | `question`
+export type ThreadRowWord = `stack` | `readyToMerge` | `merged` | `offline` | `question`
 
 export const THREAD_ROW_WORDS: Partial<Record<ThreadRowWord | `needsInput`, string>> =
   listFixture.copy.words
@@ -1453,14 +1486,25 @@ export function threadRowWord(input: {
   busy: boolean
   needsYou: boolean
   inStack: boolean
+  /** #EXP-1703: `treeOffline` (absent = false). */
+  offline?: boolean
 }): ThreadRowWord | null {
   if (input.pullRequests.some((pr) => pr.state === `open`)) {
     if (input.inStack) return `stack`
     return input.busy ? null : `readyToMerge`
   }
   if (input.pullRequests.some((pr) => pr.state === `merged`)) return `merged`
-  if (input.needsYou) return `question`
+  if (input.needsYou) return input.offline ? `offline` : `question`
   return null
+}
+
+/** #EXP-1703: a tree on a person ONLY because its device stayed away: some
+ *  live session needs you and every one that does is `sessionOffline`. */
+export function treeOffline(
+  tree: readonly Pick<TreeSession, `status` | `needsInput` | `blocked`>[]
+): boolean {
+  const waiting = tree.filter((session) => session.status !== `ended` && session.needsInput)
+  return waiting.length > 0 && waiting.every(sessionOffline)
 }
 
 /** The rail's Active band ×web+IDE (`copy.rail`): every Needs you row, every

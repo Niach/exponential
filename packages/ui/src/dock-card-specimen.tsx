@@ -45,10 +45,10 @@ const SOURCES: DockSource[] = [
 const ROWS = dockRows(SOURCES)
 // EXP-1374: the session's own state cards (session-card.json `bannerCases`):
 // background tasks and (#EXP-1405) queued, waiting for its device (S-3: an
-// interruption draws nothing).
+// interruption draws nothing), #EXP-1703 a device that stayed away, with Move.
 const STATE_ROWS = dockRows(
   cardFixture.bannerCases
-    .map((entry) => sessionBanner(entry.session as never))
+    .map((entry) => sessionBanner(entry.session as never, (entry as { deviceName?: string | null }).deviceName ?? null))
     .filter((banner) => banner !== null)
     .filter((banner, index, all) => all.findIndex((other) => other.id === banner.id) === index)
     .map((banner): DockSource => ({ kind: `banner`, ...banner }))
@@ -59,6 +59,10 @@ const action = (row: { id: string }) =>
   row.id === `banner:wall` ? (
     <Button variant="outline" size="xs">
       Switch account
+    </Button>
+  ) : row.id === `banner:offline` ? (
+    <Button variant="outline" size="xs">
+      {cardFixture.bannerActions.offline}
     </Button>
   ) : null
 
@@ -75,9 +79,9 @@ export function DockCardSpecimen() {
         <DockCard row={QUESTION} onOpen={noop} />
         <Caption>A banner: never opens; its action word trails</Caption>
         <DockCard row={BANNER} action={action(BANNER)} />
-        <Caption>The session's own state: background tasks, queued</Caption>
+        <Caption>The session's own state: background tasks, queued, its device offline</Caption>
         {STATE_ROWS.map((row) => (
-          <DockCard key={row.id} row={row} />
+          <DockCard key={row.id} row={row} action={action(row)} />
         ))}
         <Caption>Five cards piled: the front one whole, the rest peeking out above it</Caption>
         <DockPile rows={ROWS} expanded={false} onExpandedChange={noop} onOpen={noop} renderAction={action} />

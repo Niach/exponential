@@ -21,6 +21,7 @@ vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
       connect: () => () => {},
       noteSessionStatus: () => {},
       noteDeviceLabel: () => {},
+      noteHostOffline: () => {},
       kick: () => {},
       reconnect: () => {},
       loadEarlier: () => {},
@@ -31,8 +32,9 @@ vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
   }
 })
 vi.mock(`@/hooks/use-team-data`, () => ({ useTeamUsers: () => ({ users: [] }) }))
+let hostOnline = true
 vi.mock(`@/hooks/use-session-device`, () => ({
-  useSessionDevice: () => ({ online: true, label: `Studio Mac` }),
+  useSessionDevice: () => ({ online: hostOnline, label: `Studio Mac` }),
 }))
 vi.mock(`@/components/session-account-switch`, () => ({
   SessionAccountSwitchButton: () => null,
@@ -187,6 +189,7 @@ describe(`AgentSessionView Trace transcript`, () => {
   for (const c of enetFixture.noFeed) {
     it(`NO FEED, empty transcript: ${c.name} = ${c.state}`, () => {
       const offline = `buildbox is offline. The transcript lives on that machine.`
+      hostOnline = !(c as { deviceOffline?: boolean }).deviceOffline
       snapshot = c.ended
         ? snap({ phase: { kind: `ended`, detail: offline }, deviceOffline: true, connected: false })
         : snap({ phase: { kind: `starting` }, connected: false })
@@ -199,8 +202,14 @@ describe(`AgentSessionView Trace transcript`, () => {
       render(<AgentSessionView session={row} />)
       const text = document.body.textContent ?? ``
       const startingCopy = `The agent is starting. Waiting for the live stream…`
+      hostOnline = true
       if (c.state === `offline`) {
         expect(screen.getByTestId(`transcript-device-offline`).textContent).toBe(offline)
+      } else if (c.state === `away`) {
+        // #EXP-1703: the device is named, no "starting" placeholder.
+        expect(screen.queryByTestId(`transcript-placeholder`)).toBeNull()
+        expect(screen.getByTestId(`transcript-device-away`).textContent).toContain(`Studio Mac is offline`)
+        expect(text).toContain(enetFixture.noFeedAway.text)
       } else if (c.state === `starting`) {
         expect(screen.getByTestId(`transcript-placeholder`).textContent).toContain(startingCopy)
       } else {
