@@ -852,19 +852,6 @@ fun rememberAppHost(
             }
             fn
         }
-        // VAPP-221: every surface's components as authored (the FileUpload's
-        // `files` binding, which the painted nodes carry resolved).
-        val authored = HashMap<String, LinkedHashMap<String, JsonValue>>()
-        val onOp: (JsonValue) -> Unit = { op ->
-            val sid = op["surfaceId"]?.string.orEmpty()
-            when (op["op"]?.string) {
-                "create" -> authored[sid] = LinkedHashMap()
-                "components" -> {
-                    val byId = authored.getOrPut(sid) { LinkedHashMap() }
-                    for (c in op["components"]?.array.orEmpty()) c["id"]?.string?.let { byId[it] = c }
-                }
-            }
-        }
         lateinit var built: ExponentialHost
         // VAPP-221: the picked files reach the FileUpload (`upload {files}`),
         // then upload one at a time in picked order; each answer's `url`
@@ -886,20 +873,17 @@ fun rememberAppHost(
                 request.done(files.map { PickedFile(it.name, it.size, it.type) })
                 val hostingApp = appId
                 if (readOnly || hostingApp == null) return@launch
-                val targets = authored.filter { (sid, byId) ->
-                    built.surfaces.containsKey(sid) && byId[request.componentId]?.get("component")?.string == "FileUpload"
-                }
+                // The components as authored (the painted nodes carry the `files` binding resolved).
+                val authored = built.surfaces[request.surfaceId]?.components.orEmpty()
+                val upload = authored.firstOrNull { it["id"]?.string == request.componentId && it["component"]?.string == "FileUpload" }
+                val target = upload?.let { Apps.appUploadTarget(authored, (it["name"] as? JsonValue.Str)?.v ?: request.componentId) }
                 for (file in files) {
                     try {
                         val bytes = withContext(Dispatchers.IO) { MarkdownMediaUtils.readBytes(app, file.uri) } ?: error("That file could not be read")
                         val url = uploadAppFile(deps.httpClient(), origin, token, hostingApp, bytes, file.name, file.type)
-                        for ((sid, byId) in targets) {
-                            val upload = byId[request.componentId] ?: continue
-                            val name = (upload["name"] as? JsonValue.Str)?.v ?: request.componentId
-                            val path = Apps.appUploadTarget(byId.values.toList(), name) ?: continue
-                            val model = built.surfaces[sid] ?: continue
-                            val next = Apps.withUploadedUrl(pointerValue(model.data, path), file.name, url) ?: continue
-                            model.setData(path, next)
+                        val model = built.surfaces[request.surfaceId]
+                        if (target != null && model != null) {
+                            Apps.withUploadedUrl(pointerValue(model.data, target), file.name, url)?.let { model.setData(target, it) }
                         }
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
@@ -978,7 +962,6 @@ fun rememberAppHost(
                 // VAPP-200: at app access `read` every surface is read-only.
                 settings = SurfaceSettings(readOnly = readOnly),
                 plugin = AppHostPlugin(picks),
-                onOp = onOp,
                 // VAPP-194: a package action runs as the viewer; one that
                 // landed nothing = the failed-action toast. VAPP-201: in the
                 // team zone, else the device's.

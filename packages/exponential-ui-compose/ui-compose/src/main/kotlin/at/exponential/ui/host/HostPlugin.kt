@@ -73,6 +73,9 @@ class FilePickRequest(
     val accept: String?,
     val multiple: Boolean,
 ) {
+    /** VAPP-240: the surface that asked. */
+    val surfaceId: String get() = model.id
+
     /** The picked files (main thread). */
     fun done(files: List<PickedFile>) = model.filesPicked(componentId, files)
 }

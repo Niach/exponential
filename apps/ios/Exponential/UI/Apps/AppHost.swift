@@ -634,8 +634,6 @@ final class ExpAppHost {
             // VAPP-200: at app access `read` every surface is read-only.
             settings: readOnly ? SurfaceSettings(mode: .dark, readOnly: true) : nil,
             plugin: AppHostPlugin(origin: origin ?? "", uploads: uploads),
-            // VAPP-221: the surfaces' components (a FileUpload's `files` binding).
-            onOp: { op in uploads?.observe(op) },
             // VAPP-194: a package action runs as the viewer; one that landed
             // nothing = the failed-action toast. VAPP-201 (team-zone.json):
             // dates in the TEAM zone off the synced team row, else the device's.
@@ -755,17 +753,14 @@ private final class AppHostPlugin: HostPlugin {
 /// the app's upload route as the viewer; its answer's `url` lands in the
 /// list at the FileUpload's bound `files` path (`Apps.appUploadTarget` +
 /// `Apps.withUploadedUrl`); a failure = the failed-action toast and the file
-/// stays listed without a url. The surfaces' RAW components (the painted
-/// nodes carry the resolved list, not the binding) come off the host's ops.
+/// stays listed without a url. The surface's RAW components (the painted
+/// nodes carry the resolved list, not the binding) come from the SDK.
 @MainActor
 private final class AppHostUploads {
     weak var host: ExponentialHost?
     private let appId: String
     private let accountId: String
     private let attachmentsApi: AttachmentsApi
-    /// Every surface's components as its last `components` op set them
-    /// (the SDK's `setComponents` replaces the whole list).
-    private var components: [String: [JSONValue]] = [:]
 
     init(appId: String, accountId: String, attachmentsApi: AttachmentsApi) {
         self.appId = appId
@@ -773,23 +768,10 @@ private final class AppHostUploads {
         self.attachmentsApi = attachmentsApi
     }
 
-    /// One op the host performed (`HostOptions.onOp`).
-    func observe(_ op: JSONValue) {
-        let surfaceId = op["surfaceId"]?.string ?? ""
-        switch op["op"]?.string {
-        case "create", "delete":
-            components[surfaceId] = nil
-        case "components":
-            components[surfaceId] = op["components"]?.array ?? []
-        default:
-            break
-        }
-    }
-
     func upload(_ event: SurfaceUploadEvent) {
         // The SDK's `name` is the FileUpload's `name` prop ("" = none: its id).
         let name = event.name.isEmpty ? event.componentId : event.name
-        let raw = (components[event.surfaceId] ?? []).map { CardJSON(any: $0.any) ?? .null }
+        let raw = (host?.surface(event.surfaceId)?.components ?? []).map { CardJSON(any: $0.any) ?? .null }
         let target = Apps.appUploadTarget(raw, name: name)
         let surfaceId = event.surfaceId
         let files = event.files
