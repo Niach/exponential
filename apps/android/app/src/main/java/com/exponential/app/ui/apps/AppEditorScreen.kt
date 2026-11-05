@@ -89,6 +89,7 @@ import com.exponential.app.ui.components.FloatingBarEdge
 import com.exponential.app.ui.components.FloatingComposer
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LocalDetailHaze
@@ -727,22 +728,28 @@ private fun AppVersionsList(
                 val note = version.note?.trim()?.takeIf { it.isNotEmpty() }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("${Apps.TestIds.VERSION_ROW}-$number")
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    GlassPill(Apps.versionLabel(number), size = PillSize.Sm)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            note ?: Apps.Copy.NO_NOTE,
-                            color = if (note == null) muted else MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Medium,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        // The pill and the note on ONE line over the caption (web, iOS).
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            GlassPill(Apps.versionLabel(number), size = PillSize.Sm)
+                            Text(
+                                note ?: Apps.Copy.NO_NOTE,
+                                color = if (note == null) muted else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         Text(
                             listOfNotNull(
                                 author?.let { userDisplayName(it, it.id) } ?: Apps.Copy.BY_AGENT,
@@ -766,8 +773,9 @@ private fun AppVersionsList(
                         } else {
                             Text(
                                 Apps.Copy.PREVIEW,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = muted,
+                                // The phones' ghost button: the 12 sp medium label, full foreground.
+                                style = GlassPillDefaults.textStyle(PillSize.Sm),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(GlassTokens.RowRadius))
                                     .clickable { onPreview(number) }
