@@ -133,8 +133,9 @@ enum AppRecordOutboxAttempt: Sendable {
     case retry
     /// `NOT_FOUND` on a single update or delete: removed silently.
     case dropped
-    /// The server refused it (the entry is gone): the call fails.
-    case refused(message: String)
+    /// The server refused it (the entry is gone): the call fails. `invalid`
+    /// = invalid input (BAD_REQUEST): a record form shows it inline.
+    case refused(message: String, invalid: Bool)
 }
 
 /// VAPP-235 (eApps O1, app-records.json `outbox`, docs/spec/apps.md §14):
@@ -250,12 +251,14 @@ final class AppRecordOutbox {
             let result: AppRecords.OutboxResult
             var message = ""
             let claim = await AppHostMcp.hostClaim(appId: entry.appId, pool: pool)
+            var invalid = false
             do {
                 replayed = try await api.recordsReplay(accountId: accountId, entry: entry, viaApp: claim)
                 result = .ok
             } catch {
                 result = AppRecords.outboxResult(error)
                 message = error.trpcUserMessage
+                invalid = error.trpcErrorCode == "BAD_REQUEST"
             }
             let outcome = AppRecords.outboxOutcome(entry, result: result)
             switch outcome {
@@ -278,7 +281,7 @@ final class AppRecordOutbox {
                 case .done: waiter.resume(replayed.map { AppRecordOutboxAttempt.done($0) } ?? .retry)
                 case .retry: waiter.resume(.retry)
                 case .dropped: waiter.resume(.dropped)
-                case .refused: waiter.resume(.refused(message: message))
+                case .refused: waiter.resume(.refused(message: message, invalid: invalid))
                 }
             } else if outcome == .refused {
                 // A later replay's refusal: the failed-action toast.
@@ -480,21 +483,53 @@ final class ExpAppHost {
         // online answer, refused = the toast + the call fails, retry = the
         // entry's answer), behind others it answers from the entry at once.
         let outbox = deps.recordOutbox
-        let recordsUpsert: HostFunction = { args, _ in
+        // VAPP-245: a record form's `form {error, close}`: landed = the error
+        // clears and the editor closes; invalid input (BAD_REQUEST) = the
+        // message under the form, no toast. `author` = an owner's on-behalf
+        // pick, online only (the outbox replays as the writer): straight to
+        // the server.
+        let forms = AppHostRecordForms()
+        let recordsUpsert: HostFunction = { args, call in
             guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
+            let target = AppHostRecordForms.Target(args: args, surfaceId: call.surfaceId)
+            if let author = args["author"]?.string {
+                var data: [String: CardJSON] = [:]
+                if case let .object(object)? = args["data"].flatMap({ CardJSON(any: $0.any) }) { data = object }
+                do {
+                    let result = try await appsApi.recordsUpsert(
+                        accountId: accountId, appId: appId, kind: args["kind"]?.string ?? "", data: data,
+                        recordId: args["id"]?.string, author: author,
+                        viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
+                    )
+                    forms.landed(target)
+                    return ["id": result.id]
+                } catch {
+                    if !(error.trpcErrorCode == "BAD_REQUEST" && forms.refused(target, message: error.trpcUserMessage)) {
+                        Toaster.shared.error(
+                            FeedbackStates.Errors.title(verb: "save", thing: "the record"),
+                            description: error.trpcUserMessage
+                        )
+                    }
+                    throw error
+                }
+            }
             let queued = try await outbox.write(
                 accountId: accountId, appId: appId, call: .upsert, args: args.compactMapValues { CardJSON(any: $0.any) }
             )
             switch queued.attempt {
             case let .done(.upserted(result))?:
+                forms.landed(target)
                 return ["id": result.id]
-            case let .refused(message)?:
-                Toaster.shared.error(
-                    FeedbackStates.Errors.title(verb: AppRecords.outboxVerb(queued.entry), thing: "the record"),
-                    description: message
-                )
+            case let .refused(message, invalid)?:
+                if !(invalid && forms.refused(target, message: message)) {
+                    Toaster.shared.error(
+                        FeedbackStates.Errors.title(verb: AppRecords.outboxVerb(queued.entry), thing: "the record"),
+                        description: message
+                    )
+                }
                 throw AppHostMcp.CallError(message: message)
             default:
+                forms.landed(target)
                 return queued.entry.answer?.any
             }
         }
@@ -503,7 +538,7 @@ final class ExpAppHost {
             let queued = try await outbox.write(
                 accountId: accountId, appId: appId, call: .delete, args: args.compactMapValues { CardJSON(any: $0.any) }
             )
-            if case let .refused(message)? = queued.attempt {
+            if case let .refused(message, _)? = queued.attempt {
                 Toaster.shared.error(
                     FeedbackStates.Errors.title(verb: AppRecords.outboxVerb(queued.entry), thing: "the record"),
                     description: message
@@ -529,7 +564,7 @@ final class ExpAppHost {
                     accountId: accountId, api: appsApi, toaster: Toaster.shared
                 )
                 return ["ids": result.ids]
-            case let .refused(message)?:
+            case let .refused(message, _)?:
                 throw AppHostMcp.CallError(message: message)
             default:
                 return queued.entry.answer?.any
@@ -654,6 +689,7 @@ final class ExpAppHost {
             liftsLayers: true
         ))
         uploads?.host = host
+        forms.host = host
     }
 
     /// #VAPP-230: one upstream binding: the broker's answer for the viewer,
@@ -748,6 +784,39 @@ private final class AppHostPlugin: HostPlugin {
     func icon(_ name: String, size: CGFloat) -> AnyView? {
         guard let resolved = AppIcons.conceptOrName(name) else { return nil }
         return AnyView(AppIcon(resolved, size: size))
+    }
+}
+
+/// VAPP-245: where a record form's write answers (`records.upsert`'s
+/// `form {error, close}`).
+@MainActor
+private final class AppHostRecordForms {
+    struct Target {
+        let surfaceId: String
+        let error: String?
+        let close: String?
+
+        init(args: Props, surfaceId: String) {
+            self.surfaceId = surfaceId
+            error = args["form"]?["error"]?.string
+            close = args["form"]?["close"]?.string
+        }
+    }
+
+    weak var host: ExponentialHost?
+
+    /// The write landed (or will): the error clears, the editor closes.
+    func landed(_ target: Target) {
+        guard let model = host?.surface(target.surfaceId) else { return }
+        if let error = target.error { model.setData(path: error, value: .null) }
+        if let close = target.close { model.setData(path: close, value: .bool(false)) }
+    }
+
+    /// The message under the form; false when this form shows none.
+    func refused(_ target: Target, message: String) -> Bool {
+        guard let path = target.error, let model = host?.surface(target.surfaceId) else { return false }
+        model.setData(path: path, value: .string(message))
+        return true
     }
 }
 

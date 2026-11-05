@@ -5,7 +5,8 @@ import fixture from "../../fixtures/record-macros.json" with { type: "json" }
 import { reduceSurface } from "../reducer"
 import { CORE_CATALOG_ID } from "../catalog"
 import type { FlatComponent } from "../types"
-import { fillRecordMacros } from "./record-macros"
+import { RecordRefusal, fillRecordMacros, isRecordMacroBinding } from "./record-macros"
+import { ExponentialHost } from "./runtime"
 import { templateMessages, validatePackage } from "./package"
 
 const records = fixture.records as never
@@ -38,6 +39,36 @@ describe(`record macros: the host fill (fixtures/record-macros.json)`, () => {
     expect(find(root as never, at)?.component).toBe(`Box`)
     expect(find(root as never, `${at}.day`)?.props.value).toEqual({ path: `/recordForm/fParts/loggedAt/date` })
     expect(find(root as never, `${at}.clock`)?.props.value).toEqual({ path: `/recordForm/fParts/loggedAt/time` })
+  })
+
+  test(`the runtime answers a record form's write`, async () => {
+    const pkg = fixture.install[0]!.package as never
+    let refuse = true
+    const host = new ExponentialHost({
+      packages: [pkg],
+      policy: { functions: { allow: [`*`] } },
+      functions: {
+        "records.upsert": () => {
+          if (refuse) throw new RecordRefusal(`bad`)
+          return { id: `r` }
+        },
+      },
+    } as never)
+    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, templateId: `main`, packageId: (pkg as { id: string }).id } } as never)
+    const call = { surfaceId: `s`, componentId: `f`, name: `records.upsert`, args: { form: { error: `/e`, close: `/open` } } }
+    host.surface(`s`)!.setData(`/open`, true)
+    await host.callFunction(call)
+    expect(host.surface(`s`)!.data).toMatchObject({ e: `bad`, open: true })
+    refuse = false
+    await host.callFunction(call)
+    expect(host.surface(`s`)!.data).toMatchObject({ e: null, open: false })
+  })
+
+  test(`a macro's own source passes sources, nothing else does`, () => {
+    expect(isRecordMacroBinding(`/recordMembers`, `exp:members`)).toBe(true)
+    expect(isRecordMacroBinding(`/recordIssues`, `exp:issues`)).toBe(true)
+    expect(isRecordMacroBinding(`/x`, `exp:members`)).toBe(false)
+    expect(isRecordMacroBinding(`/recordMembers`, `exp:issues`)).toBe(false)
   })
 
   test(`templateMessages sends the filled components and the rows binding`, () => {

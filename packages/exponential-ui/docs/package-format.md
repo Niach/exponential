@@ -495,13 +495,19 @@ macros put a kind's whole form or table on a screen as ONE node:
   FieldGroup on wide frames. The draft lives at `path` (default
   `/recordForm/<id>`; seed it to edit); submit = `records.upsert {kind,
   id: recordId, data}` unless the node has its own `on.submit`.
-  `readOnly` disables the form and drops the submit.
+  `readOnly` disables the form and drops the submit. For a team owner the
+  first field is **Author** (a searchable Select of the members, default the
+  viewer; seed `<path>Author` and `<path>AuthorBase` to edit), sent as
+  `author` only when it moved. A refused save shows inline: the host writes
+  invalid input (a schema issue, a bad author) at `<path>Error`, under the
+  fields, anything else toasts.
 - **RecordTable** `{kind, query?, columns?, add?, editable?}`: a toolbar
   (the count, Add) over the stock Table (compact, sticky header, sortable)
   with the Data tab's typed widths, a relative Updated column and an
   Edit / Delete cell; phones show the same rows as a List of Row, each
   with its own Delete. Add, Edit or a row press opens a RecordForm in a Drawer; Delete asks first,
-  then `records.delete`. Rows follow `records:<kind>?<query>` (default
+  then `records.delete`. The Drawer stays open on a refused save (Cancel
+  closes it, so no Escape or backdrop). Rows follow `records:<kind>?<query>` (default
   newest first) at `/recordTable/<id>/rows`. States: loading (Skeleton),
   empty (`No records yet`), an undeclared kind (the unknown state),
   `editable: false` or a read-only viewer (no Add, no Edit / Delete).
@@ -511,7 +517,13 @@ macros put a kind's whole form or table on a screen as ONE node:
   fields, columns, bindings and actions (catalog props marked `host`,
   never written by hand and left out of the model's prompt). Install
   needs `records.upsert` (a table also `records.delete`) in `functions`
-  and `records:<kind>` in `sources` when `sources` is set.
+  and `records:<kind>` in `sources` when `sources` is set; the macros' own
+  member and issue lists (`/recordMembers`, `/recordIssues`) need no entry.
+- **A host's `records.upsert`** gets the form's `author` (write on behalf,
+  when given) and `form {error, close}` (paths): a landed write clears
+  `error` and sets `close` false; the TS runtime does it, and a rejection
+  with `RecordRefusal` writes its message at `error`. Other SDKs' hosts write
+  them through `setData`.
 
 ## Public links
 

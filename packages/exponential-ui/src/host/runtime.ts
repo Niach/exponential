@@ -16,6 +16,7 @@ import { availableExtensions, clientCapabilities } from "./package"
 import type { PackageIssue, AppPackage } from "./package"
 import { combineDecisions, decideFunction, decideUrl, mediaRequest, packagePolicy } from "./policy"
 import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlPolicy } from "./policy"
+import { recordFormTargets } from "./record-macros"
 import { HostRouter } from "./router"
 import { hostParams, withHostParams } from "./host-params"
 import { parseSource, sourceWithParams } from "./sources"
@@ -529,9 +530,18 @@ export class ExponentialHost {
     if (call.name === NAVIGATE_FUNCTION) return this.navigate(call)
     const fn = Object.prototype.hasOwnProperty.call(this.functions, call.name) ? this.functions[call.name] : undefined
     if (!fn) return { decision: `allow` }
+    // VAPP-245: a record form's write: landed = its error clears and its
+    // editor closes; refused inline = the message under the form.
+    const form = recordFormTargets(call.args)
+    const store = this.stores.get(call.surfaceId)
     try {
-      return { decision: `allow`, result: await fn(call.args, call) }
+      const result = await fn(call.args, call)
+      if (form.error) store?.setData(form.error, null)
+      if (form.close) store?.setData(form.close, false)
+      return { decision: `allow`, result }
     } catch (e) {
+      // By name: an app may load the host entry apart from this module.
+      if (e instanceof Error && e.name === `RecordRefusal` && form.error) store?.setData(form.error, e.message)
       return { decision: `allow`, error: e instanceof Error ? e.message : String(e) }
     }
   }

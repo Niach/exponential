@@ -855,11 +855,96 @@ fn toast_fn() -> HostFunction {
     })
 }
 
+/// VAPP-245: where a record form's write answers (`records.upsert`'s
+/// `form {error, close}`): landed = the error clears and the editor closes;
+/// invalid input (BAD_REQUEST) = the message under the form, no toast.
+#[derive(Clone)]
+struct RecordFormTarget {
+    host: Rc<RefCell<Option<gpui::WeakEntity<ExponentialHost>>>>,
+    surface_id: String,
+    error: Option<String>,
+    close: Option<String>,
+}
+
+impl RecordFormTarget {
+    fn of(args: &Value, surface_id: &str, host: &Rc<RefCell<Option<gpui::WeakEntity<ExponentialHost>>>>) -> Option<Self> {
+        let form = args.get("form")?;
+        let text = |key: &str| form.get(key).and_then(Value::as_str).map(str::to_string);
+        Some(Self { host: host.clone(), surface_id: surface_id.to_string(), error: text("error"), close: text("close") })
+    }
+
+    fn write(&self, path: &str, value: Value, cx: &mut App) {
+        let host = self.host.borrow().as_ref().and_then(|host| host.upgrade());
+        let Some(view) = host.and_then(|host| host.read(cx).surface(&self.surface_id)) else { return };
+        view.update(cx, |view, cx| {
+            if let Err(err) = view.set_data(path, Some(value), cx) {
+                log::warn!("[exponential-ui host] record form not written at {path}: {err}");
+            }
+        });
+    }
+
+    fn landed(&self, cx: &mut App) {
+        if let Some(path) = &self.error {
+            self.write(path, Value::Null, cx);
+        }
+        if let Some(path) = &self.close {
+            self.write(path, Value::Bool(false), cx);
+        }
+    }
+
+    /// The refused message under the form; false when this form shows none.
+    fn refused(&self, err: &api::ApiError, cx: &mut App) -> bool {
+        let (Some(path), api::ApiError::Http { status: 400, .. }) = (&self.error, err) else { return false };
+        self.write(path, json!(crate::settings::form_error(err, "That didn\u{2019}t go through. Try again.")), cx);
+        true
+    }
+}
+
 /// VAPP-122 `records.upsert {kind, data, id?}`; VAPP-235: through the
-/// outbox ([`records_enqueue`]).
-fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
-    Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
-        records_enqueue(OutboxCall::Upsert, args, scope.clone(), cx)
+/// outbox ([`records_enqueue`]). VAPP-245: `author` = an owner's on-behalf
+/// pick, online only (the outbox replays as the writer): straight to the
+/// server.
+fn records_upsert_fn(scope: Option<HostScope>, host: Rc<RefCell<Option<gpui::WeakEntity<ExponentialHost>>>>) -> HostFunction {
+    Rc::new(move |args: Value, call: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
+        let form = RecordFormTarget::of(&args, &call.surface_id, &host);
+        let author = args.get("author").and_then(Value::as_str).map(str::to_string);
+        let (Some(author), Some(app_id)) = (author, scope.as_ref().map(|s| s.app_id.clone())) else {
+            return records_enqueue(OutboxCall::Upsert, args, scope.clone(), form, cx);
+        };
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the record", None, cx);
+            return Task::ready(Err("not signed in".to_string()));
+        };
+        let via_app = host_claim(Some(app_id.as_str()), cx);
+        let input = api::apps::RecordUpsertInput {
+            id: app_id,
+            kind: arg_str(&args, "kind"),
+            data: args.get("data").cloned().unwrap_or_else(|| json!({})),
+            record_id: args.get("id").and_then(Value::as_str).map(str::to_string),
+            author: Some(author),
+            via: None,
+            new_id: None,
+            write_id: None,
+            via_app,
+        };
+        let sent = cx.background_spawn(async move { api::apps::records_upsert(&trpc, &input) });
+        cx.spawn(async move |cx| match sent.await {
+            Ok(out) => {
+                if let Some(form) = &form {
+                    cx.update(|cx| form.landed(cx));
+                }
+                Ok(json!({ "id": out.id }))
+            }
+            Err(err) => {
+                let message = err.to_string();
+                cx.update(|cx| {
+                    if !form.as_ref().is_some_and(|form| form.refused(&err, cx)) {
+                        crate::action_error::failed_action_err("save", "the record", &err, cx);
+                    }
+                });
+                Err(message)
+            }
+        })
     })
 }
 
@@ -870,7 +955,7 @@ fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
 /// VAPP-235: ONE outbox entry (all or nothing).
 fn records_batch_fn(scope: Option<HostScope>) -> HostFunction {
     Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
-        records_enqueue(OutboxCall::Batch, args, scope.clone(), cx)
+        records_enqueue(OutboxCall::Batch, args, scope.clone(), None, cx)
     })
 }
 
@@ -909,7 +994,7 @@ fn local_offset_minutes(ms: f64) -> i32 {
 /// VAPP-122 `records.delete {id}`; VAPP-235: through the outbox.
 fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
     Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
-        records_enqueue(OutboxCall::Delete, args, scope.clone(), cx)
+        records_enqueue(OutboxCall::Delete, args, scope.clone(), None, cx)
     })
 }
 
@@ -1570,7 +1655,7 @@ fn prune_outbox(account_id: &str, cx: &mut App) {
 /// Undo toast; refused = the failed-action toast + the call fails; retry =
 /// the answer from the entry); behind other pending entries (or offline)
 /// it answers from the entry at once. Either way the flusher runs.
-fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, cx: &mut App) -> Task<Result<Value, String>> {
+fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, form: Option<RecordFormTarget>, cx: &mut App) -> Task<Result<Value, String>> {
     let verb = if call == OutboxCall::Delete { "delete" } else { "save" };
     let account = crate::queries::active_account(cx).map(|a| a.id);
     let db = account.as_deref().and_then(|a| outbox_db(a, cx));
@@ -1612,10 +1697,21 @@ fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, cx: 
     });
     flush_outbox(account, cx);
     let offline = entry.answer();
-    let Some((_, rx)) = waiter else { return Task::ready(Ok(offline)) };
+    let Some((_, rx)) = waiter else {
+        // Queued behind others or offline: it will land, the editor closes.
+        if let Some(form) = &form {
+            form.landed(cx);
+        }
+        return Task::ready(Ok(offline));
+    };
     let app_id = scope.app_id;
     cx.spawn(async move |cx| match rx.recv_async().await {
-        Ok(Flushed::Done(Replayed::Upsert(out))) => Ok(json!({ "id": out.id })),
+        Ok(Flushed::Done(Replayed::Upsert(out))) => {
+            if let Some(form) = &form {
+                cx.update(|cx| form.landed(cx));
+            }
+            Ok(json!({ "id": out.id }))
+        }
         Ok(Flushed::Done(Replayed::Delete)) => Ok(Value::Null),
         Ok(Flushed::Done(Replayed::Batch(out))) => {
             let ids = json!({ "ids": out.ids });
@@ -1634,11 +1730,20 @@ fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, cx: 
             let message = err.to_string();
             // A batch's refusal toasts through the package action.
             if call != OutboxCall::Batch {
-                cx.update(|cx| crate::action_error::failed_action_err(verb, "the record", &err, cx));
+                cx.update(|cx| {
+                    if !form.as_ref().is_some_and(|form| form.refused(&err, cx)) {
+                        crate::action_error::failed_action_err(verb, "the record", &err, cx);
+                    }
+                });
             }
             Err(message)
         }
-        Ok(Flushed::Retry | Flushed::Dropped) | Err(_) => Ok(offline),
+        Ok(Flushed::Retry | Flushed::Dropped) | Err(_) => {
+            if let Some(form) = &form {
+                cx.update(|cx| form.landed(cx));
+            }
+            Ok(offline)
+        }
     })
 }
 
@@ -1877,7 +1982,8 @@ impl IdeHost {
         functions.insert("harness.toast".into(), toast_fn());
         let claim_app = scope.as_ref().map(|s| s.app_id.clone());
         functions.insert("harness.mcp".into(), mcp_fn(claim_app.clone()));
-        functions.insert("records.upsert".into(), records_upsert_fn(scope.clone()));
+        let form_host = Rc::new(RefCell::new(None));
+        functions.insert("records.upsert".into(), records_upsert_fn(scope.clone(), form_host.clone()));
         functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
         functions.insert("records.batch".into(), records_batch_fn(scope.clone()));
         // VAPP-120: every MCP operation as a typed function (+ EXP-1657's
@@ -1973,6 +2079,7 @@ impl IdeHost {
             host
         });
         feeds.borrow_mut().upstream.host = Some(host.downgrade());
+        *form_host.borrow_mut() = Some(host.downgrade());
         if let Some(uploads) = &uploads {
             *uploads.host.borrow_mut() = Some(host.downgrade());
         }

@@ -803,17 +803,61 @@ fun rememberAppHost(
             val entry = outbox.entry(app, call, args)
             return entry to outbox.submit(account, entry)
         }
-        val recordsUpsert: HostFunction = { args, _ ->
+        // VAPP-245: a record form's `form {error, close}`: landed = the error
+        // clears and the editor closes; invalid input (BAD_REQUEST) = the
+        // message under the form, no toast. `author` = an owner's on-behalf
+        // pick, online only (the outbox replays as the writer): straight to
+        // the server.
+        var formHost: ExponentialHost? = null
+        val recordsUpsert: HostFunction = { args, call ->
+            val errorPath = args["form"]?.get("error")?.string
+            val closePath = args["form"]?.get("close")?.string
+            val surface = { formHost?.surfaces?.get(call.surfaceId) }
+            val landed = {
+                errorPath?.let { surface()?.setData(it, JsonValue.Null) }
+                closePath?.let { surface()?.setData(it, JsonValue.Bool(false)) }
+            }
+            var inline = false
             try {
-                val (entry, answer) = submit("upsert", args)
-                when (answer) {
-                    is AppRecordOutbox.Answer.Refused -> error(answer.message ?: "Couldn't save the record")
-                    is AppRecordOutbox.Answer.Done -> JsonValue.Obj(mapOf("id" to JsonValue.Str(answer.upsert?.id ?: entry.writes.first().id)))
-                    AppRecordOutbox.Answer.Queued -> JsonValue.Obj(mapOf("id" to JsonValue.Str(entry.writes.first().id)))
+                val author = args["author"]?.string
+                if (author != null) {
+                    val account = auth.activeAccountId.value ?: error("Not signed in")
+                    val app = appId ?: error("No app to keep records for")
+                    val data = kotlinx.serialization.json.Json.parseToJsonElement((args["data"] ?: JsonValue.Obj(emptyMap())).json) as? kotlinx.serialization.json.JsonObject
+                    val result = try {
+                        api.recordsUpsert(account, app, args["kind"]?.string.orEmpty(), data ?: kotlinx.serialization.json.JsonObject(emptyMap()), args["id"]?.string, author, viaApp = hostClaim())
+                    } catch (e: com.exponential.app.data.api.TrpcException) {
+                        if (e.code == "BAD_REQUEST" && errorPath != null) {
+                            surface()?.setData(errorPath, JsonValue.Str(e.message.orEmpty()))
+                            inline = true
+                        }
+                        throw e
+                    }
+                    landed()
+                    JsonValue.Obj(mapOf("id" to JsonValue.Str(result.id)))
+                } else {
+                    val (entry, answer) = submit("upsert", args)
+                    when (answer) {
+                        is AppRecordOutbox.Answer.Refused -> {
+                            if (answer.invalid && errorPath != null) {
+                                surface()?.setData(errorPath, JsonValue.Str(answer.message.orEmpty()))
+                                inline = true
+                            }
+                            error(answer.message ?: "Couldn't save the record")
+                        }
+                        is AppRecordOutbox.Answer.Done -> {
+                            landed()
+                            JsonValue.Obj(mapOf("id" to JsonValue.Str(answer.upsert?.id ?: entry.writes.first().id)))
+                        }
+                        AppRecordOutbox.Answer.Queued -> {
+                            landed()
+                            JsonValue.Obj(mapOf("id" to JsonValue.Str(entry.writes.first().id)))
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                toaster.failedAction("save", "the record", e.message)
+                if (!inline) toaster.failedAction("save", "the record", e.message)
                 throw e
             }
         }
@@ -988,6 +1032,7 @@ fun rememberAppHost(
             ),
             scope,
         )
+        formHost = built
         built
     }
     DisposableEffect(host) { onDispose { host.dispose() } }

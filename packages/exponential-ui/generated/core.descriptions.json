@@ -2749,6 +2749,15 @@
         },
         "missing": {
           "description": "Filled by the host."
+        },
+        "error": {
+          "description": "Filled by the host."
+        },
+        "author": {
+          "description": "Filled by the host."
+        },
+        "authorOptions": {
+          "description": "Filled by the host."
         }
       },
       "description": "A form over one record kind: a field per schema field with its checks; submit saves the record.",
@@ -2870,6 +2879,15 @@
           "description": "Filled by the host."
         },
         "missing": {
+          "description": "Filled by the host."
+        },
+        "error": {
+          "description": "Filled by the host."
+        },
+        "author": {
+          "description": "Filled by the host."
+        },
+        "authorOptions": {
           "description": "Filled by the host."
         }
       },
