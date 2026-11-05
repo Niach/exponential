@@ -2333,6 +2333,9 @@
         "drive": {
           "kind": "dialog",
           "value": "getting-started"
+        },
+        "env": {
+          "EXP_DEV_TOOL": "board"
         }
       },
       "notes": {
@@ -4600,7 +4603,7 @@
           "kind": "screen",
           "value": "exponential-ui-zoomable-image"
         },
-        "anchorDelayMs": 800
+        "anchorDelayMs": 3000
       },
       "ios": {
         "shot": "exponential-ui-zoomable-image",
@@ -7569,7 +7572,7 @@
         },
         "anchorDelayMs": 1500,
         "env": {
-          "EXP_DEV_SCREEN": "app:working-hours"
+          "EXP_DEV_SCREEN": "app:working-hours:settings"
         }
       },
       "ios": {
