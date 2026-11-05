@@ -43,6 +43,10 @@ internal import ExponentialUIPrimitives
 /// that quietly grows two points stops lining up with the circle buttons and
 /// chips it shares a row with.
 public enum GlassPillTokens {
+    /// EXP-1676: web's `disabled:opacity-50`, the whole primary button at half
+    /// (`GlassPill` + `GlassSubmitLabel`).
+    public static let disabledPrimaryOpacity: Double = 0.5
+
     /// `controlSm` — the chip/filter rung.
     public static let heightSm: CGFloat = DesignTokens.Size.controlSm
     /// `controlMd` — the rung that matches `CircleIconButton`.
@@ -158,9 +162,9 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         return false
     }
 
-    /// A disabled pill is never the loud one — it keeps the shared glass
-    /// treatment, which is what "disabled" looks like everywhere else.
-    private var isPrimary: Bool { primary && enabled }
+    /// EXP-1676: a disabled primary keeps its solid paint, the whole capsule
+    /// at web's `disabled:opacity-50` (`body` fades it).
+    private var isPrimary: Bool { primary }
 
     private var labelOpacity: Double {
         guard enabled else { return TextOpacity.quaternary }
@@ -172,6 +176,7 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         switch mode {
         case .readonly:
             content.allowsHitTesting(false)
+                .opacity(primary && !enabled ? GlassPillTokens.disabledPrimaryOpacity : 1)
         case .action(let action), .select(_, let action):
             if isPrimary {
                 Button(action: action) {
@@ -179,6 +184,7 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
                 }
                 .buttonStyle(GlassPillPrimaryPressStyle())
                 .disabled(!enabled)
+                .opacity(enabled ? 1 : GlassPillTokens.disabledPrimaryOpacity)
             } else {
                 Button(action: action) {
                     content.contentShape(Capsule())

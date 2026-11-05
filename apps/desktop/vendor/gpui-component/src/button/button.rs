@@ -1158,6 +1158,20 @@ impl ButtonVariant {
     }
 
     fn disabled(&self, outline: bool, cx: &mut App) -> ButtonVariantStyle {
+        // EXP-1676: a disabled primary = web's `disabled:opacity-50`, the one
+        // disabled look ×4. CSS fades the button as a GROUP; gpui's `opacity`
+        // multiplies each paint (the label would wash out over its own faded
+        // fill), so the fill goes to half and the dark label stays solid: on a
+        // half fill that lands on the same pixels as web's.
+        if !outline && matches!(self, Self::Primary) {
+            let normal = self.normal(false, cx);
+            return ButtonVariantStyle {
+                bg: cx.theme().tokens.button_primary.background.opacity(0.5),
+                border: normal.border.opacity(0.5),
+                shadow: false,
+                ..normal
+            };
+        }
         let bg = match self {
             Self::Default | Self::Link | Self::Ghost | Self::Text => cx.theme().transparent.into(),
             Self::Primary => cx.theme().tokens.button_primary.background.opacity(0.15),

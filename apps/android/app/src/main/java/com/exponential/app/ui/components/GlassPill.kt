@@ -84,7 +84,8 @@ fun GlassPill(
      * PAINT, orthogonal to [size] and [mode] (EXP-698 r4 — web `primary`,
      * desktop `.primary()`, iOS `primary:`): the solid primary fill with
      * primary-foreground content and no hairline, for the ONE call to action
-     * on a surface. A disabled pill ignores it and keeps the dimmed glass.
+     * on a surface. EXP-1676: a disabled one keeps the solid paint with the
+     * whole capsule at web's `disabled:opacity-50`.
      */
     primary: Boolean = false,
     /**
@@ -129,12 +130,11 @@ fun GlassPill(
     // A DISABLED select pill is never lit: the active fill plus a quaternary
     // label rendered as a bright capsule with near-invisible text in it.
     val active = enabled && mode == PillMode.Select && selected
-    // The emphatic paint is for a LIVE call to action only: a disabled primary
-    // capsule would read as tappable at full brightness.
-    // A primary call IN FLIGHT ([loading]) keeps its solid fill, the whole
-    // capsule at the disabled opacity (web's pending Button, `opacity-50`).
-    val pendingPrimary = loading && primary
-    val emphatic = (enabled || pendingPrimary) && primary
+    // EXP-1676: one disabled look ×4: a primary keeps its solid fill and the
+    // whole capsule draws at web's `disabled:opacity-50`; the same for a
+    // primary call IN FLIGHT ([loading], web's pending Button).
+    val pendingPrimary = (loading || !enabled) && primary
+    val emphatic = primary
     // A tone only paints on a live, non-emphatic capsule: a disabled or
     // primary pill already has one answer for its content colour.
     val toned = tint?.takeIf { enabled && !emphatic }

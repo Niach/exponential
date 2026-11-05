@@ -63,29 +63,19 @@ public struct GlassSubmitLabel<Icon: View>: View {
             label,
             pendingWord: pendingWord,
             pending: loading,
-            spinnerColor: enabled ? DesignTokens.Palette.primaryForeground : Color.white
+            spinnerColor: DesignTokens.Palette.primaryForeground
         ) {
             icon
         }
         .font(compact ? .subheadline.weight(.medium) : .body.weight(.medium))
-        .foregroundStyle(
-            enabled
-                ? DesignTokens.Palette.primaryForeground
-                : Color.white.opacity(TextOpacity.tertiary)
-        )
+        .foregroundStyle(DesignTokens.Palette.primaryForeground)
         .frame(maxWidth: compact ? nil : .infinity)
         .padding(.horizontal, compact ? 14 : 0)
         .padding(.vertical, compact ? 8 : 14)
-        .background(enabled ? DesignTokens.Palette.primary : GlassTokens.fillCard)
+        .background(DesignTokens.Palette.primary)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
-        // A filled button needs no hairline — only the disabled glass does.
-        .overlay(
-            RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-                .stroke(
-                    enabled ? Color.clear : GlassTokens.strokeCard,
-                    lineWidth: GlassTokens.hairline
-                )
-        )
+        // EXP-1676: disabled = web's `disabled:opacity-50`, the whole button.
+        .opacity(enabled ? 1 : GlassPillTokens.disabledPrimaryOpacity)
     }
 }
 
