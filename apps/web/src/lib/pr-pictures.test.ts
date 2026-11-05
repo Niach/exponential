@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// EXP-1468 (sealed-content addendum 5): a SEALED story card's PR pictures
+// EXP-1468 (sealed-content addendum 5): a SEALED result card's PR pictures
 // are its clear `pictures` entries with an attachmentId, none when the clear
 // `story` is false; captions never leave `sealed`.
 
@@ -39,7 +39,7 @@ describe(`loadPrPictures`, () => {
     h.results.length = 0
   })
 
-  it(`reads a plaintext story card as before (result:false skipped)`, async () => {
+  it(`reads a plaintext result card as before (result:false skipped)`, async () => {
     expect(
       await load([
         { kind: `surface`, pictures: [{ label: `web list`, attachmentId: `a1`, caption: `List` }] },
@@ -48,7 +48,7 @@ describe(`loadPrPictures`, () => {
     ).toEqual([[`web list`, `a1`, `https://exp.example/api/attachments/a1`]])
   })
 
-  it(`reads a sealed story card through its clear pictures (story true or absent)`, async () => {
+  it(`reads a sealed result card through its clear pictures (story true or absent)`, async () => {
     expect(
       await load([
         { kind: `surface`, result: true, pictures: [{ label: `web list`, attachmentId: `s1` }], sealed },
@@ -91,7 +91,7 @@ describe(`validSealedCard: the clear result flag`, () => {
   })
 })
 
-// #EXP-1402 (FEED-166 (2)): a PR body shows exactly its own sessions' stories.
+// #EXP-1402 (FEED-166 (2)): a PR body shows exactly its own sessions' results.
 describe(`prPictureSessionIds`, () => {
   // root → a (PR #1302) → a1; root → b (PR #1303, continued as b2); root → c (no PR)
   const tree = [

@@ -9,7 +9,7 @@ import {
 } from "@/lib/session-tree"
 
 // EXP-1293 Threads v2 / EXP-1306: the thread's ONE pull request,
-// `guidePullRequest` (session-thread.json, ×4). S-3 (stories.json): the
+// `guidePullRequest` (session-thread.json, ×4). S-3: the
 // Guide TAB is gone (its body, Changes rows and StackRail with it); what
 // stays is the header's Merge pill on every form factor (phones included)
 // and the `…` (`guideMenuEntries`). EXP-1307: Close PR (EXP-1338: no

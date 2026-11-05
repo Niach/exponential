@@ -107,11 +107,11 @@ export const entry: StyleguideEntry = {
     },
     ios: {
       state: `n/a`,
-      note: `S-3 retired the Guide face (results are stories now)`,
+      note: `S-3 retired the Guide face (the Results tab shows them)`,
     },
     android: {
       state: `n/a`,
-      note: `S-3 retired the Guide face (results are stories now)`,
+      note: `S-3 retired the Guide face (the Results tab shows them)`,
     },
   },
   island: () => (

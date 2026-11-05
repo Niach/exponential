@@ -107,10 +107,9 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //   ThreadTabs           the header's ONE strip, nothing scrolls (#EXP-1433):
 //                        "+" · Conversation | the one issue chip OR the
 //                        group tab (`ThreadStripGroup`: every issue and
-//                        session in THE Menu) | Stories (stories.json
-//                        STORIES TAB: a dot while a story is unseen);
+//                        session in THE Menu) | Results (results-tab.json);
 //                        `pager` = the phones' tabs (Conversation and
-//                        Stories icon-only there)
+//                        Results icon-only there)
 //   ThreadConversation   the conversation rows: messages (a person's bubble
 //                        right, the agent's markdown, system lines muted),
 //                        THE session card per session, question and plan
@@ -166,14 +165,13 @@ export type ThreadStripOpen = { kind: `issue` | `session`; id: string } | null
 /**
  * #EXP-1433 (session-thread.json STRIP, amends EXP-1334): the thread
  * header's ONE strip ×4 — NOTHING scrolls. Pinned left: the "+" (THE Menu:
- * Link an issue ›, New issue) and Conversation; pinned right: Stories
- * (stories.json STORIES TAB, a dot while a story is unseen). Between them
+ * Link an issue ›, New issue) and Conversation; pinned right: Results
+ * (results-tab.json). Between them
  * `threadStripMode` (`stripModeCases`): at most ONE issue and no session =
  * that issue's chip (full title; the pager: the identifier); anything more =
  * ONE group tab (`ThreadStripGroup`) opening THE Menu over every issue and
- * session. `pager` = the phones' header band: Conversation and Stories
- * ICON-ONLY (the strip chip box, the label as aria-label/title, the Stories
- * dot on the icon's corner).
+ * session. `pager` = the phones' header band: Conversation and Results
+ * ICON-ONLY (the strip chip box, the label as aria-label/title).
  */
 export function ThreadTabs({
   conversation,
@@ -2095,8 +2093,8 @@ const defaultAttachmentSrc = (attachmentId: string) => `/api/attachments/${attac
 
 /** N-12: THE Dock in a thread or a session (fixtures/dock.json): the
  *  host's `sources` (THE Queue, the queued messages, banners) and the open
- *  suggestions as DockCards above the composer. S-3 (stories.json): a
- *  waiting plan or question is a STORY, never a DockCard, and nothing opens
+ *  suggestions as DockCards above the composer. S-3: a
+ *  waiting plan or question is never a DockCard, and nothing opens
  *  itself; `asks` (the specimens' legacy pile only) still docks them, each
  *  opening as its sheet (`ThreadPlanSheet` / `ThreadQuestionSheet`). */
 export function ThreadDock({
@@ -2323,7 +2321,7 @@ export function ChannelMessageRow({
 }
 
 /** N-12: the Conversation rows THE Dock holds (they leave the transcript):
- *  the suggestion rows with an open item. S-3: a waiting ask is a story,
+ *  the suggestion rows with an open item. S-3: a waiting ask is
  *  never docked (`sessionName` kept for the callers' shape). */
 export function threadDockedIds(
   rows: readonly ThreadRow[],

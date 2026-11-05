@@ -68,9 +68,6 @@ import { entry as phoneBoardMenu } from "./phone-board-menu.tsx"
 import { entry as phonePageHeader } from "./phone-page-header.tsx"
 import { entry as chatTranscript } from "./chat-transcript.tsx"
 import { entry as chatMenus } from "./chat-menus.tsx"
-import { entry as storyRing } from "./story-ring.tsx"
-import { entry as storyViewer } from "./story-viewer.tsx"
-import { entry as storyTab } from "./story-tab.tsx"
 import { entry as resultsTab } from "./results-tab.tsx"
 import { entry as needsYou } from "./needs-you.tsx"
 import { entry as chatSelection } from "./chat-selection.tsx"
@@ -177,9 +174,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   chatMenus,
   chatSelection,
   sealedLocked,
-  storyRing,
-  storyViewer,
-  storyTab,
   resultsTab,
   needsYou,
 ]

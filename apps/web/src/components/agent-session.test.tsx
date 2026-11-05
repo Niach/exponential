@@ -403,7 +403,7 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     messages = [planMessage()]
     snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `Planned.` }, proposeCall] })
     render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
-    // stories.json: the plan is a story, not a DockCard; the composer stays.
+    // dock.json: the plan is not a DockCard; the composer stays.
     expect(screen.queryByTestId(`dock-card`)).toBeNull()
     expect(screen.getByTestId(`composer`)).toBeTruthy()
     const card = screen.getByTestId(`session-tool-card`)

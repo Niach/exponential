@@ -395,9 +395,9 @@ export function AgentSessionView({
   const sessionMessages = useSessionMessages(session.id)
   const toolCards = useMemo(() => toolCardRows(session, sessionMessages), [session, sessionMessages])
   const canAnswerCards = !sessionEnded
-  // S-3 (stories.json, dock.json): a waiting plan or question (the relay's
+  // S-3 (dock.json): a waiting plan or question (the relay's
   // own ask or a tool-posted card) is never a Dock source; it stays inline,
-  // answerable, and a tool-posted one is a story.
+  // answerable.
   /** N-12: THE Dock's band height = the transcript's bottom padding. */
   const [dockHeight, setDockHeight] = useState(0)
   const sessionDock = useSessionDock(session)

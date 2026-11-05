@@ -12,8 +12,8 @@ import { isAssistant } from "@exp/domain-contract/agent-settings"
 
 // S-3 (composer-home.json `agentRow`, styleguide `composer-agent-row`): THE
 // agent row over the New-chat composer card. The label line (`To <name>` /
-// `Temporary session`), then single-select circles: the chats agent BUBBLE
-// (`AgentBubbleButton`'s disc on bg muted inside its background gap) at
+// `Temporary session`), then single-select circles: an agent disc
+// (on bg muted inside its background gap) at
 // `size`, no name under it (the name is the label and the tooltip): the
 // viewer's Assistant first (THE brand mark in the foreground colour), the
 // team agents (icon in its colour), then ONE dotted circle = Temporary

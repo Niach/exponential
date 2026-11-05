@@ -85,7 +85,7 @@ export async function assertDemoLiveSessions(now: number = Date.now()): Promise<
 // ── #EXP-1538 benches: a queued message on "Profile the launch path" ───────
 // The Dock benches (Android `reopenSessionDock` / `coldOpenSessionDock`, web
 // `dock:open-to-visible`) time open → the first Dock card. Since S-3 a
-// waiting plan or question is a story, not a Dock card, so the seeded session
+// waiting plan or question is not a Dock card, so the seeded session
 // holds none of its own; THE Queue rides the relay stream. A person's queued
 // message is a synced Dock source (dock.json LOCAL FIRST: it never waits on
 // the stream), so `SCREENSHOT_FEED_QUEUED=1` keeps one unconsumed message on

@@ -153,7 +153,7 @@ export function AskCard({
 /** #EXP-1561: THE card's × (a ghost icon button, the unqueue ×'s size). */
 export function AskDismissButton({ onClick }: { onClick: () => void }) {
   // A native title, not THE Tooltip: the card renders in hosts without a
-  // TooltipProvider (the styleguide's islands, a story).
+  // TooltipProvider (the styleguide's islands).
   return (
     <Button
       type="button"

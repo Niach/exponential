@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest"
 import { isPrPictureCard } from "@exp/domain-contract/results-tab"
 import { buildSurfaceCard } from "@/lib/sessions/plan"
 
-// S-3 stories.json: a surface card may carry screenshots and a story flag.
+// A surface card may carry screenshots and a result flag.
 const surface = { root: { id: `t`, component: `Text`, props: { text: `Green` } } }
 
-describe(`buildSurfaceCard (S-3 stories)`, () => {
-  it(`a plain surface carries neither pictures nor a flag, and is no story`, () => {
+describe(`buildSurfaceCard (results)`, () => {
+  it(`a plain surface carries neither pictures nor a flag, and is no result`, () => {
     const card = buildSurfaceCard({ surface })
     expect(card).toEqual({ kind: `surface`, surface: { root: surface.root, data: null }, title: null })
     expect(isPrPictureCard(card)).toBe(false)
   })
 
-  it(`pictures are declared unresolved; the card is a story once one resolves`, () => {
+  it(`pictures are declared unresolved; the card is a result once one resolves`, () => {
     const card = buildSurfaceCard({ surface, pictures: [{ label: `web chats`, caption: ` Ring ` }] })
     expect(card.pictures).toEqual([
       { label: `web chats`, attachmentId: null, width: null, height: null, caption: `Ring` },

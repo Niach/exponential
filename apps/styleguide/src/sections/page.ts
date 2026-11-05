@@ -186,9 +186,6 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`chat-menus`]: `Surfaces`,
   [`chat-selection`]: `Lists & rows`,
   [`sealed-locked`]: `Surfaces`,
-  [`story-ring`]: `Buttons & chips`,
-  [`story-viewer`]: `Surfaces`,
-  [`story-tab`]: `Surfaces`,
   [`results-tab`]: `Surfaces`,
   [`needs-you`]: `Lists & rows`,
 }

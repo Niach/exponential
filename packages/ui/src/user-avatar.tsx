@@ -45,7 +45,7 @@ export function UserAvatar({
   user: UserAvatarUser | null | undefined
   /** #EXP-1383 (agent-settings.json `actor` / `assignee`): an AGENT reads
    *  as THE AGENT MARK at the avatar's size: its glyph in its colour on the
-   *  muted disc (the Chats agent bubble and lead disc), never initials. */
+   *  muted disc (the Chats lead disc), never initials. */
   agent?: UserAvatarAgent | null
   size?: UserAvatarSize
   className?: string

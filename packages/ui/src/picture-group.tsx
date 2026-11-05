@@ -6,8 +6,7 @@ import { cn } from "./cn"
 // plan-page.json `mosaicTiles` + `mosaic`): two = halves, three or more = the
 // first large on the left, two small stacked on the right, "+N" over the
 // last. PHONES = THE Carousel (eUI `Carousel`): one slide at a time with the
-// "i / n" counter and dots, a swipe steps; `thumbnails` adds the filmstrip
-// (the story gallery). A press on a picture = `onOpen(index)`.
+// "i / n" counter and dots, a swipe steps. A press on a picture = `onOpen(index)`.
 
 export interface GroupPicture {
   src: string
@@ -83,7 +82,6 @@ export function PictureCarousel({
   index: controlled,
   onIndex,
   onOpen,
-  thumbnails = false,
   fit = `cover`,
   className,
   slideClassName,
@@ -93,8 +91,6 @@ export function PictureCarousel({
   index?: number
   onIndex?: (index: number) => void
   onOpen?: (index: number) => void
-  /** The filmstrip under the slide (the story gallery). */
-  thumbnails?: boolean
   fit?: `cover` | `contain`
   className?: string
   slideClassName?: string
@@ -169,38 +165,19 @@ export function PictureCarousel({
           </span>
         )}
       </div>
-      {count > 1 &&
-        (thumbnails ? (
-          <div data-slot="carousel-thumbnails" className="flex gap-1.5 overflow-x-auto">
-            {pictures.map((entry, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-label={entry.alt}
-                aria-current={i === at || undefined}
-                onClick={() => go(i)}
-                className={cn(
-                  `size-13 shrink-0 overflow-hidden rounded-md border outline-none`,
-                  i === at ? `border-2 border-foreground` : `border-glass-stroke opacity-80`
-                )}
-              >
-                <img src={entry.src} alt="" draggable={false} className="size-full object-cover" />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div data-slot="carousel-dots" className="flex justify-center gap-1.5">
-            {pictures.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-label={`${i + 1} / ${count}`}
-                onClick={() => go(i)}
-                className={cn(`size-1.5 rounded-full`, i === at ? `bg-foreground` : `bg-muted-foreground/40`)}
-              />
-            ))}
-          </div>
-        ))}
+      {count > 1 && (
+        <div data-slot="carousel-dots" className="flex justify-center gap-1.5">
+          {pictures.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`${i + 1} / ${count}`}
+              onClick={() => go(i)}
+              className={cn(`size-1.5 rounded-full`, i === at ? `bg-foreground` : `bg-muted-foreground/40`)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

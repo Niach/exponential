@@ -2837,9 +2837,8 @@ export const sessionReads = pgTable(
     // #EXP-1388: the viewer archived the chat (on the ROOT's row; NULL = in
     // the list). Per viewer, like the read; `sessions.setArchived`.
     archivedAt: timestamp(`archived_at`, { withTimezone: true }),
-    // S-3: the newest story (stories.json) the viewer saw in this ROOT's
-    // tree (`sessions.markStoriesSeen`, kept monotonic). A story is seen
-    // when createdAt <= max(read_at, story_seen_at). NULL = none.
+    // Written only by old clients' `sessions.markStoriesSeen` (#FEED-191);
+    // no client reads it. A later migration removes it.
     storySeenAt: timestamp(`story_seen_at`, { withTimezone: true }),
     ...timestamps,
   },

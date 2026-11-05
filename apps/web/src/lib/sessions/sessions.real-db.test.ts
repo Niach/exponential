@@ -3153,7 +3153,7 @@ describe.skipIf(!ready.ok)(`S-3: one text + one card per turn, edited in place`,
   })
 })
 
-describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures`, async () => {
+describe.skipIf(!ready.ok)(`S-3: seen marks, result pictures, PR pictures`, async () => {
   const { sessionReads } = await import(`@/db/schema`)
   const { buildSurfaceCard, postShowCard, publishCardPicture } = await import(`@/lib/sessions/plan`)
   const { loadPrPictures } = await import(`@/lib/pr-pictures`)
@@ -3183,7 +3183,7 @@ describe.skipIf(!ready.ok)(`S-3 stories: seen marks, story pictures, PR pictures
     expect(read!.readAt.getTime()).toBe(0)
   })
 
-  it(`a surface story's picture resolves on its card and is a PR picture of the opener's subtree only`, async () => {
+  it(`a result's picture resolves on its card and is a PR picture of the opener's subtree only`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `root` } })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `ios part` } })

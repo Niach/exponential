@@ -5,7 +5,7 @@ import { db } from "@/db/connection"
 import { probeRealDb } from "@/test/real-db"
 
 // EXP-1468 against the real migrated Postgres: a PR body's pictures come
-// from the opener's story cards; a SEALED one counts through its clear
+// from the opener's result cards; a SEALED one counts through its clear
 // `pictures` (entries with an attachmentId) unless its clear `story` is false.
 
 const ready = await probeRealDb(`
@@ -24,15 +24,15 @@ afterAll(async () => {
   for (const id of made.users) await db.execute(sql`DELETE FROM users WHERE id = ${id}`)
 })
 
-describe.skipIf(!ready.ok)(`EXP-1468: story pictures of sealed cards`, () => {
-  it(`reads plaintext story cards and a sealed one's clear pictures`, async () => {
-    const userId = `stories-test-${id8()}`
+describe.skipIf(!ready.ok)(`EXP-1468: result pictures of sealed cards`, () => {
+  it(`reads plaintext result cards and a sealed one's clear pictures`, async () => {
+    const userId = `results-test-${id8()}`
     await db.execute(sql`
       INSERT INTO users (id, name, email, email_verified, is_admin, created_at, updated_at)
-      VALUES (${userId}, 'Tester', ${`${userId}@stories.test`}, true, false, now(), now())`)
+      VALUES (${userId}, 'Tester', ${`${userId}@results.test`}, true, false, now(), now())`)
     made.users.push(userId)
     const team = await db.execute<{ id: string }>(sql`
-      INSERT INTO teams (name, slug) VALUES ('Stories', ${`stories-${id8()}`}) RETURNING id`)
+      INSERT INTO teams (name, slug) VALUES ('Results', ${`results-${id8()}`}) RETURNING id`)
     const teamId = team.rows[0]!.id
     made.teams.push(teamId)
     const sessionId = crypto.randomUUID()
