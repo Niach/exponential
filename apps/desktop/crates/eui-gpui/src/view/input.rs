@@ -337,8 +337,7 @@ impl SurfaceView {
             FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
         };
         // A press in the field is the field's (caret, selection): it never
-        // bubbles to a host's own press handling (the story viewer's tap
-        // thirds), like the pressable leaves claim theirs.
+        // bubbles to a host's own press handling, like the pressable leaves claim theirs.
         let mut row = lcx
             .row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))
             .items_center()

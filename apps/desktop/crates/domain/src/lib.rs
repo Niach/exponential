@@ -196,7 +196,6 @@ pub mod skills;
 // N-12: THE stack geometry (the toasts and the Dock pile), fixture-locked ×4.
 pub mod stack;
 pub mod statuses;
-pub mod stories;
 pub mod tree_guides;
 // #VAPP-229: the "via <app>" caption of every row an app caused, fixture-locked ×4.
 pub mod via_app;

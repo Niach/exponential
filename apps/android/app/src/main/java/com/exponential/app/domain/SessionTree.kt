@@ -85,8 +85,6 @@ object SessionTree {
         val readAt: String,
         /** #EXP-1388: the viewer archived the chat (null = not). */
         val archivedAt: String? = null,
-        /** S-3 (stories.json): the greatest story createdAt shown (null = none). */
-        val storySeenAt: String? = null,
     )
 
     /** NEW-1: [sessionId] = the session that HOLDS the issue (the row sits on it). */
@@ -629,8 +627,6 @@ object SessionTree {
             val answers: List<String>? = null,
             /** EXP-1280: the surface's data model as the person answered it. */
             val surfaceData: JsonObject? = null,
-            /** S-3 (stories.json): the explicit story flag (null = absent). */
-            val story: Boolean? = null,
             /** #EXP-1561 (waiting-cards.json): a person dismissed it; true or null (absent). */
             val dismissed: Boolean? = null,
         ) : ThreadRow
@@ -663,8 +659,6 @@ object SessionTree {
             val feedback: String? = null,
             /** EXP-1280: the surface's data model as the person answered it. */
             val surfaceData: JsonObject? = null,
-            /** S-3 (stories.json): the explicit story flag (null = absent). */
-            val story: Boolean? = null,
         ) : ThreadRow
 
         data class Subagent(override val id: String, val title: String, val status: String) : ThreadRow
@@ -701,9 +695,7 @@ object SessionTree {
             val sessionId: String,
             val title: String?,
             val surface: CardSurface,
-            /** S-3 (stories.json): the explicit story flag (null = absent). */
-            val story: Boolean? = null,
-            /** S-3: a result story's screenshots (plan-card pictures' shape). */
+            /** A result's screenshots (plan-card pictures' shape). */
             val pictures: List<PlanCard.Picture> = emptyList(),
         ) : ThreadRow
     }
@@ -785,7 +777,6 @@ object SessionTree {
                 surface = cardSurface(card["surface"]),
                 answers = (card["answers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
                 surfaceData = card["surfaceData"] as? JsonObject,
-                story = card.bool("story"),
                 dismissed = if (card.isTrue("dismissed")) true else null,
             )
             DomainContract.messageCardKindPlan -> ThreadRow.Plan(
@@ -799,7 +790,6 @@ object SessionTree {
                 answers = planAnswers(card["answers"]),
                 feedback = card.str("feedback")?.takeIf { it.isNotEmpty() },
                 surfaceData = card["surfaceData"] as? JsonObject,
-                story = card.bool("story"),
             )
             else -> null
         }
@@ -815,7 +805,6 @@ object SessionTree {
             sessionId = message.sessionId,
             title = card.str("title")?.trim()?.takeIf { it.isNotEmpty() },
             surface = surface,
-            story = card.bool("story"),
             pictures = PlanCard.cardPictures(card["pictures"]),
         )
     }
@@ -1827,7 +1816,7 @@ object SessionTree {
         )
     }
 
-    fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt, archivedAt = row.archivedAt, storySeenAt = row.storySeenAt)
+    fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt, archivedAt = row.archivedAt)
 
     fun pullRequest(row: PullRequestEntity): PullRequest? =
         row.number?.let { PullRequest(id = row.id, number = it, state = row.state) }

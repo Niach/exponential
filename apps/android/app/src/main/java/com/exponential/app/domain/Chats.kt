@@ -39,14 +39,6 @@ object Chats {
         const val BOARD_MENU_NEW_BOARD = "New board"
         const val BOARD_MENU_NEW_TEAM = "New team"
 
-        /** `copy.filters` by [FILTERS]. */
-        val FILTERS: Map<ChatFilter, String> = linkedMapOf(
-            ChatFilter.All to "All",
-            ChatFilter.NeedsYou to "Needs you",
-            ChatFilter.Running to "Working",
-            ChatFilter.Unread to "Unread",
-        )
-
         const val PREVIEW_WORKING = "working…"
         const val PREVIEW_QUESTION = "Question: {text}"
         const val PREVIEW_PLAN = "Plan: {text}"
@@ -248,8 +240,6 @@ object Chats {
 
         /** The Archived entry's plain ui-archive glyph (dp). */
         const val ARCHIVED_GLYPH = 24
-        const val BUBBLE = 66
-        const val BUBBLE_RING = 3
         /** S-3 `shell.dimOpacity`: a done chat row (whole row). */
         const val DIM_OPACITY = 0.5f
         /** S-3 `shell.chatLead`: a chat row's lead glyph CONCEPT (never the
@@ -259,8 +249,6 @@ object Chats {
 
     object TestIds {
         const val CHAT_ROW = "chat-row"
-        const val CHAT_FILTER = "chat-filter"
-        const val AGENT_BUBBLE = "agent-bubble"
         const val INBOX_BUTTON = "chats-inbox"
         const val TAB_TEAM = "tab-team"
         const val BOARD_CHIP = "board-chip"
@@ -371,10 +359,6 @@ object Chats {
     const val DIVIDER_KIND_NEW = "new"
     const val DIVIDER_KIND_COMPACT = "compact"
 
-    enum class ChatFilter(val wire: String) { All("all"), NeedsYou("needs_you"), Running("running"), Unread("unread") }
-
-    val FILTERS: List<ChatFilter> = ChatFilter.entries
-
     /** A row's lead (`lead`): needs_you | working | open | merged | waiting. */
     enum class ChatLead(val wire: String) {
         NeedsYou("needs_you"),
@@ -431,18 +415,9 @@ object Chats {
         }
     }
 
-    data class ChatCounts(val needsYou: Int, val running: Int, val unread: Int) {
-        operator fun get(filter: ChatFilter): Int = when (filter) {
-            ChatFilter.All -> 0
-            ChatFilter.NeedsYou -> needsYou
-            ChatFilter.Running -> running
-            ChatFilter.Unread -> unread
-        }
-    }
-
-    /** [rows] / [counts] of the requested view; [archived] = the team's
-     *  archived chats either way (#EXP-1388, the Archived entry). */
-    data class ChatList(val rows: List<ChatRow>, val counts: ChatCounts, val archived: Int = 0)
+    /** [rows] of the requested view; [archived] = the team's archived chats
+     *  either way (#EXP-1388, the Archived entry). */
+    data class ChatList(val rows: List<ChatRow>, val archived: Int = 0)
 
     /** #EXP-1388: the list's view: the chats, or the Archived page. */
     enum class ChatListView(val wire: String) { List("list"), Archived("archived") }
@@ -499,7 +474,7 @@ object Chats {
     // The Chats list never reads a transcript: the server keeps, on each
     // conversation row (`conversations.digest`), exactly the messages the
     // list's rules read; [digestMessages] turns it back into tree messages so
-    // `partitionThreads`, `chatList` and `agentBubbles` run UNCHANGED over it.
+    // `partitionThreads` and `chatList` run UNCHANGED over it.
 
     /** `conversations.digest` (JSON text) → its object; null / bad = none. */
     fun parseDigest(text: String?): JsonObject? {
@@ -750,18 +725,11 @@ object Chats {
         }
     }
 
-    private fun keep(row: ChatRow, filter: ChatFilter): Boolean = when (filter) {
-        ChatFilter.All -> true
-        ChatFilter.NeedsYou -> row.group == SessionTree.ThreadsGroupKey.NeedsYou
-        ChatFilter.Running -> row.group == SessionTree.ThreadsGroupKey.Running
-        ChatFilter.Unread -> row.unreadCount > 0
-    }
-
     /**
      * The phone Chats list (`listCases`): the ROOT rows of
      * [SessionTree.partitionThreads] (active team) flattened and sorted by
      * activity desc (ties by id), each with its lead, preview, time and unread
-     * count, then filtered by the chip.
+     * count.
      */
     fun chatList(
         groups: List<SessionTree.ThreadsListGroup>,
@@ -771,7 +739,6 @@ object Chats {
         prStates: Map<String, List<String>> = emptyMap(),
         /** threadRowWord by session id (absent = none). */
         words: Map<String, SessionTree.ThreadRowWord?> = emptyMap(),
-        filter: ChatFilter,
         /** #EXP-1388: the chats, or the Archived page. */
         view: ChatListView = ChatListView.List,
         now: String,
@@ -817,14 +784,8 @@ object Chats {
                 )
             }
             .sortedWith(compareByDescending<ChatRow> { ms(it.activityAt) ?: 0L }.thenBy { it.sessionId })
-        val all = rows.filter { isArchived(it) == wantArchived }
         return ChatList(
-            rows = all.filter { keep(it, filter) },
-            counts = ChatCounts(
-                needsYou = all.count { keep(it, ChatFilter.NeedsYou) },
-                running = all.count { keep(it, ChatFilter.Running) },
-                unread = all.count { keep(it, ChatFilter.Unread) },
-            ),
+            rows = rows.filter { isArchived(it) == wantArchived },
             archived = rows.count(::isArchived),
         )
     }
@@ -910,34 +871,6 @@ object Chats {
         ChatSelectionAction.Delete -> Copy.SELECTION_DELETE
     }
 
-    /** A chip's label: its copy, then its count when there is one. */
-    fun chatFilterLabel(filter: ChatFilter, counts: ChatCounts): String {
-        val label = Copy.FILTERS.getValue(filter)
-        if (filter == ChatFilter.All) return label
-        val n = counts[filter]
-        return if (n > 0) "$label $n" else label
-    }
-
-    /** needs_you (amber) | unread (foreground) | none (a hairline). */
-    enum class AgentRing(val wire: String) { NeedsYou("needs_you"), Unread("unread") }
-
-    data class AgentBubble(val agent: SessionTree.AgentRow, val ring: AgentRing?)
-
-    /** The Chats header's agent bubbles (`bubbleCases`), in
-     *  [SessionTree.listAgents] order. */
-    fun agentBubbles(
-        agents: List<SessionTree.AgentRow>,
-        sessions: List<SessionTree.Session>,
-        messages: List<SessionTree.Message>,
-        reads: List<SessionTree.SessionRead> = emptyList(),
-        me: String?,
-    ): List<AgentBubble> = agents.map { agent ->
-        if (agent.needsYou) return@map AgentBubble(agent, AgentRing.NeedsYou)
-        val conversation = sessions.firstOrNull { it.parentId == null && it.agentId == agent.agentId && it.userId == me }
-        val unread = conversation != null && unreadCount(conversation.id, messages, reads) > 0
-        AgentBubble(agent, if (unread) AgentRing.Unread else null)
-    }
-
     /** S-3: an agent row pinned on top of the Chats list (`agentRowCases`). */
     data class AgentChatRow(
         val agentId: String,
@@ -958,15 +891,13 @@ object Chats {
     )
 
     /** S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one row
-     *  per [SessionTree.listAgents] row (that order), filtered by the chip
-     *  like a chat; none on the Archived page. */
+     *  per [SessionTree.listAgents] row (that order); none on the Archived page. */
     fun agentChatRows(
         agents: List<SessionTree.AgentRow>,
         sessions: List<SessionTree.Session>,
         messages: List<SessionTree.Message>,
         reads: List<SessionTree.SessionRead> = emptyList(),
         me: String?,
-        filter: ChatFilter,
         view: ChatListView = ChatListView.List,
         now: String,
         utcOffsetMinutes: Int,
@@ -998,13 +929,6 @@ object Chats {
                 needsYou = agent.needsYou,
                 busy = agent.busy,
             )
-        }.filter {
-            when (filter) {
-                ChatFilter.All -> true
-                ChatFilter.NeedsYou -> it.needsYou
-                ChatFilter.Running -> it.busy
-                ChatFilter.Unread -> it.unreadCount > 0
-            }
         }
     }
 

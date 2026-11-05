@@ -922,15 +922,13 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
 // ---------------------------------------------------------------------------
 
 /// The Chats page's model: the WHOLE list (filter All, chips filter it in
-/// the view) and the agent bubbles.
+/// the view) and the agent rows.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ChatsModel {
     pub(crate) list: domain::chats::ChatList,
-    /// #EXP-1388: the Archived page's list (view `archived`, filter All).
+    /// #EXP-1388: the Archived page's list (view `archived`).
     pub(crate) archived: domain::chats::ChatList,
-    pub(crate) bubbles: Vec<domain::chats::AgentBubble>,
-    /// S-3: the AGENT rows pinned on top (filter All; the chips filter them
-    /// in the view like the chats).
+    /// S-3: the AGENT rows pinned on top.
     pub(crate) agent_rows: Vec<domain::chats::AgentChatRow>,
 }
 
@@ -947,8 +945,8 @@ struct ChatsMemo(Option<(ChatsKey, Rc<ChatsModel>)>);
 
 impl gpui::Global for ChatsMemo {}
 
-/// [`ChatsModel`] of `team_id` (`domain::chats::chat_list` +
-/// `agent_bubbles`), memoised per store change.
+/// [`ChatsModel`] of `team_id` (`domain::chats::chat_list`), memoised per
+/// store change.
 pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
     let Some(store) = Store::try_global(cx) else {
         return Rc::new(ChatsModel::default());
@@ -1041,7 +1039,6 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
             reads: &reads,
             pr_states: &pr_states,
             words: &words,
-            filter: domain::chats::ChatFilter::All,
             view,
             now: &now,
             utc_offset_minutes: offset,
@@ -1050,19 +1047,17 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
     };
     let list = list_of(domain::chats::ChatListView::List);
     let archived = list_of(domain::chats::ChatListView::Archived);
-    let bubbles = domain::chats::agent_bubbles(&agents, &team_sessions, &messages, &reads, me.as_deref());
     let agent_rows = domain::chats::agent_chat_rows(domain::chats::AgentChatRowsInput {
         agents: &agents,
         sessions: &team_sessions,
         messages: &messages,
         reads: &reads,
         me: me.as_deref(),
-        filter: domain::chats::ChatFilter::All,
         view: domain::chats::ChatListView::List,
         now: &now,
         utc_offset_minutes: offset,
     });
-    ChatsModel { list, archived, bubbles, agent_rows }
+    ChatsModel { list, archived, agent_rows }
 }
 
 /// EXP-1323: the Threads entry's unread dot — any thread of `team_id` has

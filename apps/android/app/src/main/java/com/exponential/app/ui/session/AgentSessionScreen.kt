@@ -922,8 +922,8 @@ private fun RunFaceContent(
         val anchors = AskDock.anchorSessionCards(AskDock.feedCalls(feed), sessionCards.map { it.first })
         SessionCardSlots(anchors, sessionCards.associate { it.first.id to it.second })
     }
-    // S-3 STORIES (dock.json, ask-dock.json): a waiting plan or question is a
-    // story now, never a DockCard: no plan/question source, no auto-open; the
+    // S-3 (dock.json, ask-dock.json): a waiting plan or question is
+    // never a DockCard: no plan/question source, no auto-open; the
     // card stays inline in the transcript, answerable.
     val dock: @Composable (SessionDock) -> Unit = { sessionDock -> SessionDockCards(sessionDock) }
     // The placeholder states (no feed yet): connecting, an ended run's

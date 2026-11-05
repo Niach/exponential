@@ -42,13 +42,17 @@ The composer's stop button interrupts the turn; **Stop** in the header ends the 
 
 <PlatformShots view="threads" platforms={["web"]} />
 
-**Chats** lists the team's chats under the agents' bubbles, filtered by **All**, **Needs you**, **Working** and **Unread**. Right-click or long-press a row to stop, archive or delete it.
+**Chats** lists the team's agents, then its chats under **Needs you**, **Working**, **Unread** and **Chats**. Right-click or long-press a row to archive or delete it.
 
 ## Review and merge
 
-<PlatformShots view="story-viewer" platforms={["desktop"]} />
+<PlatformShots view="results-tab" platforms={["desktop"]} />
 
-What the agent wants you to see lands as **stories**: results with screenshots, questions and plans, in rings on top of Chats and in each chat's **Stories** tab. The PR body is written from them.
+**Results**, each chat's last tab, holds what the agent showed you. The PR body is written from those pictures.
+
+<PlatformShots view="needs-you" platforms={["web"]} />
+
+**Needs you** puts every plan, question and PR ready to merge in one list. A plan opens on its chat's **Plan** tab.
 
 The chat header carries **Merge PR** with the CI state. A refused merge goes back to the session to fix. With **Yolo mode** on in **Settings → General**, PRs merge by themselves once their sessions are idle. Merging on GitHub works the same.
 

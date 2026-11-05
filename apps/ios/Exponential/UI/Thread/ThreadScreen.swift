@@ -857,7 +857,7 @@ struct ThreadScreen: View {
 
     /// N-12: the Conversation's DockCards: the suggested tasks with an open
     /// item, then the live root's own (`SessionDock`). S-3 (dock.json): a
-    /// waiting plan or question is a story, never a DockCard; it stays
+    /// waiting plan or question is never a DockCard; it stays
     /// inline in the transcript, answerable.
     private func conversationDockRows(rows: ThreadRows, view: SessionThreadView) -> [Dock.Row] {
         guard canEdit else { return [] }

@@ -546,9 +546,8 @@ pub(crate) fn card_surface_view(
 
 /// The surface block: the `Preview` label (medium) ABOVE the surface in
 /// its own frame (`card.surface*`; a skeleton-height box until the view
-/// exists). `labelled` false = the story viewer's look (stories.json: no
-/// label above the surface, no frame around it).
-pub(crate) fn surface_block(message_id: &str, labelled: bool, cx: &App) -> AnyElement {
+/// exists).
+pub(crate) fn surface_block(message_id: &str, cx: &App) -> AnyElement {
     let copy = model::copy();
     let card = model::card();
     let view = draft(message_id, cx).and_then(|draft| draft.surface.clone());
@@ -558,22 +557,17 @@ pub(crate) fn surface_block(message_id: &str, labelled: bool, cx: &App) -> AnyEl
         .w_full()
         .min_w_0()
         .gap(px(card.surface_label_gap))
-        .when(labelled, |block| block.child(caption(&copy.surface, cx).font_weight(FontWeight::MEDIUM)))
+        .child(caption(&copy.surface, cx).font_weight(FontWeight::MEDIUM))
         .child(
             div()
                 .w_full()
                 .min_w_0()
-                // The story viewer: the tree straight on the viewer's black,
-                // NO card chrome (stories.json VIEWER; web `StorySurface`).
-                .when(labelled, |frame| {
-                    frame
-                        .p(px(card.surface_padding))
-                        .rounded(px(card.surface_radius))
-                        .border_1()
-                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
-                        .overflow_hidden()
-                })
+                .p(px(card.surface_padding))
+                .rounded(px(card.surface_radius))
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                .bg(theme::tokens::glass::FILL_ROW.to_hsla())
+                .overflow_hidden()
                 .map(|frame| match view {
                     Some(view) => frame.child(view),
                     None => frame.min_h(px(48.)),
@@ -904,17 +898,6 @@ pub(crate) fn plan_sheet(
     window: &Window,
     cx: &mut App,
 ) -> crate::dock::SheetContent {
-    plan_sheet_with(facts, plan, false, images, window, cx)
-}
-
-fn plan_sheet_with(
-    facts: &PlanFacts,
-    plan: AnyElement,
-    story: bool,
-    images: &Entity<ImageCache>,
-    window: &Window,
-    cx: &mut App,
-) -> crate::dock::SheetContent {
     let message_id = facts.message_id;
     let decided = facts.decision.is_some();
     let answering = crate::thread_screen::answering(message_id, cx);
@@ -938,7 +921,7 @@ fn plan_sheet_with(
         None => {
             body = body.child(plan);
             if facts.surface.is_some() {
-                body = body.child(surface_block(message_id, !story, cx));
+                body = body.child(surface_block(message_id, cx));
             }
             if !stepped {
                 for question in facts.questions {
@@ -950,7 +933,7 @@ fn plan_sheet_with(
     }
     let mut footer = v_flex().w_full().min_w_0().gap_2();
     if interactive && last {
-        footer = footer.child(plan_footer(facts, page, story, window, cx));
+        footer = footer.child(plan_footer(facts, page, window, cx));
     } else {
         footer = footer.children(step_buttons(message_id, page, pages));
     }
@@ -960,15 +943,13 @@ fn plan_sheet_with(
         footer = footer.child(closed_decision(facts, decision, cx));
     }
     // #EXP-1493 (plan-page.json WAYS IN): the Dock sheet's header glyph
-    // `ui-fullscreen` (`copy.openFull`) opens THE plan page; the story
-    // viewer carries its own `Open plan`.
-    let action = (!story).then(|| open_full_glyph(facts.session_id, message_id, cx));
+    // `ui-fullscreen` (`copy.openFull`) opens THE plan page.
+    let action = Some(open_full_glyph(facts.session_id, message_id, cx));
     crate::dock::SheetContent {
         meta: question.map(|_| SharedString::from(model::copy().step_label(page, count))),
         action,
         body: crate::dock::sheet_body(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)), body),
-        // The story viewer floats its footer on the bottom scrim: no hairline.
-        footer: Some(if story { footer.into_any_element() } else { crate::dock::sheet_footer(footer) }),
+        footer: Some(crate::dock::sheet_footer(footer)),
     }
 }
 
@@ -1042,7 +1023,7 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
     let mut footer: Vec<AnyElement> = Vec::new();
     if interactive && last {
         // The decision's own Back (page 0 = none).
-        footer.push(plan_footer(facts, if back { at + 1 } else { 0 }, false, window, cx));
+        footer.push(plan_footer(facts, if back { at + 1 } else { 0 }, window, cx));
     } else if !decided && (back || !last) {
         footer.push(
             h_flex()
@@ -1161,7 +1142,7 @@ fn step_button(message_id: &str, test_id: &str, label: &str, to: usize) -> Butto
 /// while a required answer is missing (the issue line under the row).
 /// Picking the reject opens the feedback field above the row and the row
 /// reads Cancel + the reject label as the primary.
-fn plan_footer(facts: &PlanFacts, page: usize, story: bool, window: &Window, cx: &mut App) -> AnyElement {
+fn plan_footer(facts: &PlanFacts, page: usize, window: &Window, cx: &mut App) -> AnyElement {
     let message_id = facts.message_id;
     let ids = model::test_ids();
     let copy = model::copy();
@@ -1170,13 +1151,8 @@ fn plan_footer(facts: &PlanFacts, page: usize, story: bool, window: &Window, cx:
     let (Some(approve), Some(reject)) = (find("approve"), find("reject")) else {
         return div().into_any_element();
     };
-    let fresh = find("approve-fresh").filter(|_| !story);
-    let stories = &domain::stories::STORIES.copy;
-    let (approve_label, change_label) = if story {
-        (stories.approve.as_str(), stories.change.as_str())
-    } else {
-        (approve.label.as_str(), reject.label.as_str())
-    };
+    let fresh = find("approve-fresh");
+    let (approve_label, change_label) = (approve.label.as_str(), reject.label.as_str());
     let rejecting = draft(message_id, cx).is_some_and(|draft| draft.rejecting);
     let answers = plan_answers(message_id, facts.questions, cx);
     let blocked = (!rejecting).then(|| approve_issue(facts.questions, &answers)).flatten();
@@ -1360,11 +1336,11 @@ fn prepare_question(facts: &QuestionFacts, window: &Window, cx: &mut App) {
 }
 
 /// The question's surface, choose caption, options and free-text row.
-fn question_content(facts: &QuestionFacts, interactive: bool, labelled: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, Vec<String>) {
+fn question_content(facts: &QuestionFacts, interactive: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, Vec<String>) {
     let message_id = facts.message_id;
     let mut content: Vec<AnyElement> = Vec::new();
     if facts.surface.is_some() {
-        content.push(surface_block(message_id, labelled, cx));
+        content.push(surface_block(message_id, cx));
     }
     let picked = if facts.answered {
         closed_picks(facts.options, facts.answer, facts.answers)
@@ -1397,7 +1373,7 @@ pub(crate) fn question_parts(facts: &QuestionFacts, answer: bool, images: &Entit
     let answering = crate::thread_screen::answering(facts.message_id, cx);
     let interactive = answer && !facts.answered && !answering;
     prepare_question(facts, window, cx);
-    let (content, picked) = question_content(facts, interactive, true, images, window, cx);
+    let (content, picked) = question_content(facts, interactive, images, window, cx);
     let controls = if facts.answered {
         closed_answer(facts, &picked, cx)
     } else if answering {
@@ -1438,44 +1414,11 @@ pub(crate) fn question_sheet(
     window: &Window,
     cx: &mut App,
 ) -> crate::dock::SheetContent {
-    question_sheet_with(facts, question, false, images, window, cx)
-}
-
-/// S-3: the story viewer's question: the same sheet, its surface with no
-/// `Preview` label above it (stories.json VIEWER LOOK).
-pub(crate) fn question_story_sheet(
-    facts: &QuestionFacts,
-    question: AnyElement,
-    images: &Entity<ImageCache>,
-    window: &Window,
-    cx: &mut App,
-) -> crate::dock::SheetContent {
-    question_sheet_with(facts, question, true, images, window, cx)
-}
-
-fn question_sheet_with(
-    facts: &QuestionFacts,
-    question: AnyElement,
-    story: bool,
-    images: &Entity<ImageCache>,
-    window: &Window,
-    cx: &mut App,
-) -> crate::dock::SheetContent {
     let message_id = facts.message_id;
     let answering = crate::thread_screen::answering(message_id, cx);
     let interactive = !facts.answered && !answering;
     prepare_question(facts, window, cx);
-    let (mut content, picked) = question_content(facts, interactive, !story, images, window, cx);
-    // S-3 (stories.json VIEWER, web `StoryFooter`): the story's body is the
-    // surface alone; the option rows, the free-text row and Answer float in
-    // the footer.
-    let controls = if story && facts.surface.is_some() && !content.is_empty() {
-        content.split_off(1)
-    } else if story && facts.surface.is_none() {
-        std::mem::take(&mut content)
-    } else {
-        Vec::new()
-    };
+    let (content, picked) = question_content(facts, interactive, images, window, cx);
     let body = v_flex()
         .id(SharedString::from(format!("{}-{message_id}", model::test_ids().card)))
         .w_full()
@@ -1489,11 +1432,7 @@ fn question_sheet_with(
     } else {
         h_flex().w_full().justify_end().child(answer_button(facts, cx)).into_any_element()
     };
-    let footer = if story {
-        v_flex().w_full().min_w_0().gap_2().children(controls).child(action).into_any_element()
-    } else {
-        crate::dock::sheet_footer(action)
-    };
+    let footer = crate::dock::sheet_footer(action);
     crate::dock::SheetContent {
         meta: None,
         action: None,

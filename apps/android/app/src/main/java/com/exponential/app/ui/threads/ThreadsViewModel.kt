@@ -278,14 +278,13 @@ class ThreadsViewModel @Inject constructor(
             reads = input.reads,
             prStates = states,
             words = w,
-            filter = Chats.ChatFilter.All,
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
             visible = input.sessions.mapTo(HashSet()) { it.id },
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList()))
 
     /** S-3 (chats.json `agentChatRows`): the AGENT rows pinned on top of the
      *  list, [agents] order (the viewer's Assistant first); none on the
@@ -302,7 +301,6 @@ class ThreadsViewModel @Inject constructor(
             messages = input.messages,
             reads = input.reads,
             me = me,
-            filter = Chats.ChatFilter.All,
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),

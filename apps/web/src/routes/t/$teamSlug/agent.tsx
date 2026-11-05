@@ -17,9 +17,6 @@ import {
   ChatTranscriptSpecimen,
   SessionXrefSpecimen,
   PrChecksSpecimen,
-  StoryRingSpecimen,
-  StoryViewerSpecimen,
-  StoryTabSpecimen,
   ResultsTabSpecimen,
   NeedsYouSpecimen,
   PhoneTabBarSpecimen,
@@ -98,8 +95,7 @@ const str = (value: unknown): string | undefined =>
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
 // buttons; EXP-1681 `call-pill` THE floating call pill; S-3 `session-xref` THE session link, #EXP-1611 `pr-checks` the
-// Merge pill's check states + the Checks submenu, `story-ring` / `story-viewer`
-// THE story ring + viewer, `story-tab` THE Stories tab body; #FEED-191
+// Merge pill's check states + the Checks submenu; #FEED-191
 // `results-tab` THE Results tab body, `needs-you` THE Needs you list; EXP-1558
 // `mention-pill` / `schedule-picker` / `pr-row` / `sealed-locked` the
 // styleguide boards the natives shoot as `sg_*`) (identical ×4) for theirs.
@@ -126,9 +122,6 @@ const DEV_VIEWS = [
   `call-pill`,
   `session-xref`,
   `pr-checks`,
-  `story-ring`,
-  `story-viewer`,
-  `story-tab`,
   `results-tab`,
   `needs-you`,
   `mention-pill`,
@@ -197,12 +190,6 @@ function AgentRoute() {
           <SessionXrefSpecimen />
         ) : dev === `pr-checks` ? (
           <PrChecksSpecimen />
-        ) : dev === `story-ring` ? (
-          <StoryRingSpecimen />
-        ) : dev === `story-viewer` ? (
-          <StoryViewerSpecimen frame={!isMobile} />
-        ) : dev === `story-tab` ? (
-          <StoryTabSpecimen size={isMobile ? `phone` : `wide`} />
         ) : dev === `results-tab` ? (
           <ResultsTabSpecimen size={isMobile ? `phone` : `wide`} />
         ) : dev === `needs-you` ? (

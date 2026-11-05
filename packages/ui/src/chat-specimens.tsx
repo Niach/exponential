@@ -61,11 +61,11 @@ export function ChatListSpecimen() {
 
 // ── chat-selection ───────────────────────────────────────────────────────
 // #EXP-1388 (chats.json SELECTION + ARCHIVE): the list in selection mode:
-// the Archived entry first (listCases[4]'s count), the rows of listCases[0]
+// the Archived entry first (listCases[1]'s count), the rows of listCases[0]
 // with two selected (a running chat and an unread one), over THE bulk bar
 // with `chatSelectionActions` for them (the phone's icon-only cells).
 
-const ARCHIVED_COUNT = chats.listCases[4]!.expected.archived
+const ARCHIVED_COUNT = chats.listCases[1]!.expected.archived
 const SELECTED = new Set([`b`, `c`])
 export function ChatSelectionSpecimen() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(SELECTED)

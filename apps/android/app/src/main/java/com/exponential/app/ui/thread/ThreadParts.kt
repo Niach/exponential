@@ -1656,8 +1656,8 @@ fun rememberLiveArrivals(key: String, rows: List<SessionTree.ThreadRow>): (Strin
  * suggested-tasks rows with an open item (only with [suggestions]; null =
  * read-only, the rows stay in the Conversation) as DockCards above the
  * composer; a suggestions card opens [ThreadSuggestionsSheet], the rest
- * through [sessionSheet]. S-3 STORIES: a waiting plan or question is a story
- * now, never a DockCard (it stays inline in the Conversation, answerable),
+ * through [sessionSheet]. S-3: a waiting plan or question is
+ * never a DockCard (it stays inline in the Conversation, answerable),
  * so nothing opens itself. [initialOpenId] / [initialExpanded] seed the
  * styleguide's states.
  */

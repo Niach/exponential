@@ -345,11 +345,11 @@ struct AppNavigator: View {
         )) {
             ThreadCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
         }
-        // S-3 STORIES: the `story-ring` / `story-viewer` specimens (capture only).
+        // #EXP-1662: the `plan-page` specimen (capture only).
         .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(StorySpecimensScreen.kinds.contains) == true
+            UITestingStyleguide.requested.map(PlanPageSpecimenScreen.kinds.contains) == true
         )) {
-            StorySpecimensScreen(kind: UITestingStyleguide.requested ?? "story-ring")
+            PlanPageSpecimenScreen()
         }
         // EXP-1635: the share extension's pages + the attach menu (capture only).
         .fullScreenCover(isPresented: .constant(

@@ -159,12 +159,6 @@ mod outline;
 mod mosaic;
 // Thread 58cb32df: the transcript's surface card + command dividers.
 mod surface_card;
-// S-3: THE story ring + THE story viewer.
-mod story_badge;
-mod story_ring;
-mod story_viewer;
-// STORIES TAB: replaced by the Results tab; goes with its styleguide entry.
-mod story_tab;
 // #FEED-191: the session screen's Results tab body + THE PR review pane.
 mod results_tab;
 // #FEED-191: the Needs you page + its rail entry's rows.

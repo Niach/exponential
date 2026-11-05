@@ -1,16 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
-import type { AgentBubble, AgentChatRow, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
-import { STORIES_TEST_IDS } from "@exp/domain-contract/stories"
-import { AgentBubbles, CHAT_AGENT_ROW_TEST_ID, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
+import type { AgentChatRow, ChatRow as ChatRowModel } from "@exp/domain-contract/chats"
+import { CHAT_AGENT_ROW_TEST_ID, ChatList, ChatsHeader } from "./chat-list"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 
 // Thread 58cb32df (chats.json): the phone Chats pieces paint the contract's
-// model — the list case's rows, the bubble case's rings.
+// model: the list case's rows.
 
 const rows = fixture.listCases[0]!.expected.rows as ChatRowModel[]
-const bubbles = fixture.bubbleCases[0]!.expected as AgentBubble[]
 const agentRows = fixture.agentRowCases[0]!.expected as AgentChatRow[]
 const ids = fixture.testIds
 
@@ -124,39 +122,6 @@ describe(`ChatList`, () => {
   it(`shows the empty state with no rows`, () => {
     render(<ChatList rows={[]} />)
     expect(screen.queryByTestId(ids.chatRow)).toBeNull()
-  })
-})
-
-describe(`AgentBubbles (stories.json STORY ROW)`, () => {
-  const ring = (key: string, agentId: string | null) =>
-    ({ key, agentId, rootId: agentId ? null : key, title: key, assistant: false, waiting: 0, unseen: true, stories: [] }) as never
-  it(`draws only the bubbles wearing a ring, then the rest; a tap opens the viewer`, () => {
-    const onOpenStory = vi.fn()
-    render(<AgentBubbles bubbles={bubbles} rings={[ring(`root:t1`, null), ring(`agent:ag2`, `ag2`)]} onOpenStory={onOpenStory} />)
-    const painted = screen.getAllByTestId(ids.agentBubble)
-    expect(painted.map((b) => b.getAttribute(`data-story`))).toEqual([`agent:ag2`])
-    expect(painted[0]!.getAttribute(`data-menu`)).toBe(`agent`)
-    expect(screen.getAllByTestId(STORIES_TEST_IDS.ring).map((r) => r.getAttribute(`data-key`))).toEqual([`root:t1`])
-    fireEvent.click(painted[0]!)
-    expect(onOpenStory).toHaveBeenCalledWith(`agent:ag2`)
-  })
-  it(`nobody has a story: no row at all`, () => {
-    const { container } = render(<AgentBubbles bubbles={bubbles} rings={[]} />)
-    expect(container.querySelector(`[data-slot=agent-bubbles]`)).toBeNull()
-  })
-})
-
-describe(`ChatFilterChips`, () => {
-  it(`labels the chips with their counts and selects one`, () => {
-    const onChange = vi.fn()
-    render(
-      <ChatFilterChips value="all" counts={{ needs_you: 1, running: 2, unread: 0 }} onChange={onChange} />
-    )
-    const chips = screen.getAllByTestId(ids.chatFilter)
-    expect(chips.map((chip) => chip.textContent)).toEqual([`All`, `Needs you 1`, `Working 2`, `Unread`])
-    expect(chips[0]!.getAttribute(`data-selected`)).toBe(`true`)
-    fireEvent.click(chips[2]!)
-    expect(onChange).toHaveBeenCalledWith(`running`)
   })
 })
 

@@ -4,7 +4,7 @@ import samples from "@exponential_app/eui/samples/samples.json"
 // EXP-1654: the committed sample pictures a SPECIMEN paints instead of a
 // placeholder (packages/exponential-ui/samples, read samples.json's
 // `$comment`): the eUI kitchen sink + specimens resolve an example src
-// (`specimenSampleUrl`, a host's `resolveUrl`), the plan-page and story-tab
+// (`specimenSampleUrl`, a host's `resolveUrl`), the plan-page and results-tab
 // specimens an attachment id (`specimenAttachmentSrc`). Vite turns each
 // `new URL(…, import.meta.url)` into an emitted asset (dev: /@fs/), so a
 // bundle carries a url, never the bytes. The product never reads it. SSR

@@ -719,7 +719,7 @@ mod tests {
         // margins, less a second sidebar when one is open.
         let rail = crate::resize_edge::SidebarPanel::Main.default_width();
         let card = |w: f32| w - rail - 2. * crate::shell::PANEL_MARGIN;
-        let side = crate::resize_edge::SidebarPanel::List.default_width();
+        let side = theme::tokens::sidebar::DEFAULT_LIST;
         // A 1280 window: the tree beside a full card, never beside a second
         // sidebar (the diff column would be left ~400px).
         assert!(fits_tree(card(1280.)));

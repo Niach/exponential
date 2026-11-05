@@ -644,26 +644,26 @@
     {
       "name": "issues first, then commit subjects, merges and duplicates skipped, three bullets at most",
       "input": {
-        "title": "S-3 stories",
+        "title": "S-3 results",
         "issues": [
           {
             "identifier": "EXP-1",
-            "title": "Stories replace the Guide"
+            "title": "Results replace the Guide"
           }
         ],
         "commits": [
           "Merge branch 'x' into y",
-          "S-3 stories: the fold\n\nbody",
-          "S-3 stories",
-          "S-3 stories: the fold",
-          "S-3 stories: the viewer",
-          "S-3 stories: the ring"
+          "S-3 results: the fold\n\nbody",
+          "S-3 results",
+          "S-3 results: the fold",
+          "S-3 results: the viewer",
+          "S-3 results: the ring"
         ],
         "pictures": [],
         "notRun": null,
         "resultsUrl": "https://exp.example/t/acme/sessions/r1"
       },
-      "expected": "S-3 stories\n\n- #EXP-1 Stories replace the Guide\n- S-3 stories: the fold\n- S-3 stories: the viewer\n\n---\n\n[Results in Exponential](https://exp.example/t/acme/sessions/r1)"
+      "expected": "S-3 results\n\n- #EXP-1 Results replace the Guide\n- S-3 results: the fold\n- S-3 results: the viewer\n\n---\n\n[Results in Exponential](https://exp.example/t/acme/sessions/r1)"
     },
     {
       "name": "pictures grouped by platform word in platform order (web-mobile = web, unknown = other), then Not run",

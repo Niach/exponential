@@ -61,9 +61,6 @@ export function transcriptWaitingIndexes(
   return out
 }
 
-export type ChatFilter = `all` | `needs_you` | `running` | `unread`
-export const CHAT_FILTERS = fixture.filters as readonly ChatFilter[]
-
 export type ChatLead = `needs_you` | `working` | `open` | `merged` | `waiting`
 
 export type ChatPreviewKind =
@@ -108,8 +105,6 @@ export interface ChatRow {
 
 export interface ChatList {
   rows: ChatRow[]
-  /** Chip counts (All has none). */
-  counts: Record<Exclude<ChatFilter, `all`>, number>
   /** #EXP-1388: archived chats of the active team (the Archived entry). */
   archived: number
 }
@@ -282,7 +277,7 @@ function unreadCount(rootId: string, messages: readonly TreeMessage[], reads: re
 /**
  * The phone Chats list (`listCases`): the ROOT rows of `partitionThreads`
  * (active team) flattened and sorted by activity desc (ties by id), each
- * with its lead, preview, time and unread count, then filtered by the chip.
+ * with its lead, preview, time and unread count.
  */
 export function chatList(input: {
   groups: readonly ThreadsListGroup[]
@@ -292,7 +287,6 @@ export function chatList(input: {
   prStates?: Readonly<Record<string, readonly string[]>>
   /** threadRowWord by session id (absent = none). */
   words?: Readonly<Record<string, ThreadRowWord | null>>
-  filter: ChatFilter
   /** #EXP-1388: absent = `list`. */
   view?: ChatListView
   now: string
@@ -338,19 +332,8 @@ export function chatList(input: {
       (a, b) =>
         (ms(b.activityAt) ?? 0) - (ms(a.activityAt) ?? 0) || (a.sessionId < b.sessionId ? -1 : 1)
     )
-  const all = rows.filter((row) => isArchived(row) === wantArchived)
-  const keep = (row: ChatRow, filter: ChatFilter) =>
-    filter === `all` ||
-    (filter === `needs_you` && row.group === `needs_you`) ||
-    (filter === `running` && row.group === `running`) ||
-    (filter === `unread` && row.unreadCount > 0)
   return {
-    rows: all.filter((row) => keep(row, input.filter)),
-    counts: {
-      needs_you: all.filter((row) => keep(row, `needs_you`)).length,
-      running: all.filter((row) => keep(row, `running`)).length,
-      unread: all.filter((row) => keep(row, `unread`)).length,
-    },
+    rows: rows.filter((row) => isArchived(row) === wantArchived),
     archived: rows.filter(isArchived).length,
   }
 }
@@ -381,41 +364,6 @@ export function chatsUnread(groups: readonly ThreadsListGroup[], reads: readonly
   )
 }
 
-/** A chip's label: its copy, then its count when there is one. */
-export function chatFilterLabel(filter: ChatFilter, counts: ChatList[`counts`]): string {
-  const label = fixture.copy.filters[filter]
-  if (filter === `all`) return label
-  const n = counts[filter]
-  return n > 0 ? `${label} ${n}` : label
-}
-
-export type AgentRing = `needs_you` | `unread` | null
-
-export interface AgentBubble extends AgentRow {
-  ring: AgentRing
-}
-
-/** The Chats header's agent bubbles (`bubbleCases`), in `listAgents`
- *  order: amber ring = the viewer's conversation needs them, white ring =
- *  an agent message newer than their read of it, else none. */
-export function agentBubbles(input: {
-  agents: readonly AgentRow[]
-  sessions: readonly TreeSession[]
-  messages: readonly TreeMessage[]
-  reads?: readonly TreeSessionRead[]
-  me: string | null
-}): AgentBubble[] {
-  const reads = input.reads ?? []
-  return input.agents.map((agent) => {
-    if (agent.needsYou) return { ...agent, ring: `needs_you` as const }
-    const conversation = input.sessions.find(
-      (s) => s.parentId === null && s.agentId === agent.agentId && s.userId === input.me
-    )
-    const unread = conversation ? unreadCount(conversation.id, input.messages, reads) > 0 : false
-    return { ...agent, ring: unread ? (`unread` as const) : null }
-  })
-}
-
 /** S-3: an agent row pinned on top of the Chats list (`agentRowCases`). */
 export interface AgentChatRow {
   agentId: string
@@ -438,57 +386,47 @@ export interface AgentChatRow {
 }
 
 /** S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one row per
- *  `listAgents` row (that order), filtered by the chip like a chat; none on
- *  the Archived page. */
+ *  `listAgents` row (that order); none on the Archived page. */
 export function agentChatRows(input: {
   agents: readonly AgentRow[]
   sessions: readonly TreeSession[]
   messages: readonly TreeMessage[]
   reads?: readonly TreeSessionRead[]
   me: string | null
-  filter: ChatFilter
   view?: ChatListView
   now: string
   utcOffsetMinutes: number
 }): AgentChatRow[] {
   if (input.view === `archived`) return []
   const reads = input.reads ?? []
-  return input.agents
-    .map((agent): AgentChatRow => {
-      const conversation = input.sessions.find(
-        (s) => s.parentId === null && s.agentId === agent.agentId && s.userId === input.me
-      )
-      const id = conversation?.id ?? null
-      const newest = id
-        ? input.messages
-            .filter((m) => m.sessionId === id && (m.authorKind === `user` || m.authorKind === `agent`))
-            .reduce<string | null>((at, m) => ((ms(m.createdAt) ?? 0) > (ms(at) ?? -1) ? m.createdAt : at), null)
-        : null
-      const activityAt = newest ?? conversation?.createdAt ?? null
-      return {
-        agentId: agent.agentId,
-        sessionId: id,
-        name: agent.name,
-        icon: agent.icon,
-        color: agent.color,
-        assistant: agent.assistant,
-        preview: id
-          ? chatPreview({ rootId: id, messages: input.messages, needsYou: agent.needsYou, busy: agent.busy })
-          : { kind: `empty`, text: fixture.copy.preview.empty },
-        time: activityAt ? chatTimeLabel(activityAt, input.now, input.utcOffsetMinutes) : ``,
-        activityAt,
-        unreadCount: id ? unreadCount(id, input.messages, reads) : 0,
-        needsYou: agent.needsYou,
-        busy: agent.busy,
-      }
-    })
-    .filter(
-      (row) =>
-        input.filter === `all` ||
-        (input.filter === `needs_you` && row.needsYou) ||
-        (input.filter === `running` && row.busy) ||
-        (input.filter === `unread` && row.unreadCount > 0)
+  return input.agents.map((agent): AgentChatRow => {
+    const conversation = input.sessions.find(
+      (s) => s.parentId === null && s.agentId === agent.agentId && s.userId === input.me
     )
+    const id = conversation?.id ?? null
+    const newest = id
+      ? input.messages
+          .filter((m) => m.sessionId === id && (m.authorKind === `user` || m.authorKind === `agent`))
+          .reduce<string | null>((at, m) => ((ms(m.createdAt) ?? 0) > (ms(at) ?? -1) ? m.createdAt : at), null)
+      : null
+    const activityAt = newest ?? conversation?.createdAt ?? null
+    return {
+      agentId: agent.agentId,
+      sessionId: id,
+      name: agent.name,
+      icon: agent.icon,
+      color: agent.color,
+      assistant: agent.assistant,
+      preview: id
+        ? chatPreview({ rootId: id, messages: input.messages, needsYou: agent.needsYou, busy: agent.busy })
+        : { kind: `empty`, text: fixture.copy.preview.empty },
+      time: activityAt ? chatTimeLabel(activityAt, input.now, input.utcOffsetMinutes) : ``,
+      activityAt,
+      unreadCount: id ? unreadCount(id, input.messages, reads) : 0,
+      needsYou: agent.needsYou,
+      busy: agent.busy,
+    }
+  })
 }
 
 export type ThreadMenuEntry = `delete`
@@ -561,7 +499,7 @@ export function chatSelectionFailedTitle(failed: number, total: number): string 
 
 export type AgentMenuEntry = `compact` | `newConversation` | `settings`
 
-/** The agent chat's header menu (and its bubble's long-press) ×4
+/** The agent chat's header menu (and its row's long-press) ×4
  *  (`agentMenuCases`). S-3: no Stop (the composer's stop-turn is the one). */
 export function agentMenuEntries(input: { busy: boolean; isOwner: boolean }): AgentMenuEntry[] {
   return [`compact`, `newConversation`, ...(input.isOwner ? ([`settings`] as const) : [])]
@@ -588,7 +526,7 @@ export function surfaceReply(event: { name?: unknown; context?: unknown }): Surf
 // conversation row (`conversations.digest`, trigger `conversation_digest`
 // in 0001_triggers.sql), exactly the messages the list's rules read, and
 // `digestMessages` turns it back into TreeMessages, so `sessionTitle`,
-// `partitionThreads`, `chatList` and `agentBubbles` run UNCHANGED over it
+// `partitionThreads` and `chatList` run UNCHANGED over it
 // and answer as they would over the whole conversation (an unread count
 // past `DIGEST_AGENT_TAIL` reads `DIGEST_AGENT_TAIL`). The SQL mirrors
 // `conversationDigest` below; `chats.test.ts` locks the equivalence.

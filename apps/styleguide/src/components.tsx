@@ -2553,8 +2553,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `opened by SessionResultsView; the dialog is ImagePreviewDialog's panel mode`
       ),
       desktop: ok(`image_preview::open_guide_viewer`, `apps/desktop/crates/ui/src/image_preview.rs`),
-      ios: na(`S-3 retired the Guide face; story pictures open in the StoryViewer`),
-      android: na(`S-3 retired the Guide face; story pictures open in the StoryViewer`),
+      ios: na(`S-3 retired the Guide face`),
+      android: na(`S-3 retired the Guide face`),
     },
     island: () => (
       <div className="flex h-[26rem] max-w-4xl overflow-hidden rounded-2xl border border-glass-stroke-card bg-card/85">
@@ -2618,8 +2618,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the pure rules (grouping, tile width, the fitting factor) are session-results.ts, mirrored byte for byte ×4`
       ),
       desktop: ok(`session_results::render`, `apps/desktop/crates/ui/src/session_results.rs`),
-      ios: na(`S-3 retired the Guide face that held the results; results are stories now`),
-      android: na(`S-3 retired the Guide face that held the results; results are stories now`),
+      ios: na(`S-3 retired the Guide face that held the results; the Results tab shows them`),
+      android: na(`S-3 retired the Guide face that held the results; the Results tab shows them`),
     },
     island: () => (
       <SessionResultsView

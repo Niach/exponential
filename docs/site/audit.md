@@ -60,7 +60,7 @@ Columns: **W** prose words · **C** code words · **P** pics · **×** contrast 
 | `/imprint/` | 55 | 0 | 0 | 0 | B | Lg | – | German headings (required, keep) |
 | `/blog/` | 39 | 0 | 3 | 0 | B/D | Bl | – | – |
 | `/blog/exponentialos/` | 678 | 32 | 2 | 0 | B/D | Bl | `/blog/ui-as-data-down-to-the-compositor/` (eDE, same `os-stack`/`watch-view` pictures); library list = `/` Open libraries | – |
-| `/blog/session-as-interface/` | 828 | 1 | 11 | 2 | B/D | Bl | `/docs/coding/` (stories, asks, plans) | 2 contrast |
+| `/blog/session-as-interface/` | 828 | 1 | 11 | 2 | B/D | Bl | `/docs/coding/` (results, asks, plans) | 2 contrast |
 | `/blog/ui-as-data-down-to-the-compositor/` | 1291 | 0 | 5 | 0 | D | Bl | `/blog/exponentialos/`, `/ui/` | – |
 
 ### Product pages

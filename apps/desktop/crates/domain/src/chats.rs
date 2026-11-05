@@ -2,8 +2,8 @@
 //! `packages/domain-contract/src/chats.ts` (iOS ExpCore `Chats.swift`,
 //! Android `domain/Chats.kt`), replaying EVERY case group (#EXP-1380: the
 //! IDE's Chats page paints the same list): the list ([`chat_list`],
-//! [`chat_preview`], [`chat_time_label`], [`chat_filter_label`],
-//! [`unread_count`]), the bubbles ([`agent_bubbles`]), the context menus ×4
+//! [`chat_preview`], [`chat_time_label`],
+//! [`unread_count`]), the context menus ×4
 //! ([`thread_menu_entries`], [`agent_menu_entries`]), the transcript's
 //! command dividers ([`command_divider`]) + its window ([`TranscriptSpec`],
 //! [`transcript_window_start`]),
@@ -95,14 +95,6 @@ pub struct ChatsDividerCopy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ChatsFilterCopy {
-    pub all: String,
-    pub needs_you: String,
-    pub running: String,
-    pub unread: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ChatsTabCopy {
     pub board: String,
     pub chats: String,
@@ -162,7 +154,6 @@ pub struct ChatsCopy {
     pub tabs: ChatsTabCopy,
     pub headers: ChatsHeaderCopy,
     pub board_menu: ChatsBoardMenuCopy,
-    pub filters: ChatsFilterCopy,
     pub preview: ChatsPreviewCopy,
     pub menu: ChatsMenuCopy,
     pub confirm_delete: ChatsConfirmCopy,
@@ -206,8 +197,6 @@ pub struct ChatBoardChipsCopy {
 #[serde(rename_all = "camelCase")]
 pub struct ChatsTestIds {
     pub chat_row: String,
-    pub chat_filter: String,
-    pub agent_bubble: String,
     pub surface_card: String,
     pub divider: String,
     pub load_earlier: String,
@@ -310,8 +299,6 @@ pub struct ChatsShell {
     pub select_badge_radius: f32,
     /// The Archived row's plain ui-archive glyph, no disc behind it (#EXP-1388).
     pub archived_glyph: f32,
-    pub bubble: f32,
-    pub bubble_ring: f32,
     /// S-3: a DONE chat's row opacity ([`ChatRow::dim`]).
     pub dim_opacity: f32,
     /// S-3: the chat row's lead glyph concept (`action-chat`; needs you =
@@ -591,47 +578,8 @@ pub fn plain_line(markdown: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// LIST + BUBBLES (#EXP-1380: every form factor, the IDE included)
+// LIST (#EXP-1380: every form factor, the IDE included)
 // ---------------------------------------------------------------------------
-
-/// A filter chip (`filters`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatFilter {
-    All,
-    NeedsYou,
-    Running,
-    Unread,
-}
-
-impl ChatFilter {
-    pub const ALL: [ChatFilter; 4] = [Self::All, Self::NeedsYou, Self::Running, Self::Unread];
-
-    /// The fixture key (`all` | `needs_you` | `running` | `unread`).
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::NeedsYou => "needs_you",
-            Self::Running => "running",
-            Self::Unread => "unread",
-        }
-    }
-
-    pub fn parse(key: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|filter| filter.key() == key)
-    }
-
-    /// The chip's copy (no count).
-    pub fn copy(self) -> &'static str {
-        let filters = &CHATS.copy.filters;
-        match self {
-            Self::All => &filters.all,
-            Self::NeedsYou => &filters.needs_you,
-            Self::Running => &filters.running,
-            Self::Unread => &filters.unread,
-        }
-    }
-}
 
 /// A row's lead disc content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -692,17 +640,9 @@ pub struct ChatRow {
 }
 
 /// The chip counts (All has none).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ChatCounts {
-    pub needs_you: usize,
-    pub running: usize,
-    pub unread: usize,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatList {
     pub rows: Vec<ChatRow>,
-    pub counts: ChatCounts,
     /// #EXP-1388: archived chats of the active team (the Archived entry).
     pub archived: usize,
 }
@@ -952,7 +892,6 @@ pub struct ChatListInput<'a> {
     pub pr_states: &'a HashMap<String, Vec<String>>,
     /// `thread_row_word` by session id (absent = none).
     pub words: &'a HashMap<String, ThreadRowWord>,
-    pub filter: ChatFilter,
     /// #EXP-1388: the chats (`List`) or the Archived page.
     pub view: ChatListView,
     pub now: &'a str,
@@ -961,26 +900,9 @@ pub struct ChatListInput<'a> {
     pub visible_session_ids: Option<&'a HashSet<&'a str>>,
 }
 
-fn keeps(row: &ChatRow, filter: ChatFilter) -> bool {
-    filter.keeps(row)
-}
-
-impl ChatFilter {
-    /// The chip keeps `row`: its group (needs you / running) or an unread
-    /// count.
-    pub fn keeps(self, row: &ChatRow) -> bool {
-        match self {
-            Self::All => true,
-            Self::NeedsYou => row.group == ThreadsListKey::NeedsYou,
-            Self::Running => row.group == ThreadsListKey::Running,
-            Self::Unread => row.unread_count > 0,
-        }
-    }
-}
-
 /// The Chats list (`listCases`): the ROOT rows of `partition_threads`
 /// (active team) flattened and sorted by activity desc (ties by id), each
-/// with its lead, preview, time and unread count, then filtered by the chip.
+/// with its lead, preview, time and unread count.
 pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
     // One pass over the messages: each root reads only its own.
     let mut by_session: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
@@ -1036,14 +958,7 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
             .then_with(|| a.session_id.cmp(&b.session_id))
     });
     let archived = rows.iter().filter(|row| is_archived(row)).count();
-    let all: Vec<ChatRow> = rows.into_iter().filter(|row| is_archived(row) == want_archived).collect();
-    let count = |filter| all.iter().filter(|row| keeps(row, filter)).count();
-    let counts = ChatCounts {
-        needs_you: count(ChatFilter::NeedsYou),
-        running: count(ChatFilter::Running),
-        unread: count(ChatFilter::Unread),
-    };
-    ChatList { rows: all.into_iter().filter(|row| keeps(row, input.filter)).collect(), counts, archived }
+    ChatList { rows: rows.into_iter().filter(|row| is_archived(row) == want_archived).collect(), archived }
 }
 
 /// S-3: an agent row pinned on top of the Chats list (`agentRowCases`).
@@ -1078,15 +993,13 @@ pub struct AgentChatRowsInput<'a> {
     pub messages: &'a [&'a MessageRow],
     pub reads: &'a [&'a SessionReadRow],
     pub me: Option<&'a str>,
-    pub filter: ChatFilter,
     pub view: ChatListView,
     pub now: &'a str,
     pub utc_offset_minutes: i32,
 }
 
 /// S-3 (TS `agentChatRows`): the Chats list's pinned AGENTS section: one row
-/// per `list_agents` row (that order), filtered by the chip like a chat;
-/// none on the Archived page.
+/// per `list_agents` row (that order); none on the Archived page.
 pub fn agent_chat_rows(input: AgentChatRowsInput<'_>) -> Vec<AgentChatRow> {
     if input.view == ChatListView::Archived {
         return Vec::new();
@@ -1136,12 +1049,6 @@ pub fn agent_chat_rows(input: AgentChatRowsInput<'_>) -> Vec<AgentChatRow> {
                 needs_you: agent.needs_you,
                 busy: agent.busy,
             }
-        })
-        .filter(|row| match input.filter {
-            ChatFilter::All => true,
-            ChatFilter::NeedsYou => row.needs_you,
-            ChatFilter::Running => row.busy,
-            ChatFilter::Unread => row.unread_count > 0,
         })
         .collect()
 }
@@ -1338,64 +1245,6 @@ pub fn chat_selection_failed_title(failed: usize, total: usize) -> String {
 /// bulk bar's count (owner on #1283).
 pub fn chat_selection_count(count: usize) -> String {
     CHATS.copy.selection.count.replace("{n}", &count.to_string())
-}
-
-/// A chip's label: its copy, then its count when there is one.
-pub fn chat_filter_label(filter: ChatFilter, counts: &ChatCounts) -> String {
-    let label = filter.copy();
-    let n = match filter {
-        ChatFilter::All => return label.to_string(),
-        ChatFilter::NeedsYou => counts.needs_you,
-        ChatFilter::Running => counts.running,
-        ChatFilter::Unread => counts.unread,
-    };
-    if n > 0 {
-        format!("{label} {n}")
-    } else {
-        label.to_string()
-    }
-}
-
-/// A bubble's ring.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentRing {
-    NeedsYou,
-    Unread,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentBubble {
-    #[serde(flatten)]
-    pub agent: AgentRow,
-    pub ring: Option<AgentRing>,
-}
-
-/// The Chats header's agent bubbles (`bubbleCases`), in `list_agents`
-/// order: amber ring = the viewer's conversation needs them, white ring =
-/// an agent message newer than their read of it, else none.
-pub fn agent_bubbles(
-    agents: &[AgentRow],
-    sessions: &[&SessionRow],
-    messages: &[&MessageRow],
-    reads: &[&SessionReadRow],
-    me: Option<&str>,
-) -> Vec<AgentBubble> {
-    agents
-        .iter()
-        .map(|agent| {
-            if agent.needs_you {
-                return AgentBubble { agent: agent.clone(), ring: Some(AgentRing::NeedsYou) };
-            }
-            let conversation = sessions.iter().find(|session| {
-                session.is_root()
-                    && session.agent_id.as_deref() == Some(agent.agent_id.as_str())
-                    && session.user_id.as_deref() == me
-            });
-            let unread = conversation.is_some_and(|session| unread_count(&session.id, messages, reads) > 0);
-            AgentBubble { agent: agent.clone(), ring: unread.then_some(AgentRing::Unread) }
-        })
-        .collect()
 }
 
 /// WINDOW (#EXP-1380, review of #1218; `windowCases`, the twin of TS
@@ -1806,7 +1655,6 @@ mod tests {
                 serde_json::from_value(input["prStates"].clone()).unwrap_or_default();
             let words: HashMap<String, ThreadRowWord> =
                 serde_json::from_value(input["words"].clone()).unwrap_or_default();
-            let filter = ChatFilter::parse(input["filter"].as_str().unwrap()).unwrap();
             let view = match input["view"].as_str() {
                 Some("archived") => ChatListView::Archived,
                 _ => ChatListView::List,
@@ -1817,20 +1665,13 @@ mod tests {
                 reads: &read_refs,
                 pr_states: &pr_states,
                 words: &words,
-                filter,
                 view,
                 now: input["now"].as_str().unwrap(),
                 utc_offset_minutes: input["utcOffsetMinutes"].as_i64().unwrap() as i32,
                 visible_session_ids: None,
             });
             assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
-            if got.archived == 0 {
-                let labels: Vec<String> =
-                    ChatFilter::ALL.iter().map(|f| chat_filter_label(*f, &got.counts)).collect();
-                assert_eq!(labels, ["All", "Needs you 1", "Working 1", "Unread 1"]);
-            }
         }
-        assert_eq!(chat_filter_label(ChatFilter::Unread, &ChatCounts::default()), "Unread");
     }
 
     #[test]
@@ -1943,40 +1784,6 @@ mod tests {
     }
 
     #[test]
-    fn bubble_cases_match_the_fixture() {
-        let fixture = fixture();
-        let cases = fixture["bubbleCases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let input = &case["input"];
-            let agents: Vec<AgentRow> = serde_json::from_value(input["agents"].clone()).unwrap();
-            // S-3: `assistant` decodes from each input agent (absent = false).
-            for (agent, raw) in agents.iter().zip(input["agents"].as_array().unwrap()) {
-                assert_eq!(agent.assistant, raw["assistant"].as_bool().unwrap_or(false), "{}", case["name"]);
-            }
-            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
-            let session_refs: Vec<&SessionRow> = sessions.iter().collect();
-            let all = messages(&input["messages"]);
-            let refs: Vec<&MessageRow> = all.iter().collect();
-            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
-            let read_refs: Vec<&SessionReadRow> = reads.iter().collect();
-            let got = agent_bubbles(&agents, &session_refs, &refs, &read_refs, input["me"].as_str());
-            let mut got = serde_json::to_value(&got).unwrap();
-            // TS spreads the input row: an older case's agents carry no
-            // S-3 `assistant` key, so neither do its bubbles.
-            for (bubble, agent) in got.as_array_mut().unwrap().iter_mut().zip(input["agents"].as_array().unwrap()) {
-                if agent.get("assistant").is_none() {
-                    bubble.as_object_mut().unwrap().remove("assistant");
-                }
-            }
-            assert_eq!(got, case["expected"], "{}", case["name"]);
-        }
-        // S-3: the first case leads with the viewer's Assistant.
-        let first: Vec<AgentRow> = serde_json::from_value(cases[0]["input"]["agents"].clone()).unwrap();
-        assert!(first[0].assistant && first[1..].iter().all(|agent| !agent.assistant));
-    }
-
-    #[test]
     fn the_transcript_window_reads_the_fixture() {
         let spec = &CHATS.transcript;
         assert_eq!((spec.window, spec.window_step), (100, 100));
@@ -2056,7 +1863,6 @@ mod tests {
                 messages: &refs,
                 reads: &read_refs,
                 me: input["me"].as_str(),
-                filter: ChatFilter::parse(input["filter"].as_str().unwrap()).unwrap(),
                 view: match input["view"].as_str() {
                     Some("archived") => ChatListView::Archived,
                     _ => ChatListView::List,

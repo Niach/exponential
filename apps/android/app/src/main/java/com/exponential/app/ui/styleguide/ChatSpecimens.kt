@@ -134,8 +134,7 @@ private fun chatRow(
 
 /**
  * The canonical specimen data = THE FIXTURE (chats.json): `listCases[0]
- * .expected` (four rows, counts 1/1/1) and `bubbleCases[0].expected` (Triage
- * amber, Designer white, Release none) — what the web entry and the desktop
+ * .expected` (four rows), what the web entry and the desktop
  * twin render. The app has no fixture at runtime, so the rows are spelled
  * here and `ChatSpecimenFixtureTest` proves them equal to the fixture's.
  */
@@ -163,15 +162,6 @@ object ChatListSpecimen {
                 activityAt = "2026-10-22T10:00:00.000Z", dim = true,
             ),
         ),
-        counts = Chats.ChatCounts(needsYou = 1, running = 1, unread = 1),
-    )
-
-    val BUBBLES: List<Chats.AgentBubble> = listOf(
-        // S-3: the viewer's Assistant first (no conversation yet = no ring).
-        Chats.AgentBubble(SessionTree.AgentRow("as", "t1", "Assistant", "bot", "#6366f1", busy = false, needsYou = false, assistant = true), null),
-        Chats.AgentBubble(SessionTree.AgentRow("ag1", "t1", "Triage", "bug", "#a855f7", busy = false, needsYou = true), Chats.AgentRing.NeedsYou),
-        Chats.AgentBubble(SessionTree.AgentRow("ag2", "t1", "Designer", "bot", "#6366f1", busy = false, needsYou = false), Chats.AgentRing.Unread),
-        Chats.AgentBubble(SessionTree.AgentRow("ag3", "t1", "Release", "package", "#22c55e", busy = false, needsYou = false), null),
     )
 
     /** S-3: the pinned AGENT rows = `agentRowCases[0].expected` (the

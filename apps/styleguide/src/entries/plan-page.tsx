@@ -22,19 +22,19 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `plan_page`,
       file: `apps/desktop/crates/ui/src/plan_page.rs`,
-      note: `parts: outline.rs, mosaic.rs, story_badge.rs, image_preview.rs; twin: styleguide/entries/plan_page.rs`,
+      note: `parts: outline.rs, mosaic.rs, image_preview.rs; twin: styleguide/entries/plan_page.rs`,
     },
     ios: {
       state: `ok`,
       symbol: `PlanPageScreen`,
       file: `apps/ios/Exponential/UI/Plan/PlanPageScreen.swift`,
-      note: `parts: ExpUI PlanPage.swift (StoryKindBadge, PlanPictureCarousel, PlanOutlineList); specimen: ChatSpecimens StorySpecimensScreen \`plan-page\``,
+      note: `parts: ExpUI PlanPage.swift (PlanPictureCarousel, PlanOutlineList); specimen: ChatSpecimens \`plan-page\``,
     },
     android: {
       state: `ok`,
       symbol: `PlanPageScreen`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/plan/PlanPage.kt`,
-      note: `parts: StoryKindBadge (components/StoryRing.kt), PlanPictureCarousel, PlanOutlineList; specimen: styleguide/PlanPageSpecimen.kt`,
+      note: `parts: PlanPictureCarousel, PlanOutlineList; specimen: styleguide/PlanPageSpecimen.kt`,
     },
   },
   island: () => (

@@ -199,7 +199,7 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
 
         // ── 05: retired (S-3) — the Guide tab and its diff page entry are
-        // gone; results land as stories.
+        // gone; results land on the Results tab.
 
         // ── 06: retired (NEW-7) — the Actions tab is gone: prompts live in
         // the composer's `/` menu and Settings → Prompts.

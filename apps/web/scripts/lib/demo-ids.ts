@@ -92,7 +92,7 @@ export interface DemoIds {
    *   threadId         DEMO_THREAD_ID: "Reduce cold start below 800 ms".
    *   guideThreadId    DEMO_GUIDE_THREAD_ID: APP-15's thread with a Guide.
    *   diffThreadId     DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top,
-   *                    a real diff, the Stories tab's history).
+   *                    a real diff, the Results tab's history).
    *   agentId          DEMO_AGENT_ID: the Triage agent.
    */
   sessionId?: string

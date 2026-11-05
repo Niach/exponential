@@ -156,7 +156,7 @@ object DomainContract {
     const val diffUiMergePr: String = "Merge PR"
     const val diffUiMergeStack: String = "Merge stack"
     const val diffUiMergeThrough: String = "Merge through here"
-    const val diffUiGuideFace: String = "Stories"
+    const val diffUiGuideFace: String = "Results"
     const val diffUiGuideChangesRow: String = "Changes"
     const val diffUiGuideOtherChanges: String = "Other changes"
     const val diffUiGuideShowCompleteDiff: String = "Show complete diff"

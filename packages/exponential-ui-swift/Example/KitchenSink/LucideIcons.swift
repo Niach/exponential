@@ -167,7 +167,6 @@ enum LucideIcons {
         "status-todo": "circle",
         "support-open": "circle-dot",
         "support-resolved": "circle-check",
-        "thread-stories": "images",
         "tool-script": "braces",
         "trace-background": "repeat",
         "trace-chevron": "chevron-right",

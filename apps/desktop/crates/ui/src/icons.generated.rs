@@ -754,8 +754,6 @@ pub const SUPPORT_OPEN: ExpIcon = ExpIcon::CircleDot;
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
 /// Registry concept `thread-results` -> Lucide `images`.
 pub const THREAD_RESULTS: ExpIcon = ExpIcon::Images;
-/// Registry concept `thread-stories` -> Lucide `images`.
-pub const THREAD_STORIES: ExpIcon = ExpIcon::Images;
 /// Registry concept `tool-script` -> Lucide `braces`.
 pub const TOOL_SCRIPT: ExpIcon = ExpIcon::Braces;
 /// Registry concept `trace-background` -> Lucide `repeat`.
@@ -1202,7 +1200,6 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "support-open" => SUPPORT_OPEN,
         "support-resolved" => SUPPORT_RESOLVED,
         "thread-results" => THREAD_RESULTS,
-        "thread-stories" => THREAD_STORIES,
         "tool-script" => TOOL_SCRIPT,
         "trace-background" => TRACE_BACKGROUND,
         "trace-chevron" => TRACE_CHEVRON,

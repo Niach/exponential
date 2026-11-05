@@ -1,18 +1,12 @@
-import { useMemo, type ComponentProps, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
-import { STORY_ROW, storyRow, type StoryRing as StoryRingModel } from "@exp/domain-contract/stories"
+import { type ComponentProps, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import {
-  CHAT_FILTERS,
   CHAT_SECTION_KEYS,
   CHATS_COPY,
   CHATS_SHELL,
   CHATS_TEST_IDS,
-  chatFilterLabel,
   chatSections,
-  type AgentBubble,
   type AgentChatRow,
-  type ChatFilter,
   type ChatLead,
-  type ChatList as ChatListModel,
   type ChatRow as ChatRowModel,
   type ChatSelectionAction,
 } from "@exp/domain-contract/chats"
@@ -26,22 +20,17 @@ import { EmptyState } from "./empty-state"
 import { PageHeader } from "./page-header"
 import { conceptIcon } from "./icons.generated"
 import { menuProps } from "./menu"
-import { Pill } from "./pill"
 import { SkeletonRows } from "./skeleton"
-import { StoryRing, StoryRingButton } from "./stories"
 
 // Thread 58cb32df (#EXP-1373, fixture `chats.json` ×4): the PHONE Chats
 // screen's pieces, shared by the web-mobile page and the styleguide so they
-// cannot drift. The model is the contract's (`chatList`, `agentBubbles`,
-// `chatFilterLabel`); these only paint it. iOS ExpUI `ChatRow` /
-// `AgentBubbles`, Android `ui/components` `ChatRow` / `AgentBubbles` are the
-// twins.
+// cannot drift. The model is the contract's (`chatList`, `chatSections`);
+// these only paint it. iOS ExpUI `ChatRow`, Android `ui/components` `ChatRow`
+// are the twins.
 //
 //   ChatsHeader      the large "Chats" headline + search + inbox circles
 //   AgentAvatar      an agent's avatar glyph: the Assistant = the brand
 //                    mark in the foreground colour, an agent = its icon
-//   AgentBubbles     the team's agents as 66px rings, scrolling sideways
-//   ChatFilterChips  All · Needs you N · Running N · Unread N (select Pills)
 //   ChatRow          one flat WhatsApp row: 52 lead disc, title + time,
 //                    two-line preview, word, unread badge; while the list
 //                    SELECTS (#EXP-1388) wide leads with the issue rows'
@@ -100,133 +89,6 @@ export function AgentAvatar({
     )
   }
   return <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className={className} />
-}
-
-/** One agent bubble of the story row: the agent's icon on bg muted inside
- *  its THE StoryRing (the bubble size), the name under it. A tap opens the
- *  story viewer at the ring; right-click / long-press = its agent menu. */
-export function AgentBubbleButton({
-  bubble,
-  story,
-  onOpenStory,
-  className,
-}: {
-  bubble: AgentBubble
-  /** Its agent's story ring (`storyRow`). */
-  story: StoryRingModel
-  onOpenStory?: (key: string) => void
-  className?: string
-}) {
-  const avatar = bubble.busy ? (
-    <AgentWorkingMark agent={null} className="size-6" />
-  ) : (
-    <AgentAvatar agent={bubble} className="size-6" />
-  )
-  return (
-    <button
-      type="button"
-      data-testid={CHATS_TEST_IDS.agentBubble}
-      data-story={story.key}
-      {...menuProps(`agent`, bubble.agentId)}
-      onClick={onOpenStory ? () => onOpenStory(story.key) : undefined}
-      className={cn(
-        `flex shrink-0 flex-col items-center rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
-        className
-      )}
-      style={{ width: STORY_ROW.itemWidth, gap: STORY_ROW.labelGap }}
-    >
-      <StoryRing stories={story.stories} size={CHATS_SHELL.bubble}>
-        <span className="flex size-full items-center justify-center rounded-full bg-muted">{avatar}</span>
-      </StoryRing>
-      <span
-        className={cn(
-          `w-full truncate text-center text-xs`,
-          story.unseen ? `font-medium text-foreground` : `text-muted-foreground`
-        )}
-      >
-        {bubble.name}
-      </span>
-    </button>
-  )
-}
-
-/** THE story row of the Chats header (stories.json STORY ROW, #EXP-1461):
- *  ONLY rings (`storyRow`). A bubble whose agent has a ring wears it (in
- *  `listAgents` order); a bubble without one is not drawn; the rings no
- *  bubble wears follow in ring order. Nothing = no row. */
-export function AgentBubbles({
-  bubbles,
-  rings = [],
-  ringAvatar,
-  onOpenStory,
-  className,
-}: {
-  bubbles: readonly AgentBubble[]
-  /** The story rings (`stories()`, ring order). */
-  rings?: readonly StoryRingModel[]
-  /** A trailing ring's avatar (a root ring's brand mark). */
-  ringAvatar?: (ring: StoryRingModel) => ReactNode
-  onOpenStory?: (key: string) => void
-  className?: string
-}) {
-  const row = useMemo(() => storyRow(bubbles.map((bubble) => bubble.agentId), rings), [bubbles, rings])
-  const worn = useMemo(() => bubbles.filter((bubble) => row.byAgent.has(bubble.agentId)), [bubbles, row])
-  if (worn.length === 0 && row.rest.length === 0) return null
-  return (
-    <div
-      data-slot="agent-bubbles"
-      className={cn(`-mx-4 flex overflow-x-auto px-4 [scrollbar-width:none]`, className)}
-      style={{ gap: STORY_ROW.gap, paddingBottom: STORY_ROW.padBottom }}
-    >
-      {worn.map((bubble) => (
-        <AgentBubbleButton
-          key={bubble.agentId}
-          bubble={bubble}
-          story={row.byAgent.get(bubble.agentId)!}
-          onOpenStory={onOpenStory}
-        />
-      ))}
-      {row.rest.map((ring) => (
-        <StoryRingButton key={ring.key} ring={ring} avatar={ringAvatar?.(ring)} onOpen={onOpenStory} />
-      ))}
-    </div>
-  )
-}
-
-/** The filter chips over the list (`filters`): select Pills labelled by
- *  `chatFilterLabel` (a count after a non-zero one). */
-export function ChatFilterChips({
-  value,
-  counts,
-  onChange,
-  className,
-}: {
-  value: ChatFilter
-  counts: ChatListModel[`counts`]
-  onChange: (filter: ChatFilter) => void
-  className?: string
-}) {
-  return (
-    <div
-      role="toolbar"
-      aria-label="Filter chats"
-      className={cn(`-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none]`, className)}
-    >
-      {CHAT_FILTERS.map((filter) => (
-        <Pill
-          key={filter}
-          mode="select"
-          size="md"
-          selected={filter === value}
-          data-testid={CHATS_TEST_IDS.chatFilter}
-          data-filter={filter}
-          onClick={() => onChange(filter)}
-        >
-          {chatFilterLabel(filter, counts)}
-        </Pill>
-      ))}
-    </div>
-  )
 }
 
 /** #EXP-1388 (owner on #1286): the touch selection mark on the disc's

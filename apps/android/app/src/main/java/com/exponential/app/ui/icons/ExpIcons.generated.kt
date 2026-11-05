@@ -9292,7 +9292,6 @@ public object ExpIcons {
         "support-open" -> `circle-dot`
         "support-resolved" -> `circle-check`
         "thread-results" -> `images`
-        "thread-stories" -> `images`
         "tool-script" -> `braces`
         "trace-background" -> `repeat`
         "trace-chevron" -> `chevron-right`
@@ -9767,8 +9766,6 @@ public object ExpIcons {
     public val supportResolved: ImageVector get() = `circle-check`
     /** Concept `thread-results`. */
     public val threadResults: ImageVector get() = `images`
-    /** Concept `thread-stories`. */
-    public val threadStories: ImageVector get() = `images`
     /** Concept `tool-script`. */
     public val toolScript: ImageVector get() = `braces`
     /** Concept `trace-background`. */

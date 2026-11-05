@@ -20,7 +20,7 @@ import org.junit.Test
 
 /**
  * Thread 58cb32df: Chats is fixture-locked ×4 — every case group of
- * `chats.json` (previewCases, timeCases, listCases, bubbleCases, menuCases,
+ * `chats.json` (previewCases, timeCases, listCases, menuCases,
  * agentMenuCases, replyCases, dividerCases, plainCases, windowCases, digestCases,
  * selectionCases, rangeCases, dotCases, sectionCases) runs here (TS
  * `chats.test.ts`, iOS `ChatsTests`, desktop `domain::chats`). Outputs are
@@ -128,8 +128,6 @@ class ChatsTest {
         put("dim", row.dim)
     }
 
-    private fun filterOf(wire: String) = Chats.ChatFilter.entries.first { it.wire == wire }
-
     @Test
     fun `every preview case matches the fixture`() {
         for (case in cases("previewCases")) {
@@ -179,59 +177,14 @@ class ChatsTest {
                 reads = input.list("reads").map(::read),
                 prStates = prStates,
                 words = words,
-                filter = filterOf(input.str("filter")!!),
                 view = Chats.ChatListView.entries.first { it.wire == (input.str("view") ?: "list") },
                 now = input.str("now")!!,
                 utcOffsetMinutes = input.getValue("utcOffsetMinutes").jsonPrimitive.int,
             )
             val encoded = buildJsonObject {
                 put("rows", JsonArray(actual.rows.map(::encode)))
-                put(
-                    "counts",
-                    buildJsonObject {
-                        put("needs_you", actual.counts.needsYou)
-                        put("running", actual.counts.running)
-                        put("unread", actual.counts.unread)
-                    },
-                )
                 put("archived", actual.archived)
             }
-            assertEquals(case.str("name"), case.getValue("expected"), encoded)
-            // The chip labels read the counts.
-            for (filter in Chats.FILTERS) {
-                val n = actual.counts[filter]
-                val label = Chats.Copy.FILTERS.getValue(filter)
-                assertEquals(if (filter != Chats.ChatFilter.All && n > 0) "$label $n" else label, Chats.chatFilterLabel(filter, actual.counts))
-            }
-        }
-    }
-
-    @Test
-    fun `every bubble case matches the fixture`() {
-        for (case in cases("bubbleCases")) {
-            val input = case.getValue("input").jsonObject
-            val actual = Chats.agentBubbles(
-                agents = input.list("agents").map(::agent),
-                sessions = input.list("sessions").map(::session),
-                messages = input.list("messages").map(::message),
-                reads = input.list("reads").map(::read),
-                me = input.str("me"),
-            )
-            val encoded = JsonArray(
-                actual.map { bubble ->
-                    buildJsonObject {
-                        put("agentId", bubble.agent.agentId)
-                        put("teamId", bubble.agent.teamId)
-                        put("name", bubble.agent.name)
-                        put("icon", bubble.agent.icon)
-                        put("color", bubble.agent.color)
-                        put("busy", bubble.agent.busy)
-                        put("needsYou", bubble.agent.needsYou)
-                        put("assistant", bubble.agent.assistant)
-                        put("ring", nullable(bubble.ring?.wire))
-                    }
-                },
-            )
             assertEquals(case.str("name"), case.getValue("expected"), encoded)
         }
     }
@@ -246,7 +199,6 @@ class ChatsTest {
                 messages = input.list("messages").map(::message),
                 reads = input.list("reads").map(::read),
                 me = input.str("me"),
-                filter = filterOf(input.str("filter")!!),
                 view = Chats.ChatListView.entries.first { it.wire == (input.str("view") ?: "list") },
                 now = input.str("now")!!,
                 utcOffsetMinutes = input.getValue("utcOffsetMinutes").jsonPrimitive.int,
@@ -512,9 +464,6 @@ class ChatsTest {
         val tabs = copy.getValue("tabs").jsonObject
         assertEquals(tabs.keys.toList(), Chats.Copy.TABS.keys.toList())
         for ((key, label) in Chats.Copy.TABS) assertEquals(tabs.str(key), label)
-        val filters = copy.getValue("filters").jsonObject
-        assertEquals(filters.keys.toList(), Chats.Copy.FILTERS.keys.map { it.wire })
-        for ((filter, label) in Chats.Copy.FILTERS) assertEquals(filters.str(filter.wire), label)
         val preview = copy.getValue("preview").jsonObject
         assertEquals(preview.str("working"), Chats.Copy.PREVIEW_WORKING)
         assertEquals(preview.str("question"), Chats.Copy.PREVIEW_QUESTION)
@@ -594,7 +543,7 @@ class ChatsTest {
         assertEquals(2, copy.getValue("boardMenu").jsonObject.size)
         assertEquals(
             setOf(
-                "title", "tabs", "headers", "boardMenu", "filters", "preview", "time", "menu", "confirmDelete", "stopTurn",
+                "title", "tabs", "headers", "boardMenu", "preview", "time", "menu", "confirmDelete", "stopTurn",
                 "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
                 "selection", "archived", "sections"),
             copy.keys,
@@ -639,15 +588,10 @@ class ChatsTest {
         assertEquals(shell.getValue("selectBadgeGlyph").jsonPrimitive.int, Chats.Shell.SELECT_BADGE_GLYPH)
         assertEquals(shell.getValue("selectBadgeRadius").jsonPrimitive.int, Chats.Shell.SELECT_BADGE_RADIUS)
         assertEquals(shell.getValue("archivedGlyph").jsonPrimitive.int, Chats.Shell.ARCHIVED_GLYPH)
-        assertEquals(shell.getValue("bubble").jsonPrimitive.int, Chats.Shell.BUBBLE)
-        assertEquals(shell.getValue("bubbleRing").jsonPrimitive.int, Chats.Shell.BUBBLE_RING)
         assertEquals(shell.getValue("dimOpacity").jsonPrimitive.double.toFloat(), Chats.Shell.DIM_OPACITY)
-        assertEquals(fixture.getValue("filters").jsonArray.map { it.jsonPrimitive.content }, Chats.FILTERS.map { it.wire })
 
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("chatRow"), Chats.TestIds.CHAT_ROW)
-        assertEquals(ids.str("chatFilter"), Chats.TestIds.CHAT_FILTER)
-        assertEquals(ids.str("agentBubble"), Chats.TestIds.AGENT_BUBBLE)
         assertEquals(ids.str("inboxButton"), Chats.TestIds.INBOX_BUTTON)
         assertEquals(ids.str("tabTeam"), Chats.TestIds.TAB_TEAM)
         assertEquals(ids.str("boardChip"), Chats.TestIds.BOARD_CHIP)
@@ -660,7 +604,7 @@ class ChatsTest {
         assertEquals(ids.str("searchButton"), Chats.TestIds.SEARCH_BUTTON)
         assertEquals(ids.str("chatArchived"), Chats.TestIds.CHAT_ARCHIVED)
         assertEquals(ids.str("selectionBar"), Chats.TestIds.SELECTION_BAR)
-        assertEquals(17, ids.size)
+        assertEquals(15, ids.size)
         assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
         assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
 

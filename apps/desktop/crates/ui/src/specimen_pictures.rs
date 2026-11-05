@@ -2,7 +2,7 @@
 //! (`packages/exponential-ui/samples/samples.json`, read its `$comment`):
 //! the Exponential UI kitchen sink + specimens (an example `src` →
 //! a `data:` url through the host's `resolve_url`) and the styleguide's
-//! plan-page + story-tab entries (an attachment id → bytes seeded into the
+//! plan-page + results-tab entries (an attachment id → bytes seeded into the
 //! entry's own [`ImageCache`]). Never fetched; the product never reads it.
 
 use std::collections::HashMap;

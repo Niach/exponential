@@ -227,9 +227,10 @@ export const sessionsRouter = router({
       })
     }),
 
-  /** S-3 (stories.json): the caller saw a story of this ROOT's tree; the
-   *  root's `story_seen_at` keeps the greatest `at`. A new row's `read_at`
-   *  is the epoch, so seeing a story never marks the chat read. */
+  /** Tolerated for clients from before #FEED-191 (one more release); a later
+   *  migration removes it with `story_seen_at`. The root's `story_seen_at`
+   *  keeps the greatest `at`; a new row's `read_at` is the epoch, so this
+   *  never marks the chat read. */
   markStoriesSeen: authedProcedure
     .input(z.object({ sessionId: uuid, at: z.number().int().nonnegative() }))
     .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {

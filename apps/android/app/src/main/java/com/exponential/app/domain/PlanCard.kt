@@ -129,7 +129,7 @@ object PlanCard {
         Unknown("unknown", Copy.ISSUE_UNKNOWN),
     }
 
-    /** S-3: [caption] = a result story's line under the picture (null = none). */
+    /** [caption] = a result's line under the picture (null = none). */
     data class Picture(
         val label: String,
         val attachmentId: String?,

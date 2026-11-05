@@ -1515,7 +1515,7 @@ pub enum StripMode {
 }
 
 /// #EXP-1433 (session-thread.json `stripModeCases`): the strip between
-/// Conversation and Stories.
+/// Conversation and Results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ThreadStripMode {
     pub mode: StripMode,

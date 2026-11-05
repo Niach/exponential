@@ -12,6 +12,7 @@ export const SESSION_READ_COLUMNS = [
   `session_id`,
   `read_at`,
   `archived_at`,
+  // Old clients still parse it (#FEED-191); a later migration removes it.
   `story_seen_at`,
   `created_at`,
   `updated_at`,

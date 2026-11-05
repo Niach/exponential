@@ -8,10 +8,6 @@ import SwiftUI
 public enum ChatListMetrics {
     /// The lead disc (`shell.leadDisc`).
     public static let leadDisc = CGFloat(Chats.Shell.leadDisc)
-    /// An agent bubble's circle (`shell.bubble`) and its background gap
-    /// inside the ring (`shell.bubbleRing`).
-    public static let bubble = CGFloat(Chats.Shell.bubble)
-    public static let bubbleRing = CGFloat(Chats.Shell.bubbleRing)
     /// #EXP-1388 touch selection: the select badge (`shell.selectBadge`),
     /// its ground ring (`shell.selectBadgeRing`) and check
     /// (`shell.selectBadgeGlyph`); the Archived entry's plain glyph
@@ -255,55 +251,6 @@ public struct ChatSectionHeader: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
             .accessibilityAddTraits(.isHeader)
-    }
-}
-
-extension AgentBubbleCircle {
-    /// THE bubble at the Chats shell's size: `size` and `ringGap` default to it.
-    public init(
-        glyph: Glyph,
-        ringColor: Color,
-        ringWidth: CGFloat,
-        ringSlot: CGFloat = 2,
-        glyphSize: CGFloat? = nil
-    ) {
-        self.init(
-            glyph: glyph,
-            size: ChatListMetrics.bubble,
-            ringGap: ChatListMetrics.bubbleRing,
-            ringColor: ringColor,
-            ringWidth: ringWidth,
-            ringSlot: ringSlot,
-            glyphSize: glyphSize
-        )
-    }
-}
-
-/// One item of THE STORY ROW (`Stories.Row`): exactly `itemWidth` wide, the
-/// ring centred, the name one line `labelGap` under it, truncated to the
-/// item width; waiting / unseen names medium in full white.
-public struct StoryRowItem<Ring: View>: View {
-    let title: String
-    let unseen: Bool
-    let ring: Ring
-
-    public init(title: String, unseen: Bool, @ViewBuilder ring: () -> Ring) {
-        self.title = title
-        self.unseen = unseen
-        self.ring = ring()
-    }
-
-    public var body: some View {
-        VStack(spacing: CGFloat(Stories.Row.labelGap)) {
-            ring
-            Text(title)
-                .font(.subheadline.weight(unseen ? .medium : .regular))
-                .foregroundStyle(.white.opacity(unseen ? 1 : TextOpacity.secondary))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .frame(width: CGFloat(Stories.Row.itemWidth))
-        .contentShape(Rectangle())
     }
 }
 

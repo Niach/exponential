@@ -3249,9 +3249,8 @@ impl ThreadScreenView {
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
-        // A capture (and a debug launch) can open a thread on its Results tab
-        // (`stories` = the tab's old name).
-        if matches!(std::env::var("EXP_DEV_THREAD_CHILD").ok().as_deref(), Some("results" | "stories")) {
+        // A capture (and a debug launch) can open a thread on its Results tab.
+        if std::env::var("EXP_DEV_THREAD_CHILD").ok().as_deref() == Some("results") {
             this.child = ThreadChildSel::Results;
         }
         this

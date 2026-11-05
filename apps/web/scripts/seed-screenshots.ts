@@ -1317,7 +1317,7 @@ async function seedSessionTree(ctx: {
     shared?: boolean
     /** A child session's message: its thread's root. */
     rootId?: string
-    /** S-3: the session that posted it (its own card = a story). */
+    /** S-3: the session that posted it (its own card = a result). */
     authorSessionId?: string
   }
   const message = (spec: MessageSpec): typeof messages.$inferInsert => ({
@@ -1346,11 +1346,10 @@ async function seedSessionTree(ctx: {
     `4. Re-measure cold start on the Pixel 6a and the CI device.`,
     `5. Open the PR with the before/after numbers.`,
   ].join(`\n`)
-  // STORIES TAB (stories.json, the `thread-stories` view): APP-14's thread
+  // RESULTS TAB (results-tab.json, the `thread-results` view): APP-14's thread
   // keeps a settled history beside its waiting draft: a result with two
   // real pictures (the board's committed web + iOS shots) and an approved
-  // plan. Both are older than the ring's keep window / settled, so the chat
-  // list's rings never change; the tab keeps them for good.
+  // plan.
   const assigneePictures = (
     await seedDemoGuidePictures({ teamId, sessionId: ids.groupByAssignee, uploaderId: demoId, at: hoursAgo(27) })
   ).map((entry, index) => ({
@@ -1375,7 +1374,7 @@ async function seedSessionTree(ctx: {
         authorSessionId: ids.groupByAssignee,
         card: {
           kind: `surface`,
-          story: true,
+          result: true,
           title: `Assignee groups`,
           surface: { root: { id: `groups`, component: `Text`, props: { text: `Grouped by assignee` } }, data: {} },
           pictures: assigneePictures,
@@ -1405,7 +1404,7 @@ async function seedSessionTree(ctx: {
         body: `### Board snapshot cache\n\nThe last rendered board is written to disk on every sync and painted on launch, then replaced in place once the shape catches up.\n\nDeferred the shape subscribe until after the first frame and added a board snapshot cache that paints the last board before sync finishes: 740 ms on the CI device, under the 800 ms target. Filed #${fb3} for the editor's highlighting bundle.`,
         at: minutesAgo(11),
       },
-      // S-3 stories.json: the session's own card = a waiting story.
+      // The session's own card, waiting (Needs you).
       {
         sessionId: ids.coldStart,
         author: `agent`,
@@ -1439,8 +1438,7 @@ async function seedSessionTree(ctx: {
         body: `Add an assignee grouping mode next to the status grouping. Remember the last choice per board.`,
         at: minutesAgo(25),
       },
-      // S-3 stories.json: a DRAFT story waiting on a choice (the chat
-      // list's second ring; the story-viewer's draft).
+      // A DRAFT waiting on a choice (Needs you).
       {
         sessionId: ids.groupByAssignee,
         author: `agent`,
@@ -1548,14 +1546,14 @@ async function seedSessionTree(ctx: {
         body: `Done, 3 issues labelled android.`,
         at: DEMO_AGENT_CHANNEL_TIMES.reply,
       },
-      // S-3: the Triage agent's result story (its ring on the chat list).
+      // S-3: the Triage agent's result.
       {
         sessionId: DEMO_AGENT_CONVERSATION_ID,
         author: `agent`,
         authorSessionId: DEMO_AGENT_CONVERSATION_ID,
         card: {
           kind: `surface`,
-          story: true,
+          result: true,
           title: `Today's triage`,
           surface: {
             root: {
@@ -1571,7 +1569,6 @@ async function seedSessionTree(ctx: {
             data: {},
           },
         },
-        // Fresh: a story leaves the rings after stories.json `windowHours`.
         at: minutesAgo(40),
       },
       // #EXP-1456: the Assistant's decision (the inbox row's target).
@@ -1748,11 +1745,11 @@ async function seedSessionTree(ctx: {
     // S-3 / Chats `surfaceCard`: the agent's inline show card.
     thread({
       at: minutesAgo(9),
-      // S-3: a result story (stories.json) in the thread's ring.
+      // A result of the thread.
       authorSessionId: ids.coldStart,
       card: {
         kind: `surface`,
-        story: true,
+        result: true,
         title: `Launch timings`,
         surface: {
           root: {
@@ -2834,7 +2831,7 @@ async function main() {
       {
         teamId: ws.id,
         name: `shots`,
-        description: `Capture story pictures for a UI change on web, desktop and Android.`,
+        description: `Capture result pictures for a UI change on web, desktop and Android.`,
         body: `# Shots\n\nCapture every changed view on each platform and attach the pictures to the PR.`,
       },
       {

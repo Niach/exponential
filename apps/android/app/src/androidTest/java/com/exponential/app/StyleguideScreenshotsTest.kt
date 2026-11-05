@@ -104,14 +104,8 @@ import com.exponential.app.ui.styleguide.NeedsYouSpecimenScreen
 import com.exponential.app.ui.styleguide.NeedsYouSpecimenTestId
 import com.exponential.app.ui.styleguide.ResultsTabSpecimenScreen
 import com.exponential.app.ui.styleguide.ResultsTabSpecimenTestId
-import com.exponential.app.ui.styleguide.StoryRingSpecimenScreen
 import com.exponential.app.ui.styleguide.PlanPageSpecimenScreen
 import com.exponential.app.ui.styleguide.PlanPageSpecimenTestId
-import com.exponential.app.ui.styleguide.StoryTabSpecimenScreen
-import com.exponential.app.ui.styleguide.StoryTabSpecimenTestId
-import com.exponential.app.ui.styleguide.StoryRingSpecimenTestId
-import com.exponential.app.ui.styleguide.StoryViewerSpecimenScreen
-import com.exponential.app.ui.styleguide.StoryViewerSpecimenTestId
 import com.exponential.app.ui.styleguide.TraceSpecimenKind
 import com.exponential.app.ui.styleguide.TraceSpecimenScreen
 import com.exponential.app.ui.theme.ExponentialTheme
@@ -168,7 +162,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
- *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page · sg_needs-you · sg_results-tab ·
+ *   sg_thread-results · sg_plan-page · sg_needs-you · sg_results-tab ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
  *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558)
@@ -177,7 +171,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * actions and the action create sheet left the catalog), renamed the
  * Threads tab `sg_threads` and the agent channel `sg_agent-channel`;
  * `sg_pr-row` = the capture-only PR row specimen (EXP-1553). S-3 retired `sg_guide`
- * and `sg_guide-section` with the Guide tab (stories replaced it).
+ * and `sg_guide-section` with the Guide tab (the Results tab replaced it).
  *
  * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
  * walks the live app against the seeded backend; [captureOnlyScreens] needs NO
@@ -275,10 +269,6 @@ class StyleguideScreenshotsTest {
             "sg_call-pill",
             // EXP-1375: the Storage band + the composer's low-disk row.
             "sg_device-readiness",
-            // S-3 STORIES: THE story ring row + THE story viewer.
-            "sg_story-ring", "sg_story-viewer",
-            // stories.json STORIES TAB: THE tab body (tabCases[1]).
-            "sg_story-tab",
             // #EXP-1493: THE plan page (plan-page.json `specimen`, phone).
             "sg_plan-page",
             // #FEED-191: THE Needs you entry + list, THE Results tab body.
@@ -698,7 +688,7 @@ class StyleguideScreenshotsTest {
         // --- APP-14's issue page (its thread opened the seed's real PR), the way into
         // its thread's Results tab below. EXP-1553: `sg_pr-row` is the
         // capture-only PR row specimen now (with the thread cards).
-        step("thread-stories") {
+        step("thread-results") {
             openBoardRoot()
             composeRule.onNode(hasTestTag("issue-list"))
                 .performScrollToNode(hasTestTag(GUIDE_ISSUE_ROW))
@@ -708,12 +698,11 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
             flow.settle()
 
-            // --- sg_thread-stories (results-tab.json; its name until the final
-            // cleanup): APP-14's thread (web's `$diffThreadId`) on its Results
+            // --- sg_thread-results (results-tab.json): APP-14's thread (web's `$diffThreadId`) on its Results
             // tab, the strip's last, icon-only: the Stack band + rail, the Changes
             // row over the real PR's GitHub diff, then the seeded results. The
             // Changes row is the gate (the diff is the walk's one network dependency).
-            if (ScreenshotFlow.isShotWanted("sg_thread-stories")) {
+            if (ScreenshotFlow.isShotWanted("sg_thread-results")) {
                 flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
                 composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
                 composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
@@ -723,7 +712,7 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.STACK), SYNC_TIMEOUT)
                 flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.CHANGES), NETWORK_TIMEOUT)
                 flow.settle(longer = true)
-                flow.screenshot("sg_thread-stories")
+                flow.screenshot("sg_thread-results")
                 // Thread → the issue page.
                 Espresso.pressBack()
                 flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
@@ -1042,7 +1031,7 @@ class StyleguideScreenshotsTest {
             }
             composeRule.onNode(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST)).performScrollToIndex(0)
             flow.settle()
-            val agentRow = hasTestTag(Chats.TestIds.AGENT_BUBBLE) and hasText(AGENT_NAME)
+            val agentRow = hasTestTag("chat-agent-row") and hasText(AGENT_NAME)
             flow.waitFor(agentRow, SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_threads")
@@ -1328,8 +1317,7 @@ class StyleguideScreenshotsTest {
             composeRule.onNode(hasTestTag("tab-threads")).performClick()
             flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
             if (ScreenshotFlow.anyRequested("sg_agent-channel")) {
-                // S-3: the pinned agent row (its bubble wears a story ring and
-                // opens the viewer, not the channel).
+                // S-3: the pinned agent row.
                 composeRule.onAllNodes(hasTestTag("chat-agent-row") and hasText(AGENT_NAME)).onFirst().performClick()
                 flow.waitFor(hasText(AGENT_REQUEST_FRAGMENT, substring = true), SYNC_TIMEOUT)
                 flow.waitFor(hasText(AGENT_REPLY_CLOCK), SYNC_TIMEOUT)
@@ -1966,18 +1954,6 @@ class StyleguideScreenshotsTest {
         // case's block and the composer's low-disk row.
         show(DeviceReadinessSpecimenTestId) { DeviceReadinessSpecimenScreen() }
         flow.screenshot("sg_device-readiness")
-        // --- sg_story-ring · sg_story-viewer (S-3, stories.json): the ring
-        // row over static rings (the Assistant's, a waiting chat, an unseen
-        // result, a seen one) + single rings + THE progress, and THE viewer
-        // on a draft question (its eUI surface, two choices; timer frozen).
-        show(StoryRingSpecimenTestId) { StoryRingSpecimenScreen() }
-        flow.screenshot("sg_story-ring")
-        show(StoryViewerSpecimenTestId) { StoryViewerSpecimenScreen() }
-        flow.screenshot("sg_story-viewer")
-        // --- sg_story-tab (stories.json `tab.specimen`): THE Stories tab
-        // body over tabCases[1]'s ring, the phone size, no PR block.
-        show(StoryTabSpecimenTestId) { StoryTabSpecimenScreen() }
-        flow.screenshot("sg_story-tab")
         // --- sg_plan-page (#EXP-1493, plan-page.json `specimen`): THE plan
         // page, phone: the document from its top, the DockCard at the foot.
         show(PlanPageSpecimenTestId) { PlanPageSpecimenScreen() }

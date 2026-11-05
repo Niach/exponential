@@ -918,8 +918,8 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
     public let readAt: String
     /// #EXP-1388: the viewer archived the chat (nil = not).
     public let archivedAt: String?
-    /// S-3 (stories.json): the greatest story createdAt the viewer was shown
-    /// in this root's tree (nil = none).
+    /// Still in the shape for old clients (#FEED-191), read by nothing here; a
+    /// later migration removes it.
     public let storySeenAt: String?
     public let createdAt: String
     public let updatedAt: String

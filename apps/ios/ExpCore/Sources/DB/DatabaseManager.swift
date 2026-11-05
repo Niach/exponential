@@ -2859,8 +2859,8 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v86 (S-3 stories.json): `session_reads.story_seen_at`, the
-        // viewer's story mark beside read_at. Rows already synced lack it, so
+        // v86 (S-3): `session_reads.story_seen_at`, a mark beside read_at
+        // (no longer read since #FEED-191). Rows already synced lack it, so
         // the session-reads cursor resets and they re-arrive with it.
         migrator.registerMigration("v86_session_read_story_seen_at") { db in
             guard try db.tableExists("session_reads") else { return }
