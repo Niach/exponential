@@ -73,9 +73,9 @@ publishing {
             version = project.version.toString()
             afterEvaluate { from(components["release"]) }
             pom {
-                name.set("eTalk")
-                description.set("eTalk for Kotlin: the call machine (the ring, the warm-up, the agent speaks first) and the Opus codec (PCM in, packets out) behind their UniFFI facade. Audio I/O and transport stay in the app.")
-                url.set("https://exponential.at/talk/")
+                name.set("Voice")
+                description.set("Voice for Kotlin: the call machine (the ring, the warm-up, the agent speaks first) and the Opus codec (PCM in, packets out) behind their UniFFI facade. Audio I/O and transport stay in the app.")
+                url.set("https://exponential.at/sdk/voice/")
                 licenses {
                     license {
                         name.set("Apache-2.0")

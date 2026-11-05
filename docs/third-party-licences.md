@@ -206,7 +206,7 @@ add to the notices. The pinned digests are an integrity check, not a
 licence determination. Bumping the pin = the version, the tag and the six
 digests in that one file.
 
-### Exponential UI: the vendored A2UI basic catalog and the json-render wording (VAPP-85, 2026-10-07)
+### genUI: the vendored A2UI basic catalog and the json-render wording (VAPP-85, 2026-10-07)
 
 `packages/exponential-ui` (the `@exponential_app/eui` catalog package, private,
 unpublished until VAPP-91) carries two Apache-2.0 sources:
@@ -278,7 +278,7 @@ built-in themes into iOS, Android or the desktop app, add that client to the
 two rows' `clients` and regenerate the notices** — the same rule as the
 desktop's vendored crates above.
 
-### Exponential UI: the QR Code generator port (VAPP-162, 2026-10-29)
+### genUI: the QR Code generator port (VAPP-162, 2026-10-29)
 
 The QrCode native's matrix is computed by the core, not by a platform
 library: `packages/exponential-ui/src/qr-code.ts` is a TypeScript port of
@@ -293,7 +293,7 @@ package with `vendor/`), and a `VENDORED` row in
 `packages/licenses/curated/supplement.ts` reproduces it in the NOTICES of
 every client the catalog reaches (`web`, `desktop`, `ios`, `android`).
 
-### eNet push-only facade in the mobile apps (EXP-1435)
+### P2P push-only facade in the mobile apps (EXP-1435)
 
 The iOS app + its Notification Service Extension (`ExpPush`) and the Android
 app link the PUSH-ONLY build of `exponential-net-ffi` (MIT OR Apache-2.0, ours):
@@ -306,7 +306,7 @@ Apache-2.0), `data-encoding` (MIT), `thiserror` (MIT OR Apache-2.0) and
 through JNA (already inventoried above). Native NOTICES inventories pick these
 up at the next release regeneration.
 
-### eNet: the patched iroh (EXP-1484, 2026-11-02)
+### P2P: the patched iroh (EXP-1484, 2026-11-02)
 
 `apps/desktop/vendor/iroh` is the `iroh` 1.4.1 crate from crates.io (n0, inc.
 and the iroh contributors, MIT OR Apache-2.0; its `LICENSE-BSD3` for the
@@ -316,9 +316,9 @@ an iroh release has the fix. `vendor/iroh/PATCHES.md` is the statement of
 changes (Apache-2.0 4(b)); the modified block is marked in the source. It is
 excluded from the workspace, so the Rust collector still inventories it as the
 third-party `iroh@1.4.1` (same licence election and texts). Every client that
-links the eNet node (desktop, CLI, the browser's wasm) ships it.
+links the P2P node (desktop, CLI, the browser's wasm) ships it.
 
-### Exponential UI: the conformance fonts (round 2, 2026-10-08)
+### genUI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance
 harness lays text out with on every renderer, so web and native measure the
@@ -470,7 +470,7 @@ Re-check on every CrispASR or model bump:
 the pins, the release's notices, and that no GPL component entered the
 prebuilt library.
 
-## eTalk wake word models (EXP-1424)
+## Voice wake word models (EXP-1424)
 
 ### What we download
 

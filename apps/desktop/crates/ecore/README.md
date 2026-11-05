@@ -1,7 +1,7 @@
 # ecore
 
-eCore (#EXP-1504): the plain types every ExponentialOS module shares. Modules
-call each other's capabilities over MCP through eMCP; what they pass is
+Core (#EXP-1504): the plain types every ExponentialOS module shares. Modules
+call each other's capabilities over MCP through MCP Proxy; what they pass is
 spelled here.
 
 - **ids:** `SessionId`, `RunId`, `SpaceId`, `WindowId`, `DeviceId` (one id rule);

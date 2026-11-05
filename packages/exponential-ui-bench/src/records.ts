@@ -1,4 +1,4 @@
-// VAPP-202 (eApps §15): the `records-25k` scenario's half that every runner
+// VAPP-202 (Apps §15): the `records-25k` scenario's half that every runner
 // ports: the rows (`recordRows`, the Rust core's `record_rows` in
 // examples/bench_suite.rs builds the same ones) and the measurement
 // (`runRecordsQueries`): each query parsed once, run `warmup` times, then

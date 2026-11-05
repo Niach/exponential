@@ -11,7 +11,7 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle
 ```
 apps/web          TanStack Start app (src/lib/trpc = one file per router; routes/api/shapes = one proxy per synced table; lib/sessions = the session tree; lib/emcp = eMCP's server half: the MCP server, the gate, audit, vault, upstream/)
 apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; no session content since VAPP-43: viewers reach the device over eNet)
-apps/site         exponential.at (Astro + Starlight: landing, docs, library docs, blog; README.md; ui.exponential.at 301s via scripts/ui-redirect.ts)   apps/styleguide   shot gallery + islands
+apps/site         exponential.at (Astro + Starlight: landing, docs, SDK docs, blog; README.md; ui.exponential.at 301s via scripts/ui-redirect.ts)   apps/styleguide   shot gallery + islands
 apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
 apps/ede          eDE (#NEW-10): own Cargo workspace; crates/ede-compositor = smithay compositor (winit nested for dev, headless pixman tests)
 apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/eagent = eAgent, the server-free agent core (EXP-1426/1505, never an app-crate dep; `exponential-agent-runtime` = its one-release shim); crates/eagent-hub-core = the pure orchestration reducer replaying packages/eagent's fixtures (+ `-wasm`, EXP-1509); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/eui-* + exponential-ui-ffi = the eUI SDK
@@ -27,7 +27,7 @@ shots/            COMMITTED webp store, <view>/<platform>.webp + index.json
 docs/             third-party-licences.md + licences/     selfhost/  pull-an-image compose + INSTALL.md
 ```
 
-Workspace names `@exp/<dir>`; `apps/desktop` = Cargo (shared `CARGO_TARGET_DIR`). Shared libs are named `e<lib>` (eui, etalk, enet, epilot, emcp, eagent, ecore; the planned apps runtime = `eapps`, tag `eapps-v*`, not `exponential-apps`).
+Workspace names `@exp/<dir>`; `apps/desktop` = Cargo (shared `CARGO_TARGET_DIR`). **Brand:** one Exponential SDK; copy says genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core, Apps. Packages, crates, tags and code keep `e<lib>` (eui, etalk, enet, epilot, emcp, eagent, ecore; the planned apps runtime = `eapps`, tag `eapps-v*`).
 
 ## Commands
 

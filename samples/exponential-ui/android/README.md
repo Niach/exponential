@@ -1,6 +1,6 @@
 # Greenhouse: the Android sample host
 
-A standalone Android Studio project (AGP 8.10, Kotlin 2.4, minSdk 26) that hosts an Exponential UI surface the way any third-party app would:
+A standalone Android Studio project (AGP 8.10, Kotlin 2.4, minSdk 26) that hosts a genUI surface the way any third-party app would:
 - `at.exponential:eui-compose:0.2.0` from a Maven repository;
 - a surface streamed from the local A2UI JSONL server;
 - the server's custom theme (teal primary, pill buttons);

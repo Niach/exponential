@@ -131,9 +131,9 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   photographs a 403. Any token with public-repo read makes the lane
   deterministic.
 - The steering views' feed (`steering`, `session`, `work-card`, `script-card`,
-  `comment-call-card`) is served over eNet since VAPP-43: the stub
+  `comment-call-card`) is served over P2P since VAPP-43: the stub
   (`screenshots:desktop`) builds and runs `cargo run -p steer --example
-  enet_feed_stub`, a real eNet node registered as the demo machine's install,
+  enet_feed_stub`, a real P2P node registered as the demo machine's install,
   so it needs `cargo` and a route to `relay.exponential.at` (VAPP-168).
 - The native STYLEGUIDE lanes need the relay stub running too
   (`cd apps/web && bun run screenshots:desktop`, or let `bun run shots` start
@@ -243,7 +243,7 @@ The recipe the full ×5 refresh runs with, every lane against ONE stack:
 cd apps/web && bun run dev:capture --port 5174 --strictPort   # nohup it
 bash scripts/build-enet-wasm.sh          # public/enet: web's session feed
 bun run seed:screenshots                 # from apps/web, against the stack
-bun scripts/screenshot-desktop.ts        # from apps/web, nohup; the relay + eNet stub
+bun scripts/screenshot-desktop.ts        # from apps/web, nohup; the relay + P2P stub
 
 export SHOTS_PRIVATE_DOTENV=1 SHOTS_DATABASE_URL=$DATABASE_URL \
   SHOTS_DEV_URL=http://localhost:5174 SHOTS_PROXY_URL=https://localhost:3001 \
@@ -265,7 +265,7 @@ scripts/lanes/lane.sh heavy <owner> -- sh -c 'CARGO_TARGET_DIR=/tmp/<x> bun run 
   replays), so no viewer sits in a `no_such_session` redial loop.
 - **iOS** builds the missing `ExponentialUIFFI` / `ExponentialNetFFI`
   simulator slices itself, re-generates the project (`tuist clean manifests`)
-  and FAILS when `ENET_NODE` or the eUI link is still off: never "Preview"
+  and FAILS when `ENET_NODE` or the genUI link is still off: never "Preview"
   boxes or "No live transcript".
 - **Android**: a failed walk step is retried once and recorded; the shots it
   already took are kept, and the lane fails only on a shot it owed.
@@ -515,12 +515,12 @@ review, not of the tooling.
   earlier build. The lane `chmod -R u+w`s `Build/Products` before every build;
   if it still fails, delete `apps/ios/build/shots-dd-store` and rerun.
 - **Desktop `session`/`script-card`/`work-card`/`comment-call-card` read "No
-  live transcript"** — the viewer joins the demo machine over eNet seconds
+  live transcript"** — the viewer joins the demo machine over P2P seconds
   after the shapes go Live. A `session:` drive's ready file now also waits for
   the steer feed's first painted replay (`dev_ready.rs`), so a run that times
   out here means the `screenshots:desktop` stub is not serving: check its log
   for `JOIN`/`SYNCED` lines (#EXP-1654).
-- **A small leftover never leaves the store** (e.g. Android eUI specimens kept
+- **A small leftover never leaves the store** (e.g. Android genUI specimens kept
   a `host:` line after the app stopped drawing it) — the change sits under the
   view's pixel-diff tolerance, so the writer keeps the old file. Retake those
   views with `--force`.

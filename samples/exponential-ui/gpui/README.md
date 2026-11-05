@@ -1,6 +1,6 @@
-# Exponential UI: the gpui sample
+# genUI: the gpui sample
 
-This is a plain gpui window that hosts an Exponential UI surface. The
+This is a plain gpui window that hosts a genUI surface. The
 surface streams from the local A2UI JSONL server (`../server`) and uses the
 server's custom theme plus ONE custom extension component (`TrendLine`),
 painted natively. It needs no Exponential account and no backend of ours.

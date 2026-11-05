@@ -1,4 +1,4 @@
-# Exponential UI samples (VAPP-91)
+# genUI samples (VAPP-91)
 
 Six hosts OUTSIDE the monorepo's build graph render the same surface,
 streamed from a local A2UI server, in a third-party theme, with one custom

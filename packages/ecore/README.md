@@ -1,6 +1,6 @@
 # @exp/ecore
 
-eCore's contract (#EXP-1504): `contract.json` is the one source for the ids,
+Core's contract (#EXP-1504): `contract.json` is the one source for the ids,
 the grant + token format, capability names, the delivery verdict, the error
 shape and the event envelope. `bun run --filter @exp/ecore generate` writes
 Rust (`apps/desktop/crates/ecore`), TS (`src/contract.generated.ts`), Swift

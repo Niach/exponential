@@ -338,7 +338,7 @@
     {
       "id": "records-25k",
       "title": "Records query over 25,000 rows",
-      "what": "eApps §15 (VAPP-202): the local records query (eui-core host::query, its TS twin @exponential_app/eui/host/query) over 25,000 rows, the team plan's quota: five query shapes, each parsed once, 5 warm-up runs, then 60 timed; p95 = the 58th of the 60 sorted. The budget is p95 ≤ 16 ms on a MID PHONE, so a desktop CPU must hold about a third of it. No surface: only the core and one web runner (the TS twin in Chromium) run it; Swift and Compose reach the core over the FFI.",
+      "what": "Apps §15 (VAPP-202): the local records query (eui-core host::query, its TS twin @exponential_app/eui/host/query) over 25,000 rows, the team plan's quota: five query shapes, each parsed once, 5 warm-up runs, then 60 timed; p95 = the 58th of the 60 sorted. The budget is p95 ≤ 16 ms on a MID PHONE, so a desktop CPU must hold about a third of it. No surface: only the core and one web runner (the TS twin in Chromium) run it; Swift and Compose reach the core over the FFI.",
       "file": "scenarios/records-25k.json",
       "renderers": [
         "core",

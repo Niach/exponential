@@ -4,7 +4,7 @@ version = "0.2.4"
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "eTalk's gpui side: the voice tray, push to talk, the overlay, the call UI, spoken replies and meeting mode, behind a host trait"
+description = "Voice's gpui side: the voice tray, push to talk, the overlay, the call UI, spoken replies and meeting mode, behind a host trait"
 repository = "https://github.com/Niach/exponential"
 readme = "README.md"
 

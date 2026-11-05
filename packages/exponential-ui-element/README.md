@@ -1,4 +1,4 @@
-# `@exponential_app/eui-element`: Exponential UI as a custom element
+# `@exponential_app/eui-element`: genUI as a custom element
 
 `<exponential-surface>` paints an A2UI surface in the core catalog
 (`@exponential_app/eui`) in any page, with no framework (FEED-130). It does not

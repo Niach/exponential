@@ -4,7 +4,7 @@ version = "0.2.4"
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "eTalk's pinned CrispASR runtime and models: sha256-verified downloads, loaded at run time with libloading, nothing linked."
+description = "Voice's pinned CrispASR runtime and models: sha256-verified downloads, loaded at run time with libloading, nothing linked."
 repository = "https://github.com/Niach/exponential"
 readme = "../etalk/README.md"
 

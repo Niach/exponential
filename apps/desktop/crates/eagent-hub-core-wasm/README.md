@@ -1,4 +1,4 @@
-# `eagent-hub-core-wasm`: eAgent's reducer for JavaScript hosts
+# `eagent-hub-core-wasm`: ACP's reducer for JavaScript hosts
 
 The wasm-bindgen facade over [`eagent-hub-core`](../eagent-hub-core)
 (#EXP-1509). JSON strings in and out:

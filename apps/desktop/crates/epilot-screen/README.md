@@ -1,6 +1,6 @@
 # epilot-screen
 
-ePilot's screen memory: the last 10 minutes of the screen as deduplicated
+Computer Use's screen memory: the last 10 minutes of the screen as deduplicated
 frames, and ONE MCP tool, `get_screenshots`, that hands an agent the frames of a
 time range ("what was I looking at when I said that"). Read-only, local, on a
 loopback MCP endpoint of its own with the [`epilot`](../epilot) topology (one

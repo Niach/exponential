@@ -1,7 +1,7 @@
 {
   "name": "@exp/emcp",
   "version": "0.0.0",
-  "description": "eMCP's contract: app tool bindings (exposes), tool naming, the access rule, grants, the mcp_calls audit, the vault format and the upstream OAuth states (fixtures + TypeScript references)",
+  "description": "MCP Proxy's contract: app tool bindings (exposes), tool naming, the access rule, grants, the mcp_calls audit, the vault format and the upstream OAuth states (fixtures + TypeScript references)",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

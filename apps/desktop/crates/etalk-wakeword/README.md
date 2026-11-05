@@ -1,6 +1,6 @@
 # etalk-wakeword
 
-eTalk's wake word with a model of its own (EXP-1424): an openWakeWord-compatible
+Voice's wake word with a model of its own (EXP-1424): an openWakeWord-compatible
 detector in pure Rust (tract), gpui-free, shared by Exponential's speech worker
 and spezl.
 
@@ -61,5 +61,5 @@ per member).
 
 ## Licences
 
-`docs/third-party-licences.md`, "eTalk wake word models (EXP-1424)". We never
+`docs/third-party-licences.md`, "Voice wake word models (EXP-1424)". We never
 ship openWakeWord's own pre-trained wake-word models (CC BY-NC-SA 4.0).

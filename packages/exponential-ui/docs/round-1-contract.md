@@ -1,4 +1,4 @@
-# Exponential UI — round 1 contract (renderer hardening)
+# genUI — round 1 contract (renderer hardening)
 
 > **Round 4 (VAPP-103):** this is the round's historical record. Names it
 > uses that round 3 folded (ToggleGroup, TabBar, ButtonGroup, DropdownMenu,

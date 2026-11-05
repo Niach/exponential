@@ -1,4 +1,4 @@
-# eTalk
+# Voice
 
 Speech in and out for agents: push to talk, a wake word, spoken replies,
 phone calls and meeting mode, on the user's own machine. One core for
@@ -13,7 +13,7 @@ Exponential and spezl.
 | `etalk-crispasr` | The pinned CrispASR runtime + models: sha256-verified downloads, loaded at run time with `libloading`, nothing linked. | |
 | `etalk-codec` | The call's Opus (pure-Rust `opus-rs` by default, `libopus` behind a feature). | |
 | `etalk-wakeword` | The wake word with a model: an openWakeWord-compatible detector on tract behind `WakeDetector` (see its README). | |
-| `etalk-ffi` | The UniFFI facade for iOS + Android: the call machine (`etalk::call`) and the codec, PCM in and out; audio I/O stays native, transport is eNet's (see its README). | `etalk`, `etalk-codec`, uniffi |
+| `etalk-ffi` | The UniFFI facade for iOS + Android: the call machine (`etalk::call`) and the codec, PCM in and out; audio I/O stays native, transport is P2P's (see its README). | `etalk`, `etalk-codec`, uniffi |
 | `etalk-gpui` | The UI: tray voice, push-to-talk overlay, call panel, reply speaker, meeting mode, behind the `TalkHost` sink (see its README). | gpui |
 
 ## The contract
@@ -56,7 +56,7 @@ Windows download the pinned runtime on first use.
 The crates are consumed as a git dependency on a tag, `etalk-v<version>`
 (the crates' own version), because the fixtures are compiled in from
 `packages/etalk/fixtures` and only a checkout of this repo carries them. Every
-eTalk crate uses the same tag; the rules are the git-tag policy in
+Voice crate uses the same tag; the rules are the git-tag policy in
 `docs/libraries.md` ("Consuming from another repo"):
 
 ```toml
@@ -67,4 +67,4 @@ The contract (the fixtures and their TypeScript references) is also on npm
 as `@exponential_app/etalk`, same version.
 
 `etalk-gpui` also needs the same gpui and gpui-component revisions as this
-workspace (see the eUI gpui revision policy).
+workspace (see the genUI gpui revision policy).

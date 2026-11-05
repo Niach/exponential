@@ -1,6 +1,6 @@
 # `ExponentialUI`: the SwiftUI painter
 
-The iOS + macOS renderer of the Exponential UI SDK (VAPP-88). The Rust core
+The iOS + macOS renderer of the genUI module (VAPP-88). The Rust core
 [`eui-core`](../../apps/desktop/crates/eui-core) reduces an
 A2UI surface, resolves the theme and lays the tree out with taffy; this
 package measures text for it in batches and paints the result in SwiftUI

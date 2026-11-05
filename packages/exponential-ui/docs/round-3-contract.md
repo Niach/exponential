@@ -1,4 +1,4 @@
-# Exponential UI — round 3 contract (VAPP-102)
+# genUI — round 3 contract (VAPP-102)
 
 Round 3 folds the catalog onto the vocabulary the Exponential app settled on
 in its UI cleanup (EXP-1248, EXP-1249, EXP-1251): ONE row, ONE section band,

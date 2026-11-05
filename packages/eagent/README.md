@@ -1,6 +1,6 @@
 # @exp/eagent
 
-eAgent's orchestration spec (#EXP-1508): the session tree, the bus, wake-ups,
+ACP's orchestration spec (#EXP-1508): the session tree, the bus, wake-ups,
 end reports, caps and the watchdog, extracted from Exponential's server
 (`apps/web/src/lib/sessions`, `lib/agents/triggers.ts`). Each
 `fixtures/*.json` is the spec (its `$comment`) plus scenario cases; `src/`
@@ -11,8 +11,8 @@ fixtures (`src/suite.ts` is the shared replay; `bun run test:wasm` runs it
 against the WASM build of `scripts/build-eagent-wasm.sh`); the server's pure parts
 and copy are drift-gated by `apps/web/src/lib/sessions/eagent-spec.test.ts`.
 
-Shared types come from eCore: every event is an `Envelope` (unix ms `at`,
-dotted `kind`), every id follows eCore's id rule, every refusal is a
+Shared types come from Core: every event is an `Envelope` (unix ms `at`,
+dotted `kind`), every id follows Core's id rule, every refusal is a
 `Failure` (`invalid`, `limit`, `conflict`, `not_found`).
 
 | fixture | covers |

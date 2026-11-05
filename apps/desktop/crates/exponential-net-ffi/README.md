@@ -1,4 +1,4 @@
-# `exponential-net-ffi`: eNet for Swift and Kotlin
+# `exponential-net-ffi`: P2P for Swift and Kotlin
 
 The UniFFI 0.31 facade over [`enet-core`](../enet-core) for iOS,
 macOS and Android: an xcframework / an Android `.so` plus the generated
@@ -17,7 +17,7 @@ bindings. License: MIT OR Apache-2.0.
   `allowedPeers`, `setOpen(bool)` (pairing window), `setAccessPolicy(policy?)`
   (foreign `EnetAccessPolicy.allow(peer, alpn)`), `online(timeoutMs)`.
 - Events: a foreign `EnetListener.onEvent(event)` (`setListener`, called on an
-  eNet thread) OR `await nextEvent()` in a loop; one per node. `EnetEvent` =
+  P2P thread) OR `await nextEvent()` in a loop; one per node. `EnetEvent` =
   `chat {from, message}`, `record {record}`, `callIncoming {call, from}`,
   `callAccepted {call}`, `callFrame {call, seq, data}`, `callEnded {call,
   reason: local|remote|failed: …}`, `peerRefused {peer, alpn}`.

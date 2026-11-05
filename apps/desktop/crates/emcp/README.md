@@ -5,7 +5,7 @@ the official Rust MCP SDK: a loopback Streamable HTTP server behind a
 tool-provider trait, a blocking client, an OAuth client whose credentials live
 in a vault the host provides, the **local hub** that puts several MCP servers
 behind one endpoint with a grant per run and an audit row per call, **code
-mode** (feature `codemode`), and the eMCP contract (`packages/emcp`) replayed
+mode** (feature `codemode`), and the MCP Proxy contract (`packages/emcp`) replayed
 from its fixtures.
 
 Everything is blocking from the host's side: the SDK runs on emcp's own
@@ -17,13 +17,13 @@ Exponential links it from the `codemode` crate (a re-export of
 calls into the instance's `/api/mcp`), epilot and epilot-screen (their tools);
 spezl links it as a git dependency.
 
-## eCore
+## Core
 
-The API speaks eCore's types (`apps/desktop/crates/ecore`, #EXP-1517), re-exported
+The API speaks Core's types (`apps/desktop/crates/ecore`, #EXP-1517), re-exported
 as `emcp::ecore` and `emcp::{SessionId, Token, Failure, ErrorCode, DeliveryVerdict}`:
 a run's bearer is a `Token` (64 lowercase hex, checked with `parse_bearer`), the
 run is a `SessionId`, a refusal is a `Failure`, and `ClientError::delivery()` says
-whether a failed call never ran. eCore is emcp's one path dependency: the git
+whether a failed call never ran. Core is emcp's one path dependency: the git
 checkout of an `emcp-v*` tag carries it at the same commit.
 
 ## Consuming
@@ -59,7 +59,7 @@ fixtures; a crates.io package would not):
 // Serve: a ToolProvider on 127.0.0.1:<port>/mcp, one bearer token per run.
 let info = emcp::ServerInfo { name: "clock".into(), version: "0.1.0".into(), instructions: None };
 let server = emcp::Server::serve(info, Arc::new(Clock))?;   // Clock: impl ToolProvider
-let run = emcp::SessionId::new("run-1")?;                   // eCore's id rule
+let run = emcp::SessionId::new("run-1")?;                   // Core's id rule
 let token = server.grant(&run, "EXP-12");                    // an ecore::Token; an earlier one of run-1 dies
 // MCP config: { "clock": { "type": "http", "url": server.url(),
 //               "headers": { "Authorization": token.header() } } }

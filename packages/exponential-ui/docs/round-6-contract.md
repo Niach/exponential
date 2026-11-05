@@ -1,4 +1,4 @@
-# Exponential UI — round 6 contract (EXP-1495)
+# genUI — round 6 contract (EXP-1495)
 
 Round 6 adds the low-level pieces THE plan page (#EXP-1493,
 `packages/domain-contract/fixtures/plan-page.json`) needs: an anchor list, a

@@ -1,6 +1,6 @@
-# `@exponential_app/eui-react` — the Exponential UI React renderer
+# `@exponential_app/eui-react` — the genUI React renderer
 
-The REFERENCE renderer of Exponential UI (VAPP-84): an A2UI surface in the
+The REFERENCE renderer of genUI (VAPP-84): an A2UI surface in the
 core catalog (`@exponential_app/eui`) painted with real CSS on shadcn/Radix.
 Themes load at runtime, extensions register their own components, overlays
 ride Radix portals, inputs are host-owned, and the layout is the one the
