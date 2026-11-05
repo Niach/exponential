@@ -22,11 +22,17 @@ name: test-ios
 # tuist's selective testing can skip a suite whose inputs it does not track —
 # a fixture read through `#filePath` is exactly that — and report green.
 #
-# 2026-10-26: release-only. release-suite.yml calls this on the release tags;
-# workflow_dispatch runs it by hand. Never on pull requests.
+# 2026-10-26: release-suite.yml calls this on the release tags; workflow_dispatch
+# runs it by hand. #EXP-1680: test.yml calls it with `compile_only` on PRs that
+# touch the app or its FFI inputs: the same Release compile, the device slices
+# alone, no simulator and no suites (about half the job's time).
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      compile_only:
+        type: boolean
+        default: false
   workflow_dispatch: {}
 
 permissions:
@@ -61,7 +67,9 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
 
       - name: Select Xcode 27 + the iOS 27 simulator
-        run: bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh" --simulator
+        env:
+          SELECT_ARGS: ${{ !inputs.compile_only && '--simulator' || '' }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh" $SELECT_ARGS
 
       - name: Install tuist
         if: runner.environment == 'github-hosted'
@@ -101,7 +109,28 @@ jobs:
       # inline surface) only when its Rust core xcframework exists
       # (packages/exponential-ui-swift/Binaries, gitignored; Project.swift checks
       # for it): build it first, the same script exponential-ui.yml runs.
+      #
+      # #EXP-1680: a PR compile on a Mac reuses them while the two FFI crates
+      # are unchanged. The Rust steps are half the job (~12 of 24 min) and about
+      # half of all PRs land here; the Swift only sees the crates' bindings. So a
+      # hit skips the drift checks below, and the release run still does them all.
+      - name: Reuse the xcframeworks (self-hosted PR compile)
+        id: xcf
+        if: inputs.compile_only && runner.environment == 'self-hosted'
+        working-directory: ${{ github.workspace }}
+        run: |
+          key="$(git rev-parse HEAD:apps/desktop/crates/exponential-ui-ffi HEAD:apps/desktop/crates/exponential-net-ffi | git hash-object --stdin)"
+          store="$HOME/.cache/exp-ios-xcframeworks/$key"
+          echo "store=$store" >> "$GITHUB_OUTPUT"
+          if [ ! -d "$store" ]; then echo "hit=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          touch "$store"
+          mkdir -p packages/exponential-ui-swift/Binaries apps/desktop/crates/exponential-net-ffi/out/push
+          cp -R "$store/ExponentialUIFFI.xcframework" packages/exponential-ui-swift/Binaries/
+          cp -R "$store/ExponentialNetFFI.xcframework" apps/desktop/crates/exponential-net-ffi/out/
+          cp -R "$store/ExponentialNetPush.xcframework" apps/desktop/crates/exponential-net-ffi/out/push/
+          echo "hit=true" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.xcf.outputs.hit != 'true'
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
@@ -109,11 +138,13 @@ jobs:
         with:
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
+        if: steps.xcf.outputs.hit != 'true'
       - name: Build the Exponential UI xcframework
+        if: steps.xcf.outputs.hit != 'true'
         working-directory: ${{ github.workspace }}
         # EXP-1364: the device compile + the arm64 simulator suites, nothing else.
         env:
-          EXPONENTIAL_UI_APPLE_TARGETS: aarch64-apple-ios aarch64-apple-ios-sim
+          EXPONENTIAL_UI_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
       # EXP-1435: the push-only eNet facade the Notification Service Extension
       # opens sealed pushes with (Project.swift links it only when it exists,
@@ -121,10 +152,11 @@ jobs:
       # script regenerates the COMMITTED Swift binding from a host build: any
       # drift from bindings/push is a red job.
       - name: Build the push-only eNet xcframework
+        if: steps.xcf.outputs.hit != 'true'
         working-directory: ${{ github.workspace }}
         env:
           ENET_PUSH_ONLY: "1"
-          ENET_APPLE_TARGETS: aarch64-apple-ios aarch64-apple-ios-sim
+          ENET_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
         run: |
           bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
           git diff --exit-code -- apps/desktop/crates/exponential-net-ffi/bindings/push/swift \
@@ -134,13 +166,30 @@ jobs:
       # links it only when it exists); without it EnetInstallNodesTests (two
       # real nodes over loopback) compile out. Same drift gate on bindings/swift.
       - name: Build the full eNet xcframework
+        if: steps.xcf.outputs.hit != 'true'
         working-directory: ${{ github.workspace }}
         env:
-          ENET_APPLE_TARGETS: aarch64-apple-ios aarch64-apple-ios-sim
+          ENET_APPLE_TARGETS: ${{ inputs.compile_only && 'aarch64-apple-ios' || 'aarch64-apple-ios aarch64-apple-ios-sim' }}
         run: |
           bash apps/desktop/crates/exponential-net-ffi/build-ios.sh
           git diff --exit-code -- apps/desktop/crates/exponential-net-ffi/bindings/swift \
             || { echo "::error::bindings/swift drifted from the Rust facade: regenerate and commit"; exit 1; }
+
+      - name: Keep the xcframeworks for the next PR compile
+        if: steps.xcf.outputs.hit == 'false'
+        working-directory: ${{ github.workspace }}
+        env:
+          STORE: ${{ steps.xcf.outputs.store }}
+        run: |
+          root="$(dirname "$STORE")"
+          mkdir -p "$root"
+          tmp="$(mktemp -d "$root/.tmp.XXXXXX")"
+          cp -R packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework \
+            apps/desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework \
+            apps/desktop/crates/exponential-net-ffi/out/push/ExponentialNetPush.xcframework "$tmp/"
+          # The other Mac instance may have saved this key meanwhile: then drop ours.
+          if [ -e "$STORE" ]; then rm -rf "$tmp"; else mv "$tmp" "$STORE"; fi
+          find "$root" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +
 
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
       # exits 1 without this.
@@ -189,7 +238,7 @@ jobs:
       # of a green one that executed nothing. Floors sit under today's counts
       # (ExpCore 903, ExpUI 383) so ordinary churn passes.
       - name: Run the ExpCore + ExpUI suites (simulator)
-        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && !inputs.compile_only }}
         run: |
           set -uo pipefail
 

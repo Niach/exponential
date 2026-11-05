@@ -8,7 +8,7 @@ name: test
 # plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, the Android
 # compile + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
-# legs (`ios-core`, the ExpCore fixture replay, and `eui-swift`, the SwiftUI conformance pass) run on
+# legs (`ios-core`, the ExpCore fixture replay, `ios-app`, the app target's compile, and `eui-swift`, the SwiftUI conformance pass) run on
 # PRs too but are informational: `gate` does not wait for them. Everything heavy (the rest of the eUI suite: unit suites,
 # parity, guides, benches, Simulator + emulator; iOS, Android lint + licences, the full desktop cargo test, the site,
 # shots:check, the package suites, the real-DB suites, image smoke builds)
@@ -43,6 +43,7 @@ jobs:
       eui: ${{ steps.f.outputs.eui }}
       ede: ${{ steps.f.outputs.ede }}
       ios: ${{ steps.f.outputs.ios }}
+      ios_app: ${{ steps.f.outputs.ios_app }}
       android: ${{ steps.f.outputs.android }}
       site: ${{ steps.f.outputs.site }}
       web_build: ${{ steps.f.outputs.web_build }}
@@ -53,7 +54,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\nios=true\nandroid=true\nsite=true\nweb_build=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
           desktop='^(apps/desktop/|packages/(domain-contract|ecore|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
@@ -65,6 +66,10 @@ jobs:
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #EXP-1680: the app and what it links. Not test.yml: an unrelated gate
+          # edit must not take a Mac for this.
+          ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
+          echo "ios_app=$(grep -qE "$ios_app" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1544: the app, the Compose eUI modules it includes, every
           # generator that writes Kotlin into it, the fixtures and vectors its
           # unit tests read, the eNet / eUI facades (committed Kotlin bindings +
@@ -264,6 +269,18 @@ jobs:
     needs: [pick, changes]
     if: needs.changes.outputs.ios == 'true'
     uses: ./.github/workflows/ios-core.yml
+    secrets: inherit
+
+  # #EXP-1680: the app target's Release compile (test-ios.yml), which until now
+  # only release-suite.yml ran, so app-target Swift merged uncompiled and held
+  # iOS tags. INFORMATIONAL like ios-core: `gate` does not wait, so the Macs
+  # never block a merge; it can join `gate` once it has proved reliable.
+  ios-app:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ios_app == 'true'
+    uses: ./.github/workflows/test-ios.yml
+    with:
+      compile_only: true
     secrets: inherit
 
   # eDE (#NEW-101): the compositor's own workspace. Its tests are headless
