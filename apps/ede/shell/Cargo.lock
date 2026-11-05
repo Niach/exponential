@@ -1448,16 +1448,30 @@ name = "ede-shell"
 version = "0.1.0"
 dependencies = [
  "ede-protocol",
+ "ede-ui",
  "eui-core",
  "eui-gpui",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+ "libc",
+ "rust-embed",
  "serde",
  "serde_json",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ede-ui"
+version = "0.1.0"
+dependencies = [
+ "eui-core",
+ "libc",
+ "notify",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

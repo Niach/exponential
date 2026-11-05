@@ -422,7 +422,8 @@ impl Runtime {
             return Ok(self.documents.remove(name).map(|_| Change::Removed { name: name.to_string(), commit: None }));
         };
         match doc::parse(bytes).and_then(|v| validate_document(name, &v)) {
-            Ok(document) => {
+            Ok(mut document) => {
+                document.digest = digest(bytes);
                 self.rejected.remove(name);
                 self.documents.insert(name.to_string(), document);
                 Ok(Some(Change::Applied { name: name.to_string(), commit: None }))

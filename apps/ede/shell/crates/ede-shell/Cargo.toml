@@ -10,6 +10,7 @@ publish = false
 eui-core.workspace = true
 eui-gpui.workspace = true
 ede-protocol.workspace = true
+ede-ui = { path = "../../../crates/ede-ui" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
@@ -18,3 +19,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# The IDE's fonts and Lucide icons, embedded like apps/desktop/crates/app/src/assets.rs does.
+rust-embed = "8"
+# localtime_r for the clock.
+libc = "0.2"

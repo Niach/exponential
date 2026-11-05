@@ -503,6 +503,7 @@ name = "ede-ui"
 version = "0.1.0"
 dependencies = [
  "eui-core",
+ "libc",
  "notify",
  "serde",
  "serde_json",

@@ -61,6 +61,9 @@ pub struct Document {
     pub tree: UiNode,
     /// The file's JSON as it was read.
     pub source: Value,
+    /// [`crate::digest`] of the file's bytes (what a shell reports with its
+    /// frame); empty for a document validated from a value.
+    pub digest: String,
 }
 
 impl Document {
@@ -191,7 +194,7 @@ pub fn validate_document(name: &str, source: &Value) -> Result<Document, Vec<Iss
     if !issues.is_empty() {
         return Err(issues);
     }
-    Ok(Document { name: name.to_string(), surface, catalog_id, body, data, tree: reduced.root, source: source.clone() })
+    Ok(Document { name: name.to_string(), surface, catalog_id, body, data, tree: reduced.root, source: source.clone(), digest: String::new() })
 }
 
 /// Every node of the nested authoring form, parents first.

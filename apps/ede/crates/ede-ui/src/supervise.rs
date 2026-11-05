@@ -25,6 +25,11 @@ use crate::{
 
 /// How long after a crash the shell starts again.
 pub const RESTART_DELAY: Duration = Duration::from_millis(500);
+/// A shell that dies within this of its start is a quick exit; after
+/// [`MAX_QUICK_EXITS`] in a row the supervisor gives up (the display is gone,
+/// or nothing the machine can revert is at fault).
+pub const QUICK_EXIT: Duration = Duration::from_secs(5);
+pub const MAX_QUICK_EXITS: u32 = 10;
 /// The clock the machine's deadlines run on.
 pub const TICK: Duration = Duration::from_millis(500);
 
@@ -43,7 +48,13 @@ pub struct Frame {
 impl FrameLine {
     /// The line the shell prints for `name` drawn from `bytes`.
     pub fn line(name: &str, bytes: &[u8]) -> String {
-        serde_json::to_string(&FrameLine { frame: Frame { name: name.to_string(), digest: crate::digest(bytes) } }).unwrap_or_default()
+        Self::line_for_digest(name, &crate::digest(bytes))
+    }
+
+    /// The line for a document whose digest the runtime already knows
+    /// ([`crate::Document::digest`]).
+    pub fn line_for_digest(name: &str, digest: &str) -> String {
+        serde_json::to_string(&FrameLine { frame: Frame { name: name.to_string(), digest: digest.to_string() } }).unwrap_or_default()
     }
 }
 
@@ -126,10 +137,18 @@ impl Supervisor {
         Ok(())
     }
 
-    /// Runs the shell and the machine until `stop` is set; the shell is
-    /// killed on the way out.
+    /// Runs the shell and the machine until `stop` is set, or the shell
+    /// kept dying right after starting; the shell is killed on the way out.
+    /// The supervisor itself ends with the process that started it (the
+    /// compositor), so a dead display never leaves a restart loop behind.
     pub fn run(&mut self, stop: &AtomicBool) -> io::Result<()> {
+        // SAFETY: prctl with PR_SET_PDEATHSIG only sets this process's parent-death signal.
+        unsafe {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+        }
         self.spawn()?;
+        let mut started = SystemTime::now();
+        let mut quick_exits = 0u32;
         let mut restart_at: Option<SystemTime> = None;
         while !stop.load(Ordering::Relaxed) {
             match self.rx.recv_timeout(TICK) {
@@ -141,6 +160,10 @@ impl Supervisor {
                     }
                     (self.on_report)(Report::Crashed);
                     self.step(Event::Crash { at: now_ms() })?;
+                    quick_exits = if started.elapsed().unwrap_or_default() < QUICK_EXIT { quick_exits + 1 } else { 0 };
+                    if quick_exits >= MAX_QUICK_EXITS {
+                        return Err(io::Error::other(format!("the shell died {quick_exits} times right after starting; giving up")));
+                    }
                     restart_at = Some(SystemTime::now() + RESTART_DELAY);
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -150,6 +173,7 @@ impl Supervisor {
             }
             if restart_at.is_some_and(|t| SystemTime::now() >= t) {
                 restart_at = None;
+                started = SystemTime::now();
                 self.spawn()?;
             }
         }
