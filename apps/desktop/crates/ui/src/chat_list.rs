@@ -1,10 +1,8 @@
-//! #EXP-1380 — THE Chats list pieces (`fixtures/chats.json` LIST + BUBBLES
-//! + WIDE), the gpui twin of `packages/ui/src/chat-list.tsx`: the agent
-//! bubbles (66, a 3px ring around a background gap: amber = needs you,
-//! foreground = unread, a glass hairline = read), the filter chips (select
-//! Pills, `chat_filter_label`), the flat rows (the 52 lead disc, title +
-//! time, the two-line muted preview, the row word and the unread badge, a
-//! hairline under the text column only). The IDE's Chats page
+//! #EXP-1380 — THE Chats list pieces (`fixtures/chats.json` LIST + WIDE,
+//! #FEED-191), the gpui twin of `packages/ui/src/chat-list.tsx`: the flat rows
+//! (the 52 lead disc, title + time, the two-line muted preview, the row word
+//! and the unread badge, a hairline under the text column only), the section
+//! headers. The IDE's Chats page
 //! ([`crate::threads_view`]) and the styleguide's `chat-list` entry paint
 //! these same functions; the model is `domain::chats`.
 
@@ -17,19 +15,14 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::chats::{chat_filter_label, chat_selection_count, ChatSelectionAction, AgentBubble, ChatCounts, ChatFilter, ChatLead, ChatPreviewKind, ChatRow, CHATS};
+use domain::chats::{chat_selection_count, ChatSelectionAction, ChatLead, ChatPreviewKind, ChatRow, CHATS};
 use domain::session_tree::ThreadRowWord;
-use domain::stories::{story_row, StoryRing, STORIES};
 
 use crate::icons::registry;
 use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
-use crate::surface::{glass_pill, PillMode, PillSize};
 
 /// The glyph inside the lead disc / a bubble (web `size-6`).
 const GLYPH_PX: f32 = 24.;
-
-/// A filter pick.
-pub(crate) type OnFilter = Rc<dyn Fn(ChatFilter, &mut Window, &mut App)>;
 
 /// The glyph before a row word ×4 (web `ChatRowText`, Android
 /// `ChatComponents`, iOS `wordIcon`): only a stack wears one (`pr-stack`);
@@ -432,28 +425,6 @@ pub(crate) fn agent_circle(size: f32, ring_width: f32, ring_gap: f32, ring: Opti
         )
 }
 
-/// One agent bubble of THE STORY ROW (#EXP-1461, stories.json THE STORY
-/// ROW): the agent's icon in its colour (the working mark while busy, the
-/// brand mark for the viewer's Assistant) inside its agent's story ring
-/// (the bubble size, the muted disc), the name `row.labelGap` under it,
-/// medium while the ring is unseen. A bubble without a ring is never drawn.
-/// The caller hangs the click and the agent menu.
-pub(crate) fn agent_bubble(bubble: &AgentBubble, story: &StoryRing, cx: &App) -> Div {
-    let theme = cx.theme();
-    let agent = &bubble.agent;
-    let glyph = agent_avatar_glyph(&agent.icon, &agent.color, agent.assistant, agent.busy, GLYPH_PX, cx);
-    let disc = div()
-        .size_full()
-        .rounded_full()
-        .bg(theme.muted)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(glyph)
-        .into_any_element();
-    crate::story_ring::story_row_item(&story.stories, disc, &agent.name, story.unseen, cx)
-}
-
 /// S-3 — one AGENT row pinned on top of the Chats list (chats.json
 /// `agentChatRows`): THE chat row with the agent's avatar in the lead disc
 /// (the brand mark for the viewer's Assistant), its name, the
@@ -511,8 +482,7 @@ pub(crate) fn agent_chat_row(row: &domain::chats::AgentChatRow, cx: &App) -> Div
     chat_row(&as_chat, lead, cx)
 }
 
-/// S-3: a Chats list section header (`copy.sections`), shown only while an
-/// agent row exists.
+/// A Chats list section header (`copy.sections`).
 pub(crate) fn chat_section_header(label: &str, cx: &App) -> AnyElement {
     div()
         .px(px(ROW_PAD))
@@ -600,87 +570,5 @@ pub(crate) fn composer_agent_row(
                 .overflow_x_scroll()
                 .children(circles),
         )
-        .into_any_element()
-}
-
-/// THE STORY ROW of the Chats header (#EXP-1461, stories.json `row` +
-/// `rowCases`): ONLY rings. The agent bubbles whose agent has a ring
-/// (`story_row`, list_agents order), each wearing it, then the rings no
-/// bubble wears (painted by `ring_avatar`); nothing = `None` (no row, no
-/// reserved height). One line scrolling sideways, every item EXACTLY
-/// `row.itemWidth` wide and never shrunk (`flex_none` on the caller's wrapper
-/// too), `row.gap` apart, `row.padBottom` under the names. `wrap` hangs each
-/// bubble's click + menu (its index, agent and ring), `wrap_ring` each
-/// trailing ring's — the styleguide passes plain wrappers.
-pub(crate) fn agent_bubbles_row(
-    bubbles: &[AgentBubble],
-    rings: &[StoryRing],
-    ring_avatar: impl Fn(&StoryRing) -> AnyElement,
-    wrap: impl Fn(usize, &AgentBubble, &StoryRing, Div) -> AnyElement,
-    wrap_ring: impl Fn(usize, &StoryRing, Div) -> AnyElement,
-    cx: &App,
-) -> Option<AnyElement> {
-    let ids: Vec<&str> = bubbles.iter().map(|bubble| bubble.agent.agent_id.as_str()).collect();
-    let row = story_row(&ids, rings);
-    if row.is_empty() {
-        return None;
-    }
-    let spec = STORIES.row;
-    let drawn: Vec<(usize, &AgentBubble, &StoryRing)> = row
-        .bubbles
-        .iter()
-        .filter_map(|id| {
-            let bubble = bubbles.iter().find(|bubble| bubble.agent.agent_id == *id)?;
-            Some((bubble, row.by_agent.get(id)?))
-        })
-        .enumerate()
-        .map(|(index, (bubble, ring))| (index, bubble, ring))
-        .collect();
-    Some(
-        h_flex()
-            .id("chat-agent-bubbles")
-            .w_full()
-            .min_w_0()
-            .flex_none()
-            .items_start()
-            .gap(px(spec.gap))
-            .pb(px(spec.pad_bottom))
-            .overflow_x_scroll()
-            .children(drawn.into_iter().map(|(index, bubble, ring)| {
-                story_row_slot(wrap(index, bubble, ring, agent_bubble(bubble, ring, cx)))
-            }))
-            .children(row.rest.iter().enumerate().map(|(index, ring)| {
-                story_row_slot(wrap_ring(index, ring, crate::story_ring::story_ring_button(ring, ring_avatar(ring), cx)))
-            }))
-            .into_any_element(),
-    )
-}
-
-/// One item's slot in THE STORY ROW: exactly `row.itemWidth`, never shrunk
-/// (gpui flex children shrink by default, the wrapper too).
-fn story_row_slot(item: AnyElement) -> AnyElement {
-    div().w(px(STORIES.row.item_width)).flex_none().child(item).into_any_element()
-}
-
-/// The filter chips over the list: select Pills labelled by
-/// `chat_filter_label` (a count after a non-zero one).
-pub(crate) fn chat_filter_chips(counts: &ChatCounts, selected: ChatFilter, on_select: Option<OnFilter>, cx: &App) -> AnyElement {
-    h_flex()
-        .gap_2()
-        .children(ChatFilter::ALL.into_iter().enumerate().map(|(index, filter)| {
-            let pill = glass_pill(
-                (SharedString::from(CHATS.test_ids.chat_filter.clone()), index),
-                PillSize::Md,
-                PillMode::Select { selected: filter == selected },
-                cx,
-            )
-            .h(px(36.))
-            .px_4()
-            .child(SharedString::from(chat_filter_label(filter, counts)));
-            match on_select.clone() {
-                Some(on_select) => pill.on_click(move |_, window, cx| on_select(filter, window, cx)),
-                None => pill,
-            }
-        }))
         .into_any_element()
 }

@@ -1,11 +1,11 @@
 //! EXP-1294 — the CHATS page ([`Screen::Threads`], the rail's `Chats`
 //! entry; thread 58cb32df: the product says chats). #EXP-1380 (chats.json
 //! WIDE): the page = THE Chats list of the active team, the same pieces as
-//! the phones ([`crate::chat_list`]): the agent bubbles row, the filter
-//! chips, then the flat rows, one centred column. A row opens the chat, its
-//! right-click = THE chat menu ([`chat_row_menu`], `menuCases`). #EXP-1461:
-//! the header row = THE STORY ROW (rings only); a bubble opens THE story
-//! viewer at its agent's ring, its right-click the agent menu.
+//! the phones ([`crate::chat_list`]), one centred column. #FEED-191: the Agents
+//! section, then `chat_sections` under their headers (the Archived entry first
+//! under Chats; the Archived page flat, no headers). A row opens the chat, its
+//! right-click = THE chat menu ([`chat_row_menu`], `menuCases`); selection
+//! follows the displayed order.
 //!
 //! The helpers below still paint the rail's rows and the styleguide's
 //! `thread-parts` specimen: bands Needs you · Running · Recent
@@ -28,9 +28,8 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::chats::{chat_selection_range, AgentBubble, ChatFilter, ChatListView, ChatRow, CHATS};
+use domain::chats::{chat_selection_range, chat_sections, ChatListView, ChatRow, CHATS};
 use domain::rows::{PullRequestRow, SessionRow};
-use domain::stories::{StoryRing, STORIES};
 use domain::session_tree::{
     thread_in_stack, thread_row_mark_state, thread_row_word, SessionState, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
     THREADS_LIST,
@@ -304,8 +303,6 @@ pub(crate) fn init(cx: &mut App) {
 pub struct ThreadsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
-    /// #EXP-1380: the selected filter chip.
-    filter: ChatFilter,
     /// #EXP-1388: the chats, or the Archived page.
     view: ChatListView,
     /// #EXP-1388: the multi-selection (selecting while non-empty).
@@ -327,7 +324,6 @@ impl ThreadsView {
         let mut view = Self {
             nav,
             scroll: ScrollHandle::new(),
-            filter: ChatFilter::All,
             view: ChatListView::List,
             selected: Vec::new(),
             anchor: None,
@@ -348,13 +344,13 @@ impl ThreadsView {
         }
     }
 
-    /// The rows the page shows (view + chip), in list order.
+    /// #FEED-191: the rows the page shows, in DISPLAYED order: the sections,
+    /// the Archived page flat. Selection follows it.
     fn visible_rows(&self, model: &session_data::ChatsModel) -> Vec<ChatRow> {
-        let list = match self.view {
-            ChatListView::List => &model.list,
-            ChatListView::Archived => &model.archived,
-        };
-        list.rows.iter().filter(|row| self.filter.keeps(row)).cloned().collect()
+        match self.view {
+            ChatListView::List => chat_sections(&model.list.rows).into_iter().flat_map(|section| section.rows).collect(),
+            ChatListView::Archived => model.archived.rows.clone(),
+        }
     }
 
     fn model(&self, cx: &mut App) -> std::rc::Rc<session_data::ChatsModel> {
@@ -465,52 +461,6 @@ fn chats_page_row(
     .into_any_element()
 }
 
-/// #EXP-1461 THE STORY ROW: a bubble is drawn only while its agent has a
-/// ring, so its click opens THE story viewer at that ring; its right-click
-/// the agent menu.
-fn chats_page_bubble(team_id: Option<String>) -> impl Fn(usize, &AgentBubble, &StoryRing, gpui::Div) -> gpui::AnyElement {
-    move |index, bubble, story, element| {
-        use crate::controls::PointerContextMenuExt as _;
-        use gpui::StatefulInteractiveElement as _;
-        let menu_id = bubble.agent.agent_id.clone();
-        let open_story = team_id.clone().map(|team| (team, story.key.clone()));
-        gpui::div()
-            .id((SharedString::from(CHATS.test_ids.agent_bubble.clone()), index))
-            .flex_none()
-            .cursor_pointer()
-            .child(element)
-            .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                if let Some((team, key)) = &open_story {
-                    crate::story_viewer::open(team, key, window, cx);
-                }
-            })
-            .pointer_context_menu(move |menu, _, cx| {
-                crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &menu_id, cx)
-            })
-            .into_any_element()
-    }
-}
-
-/// S-3: a ring no bubble wears (a chat's, an agent's without a bubble),
-/// after the bubbles; a click opens THE story viewer at it.
-fn chats_page_ring(team_id: Option<String>) -> impl Fn(usize, &StoryRing, gpui::Div) -> gpui::AnyElement {
-    move |index, ring, element| {
-        use gpui::StatefulInteractiveElement as _;
-        let open_story = team_id.clone().map(|team| (team, ring.key.clone()));
-        gpui::div()
-            .id((SharedString::from(STORIES.test_ids.ring.clone()), index))
-            .flex_none()
-            .cursor_pointer()
-            .child(element)
-            .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                if let Some((team, key)) = &open_story {
-                    crate::story_viewer::open(team, key, window, cx);
-                }
-            })
-            .into_any_element()
-    }
-}
-
 impl Render for ThreadsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         use gpui::StatefulInteractiveElement as _;
@@ -521,7 +471,6 @@ impl Render for ThreadsView {
             session_data::ensure_assistant(&team_id, cx);
         }
         let model = self.model(cx);
-        let filter = self.filter;
         let view_kind = self.view;
         let rows = self.visible_rows(&model);
         // The selection keeps only rows still in the list, in list order.
@@ -537,16 +486,6 @@ impl Render for ThreadsView {
         }
         let selecting = !self.selected.is_empty();
         let entity = cx.entity().downgrade();
-        let on_filter: crate::chat_list::OnFilter = {
-            let view = entity.clone();
-            std::rc::Rc::new(move |filter, _window, cx| {
-                view.update(cx, |view, cx| {
-                    view.filter = filter;
-                    cx.notify();
-                })
-                .ok();
-            })
-        };
         let on_click: OnRowClick = {
             let view = entity.clone();
             std::rc::Rc::new(move |id, event, window, cx| {
@@ -564,13 +503,6 @@ impl Render for ThreadsView {
                 .ok();
             })
         };
-        // S-3 (stories.json STORY RING): the rings ride the bubbles row.
-        let team_id = active_team_id(&self.nav, cx);
-        let rings = match &team_id {
-            Some(team_id) => crate::story_ring::team_stories(team_id, cx),
-            None => std::rc::Rc::new(Vec::new()),
-        };
-        let story_viewer = crate::story_viewer::overlay(_window, cx);
         let column = if !ready {
             // Skeletons, never "Loading…" (feedback-states.json).
             v_flex().min_w_0().child(crate::feedback::skeleton_rows(
@@ -580,7 +512,7 @@ impl Render for ThreadsView {
                 cx,
             ))
         } else {
-            let archived_entry = (view_kind == ChatListView::List && filter == ChatFilter::All && model.list.archived > 0)
+            let archived_entry = (view_kind == ChatListView::List && model.list.archived > 0)
                 .then(|| {
                     let view = entity.clone();
                     crate::chat_list::chat_selectable(
@@ -596,21 +528,11 @@ impl Render for ThreadsView {
                     })
                     .into_any_element()
                 });
-            // S-3: the AGENT rows pinned on top (the chip filters them like
-            // a chat; none on the Archived page), under section headers
-            // only while one exists.
-            let agent_rows: Vec<&domain::chats::AgentChatRow> = match view_kind {
-                ChatListView::Archived => Vec::new(),
-                ChatListView::List => model
-                    .agent_rows
-                    .iter()
-                    .filter(|row| match filter {
-                        ChatFilter::All => true,
-                        ChatFilter::NeedsYou => row.needs_you,
-                        ChatFilter::Running => row.busy,
-                        ChatFilter::Unread => row.unread_count > 0,
-                    })
-                    .collect(),
+            // S-3: the AGENT rows pinned on top, whatever their state; none on
+            // the Archived page.
+            let agent_rows: &[domain::chats::AgentChatRow] = match view_kind {
+                ChatListView::Archived => &[],
+                ChatListView::List => &model.agent_rows,
             };
             let agents_section = (!agent_rows.is_empty()).then(|| {
                 v_flex()
@@ -638,26 +560,54 @@ impl Render for ThreadsView {
                         })
                         .into_any_element()
                     }))
-                    .child(crate::chat_list::chat_section_header(&CHATS.copy.sections.chats, cx))
                     .into_any_element()
             });
-            // The empty state for an empty filter too (web `ChatList`).
+            let paint = |row: &ChatRow, cx: &mut gpui::Context<Self>| {
+                let selected = self.selected.contains(&row.session_id);
+                chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), cx)
+            };
             let list = if rows.is_empty() && archived_entry.is_none() && agents_section.is_none() {
                 let (icon, copy): (Icon, SharedString) = match view_kind {
                     ChatListView::Archived => (Icon::new(registry::UI_ARCHIVE), CHATS.copy.archived.empty.clone().into()),
                     ChatListView::List => (Icon::new(registry::NAV_THREADS), crate::empty_state_copy::THREADS.into()),
                 };
                 crate::controls::empty_state(icon, copy, None, cx).into_any_element()
+            } else if view_kind == ChatListView::Archived {
+                let painted: Vec<gpui::AnyElement> = rows.iter().map(|row| paint(row, cx)).collect();
+                v_flex().w_full().min_w_0().children(painted).into_any_element()
             } else {
+                // #FEED-191: Agents, then the sections under their headers;
+                // the Archived entry leads Chats (its header shows while the
+                // entry does).
+                let sections = chat_sections(&model.list.rows);
+                let mut archived_entry = archived_entry;
+                let mut bands: Vec<gpui::AnyElement> = Vec::new();
+                for key in domain::chats::ChatSectionKey::ALL {
+                    let own = sections.iter().find(|section| section.key == key).map_or(&[][..], |section| &section.rows[..]);
+                    let lead = if key == domain::chats::ChatSectionKey::Chats { archived_entry.take() } else { None };
+                    if own.is_empty() && lead.is_none() {
+                        continue;
+                    }
+                    let painted: Vec<gpui::AnyElement> = own.iter().map(|row| paint(row, cx)).collect();
+                    bands.push(
+                        v_flex()
+                            .w_full()
+                            .min_w_0()
+                            .child(crate::chat_list::chat_section_header(key.title(), cx))
+                            .children(lead)
+                            .children(painted)
+                            .into_any_element(),
+                    );
+                }
+                let none = rows.is_empty() && bands.is_empty();
                 v_flex()
                     .w_full()
                     .min_w_0()
                     .children(agents_section)
-                    .children(archived_entry)
-                    .children(rows.iter().map(|row| {
-                        let selected = self.selected.contains(&row.session_id);
-                        chats_page_row(row, selected, selecting, on_click.clone(), on_select.clone(), cx)
+                    .children(none.then(|| {
+                        crate::controls::empty_state(Icon::new(registry::NAV_THREADS), crate::empty_state_copy::THREADS, None, cx)
                     }))
+                    .children(bands)
                     .into_any_element()
             };
             let back = (view_kind == ChatListView::Archived).then(|| {
@@ -670,25 +620,6 @@ impl Render for ThreadsView {
                 .min_w_0()
                 .gap_4()
                 .children(back)
-                .when(view_kind == ChatListView::List, |this| {
-                    this.children(crate::chat_list::agent_bubbles_row(
-                        &model.bubbles,
-                        &rings,
-                        |ring| crate::story_ring::store_ring_avatar(ring, crate::story_ring::RING_GLYPH_PX, cx),
-                        chats_page_bubble(team_id.clone()),
-                        chats_page_ring(team_id.clone()),
-                        cx,
-                    ))
-                })
-                .child(crate::chat_list::chat_filter_chips(
-                    match view_kind {
-                        ChatListView::List => &model.list.counts,
-                        ChatListView::Archived => &model.archived.counts,
-                    },
-                    filter,
-                    Some(on_filter),
-                    cx,
-                ))
                 .child(list)
                 // Room under the last row for the floating bar.
                 .when(selecting, |this| this.pb(px(72.)))
@@ -773,7 +704,6 @@ impl Render for ThreadsView {
             }))
             .child(page_scaffold_with("threads-screen-scroll", &self.scroll, column, THREADS_COLUMN_W))
             .children(bar.map(crate::issue_list::bulk_bar_dock))
-            .children(story_viewer)
     }
 }
 
