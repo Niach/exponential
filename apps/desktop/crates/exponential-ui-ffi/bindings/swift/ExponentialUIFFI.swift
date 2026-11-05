@@ -2349,9 +2349,13 @@ public protocol RecordStoreProtocol: AnyObject, Sendable {
     func count()  -> UInt64
     
     /**
-     * THE records value over the store: `query_json` and `context_json` as
-     * in [`records_value_json`]; `overlay_json` = the unsynced writes laid
-     * over this one query, a delta (`MemoryRecordStore::value`).
+     * VAPP-189: THE records value over the store (`valueCases`): `query_json`
+     * = a parsed query, `context_json` = `{me, now, today?, names, computed?,
+     * refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's
+     * computed fields; VAPP-219: its refs and the issue summaries `expand`
+     * inlines); `overlay_json` = the unsynced writes laid over this one
+     * query, a delta (`MemoryRecordStore::value`). The value JSON, `null`
+     * without a kind.
      */
     func valueJson(queryJson: String, contextJson: String, overlayJson: String?) throws  -> String
     
@@ -2457,9 +2461,13 @@ open func count() -> UInt64  {
 }
     
     /**
-     * THE records value over the store: `query_json` and `context_json` as
-     * in [`records_value_json`]; `overlay_json` = the unsynced writes laid
-     * over this one query, a delta (`MemoryRecordStore::value`).
+     * VAPP-189: THE records value over the store (`valueCases`): `query_json`
+     * = a parsed query, `context_json` = `{me, now, today?, names, computed?,
+     * refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's
+     * computed fields; VAPP-219: its refs and the issue summaries `expand`
+     * inlines); `overlay_json` = the unsynced writes laid over this one
+     * query, a delta (`MemoryRecordStore::value`). The value JSON, `null`
+     * without a kind.
      */
 open func valueJson(queryJson: String, contextJson: String, overlayJson: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
@@ -7996,21 +8004,6 @@ public func qrMatrixJson(value: String, level: String) -> String  {
 })
 }
 /**
- * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
- * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
- * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's computed fields; VAPP-219: its refs and the issue summaries `expand` inlines);
- * the value JSON, `null` without a kind.
- */
-public func recordsValueJson(rowsJson: String, queryJson: String, contextJson: String)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
-    uniffi_exponential_ui_ffi_fn_func_records_value_json(
-        FfiConverterString.lower(rowsJson),
-        FfiConverterString.lower(queryJson),
-        FfiConverterString.lower(contextJson),$0
-    )
-})
-}
-/**
  * Reduce the nested authoring form → `{root, issues}` JSON.
  */
 public func reduceNestedJson(nestedJson: String, catalogId: String, extensionsJson: String?)throws  -> String  {
@@ -8614,9 +8607,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 21220) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_records_value_json() != 38136) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json() != 7405) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8785,7 +8775,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_recordstore_count() != 25) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_value_json() != 48632) {
+    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_value_json() != 24006) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end() != 33049) {
