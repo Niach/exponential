@@ -24,9 +24,9 @@ use crate::chat_list::{
 pub(crate) const ID: &str = "chat-selection";
 pub(crate) const OWNER: &str = "EXP-1388";
 
-/// The specimen column (the web island's 390px is the phone; the IDE page
-/// column is wider, the bar needs its labels).
-const COLUMN_W: f32 = 560.;
+/// The specimen column (the web island's 390px): the bar's labels follow the
+/// page's rule at this width, icons only.
+const COLUMN_W: f32 = 390.;
 
 const CHATS_JSON: &str = include_str!("../../../../../../../packages/domain-contract/fixtures/chats.json");
 
