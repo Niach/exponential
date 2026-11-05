@@ -492,7 +492,6 @@ fun IssueListScreen(
                     SelectionBar(
                         count = selectedIds.size,
                         sharedStatus = sharedStatus,
-                        sharedPriority = sharedPriority,
                         // Assignee is meaningless in a solo team (one member).
                         showAssignee = soloMemberId == null,
                         // Only repo-backed boards can code, and only while the
@@ -1070,7 +1069,6 @@ private fun IconColumn(
 private fun SelectionBar(
     count: Int,
     sharedStatus: ResolvedIssueStatus?,
-    sharedPriority: IssuePriority?,
     showAssignee: Boolean,
     showStartCoding: Boolean,
     showDelete: Boolean,
@@ -1103,16 +1101,13 @@ private fun SelectionBar(
                 }
             }
             IconButton(onClick = onPriority, modifier = Modifier.size(32.dp)) {
-                if (sharedPriority != null) {
-                    PriorityIcon(sharedPriority, size = 18.dp)
-                } else {
-                    Icon(
-                        priorityIcon(IssuePriority.None),
-                        contentDescription = "Priority",
-                        modifier = Modifier.size(18.dp),
-                        tint = neutral,
-                    )
-                }
+                // The neutral signal bars ×4, whatever is selected (#EXP-1676).
+                Icon(
+                    priorityIcon(IssuePriority.High),
+                    contentDescription = "Priority",
+                    modifier = Modifier.size(18.dp),
+                    tint = neutral,
+                )
             }
             if (showAssignee) {
                 IconButton(onClick = onAssignee, modifier = Modifier.size(32.dp)) {
