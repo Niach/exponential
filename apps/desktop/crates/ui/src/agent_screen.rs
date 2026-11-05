@@ -164,10 +164,12 @@ fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, cx: &App) -
 
 /// EXP-1686 (chats.json AGENT CHAT): THE agent chat header, conversation or
 /// not yet: the lead disc, the agent's NAME, then `merge` (a conversation's
-/// open PR), the call button and the agent menu. No strip.
+/// open PR), the call button and the agent menu; `strip` only while the chat
+/// holds a plan.
 pub(crate) fn agent_header(
     agent: Option<&AgentDefRow>,
     merge: Option<AnyElement>,
+    strip: Option<AnyElement>,
     call_panel: FocusHandle,
     cx: &App,
 ) -> AnyElement {
@@ -200,6 +202,7 @@ pub(crate) fn agent_header(
                 .children(call)
                 .children(menu),
         )
+        .children(strip)
         .child(div().w_full().h(px(1.)).bg(theme.border))
         .into_any_element()
 }
@@ -923,7 +926,7 @@ impl AgentScreenView {
     /// conversation, Stop while busy, Agent settings for owners).
     fn render_header(&self, cx: &App) -> AnyElement {
         let panel = self.call_panel.read(cx).focus_handle(cx);
-        agent_header(self.agent.as_ref(), None, panel, cx)
+        agent_header(self.agent.as_ref(), None, None, panel, cx)
     }
 }
 

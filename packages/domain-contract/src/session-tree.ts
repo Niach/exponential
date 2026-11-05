@@ -1541,6 +1541,18 @@ export function agentChatSubtitle(modelLabel: string | null | undefined): string
   return modelLabel ? `${subtitle}${subtitleModelSeparator}${modelLabel}` : subtitle
 }
 
+/** chats.json AGENT CHAT: an agent's chat's tabs: the conversation, plus the
+ *  plan tab while it holds a plan (`agentChat.tabCases`). */
+export function agentChatTabs(holdsPlan: boolean): readonly string[] {
+  return holdsPlan ? chats.agentChat.planTabs : chats.agentChat.tabs
+}
+
+/** chats.json AGENT CHAT: what a selection shows in an agent's chat: only a
+ *  page of its tabs survives (`agentChat.pageCases`). */
+export function agentChatPage(selected: string, holdsPlan: boolean): string {
+  return agentChatTabs(holdsPlan).includes(selected) ? selected : `conversation`
+}
+
 /** S-3 (session-thread.json `chatModeCases`): THE thread screen's mode: an
  *  agent conversation paints chat bubbles, a thread its transcript. */
 export type ThreadChatMode = `bubbles` | `transcript`

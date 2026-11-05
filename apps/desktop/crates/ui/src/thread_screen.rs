@@ -2710,6 +2710,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
     // #EXP-1662 (plan-page.json): THE plan chip, right after Conversation.
     if let Some(plan) = spec.plan.clone() {
         let mut chip = strip_chip(SharedString::from(domain::plan_page::PLAN_PAGE.test_ids.tab.clone()), spec.open == StripPick::Plan, cx)
+            .debug_selector(|| domain::plan_page::PLAN_PAGE.test_ids.tab.clone())
             .max_w(px(domain::plan_page::PLAN_PAGE.layout.tab_max_width))
             .child(Icon::new(registry::CODING_PLAN).xsmall().flex_shrink_0())
             .child(div().min_w_0().truncate().child(SharedString::from(plan.label)))
@@ -2976,6 +2977,22 @@ fn conversation_agent(model: &ThreadModel) -> Option<&str> {
     (domain::session_tree::thread_chat_mode(agent_id) == domain::session_tree::ThreadChatMode::Bubbles)
         .then_some(agent_id)
         .flatten()
+}
+
+/// chats.json AGENT CHAT: the chat holds a plan: the one on show, else its tab's.
+fn agent_chat_holds_plan(shown: Option<&SessionThreadRow>, model: &ThreadModel) -> bool {
+    shown.is_some() || tab_plan(&model.view.rows).is_some()
+}
+
+/// chats.json AGENT CHAT (`agent_chat_page`): whether an agent's chat keeps `child`.
+fn agent_chat_shows(child: &ThreadChildSel, holds_plan: bool) -> bool {
+    let page = match child {
+        ThreadChildSel::Conversation => "conversation",
+        ThreadChildSel::Issue(_) => "issue",
+        ThreadChildSel::Stories => "stories",
+        ThreadChildSel::Plan(_) => "plan",
+    };
+    domain::session_kind::agent_chat_page(page, holds_plan) == page
 }
 
 /// #EXP-1545: the tree's Live (not ended) children with their tab names
@@ -3410,11 +3427,13 @@ impl ThreadScreenView {
             )
         });
         // EXP-1686 (chats.json AGENT CHAT): an agent's chat wears THE agent
-        // header (the disc, its NAME, call, the agent menu) and no strip.
+        // header (the disc, its NAME, call, the agent menu); the strip only
+        // while it holds a plan.
         if let Some(agent_id) = conversation_agent(model) {
             let agent = crate::session_data::agent_def(agent_id, cx);
             let panel = self.call_panel.read(cx).focus_handle(cx);
-            return crate::agent_screen::agent_header(agent.as_ref(), merge.map(IntoElement::into_any_element), panel, cx);
+            let strip = agent_chat_holds_plan(self.shown_plan(model, cx).as_ref(), model).then(|| self.render_strip(model, window, cx));
+            return crate::agent_screen::agent_header(agent.as_ref(), merge.map(IntoElement::into_any_element), strip, panel, cx);
         }
         // EXP-1316: the title is derived, plain text (no rename).
         let title = title_row(&model.view.title, model.view.private, cx).id("thread-title");
@@ -3475,6 +3494,8 @@ impl ThreadScreenView {
             .into_iter()
             .map(|session| (session.id, session.cli))
             .collect();
+        // chats.json AGENT CHAT: Conversation and the plan, nothing else.
+        let agent_chat = conversation_agent(model).is_some();
         let this = cx.entity().downgrade();
         let on_pick: OnStripPick = std::rc::Rc::new(move |pick, window, cx| match pick {
             StripPick::Session(session_id) => open_session_in_place(session_id, window, cx),
@@ -3499,20 +3520,20 @@ impl ThreadScreenView {
         thread_strip(
             ThreadStrip {
                 prefix: "thread",
-                stories: Some(stories_dot),
+                stories: (!agent_chat).then_some(stories_dot),
                 plan: self.shown_plan(model, cx).or_else(|| tab_plan(&model.view.rows).cloned()).as_ref().and_then(strip_plan_of),
-                waiting: crate::waiting_cards::thread_waiting_cards(&model.view.rows),
-                on_waiting: Some({
+                waiting: if agent_chat { Vec::new() } else { crate::waiting_cards::thread_waiting_cards(&model.view.rows) },
+                on_waiting: (!agent_chat).then(|| {
                     let this = cx.entity().downgrade();
                     std::rc::Rc::new(move |id: &str, window: &mut Window, cx: &mut App| {
                         let _ = this.update(cx, |this, cx| this.select_waiting(id, window, cx));
-                    })
+                    }) as _
                 }),
                 tabs: model.view.tabs.clone(),
                 issues,
                 clis,
                 open,
-                menu: member.then(|| self.menu_target(None)),
+                menu: (member && !agent_chat).then(|| self.menu_target(None)),
                 on_pick,
             },
             window,
@@ -4202,10 +4223,10 @@ impl Render for ThreadScreenView {
                 .pt_6()
                 .child(crate::feedback::skeleton_rows("thread-loading", 3, 36., cx));
         };
-        // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation
-        // only: a stale Stories (or issue) selection falls back to it.
+        // EXP-1686 (chats.json AGENT CHAT): an agent's chat shows the conversation
+        // and its plan: a stale Stories (or issue) selection falls back.
         let agent_chat = conversation_agent(&model).map(str::to_string);
-        if agent_chat.is_some() && self.child != ThreadChildSel::Conversation {
+        if agent_chat.is_some() && !agent_chat_shows(&self.child, agent_chat_holds_plan(self.shown_plan(&model, cx).as_ref(), &model)) {
             self.set_child(ThreadChildSel::Conversation, window, cx);
         }
         self.call_panel.update(cx, |panel, cx| panel.set_agent(agent_chat.clone(), cx));
@@ -4353,6 +4374,120 @@ mod tests {
             feedback: None,
             surface_data: None,
         }
+    }
+
+    /// chats.json AGENT CHAT: the bug of #EXP-1686 × #EXP-1662: the fallback sent
+    /// the open plan tab back to the Conversation on the next frame.
+    #[test]
+    fn an_agent_chat_keeps_its_plan_tab_open() {
+        assert!(agent_chat_shows(&ThreadChildSel::Plan(None), true));
+        assert!(agent_chat_shows(&ThreadChildSel::Plan(Some("m1".into())), true));
+        assert!(agent_chat_shows(&ThreadChildSel::Conversation, true));
+        assert!(agent_chat_shows(&ThreadChildSel::Conversation, false));
+        assert!(!agent_chat_shows(&ThreadChildSel::Plan(None), false));
+        assert!(!agent_chat_shows(&ThreadChildSel::Stories, true));
+        assert!(!agent_chat_shows(&ThreadChildSel::Issue("i".into()), true));
+    }
+
+    /// chats.json AGENT CHAT, the whole path: an agent posts a plan, a way in
+    /// opens it: the tab stays open across frames with the strip up, the person
+    /// switches back and forth, a decision keeps it, a superseded plan leaves.
+    #[gpui::test]
+    fn an_agent_chats_plan_stays_open_with_its_strip(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        fn seed_plan(decision: Option<&str>, cx: &mut App) {
+            let message: MessageRow = serde_json::from_value(serde_json::json!({
+                "id": "m1",
+                "conversation_id": "c1",
+                "author_kind": "agent",
+                "body": "",
+                "card": { "kind": "plan", "plan": "# Ship it", "decision": decision },
+                "created_at": "2026-11-04T10:00:00.000Z",
+            }))
+            .unwrap();
+            let collections = Store::global(cx).collections().clone();
+            collections.messages.update(cx, |collection, cx| {
+                collection.seed(message.key(), message);
+                cx.notify();
+            });
+        }
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "r1",
+                "team_id": "t1",
+                "root_id": "r1",
+                "agent_id": "ag1",
+                "status": "idle",
+                "shared": true,
+                "created_at": "2026-11-04T09:00:00.000Z",
+                "updated_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.sessions.update(cx, |collection, cx| {
+                collection.seed(root.key(), root);
+                cx.notify();
+            });
+            let conversation: domain::rows::ConversationRow = serde_json::from_value(serde_json::json!({
+                "id": "c1",
+                "session_id": "r1",
+                "created_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.conversations.update(cx, |collection, cx| {
+                collection.seed(conversation.key(), conversation);
+                cx.notify();
+            });
+            seed_plan(None, cx);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| ThreadScreenView::new("r1".to_string(), window, cx));
+        let tab: &'static str = domain::plan_page::PLAN_PAGE.test_ids.tab.as_str();
+        let draw = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..3 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+        draw(cx);
+        // The Conversation first, the strip already up: there is a plan to switch to.
+        view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
+        assert!(cx.debug_bounds(tab).is_some(), "the strip holds the plan tab");
+
+        // A way in opens it, and it stays.
+        cx.update(|_, cx| request_thread_plan("r1", "m1", cx));
+        cx.update(|_, cx| view.update(cx, |_, cx| cx.notify()));
+        draw(cx);
+        view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Plan(Some("m1".into()))));
+        assert!(cx.debug_bounds(tab).is_some());
+
+        // Back to the Conversation and into the plan again.
+        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Conversation, window, cx)));
+        draw(cx);
+        view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
+        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Plan(None), window, cx)));
+        draw(cx);
+        view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Plan(None)));
+
+        // Answering keeps the plan on show, its tab still there.
+        cx.update(|_, cx| seed_plan(Some("approved"), cx));
+        draw(cx);
+        view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Plan(None)));
+        assert!(cx.debug_bounds(tab).is_some());
+
+        // Superseded: nothing to switch to, the Conversation and no strip.
+        cx.update(|_, cx| seed_plan(Some("superseded"), cx));
+        draw(cx);
+        view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
+        assert!(cx.debug_bounds(tab).is_none());
+
+        // A stale Stories selection never survives in an agent's chat.
+        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Stories, window, cx)));
+        draw(cx);
+        view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
     }
 
     /// #EXP-1662: the chip targets `plan_tab_target` over the thread's rows and

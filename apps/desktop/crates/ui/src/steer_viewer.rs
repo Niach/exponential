@@ -4619,16 +4619,21 @@ fn ask_option_button_trailing(
 /// answer / decision (`Answered` without one, `Dismissed`).
 pub(crate) fn ask_resolved_line(answer: Option<&str>, dismissed: bool, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
+    // #EXP-1698: a long free answer wraps inside the card, the check on its first line.
     h_flex()
+        .w_full()
+        .min_w_0()
         .gap_1p5()
-        .items_center()
+        .items_start()
         .mt_1()
         .child(
-            Icon::new(if dismissed { registry::UI_CLOSE } else { registry::UI_CHECK })
-                .xsmall()
-                .text_color(if dismissed { muted } else { theme::tokens::GREEN.to_hsla() }),
+            div().flex_shrink_0().h(gpui::rems(1.)).flex().items_center().child(
+                Icon::new(if dismissed { registry::UI_CLOSE } else { registry::UI_CHECK })
+                    .xsmall()
+                    .text_color(if dismissed { muted } else { theme::tokens::GREEN.to_hsla() }),
+            ),
         )
-        .child(div().text_xs().font_weight(gpui::FontWeight::MEDIUM).child(SharedString::from(if dismissed {
+        .child(div().debug_selector(|| "ask-resolved-text".into()).flex_1().min_w_0().text_xs().font_weight(gpui::FontWeight::MEDIUM).child(SharedString::from(if dismissed {
             "Dismissed".to_string()
         } else {
             answer.unwrap_or(&domain::plan_card::copy().answered).to_string()
