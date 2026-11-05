@@ -1,0 +1,12 @@
+[package]
+name = "ede-ctl"
+description = "eDE's command line over ede-protocol: windows, outputs, captures as PNG, input; the agent harness in the VM (#EDE-7) and the shots capture (#EDE-11)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ede-protocol = { path = "../ede-protocol" }
+serde_json = "1"
+png = "0.17"

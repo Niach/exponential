@@ -8,7 +8,33 @@ libraries, never the other way round.
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it. |
+| `ede-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`. |
 | `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
+
+## The shell (`shell/`, a second workspace)
+
+`apps/ede/shell` is its own Cargo workspace (#EDE-10): `ede-shell` draws the
+shell from genUI documents with gpui + eui-gpui at the SDK's pins (the
+painter README's "gpui revisions", gated by `check-gpui-revs.ts`), Wayland
+backend only. The compositor workspace never links gpui, and the shell is a
+separate process, so a shell crash never takes the session down. Factory
+documents live in `apps/ede/ui/*.json`: `panel.json` is a top layer-shell
+surface (`WindowKind::LayerShell`, 40 px exclusive zone), `menu.json` the
+panel's popup surface (an `xdg_popup` of the layer surface, so it can leave
+the panel; eui-gpui paints its own overlays inside their window).
+
+```bash
+cd apps/ede/shell && cargo build -p ede-shell
+# nested or headless: the compositor starts it as a client
+cargo run -p ede-compositor -- --no-xwayland -- ../../target/debug/ede-shell
+cargo run -p ede-compositor -- --headless 1280x720 --no-xwayland -- ede-shell --popup --exit-after 8000
+WAYLAND_DISPLAY=wayland-1 cargo run -p ede-ctl -- capture --png /tmp/panel.png --expect-drawn
+```
+
+`ede-shell --windowed` opens a normal window instead (macOS, any desktop);
+`--popup` opens the menu right away and `--exit-after <ms>` quits, for the
+headless check. The #EDE-5 spike proved this in the `ubuntu-wayland` VM:
+headless (pixman + lavapipe) and nested (llvmpipe), the same picture.
 
 ## Run it nested (Cinnamon/X11)
 

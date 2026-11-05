@@ -42,6 +42,7 @@ jobs:
       desktop: ${{ steps.f.outputs.desktop }}
       eui: ${{ steps.f.outputs.eui }}
       ede: ${{ steps.f.outputs.ede }}
+      ede_shell: ${{ steps.f.outputs.ede_shell }}
       ios: ${{ steps.f.outputs.ios }}
       ios_app: ${{ steps.f.outputs.ios_app }}
       android: ${{ steps.f.outputs.android }}
@@ -54,15 +55,18 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
           desktop='^(apps/desktop/|packages/(domain-contract|ecore|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          ede='^(apps/ede/|apps/desktop/crates/ecore/|\.github/workflows/test\.yml$)'
+          ede='^(apps/ede/|packages/ede/|apps/desktop/crates/ecore/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #EDE-10: the shell workspace (gpui + eui-gpui by path) and the factory documents it embeds.
+          ede_shell='^(apps/ede/shell/|apps/ede/ui/|apps/ede/crates/ede-protocol/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore|ztracing|ztracing_macro)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
+          echo "ede_shell=$(grep -qE "$ede_shell" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
           echo "ios=$(grep -qE "$ios" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
@@ -313,6 +317,32 @@ jobs:
         working-directory: apps/ede
         run: cargo check --workspace --all-targets --locked --features ede-compositor/udev
 
+  # #EDE-10: eDE's shell workspace (apps/ede/shell: gpui + eui-gpui by path,
+  # the compositor workspace never links gpui). A `cargo check` at the SDK's
+  # pins, only when the shell or what it links changes; the eUI job already
+  # builds gpui on this runner, so the cache is warm.
+  ede-shell:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ede_shell == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (wgpu/gpui, wayland)
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libwayland-dev libxcb1-dev libssl-dev libfontconfig1-dev pkg-config clang
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: apps/ede/shell
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede/shell
+      - name: Cargo check
+        working-directory: apps/ede/shell
+        run: cargo check --workspace --all-targets --locked
+
   # T1 eUI parity (2026-10-30): every renderer's conformance runner + the
   # `conformant` check on every PR that touches eUI (exponential-ui.yml with
   # conformance_only; the full suite stays in release-suite.yml).
@@ -431,7 +461,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site]
     if: always()
     runs-on: ubuntu-latest
     steps:

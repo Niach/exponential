@@ -1,0 +1,113 @@
+{
+  "$comment": "eDE's factory panel (#EDE-10): a genUI document the shell draws as a top layer-shell surface. Installed to /usr/share/ede/ui; a person's or agent's copy in ~/.config/ede/ui/panel.json wins. The header says how the surface sits on the screen (#EDE-8); root is the nested authoring form of the core catalog; data holds what the shell feeds it (time, the task list).",
+  "surface": {
+    "layer": "top",
+    "anchor": [
+      "top",
+      "left",
+      "right"
+    ],
+    "size": {
+      "height": 40
+    },
+    "exclusiveZone": 40,
+    "keyboard": "on-demand"
+  },
+  "root": {
+    "id": "panel",
+    "component": "Box",
+    "style": {
+      "display": "flex",
+      "flexDirection": "row",
+      "alignItems": "center",
+      "justifyContent": "space-between",
+      "height": 40,
+      "paddingLeft": "$spacing.sm",
+      "paddingRight": "$spacing.md",
+      "backgroundColor": "$color.card",
+      "borderBottomWidth": 1,
+      "borderColor": "$color.border"
+    },
+    "children": [
+      {
+        "id": "left",
+        "component": "Stack",
+        "props": {
+          "direction": "horizontal",
+          "gap": "sm",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "menu",
+            "component": "Button",
+            "props": {
+              "label": "Exponential",
+              "variant": "ghost",
+              "size": "sm",
+              "icon": "nav-apps"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "menu"
+                }
+              }
+            }
+          },
+          {
+            "id": "tasks",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "xs",
+              "align": "center"
+            },
+            "template": {
+              "component": "task",
+              "path": "/windows"
+            },
+            "children": []
+          },
+          {
+            "id": "task",
+            "component": "Button",
+            "props": {
+              "label": {
+                "path": "title"
+              },
+              "variant": "ghost",
+              "size": "sm"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "focus",
+                  "context": {
+                    "window": {
+                      "path": "id"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "clock",
+        "component": "Text",
+        "props": {
+          "text": {
+            "path": "/time"
+          },
+          "variant": "body"
+        }
+      }
+    ]
+  },
+  "data": {
+    "time": "00:00",
+    "windows": []
+  }
+}
