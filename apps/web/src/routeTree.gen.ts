@@ -43,6 +43,7 @@ import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authentic
 import { Route as TTeamSlugIndexRouteImport } from './routes/t/$teamSlug/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as TTeamSlugTeamRouteImport } from './routes/t/$teamSlug/team'
+import { Route as TTeamSlugNeedsYouRouteImport } from './routes/t/$teamSlug/needs-you'
 import { Route as TTeamSlugDevicesRouteImport } from './routes/t/$teamSlug/devices'
 import { Route as TTeamSlugAgentRouteImport } from './routes/t/$teamSlug/agent'
 import { Route as ApiWidgetSubmitRouteImport } from './routes/api/widget/submit'
@@ -334,6 +335,11 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
 const TTeamSlugTeamRoute = TTeamSlugTeamRouteImport.update({
   id: '/team',
   path: '/team',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
+const TTeamSlugNeedsYouRoute = TTeamSlugNeedsYouRouteImport.update({
+  id: '/needs-you',
+  path: '/needs-you',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugDevicesRoute = TTeamSlugDevicesRouteImport.update({
@@ -1067,6 +1073,7 @@ export interface FileRoutesByFullPath {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
@@ -1217,6 +1224,7 @@ export interface FileRoutesByTo {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
@@ -1372,6 +1380,7 @@ export interface FileRoutesById {
   '/api/widget/submit': typeof ApiWidgetSubmitRoute
   '/t/$teamSlug/agent': typeof TTeamSlugAgentRoute
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
+  '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
@@ -1527,6 +1536,7 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
     | '/admin/'
     | '/t/$teamSlug/'
@@ -1677,6 +1687,7 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
     | '/admin'
     | '/t/$teamSlug'
@@ -1831,6 +1842,7 @@ export interface FileRouteTypes {
     | '/api/widget/submit'
     | '/t/$teamSlug/agent'
     | '/t/$teamSlug/devices'
+    | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
     | '/_authenticated/admin/'
     | '/t/$teamSlug/'
@@ -2223,6 +2235,13 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/t/$teamSlug/team'
       preLoaderRoute: typeof TTeamSlugTeamRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/needs-you': {
+      id: '/t/$teamSlug/needs-you'
+      path: '/needs-you'
+      fullPath: '/t/$teamSlug/needs-you'
+      preLoaderRoute: typeof TTeamSlugNeedsYouRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/devices': {
@@ -3193,6 +3212,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugSettingsRouteRoute: typeof TTeamSlugSettingsRouteRouteWithChildren
   TTeamSlugAgentRoute: typeof TTeamSlugAgentRoute
   TTeamSlugDevicesRoute: typeof TTeamSlugDevicesRoute
+  TTeamSlugNeedsYouRoute: typeof TTeamSlugNeedsYouRoute
   TTeamSlugTeamRoute: typeof TTeamSlugTeamRoute
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugAgentsAgentIdRoute: typeof TTeamSlugAgentsAgentIdRoute
@@ -3215,6 +3235,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugSettingsRouteRoute: TTeamSlugSettingsRouteRouteWithChildren,
   TTeamSlugAgentRoute: TTeamSlugAgentRoute,
   TTeamSlugDevicesRoute: TTeamSlugDevicesRoute,
+  TTeamSlugNeedsYouRoute: TTeamSlugNeedsYouRoute,
   TTeamSlugTeamRoute: TTeamSlugTeamRoute,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugAgentsAgentIdRoute: TTeamSlugAgentsAgentIdRoute,

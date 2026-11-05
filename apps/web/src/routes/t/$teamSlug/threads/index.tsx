@@ -1,30 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react"
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router"
 import {
+  chatSections,
   CHATS_COPY,
-  type ChatFilter,
   type ChatListView,
   type ChatSelectionRow,
 } from "@exp/domain-contract/chats"
 import {
-  AgentBubbles,
   Button,
-  ChatFilterChips,
   ChatList,
   ChatsHeader,
   conceptIcon,
+  NeedsYouEntryRow,
   useIsMobile,
 } from "@exp/ui"
 import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { ChatSelectionBar } from "@/components/thread/chat-selection-bar"
-import { useChatStories } from "@/components/stories/story-ring-row"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useChatList } from "@/hooks/use-chat-list"
 import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useEnteringRows } from "@/hooks/use-entering-rows"
 import { useIssueSearch } from "@/hooks/use-issue-search"
+import { useNeedsYou } from "@/hooks/use-needs-you"
 import { useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
@@ -40,12 +39,11 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 
 // Thread 58cb32df + #EXP-1380 (chats.json LIST + WIDE): the product calls
 // them CHATS, and every form factor paints the SAME list of the ONE active
-// team: the agent bubbles, the filter chips, (S-3) the agents pinned on top
-// under their section headers, the flat rows (right-click /
-// long-press = the row's menu through `menuProps`). Phones put the large
-// headline (search + inbox) on top; wide keeps the list in one column at
-// the page's list width (the old Needs you · Running · Recent bands left
-// the page; the rail keeps its own rows).
+// team: (S-3) the agents pinned on top, then (#FEED-191) `chatSections` under
+// their headers (right-click / long-press = the row's menu through
+// `menuProps`). Phones put the large headline (search + inbox) on top, then the
+// Needs you entry row; wide keeps the list in one column at the page's list
+// width.
 //
 // #EXP-1388 (SELECTION + ARCHIVE): the list SELECTS — a touch long-press or
 // the pointer menu's Select enters it (through the layout's menu host, the
@@ -85,10 +83,8 @@ function ThreadsPage() {
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
   const me = authSession?.user?.id ?? null
-  const [filter, setFilter] = useState<ChatFilter>(`all`)
-  const { list, bubbles, agentRows, cliOf, isReady } = useChatList(team?.id, me, filter, view)
-  // S-3 (stories.json STORY RING): the rings ride the bubbles row.
-  const stories = useChatStories(team?.id, teamSlug)
+  const { list, agentRows, cliOf, isReady } = useChatList(team?.id, me, view)
+  const needsYou = useNeedsYou(team?.id, me)
   // S-3: the viewer's Assistant exists once the list mounts (first use).
   useEnsureAssistant(team?.id)
   const entering = useEnteringRows(list.rows.map((row) => row.sessionId))
@@ -99,7 +95,11 @@ function ThreadsPage() {
 
   // ── selection ──
   const [selection, setSelection] = useState<ChatSelection | null>(null)
-  const order = useMemo(() => list.rows.map((row) => row.sessionId), [list.rows])
+  // #FEED-191: selection follows the DISPLAYED order (the sections; Archived flat).
+  const order = useMemo(
+    () => (archivedView ? list.rows : chatSections(list.rows).flatMap((section) => section.rows)).map((row) => row.sessionId),
+    [list.rows, archivedView]
+  )
   // The selection keeps only rows still in the list; a view switch clears it.
   useEffect(() => {
     setSelection((current) => chatSelectionPrune(current, order))
@@ -234,18 +234,6 @@ function ThreadsPage() {
               <span className="truncate">{COPY.title}</span>
             </Link>
           ) : null}
-          {!archivedView && (
-            <AgentBubbles
-              bubbles={bubbles}
-              // #EXP-1461 (stories.json STORY ROW): only rings, the last 24 h;
-              // a bubble without one is not drawn, nothing = no row.
-              rings={stories.rings}
-              ringAvatar={stories.avatarFor}
-              onOpenStory={stories.open}
-            />
-          )}
-          {stories.viewer}
-          <ChatFilterChips value={filter} counts={list.counts} onChange={setFilter} />
           <div ref={listRef}>
             <ChatList
               rows={list.rows}
@@ -255,7 +243,16 @@ function ThreadsPage() {
               loading={!team || !isReady}
               entering={entering}
               emptyTitle={archivedView ? COPY.archived.empty : undefined}
-              archived={!archivedView && filter === `all` ? list.archived : 0}
+              flat={archivedView}
+              entry={
+                isMobile && !archivedView && needsYou.rows.length > 0 ? (
+                  <NeedsYouEntryRow
+                    count={needsYou.rows.length}
+                    onOpen={() => void navigate({ to: `/t/$teamSlug/needs-you`, params: { teamSlug } })}
+                  />
+                ) : undefined
+              }
+              archived={archivedView ? 0 : list.archived}
               onOpenArchived={() =>
                 void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug }, search: { view: `archived` } })
               }

@@ -39,7 +39,8 @@ export type CardAnswer = {
  *  failure toasts `Couldn't answer the question` (a plan: `the plan`).
  *  `pending` = the cards whose answer is in flight. */
 export function useAnswerMessage(): {
-  answer: (messageId: string, input: CardAnswer) => Promise<void>
+  /** Resolves true once answered, false after a failure (toasted). */
+  answer: (messageId: string, input: CardAnswer) => Promise<boolean>
   pending: ReadonlySet<string>
 } {
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
@@ -49,8 +50,10 @@ export function useAnswerMessage(): {
       try {
         const result = await answerSessionCard(messageId, input, SKIP_ERROR_TOAST)
         await messageCollection.utils.awaitTxId(result.txid).catch(() => undefined)
+        return true
       } catch (error) {
         failedAction(`answer`, input.decision ? `the plan` : `the question`, error)
+        return false
       } finally {
         setPending((current) => {
           const next = new Set(current)
