@@ -93,6 +93,19 @@ describe(`fixtures/interactions-round1.json`, () => {
   }
 })
 
+// VAPP-206: a `rowPress` action's relative paths read the pressed row.
+describe(`fixtures/interactions-round1.json rowPress`, () => {
+  for (const c of (fixture as unknown as { rowPress: { name: string; rows: { id: string }[]; press: number; value: string; expect: string }[] }).rowPress) {
+    it(`Table rowPress: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const root = tree({ id: `t`, component: `Table`, props: { columns: [{ key: `name`, label: `Name` }], rows: { path: `/rows` } }, on: { rowPress: { event: { name: `picked`, context: { value: { path: c.value } } } } } })
+      const { container } = render(<ExponentialSurface root={root} data={{ rows: c.rows }} theme="neutral" id={`rp`} host={{ onAction: (e) => void actions.push(e) }} />)
+      fireEvent.click(container.querySelector(`[role="row"][data-key="${c.rows[c.press]!.id}"]`)!)
+      expect(actions.find((a) => a.name === `picked`)?.context.value).toBe(c.expect)
+    })
+  }
+})
+
 interface ChoiceCase {
   name: string
   type: `single` | `multiple`

@@ -479,6 +479,7 @@ One language at two levels, on the Q2 core:
 | Form from a kind's schema | 🆕 U2: `RecordForm {kind, id?}` as a genUI **macro** expanding to Form + inputs (date → DatePicker, ✅ date-time → DatePicker + TimePicker in a FieldGroup, in the team zone, #VAPP-245; enum → Select, ref member → Select over `exp:members`, string[] of issues → ChipInput). The server re-validates the kind's schema. |
 | Table from a query | 🆕 U2: `RecordTable {query, columns?}` macro. Columns come from the schema, the row press opens `RecordForm` in a Drawer. ✅ #VAPP-245: Edit and Delete are icon buttons in a cell, Delete confirms in a Dialog; a phone's row carries its own Delete. |
 | Calendar / timeline (leave, on-call) | ✅ U3 (#VAPP-232): genUI `Calendar` (month/week; phones: dots + the day's agenda) and `Timeline`, catalog macros over the records calendar views (`until`, `view=week|timeline`); styleguide entries `calendar` + `timeline`. |
+| Bound text and rows (✅ #VAPP-206) | `Dialog.description`, `Alert.message` and `Chip.detail` bind. A `Table.rowPress` action reads the pressed row through relative paths (`{"path": "id"}`). `on.press` stays one functionCall: several steps are an action (`actions.<name>`, §4.5). |
 | Empty, loading and error states | ✅ `EmptyState`, `Skeleton`, toasts per `feedback-states.json` |
 
 ### 5.3 Responsive

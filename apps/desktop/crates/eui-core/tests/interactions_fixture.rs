@@ -137,6 +137,23 @@ fn table_sort_cases_order_rows_like_the_reference() {
     }
 }
 
+/// VAPP-206: a `rowPress` action's relative paths read the pressed row.
+#[test]
+fn row_press_cases_read_the_pressed_row() {
+    let f = fixture();
+    for c in f["rowPress"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "t", "component": "Table", "props": {"columns": [{"key": "name", "label": "Name"}], "rows": {"path": "/rows"}}, "on": {"rowPress": {"functionCall": {"call": "set", "args": {"path": "/picked", "value": {"path": c["value"]}}}}}}]}));
+        s.set_data("/rows", Some(c["rows"].clone())).unwrap();
+        let mut m = fixed();
+        s.layout(&mut m);
+        let key = c["rows"][c["press"].as_u64().unwrap() as usize]["id"].clone();
+        let index = s.nodes().iter().position(|n| n.part.as_deref() == Some("row") && n.props.get("key") == Some(&key)).unwrap_or_else(|| panic!("{name}: no row"));
+        s.event(index as _, "press", None);
+        assert_eq!(s.get_data("/picked"), Some(&c["expect"]), "{name}");
+    }
+}
+
 #[test]
 fn choice_tiles_cases_pick_and_toggle_like_the_reference() {
     let f = fixture();

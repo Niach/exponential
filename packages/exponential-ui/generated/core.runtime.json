@@ -2369,7 +2369,8 @@
           "type": "string"
         },
         "description": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         },
         "open": {
           "type": "boolean",
@@ -2663,7 +2664,8 @@
           "required": true
         },
         "message": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         },
         "type": {
           "type": "enum",
@@ -2711,7 +2713,8 @@
           "type": "url"
         },
         "detail": {
-          "type": "string"
+          "type": "string",
+          "bindable": true
         },
         "removable": {
           "type": "boolean",

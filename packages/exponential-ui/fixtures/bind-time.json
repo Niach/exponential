@@ -27703,6 +27703,391 @@
       ]
     },
     {
+      "name": "Alert/bound:message",
+      "input": {
+        "id": "alert",
+        "component": "Alert",
+        "props": {
+          "title": "Saved",
+          "message": {
+            "path": "/message"
+          },
+          "type": "success"
+        }
+      },
+      "expanded": {
+        "id": "alert",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "alert.icon",
+            "component": "Icon",
+            "props": {
+              "name": "ui-success",
+              "size": "sm",
+              "tone": "success"
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Alert",
+              "part": "icon",
+              "props": {
+                "type": "success"
+              }
+            }
+          },
+          {
+            "id": "alert.body",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "alert.body.title",
+                "component": "Text",
+                "props": {
+                  "text": "Saved",
+                  "variant": "label"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "title",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              },
+              {
+                "id": "alert.body.message",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "/message"
+                  },
+                  "variant": "muted"
+                },
+                "children": [],
+                "visible": {
+                  "path": "/message"
+                },
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "message",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xxs",
+              "flexGrow": 1,
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "Alert",
+              "part": "body",
+              "props": {
+                "type": "success"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "flex-start",
+          "gap": "$spacing.sm",
+          "padding": "$spacing.md",
+          "borderRadius": "$radius.lg"
+        },
+        "recipe": {
+          "macro": "Alert",
+          "part": "root",
+          "props": {
+            "type": "success"
+          }
+        },
+        "accessibility": {
+          "role": "status"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "message": "Your changes have been saved."
+          },
+          "bound": {
+            "id": "alert",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "alert.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-success",
+                  "size": "sm",
+                  "tone": "success"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "icon",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              },
+              {
+                "id": "alert.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "alert.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Saved",
+                      "variant": "label"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Alert",
+                      "part": "title",
+                      "props": {
+                        "type": "success"
+                      }
+                    }
+                  },
+                  {
+                    "id": "alert.body.message",
+                    "component": "Text",
+                    "props": {
+                      "text": "Your changes have been saved.",
+                      "variant": "muted"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Alert",
+                      "part": "message",
+                      "props": {
+                        "type": "success"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "body",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.lg"
+            },
+            "accessibility": {
+              "role": "status"
+            },
+            "recipe": {
+              "macro": "Alert",
+              "part": "root",
+              "props": {
+                "type": "success"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "message": ""
+          },
+          "bound": {
+            "id": "alert",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "alert.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-success",
+                  "size": "sm",
+                  "tone": "success"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "icon",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              },
+              {
+                "id": "alert.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "alert.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Saved",
+                      "variant": "label"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Alert",
+                      "part": "title",
+                      "props": {
+                        "type": "success"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "body",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.lg"
+            },
+            "accessibility": {
+              "role": "status"
+            },
+            "recipe": {
+              "macro": "Alert",
+              "part": "root",
+              "props": {
+                "type": "success"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "alert",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "alert.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-success",
+                  "size": "sm",
+                  "tone": "success"
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "icon",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              },
+              {
+                "id": "alert.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "alert.body.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Saved",
+                      "variant": "label"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "Alert",
+                      "part": "title",
+                      "props": {
+                        "type": "success"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Alert",
+                  "part": "body",
+                  "props": {
+                    "type": "success"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.lg"
+            },
+            "accessibility": {
+              "role": "status"
+            },
+            "recipe": {
+              "macro": "Alert",
+              "part": "root",
+              "props": {
+                "type": "success"
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Chip/bound:label",
       "input": {
         "id": "chip",
@@ -28161,6 +28546,281 @@
               "props": {
                 "shape": "pill",
                 "selected": true
+              }
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
+      "name": "Chip/bound:detail",
+      "input": {
+        "id": "chip",
+        "component": "Chip",
+        "props": {
+          "label": "Drafts",
+          "selected": true,
+          "detail": {
+            "path": "/detail"
+          }
+        }
+      },
+      "expanded": {
+        "id": "chip",
+        "component": "Box",
+        "props": {
+          "pressable": false
+        },
+        "children": [
+          {
+            "id": "chip.label",
+            "component": "Text",
+            "props": {
+              "text": "Drafts",
+              "variant": "caption",
+              "lines": 1
+            },
+            "children": [],
+            "recipe": {
+              "macro": "Chip",
+              "part": "label",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": "neutral"
+              }
+            }
+          },
+          {
+            "id": "chip.detail",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/detail"
+              },
+              "variant": "muted",
+              "lines": 1
+            },
+            "children": [],
+            "visible": {
+              "path": "/detail"
+            },
+            "recipe": {
+              "macro": "Chip",
+              "part": "detail",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": "neutral"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": "$spacing.xs",
+          "paddingHorizontal": "$spacing.sm",
+          "alignSelf": "flex-start",
+          "height": "$control.pill",
+          "borderRadius": "$radius.full"
+        },
+        "recipe": {
+          "macro": "Chip",
+          "part": "root",
+          "props": {
+            "shape": "pill",
+            "selected": true,
+            "tone": "neutral"
+          }
+        },
+        "accessibility": {
+          "role": "none"
+        }
+      },
+      "datasets": [
+        {
+          "data": {
+            "detail": "Bound"
+          },
+          "bound": {
+            "id": "chip",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "chip.label",
+                "component": "Text",
+                "props": {
+                  "text": "Drafts",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Chip",
+                  "part": "label",
+                  "props": {
+                    "shape": "pill",
+                    "selected": true,
+                    "tone": "neutral"
+                  }
+                }
+              },
+              {
+                "id": "chip.detail",
+                "component": "Text",
+                "props": {
+                  "text": "Bound",
+                  "variant": "muted",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Chip",
+                  "part": "detail",
+                  "props": {
+                    "shape": "pill",
+                    "selected": true,
+                    "tone": "neutral"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "alignSelf": "flex-start",
+              "height": "$control.pill",
+              "borderRadius": "$radius.full"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Chip",
+              "part": "root",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": "neutral"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "detail": ""
+          },
+          "bound": {
+            "id": "chip",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "chip.label",
+                "component": "Text",
+                "props": {
+                  "text": "Drafts",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Chip",
+                  "part": "label",
+                  "props": {
+                    "shape": "pill",
+                    "selected": true,
+                    "tone": "neutral"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "alignSelf": "flex-start",
+              "height": "$control.pill",
+              "borderRadius": "$radius.full"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Chip",
+              "part": "root",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": "neutral"
+              }
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "chip",
+            "component": "Box",
+            "props": {
+              "pressable": false
+            },
+            "children": [
+              {
+                "id": "chip.label",
+                "component": "Text",
+                "props": {
+                  "text": "Drafts",
+                  "variant": "caption",
+                  "lines": 1
+                },
+                "children": [],
+                "recipe": {
+                  "macro": "Chip",
+                  "part": "label",
+                  "props": {
+                    "shape": "pill",
+                    "selected": true,
+                    "tone": "neutral"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.xs",
+              "paddingHorizontal": "$spacing.sm",
+              "alignSelf": "flex-start",
+              "height": "$control.pill",
+              "borderRadius": "$radius.full"
+            },
+            "accessibility": {
+              "role": "none"
+            },
+            "recipe": {
+              "macro": "Chip",
+              "part": "root",
+              "props": {
+                "shape": "pill",
+                "selected": true,
+                "tone": "neutral"
               }
             }
           },
