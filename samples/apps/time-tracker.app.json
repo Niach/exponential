@@ -19,7 +19,8 @@
     "sources": [
       "records:entry",
       "records:project",
-      "records:settings"
+      "records:settings",
+      "exp:me"
     ],
     "functions": [
       "records.*",
@@ -598,6 +599,10 @@
           {
             "path": "/settings",
             "source": "records:settings?sort=createdAt&order=desc&limit=1"
+          },
+          {
+            "path": "/me",
+            "source": "exp:me"
           }
         ],
         "components": [
@@ -1091,7 +1096,16 @@
               "targetRow",
               "projectRow",
               "projectList"
-            ]
+            ],
+            "visible": {
+              "call": "eq",
+              "args": {
+                "a": {
+                  "path": "/me/role"
+                },
+                "b": "owner"
+              }
+            }
           },
           {
             "id": "targetRow",
@@ -2365,6 +2379,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "2RltCE_gvcY1PcuXgq3IdstFzuotuyob3Wo7xaeFPK0N_POHMP7xKu9vgsCvqXDtkXUxjx0xfnaUBnYuyVO8Cw"
+    "value": "MLsq6fOClxAvE72CQDMFHNDmlMb-1CFoTcWrxHUaK-42WXvWL_t5MN6g4v8kmbX1WEHJChgsxtSzVGgkcG0eCQ"
   }
 }

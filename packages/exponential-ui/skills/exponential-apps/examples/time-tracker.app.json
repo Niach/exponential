@@ -11,7 +11,8 @@
   "sources": [
     "records:entry",
     "records:project",
-    "records:settings"
+    "records:settings",
+    "exp:me"
   ],
   "functions": [
     "records.*",
@@ -590,6 +591,10 @@
         {
           "path": "/settings",
           "source": "records:settings?sort=createdAt&order=desc&limit=1"
+        },
+        {
+          "path": "/me",
+          "source": "exp:me"
         }
       ],
       "components": [
@@ -1083,7 +1088,16 @@
             "targetRow",
             "projectRow",
             "projectList"
-          ]
+          ],
+          "visible": {
+            "call": "eq",
+            "args": {
+              "a": {
+                "path": "/me/role"
+              },
+              "b": "owner"
+            }
+          }
         },
         {
           "id": "targetRow",
