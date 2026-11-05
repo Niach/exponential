@@ -39,9 +39,6 @@ use theme::tokens::sidebar as tokens;
 pub(crate) enum SidebarPanel {
     /// The rail (`LeftOccupant::Rail`), fixed at its default.
     Main,
-    /// The card's Inbox second sidebar (EXP-1192) — the list an
-    /// open detail was picked from.
-    List,
     /// The settings nav.
     Settings,
     /// The Files screen's tree (a list INSIDE a screen, not the left column).
@@ -57,9 +54,8 @@ impl SidebarPanel {
     }
 
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 4] = [
         Self::Main,
-        Self::List,
         Self::Settings,
         Self::Files,
         Self::SourceControl,
@@ -69,7 +65,6 @@ impl SidebarPanel {
     pub(crate) const fn key(self) -> &'static str {
         match self {
             Self::Main => "main",
-            Self::List => "list",
             Self::Settings => "settings",
             Self::Files => "files",
             Self::SourceControl => "sourceControl",
@@ -80,7 +75,6 @@ impl SidebarPanel {
     pub(crate) const fn default_width(self) -> f32 {
         match self {
             Self::Main => tokens::DEFAULT_MAIN,
-            Self::List => tokens::DEFAULT_LIST,
             Self::Settings => tokens::DEFAULT_SETTINGS,
             Self::Files => tokens::DEFAULT_FILES,
             Self::SourceControl => tokens::DEFAULT_SOURCE_CONTROL,
@@ -350,7 +344,6 @@ mod tests {
             table,
             vec![
                 ("main", 272.),
-                ("list", 352.),
                 ("settings", 272.),
                 ("files", 320.),
                 ("sourceControl", 320.),
@@ -388,7 +381,7 @@ mod tests {
     #[test]
     fn a_drag_follows_the_pointer_travel() {
         let mut drag = ResizeDrag {
-            panel: SidebarPanel::List,
+            panel: SidebarPanel::Settings,
             start_x: 400.,
             start_width: 352.,
             extent: 1600.,

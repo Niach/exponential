@@ -588,7 +588,6 @@ impl IssueListView {
             status,
             count,
             collapsed,
-            BandDensity::List,
             cx,
         )
         .on_click(cx.listener(move |this, _, _, cx| {
@@ -2878,28 +2877,16 @@ pub(crate) fn row_id(kind: &str, issue_id: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{issue_id}")))
 }
 
-/// Stable per-group element id: `{kind}-{group_key}` (EXP-314 — a status ROW
-/// id, or `builtin:<key>` before the statuses shape syncs).
-/// The two densities of [`issue_group_band`] (web `IssueGroupBand`
-/// `density`): the full list's 28px band and the narrow side list's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BandDensity {
-    List,
-    Compact,
-}
-
 /// Wave D — THE issue status group band (the web `IssueGroupBand` twin):
 /// a bare disclosure chevron, the status glyph, its name and the group's
 /// count over a wash in the status' own hue (EXP-293). The WHOLE band is the
 /// fold target (EXP-862 ×4: the chevron is a marker, not a separate button);
-/// the caller hangs its toggle off the returned element. The full board list
-/// and the side list both draw it, at their own density.
+/// the caller hangs its toggle off the returned element.
 pub(crate) fn issue_group_band(
     id: impl Into<ElementId>,
     status: &ResolvedStatus,
     count: usize,
     collapsed: bool,
-    density: BandDensity,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
     let chevron = if collapsed {
@@ -2908,73 +2895,44 @@ pub(crate) fn issue_group_band(
         registry::UI_CHEVRON_DOWN
     };
     let muted = cx.theme().muted_foreground;
-    let band = h_flex()
+    h_flex()
         .id(id)
         .w_full()
         .gap_1p5()
         .items_center()
-        .cursor_pointer();
-    match density {
-        BandDensity::List => band
-            .h(px(HEADER_HEIGHT))
-            // Web `md:pl-3 md:pr-6` (EXP-1647).
-            .pl_3()
-            .pr_6()
-            .bg(status_header_tint(&status.tint))
-            .border_b_1()
-            .border_color(cx.theme().border.opacity(0.5))
-            .child(
-                // EXP-698 round 5: a BARE chevron — the web's `size-3`.
-                Icon::new(chevron)
-                    .with_size(px(12.))
-                    .flex_shrink_0()
-                    .text_color(muted),
-            )
-            // Web `StatusGlyph … size-3.5`.
-            .child(resolved_status_icon(status, cx).with_size(px(14.)))
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(status.name.clone())),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(count.to_string())),
-            ),
-        BandDensity::Compact => band
-            .h(px(24.))
-            .px_1p5()
-            .rounded(cx.theme().radius)
-            .bg(crate::icons::status_tint_color(&status.tint, cx).opacity(0.07))
-            .child(
-                Icon::new(chevron)
-                    .with_size(px(12.))
-                    .flex_shrink_0()
-                    .text_color(muted),
-            )
-            .child(resolved_status_icon(status, cx).xsmall())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(status.name.clone())),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(count.to_string())),
-            ),
-    }
+        .cursor_pointer()
+        .h(px(HEADER_HEIGHT))
+        // Web `md:pl-3 md:pr-6` (EXP-1647).
+        .pl_3()
+        .pr_6()
+        .bg(status_header_tint(&status.tint))
+        .border_b_1()
+        .border_color(cx.theme().border.opacity(0.5))
+        .child(
+            // EXP-698 round 5: a BARE chevron — the web's `size-3`.
+            Icon::new(chevron)
+                .with_size(px(12.))
+                .flex_shrink_0()
+                .text_color(muted),
+        )
+        // Web `StatusGlyph … size-3.5`.
+        .child(resolved_status_icon(status, cx).with_size(px(14.)))
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .child(SharedString::from(status.name.clone())),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child(SharedString::from(count.to_string())),
+        )
 }
 
+/// Stable per-group element id: `{kind}-{group_key}` (EXP-314 — a status ROW
+/// id, or `builtin:<key>` before the statuses shape syncs).
 fn header_id(kind: &str, group_key: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{group_key}")))
 }

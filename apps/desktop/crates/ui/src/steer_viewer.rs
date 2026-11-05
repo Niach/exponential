@@ -7881,8 +7881,7 @@ impl SteerSessionView {
 
     /// N-12: THE Dock of the session view: the session's own cards, then
     /// THE composer; and the open card's sheet. S-3 (dock.json): a waiting
-    /// plan / question (the relay's own ask or a tool-posted card, the
-    /// latter a story) is never a DockCard; it stays inline, answerable.
+    /// plan / question (the relay's own ask or a tool-posted card) is never a DockCard; it stays inline, answerable.
     fn render_session_dock(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> (Option<AnyElement>, Option<AnyElement>) {
         let sources = self.session_dock_sources(cx);
         let rows = domain::dock::dock_rows(&sources);

@@ -446,7 +446,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
         document = document.child(column(element));
     }
     if facts.surface.is_some() {
-        document = document.child(column(crate::plan_card::surface_block(message_id, true, cx)));
+        document = document.child(column(crate::plan_card::surface_block(message_id, cx)));
     }
 
     // ── the questions, floating over the document's foot ──

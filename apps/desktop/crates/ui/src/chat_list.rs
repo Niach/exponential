@@ -21,7 +21,7 @@ use domain::session_tree::ThreadRowWord;
 use crate::icons::registry;
 use crate::issue_list::{select_cell, selectable_row_fill, ROW_GROUP, ROW_PAD, SELECT_CELL_GAP, SELECT_CELL_W};
 
-/// The glyph inside the lead disc / a bubble (web `size-6`).
+/// The glyph inside the lead disc (web `size-6`).
 const GLYPH_PX: f32 = 24.;
 
 /// The glyph before a row word ×4 (web `ChatRowText`, Android
@@ -32,15 +32,6 @@ fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
         ThreadRowWord::Stack => Some(registry::PR_STACK),
         ThreadRowWord::ReadyToMerge | ThreadRowWord::Merged | ThreadRowWord::Question => None,
     }
-}
-
-/// The lead's BARE brand mark (the root's CLI, Claude when none): what a
-/// waiting row's disc holds, and what a chat's story ring wears
-/// (stories.json AVATARS: no badge, no PR glyph).
-pub(crate) fn chat_brand_mark(agent: Option<coding::CodingAgent>, glyph: f32) -> AnyElement {
-    crate::coding_selects::agent_mark(agent.unwrap_or_default())
-        .with_size(px(glyph))
-        .into_any_element()
 }
 
 /// The 52 lead DISC (bg muted) and what it holds: the brand mark with the
@@ -389,7 +380,7 @@ pub(crate) fn agent_avatar_glyph(icon: &str, color: &str, assistant: bool, busy:
 
 /// THE agent circle: `size` px, a `ring_width` ring (`ring` None = the glass
 /// hairline) around a `ring_width` background gap around `glyph` on bg
-/// muted. The bubble (66) and the composer agent row (40) both paint it.
+/// muted. The composer agent row (40) paints it.
 pub(crate) fn agent_circle(size: f32, ring_width: f32, ring_gap: f32, ring: Option<gpui::Hsla>, glyph: AnyElement, cx: &App) -> Div {
     let theme = cx.theme();
     div()

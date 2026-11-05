@@ -129,7 +129,6 @@ mod tests {
     fn the_specimen_is_the_fixture_model() {
         let (list, agent_rows) = model();
         assert_eq!(list.rows.len(), 4);
-        assert_eq!(list.counts.needs_you, 1);
         assert!(!agent_rows.is_empty());
         assert!(agent_rows[0].assistant, "the Assistant leads the pinned agent rows");
     }

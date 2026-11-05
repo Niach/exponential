@@ -1030,8 +1030,8 @@ pub struct SessionReadRow {
     /// #EXP-1388: the viewer archived the chat (per viewer, on the root).
     #[serde(default)]
     pub archived_at: Option<String>,
-    /// S-3: the viewer's stories mark on the root (`sessions.markStoriesSeen`;
-    /// seen = createdAt <= max(read_at, story_seen_at)).
+    /// Still in the shape for old clients (#FEED-191), read by nothing here; a
+    /// later migration removes it.
     #[serde(default)]
     pub story_seen_at: Option<String>,
     #[serde(default)]
