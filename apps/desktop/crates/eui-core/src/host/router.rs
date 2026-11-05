@@ -224,7 +224,7 @@ impl HostRouter {
                     (Some(path), Some(source)) if parse_source(source).is_some() => {
                         // VAPP-107: a package surface follows only the sources its package lists.
                         if let Some(pkg) = info.package_id.as_deref().and_then(|id| self.packages.get(id)) {
-                            if !source_allowed(package_sources(pkg).as_deref(), source) {
+                            if !source_allowed(package_sources(pkg).as_deref(), source) && !super::record_macros::is_record_macro_binding(&normalize_path(Some(path)), source) {
                                 let pkg_id = pkg.get("id").and_then(Value::as_str).unwrap_or("");
                                 let at = normalize_path(Some(path));
                                 let at = if at.is_empty() { "/".to_string() } else { at };

@@ -54,7 +54,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Docs**: product pages live under /sdk/ and docs under /docs/sdk/, and every old link still lands on the right page.
 - **Built-in skills**: exponential-ui is now exponential-genui, and picks and agents that used it follow.
 - **Same look everywhere**: one chat header on every app, one warning colour, and a file in an encrypted chat shows as a file line instead of a broken image.
-- **Needs you**: a pull request stacked on a draft waits until the draft is ready."#,
+- **Needs you**: a pull request stacked on a draft waits until the draft is ready.
+- **App forms**: a date and time field has real pickers, a team owner can pick a record's author, a refused save shows under the form, and a record can be deleted on a phone."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

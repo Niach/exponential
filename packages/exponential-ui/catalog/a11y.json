@@ -748,7 +748,7 @@
     },
     "RecordForm": {
       "role": "form",
-      "notes": "form: the expanded Form, one labelled field per schema field",
+      "notes": "form: the expanded Form, one labelled field per schema field; a refused save reads as an assertive live region under the fields",
       "keys": [
         "Enter in a single-line field: submit",
         "A failed submit focuses the first invalid field and announces `invalidFields`"
@@ -759,7 +759,7 @@
       "notes": "group: the toolbar, the expanded Table (phones: the List), the editor drawer and the delete confirm (alertdialog)",
       "keys": [
         "Tab moves through Add, the headers and each row's Edit and Delete",
-        "Escape closes the drawer or the confirm"
+        "Escape closes the confirm; Cancel closes the drawer (it holds a draft, and stays open on a refused save)"
       ]
     }
   }

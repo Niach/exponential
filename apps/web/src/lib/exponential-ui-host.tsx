@@ -54,7 +54,8 @@ import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActio
 import { APP_FILES, APPS_COPY, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl } from "@exp/domain-contract/apps"
 import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
 import { VIA_APP_HEADER, viaAppClaim, viaAppHeaderValue, type ViaAppClaim } from "@exp/domain-contract/via-app"
-import { kindTransitions, migrateRecord, packageMigrations, readableRows, type AppAccessLevel, type RecordMigration } from "@exponential_app/eui/host"
+import { RecordRefusal, kindTransitions, migrateRecord, packageMigrations, readableRows, type AppAccessLevel, type RecordMigration } from "@exponential_app/eui/host"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
@@ -671,16 +672,19 @@ export function createAppHost(options: AppHostOptions): AppHost {
     return viaApp ? { viaApp } : {}
   }
   // VAPP-122: the app's own rows: no consent card; a refusal (the kind's
-  // schema, the caps, the plan quota) is a failed action = a toast.
-  const recordsUpsert: HostFunction = async ({ kind, data, id }) => {
+  // schema, the caps, the plan quota) is a failed action = a toast. VAPP-245:
+  // a record form's invalid input shows under the form (app-records.json
+  // `dataTab`, the same rule); `author` = an owner's on-behalf pick.
+  const recordsUpsert: HostFunction = async ({ kind, data, id, author, form }) => {
     try {
       const result = await trpc.apps.records.upsert.mutate(
-        { ...appRef(), kind: String(kind ?? ``), data: (data && typeof data === `object` ? data : {}) as Record<string, unknown>, recordId: typeof id === `string` ? id : undefined, ...claimed() },
+        { ...appRef(), kind: String(kind ?? ``), data: (data && typeof data === `object` ? data : {}) as Record<string, unknown>, recordId: typeof id === `string` ? id : undefined, ...(typeof author === `string` ? { author } : {}), ...claimed() },
         SKIP_ERROR_TOAST
       )
       await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
       return { id: result.id }
     } catch (error) {
+      if (form && trpcErrorCode(error) === `BAD_REQUEST`) throw new RecordRefusal(trpcErrorMessage(error, `record is invalid`))
       failedAction(`save`, `the record`, error)
       throw error
     }

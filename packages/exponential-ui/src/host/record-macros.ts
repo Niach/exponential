@@ -28,8 +28,7 @@ export interface RecordFormField {
   date?: Binding
   time?: Binding
   placeholder?: string
-  options?: { label: string; value: string }[]
-  source?: string
+  options?: { label: string; value: string }[] | Binding
   searchable?: boolean
   multiple?: boolean
   min?: number
@@ -48,8 +47,35 @@ export const RECORD_MENU_WIDTH = 80
 export const RECORD_LONG_TEXT = 200
 export const RECORD_FORM_ROOT = `/recordForm`
 export const RECORD_TABLE_ROOT = `/recordTable`
+/** The team's members and issues the macros' Selects read (one binding per
+ *  surface, outside the package's `sources`: the macro's own). */
+export const RECORD_MEMBERS_PATH = `/recordMembers`
+export const RECORD_ISSUES_PATH = `/recordIssues`
+const MEMBERS_SOURCE = `exp:members`
+const ISSUES_SOURCE = `exp:issues`
+
+/** A record macro's own source at its own path passes any `sources`. */
+export function isRecordMacroBinding(path: unknown, source: unknown): boolean {
+  return (path === RECORD_MEMBERS_PATH && source === MEMBERS_SOURCE) || (path === RECORD_ISSUES_PATH && source === ISSUES_SOURCE)
+}
+
+/** A refused record write the form shows inline (invalid input) instead of a
+ *  failed-action toast: `records.upsert` rejects with it, the runtime writes
+ *  the message at the call's `form.error`. */
+export class RecordRefusal extends Error {
+  override name = `RecordRefusal`
+}
+
+/** A record form's targets in `records.upsert`'s args. */
+export function recordFormTargets(args: Record<string, unknown>): { error?: string; close?: string } {
+  const form = args.form
+  if (!form || typeof form !== `object`) return {}
+  const { error, close } = form as Json
+  return { ...(typeof error === `string` ? { error } : {}), ...(typeof close === `string` ? { close } : {}) }
+}
 
 const isObject = (v: unknown): v is Json => !!v && typeof v === `object` && !Array.isArray(v)
+const hasIssueRef = (fields: RecordFormField[]) => fields.some((f) => isObject(f.options) && f.options.path === `${RECORD_ISSUES_PATH}/rows`)
 
 /** `closeDate` / `close_date` → `Close date`. */
 export function fieldLabel(name: string): string {
@@ -82,8 +108,8 @@ export function recordFormFields(kind: RecordKind, path: string): RecordFormFiel
     const out: RecordFormField = { name, label: fieldLabel(name), widget: `text`, required: required.includes(name), wide: false, value }
     if (f.description) out.placeholder = f.description
     const ref = refs[name]
-    if (ref === `member`) Object.assign(out, { widget: `select`, source: `exp:members`, searchable: true })
-    else if (ref === `issue`) Object.assign(out, { widget: `select`, source: `exp:issues`, searchable: true })
+    if (ref === `member`) Object.assign(out, { widget: `select`, options: { path: `${RECORD_MEMBERS_PATH}/rows` }, searchable: true })
+    else if (ref === `issue`) Object.assign(out, { widget: `select`, options: { path: `${RECORD_ISSUES_PATH}/rows` }, searchable: true })
     else if (f.type === `boolean`) out.widget = `switch`
     else if (f.type === `number` || f.type === `integer`) {
       out.widget = `number`
@@ -156,8 +182,32 @@ const setOn = (node: Json, event: string, action: unknown) => {
  *  day picked = the draft's value as it is. */
 const dateTimeValue = (f: RecordFormField) => ({ call: `cond`, args: { if: f.date, then: { call: `dateTime`, args: { date: f.date, time: f.time } }, else: f.value } })
 
+const MY_ID = { path: `${RECORD_MEMBERS_PATH}/me` }
+
+/** The Author Select's options: the members for a team owner, else none (so
+ *  no picker). */
+const AUTHOR_OPTIONS = {
+  call: `cond`,
+  args: {
+    if: { call: `lt`, args: { a: 0, b: { call: `len`, args: { value: { call: `filter`, args: { items: { path: `${RECORD_MEMBERS_PATH}/rows` }, where: { id: MY_ID, role: `owner` } } } } } } },
+    then: { path: `${RECORD_MEMBERS_PATH}/rows` },
+    else: null,
+  },
+}
+
+/** The form's `author`: an owner's pick, only when it moved off the record's
+ *  author (domain-contract app-records.json `formAuthor`), else nothing. */
+const authorArg = (path: string) => ({
+  call: `cond`,
+  args: {
+    if: AUTHOR_OPTIONS,
+    then: { call: `cond`, args: { if: { call: `or`, args: { values: [{ call: `not`, args: { value: { path: `${path}Author` } } }, { call: `eq`, args: { a: { path: `${path}Author` }, b: { path: `${path}AuthorBase` } } }] } }, then: null, else: { path: `${path}Author` } } },
+    else: null,
+  },
+})
+
 /** Opens the editor on a row: the draft = the row, a date-time's parts = its
- *  day and time in the team zone. */
+ *  day and time in the team zone, the Author = the row's. */
 function editAction(base: string, fields: RecordFormField[]): Json {
   const parts: Json = {}
   for (const f of fields) {
@@ -165,13 +215,16 @@ function editAction(base: string, fields: RecordFormField[]): Json {
     const value = { path: f.name }
     parts[f.name] = { date: { call: `formatDate`, args: { value, format: `yyyy-MM-dd` } }, time: { call: `formatDate`, args: { value, format: `HH:mm` } } }
   }
-  return set(`${base}/editor`, { open: true, draft: { path: `` }, ...(Object.keys(parts).length ? { draftParts: parts } : {}) })
+  const author = { draftAuthor: { call: `coalesce`, args: { values: [{ path: `authorId` }, MY_ID] } }, draftAuthorBase: { path: `authorId` } }
+  return set(`${base}/editor`, { open: true, draft: { path: `` }, ...author, ...(Object.keys(parts).length ? { draftParts: parts } : {}) })
 }
 
-/** The form's write: `records.upsert {kind, id?, data}`, data = one
- *  binding per field. VAPP-206: an optional field left "" (an unpicked Select,
- *  an emptied Input) writes null: absent on a create, cleared on a patch. */
-function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown): Json {
+/** The form's write: `records.upsert {kind, id?, data, author, form}`, data =
+ *  one binding per field; `form` tells the host where a refusal shows
+ *  (`error`) and which flag a landed write clears (`close`). VAPP-206: an
+ *  optional field left "" (an unpicked Select, an emptied Input) writes null:
+ *  absent on a create, cleared on a patch. */
+function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown, path: string, close?: string): Json {
   const data: Json = {}
   for (const f of fields) {
     const value = f.widget === `datetime` ? dateTimeValue(f) : f.value
@@ -180,6 +233,8 @@ function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown
   const args: Json = { kind }
   if (recordId !== undefined) args.id = recordId
   args.data = data
+  args.author = authorArg(path)
+  args.form = { error: `${path}Error`, ...(close ? { close } : {}) }
   return { functionCall: { call: `records.upsert`, args } }
 }
 
@@ -192,6 +247,9 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
   const out: Json[] = []
   const extra: Json[] = []
   const binds = [...bindings]
+  const bindOnce = (source: string, path: string) => {
+    if (!binds.some((b) => b.path === path)) binds.push({ path, source })
+  }
   for (const c of components) {
     if (!isObject(c) || (c.component !== `RecordForm` && c.component !== `RecordTable`)) {
       out.push(c)
@@ -212,7 +270,14 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
       node.path = path
       node.fields = fields
       if (options.readOnly) node.readOnly = true
-      setOn(node, `submit`, upsertAction(kindName, fields, node.recordId))
+      if (node.readOnly !== true) {
+        node.error = { path: `${path}Error` }
+        node.author = { path: `${path}Author` }
+        node.authorOptions = AUTHOR_OPTIONS
+        bindOnce(MEMBERS_SOURCE, RECORD_MEMBERS_PATH)
+      }
+      if (hasIssueRef(fields)) bindOnce(ISSUES_SOURCE, RECORD_ISSUES_PATH)
+      setOn(node, `submit`, upsertAction(kindName, fields, node.recordId, path))
       out.push(node)
       continue
     }
@@ -232,13 +297,18 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     if (editable) {
       node.fields = fields
       node.path = draft
+      node.error = { path: `${draft}Error` }
+      node.author = { path: `${draft}Author` }
+      node.authorOptions = AUTHOR_OPTIONS
+      bindOnce(MEMBERS_SOURCE, RECORD_MEMBERS_PATH)
+      if (hasIssueRef(fields)) bindOnce(ISSUES_SOURCE, RECORD_ISSUES_PATH)
       node.editorOpen = { path: `${base}/editor/open` }
       node.editorId = { path: `${draft}/id` }
       node.deleteOpen = { path: `${base}/delete/open` }
-      setOn(node, `add`, set(`${base}/editor`, { open: true, draft: {} }))
+      setOn(node, `add`, set(`${base}/editor`, { open: true, draft: {}, draftAuthor: MY_ID, draftAuthorBase: MY_ID }))
       setOn(node, `edit`, editAction(base, fields))
       setOn(node, `delete`, set(`${base}/delete`, { open: true, id: { path: `id` } }))
-      setOn(node, `submit`, upsertAction(kindName, fields, { path: `${draft}/id` }))
+      setOn(node, `submit`, upsertAction(kindName, fields, { path: `${draft}/id` }, draft, `${base}/editor/open`))
       setOn(node, `cancel`, set(`${base}/editor/open`, false))
       setOn(node, `confirm`, { functionCall: { call: `records.delete`, args: { id: { path: `${base}/delete/id` } } } })
       setOn(node, `cancelDelete`, set(`${base}/delete/open`, false))

@@ -11,7 +11,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `VAPP-217`,
   title: `Record form`,
-  blurb: `A form over one record kind of an app: Exponential UI's RecordForm macro. The host fills one field per schema field (required first, then by name): date → DatePicker, time → TimePicker, date-time → DatePicker + TimePicker side by side, number/integer → NumberField, boolean → Switch, enum → Select, member / issue ref → a searchable Select, string list → ChipInput, long text → Textarea, else Input; checks come from the schema (required, maxLength, minimum/maximum). Short fields pair in a two-column FieldGroup on wide frames; long ones span both. Submit = records.upsert; readOnly disables the form and drops the submit.`,
+  blurb: `A form over one record kind of an app: Exponential UI's RecordForm macro. The host fills one field per schema field (required first, then by name): date → DatePicker, time → TimePicker, date-time → DatePicker + TimePicker side by side, number/integer → NumberField, boolean → Switch, enum → Select, member / issue ref → a searchable Select, string list → ChipInput, long text → Textarea, else Input; checks come from the schema (required, maxLength, minimum/maximum). Short fields pair in a two-column FieldGroup on wide frames; long ones span both. For a team owner the first field is Author. Submit = records.upsert; a refused save shows under the fields; readOnly disables the form and drops the submit.`,
   status: {
     web: { state: `ok`, symbol: `RecordForm (macro)`, file: `packages/exponential-ui/catalog/macros.json`, note: `here: ExponentialUiSpecimen (packages/ui)` },
     desktop: { state: `ok`, symbol: `render`, file: `apps/desktop/crates/ui/src/styleguide/entries/record_form.rs` },

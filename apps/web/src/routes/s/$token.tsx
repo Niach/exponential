@@ -34,7 +34,8 @@ function GuestSurface({ token, page, honeypot, onDone, onError }: { token: strin
     () =>
       new ExponentialHost({
         packages: [page.package],
-        sources: { records: (_source, emit) => emit(page.value ?? { rows: [], count: 0 }) },
+        // `exp:` = a RecordForm's member list: a guest has none (so no Author).
+        sources: { records: (_source, emit) => emit(page.value ?? { rows: [], count: 0 }), exp: (_source, emit) => emit(null) },
         functions: {
           "records.upsert": async (args) => {
             const response = await fetch(`/api/share/${token}`, { method: `POST`, headers: { "content-type": `application/json` }, body: JSON.stringify({ data: args.data, website: honeypot() }) })

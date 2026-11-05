@@ -26,8 +26,8 @@
     "tokens": 514
   },
   "perComponent": {
-    "mean": 352,
+    "mean": 355,
     "max": 2475,
-    "meanTokens": 88
+    "meanTokens": 89
   }
 }

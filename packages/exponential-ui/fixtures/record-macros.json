@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-217 (eApps U2; docs/package-format.md \"Record macros\"): THE HOST FILL of the RecordForm and RecordTable macros, replayed by the TS reference (src/host/record-macros.ts fillRecordMacros, called by templateMessages and validatePackage's component check) and the Rust core (host::record_macros::fill_record_macros, template_messages). A macro sees only its node's props, so the host fills every RecordForm / RecordTable of a template's flat component list from the package's records before the reducer runs; macros.json then expands them (fixtures/catalog-macros.json RecordForm/* + RecordTable/*). FIELDS (recordFormFields, in the Data tab's order: required in order, then the rest by name; files left out): label = the name humanized (closeDate / close_date → Close date), placeholder = the schema description; a member ref → Select source exp:members, an issue ref → Select source exp:issues (both searchable); boolean → switch; number → number (min/max from the schema), integer → number with step 1, precision 0; array of enum items → a multiple Select, other arrays → chips (wide, max = maxLength); string enum → select; format date → date, time → time, date-time → datetime (wide, date/time = the pickers' draft parts at <draft path>Parts/<name>/date|time); a string without maxLength or longer than 200 → textarea (wide); else text. value = {path: <draft path>/<name>}. CHECKS: required (not a switch) → required / $string.required; a free string's maxLength → length max / $string.invalidValue; a number's minimum/maximum → numeric / $string.invalidValue. RecordForm: path = the author's or /recordForm/<id>; on.submit (unless the author wrote one) = records.upsert {kind, id: the author's recordId when given, data: one binding per field; a datetime field = cond(its date part, dateTime(date, time), its value)}; a read-only viewer → readOnly. RecordTable (base = /recordTable/<id>): title = the kind's title or its name humanized; cols = the chosen columns (default every field, unknown names and files dropped), number/integer → type number align end, boolean → boolean, date → date, fixed widths by format/type (date 104, time 64, date-time 152, number/integer 64, boolean 56), else truncate; then updatedAt (relativeTime, 136) and, when editable, the menu slot column (80); rows = base/rows/rows, count = fill $string.recordCount {count}, loading = not(base/rows); children = the phone row template <id>__row (appended: a Row, title = the first column as text else —, subtitle = the second, meta = the relative updatedAt, press = open the editor on the row; editable: trailing = <id>__rowDelete, appended after it, a ghost icon Button ui-delete, label $string.delete, press = on.delete); the binding base/rows ← records:<kind>?<query without its ?, default sort=updatedAt&order=desc> appended to the template's. Editable (the author's editable !== false and not a read-only viewer): fields/path over base/editor/draft, editorOpen/editorId/deleteOpen bindings, on.add/edit/delete/submit/cancel/confirm/cancelDelete (each only when the author wrote none): add = set base/editor {open, draft: {}}, edit = set base/editor {open, draft: the row, and with a datetime field draftParts: {<name>: {date: formatDate yyyy-MM-dd, time: formatDate HH:mm of the row's value}}}, delete = set base/delete {open, id: the row's id}, submit = records.upsert with id = the draft's id, cancel / cancelDelete = close, confirm = records.delete {id: base/delete/id}. Not editable: add false. An undeclared kind fills only missing: true (the unknown state). INSTALL (validatePackage, at the macro's component): a writing RecordForm (not readOnly) or editable RecordTable needs records.upsert in functions; an editable RecordTable also records.delete; a RecordTable's records:<kind> must pass sources when sources is set. VAPP-206: a form's write binds a field the kind does not require through {call: expr, args: {expr: \"v == '' ? null : v\", vars: {v: <the field's binding>}, default: null}}: an unpicked Select or an emptied Input writes null (absent on a create, cleared on a patch).",
+  "$comment": "VAPP-217 (eApps U2; docs/package-format.md \"Record macros\"): THE HOST FILL of the RecordForm and RecordTable macros, replayed by the TS reference (src/host/record-macros.ts fillRecordMacros, called by templateMessages and validatePackage's component check) and the Rust core (host::record_macros::fill_record_macros, template_messages). A macro sees only its node's props, so the host fills every RecordForm / RecordTable of a template's flat component list from the package's records before the reducer runs; macros.json then expands them (fixtures/catalog-macros.json RecordForm/* + RecordTable/*). FIELDS (recordFormFields, in the Data tab's order: required in order, then the rest by name; files left out): label = the name humanized (closeDate / close_date → Close date), placeholder = the schema description; a member ref → a searchable Select with options = /recordMembers/rows, an issue ref → the same over /recordIssues/rows (the macro's own bindings: exp:members / exp:issues appended once per surface, past `sources` at exactly those paths: isRecordMacroBinding; members for a writing form, issues when a field refs one); boolean → switch; number → number (min/max from the schema), integer → number with step 1, precision 0; array of enum items → a multiple Select, other arrays → chips (wide, max = maxLength); string enum → select; format date → date, time → time, date-time → datetime (wide, date/time = the pickers' draft parts at <draft path>Parts/<name>/date|time); a string without maxLength or longer than 200 → textarea (wide); else text. value = {path: <draft path>/<name>}. CHECKS: required (not a switch) → required / $string.required; a free string's maxLength → length max / $string.invalidValue; a number's minimum/maximum → numeric / $string.invalidValue. RecordForm: path = the author's or /recordForm/<id>; writing: error = <path>Error (a refused save's message, under the fields), author = <path>Author, authorOptions = cond(the viewer's row in /recordMembers has role owner, the members, null): a Select first in the form, shown only with options (domain-contract app-records.json `formAuthor`; placeholder $string.me); on.submit (unless the author wrote one) = records.upsert {kind, id: the author's recordId when given, data: one binding per field; a datetime field = cond(its date part, dateTime(date, time), its value); author: an owner's non-empty pick only when <path>Author differs from <path>AuthorBase, else null; form: {error: <path>Error, close (table): base/editor/open}: the HOST writes them: a landed (or queued) write clears error and sets close false; invalid input (BAD_REQUEST) writes the message at error with no toast, anything else toasts; a write with an author goes straight to the server, past the offline outbox}; a read-only viewer → readOnly. RecordTable (base = /recordTable/<id>): title = the kind's title or its name humanized; cols = the chosen columns (default every field, unknown names and files dropped), number/integer → type number align end, boolean → boolean, date → date, fixed widths by format/type (date 104, time 64, date-time 152, number/integer 64, boolean 56), else truncate; then updatedAt (relativeTime, 136) and, when editable, the menu slot column (80); rows = base/rows/rows, count = fill $string.recordCount {count}, loading = not(base/rows); children = the phone row template <id>__row (appended: a Row, title = the first column as text else —, subtitle = the second, meta = the relative updatedAt, press = open the editor on the row; editable: trailing = <id>__rowDelete, appended after it, a ghost icon Button ui-delete, label $string.delete, press = on.delete); the binding base/rows ← records:<kind>?<query without its ?, default sort=updatedAt&order=desc> appended to the template's. Editable (the author's editable !== false and not a read-only viewer): fields/path over base/editor/draft, editorOpen/editorId/deleteOpen bindings, on.add/edit/delete/submit/cancel/confirm/cancelDelete (each only when the author wrote none): add = set base/editor {open, draft: {}, draftAuthor and draftAuthorBase: /recordMembers/me}, edit = set base/editor {open, draft: the row, and with a datetime field draftParts: {<name>: {date: formatDate yyyy-MM-dd, time: formatDate HH:mm of the row's value}}, draftAuthor: coalesce(row authorId, /recordMembers/me), draftAuthorBase: row authorId}, delete = set base/delete {open, id: the row's id}, submit = records.upsert with id = the draft's id, cancel / cancelDelete = close, confirm = records.delete {id: base/delete/id}. Not editable: add false. An undeclared kind fills only missing: true (the unknown state). INSTALL (validatePackage, at the macro's component): a writing RecordForm (not readOnly) or editable RecordTable needs records.upsert in functions; an editable RecordTable also records.delete; a RecordTable's records:<kind> must pass sources when sources is set. VAPP-206: a form's write binds a field the kind does not require through {call: expr, args: {expr: \"v == '' ? null : v\", vars: {v: <the field's binding>}, default: null}}: an unpicked Select or an emptied Input writes null (absent on a create, cleared on a patch).",
   "records": {
     "deal": {
       "title": "Deal",
@@ -267,6 +267,46 @@
                 ]
               }
             ],
+            "error": {
+              "path": "/recordForm/fError"
+            },
+            "author": {
+              "path": "/recordForm/fAuthor"
+            },
+            "authorOptions": {
+              "call": "cond",
+              "args": {
+                "if": {
+                  "call": "lt",
+                  "args": {
+                    "a": 0,
+                    "b": {
+                      "call": "len",
+                      "args": {
+                        "value": {
+                          "call": "filter",
+                          "args": {
+                            "items": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "where": {
+                              "id": {
+                                "path": "/recordMembers/me"
+                              },
+                              "role": "owner"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "path": "/recordMembers/rows"
+                },
+                "else": null
+              }
+            },
             "on": {
               "submit": {
                 "functionCall": {
@@ -316,6 +356,84 @@
                           "default": null
                         }
                       }
+                    },
+                    "author": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "lt",
+                              "args": {
+                                "a": 0,
+                                "b": {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "call": "filter",
+                                      "args": {
+                                        "items": {
+                                          "path": "/recordMembers/rows"
+                                        },
+                                        "where": {
+                                          "id": {
+                                            "path": "/recordMembers/me"
+                                          },
+                                          "role": "owner"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "then": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "else": null
+                          }
+                        },
+                        "then": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "or",
+                              "args": {
+                                "values": [
+                                  {
+                                    "call": "not",
+                                    "args": {
+                                      "value": {
+                                        "path": "/recordForm/fAuthor"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "call": "eq",
+                                    "args": {
+                                      "a": {
+                                        "path": "/recordForm/fAuthor"
+                                      },
+                                      "b": {
+                                        "path": "/recordForm/fAuthorBase"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "then": null,
+                            "else": {
+                              "path": "/recordForm/fAuthor"
+                            }
+                          }
+                        },
+                        "else": null
+                      }
+                    },
+                    "form": {
+                      "error": "/recordForm/fError"
                     }
                   }
                 }
@@ -323,7 +441,12 @@
             }
           }
         ],
-        "bindings": []
+        "bindings": [
+          {
+            "path": "/recordMembers",
+            "source": "exp:members"
+          }
+        ]
       }
     },
     {
@@ -439,7 +562,9 @@
                 "value": {
                   "path": "/recordForm/f/issue"
                 },
-                "source": "exp:issues",
+                "options": {
+                  "path": "/recordIssues/rows"
+                },
                 "searchable": true
               },
               {
@@ -491,7 +616,9 @@
                 "value": {
                   "path": "/recordForm/f/owner"
                 },
-                "source": "exp:members",
+                "options": {
+                  "path": "/recordMembers/rows"
+                },
                 "searchable": true
               },
               {
@@ -516,6 +643,46 @@
                 "max": 5
               }
             ],
+            "error": {
+              "path": "/recordForm/fError"
+            },
+            "author": {
+              "path": "/recordForm/fAuthor"
+            },
+            "authorOptions": {
+              "call": "cond",
+              "args": {
+                "if": {
+                  "call": "lt",
+                  "args": {
+                    "a": 0,
+                    "b": {
+                      "call": "len",
+                      "args": {
+                        "value": {
+                          "call": "filter",
+                          "args": {
+                            "items": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "where": {
+                              "id": {
+                                "path": "/recordMembers/me"
+                              },
+                              "role": "owner"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "path": "/recordMembers/rows"
+                },
+                "else": null
+              }
+            },
             "on": {
               "submit": {
                 "functionCall": {
@@ -641,6 +808,84 @@
                           "default": null
                         }
                       }
+                    },
+                    "author": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "lt",
+                              "args": {
+                                "a": 0,
+                                "b": {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "call": "filter",
+                                      "args": {
+                                        "items": {
+                                          "path": "/recordMembers/rows"
+                                        },
+                                        "where": {
+                                          "id": {
+                                            "path": "/recordMembers/me"
+                                          },
+                                          "role": "owner"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "then": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "else": null
+                          }
+                        },
+                        "then": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "or",
+                              "args": {
+                                "values": [
+                                  {
+                                    "call": "not",
+                                    "args": {
+                                      "value": {
+                                        "path": "/recordForm/fAuthor"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "call": "eq",
+                                    "args": {
+                                      "a": {
+                                        "path": "/recordForm/fAuthor"
+                                      },
+                                      "b": {
+                                        "path": "/recordForm/fAuthorBase"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "then": null,
+                            "else": {
+                              "path": "/recordForm/fAuthor"
+                            }
+                          }
+                        },
+                        "else": null
+                      }
+                    },
+                    "form": {
+                      "error": "/recordForm/fError"
                     }
                   }
                 }
@@ -648,7 +893,16 @@
             }
           }
         ],
-        "bindings": []
+        "bindings": [
+          {
+            "path": "/recordMembers",
+            "source": "exp:members"
+          },
+          {
+            "path": "/recordIssues",
+            "source": "exp:issues"
+          }
+        ]
       }
     },
     {
@@ -835,10 +1089,55 @@
                   }
                 ]
               }
-            ]
+            ],
+            "error": {
+              "path": "/draftError"
+            },
+            "author": {
+              "path": "/draftAuthor"
+            },
+            "authorOptions": {
+              "call": "cond",
+              "args": {
+                "if": {
+                  "call": "lt",
+                  "args": {
+                    "a": 0,
+                    "b": {
+                      "call": "len",
+                      "args": {
+                        "value": {
+                          "call": "filter",
+                          "args": {
+                            "items": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "where": {
+                              "id": {
+                                "path": "/recordMembers/me"
+                              },
+                              "role": "owner"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "path": "/recordMembers/rows"
+                },
+                "else": null
+              }
+            }
           }
         ],
-        "bindings": []
+        "bindings": [
+          {
+            "path": "/recordMembers",
+            "source": "exp:members"
+          }
+        ]
       }
     },
     {
@@ -1058,6 +1357,84 @@
                           "default": null
                         }
                       }
+                    },
+                    "author": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "lt",
+                              "args": {
+                                "a": 0,
+                                "b": {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "call": "filter",
+                                      "args": {
+                                        "items": {
+                                          "path": "/recordMembers/rows"
+                                        },
+                                        "where": {
+                                          "id": {
+                                            "path": "/recordMembers/me"
+                                          },
+                                          "role": "owner"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "then": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "else": null
+                          }
+                        },
+                        "then": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "or",
+                              "args": {
+                                "values": [
+                                  {
+                                    "call": "not",
+                                    "args": {
+                                      "value": {
+                                        "path": "/recordForm/fAuthor"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "call": "eq",
+                                    "args": {
+                                      "a": {
+                                        "path": "/recordForm/fAuthor"
+                                      },
+                                      "b": {
+                                        "path": "/recordForm/fAuthorBase"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "then": null,
+                            "else": {
+                              "path": "/recordForm/fAuthor"
+                            }
+                          }
+                        },
+                        "else": null
+                      }
+                    },
+                    "form": {
+                      "error": "/recordForm/fError"
                     }
                   }
                 }
@@ -1361,6 +1738,46 @@
               }
             ],
             "path": "/recordTable/t/editor/draft",
+            "error": {
+              "path": "/recordTable/t/editor/draftError"
+            },
+            "author": {
+              "path": "/recordTable/t/editor/draftAuthor"
+            },
+            "authorOptions": {
+              "call": "cond",
+              "args": {
+                "if": {
+                  "call": "lt",
+                  "args": {
+                    "a": 0,
+                    "b": {
+                      "call": "len",
+                      "args": {
+                        "value": {
+                          "call": "filter",
+                          "args": {
+                            "items": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "where": {
+                              "id": {
+                                "path": "/recordMembers/me"
+                              },
+                              "role": "owner"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "path": "/recordMembers/rows"
+                },
+                "else": null
+              }
+            },
             "editorOpen": {
               "path": "/recordTable/t/editor/open"
             },
@@ -1378,7 +1795,13 @@
                     "path": "/recordTable/t/editor",
                     "value": {
                       "open": true,
-                      "draft": {}
+                      "draft": {},
+                      "draftAuthor": {
+                        "path": "/recordMembers/me"
+                      },
+                      "draftAuthorBase": {
+                        "path": "/recordMembers/me"
+                      }
                     }
                   }
                 }
@@ -1392,6 +1815,22 @@
                       "open": true,
                       "draft": {
                         "path": ""
+                      },
+                      "draftAuthor": {
+                        "call": "coalesce",
+                        "args": {
+                          "values": [
+                            {
+                              "path": "authorId"
+                            },
+                            {
+                              "path": "/recordMembers/me"
+                            }
+                          ]
+                        }
+                      },
+                      "draftAuthorBase": {
+                        "path": "authorId"
                       }
                     }
                   }
@@ -1462,6 +1901,85 @@
                           "default": null
                         }
                       }
+                    },
+                    "author": {
+                      "call": "cond",
+                      "args": {
+                        "if": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "lt",
+                              "args": {
+                                "a": 0,
+                                "b": {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "call": "filter",
+                                      "args": {
+                                        "items": {
+                                          "path": "/recordMembers/rows"
+                                        },
+                                        "where": {
+                                          "id": {
+                                            "path": "/recordMembers/me"
+                                          },
+                                          "role": "owner"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "then": {
+                              "path": "/recordMembers/rows"
+                            },
+                            "else": null
+                          }
+                        },
+                        "then": {
+                          "call": "cond",
+                          "args": {
+                            "if": {
+                              "call": "or",
+                              "args": {
+                                "values": [
+                                  {
+                                    "call": "not",
+                                    "args": {
+                                      "value": {
+                                        "path": "/recordTable/t/editor/draftAuthor"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "call": "eq",
+                                    "args": {
+                                      "a": {
+                                        "path": "/recordTable/t/editor/draftAuthor"
+                                      },
+                                      "b": {
+                                        "path": "/recordTable/t/editor/draftAuthorBase"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "then": null,
+                            "else": {
+                              "path": "/recordTable/t/editor/draftAuthor"
+                            }
+                          }
+                        },
+                        "else": null
+                      }
+                    },
+                    "form": {
+                      "error": "/recordTable/t/editor/draftError",
+                      "close": "/recordTable/t/editor/open"
                     }
                   }
                 }
@@ -1549,6 +2067,22 @@
                       "open": true,
                       "draft": {
                         "path": ""
+                      },
+                      "draftAuthor": {
+                        "call": "coalesce",
+                        "args": {
+                          "values": [
+                            {
+                              "path": "authorId"
+                            },
+                            {
+                              "path": "/recordMembers/me"
+                            }
+                          ]
+                        }
+                      },
+                      "draftAuthorBase": {
+                        "path": "authorId"
                       }
                     }
                   }
@@ -1590,6 +2124,10 @@
           {
             "path": "/x",
             "source": "records:deal?limit=5"
+          },
+          {
+            "path": "/recordMembers",
+            "source": "exp:members"
           },
           {
             "path": "/recordTable/t/rows",

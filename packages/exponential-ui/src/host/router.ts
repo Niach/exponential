@@ -7,6 +7,7 @@
 import { A2UI_VERSION } from "../catalog"
 import { errorMessage, MESSAGE_KINDS } from "./contract"
 import type { HostOp, ServerMessage } from "./contract"
+import { isRecordMacroBinding } from "./record-macros"
 import { sourceAllowed, supportedCatalogIds, templateMessages, validatePackage } from "./package"
 import type { AvailableExtension, PackageIssue, AppPackage } from "./package"
 import { parseSource } from "./sources"
@@ -117,7 +118,7 @@ export class HostRouter {
           return [this.invalid(surfaceId, `bindDataModel needs a path and a scheme:name source`)]
         // VAPP-107: a package surface follows only the sources its package lists.
         const pkg = info.packageId ? this.packages.get(info.packageId) : undefined
-        if (pkg && !sourceAllowed(pkg.sources, body.source))
+        if (pkg && !sourceAllowed(pkg.sources, body.source) && !isRecordMacroBinding(normalizePath(body.path), body.source))
           return [{ op: `send`, message: errorMessage(`SOURCE_DENIED`, surfaceId, `source ${body.source} is not in package ${pkg.id}'s sources`, normalizePath(body.path) || `/`) }]
         // VAPP-190: `?query=<name>` follows the package's named query.
         // VAPP-206: `${today}`, `${now}`, `${month}` from the host's params.
