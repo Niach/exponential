@@ -1,0 +1,18 @@
+{
+  "$comment": "eDE's sealed lock screen (#EDE-17, Tier B): compiled into ede-sealed, never on disk, never agent-editable. A full-screen overlay with the clock, the person's name and the password; `sealed.unlock` runs PAM in the binary and, when it passes, the compositor's unlock op with the grant minted for this process. Only the accent follows the theme.",
+  "root": {
+    "id": "lock",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "justifyContent": "center", "width": "100%", "height": "100%", "backgroundColor": "$color.background"},
+    "children": [
+      {"id": "card", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "gap": "$spacing.md", "padding": "$spacing.xl", "width": 360, "backgroundColor": "$color.card", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"}, "children": [
+        {"id": "clock", "component": "Heading", "props": {"text": {"path": "/time"}, "level": "h1"}},
+        {"id": "user", "component": "Text", "props": {"text": {"path": "/user"}, "variant": "muted"}},
+        {"id": "password", "component": "Input", "props": {"type": "password", "name": "password", "label": "Password", "placeholder": "Password", "value": {"path": "/password"}, "disabled": {"path": "/busy"}}, "on": {"submit": {"functionCall": {"call": "sealed.unlock", "args": {"password": {"path": "/password"}}}}}},
+        {"id": "unlock", "component": "Button", "props": {"label": "Unlock", "loading": {"path": "/busy"}, "pendingLabel": "Checking…"}, "on": {"press": {"functionCall": {"call": "sealed.unlock", "args": {"password": {"path": "/password"}}}}}},
+        {"id": "error", "component": "Text", "props": {"text": {"path": "/error"}, "variant": "caption", "tone": "danger"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"path": "/error"}, "b": ""}}}}}
+      ]}
+    ]
+  },
+  "data": {"time": "", "user": "", "password": "", "busy": false, "error": ""}
+}

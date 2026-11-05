@@ -207,9 +207,11 @@ mod tests {
         assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
         assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE"));
         let deb = std::fs::read_to_string(root.join("build-deb.sh")).unwrap();
-        for bin in ["ede-compositor", "ede-session", "ede-ui", "ede-shell"] {
+        for bin in ["ede-compositor", "ede-session", "ede-ui", "ede-shell", "ede-sealed"] {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }
         assert!(deb.contains("/usr/share/ede/ui/"), "the factory documents ship");
+        let polkit = std::fs::read_to_string(root.join("systemd/ede-polkit-agent.service")).unwrap();
+        assert!(polkit.contains("ExecStart=/usr/bin/ede-sealed polkit\n"), "#EDE-17: the sealed agent");
     }
 }

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use common::Session;
 use ede_compositor::{backend::headless::Harness, protected::Refused, Config};
+use ede_protocol::{Error, ErrorCode};
 use smithay::backend::input::{ButtonState, KeyState};
 
 const RED: u32 = 0xffff_0000;
@@ -48,6 +49,13 @@ fn window_center(h: &Harness) -> (i32, i32) {
         let g = ede.space.element_geometry(w).unwrap();
         (g.loc.x + g.size.w / 2, g.loc.y + g.size.h / 2)
     })
+}
+
+fn code(e: Error) -> ErrorCode {
+    match e {
+        Error::Failed(f) => f.code,
+        other => panic!("expected a failure, got {other}"),
+    }
 }
 
 fn is_locked(h: &Harness) -> bool {
@@ -286,4 +294,60 @@ fn idle_runs_the_lock_command_unless_inhibited() {
         std::thread::sleep(Duration::from_millis(50));
     }
     drop(h);
+}
+
+/// #EDE-17: the sealed lock. The test's own process plays `ede-sealed`
+/// (the compositor trusts the pid it spawned): its overlay layer surface
+/// is the lock screen, windows vanish from the output and from captures,
+/// only the grant minted for the lock client unlocks.
+#[test]
+fn the_sealed_lock_shows_only_the_lock_clients_surface_and_its_grant_unlocks() {
+    use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+    let (cx, cy) = window_center(&h);
+    assert_eq!(h.capture(0).at(cx, cy), RED);
+
+    let mut events = h.ipc();
+    events.subscribe().unwrap();
+    events.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+    let pid = std::process::id();
+    let token = h.with(move |ede| ede.begin_sealed_lock_as(pid));
+    assert_eq!(events.next_event().unwrap().kind, ede_protocol::events::SESSION_LOCKED);
+    assert!(is_locked(&h));
+    // Black until the lock client draws, the app gone.
+    assert_eq!(h.capture(0).at(cx, cy), 0xff00_0000);
+    assert_eq!(h.capture_shared(0).at(cx, cy), 0xff00_0000, "a capture never sees the lock");
+
+    // The lock client (this process) draws an overlay layer surface.
+    let mut locker = Session::connect(h.connect());
+    let l = locker.layer("ede-sealed", Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 0), -1);
+    locker.draw_layer(&l, BLUE);
+    wait_for(&mut locker, |_| h.capture(0).at(cx, cy) == BLUE);
+    assert_eq!(h.capture_shared(0).at(cx, cy), 0xff00_0000, "still black for captures");
+    // Keys go to the lock surface, never to the app.
+    locker.keyboard();
+    wait_for(&mut locker, |c| c.state.keyboard_focus.as_ref() == Some(&l.surface));
+    press(&h, KEY_A);
+    wait_for(&mut locker, |c| !c.state.keys.is_empty());
+    app.roundtrip();
+    assert!(app.state.keys.is_empty(), "the app heard nothing");
+
+    // The root grant cannot unlock; the lock client's can.
+    let mut root = h.ipc();
+    assert_eq!(code(root.unlock().unwrap_err()), ErrorCode::Forbidden);
+    let mut lock_client = h.ipc_with(token).unwrap();
+    lock_client.unlock().unwrap();
+    assert_eq!(events.next_event().unwrap().kind, ede_protocol::events::SESSION_UNLOCKED);
+    assert!(!is_locked(&h));
+    l.layer.destroy();
+    l.surface.destroy();
+    locker.roundtrip();
+    wait_for(&mut app, |_| h.capture(0).at(cx, cy) == RED);
+    // The grant was single-use: it is gone.
+    assert!(matches!(lock_client.windows(), Err(ede_protocol::Error::Failed(_))));
 }

@@ -116,6 +116,8 @@ pub struct Ede {
     pub recovery: crate::recovery::Recovery,
     /// The last press on a title bar, for the double-click.
     pub title_click: Option<(Window, Instant)>,
+    /// `--debug-captures` (headless and nested only): captures are not redacted.
+    pub debug_captures: bool,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
 }
@@ -229,6 +231,7 @@ impl Ede {
             xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh),
             recovery: crate::recovery::Recovery::default(),
             title_click: None,
+            debug_captures: false,
             config_path: None,
         }
     }
@@ -274,7 +277,15 @@ impl Ede {
     /// Starts `argv` as our client: our Wayland socket, our Xwayland (never
     /// the parent session's displays).
     pub fn spawn(&self, argv: &[String]) {
-        let Some((program, args)) = argv.split_first() else { return };
+        if let Some(child) = self.spawn_with_env(argv, &[]) {
+            // Reaped by the kernel's init when it ends; nothing waits on it.
+            drop(child);
+        }
+    }
+
+    /// [`Self::spawn`] with extra environment, keeping the child.
+    pub fn spawn_with_env(&self, argv: &[String], env: &[(&str, &str)]) -> Option<std::process::Child> {
+        let (program, args) = argv.split_first()?;
         let mut cmd = std::process::Command::new(program);
         cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
         if let Some(socket) = &self.socket_name {
@@ -284,8 +295,15 @@ impl Ede {
         if let Some(n) = self.xdisplay {
             cmd.env("DISPLAY", format!(":{n}"));
         }
-        if let Err(e) = cmd.spawn() {
-            tracing::warn!("{program}: {e}");
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        match cmd.spawn() {
+            Ok(child) => Some(child),
+            Err(e) => {
+                tracing::warn!("{program}: {e}");
+                None
+            }
         }
     }
 
@@ -374,7 +392,7 @@ impl Ede {
         if self.is_locked() {
             // Only the lock client, nothing behind it.
             let lock = self.lock_surface_on(output)?;
-            return Some((lock.wl_surface().clone(), output_geo.loc.to_f64()));
+            return Some((lock, output_geo.loc.to_f64()));
         }
         let layers = layer_map_for_output(output);
         let layer_hit = |layer| {

@@ -1,0 +1,22 @@
+{
+  "$comment": "eDE's sealed polkit prompt (#EDE-17, Tier B): compiled into ede-sealed. polkitd asks the agent to authenticate an action; the person sees the action's message, who asks, and types the password of the identity polkit offers. `sealed.authenticate` runs polkit-agent-helper-1; `sealed.cancel` tells polkit no.",
+  "root": {
+    "id": "polkit",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "justifyContent": "center", "width": "100%", "height": "100%"},
+    "children": [
+      {"id": "card", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.xl", "width": 420, "backgroundColor": "$color.card", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"}, "children": [
+        {"id": "title", "component": "Heading", "props": {"text": "Authentication required", "level": "h3"}},
+        {"id": "message", "component": "Text", "props": {"text": {"path": "/message"}, "variant": "body"}},
+        {"id": "who", "component": "Text", "props": {"text": {"path": "/identity"}, "variant": "muted"}},
+        {"id": "password", "component": "Input", "props": {"type": "password", "name": "password", "label": "Password", "placeholder": "Password", "value": {"path": "/password"}, "disabled": {"path": "/busy"}}, "on": {"submit": {"functionCall": {"call": "sealed.authenticate", "args": {"password": {"path": "/password"}}}}}},
+        {"id": "error", "component": "Text", "props": {"text": {"path": "/error"}, "variant": "caption", "tone": "danger"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"path": "/error"}, "b": ""}}}}},
+        {"id": "actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "justify": "end"}, "children": [
+          {"id": "cancel", "component": "Button", "props": {"label": "Cancel", "variant": "ghost"}, "on": {"press": {"functionCall": {"call": "sealed.cancel"}}}},
+          {"id": "ok", "component": "Button", "props": {"label": "Authenticate", "loading": {"path": "/busy"}, "pendingLabel": "Checking…"}, "on": {"press": {"functionCall": {"call": "sealed.authenticate", "args": {"password": {"path": "/password"}}}}}}
+        ]}
+      ]}
+    ]
+  },
+  "data": {"message": "", "identity": "", "password": "", "busy": false, "error": ""}
+}

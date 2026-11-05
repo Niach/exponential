@@ -9,10 +9,12 @@
 # prebuilt one from EDE_XWAYLAND=<build.sh out>. --no-xwayland depends on the
 # distro's xwayland instead (quick local builds). --dev packages the dev
 # profile's binaries (a VM check in minutes; never a release).
-# Contents (#EDE-2): ede-compositor, ede-session, ede-ui and ede-shell in
-# /usr/bin, the factory documents in /usr/share/ede/ui, the session's systemd
-# units (ede-session.target starts ede-shell.service = `ede-ui supervise --
-# ede-shell`), the login screen entries.
+# Contents (#EDE-2): ede-compositor, ede-session, ede-ui, ede-shell and
+# ede-sealed (#EDE-17: lock, polkit, consent) in /usr/bin, the factory
+# documents in /usr/share/ede/ui, the session's systemd units
+# (ede-session.target starts ede-shell.service = `ede-ui supervise --
+# ede-shell` and ede-polkit-agent.service = `ede-sealed polkit`), the login
+# screen entries.
 set -euo pipefail
 bundle_xwayland=1
 profile=release
@@ -41,14 +43,15 @@ trap 'rm -rf "$stage"' EXIT
 release=(--release); [ "$profile" = debug ] && release=()
 cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui --features ede-compositor/udev
 # The shell is its own workspace (gpui never enters the compositor's).
-(cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell)
+(cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell --bins)
 
 for bin in ede-compositor ede-session ede-ui; do
   install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
 done
 install -Dm755 "$shell_target/$profile/ede-shell" "$stage/usr/bin/ede-shell"
+# Tier B (#EDE-17): the lock screen, the polkit agent and consent.
+install -Dm755 "$shell_target/$profile/ede-sealed" "$stage/usr/bin/ede-sealed"
 for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/ede/ui/$(basename "$f")"; done
-install -Dm755 "$here/ede-polkit-agent" "$stage/usr/lib/ede/ede-polkit-agent"
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
 for f in "$here"/systemd/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/user/$(basename "$f")"; done
 install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/ede/copyright"
@@ -81,7 +84,7 @@ Section: x11
 Priority: optional
 Homepage: https://exponential.at
 Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin
-Recommends: policykit-1-gnome | mate-polkit, gnome-keyring, swaylock
+Recommends: gnome-keyring
 Description: eDE, the Exponential desktop
  A Wayland desktop session: the ede-compositor (floating windows with edge
  snapping, Xwayland 24.1+ with explicit sync) started by ede-session from the login

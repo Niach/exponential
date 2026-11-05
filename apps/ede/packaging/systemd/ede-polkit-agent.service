@@ -1,11 +1,14 @@
-# The authentication prompt for admin actions (polkit). eDE draws its own
-# later; until then, the agent the distro ships.
+# The authentication prompt for admin actions (polkit): eDE's own sealed
+# agent (#EDE-17, `ede-sealed polkit`), registered with polkitd for the
+# session; the password goes through polkit-agent-helper-1.
 [Unit]
-Description=eDE polkit authentication agent
+Description=eDE polkit authentication agent (ede-sealed)
 PartOf=graphical-session.target
 After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
-ExecStart=/usr/lib/ede/ede-polkit-agent
+ExecStart=/usr/bin/ede-sealed polkit
 Restart=on-failure
 RestartSec=2
+Slice=session.slice

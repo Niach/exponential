@@ -49,6 +49,7 @@ pub(crate) fn start_timer(loop_handle: &LoopHandle<'static, Ede>) {
     loop_handle
         .insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, state| {
             state.idle_tick();
+            state.sealed_tick();
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })
         .expect("idle timer");
