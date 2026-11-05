@@ -10,23 +10,45 @@
 //! its parent as an `xdg_popup` of that surface. A change on disk redraws
 //! the surface; after each draw the shell prints the document's frame line
 //! on stdout, which is how the supervisor knows an edit reached the screen.
-//! The panel's data: `/time` (local, every minute), `/windows` (the open
-//! windows over ede-protocol); its actions: `focus {window}`, `launch
-//! {command}`.
+//! The data every document may bind: `/time` (local, every minute),
+//! `/windows` (the open windows over ede-protocol), `/apps` + `/query` (the
+//! launcher, [`apps`]), `/switcher` (the Alt+Tab switcher with thumbnails,
+//! [`thumbs`]), `/osd` (the media keys' level). The host functions a
+//! document may call are the `ede.*` names its `surface.functions` lists
+//! (#EDE-8's Tier C rule, checked again here): `ede.launch {command}`,
+//! `ede.focus {window}`, `ede.close {window}`, `ede.lock`, `ede.logout`,
+//! `ede.power {action}`, `ede.select {window}`, `ede.notify_close {id}`,
+//! `ede.notify_action {id, key}`, `ede.notify_clear`, `ede.tray {service}`,
+//! `ede.tray_menu {service, id}`. The keys the compositor keeps (Alt+Tab,
+//! Super, the media keys) arrive as `hotkey` events (#EDE-12) and open the
+//! on-demand surfaces (`switcher`, `osd`) or the menu. The shell is also
+//! the session's notification server and tray host ([`dbus`]):
+//! `/notifications` (toasts, the history, the count) and `/tray` (the
+//! items), `/traymenu` (an item's menu).
 //!
-//! `ede-shell [--windowed] [--popup] [--exit-after <ms>]`
+//! `ede-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
-//!   --popup       open every popup document right away (the headless check)
+//!   --popup NAME  open a popup document right away (the goldens; `all` = every one)
+//!   --open NAME   open an on-demand layer document right away (the goldens)
 //!   --exit-after  quit after this many milliseconds (the headless check)
+//! `EDE_SHELL_DEMO=1` feeds fixed sample data (apps, switcher windows) instead
+//! of the machine's, so a golden never depends on what is installed.
 
+mod apps;
 mod assets;
+mod dbus;
+mod system;
+mod thumbs;
 
 use std::{
     cell::RefCell,
     collections::HashMap,
     rc::Rc,
-    sync::{mpsc, Arc, Mutex},
-    time::Duration,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex,
+    },
+    time::{Duration, Instant},
 };
 
 use ede_ui::{
@@ -34,8 +56,8 @@ use ede_ui::{
     surface::{Edge, Keyboard, Layer as DocLayer, Placement, SurfaceHeader},
     Change, Document, Runtime,
 };
-use eui_core::{surface::SurfaceSettings, theme::{Mode, ModeSetting}};
-use eui_gpui::host::{ActionEvent, HostPlugin};
+use eui_core::{host::MediaOptions, surface::{SurfaceCommand, SurfaceSettings}, theme::{Mode, ModeSetting}};
+use eui_gpui::host::{ActionEvent, FunctionCallEvent, HostPlugin, InputEvent};
 use eui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{
     div, layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions}, point, popup::{PopupAnchor, PopupConstraintAdjustment, PopupGravity, PopupOptions}, prelude::*, px, size, App, Bounds, Entity, Pixels, SharedString, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
@@ -47,20 +69,22 @@ const DEFAULT_SIZE: (f32, f32) = (1280.0, 40.0);
 
 struct Options {
     windowed: bool,
-    popup: bool,
+    popup: Vec<String>,
+    open: Vec<String>,
     exit_after: Option<u64>,
 }
 
 fn parse_args() -> Options {
-    let mut o = Options { windowed: false, popup: false, exit_after: None };
+    let mut o = Options { windowed: false, popup: Vec::new(), open: Vec::new(), exit_after: None };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--windowed" => o.windowed = true,
-            "--popup" => o.popup = true,
+            "--popup" => o.popup.extend(args.next()),
+            "--open" => o.open.extend(args.next()),
             "--exit-after" => o.exit_after = args.next().and_then(|v| v.parse().ok()),
             "-h" | "--help" => {
-                println!("usage: ede-shell [--windowed] [--popup] [--exit-after <ms>]");
+                println!("usage: ede-shell [--windowed] [--popup <document>] [--open <document>] [--exit-after <ms>]");
                 std::process::exit(0);
             }
             other => {
@@ -88,11 +112,83 @@ struct Open {
     view: Entity<SurfaceView>,
 }
 
-/// What every document may bind: the clock and the open windows.
+/// What every document may bind: the clock, the open windows, the
+/// launcher's apps and query, the switcher, the OSD.
 #[derive(Default, Clone)]
 struct ShellData {
     time: String,
     windows: Vec<Value>,
+    query: String,
+    apps: Vec<Value>,
+    switcher: Value,
+    osd: Value,
+    notifications: Value,
+    tray: Vec<Value>,
+    traymenu: Value,
+}
+
+/// The notifications heard this session, newest first.
+#[derive(Default)]
+struct Notifications {
+    list: Vec<dbus::Notification>,
+    /// Ids still showing as toasts.
+    toasts: Vec<u32>,
+}
+
+impl Notifications {
+    fn to_json(&self) -> Value {
+        let toasts: Vec<Value> = self.list.iter().filter(|n| self.toasts.contains(&n.id)).take(3).map(dbus::Notification::to_json).collect();
+        json!({"toasts": toasts, "list": self.list.iter().map(dbus::Notification::to_json).collect::<Vec<_>>(), "count": self.list.len()})
+    }
+
+    /// Expired toasts leave the stack (they stay in the history); the ids
+    /// that left.
+    fn expire(&mut self, now: Instant) -> Vec<u32> {
+        let gone: Vec<u32> = self.list.iter().filter(|n| self.toasts.contains(&n.id) && n.expires_at.is_some_and(|t| now >= t)).map(|n| n.id).collect();
+        self.toasts.retain(|id| !gone.contains(id));
+        gone
+    }
+
+    fn push(&mut self, n: dbus::Notification) {
+        self.list.retain(|x| x.id != n.id);
+        self.toasts.retain(|id| *id != n.id);
+        self.toasts.insert(0, n.id);
+        self.list.insert(0, n);
+        self.list.truncate(100);
+    }
+
+    /// Removes it everywhere; `true` if it was there.
+    fn remove(&mut self, id: u32) -> bool {
+        let before = self.list.len();
+        self.list.retain(|x| x.id != id);
+        self.toasts.retain(|x| *x != id);
+        before != self.list.len()
+    }
+}
+
+/// The Alt+Tab switcher while it is open: the windows most recent first
+/// and the selected one.
+#[derive(Default)]
+struct Switcher {
+    windows: Vec<Value>,
+    selected: usize,
+    /// Thumbnails by window id, refreshed by the capture thread.
+    thumbnails: HashMap<String, String>,
+}
+
+impl Switcher {
+    fn to_json(&self) -> Value {
+        let windows: Vec<Value> = self
+            .windows
+            .iter()
+            .enumerate()
+            .map(|(i, w)| {
+                let id = w["id"].as_str().unwrap_or_default();
+                json!({"id": id, "title": w["title"], "selected": i == self.selected, "thumbnail": self.thumbnails.get(id).cloned().unwrap_or_default()})
+            })
+            .collect();
+        json!({ "windows": windows })
+    }
 }
 
 /// The shell's state, shared by the host plugin and the main loop.
@@ -103,16 +199,54 @@ struct Shell {
     data: ShellData,
     ede: Option<ede_protocol::Client>,
     theme: Arc<eui_core::theme::ResolvedTheme>,
+    /// The installed applications, scanned at start (the launcher).
+    apps: Vec<apps::App>,
+    switcher: Option<Switcher>,
+    /// The thumbnail thread runs while this is set.
+    capturing: Arc<AtomicBool>,
+    /// The OSD closes when this passes.
+    osd_until: Option<Instant>,
+    notifications: Notifications,
+    dbus: Option<dbus::Dbus>,
+    tray: Vec<dbus::TrayItem>,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
 
 type SharedShell = Rc<RefCell<Shell>>;
 
-/// Actions from the documents: `menu`-style presses open their popup
-/// document, `focus` and `launch` go to the compositor and the system.
+/// Actions from the documents: a press on a popup's anchor opens that
+/// popup document; the `ede.*` host functions go to the compositor and the
+/// system, each only from a document whose header allows it.
 struct Host {
     shell: SharedShell,
+}
+
+/// Does `document`'s header list `function`? (Tier C: a document grants no
+/// privileges; `ede-ui` refuses such a document already, this is the
+/// shell's own check.)
+fn allowed(shell: &Shell, document: &str, function: &str) -> bool {
+    let ui = shell.ui.lock().unwrap_or_else(|p| p.into_inner());
+    ui.document(document).is_some_and(|d| d.surface.functions().iter().any(|f| f == function))
+}
+
+fn with_ede<R>(shell: &SharedShell, f: impl FnOnce(&mut ede_protocol::Client) -> Result<R, ede_protocol::Error>) -> Option<R> {
+    let mut s = shell.borrow_mut();
+    let Some(ede) = s.ede.as_mut() else {
+        tracing::warn!("no ede-protocol connection");
+        return None;
+    };
+    match f(ede) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            tracing::warn!("ede-protocol: {e}");
+            None
+        }
+    }
+}
+
+fn window_arg(args: &Value) -> Option<ede_protocol::WindowId> {
+    args.get("window").and_then(Value::as_str).and_then(|s| ede_protocol::WindowId::new(s).ok())
 }
 
 impl HostPlugin for Host {
@@ -133,27 +267,118 @@ impl HostPlugin for Host {
                 }
             });
         }
-        match event.name.as_str() {
-            "focus" => {
-                if let Some(id) = event.context.get("window").and_then(Value::as_str).and_then(|s| ede_protocol::WindowId::new(s).ok()) {
-                    let mut shell = self.shell.borrow_mut();
-                    if let Some(ede) = shell.ede.as_mut() {
-                        if let Err(e) = ede.call(ede_protocol::Request::FocusWindow { window: id }) {
-                            tracing::warn!("focus: {e}");
-                        }
-                    }
-                }
-            }
-            "launch" => {
-                if let Some(command) = event.context.get("command").and_then(Value::as_str) {
-                    match std::process::Command::new("sh").arg("-c").arg(command).spawn() {
-                        Ok(_) => tracing::info!(command, "launched"),
-                        Err(e) => tracing::warn!(command, "launch failed: {e}"),
-                    }
-                }
-            }
-            _ => {}
+    }
+
+    fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
+        let (name, args) = (event.name.as_str(), &event.args);
+        if !allowed(&self.shell.borrow(), &event.surface_id, name) {
+            tracing::warn!(document = %event.surface_id, function = name, "refused: not in the document's surface.functions");
+            return;
         }
+        tracing::info!(document = %event.surface_id, function = name, %args, "host function");
+        match name {
+            "ede.launch" => {
+                if let Some(command) = args.get("command").and_then(Value::as_str) {
+                    system::launch(command);
+                }
+                let shell = self.shell.clone();
+                cx.defer(move |cx| close(&shell, "menu", cx));
+            }
+            "ede.focus" => {
+                if let Some(id) = window_arg(args) {
+                    with_ede(&self.shell, |ede| ede.focus(id));
+                }
+            }
+            "ede.close" => {
+                if let Some(id) = window_arg(args) {
+                    with_ede(&self.shell, |ede| ede.close_window(id));
+                }
+            }
+            "ede.lock" => {
+                with_ede(&self.shell, |ede| ede.lock());
+                let shell = self.shell.clone();
+                cx.defer(move |cx| close(&shell, "menu", cx));
+            }
+            "ede.logout" => {
+                with_ede(&self.shell, |ede| ede.logout());
+            }
+            "ede.power" => {
+                if let Some(action) = args.get("action").and_then(Value::as_str) {
+                    system::power(action);
+                }
+            }
+            "ede.select" => {
+                if let Some(id) = window_arg(args) {
+                    let shell = self.shell.clone();
+                    cx.defer(move |cx| switcher_commit(&shell, Some(id), cx));
+                }
+            }
+            "ede.notify_close" => {
+                if let Some(id) = args.get("id").and_then(Value::as_u64) {
+                    let shell = self.shell.clone();
+                    cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
+                }
+            }
+            "ede.notify_action" => {
+                let (id, key) = (args.get("id").and_then(Value::as_u64), args.get("key").and_then(Value::as_str).map(String::from));
+                if let (Some(id), Some(key)) = (id, key) {
+                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
+                        d.action_invoked(id as u32, &key);
+                    }
+                    let shell = self.shell.clone();
+                    cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
+                }
+            }
+            "ede.notify_clear" => {
+                let shell = self.shell.clone();
+                cx.defer(move |cx| {
+                    let ids: Vec<u32> = shell.borrow().notifications.list.iter().map(|n| n.id).collect();
+                    for id in ids {
+                        notification_close(&shell, id, 2, cx);
+                    }
+                    close(&shell, "notification-center", cx);
+                });
+            }
+            "ede.tray" => {
+                if let Some(service) = args.get("service").and_then(Value::as_str).map(String::from) {
+                    let shell = self.shell.clone();
+                    cx.defer(move |cx| tray_press(&shell, &service, cx));
+                }
+            }
+            "ede.tray_menu" => {
+                let (service, id) = (args.get("service").and_then(Value::as_str).map(String::from), args.get("id").and_then(Value::as_i64));
+                if let (Some(service), Some(id)) = (service, id) {
+                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
+                        d.tray_menu_event(&service, id as i32);
+                    }
+                    let shell = self.shell.clone();
+                    cx.defer(move |cx| close(&shell, "tray-menu", cx));
+                }
+            }
+            other => tracing::warn!(function = other, "unknown host function"),
+        }
+    }
+
+    /// The launcher's search box: `/query` filters `/apps`.
+    fn on_input(&self, event: &InputEvent, cx: &mut App) {
+        if event.path.as_deref() != Some("/query") {
+            return;
+        }
+        let query = event.value.as_str().unwrap_or_default().to_string();
+        let shell = self.shell.clone();
+        cx.defer(move |cx| {
+            {
+                let mut s = shell.borrow_mut();
+                s.data.query = query.clone();
+                s.data.apps = apps::filter(&s.apps, &query);
+            }
+            refresh_data(&shell, cx);
+        });
+    }
+
+    /// App icons are files in the icon themes; thumbnails are `data:` URLs.
+    fn media_options(&self) -> MediaOptions {
+        MediaOptions { schemes: Some(vec!["https".into(), "http".into(), "data".into(), "file".into()]), ..Default::default() }
     }
 }
 
@@ -286,6 +511,13 @@ fn load(view: &mut SurfaceView, doc: &Document, data: &ShellData, cx: &mut gpui:
 fn feed(view: &mut SurfaceView, data: &ShellData, cx: &mut gpui::Context<SurfaceView>) {
     let _ = view.set_data("/time", Some(json!(data.time)), cx);
     let _ = view.set_data("/windows", Some(Value::Array(data.windows.clone())), cx);
+    let _ = view.set_data("/apps", Some(Value::Array(data.apps.clone())), cx);
+    let _ = view.set_data("/query", Some(json!(data.query)), cx);
+    let _ = view.set_data("/switcher", Some(data.switcher.clone()), cx);
+    let _ = view.set_data("/osd", Some(data.osd.clone()), cx);
+    let _ = view.set_data("/notifications", Some(data.notifications.clone()), cx);
+    let _ = view.set_data("/tray", Some(Value::Array(data.tray.clone())), cx);
+    let _ = view.set_data("/traymenu", Some(data.traymenu.clone()), cx);
 }
 
 fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
@@ -351,8 +583,9 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
                     });
                     tracing::info!(document = %name, "redrawn");
                 }
-                (None, SurfaceHeader::Layer { .. }) => open_layer(shell, &doc, cx),
-                (None, SurfaceHeader::Popup { .. }) => {}
+                // An on-demand surface (the switcher, the OSD) waits for its hotkey.
+                (None, SurfaceHeader::Layer { on_demand: false, .. }) => open_layer(shell, &doc, cx),
+                (None, SurfaceHeader::Layer { on_demand: true, .. }) | (None, SurfaceHeader::Popup { .. }) => {}
             }
         }
         Change::Removed { name, .. } => close(shell, &name, cx),
@@ -370,6 +603,266 @@ fn refresh_data(shell: &SharedShell, cx: &mut App) {
     for (handle, view) in views {
         let data = data.clone();
         let _ = handle.update(cx, |_, _, cx| view.update(cx, |v, cx| feed(v, &data, cx)));
+    }
+}
+
+/// A key the compositor kept for the shell (#EDE-12).
+fn hotkey(shell: &SharedShell, name: &str, thumbs: &mpsc::Sender<(String, String)>, cx: &mut App) {
+    tracing::info!(name, "hotkey");
+    match name {
+        "switcher.next" | "switcher.prev" => switcher_step(shell, name == "switcher.prev", thumbs, cx),
+        "switcher.commit" => switcher_commit(shell, None, cx),
+        "switcher.cancel" => switcher_close(shell, cx),
+        "menu.toggle" => menu_toggle(shell, cx),
+        "volume.up" | "volume.down" => osd_show(shell, system::volume_step(name == "volume.up"), cx),
+        "volume.mute" => osd_show(shell, system::volume_toggle_mute(), cx),
+        "mic.mute" => osd_show(shell, system::mic_toggle_mute(), cx),
+        "brightness.up" | "brightness.down" => osd_show(shell, system::brightness_step(name == "brightness.up"), cx),
+        "media.play" | "media.next" | "media.prev" => system::media(name),
+        "terminal" => match system::terminal_command() {
+            Some(t) => system::launch(t),
+            None => tracing::warn!("no terminal emulator installed"),
+        },
+        "screenshot" => screenshot(shell),
+        "popups.dismiss" => {
+            let open: Vec<String> = {
+                let s = shell.borrow();
+                let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
+                s.open.keys().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).cloned().collect()
+            };
+            for name in open {
+                close(shell, &name, cx);
+            }
+        }
+        "agent.toggle" => tracing::info!("the agent panel comes with M2"),
+        other => tracing::info!(name = other, "hotkey without a handler"),
+    }
+}
+
+fn menu_toggle(shell: &SharedShell, cx: &mut App) {
+    let was_open = shell.borrow().open.contains_key("menu");
+    if !was_open {
+        // A fresh search every time.
+        let mut s = shell.borrow_mut();
+        s.data.query.clear();
+        s.data.apps = apps::filter(&s.apps, "");
+    }
+    toggle_popup(shell, "menu", cx);
+    if !was_open {
+        refresh_data(shell, cx);
+        focus_component(shell, "menu", "search", cx);
+    }
+}
+
+/// Keyboard focus into a component of an open document (the search box).
+fn focus_component(shell: &SharedShell, document: &str, component: &str, cx: &mut App) {
+    let open = shell.borrow().open.get(document).map(|o| (o.handle, o.view.clone()));
+    let Some((handle, view)) = open else { return };
+    let id = component.to_string();
+    let _ = handle.update(cx, |_, _, cx| {
+        view.update(cx, |v, cx| {
+            v.command(&SurfaceCommand::Focus { id }, cx);
+            cx.notify();
+        })
+    });
+}
+
+/// Opens an on-demand layer document by name, if it is not open.
+fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
+    if shell.borrow().open.contains_key(name) {
+        return;
+    }
+    let doc = shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).document(name).cloned();
+    match doc {
+        Some(doc) if matches!(doc.surface, SurfaceHeader::Layer { .. }) => open_layer(shell, &doc, cx),
+        _ => tracing::warn!(document = name, "no such layer document"),
+    }
+}
+
+/// Alt+Tab: open the switcher on the first step, move the selection after.
+fn switcher_step(shell: &SharedShell, reverse: bool, thumbs: &mpsc::Sender<(String, String)>, cx: &mut App) {
+    let fresh = shell.borrow().switcher.is_none();
+    if fresh {
+        // The compositor lists bottom to top: most recent first here.
+        let mut windows = shell.borrow().data.windows.clone();
+        windows.reverse();
+        let n = windows.len();
+        let selected = if n > 1 { if reverse { n - 1 } else { 1 } } else { 0 };
+        shell.borrow_mut().switcher = Some(Switcher { windows, selected, thumbnails: HashMap::new() });
+        start_thumbnails(shell, thumbs);
+        open_on_demand(shell, "switcher", cx);
+    } else {
+        let mut s = shell.borrow_mut();
+        let sw = s.switcher.as_mut().unwrap();
+        let n = sw.windows.len();
+        if n > 0 {
+            sw.selected = if reverse { (sw.selected + n - 1) % n } else { (sw.selected + 1) % n };
+        }
+    }
+    let json = shell.borrow().switcher.as_ref().map(Switcher::to_json).unwrap_or_default();
+    shell.borrow_mut().data.switcher = json;
+    refresh_data(shell, cx);
+}
+
+/// Thumbnails at about 5 fps while the switcher is open, on a thread
+/// with its own ede-protocol connection.
+fn start_thumbnails(shell: &SharedShell, thumbs: &mpsc::Sender<(String, String)>) {
+    let flag = shell.borrow().capturing.clone();
+    flag.store(true, Ordering::SeqCst);
+    let ids: Vec<String> = shell.borrow().switcher.as_ref().map(|sw| sw.windows.iter().filter_map(|w| w["id"].as_str().map(String::from)).collect()).unwrap_or_default();
+    let tx = thumbs.clone();
+    let _ = std::thread::Builder::new().name("ede-shell-thumbs".into()).spawn(move || {
+        let Ok(mut ede) = ede_protocol::Client::connect_env() else { return };
+        while flag.load(Ordering::SeqCst) {
+            let started = Instant::now();
+            for id in &ids {
+                if !flag.load(Ordering::SeqCst) {
+                    return;
+                }
+                let Ok(window) = ede_protocol::WindowId::new(id) else { continue };
+                // A protected window refuses the capture: no picture, as intended.
+                if let Ok(capture) = ede.capture(ede_protocol::CaptureTarget::Window { window }) {
+                    if let Some(url) = thumbs::data_url(&capture) {
+                        if tx.send((id.clone(), url)).is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+            if let Some(rest) = Duration::from_millis(200).checked_sub(started.elapsed()) {
+                std::thread::sleep(rest);
+            }
+        }
+    });
+}
+
+/// Alt released (or a tile clicked): the selected window gets focus.
+fn switcher_commit(shell: &SharedShell, pick: Option<ede_protocol::WindowId>, cx: &mut App) {
+    let target = pick.or_else(|| {
+        let s = shell.borrow();
+        let sw = s.switcher.as_ref()?;
+        sw.windows.get(sw.selected).and_then(|w| w["id"].as_str()).and_then(|id| ede_protocol::WindowId::new(id).ok())
+    });
+    if let Some(id) = target {
+        with_ede(shell, |ede| ede.focus(id));
+    }
+    switcher_close(shell, cx);
+}
+
+fn switcher_close(shell: &SharedShell, cx: &mut App) {
+    {
+        let mut s = shell.borrow_mut();
+        s.capturing.store(false, Ordering::SeqCst);
+        s.switcher = None;
+        s.data.switcher = json!({"windows": []});
+    }
+    close(shell, "switcher", cx);
+}
+
+/// The OSD with a level, for 1.5 s.
+fn osd_show(shell: &SharedShell, level: Option<system::Level>, cx: &mut App) {
+    let Some(level) = level else { return };
+    {
+        let mut s = shell.borrow_mut();
+        s.data.osd = json!({"icon": level.icon, "level": level.percent.min(100), "label": level.label()});
+        s.osd_until = Some(Instant::now() + Duration::from_millis(1500));
+    }
+    open_on_demand(shell, "osd", cx);
+    refresh_data(shell, cx);
+}
+
+/// Print: the first output to `~/Pictures/Screenshots`.
+fn screenshot(shell: &SharedShell) {
+    let path = system::screenshot_path();
+    let saved = with_ede(shell, |ede| {
+        let outputs = ede.outputs()?;
+        let Some(first) = outputs.first() else { return Ok(false) };
+        let capture = ede.capture(ede_protocol::CaptureTarget::Output { name: first.name.clone() })?;
+        Ok(thumbs::write_png(&path, &capture).is_ok())
+    });
+    if saved == Some(true) {
+        tracing::info!(path = %path.display(), "screenshot saved");
+    }
+}
+
+/// Something on the session bus (#EDE-12).
+fn dbus_event(shell: &SharedShell, event: dbus::Event, cx: &mut App) {
+    match event {
+        dbus::Event::Notified(n) => {
+            tracing::info!(id = n.id, app = %n.app, summary = %n.summary, "notification");
+            shell.borrow_mut().notifications.push(n);
+            notifications_changed(shell, cx);
+        }
+        dbus::Event::CloseRequested(id) => notification_close(shell, id, 3, cx),
+        dbus::Event::TrayChanged => {
+            tray_refresh(shell);
+            refresh_data(shell, cx);
+        }
+    }
+}
+
+/// A notification leaves (reason: 1 expired, 2 dismissed, 3 the app closed it).
+fn notification_close(shell: &SharedShell, id: u32, reason: u32, cx: &mut App) {
+    let was_there = shell.borrow_mut().notifications.remove(id);
+    if was_there {
+        if let Some(d) = shell.borrow().dbus.as_ref() {
+            d.notification_closed(id, reason);
+        }
+    }
+    notifications_changed(shell, cx);
+}
+
+/// The toast surface shows while toasts exist; every document sees the data.
+fn notifications_changed(shell: &SharedShell, cx: &mut App) {
+    let (json, any_toast) = {
+        let s = shell.borrow();
+        (s.notifications.to_json(), !s.notifications.toasts.is_empty())
+    };
+    shell.borrow_mut().data.notifications = json;
+    if any_toast {
+        open_on_demand(shell, "notifications", cx);
+    } else {
+        close(shell, "notifications", cx);
+    }
+    refresh_data(shell, cx);
+}
+
+/// Reads the tray items again (a short blocking round on the bus).
+fn tray_refresh(shell: &SharedShell) {
+    let items = shell.borrow().dbus.as_ref().map(|d| d.tray_items()).unwrap_or_default();
+    let mut s = shell.borrow_mut();
+    s.data.tray = items.iter().map(dbus::TrayItem::to_json).collect();
+    s.tray = items;
+}
+
+/// A tray item pressed: its menu as a popup, else `Activate`.
+fn tray_press(shell: &SharedShell, service: &str, cx: &mut App) {
+    let (has_menu, title) = shell.borrow().tray.iter().find(|i| i.service == service).map(|i| (i.has_menu, i.title.clone())).unwrap_or((false, String::new()));
+    let menu = if has_menu { shell.borrow().dbus.as_ref().and_then(|d| d.tray_menu(service)) } else { None };
+    match menu {
+        Some(entries) if !entries.is_empty() => {
+            let items: Vec<Value> = entries
+                .iter()
+                .map(|e| {
+                    let mut v = e.to_json();
+                    if e.depth > 0 {
+                        v["label"] = json!(format!("    {}", e.label));
+                    }
+                    v
+                })
+                .collect();
+            shell.borrow_mut().data.traymenu = json!({"service": service, "title": title, "items": items});
+            if shell.borrow().open.contains_key("tray-menu") {
+                close(shell, "tray-menu", cx);
+            }
+            toggle_popup(shell, "tray-menu", cx);
+            refresh_data(shell, cx);
+        }
+        _ => {
+            if let Some(d) = shell.borrow().dbus.as_ref() {
+                d.tray_activate(service, 0, 0);
+            }
+        }
     }
 }
 
@@ -417,10 +910,11 @@ fn main() {
         }
     };
 
-    // Window events from the compositor on their own connection.
+    // Window events and hotkeys from the compositor on their own connection.
     let (windows_tx, windows_rx) = mpsc::channel::<Vec<Value>>();
+    let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<String>();
     std::thread::Builder::new()
-        .name("ede-shell-windows".into())
+        .name("ede-shell-events".into())
         .spawn(move || {
             let Ok(mut events) = ede_protocol::Client::connect_env() else {
                 tracing::info!("no ede-protocol socket: the taskbar stays empty");
@@ -434,7 +928,13 @@ fn main() {
                 return;
             }
             while let Ok(event) = events.next_event() {
-                if event.kind.starts_with("window.") {
+                if event.kind == ede_protocol::events::HOTKEY {
+                    if let Some(name) = event.data.get("name").and_then(Value::as_str) {
+                        if hotkeys_tx.send(name.to_string()).is_err() {
+                            return;
+                        }
+                    }
+                } else if event.kind.starts_with("window.") {
                     if let Some(list) = windows_json(&mut calls) {
                         if windows_tx.send(list).is_err() {
                             return;
@@ -443,18 +943,68 @@ fn main() {
                 }
             }
         })
-        .expect("the windows thread");
+        .expect("the events thread");
+    let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
+    let installed = if demo { apps::demo() } else { apps::scan() };
+    tracing::info!(apps = installed.len(), demo, "desktop entries");
+    // Thumbnails from the capture thread while the switcher is open.
+    let (thumbs_tx, thumbs_rx) = mpsc::channel::<(String, String)>();
+    // Notifications and tray changes from the session bus.
+    let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Event>();
+    let dbus = if demo { None } else { dbus::Dbus::start(dbus_tx, clock) };
 
     gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         gpui_component::init(cx);
         let _ = cx.text_system().add_fonts(assets::fonts());
         let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
-        let shell: SharedShell = Rc::new(RefCell::new(Shell { options, ui: ui.clone(), open: HashMap::new(), data: ShellData { time: clock(), windows: Vec::new() }, ede: ede_protocol::Client::connect_env().ok(), theme, _watcher: watcher }));
+        let (switcher, osd) = if demo {
+            (
+                json!({"windows": [{"id": "w1", "title": "Firefox", "selected": false, "thumbnail": ""}, {"id": "w2", "title": "Terminal", "selected": true, "thumbnail": ""}, {"id": "w3", "title": "Files", "selected": false, "thumbnail": ""}]}),
+                json!({"icon": "media-volume-down", "level": 45, "label": "45%"}),
+            )
+        } else {
+            (json!({"windows": []}), json!({"icon": "media-volume-up", "level": 0, "label": ""}))
+        };
+        let (notifications, tray) = if demo {
+            (
+                json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the eDE M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the eDE M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}),
+                vec![json!({"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}), json!({"service": "demo/sound", "title": "Sound", "status": "Active", "icon": ""})],
+            )
+        } else {
+            (json!({"toasts": [], "list": [], "count": 0}), Vec::new())
+        };
+        let traymenu = if demo {
+            json!({"service": "demo/network", "title": "Network", "items": [
+                {"id": 1, "label": "Connect to Wi-Fi", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0},
+                {"id": 2, "label": "Airplane mode", "enabled": true, "separator": false, "checked": false, "checkable": true, "depth": 0},
+                {"id": 3, "label": "", "enabled": true, "separator": true, "checked": false, "checkable": false, "depth": 0},
+                {"id": 4, "label": "Settings…", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0}
+            ]})
+        } else {
+            json!({"service": "", "title": "", "items": []})
+        };
+        let data = ShellData { time: clock(), apps: apps::filter(&installed, ""), switcher, osd, notifications, tray, traymenu, ..Default::default() };
+        let shell: SharedShell = Rc::new(RefCell::new(Shell { options, ui: ui.clone(), open: HashMap::new(), data, ede: ede_protocol::Client::connect_env().ok(), theme, apps: installed, switcher: None, capturing: Arc::new(AtomicBool::new(false)), osd_until: None, notifications: Notifications::default(), dbus, tray: Vec::new(), _watcher: watcher }));
+        if demo {
+            // The toasts golden: the sample toast as an open surface.
+            let s = shell.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(Duration::from_millis(300)).await;
+                let wanted = s.borrow().options.open.iter().any(|d| d == "notifications");
+                if wanted {
+                    cx.update(|cx| refresh_data(&s, cx));
+                }
+            })
+            .detach();
+        } else {
+            // The tray as it stands at start.
+            tray_refresh(&shell);
+        }
 
         // Every layer document on screen; popups wait for their anchor.
         let docs: Vec<Document> = ui.lock().unwrap_or_else(|p| p.into_inner()).documents().cloned().collect();
         for doc in &docs {
-            if matches!(doc.surface, SurfaceHeader::Layer { .. }) {
+            if matches!(doc.surface, SurfaceHeader::Layer { on_demand: false, .. }) {
                 open_layer(&shell, doc, cx);
             }
         }
@@ -482,6 +1032,34 @@ fn main() {
                     s.borrow_mut().data.windows = list;
                     dirty = true;
                 }
+                while let Ok(name) = hotkeys_rx.try_recv() {
+                    cx.update(|cx| hotkey(&s, &name, &thumbs_tx, cx));
+                }
+                while let Ok((id, url)) = thumbs_rx.try_recv() {
+                    let mut sh = s.borrow_mut();
+                    if let Some(sw) = sh.switcher.as_mut() {
+                        sw.thumbnails.insert(id, url);
+                        sh.data.switcher = sh.switcher.as_ref().unwrap().to_json();
+                        dirty = true;
+                    }
+                }
+                while let Ok(event) = dbus_rx.try_recv() {
+                    cx.update(|cx| dbus_event(&s, event, cx));
+                }
+                let expired = s.borrow_mut().notifications.expire(Instant::now());
+                if !expired.is_empty() {
+                    for id in &expired {
+                        if let Some(d) = s.borrow().dbus.as_ref() {
+                            d.notification_closed(*id, 1);
+                        }
+                    }
+                    cx.update(|cx| notifications_changed(&s, cx));
+                }
+                let osd_over = s.borrow().osd_until.is_some_and(|t| Instant::now() >= t);
+                if osd_over {
+                    s.borrow_mut().osd_until = None;
+                    cx.update(|cx| close(&s, "osd", cx));
+                }
                 let now = clock();
                 if now != minute {
                     minute = now.clone();
@@ -496,11 +1074,17 @@ fn main() {
         })
         .detach();
 
-        if shell.borrow().options.popup {
+        let open_now = shell.borrow().options.open.clone();
+        for name in open_now {
+            open_on_demand(&shell, &name, cx);
+        }
+        let wanted_popups = shell.borrow().options.popup.clone();
+        if !wanted_popups.is_empty() {
             let s = shell.clone();
             cx.spawn(async move |cx| {
                 cx.background_executor().timer(Duration::from_millis(700)).await;
-                let names: Vec<String> = s.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).documents().filter(|d| matches!(d.surface, SurfaceHeader::Popup { .. })).map(|d| d.name.clone()).collect();
+                let all = wanted_popups.iter().any(|p| p == "all");
+                let names: Vec<String> = s.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).documents().filter(|d| matches!(d.surface, SurfaceHeader::Popup { .. }) && (all || wanted_popups.contains(&d.name))).map(|d| d.name.clone()).collect();
                 cx.update(|cx| {
                     for name in names {
                         toggle_popup(&s, &name, cx);

@@ -4,7 +4,8 @@
 //! Compositor bindings (Mint-like): Alt+drag moves a window, Alt+F4 closes
 //! it, Super+Left/Right tile to a half, Super+Up maximizes, Super+Down
 //! restores, Super+L locks, Super+Shift+E ends the session, Ctrl+Alt+F1…F12
-//! switch VTs. While locked only VT switching stays.
+//! switch VTs. While locked only VT switching stays. The keys the shell
+//! answers (Alt+Tab, Super, the media keys) are [`crate::hotkeys`].
 
 use smithay::{
     backend::input::{
@@ -36,6 +37,8 @@ pub enum Action {
     Restore,
     /// Super+L: start the lock client.
     Lock,
+    /// A key the shell answers ([`crate::hotkeys`]); the event is sent after delivery.
+    Hotkey,
 }
 
 impl Ede {
@@ -106,12 +109,29 @@ impl Ede {
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
 
+        if state == ButtonState::Pressed {
+            let hit = self.surface_under(pointer.current_location()).map(|(s, _)| s);
+            self.hotkeys_pointer_pressed(hit.as_ref());
+        }
         if state == ButtonState::Pressed && self.is_locked() {
             self.lock_pointer_focus();
         } else if state == ButtonState::Pressed && !pointer.is_grabbed() {
             let location = pointer.current_location();
-            let window = self.space.element_under(location).map(|(w, _)| w.clone());
-            self.focus(window.clone());
+            let under = self.surface_under(location).map(|(s, _)| s);
+            let window = under.as_ref().and_then(|s| self.window_for_surface(s)).or_else(|| self.space.element_under(location).map(|(w, _)| w.clone()));
+            match (&window, under) {
+                (Some(_), _) => self.focus(window.clone()),
+                // A layer surface that takes the keyboard (the shell's menu,
+                // a search) gets it on a click; the panel and a wallpaper
+                // leave the app's focus alone (as on Cinnamon).
+                (None, Some(surface)) => {
+                    if self.layer_takes_keyboard(&surface) || self.popups.find_popup(&surface).is_some() {
+                        let keyboard = self.seat.get_keyboard().unwrap();
+                        keyboard.set_focus(self, Some(surface), serial);
+                    }
+                }
+                (None, None) => self.focus(None),
+            }
             let alt = self.seat.get_keyboard().unwrap().modifier_state().alt;
             if let (Some(window), true, BTN_LEFT) = (window, alt, button) {
                 // Alt+drag: move from anywhere in the window.
@@ -137,19 +157,44 @@ impl Ede {
         let serial = SERIAL_COUNTER.next_serial();
         let keyboard = self.seat.get_keyboard().unwrap();
         let locked = self.is_locked();
-        let action = keyboard.input::<Action, _>(self, keycode, state, serial, time, |_, mods, handle| {
-            if state != KeyState::Pressed || !bindings {
+        let listening = self.shell_listening();
+        let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some());
+        let action = keyboard.input::<Action, _>(self, keycode, state, serial, time, |ede, mods, handle| {
+            if !bindings {
                 return FilterResult::Forward;
             }
-            match binding(mods, handle.modified_sym().raw()) {
-                Some(action @ Action::SwitchVt(_)) => FilterResult::Intercept(action),
-                Some(_) if locked => FilterResult::Forward,
+            let sym = handle.modified_sym().raw();
+            if locked {
+                // Only VT switching; the lock screen gets everything else.
+                return match binding(mods, sym) {
+                    Some(action @ Action::SwitchVt(_)) if state == KeyState::Pressed => FilterResult::Intercept(action),
+                    _ => FilterResult::Forward,
+                };
+            }
+            if state == KeyState::Pressed && sym == keysyms::KEY_Escape && popup_focused {
+                ede.hotkeys.fired = Some(crate::hotkeys::Hotkey::PopupsDismiss);
+                return FilterResult::Intercept(Action::Hotkey);
+            }
+            let (keep, hotkey) = crate::hotkeys::decide(&mut ede.hotkeys, mods, sym, state, listening);
+            if hotkey.is_some() {
+                ede.hotkeys.fired = hotkey;
+            }
+            if keep {
+                return FilterResult::Intercept(Action::Hotkey);
+            }
+            if state != KeyState::Pressed {
+                return FilterResult::Forward;
+            }
+            match binding(mods, sym) {
                 Some(action) => FilterResult::Intercept(action),
                 None => FilterResult::Forward,
             }
         });
         if let Some(action) = action {
             self.run(action);
+        }
+        if let Some(hotkey) = self.hotkeys.fired.take() {
+            self.hotkey(hotkey);
         }
     }
 
@@ -162,6 +207,7 @@ impl Ede {
                 }
             }
             Action::Lock => self.request_lock(),
+            Action::Hotkey => {}
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
                 if let Some(w) = self.focused_window() {
@@ -176,6 +222,19 @@ impl Ede {
                 }
             }
         }
+    }
+
+    /// Is `surface` (or its root) a layer surface whose keyboard
+    /// interactivity is not `none`?
+    pub fn layer_takes_keyboard(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> bool {
+        let mut root = surface.clone();
+        while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
+            root = parent;
+        }
+        self.space.outputs().any(|o| {
+            let map = smithay::desktop::layer_map_for_output(o);
+            map.layer_for_surface(&root, smithay::desktop::WindowSurfaceType::TOPLEVEL).is_some_and(|l| l.can_receive_keyboard_focus())
+        })
     }
 
     fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {

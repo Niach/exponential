@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's factory panel (#EDE-10): a genUI document the shell draws as a top layer-shell surface. Installed to /usr/share/ede/ui; a person's or agent's copy in ~/.config/ede/ui/panel.json wins. The header says how the surface sits on the screen (#EDE-8); root is the nested authoring form of the core catalog; data holds what the shell feeds it (time, the task list).",
+  "$comment": "eDE's factory panel (#EDE-10, #EDE-12): a genUI document the shell draws as a top layer-shell surface. Installed to /usr/share/ede/ui; a person's or agent's copy in ~/.config/ede/ui/panel.json wins. The header says how the surface sits on the screen (#EDE-8) and which host functions it may call (ede.focus: the taskbar; ede.tray: a tray item); root is the nested authoring form of the core catalog; data holds what the shell feeds it (time, the task list, the tray items, the notification count). The first button opens menu.json as the panel's popup, the bell opens notification-center.json, a tray item with a menu opens tray-menu.json.",
   "surface": {
     "layer": "top",
     "anchor": [
@@ -11,7 +11,11 @@
       "height": 40
     },
     "exclusiveZone": 40,
-    "keyboard": "on-demand"
+    "keyboard": "on-demand",
+    "functions": [
+      "ede.focus",
+      "ede.tray"
+    ]
   },
   "root": {
     "id": "panel",
@@ -65,7 +69,8 @@
             },
             "template": {
               "component": "task",
-              "path": "/windows"
+              "path": "/windows",
+              "key": "id"
             },
             "children": []
           },
@@ -81,9 +86,9 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "focus",
-                  "context": {
+                "functionCall": {
+                  "call": "ede.focus",
+                  "args": {
                     "window": {
                       "path": "id"
                     }
@@ -95,19 +100,135 @@
         ]
       },
       {
-        "id": "clock",
-        "component": "Text",
+        "id": "right",
+        "component": "Stack",
         "props": {
-          "text": {
-            "path": "/time"
+          "direction": "horizontal",
+          "gap": "xs",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "tray",
+            "component": "Stack",
+            "props": {
+              "direction": "horizontal",
+              "gap": "xs",
+              "align": "center"
+            },
+            "template": {
+              "component": "tray-item",
+              "path": "/tray",
+              "key": "service"
+            },
+            "children": []
           },
-          "variant": "body"
-        }
+          {
+            "id": "tray-item",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center",
+              "width": 28,
+              "height": 28,
+              "borderRadius": "$radius.sm"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "ede.tray",
+                  "args": {
+                    "service": {
+                      "path": "service"
+                    }
+                  }
+                }
+              }
+            },
+            "children": [
+              {
+                "id": "tray-icon",
+                "component": "Image",
+                "props": {
+                  "src": {
+                    "path": "icon"
+                  },
+                  "alt": {
+                    "path": "title"
+                  },
+                  "width": 18,
+                  "height": 18,
+                  "fit": "contain",
+                  "fallback": "nav-apps"
+                }
+              }
+            ]
+          },
+          {
+            "id": "bell",
+            "component": "Button",
+            "props": {
+              "icon": "nav-notifications",
+              "variant": "ghost",
+              "size": "icon",
+              "label": "Notifications"
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "bell"
+                }
+              }
+            }
+          },
+          {
+            "id": "bell-count",
+            "component": "Badge",
+            "props": {
+              "text": {
+                "path": "/notifications/count"
+              },
+              "variant": "secondary"
+            },
+            "visible": {
+              "call": "not",
+              "args": {
+                "value": {
+                  "call": "eq",
+                  "args": {
+                    "a": {
+                      "path": "/notifications/count"
+                    },
+                    "b": 0
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "clock",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "/time"
+              },
+              "variant": "body"
+            }
+          }
+        ]
       }
     ]
   },
   "data": {
     "time": "00:00",
-    "windows": []
+    "windows": [],
+    "tray": [],
+    "notifications": {
+      "count": 0
+    }
   }
 }

@@ -15,6 +15,11 @@ const RED: u32 = 0xffff_0000;
 const BLUE: u32 = 0xff00_00ff;
 const BLACK: u32 = 0xff00_0000;
 const KEY_A: u32 = 30;
+// evdev codes; a smithay Keycode is the code + 8.
+const KEY_TAB: u32 = 15;
+const KEY_LEFTALT: u32 = 56;
+const KEY_LEFTMETA: u32 = 125;
+const KEY_VOLUMEUP: u32 = 115;
 
 fn harness() -> Harness {
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
@@ -169,6 +174,76 @@ fn subscribers_hear_windows_and_the_lock() {
     // An unsubscribed connection hears nothing (its calls still answer).
     let mut quiet = h.ipc();
     assert!(quiet.windows().is_ok());
+}
+
+/// A person's key (bindings on), both edges or one.
+fn press(h: &Harness, code: u32, pressed: bool) {
+    use smithay::backend::input::KeyState;
+    h.with(move |ede| ede.keyboard_key((code + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, 0));
+}
+
+#[test]
+fn hotkeys_reach_a_listening_shell_and_the_switcher_commits_on_alt_release() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+
+    let mut shell = h.ipc();
+    shell.subscribe().unwrap();
+    shell.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    // Alt+Tab, Tab again, Alt up: next, next, commit; Tab never reaches the app.
+    press(&h, KEY_LEFTALT, true);
+    press(&h, KEY_TAB, true);
+    press(&h, KEY_TAB, false);
+    press(&h, KEY_TAB, true);
+    press(&h, KEY_TAB, false);
+    press(&h, KEY_LEFTALT, false);
+    let names = |shell: &mut ede_protocol::Client, n: usize| -> Vec<String> {
+        (0..n).map(|_| {
+            let e = shell.next_event().unwrap();
+            assert_eq!(e.kind, events::HOTKEY);
+            e.data["name"].as_str().unwrap().to_string()
+        }).collect()
+    };
+    assert_eq!(names(&mut shell, 3), ["switcher.next", "switcher.next", "switcher.commit"]);
+    app.roundtrip();
+    assert!(!app.state.keys.contains(&KEY_TAB), "Tab stayed with the switcher: {:?}", app.state.keys);
+    // Super alone: the menu. A media key: the OSD, and the app never sees it.
+    press(&h, KEY_LEFTMETA, true);
+    press(&h, KEY_LEFTMETA, false);
+    press(&h, KEY_VOLUMEUP, true);
+    press(&h, KEY_VOLUMEUP, false);
+    assert_eq!(names(&mut shell, 2), ["menu.toggle", "volume.up"]);
+    app.roundtrip();
+    assert!(!app.state.keys.contains(&KEY_VOLUMEUP));
+}
+
+#[test]
+fn without_a_shell_alt_tab_cycles_focus_and_media_keys_reach_the_app() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let a = app.toplevel("a");
+    app.draw(&a, 300, 200, BLUE);
+    let b = app.toplevel("b");
+    app.draw(&b, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
+    press(&h, KEY_LEFTALT, true);
+    press(&h, KEY_TAB, true);
+    press(&h, KEY_TAB, false);
+    press(&h, KEY_LEFTALT, false);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&a.surface));
+    press(&h, KEY_VOLUMEUP, true);
+    press(&h, KEY_VOLUMEUP, false);
+    wait_for(&mut app, |c| c.state.keys.contains(&KEY_VOLUMEUP));
+    // Logout is a system op: an agent's narrower grant cannot end the session.
+    let mut root = h.ipc();
+    let agent = root.mint(SessionId::new("agent-1").unwrap(), vec![Capability::Ui], None).unwrap();
+    let mut agent = h.ipc_with(agent.token).unwrap();
+    assert_eq!(code(agent.logout().unwrap_err()), ErrorCode::Forbidden);
 }
 
 #[test]

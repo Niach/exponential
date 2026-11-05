@@ -34,6 +34,10 @@ pub mod events {
     pub const WINDOW_OPENED: &str = "window.opened";
     pub const WINDOW_CLOSED: &str = "window.closed";
     pub const WINDOW_FOCUSED: &str = "window.focused";
+    /// A window's title or app id changed.
+    pub const WINDOW_CHANGED: &str = "window.changed";
+    /// A key the shell answers (#EDE-12): `{"name": "switcher.next" | "menu.toggle" | "volume.up" | …}`.
+    pub const HOTKEY: &str = "hotkey";
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
@@ -71,9 +75,18 @@ pub enum Request {
     /// black.
     Capture { target: CaptureTarget },
     /// Drive the person's seat. Protected surfaces and the lock refuse it.
-    Input { event: InputEvent },
+    /// `bindings` = the key goes through the compositor's bindings and
+    /// hotkeys as a person's would (the root grant only: ede-ctl in a test
+    /// harness; an agent's keys never reach Alt+Tab or Super).
+    Input {
+        event: InputEvent,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        bindings: bool,
+    },
     ReloadConfig,
     Lock,
+    /// End the session cleanly (the compositor exits 0; ede-session logs out).
+    Logout,
     /// Start receiving events.
     Subscribe,
     /// A narrower grant for someone else (an agent): a subset of the
@@ -97,7 +110,7 @@ impl Request {
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } => Some(Capability::Ui),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } => Some(Capability::InputPerson),
-            Request::ReloadConfig | Request::Lock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
         }
     }
 }
@@ -329,7 +342,12 @@ impl Client {
     }
 
     pub fn input(&mut self, event: InputEvent) -> Result<(), Error> {
-        self.call(Request::Input { event }).map(|_| ())
+        self.call(Request::Input { event, bindings: false }).map(|_| ())
+    }
+
+    /// A person's key: through the bindings and hotkeys (root grant only).
+    pub fn input_as_person(&mut self, event: InputEvent) -> Result<(), Error> {
+        self.call(Request::Input { event, bindings: true }).map(|_| ())
     }
 
     pub fn mint(&mut self, session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Grant, Error> {
@@ -338,6 +356,22 @@ impl Client {
 
     pub fn subscribe(&mut self) -> Result<(), Error> {
         self.call(Request::Subscribe).map(|_| ())
+    }
+
+    pub fn focus(&mut self, window: WindowId) -> Result<(), Error> {
+        self.call(Request::FocusWindow { window }).map(|_| ())
+    }
+
+    pub fn close_window(&mut self, window: WindowId) -> Result<(), Error> {
+        self.call(Request::CloseWindow { window }).map(|_| ())
+    }
+
+    pub fn lock(&mut self) -> Result<(), Error> {
+        self.call(Request::Lock).map(|_| ())
+    }
+
+    pub fn logout(&mut self) -> Result<(), Error> {
+        self.call(Request::Logout).map(|_| ())
     }
 
     /// The next event (blocks until one arrives).
@@ -368,13 +402,13 @@ mod tests {
         assert_eq!(json, serde_json::json!({"id": 3, "op": "focus_window", "window": "w1"}));
         assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
         let input: Call = serde_json::from_str(r#"{"id":1,"op":"input","event":{"kind":"key","key":30,"pressed":true}}"#).unwrap();
-        assert_eq!(input.request, Request::Input { event: InputEvent::Key { key: 30, pressed: true } });
+        assert_eq!(input.request, Request::Input { event: InputEvent::Key { key: 30, pressed: true }, bindings: false });
     }
 
     #[test]
     fn every_op_names_its_capability() {
         assert_eq!(Request::Capture { target: CaptureTarget::Output { name: "x".into() } }.capability(), Some(Capability::Capture));
-        assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 } }.capability(), Some(Capability::InputPerson));
+        assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
         assert_eq!(Request::ListWindows.capability(), None);
     }

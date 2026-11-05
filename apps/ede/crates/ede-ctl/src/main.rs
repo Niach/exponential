@@ -7,7 +7,7 @@
 //! ede-ctl outputs                          the outputs
 //! ede-ctl capture [--output NAME | --window ID] --png FILE   a capture as a PNG
 //! ede-ctl capture --png FILE --expect-drawn                  …and fail unless something is drawn
-//! ede-ctl key <keycode> [--pressed|--released]               a key by evdev code (both edges by default)
+//! ede-ctl key <keycode> [--pressed|--released] [--bindings]  a key by evdev code (both edges by default; --bindings = as the person's, through Alt+Tab, Super, the media keys)
 //! ede-ctl pointer <x> <y> [--click]                          pointer motion, optionally a left click
 //! ```
 //!
@@ -20,7 +20,7 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 use ede_protocol::{CaptureTarget, Client, InputEvent, WindowId};
 
 fn usage() -> ! {
-    eprintln!("usage: ede-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] | pointer X Y [--click]");
+    eprintln!("usage: ede-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click]");
     std::process::exit(2)
 }
 
@@ -86,13 +86,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "key" => {
             let key: u32 = args.next().unwrap_or_else(|| usage()).parse()?;
-            let edge = args.next();
+            let rest: Vec<String> = args.collect();
+            let bindings = rest.iter().any(|a| a == "--bindings");
+            let edge = rest.iter().find(|a| *a == "--pressed" || *a == "--released").cloned();
             let both = edge.is_none();
+            let mut send = |pressed: bool| -> Result<(), ede_protocol::Error> {
+                let event = InputEvent::Key { key, pressed };
+                if bindings { ede.input_as_person(event) } else { ede.input(event) }
+            };
             if both || edge.as_deref() == Some("--pressed") {
-                ede.input(InputEvent::Key { key, pressed: true })?;
+                send(true)?;
             }
             if both || edge.as_deref() == Some("--released") {
-                ede.input(InputEvent::Key { key, pressed: false })?;
+                send(false)?;
             }
         }
         "pointer" => {

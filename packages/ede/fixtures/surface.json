@@ -1,47 +1,971 @@
 {
-  "$comment": "EDE-8 (eDE M0, 2026-11-05): THE SURFACE HEADER AND THE TIER C RULES. Every shell document (a person's ~/.config/ede/ui/<name>.json, the factory copy in /usr/share/ede/ui) is a genUI document ({catalogId?, root | components, data?}) plus a `surface` object that tells ede-shell how the document sits on the screen. normalizeSurface(header) fills the defaults and returns the header, or the issues that refuse it; one issue refuses the whole document (apply.json). A LAYER surface: `layer` background|bottom|top|overlay (default top; the wlr-layer-shell layer); `anchor` = the screen edges it sticks to, a list of top|bottom|left|right (default none = centred; each edge at most once); `size` = {width?, height?} in logical px, whole and positive, and an axis stretched between two opposite anchors (left+right, top+bottom) needs none while any other axis MUST have one; `exclusiveZone` = the px other windows keep clear along the anchored edge, 0 = none (default), positive only with at least one anchored edge; `margin` = {top, right, bottom, left} px (default 0, never negative); `keyboard` none|on-demand|exclusive (default none; `exclusive` only on the top and overlay layers, as the protocol says). A POPUP surface: `popup` = {parent: the document name it belongs to, anchor: a component id in the parent, placement bottom-start|bottom-end|top-start|top-end|left-start|right-start (default bottom-start), size: {width, height} REQUIRED} drawn as an xdg_popup of the parent's surface (gpui WindowKind::AnchoredPopup), so a menu can leave the parent's box; a popup header carries no layer, anchor, exclusiveZone, margin or keyboard. `functions` = the host functions this document may call (default none). Unknown keys are refused. TIER C RULES (documentIssues(document)): a document grants no privileges, so a shell document (1) must be an object with `surface` and exactly one of `root` (a nested tree) or `components` (A2UI's flat list), plus only $schema, $comment, catalogId, data; (2) never holds a password field: an Input whose `type` prop (under `props` in the nested form, at the top level in the flat form) is `password` is refused by its id (a sealed Tier B surface asks for passwords); (3) may only call the host functions in surface.functions: an on.<event>.functionCall whose call is not listed is refused by its id; (4) uses ids once. These checks are structural and pure; eui-core's reducer (unknown components, props, styles, tokens, limits) runs after them in the Rust runtime and the same issue rule applies.",
+  "$comment": "EDE-8 (eDE M0, 2026-11-05): THE SURFACE HEADER AND THE TIER C RULES. Every shell document (a person's ~/.config/ede/ui/<name>.json, the factory copy in /usr/share/ede/ui) is a genUI document ({catalogId?, root | components, data?}) plus a `surface` object that tells ede-shell how the document sits on the screen. normalizeSurface(header) fills the defaults and returns the header, or the issues that refuse it; one issue refuses the whole document (apply.json). A LAYER surface: `layer` background|bottom|top|overlay (default top; the wlr-layer-shell layer); `anchor` = the screen edges it sticks to, a list of top|bottom|left|right (default none = centred; each edge at most once); `size` = {width?, height?} in logical px, whole and positive, and an axis stretched between two opposite anchors (left+right, top+bottom) needs none while any other axis MUST have one; `exclusiveZone` = the px other windows keep clear along the anchored edge, 0 = none (default), positive only with at least one anchored edge; `margin` = {top, right, bottom, left} px (default 0, never negative); `keyboard` none|on-demand|exclusive (default none; `exclusive` only on the top and overlay layers, as the protocol says). `onDemand` true|false (default false): a layer surface the shell opens only when asked (a hotkey, a host function: the Alt+Tab switcher, the OSD) and closes again, never at start; a popup is on demand by nature and carries no such key. A POPUP surface: `popup` = {parent: the document name it belongs to, anchor: a component id in the parent, placement bottom-start|bottom-end|top-start|top-end|left-start|right-start (default bottom-start), size: {width, height} REQUIRED} drawn as an xdg_popup of the parent's surface (gpui WindowKind::AnchoredPopup), so a menu can leave the parent's box; a popup header carries no layer, anchor, exclusiveZone, margin, keyboard or onDemand. `functions` = the host functions this document may call (default none). Unknown keys are refused. TIER C RULES (documentIssues(document)): a document grants no privileges, so a shell document (1) must be an object with `surface` and exactly one of `root` (a nested tree) or `components` (A2UI's flat list), plus only $schema, $comment, catalogId, data; (2) never holds a password field: an Input whose `type` prop (under `props` in the nested form, at the top level in the flat form) is `password` is refused by its id (a sealed Tier B surface asks for passwords); (3) may only call the host functions in surface.functions: an on.<event>.functionCall whose call is not listed is refused by its id; (4) uses ids once. These checks are structural and pure; eui-core's reducer (unknown components, props, styles, tokens, limits) runs after them in the Rust runtime and the same issue rule applies.",
   "version": 1,
-  "layers": ["background", "bottom", "top", "overlay"],
-  "edges": ["top", "bottom", "left", "right"],
-  "keyboard": ["none", "on-demand", "exclusive"],
-  "placements": ["bottom-start", "bottom-end", "top-start", "top-end", "left-start", "right-start"],
-  "defaults": {"layer": "top", "anchor": [], "exclusiveZone": 0, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "keyboard": "none", "functions": []},
+  "layers": [
+    "background",
+    "bottom",
+    "top",
+    "overlay"
+  ],
+  "edges": [
+    "top",
+    "bottom",
+    "left",
+    "right"
+  ],
+  "keyboard": [
+    "none",
+    "on-demand",
+    "exclusive"
+  ],
+  "placements": [
+    "bottom-start",
+    "bottom-end",
+    "top-start",
+    "top-end",
+    "left-start",
+    "right-start"
+  ],
+  "defaults": {
+    "layer": "top",
+    "anchor": [],
+    "exclusiveZone": 0,
+    "margin": {
+      "top": 0,
+      "right": 0,
+      "bottom": 0,
+      "left": 0
+    },
+    "keyboard": "none",
+    "functions": [],
+    "onDemand": false
+  },
   "headerCases": [
-    {"name": "the factory panel: top layer, stretched across the top, 40 px tall, keeps 40 px clear", "input": {"layer": "top", "anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40, "keyboard": "on-demand"}, "expected": {"header": {"kind": "layer", "layer": "top", "anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "keyboard": "on-demand", "functions": []}}},
-    {"name": "defaults: a centred top-layer box of its size", "input": {"size": {"width": 320, "height": 120}}, "expected": {"header": {"kind": "layer", "layer": "top", "anchor": [], "size": {"width": 320, "height": 120}, "exclusiveZone": 0, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "keyboard": "none", "functions": []}}},
-    {"name": "a wallpaper: background layer, every edge, no size", "input": {"layer": "background", "anchor": ["top", "bottom", "left", "right"]}, "expected": {"header": {"kind": "layer", "layer": "background", "anchor": ["top", "bottom", "left", "right"], "size": {}, "exclusiveZone": 0, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "keyboard": "none", "functions": []}}},
-    {"name": "a notification stack: overlay, top-right, margins, no exclusive zone", "input": {"layer": "overlay", "anchor": ["top", "right"], "size": {"width": 360, "height": 400}, "margin": {"top": 48, "right": 12}}, "expected": {"header": {"kind": "layer", "layer": "overlay", "anchor": ["top", "right"], "size": {"width": 360, "height": 400}, "exclusiveZone": 0, "margin": {"top": 48, "right": 12, "bottom": 0, "left": 0}, "keyboard": "none", "functions": []}}},
-    {"name": "the menu: a popup of the panel under its menu button", "input": {"popup": {"parent": "panel", "anchor": "menu", "placement": "bottom-start", "size": {"width": 280, "height": 200}}}, "expected": {"header": {"kind": "popup", "popup": {"parent": "panel", "anchor": "menu", "placement": "bottom-start", "size": {"width": 280, "height": 200}}, "functions": []}}},
-    {"name": "a popup's placement defaults to bottom-start", "input": {"popup": {"parent": "panel", "anchor": "clock", "size": {"width": 200, "height": 100}}}, "expected": {"header": {"kind": "popup", "popup": {"parent": "panel", "anchor": "clock", "placement": "bottom-start", "size": {"width": 200, "height": 100}}, "functions": []}}},
-    {"name": "functions are kept as given", "input": {"size": {"width": 100, "height": 100}, "functions": ["launch", "focus"]}, "expected": {"header": {"kind": "layer", "layer": "top", "anchor": [], "size": {"width": 100, "height": 100}, "exclusiveZone": 0, "margin": {"top": 0, "right": 0, "bottom": 0, "left": 0}, "keyboard": "none", "functions": ["launch", "focus"]}}},
-    {"name": "not an object", "input": "top", "expected": {"issues": [{"path": "surface", "message": "expected an object"}]}},
-    {"name": "an unknown layer", "input": {"layer": "middle", "size": {"width": 1, "height": 1}}, "expected": {"issues": [{"path": "surface.layer", "message": "expected one of background|bottom|top|overlay"}]}},
-    {"name": "an unknown key", "input": {"size": {"width": 1, "height": 1}, "zIndex": 3}, "expected": {"issues": [{"path": "surface.zIndex", "message": "unknown key; known: layer|anchor|size|exclusiveZone|margin|keyboard|popup|functions"}]}},
-    {"name": "an edge twice", "input": {"anchor": ["top", "top"], "size": {"height": 10}}, "expected": {"issues": [{"path": "surface.anchor", "message": "each edge at most once"}]}},
-    {"name": "a missing size on an unstretched axis", "input": {"anchor": ["top", "left", "right"]}, "expected": {"issues": [{"path": "surface.size.height", "message": "required: the vertical axis is not stretched between two anchors"}]}},
-    {"name": "a missing size with no anchors needs both", "input": {}, "expected": {"issues": [{"path": "surface.size.width", "message": "required: the horizontal axis is not stretched between two anchors"}, {"path": "surface.size.height", "message": "required: the vertical axis is not stretched between two anchors"}]}},
-    {"name": "a size that is not a positive whole number", "input": {"size": {"width": 0, "height": 12.5}}, "expected": {"issues": [{"path": "surface.size.width", "message": "expected a positive whole number of px"}, {"path": "surface.size.height", "message": "expected a positive whole number of px"}]}},
-    {"name": "an exclusive zone without an anchored edge", "input": {"size": {"width": 10, "height": 10}, "exclusiveZone": 10}, "expected": {"issues": [{"path": "surface.exclusiveZone", "message": "needs at least one anchored edge"}]}},
-    {"name": "a negative margin", "input": {"size": {"width": 10, "height": 10}, "margin": {"left": -1}}, "expected": {"issues": [{"path": "surface.margin.left", "message": "expected a whole number of px, 0 or more"}]}},
-    {"name": "exclusive keyboard on the bottom layer", "input": {"layer": "bottom", "size": {"width": 10, "height": 10}, "keyboard": "exclusive"}, "expected": {"issues": [{"path": "surface.keyboard", "message": "exclusive needs the top or overlay layer"}]}},
-    {"name": "a popup with layer keys", "input": {"popup": {"parent": "panel", "anchor": "menu", "size": {"width": 1, "height": 1}}, "layer": "top"}, "expected": {"issues": [{"path": "surface.layer", "message": "a popup surface has no layer, anchor, exclusiveZone, margin or keyboard"}]}},
-    {"name": "a popup without a size", "input": {"popup": {"parent": "panel", "anchor": "menu"}}, "expected": {"issues": [{"path": "surface.popup.size", "message": "required: a popup names its size"}]}},
-    {"name": "a popup with a bad parent name", "input": {"popup": {"parent": "Panel!", "anchor": "menu", "size": {"width": 1, "height": 1}}}, "expected": {"issues": [{"path": "surface.popup.parent", "message": "expected a document name (lowercase letters, digits, - and _)"}]}},
-    {"name": "a popup with an unknown placement", "input": {"popup": {"parent": "panel", "anchor": "menu", "placement": "centre", "size": {"width": 1, "height": 1}}}, "expected": {"issues": [{"path": "surface.popup.placement", "message": "expected one of bottom-start|bottom-end|top-start|top-end|left-start|right-start"}]}},
-    {"name": "functions that are not strings", "input": {"size": {"width": 1, "height": 1}, "functions": ["ok", 3]}, "expected": {"issues": [{"path": "surface.functions", "message": "expected a list of function names"}]}}
+    {
+      "name": "the factory panel: top layer, stretched across the top, 40 px tall, keeps 40 px clear",
+      "input": {
+        "layer": "top",
+        "anchor": [
+          "top",
+          "left",
+          "right"
+        ],
+        "size": {
+          "height": 40
+        },
+        "exclusiveZone": 40,
+        "keyboard": "on-demand"
+      },
+      "expected": {
+        "header": {
+          "kind": "layer",
+          "layer": "top",
+          "anchor": [
+            "top",
+            "left",
+            "right"
+          ],
+          "size": {
+            "height": 40
+          },
+          "exclusiveZone": 40,
+          "margin": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "keyboard": "on-demand",
+          "onDemand": false,
+          "functions": []
+        }
+      }
+    },
+    {
+      "name": "defaults: a centred top-layer box of its size",
+      "input": {
+        "size": {
+          "width": 320,
+          "height": 120
+        }
+      },
+      "expected": {
+        "header": {
+          "kind": "layer",
+          "layer": "top",
+          "anchor": [],
+          "size": {
+            "width": 320,
+            "height": 120
+          },
+          "exclusiveZone": 0,
+          "margin": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "keyboard": "none",
+          "onDemand": false,
+          "functions": []
+        }
+      }
+    },
+    {
+      "name": "a wallpaper: background layer, every edge, no size",
+      "input": {
+        "layer": "background",
+        "anchor": [
+          "top",
+          "bottom",
+          "left",
+          "right"
+        ]
+      },
+      "expected": {
+        "header": {
+          "kind": "layer",
+          "layer": "background",
+          "anchor": [
+            "top",
+            "bottom",
+            "left",
+            "right"
+          ],
+          "size": {},
+          "exclusiveZone": 0,
+          "margin": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "keyboard": "none",
+          "onDemand": false,
+          "functions": []
+        }
+      }
+    },
+    {
+      "name": "a notification stack: overlay, top-right, margins, no exclusive zone",
+      "input": {
+        "layer": "overlay",
+        "anchor": [
+          "top",
+          "right"
+        ],
+        "size": {
+          "width": 360,
+          "height": 400
+        },
+        "margin": {
+          "top": 48,
+          "right": 12
+        }
+      },
+      "expected": {
+        "header": {
+          "kind": "layer",
+          "layer": "overlay",
+          "anchor": [
+            "top",
+            "right"
+          ],
+          "size": {
+            "width": 360,
+            "height": 400
+          },
+          "exclusiveZone": 0,
+          "margin": {
+            "top": 48,
+            "right": 12,
+            "bottom": 0,
+            "left": 0
+          },
+          "keyboard": "none",
+          "onDemand": false,
+          "functions": []
+        }
+      }
+    },
+    {
+      "name": "the switcher: an on-demand overlay, centred, opened by Alt+Tab and closed again",
+      "input": {
+        "layer": "overlay",
+        "size": {
+          "width": 720,
+          "height": 180
+        },
+        "onDemand": true
+      },
+      "expected": {
+        "header": {
+          "kind": "layer",
+          "layer": "overlay",
+          "anchor": [],
+          "size": {
+            "width": 720,
+            "height": 180
+          },
+          "exclusiveZone": 0,
+          "margin": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "keyboard": "none",
+          "onDemand": true,
+          "functions": []
+        }
+      }
+    },
+    {
+      "name": "the menu: a popup of the panel under its menu button",
+      "input": {
+        "popup": {
+          "parent": "panel",
+          "anchor": "menu",
+          "placement": "bottom-start",
+          "size": {
+            "width": 280,
+            "height": 200
+          }
+        }
+      },
+      "expected": {
+        "header": {
+          "kind": "popup",
+          "popup": {
+            "parent": "panel",
+            "anchor": "menu",
+            "placement": "bottom-start",
+            "size": {
+              "width": 280,
+              "height": 200
+            }
+          },
+          "functions": []
+        }
+      }
+    },
+    {
+      "name": "a popup's placement defaults to bottom-start",
+      "input": {
+        "popup": {
+          "parent": "panel",
+          "anchor": "clock",
+          "size": {
+            "width": 200,
+            "height": 100
+          }
+        }
+      },
+      "expected": {
+        "header": {
+          "kind": "popup",
+          "popup": {
+            "parent": "panel",
+            "anchor": "clock",
+            "placement": "bottom-start",
+            "size": {
+              "width": 200,
+              "height": 100
+            }
+          },
+          "functions": []
+        }
+      }
+    },
+    {
+      "name": "functions are kept as given",
+      "input": {
+        "size": {
+          "width": 100,
+          "height": 100
+        },
+        "functions": [
+          "launch",
+          "focus"
+        ]
+      },
+      "expected": {
+        "header": {
+          "kind": "layer",
+          "layer": "top",
+          "anchor": [],
+          "size": {
+            "width": 100,
+            "height": 100
+          },
+          "exclusiveZone": 0,
+          "margin": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "keyboard": "none",
+          "onDemand": false,
+          "functions": [
+            "launch",
+            "focus"
+          ]
+        }
+      }
+    },
+    {
+      "name": "not an object",
+      "input": "top",
+      "expected": {
+        "issues": [
+          {
+            "path": "surface",
+            "message": "expected an object"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown layer",
+      "input": {
+        "layer": "middle",
+        "size": {
+          "width": 1,
+          "height": 1
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.layer",
+            "message": "expected one of background|bottom|top|overlay"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown key",
+      "input": {
+        "size": {
+          "width": 1,
+          "height": 1
+        },
+        "zIndex": 3
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.zIndex",
+            "message": "unknown key; known: layer|anchor|size|exclusiveZone|margin|keyboard|onDemand|popup|functions"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an edge twice",
+      "input": {
+        "anchor": [
+          "top",
+          "top"
+        ],
+        "size": {
+          "height": 10
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.anchor",
+            "message": "each edge at most once"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a missing size on an unstretched axis",
+      "input": {
+        "anchor": [
+          "top",
+          "left",
+          "right"
+        ]
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.size.height",
+            "message": "required: the vertical axis is not stretched between two anchors"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a missing size with no anchors needs both",
+      "input": {},
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.size.width",
+            "message": "required: the horizontal axis is not stretched between two anchors"
+          },
+          {
+            "path": "surface.size.height",
+            "message": "required: the vertical axis is not stretched between two anchors"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a size that is not a positive whole number",
+      "input": {
+        "size": {
+          "width": 0,
+          "height": 12.5
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.size.width",
+            "message": "expected a positive whole number of px"
+          },
+          {
+            "path": "surface.size.height",
+            "message": "expected a positive whole number of px"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an exclusive zone without an anchored edge",
+      "input": {
+        "size": {
+          "width": 10,
+          "height": 10
+        },
+        "exclusiveZone": 10
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.exclusiveZone",
+            "message": "needs at least one anchored edge"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a negative margin",
+      "input": {
+        "size": {
+          "width": 10,
+          "height": 10
+        },
+        "margin": {
+          "left": -1
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.margin.left",
+            "message": "expected a whole number of px, 0 or more"
+          }
+        ]
+      }
+    },
+    {
+      "name": "exclusive keyboard on the bottom layer",
+      "input": {
+        "layer": "bottom",
+        "size": {
+          "width": 10,
+          "height": 10
+        },
+        "keyboard": "exclusive"
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.keyboard",
+            "message": "exclusive needs the top or overlay layer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a popup with layer keys",
+      "input": {
+        "popup": {
+          "parent": "panel",
+          "anchor": "menu",
+          "size": {
+            "width": 1,
+            "height": 1
+          }
+        },
+        "layer": "top"
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.layer",
+            "message": "a popup surface has no layer, anchor, exclusiveZone, margin, keyboard or onDemand"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a popup without a size",
+      "input": {
+        "popup": {
+          "parent": "panel",
+          "anchor": "menu"
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.popup.size",
+            "message": "required: a popup names its size"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a popup with a bad parent name",
+      "input": {
+        "popup": {
+          "parent": "Panel!",
+          "anchor": "menu",
+          "size": {
+            "width": 1,
+            "height": 1
+          }
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.popup.parent",
+            "message": "expected a document name (lowercase letters, digits, - and _)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a popup with an unknown placement",
+      "input": {
+        "popup": {
+          "parent": "panel",
+          "anchor": "menu",
+          "placement": "centre",
+          "size": {
+            "width": 1,
+            "height": 1
+          }
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.popup.placement",
+            "message": "expected one of bottom-start|bottom-end|top-start|top-end|left-start|right-start"
+          }
+        ]
+      }
+    },
+    {
+      "name": "functions that are not strings",
+      "input": {
+        "size": {
+          "width": 1,
+          "height": 1
+        },
+        "functions": [
+          "ok",
+          3
+        ]
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.functions",
+            "message": "expected a list of function names"
+          }
+        ]
+      }
+    },
+    {
+      "name": "onDemand that is not a boolean",
+      "input": {
+        "size": {
+          "width": 10,
+          "height": 10
+        },
+        "onDemand": "yes"
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.onDemand",
+            "message": "expected true or false"
+          }
+        ]
+      }
+    }
   ],
   "documentCases": [
-    {"name": "the factory panel applies", "document": {"surface": {"anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40}, "root": {"id": "panel", "component": "Box", "children": [{"id": "clock", "component": "Text", "props": {"text": {"path": "/time"}}}]}, "data": {"time": "12:00"}}, "expected": {"issues": []}},
-    {"name": "a flat component list applies too", "document": {"surface": {"size": {"width": 10, "height": 10}}, "components": [{"id": "root", "component": "Text", "text": "hi"}]}, "expected": {"issues": []}},
-    {"name": "no surface header", "document": {"root": {"id": "panel", "component": "Box"}}, "expected": {"issues": [{"path": "surface", "message": "required: how the surface sits on the screen"}]}},
-    {"name": "a header that does not normalize refuses the document", "document": {"surface": {"layer": "middle", "size": {"width": 1, "height": 1}}, "root": {"id": "panel", "component": "Box"}}, "expected": {"issues": [{"path": "surface.layer", "message": "expected one of background|bottom|top|overlay"}]}},
-    {"name": "a password field is refused", "document": {"surface": {"size": {"width": 10, "height": 10}}, "root": {"id": "login", "component": "Box", "children": [{"id": "user", "component": "Input", "props": {"name": "user"}}, {"id": "secret", "component": "Input", "props": {"name": "pw", "type": "password"}}]}}, "expected": {"issues": [{"path": "#secret", "message": "password inputs are refused in a shell document (a sealed surface asks for passwords)"}]}},
-    {"name": "a function call outside the allowlist is refused", "document": {"surface": {"size": {"width": 10, "height": 10}, "functions": ["launch"]}, "root": {"id": "menu", "component": "Box", "children": [{"id": "term", "component": "Button", "props": {"label": "Terminal"}, "on": {"press": {"functionCall": {"call": "launch", "args": {"command": "xterm"}}}}}, {"id": "off", "component": "Button", "props": {"label": "Power off"}, "on": {"press": {"functionCall": {"call": "poweroff"}}}}]}}, "expected": {"issues": [{"path": "#off", "message": "function poweroff is not in surface.functions"}]}},
-    {"name": "without an allowlist every function call is refused", "document": {"surface": {"size": {"width": 10, "height": 10}}, "components": [{"id": "root", "component": "Button", "label": "Go", "on": {"press": {"functionCall": {"call": "launch"}}}}]}, "expected": {"issues": [{"path": "#root", "message": "function launch is not in surface.functions"}]}},
-    {"name": "an id used twice", "document": {"surface": {"size": {"width": 10, "height": 10}}, "root": {"id": "a", "component": "Box", "children": [{"id": "b", "component": "Text", "props": {"text": "1"}}, {"id": "b", "component": "Text", "props": {"text": "2"}}]}}, "expected": {"issues": [{"path": "#b", "message": "id used more than once"}]}},
-    {"name": "root and components together", "document": {"surface": {"size": {"width": 10, "height": 10}}, "root": {"id": "a", "component": "Box"}, "components": []}, "expected": {"issues": [{"path": "file", "message": "expected root OR components, not both"}]}},
-    {"name": "neither root nor components", "document": {"surface": {"size": {"width": 10, "height": 10}}, "data": {}}, "expected": {"issues": [{"path": "file", "message": "expected root (a nested tree) or components (a flat list)"}]}},
-    {"name": "an unknown top-level key", "document": {"surface": {"size": {"width": 10, "height": 10}}, "root": {"id": "a", "component": "Box"}, "theme": "dark"}, "expected": {"issues": [{"path": "theme", "message": "unknown key; known: $schema|$comment|catalogId|surface|root|components|data"}]}},
-    {"name": "not an object", "document": [], "expected": {"issues": [{"path": "file", "message": "expected a document object {surface, root | components, data}"}]}}
+    {
+      "name": "the factory panel applies",
+      "document": {
+        "surface": {
+          "anchor": [
+            "top",
+            "left",
+            "right"
+          ],
+          "size": {
+            "height": 40
+          },
+          "exclusiveZone": 40
+        },
+        "root": {
+          "id": "panel",
+          "component": "Box",
+          "children": [
+            {
+              "id": "clock",
+              "component": "Text",
+              "props": {
+                "text": {
+                  "path": "/time"
+                }
+              }
+            }
+          ]
+        },
+        "data": {
+          "time": "12:00"
+        }
+      },
+      "expected": {
+        "issues": []
+      }
+    },
+    {
+      "name": "a flat component list applies too",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          }
+        },
+        "components": [
+          {
+            "id": "root",
+            "component": "Text",
+            "text": "hi"
+          }
+        ]
+      },
+      "expected": {
+        "issues": []
+      }
+    },
+    {
+      "name": "no surface header",
+      "document": {
+        "root": {
+          "id": "panel",
+          "component": "Box"
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface",
+            "message": "required: how the surface sits on the screen"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a header that does not normalize refuses the document",
+      "document": {
+        "surface": {
+          "layer": "middle",
+          "size": {
+            "width": 1,
+            "height": 1
+          }
+        },
+        "root": {
+          "id": "panel",
+          "component": "Box"
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "surface.layer",
+            "message": "expected one of background|bottom|top|overlay"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a password field is refused",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          }
+        },
+        "root": {
+          "id": "login",
+          "component": "Box",
+          "children": [
+            {
+              "id": "user",
+              "component": "Input",
+              "props": {
+                "name": "user"
+              }
+            },
+            {
+              "id": "secret",
+              "component": "Input",
+              "props": {
+                "name": "pw",
+                "type": "password"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "#secret",
+            "message": "password inputs are refused in a shell document (a sealed surface asks for passwords)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a function call outside the allowlist is refused",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          },
+          "functions": [
+            "launch"
+          ]
+        },
+        "root": {
+          "id": "menu",
+          "component": "Box",
+          "children": [
+            {
+              "id": "term",
+              "component": "Button",
+              "props": {
+                "label": "Terminal"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "launch",
+                    "args": {
+                      "command": "xterm"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "off",
+              "component": "Button",
+              "props": {
+                "label": "Power off"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "poweroff"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "#off",
+            "message": "function poweroff is not in surface.functions"
+          }
+        ]
+      }
+    },
+    {
+      "name": "without an allowlist every function call is refused",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          }
+        },
+        "components": [
+          {
+            "id": "root",
+            "component": "Button",
+            "label": "Go",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "launch"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "#root",
+            "message": "function launch is not in surface.functions"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an id used twice",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          }
+        },
+        "root": {
+          "id": "a",
+          "component": "Box",
+          "children": [
+            {
+              "id": "b",
+              "component": "Text",
+              "props": {
+                "text": "1"
+              }
+            },
+            {
+              "id": "b",
+              "component": "Text",
+              "props": {
+                "text": "2"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "#b",
+            "message": "id used more than once"
+          }
+        ]
+      }
+    },
+    {
+      "name": "root and components together",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          }
+        },
+        "root": {
+          "id": "a",
+          "component": "Box"
+        },
+        "components": []
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "file",
+            "message": "expected root OR components, not both"
+          }
+        ]
+      }
+    },
+    {
+      "name": "neither root nor components",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          }
+        },
+        "data": {}
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "file",
+            "message": "expected root (a nested tree) or components (a flat list)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown top-level key",
+      "document": {
+        "surface": {
+          "size": {
+            "width": 10,
+            "height": 10
+          }
+        },
+        "root": {
+          "id": "a",
+          "component": "Box"
+        },
+        "theme": "dark"
+      },
+      "expected": {
+        "issues": [
+          {
+            "path": "theme",
+            "message": "unknown key; known: $schema|$comment|catalogId|surface|root|components|data"
+          }
+        ]
+      }
+    },
+    {
+      "name": "not an object",
+      "document": [],
+      "expected": {
+        "issues": [
+          {
+            "path": "file",
+            "message": "expected a document object {surface, root | components, data}"
+          }
+        ]
+      }
+    }
   ]
 }

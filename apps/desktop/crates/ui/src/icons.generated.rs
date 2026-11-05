@@ -333,6 +333,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "play" => ExpIcon::Play,
         "plug" => ExpIcon::Plug,
         "plus" => ExpIcon::Plus,
+        "power" => ExpIcon::Power,
         "printer" => ExpIcon::Printer,
         "progress-1-4" => ExpIcon::Progress14,
         "progress-1-5" => ExpIcon::Progress15,
@@ -480,6 +481,16 @@ pub const CODING_STOP: ExpIcon = ExpIcon::CircleX;
 pub const CODING_SUBAGENT: ExpIcon = ExpIcon::Bot;
 /// Registry concept `coding-tool` -> Lucide `wrench`.
 pub const CODING_TOOL: ExpIcon = ExpIcon::Wrench;
+/// Registry concept `ede-brightness` -> Lucide `sun`.
+pub const EDE_BRIGHTNESS: ExpIcon = ExpIcon::Sun;
+/// Registry concept `ede-lock` -> Lucide `lock`.
+pub const EDE_LOCK: ExpIcon = ExpIcon::Lock;
+/// Registry concept `ede-power` -> Lucide `power`.
+pub const EDE_POWER: ExpIcon = ExpIcon::Power;
+/// Registry concept `ede-suspend` -> Lucide `moon`.
+pub const EDE_SUSPEND: ExpIcon = ExpIcon::Moon;
+/// Registry concept `ede-window` -> Lucide `monitor`.
+pub const EDE_WINDOW: ExpIcon = ExpIcon::Monitor;
 /// Registry concept `editor-bold` -> Lucide `bold`.
 pub const EDITOR_BOLD: ExpIcon = ExpIcon::Bold;
 /// Registry concept `editor-clear-formatting` -> Lucide `remove-formatting`.
@@ -1063,6 +1074,11 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "coding-stop" => CODING_STOP,
         "coding-subagent" => CODING_SUBAGENT,
         "coding-tool" => CODING_TOOL,
+        "ede-brightness" => EDE_BRIGHTNESS,
+        "ede-lock" => EDE_LOCK,
+        "ede-power" => EDE_POWER,
+        "ede-suspend" => EDE_SUSPEND,
+        "ede-window" => EDE_WINDOW,
         "editor-bold" => EDITOR_BOLD,
         "editor-clear-formatting" => EDITOR_CLEAR_FORMATTING,
         "editor-code" => EDITOR_CODE,

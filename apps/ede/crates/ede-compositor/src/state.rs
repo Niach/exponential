@@ -101,6 +101,8 @@ pub struct Ede {
     pub virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
     /// ede-protocol: the control socket, its grants and clients.
     pub ipc: crate::ipc::Ipc,
+    /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
+    pub hotkeys: crate::hotkeys::Hotkeys,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
 }
@@ -200,6 +202,7 @@ impl Ede {
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
             ipc: crate::ipc::Ipc::default(),
+            hotkeys: crate::hotkeys::Hotkeys::default(),
             config_path: None,
         }
     }
@@ -341,7 +344,17 @@ impl Ede {
                 l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
             })
         };
-        layer_hit(Layer::Overlay)
+        // A layer's popups are drawn above the whole layer (the scene), so
+        // they take the hit first.
+        let popup_hit = |layer| {
+            layers.layers_on(layer).rev().find_map(|l| {
+                let loc = layers.layer_geometry(l)?.loc + output_geo.loc;
+                l.surface_under(pos - loc.to_f64(), WindowSurfaceType::POPUP | WindowSurfaceType::SUBSURFACE).map(|(s, p)| (s, (p + loc).to_f64()))
+            })
+        };
+        popup_hit(Layer::Overlay)
+            .or_else(|| popup_hit(Layer::Top))
+            .or_else(|| layer_hit(Layer::Overlay))
             .or_else(|| layer_hit(Layer::Top))
             .or_else(|| {
                 self.space.element_under(pos).and_then(|(window, location)| {

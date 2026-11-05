@@ -4,17 +4,22 @@
 # output as the compositor composes it. The shots lane (`bun run shots --
 # --platform ede`) runs this once per view; by hand:
 #
-#   apps/ede/scripts/shots.sh --out /tmp/panel.png [--popup] [--size 1280x720] [--settle 1500] [--no-build]
+#   apps/ede/scripts/shots.sh --out /tmp/panel.png [--popup NAME] [--open NAME] [--size 1280x720] [--settle 1500] [--no-build]
 #
-# `--popup` opens every popup document (the menu) before the capture.
+# `--popup NAME` opens a popup document (the menu, the notification centre)
+# before the capture; `--open NAME` an on-demand layer document (the
+# switcher, the OSD, the toasts).
+# The shell runs with EDE_SHELL_DEMO=1: fixed sample apps and windows, so
+# the pictures never depend on the machine.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 target="${CARGO_TARGET_DIR:-$here/target}"
-out=""; popup=""; size="1280x720"; settle=1500; build=1
+out=""; popup=(); open=(); size="1280x720"; settle=1500; build=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
-    --popup) popup="--popup"; shift ;;
+    --popup) popup+=(--popup "$2"); shift 2 ;;
+    --open) open+=(--open "$2"); shift 2 ;;
     --size) size="$2"; shift 2 ;;
     --settle) settle="$2"; shift 2 ;;
     --no-build) build=0; shift ;;
@@ -34,10 +39,11 @@ export XDG_RUNTIME_DIR="$scratch/run"; mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$
 export EDE_FACTORY_DIR="$here/ui"
 # A golden never ticks.
 export EDE_SHELL_CLOCK="${EDE_SHELL_CLOCK:-12:00}"
+export EDE_SHELL_DEMO=1
 export RUST_LOG="${RUST_LOG:-info,smithay=warn,wgpu_core=error,wgpu_hal=error}"
 log="$scratch/run.log"
 "$target/debug/ede-compositor" --headless "$size" --no-xwayland -- \
-  "$target/debug/ede-ui" --dir "$scratch/ui" --factory "$here/ui" supervise -- "$target/debug/ede-shell" $popup > "$log" 2>&1 &
+  "$target/debug/ede-ui" --dir "$scratch/ui" --factory "$here/ui" supervise -- "$target/debug/ede-shell" "${popup[@]}" "${open[@]}" > "$log" 2>&1 &
 pid=$!
 cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -rf "$scratch"; }
 trap cleanup EXIT

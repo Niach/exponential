@@ -94,11 +94,23 @@ where
     }
 
     let layers = layer_map_for_output(output);
+    // The popups of a layer (the panel's menu) sit above every surface of
+    // that layer, not only their parent: a toast mapped after the panel
+    // must not cover the panel's open menu (#EDE-12).
     let layer = |renderer: &mut R, elements: &mut Vec<_>, upper: bool| {
-        for l in layers.layers().rev().filter(|l| matches!(l.layer(), Layer::Overlay | Layer::Top) == upper) {
+        use smithay::desktop::PopupManager;
+        let on_layer = || layers.layers().rev().filter(|l| matches!(l.layer(), Layer::Overlay | Layer::Top) == upper);
+        for l in on_layer() {
+            let Some(geo) = layers.layer_geometry(l) else { continue };
+            for (popup, location) in PopupManager::popups_for_surface(l.wl_surface()) {
+                let offset = (geo.loc + location - popup.geometry().loc).to_physical_precise_round(scale);
+                elements.extend(render_elements_from_surface_tree(renderer, popup.wl_surface(), offset, scale, 1.0, Kind::Unspecified).into_iter().map(OutputElements::Surface));
+            }
+        }
+        for l in on_layer() {
             let Some(geo) = layers.layer_geometry(l) else { continue };
             elements.extend(
-                AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(l, renderer, geo.loc.to_physical_precise_round(scale), scale.into(), 1.0)
+                render_elements_from_surface_tree(renderer, l.wl_surface(), geo.loc.to_physical_precise_round(scale), scale, 1.0, Kind::Unspecified)
                     .into_iter()
                     .map(OutputElements::Surface),
             );

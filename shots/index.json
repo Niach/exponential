@@ -1845,13 +1845,40 @@
         "sha256": "21c011658ac53b5db5244787e953b45c2f3afa54c151f46f5af59f1cbfcb2879"
       }
     },
+    "ede-notification-center": {
+      "ede": {
+        "file": "shots/ede-notification-center/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 8410,
+        "sha256": "738bd16fd18ef24c2d224364b65a2ef3415be11edacc9e387bb4ac30a5e3da84"
+      }
+    },
+    "ede-notifications": {
+      "ede": {
+        "file": "shots/ede-notifications/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 7058,
+        "sha256": "7ca7d2034eafc5d6d30f4f1bc41ec1446af28476f3abd82450a47d457b20fd68"
+      }
+    },
+    "ede-osd": {
+      "ede": {
+        "file": "shots/ede-osd/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 3148,
+        "sha256": "87bb55719970527715c9b30de2039276cad3f7b3d85c24911b7b3b6cbeabb996"
+      }
+    },
     "ede-panel": {
       "ede": {
         "file": "shots/ede-panel/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 2600,
-        "sha256": "6826e3f01017b3e916d4fa34a069a252230a5a11ff8d20f4a3ac38cbd42e3aa7"
+        "bytes": 3104,
+        "sha256": "79e9796b798a2392937ddb3e777b0c3316498eb2c915c7b9bdc29d8a2e24da10"
       }
     },
     "ede-panel-menu": {
@@ -1859,8 +1886,26 @@
         "file": "shots/ede-panel-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 4892,
-        "sha256": "d0bee385d0b18c4f8380ac5fe56206e5cfe57db0b706c5991efe99bb33f92acb"
+        "bytes": 11536,
+        "sha256": "d972c7507640cd96b965872d3b6a72fb537d27d0a27f0d8eb825e7165debd03b"
+      }
+    },
+    "ede-switcher": {
+      "ede": {
+        "file": "shots/ede-switcher/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 3744,
+        "sha256": "c2d8c92a592a8755803d2202a74d0010fb77af006bcae2728eab6ba286f6b2f9"
+      }
+    },
+    "ede-tray-menu": {
+      "ede": {
+        "file": "shots/ede-tray-menu/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 5324,
+        "sha256": "c81a9ac3f2023b4dd8db907b2fe63b319c18c95c068bfc51025c4259d5cbaf80"
       }
     },
     "exponential-ui-accordion": {

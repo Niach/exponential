@@ -1,0 +1,25 @@
+{
+  "$comment": "eDE's factory notification centre (#EDE-12): the panel's bell opens it as a popup surface with every notification the shell has heard this session, newest first (/notifications/list), each closable, all clearable (ede.notify_clear).",
+  "surface": {"popup": {"parent": "panel", "anchor": "bell", "placement": "bottom-end", "size": {"width": 380, "height": 480}}, "functions": ["ede.notify_close", "ede.notify_action", "ede.notify_clear"]},
+  "root": {
+    "id": "center",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.sm", "height": 480, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "children": [
+      {"id": "center-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
+        {"id": "center-title", "component": "Heading", "props": {"text": "Notifications", "level": "h4"}},
+        {"id": "center-clear", "component": "Button", "props": {"label": "Clear all", "variant": "ghost", "size": "sm"}, "on": {"press": {"functionCall": {"call": "ede.notify_clear"}}}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"path": "/notifications/count"}, "b": 0}}}}}
+      ]},
+      {"id": "center-scroll", "component": "ScrollArea", "props": {"maxHeight": 410}, "children": [
+        {"id": "center-list", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "entry", "path": "/notifications/list", "key": "id"}, "children": []},
+        {"id": "entry", "component": "Row", "props": {"title": {"path": "summary"}, "subtitle": {"path": "body"}, "meta": {"path": "at"}, "density": "compact"},
+          "slots": {
+            "leading": {"id": "entry-icon", "component": "Image", "props": {"src": {"path": "icon"}, "alt": {"path": "app"}, "width": 24, "height": 24, "fit": "contain", "fallback": "nav-notifications"}},
+            "trailing": {"id": "entry-close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.notify_close", "args": {"id": {"path": "id"}}}}}}
+          }},
+        {"id": "center-empty", "component": "Text", "props": {"text": "No notifications", "variant": "muted", "align": "center"}, "visible": {"call": "eq", "args": {"a": {"path": "/notifications/count"}, "b": 0}}}
+      ]}
+    ]
+  },
+  "data": {"notifications": {"toasts": [], "list": [], "count": 0}}
+}

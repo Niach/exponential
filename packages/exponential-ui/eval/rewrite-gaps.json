@@ -157,6 +157,11 @@
     { "id": "session", "class": "native", "with": "the session feed native; AppBar + Button Stop + Composer otherwise" },
     { "id": "agent-channel", "class": "native", "with": "the conversation feed native; Row + Markdown + Composer otherwise" },
     { "id": "ede-panel", "class": "expressible", "with": "already a genUI document (apps/ede/ui/panel.json): Box + Stack + Button + Text; the surface header is eDE's, not the catalog's" },
-    { "id": "ede-panel-menu", "class": "expressible", "with": "already a genUI document (apps/ede/ui/menu.json): Box + Text + Row + Separator, the panel's popup surface" }
+    { "id": "ede-panel-menu", "class": "expressible", "with": "already a genUI document (apps/ede/ui/menu.json): Box + Input + ScrollArea + List + Row + Image + Separator + Button, the panel's popup surface (the launcher)" },
+    { "id": "ede-switcher", "class": "expressible", "with": "already a genUI document (apps/ede/ui/switcher.json): Box + Stack + Image + Text, an on-demand overlay surface with the compositor's captures as pictures" },
+    { "id": "ede-osd", "class": "expressible", "with": "already a genUI document (apps/ede/ui/osd.json): Box + Icon + Progress + Text, an on-demand overlay surface" },
+    { "id": "ede-notifications", "class": "expressible", "with": "already a genUI document (apps/ede/ui/notifications.json): Stack + Box + Image + Text + Button over the shell's notification server data, an on-demand top-right surface" },
+    { "id": "ede-notification-center", "class": "expressible", "with": "already a genUI document (apps/ede/ui/notification-center.json): Box + Heading + ScrollArea + List + Row + Image + Button, the panel's bell popup" },
+    { "id": "ede-tray-menu", "class": "expressible", "with": "already a genUI document (apps/ede/ui/tray-menu.json): Box + Text + ScrollArea + List + Row + Separator over a dbusmenu layout, the panel's tray popup" }
   ]
 }

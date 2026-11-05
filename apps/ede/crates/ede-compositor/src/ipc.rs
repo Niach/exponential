@@ -90,9 +90,19 @@ impl Ipc {
     fn grant(&self, token: &Token) -> Option<&Grant> {
         self.grants.iter().find(|g| &g.token == token)
     }
+
+    /// Is the shell (the root grant) subscribed to events? Hotkeys go to it
+    /// then; otherwise the compositor falls back ([`crate::hotkeys`]).
+    pub fn shell_subscribed(&self) -> bool {
+        self.clients.iter().any(|c| c.subscribed && !c.dead && c.token.as_ref().and_then(|t| self.grant(t)).is_some_and(|g| g.session_id.as_str() == ROOT_SESSION))
+    }
 }
 
 impl Ede {
+    pub fn shell_listening(&self) -> bool {
+        self.ipc.shell_subscribed()
+    }
+
     /// Opens `$XDG_RUNTIME_DIR/ede/<wayland-N>.sock` (directory 0700) and
     /// writes the root token next to it (0600).
     pub fn ipc_listen(&mut self, runtime_dir: &Path, wayland_display: &str) -> std::io::Result<PathBuf> {
@@ -285,10 +295,13 @@ impl Ede {
                 let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
                 Ok((serde_json::to_value(info).unwrap(), Some(bytes)))
             }
-            Request::Input { event } => {
+            Request::Input { event, bindings } => {
+                if bindings && grant.session_id.as_str() != ROOT_SESSION {
+                    return Err(fail(ErrorCode::Forbidden, "only the shell's grant drives the bindings"));
+                }
                 let refused = match event {
                     InputEvent::Key { key, pressed } => {
-                        self.drive_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32)
+                        self.drive_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, bindings)
                     }
                     InputEvent::PointerMotion { x, y } => self.drive_pointer_motion((x, y).into(), now as u32),
                     InputEvent::PointerButton { button, pressed } => {
@@ -300,6 +313,11 @@ impl Ede {
             }
             Request::ReloadConfig => {
                 self.reload_config().map_err(|e| fail(ErrorCode::Invalid, &e))?;
+                json(serde_json::Value::Null)
+            }
+            Request::Logout => {
+                tracing::info!("logout requested over ede-protocol");
+                self.loop_signal.stop();
                 json(serde_json::Value::Null)
             }
             Request::Lock => {

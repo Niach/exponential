@@ -171,7 +171,8 @@ const desktopCaptureSchema = z.strictObject({
 })
 
 const edeCaptureSchema = z.strictObject({
-  popup: z.boolean().optional(),
+  popup: z.array(z.string()).optional(),
+  open: z.array(z.string()).optional(),
   size: z.string().regex(/^\d+x\d+$/).optional(),
   settleMs: z.number().int().positive().optional(),
 })

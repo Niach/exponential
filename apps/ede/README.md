@@ -26,11 +26,56 @@ popup document opens from its anchor component in its parent as an
 its own overlays inside their window). A change on disk redraws the surface
 and the shell prints the document's frame line, which the supervisor reads.
 Data every document may bind: `/time` (local), `/windows` (the open
-windows over ede-protocol); actions: `focus {window}`, `launch {command}`.
+windows over ede-protocol), `/apps` + `/query` (the launcher: the desktop
+entries of the XDG data directories, filtered as the person types),
+`/switcher` (the open windows most recent first with live thumbnails),
+`/osd` (a level). Host functions, each only from a document whose
+`surface.functions` lists it (#EDE-8's Tier C rule, checked by `ede-ui` and
+again by the shell): `ede.launch {command}`, `ede.focus {window}`,
+`ede.close {window}`, `ede.lock`, `ede.logout`, `ede.power {action:
+suspend|reboot|poweroff}`, `ede.select {window}` (the switcher).
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
-fonts are embedded). Factory documents live in `apps/ede/ui/*.json`:
+fonts are embedded); app icons come from the installed icon themes as
+`file:` pictures. Factory documents live in `apps/ede/ui/*.json`:
 `panel.json` (top, 40 px exclusive zone, the launcher button, the taskbar,
-the clock) and `menu.json` (the panel's popup).
+the clock), `menu.json` (the panel's popup: search, apps, the power row),
+`switcher.json` and `osd.json` (`onDemand` overlays the shell opens on a
+hotkey and closes again), `notifications.json` (the toasts, top-right, on
+demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
+(a tray item's menu as the tray's popup). A click outside an open popup, or
+Escape in it, closes it.
+
+### Notifications and the tray (#EDE-12)
+
+The shell is the session's `org.freedesktop.Notifications` server (toasts
+with the app's icon and actions, the app's timeout or 6 s, critical ones
+stay; the history behind the panel's bell with its count) and its
+`org.kde.StatusNotifierWatcher` + host: items register, the panel shows
+their icon (a theme name, the item's own theme path, or its pixmap), a
+click activates the item or opens its `com.canonical.dbusmenu` as a popup
+and a row press sends the item its `clicked` event. Nested under another
+desktop the well-known names stay with that desktop and the objects answer
+on the shell's unique bus name (`scripts/tray-demo.py --watcher :1.N`
+registers a sample item; `gdbus call --dest :1.N …Notify` a sample toast).
+Host functions: `ede.notify_close {id}`, `ede.notify_action {id, key}`,
+`ede.notify_clear`, `ede.tray {service}`, `ede.tray_menu {service, id}`.
+
+### Hotkeys (#EDE-12)
+
+The compositor keeps these keys and tells the shell over ede-protocol
+(`hotkey` events; the shell's layer surfaces never hold the keyboard while
+an app has it): **Alt+Tab** opens the switcher and cycles it (Shift
+reverses), releasing Alt focuses the selected window, Escape cancels, a
+click on a tile picks it; **Super** alone toggles the menu (its search box
+takes the keyboard); **Print** saves `~/Pictures/Screenshots/Screenshot
+<date>.png`; **Ctrl+Alt+T** opens the terminal; the **volume, microphone
+and brightness keys** change the level (WirePlumber's `wpctl`, sysfs or
+`brightnessctl`) and show the OSD; play/next/previous go to `playerctl`.
+With no shell listening (dead, not started) the compositor falls back:
+Alt+Tab cycles focus itself, most recent first, and the media keys reach
+the app. `ede-ctl key <code> --bindings` sends a key as the person's (the
+root grant only), which is how the goldens and an agent in the VM drive
+them.
 
 ```bash
 apps/ede/scripts/ede-dev.sh                   # nested in the desktop around it: compositor + supervisor + shell
