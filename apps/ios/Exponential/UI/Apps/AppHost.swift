@@ -158,6 +158,9 @@ final class AppRecordOutbox {
     /// Accounts with a flush running, and those asking for another pass.
     private var flushing: Set<String> = []
     private var again: Set<String> = []
+    /// The account's waiting retry (`retryWhilePending`).
+    private var retrying: [String: Task<Void, Never>] = [:]
+    private static let retryInterval: Duration = .seconds(30)
     /// write id → the host call awaiting its entry's first replay.
     private var waiters: [String: (accountId: String, resume: (AppRecordOutboxAttempt) -> Void)] = [:]
 
@@ -221,10 +224,28 @@ final class AppRecordOutbox {
                 await self.drain(accountId: accountId)
             } while self.again.contains(accountId)
             self.flushing.remove(accountId)
+            self.retryWhilePending(accountId: accountId)
             // Anything still waiting (no store) answers from its entry.
             for (writeId, waiter) in self.waiters.filter({ $0.value.accountId == accountId }) {
                 self.waiters[writeId] = nil
                 waiter.resume(.retry)
+            }
+        }
+    }
+
+    /// A server that goes down while the network stays up raises no network
+    /// edge to replay on: entries a drain left pending try again on a timer
+    /// (one per account), instead of waiting for a relaunch.
+    private func retryWhilePending(accountId: String) {
+        guard retrying[accountId] == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
+        retrying[accountId] = Task { @MainActor in
+            let pending = (try? await pool.read { db in
+                try AppRecordOutboxEntity.filter(Column("state") == "pending").fetchCount(db)
+            }) ?? 0
+            if pending > 0 { try? await Task.sleep(for: Self.retryInterval) }
+            self.retrying[accountId] = nil
+            if pending > 0, !Task.isCancelled, self.auth.authenticatedAccountIds.contains(accountId) {
+                self.flush(accountId: accountId)
             }
         }
     }
