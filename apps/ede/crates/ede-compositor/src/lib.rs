@@ -1,7 +1,8 @@
 //! `ede-compositor`: eDE's Wayland compositor, built on smithay.
 //!
 //! Floating windows (Mint-like) with magnetic edges and edge tiling,
-//! xdg-shell, wlr-layer-shell, damage-tracked rendering, and a config file.
+//! workspaces, xdg-shell, wlr-layer-shell, fractional scale, damage-tracked
+//! rendering, and a config file (outputs: mode, scale, position).
 //! ext-session-lock, idle notify/inhibit, input methods, and protected
 //! surfaces that are never captured, lent or driven. `ede-protocol`, the
 //! control socket with capability tokens ([`ipc`]); the hotkeys the shell
@@ -21,8 +22,10 @@ pub mod ipc;
 pub mod layout;
 pub mod lock;
 pub mod logind;
+pub mod outputs;
 pub mod protected;
 pub mod state;
+pub mod workspaces;
 
 pub use config::Config;
 pub use state::Ede;

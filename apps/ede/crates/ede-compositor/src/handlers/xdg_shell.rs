@@ -42,6 +42,10 @@ impl XdgShellHandler for Ede {
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         let wl = surface.wl_surface().clone();
         self.unmapped.retain(|w| w.toplevel().is_some_and(|t| t.wl_surface() != &wl));
+        if let Some(parked) = self.workspaces.parked.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned() {
+            self.window_event(ede_protocol::events::WINDOW_CLOSED, &parked);
+            self.forget_parked(&parked);
+        }
         let gone = self.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned();
         if let Some(window) = gone {
             let had_focus = self.focused_window().as_ref() == Some(&window);

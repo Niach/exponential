@@ -41,6 +41,10 @@ pub mod events {
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
+    /// `{"workspace": n}`: the active workspace changed (#EDE-18).
+    pub const WORKSPACE_SWITCHED: &str = "workspace.switched";
+    /// `{"output": name}`: an output appeared, moved, or changed mode or scale.
+    pub const OUTPUT_CHANGED: &str = "output.changed";
 }
 
 /// The socket and token file of the compositor serving `wayland_display`.
@@ -87,6 +91,20 @@ pub enum Request {
     Lock,
     /// End the session cleanly (the compositor exits 0; ede-session logs out).
     Logout,
+    /// The workspaces, the active one and each one's windows (#EDE-18).
+    ListWorkspaces,
+    SwitchWorkspace { index: usize },
+    MoveToWorkspace { window: WindowId, index: usize },
+    /// An output's mode (`"WxH@R"`), scale and position; each optional.
+    SetOutput {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scale: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        position: Option<(i32, i32)>,
+    },
     /// Start receiving events.
     Subscribe,
     /// A narrower grant for someone else (an agent): a subset of the
@@ -106,8 +124,9 @@ impl Request {
     /// The capability the op needs; `None` = any valid grant.
     pub fn capability(&self) -> Option<Capability> {
         match self {
-            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::Subscribe => None,
-            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } => Some(Capability::Ui),
+            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe => None,
+            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => Some(Capability::Ui),
+            Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } => Some(Capability::InputPerson),
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
@@ -162,16 +181,47 @@ pub struct WindowInfo {
     pub fullscreen: bool,
     pub protected: bool,
     pub x11: bool,
+    /// The workspace it lives on (0-based).
+    #[serde(default)]
+    pub workspace: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceInfo {
+    pub index: usize,
+    pub active: bool,
+    pub windows: Vec<WindowId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ModeInfo {
+    pub width: i32,
+    pub height: i32,
+    /// mHz.
+    pub refresh: i32,
+    pub preferred: bool,
+    pub current: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OutputInfo {
     pub name: String,
+    /// Logical geometry (the mode divided by the scale).
     pub x: i32,
     pub y: i32,
     pub width: i32,
     pub height: i32,
     pub scale: f64,
+    /// The modes the output offers (#EDE-18).
+    #[serde(default)]
+    pub modes: Vec<ModeInfo>,
+    #[serde(default)]
+    pub make: String,
+    #[serde(default)]
+    pub model: String,
+    /// Physical size in mm, `[0, 0]` when unknown.
+    #[serde(default)]
+    pub physical_mm: [i32; 2],
 }
 
 /// A capture reply; the pixels follow as the next frame.
@@ -372,6 +422,22 @@ impl Client {
 
     pub fn logout(&mut self) -> Result<(), Error> {
         self.call(Request::Logout).map(|_| ())
+    }
+
+    pub fn workspaces(&mut self) -> Result<Vec<WorkspaceInfo>, Error> {
+        self.call_as(Request::ListWorkspaces)
+    }
+
+    pub fn switch_workspace(&mut self, index: usize) -> Result<(), Error> {
+        self.call(Request::SwitchWorkspace { index }).map(|_| ())
+    }
+
+    pub fn move_to_workspace(&mut self, window: WindowId, index: usize) -> Result<(), Error> {
+        self.call(Request::MoveToWorkspace { window, index }).map(|_| ())
+    }
+
+    pub fn set_output(&mut self, name: &str, mode: Option<&str>, scale: Option<f64>, position: Option<(i32, i32)>) -> Result<(), Error> {
+        self.call(Request::SetOutput { name: name.into(), mode: mode.map(String::from), scale, position }).map(|_| ())
     }
 
     /// The next event (blocks until one arrives).

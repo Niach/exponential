@@ -255,9 +255,14 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::FocusWindow { window } => {
-                let w = self.window_by_id(&window)?;
+                let w = self.any_window_by_id(&window)?;
                 if self.is_locked() {
                     return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                // A parked window brings its workspace along (the taskbar).
+                let ws = crate::state::window_state(&w).workspace;
+                if ws != self.active_workspace() {
+                    self.switch_workspace(ws);
                 }
                 self.focus(Some(w));
                 json(serde_json::Value::Null)
@@ -315,6 +320,30 @@ impl Ede {
                 self.reload_config().map_err(|e| fail(ErrorCode::Invalid, &e))?;
                 json(serde_json::Value::Null)
             }
+            Request::ListWorkspaces => json(serde_json::to_value(self.workspace_infos()).unwrap()),
+            Request::SwitchWorkspace { index } => {
+                if index >= crate::workspaces::MAX {
+                    return Err(fail(ErrorCode::Invalid, &format!("workspaces go up to {}", crate::workspaces::MAX)));
+                }
+                self.switch_workspace(index);
+                json(serde_json::Value::Null)
+            }
+            Request::MoveToWorkspace { window, index } => {
+                if index >= crate::workspaces::MAX {
+                    return Err(fail(ErrorCode::Invalid, &format!("workspaces go up to {}", crate::workspaces::MAX)));
+                }
+                let w = self.any_window_by_id(&window)?;
+                self.move_to_workspace(&w, index, false);
+                json(serde_json::Value::Null)
+            }
+            Request::SetOutput { name, mode, scale, position } => {
+                let mode = match mode {
+                    Some(m) => Some(crate::config::parse_mode(&m).ok_or_else(|| fail(ErrorCode::Invalid, "mode must be WxH or WxH@R"))?),
+                    None => None,
+                };
+                self.set_output(&name, &crate::outputs::OutputChange { mode, scale, position }).map_err(|e| fail(ErrorCode::Invalid, &e))?;
+                json(serde_json::Value::Null)
+            }
             Request::Logout => {
                 tracing::info!("logout requested over ede-protocol");
                 self.loop_signal.stop();
@@ -355,13 +384,19 @@ impl Ede {
         self.space.elements().find(|w| &window_id(w) == id).cloned().ok_or_else(|| fail(ErrorCode::NotFound, "no such window"))
     }
 
+    /// On screen or parked on another workspace.
+    fn any_window_by_id(&self, id: &WindowId) -> Result<Window, Failure> {
+        self.all_windows().into_iter().find(|w| &window_id(w) == id).ok_or_else(|| fail(ErrorCode::NotFound, "no such window"))
+    }
+
     pub fn window_infos(&self) -> Vec<WindowInfo> {
         let focused = self.focused_window();
-        self.space
-            .elements()
+        self.all_windows()
+            .iter()
             .filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect()))
             .filter_map(|w| {
-                let g = self.space.element_geometry(w)?;
+                let st = crate::state::window_state(w);
+                let g = self.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
                 let protected = self.is_protected_window(w);
                 let (title, app_id) = window_title(w);
                 Some(WindowInfo {
@@ -373,9 +408,10 @@ impl Ede {
                     width: g.size.w,
                     height: g.size.h,
                     focused: focused.as_ref() == Some(w),
-                    fullscreen: crate::state::window_state(w).fullscreen.is_some(),
+                    fullscreen: st.fullscreen.is_some(),
                     protected,
                     x11: w.x11_surface().is_some(),
+                    workspace: st.workspace,
                 })
             })
             .collect()
@@ -386,7 +422,15 @@ impl Ede {
             .outputs()
             .filter_map(|o| {
                 let g = self.space.output_geometry(o)?;
-                Some(OutputInfo { name: o.name(), x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, scale: o.current_scale().fractional_scale() })
+                let current = o.current_mode();
+                let preferred = o.preferred_mode();
+                let modes = o
+                    .modes()
+                    .into_iter()
+                    .map(|m| ede_protocol::ModeInfo { width: m.size.w, height: m.size.h, refresh: m.refresh, preferred: Some(m) == preferred, current: Some(m) == current })
+                    .collect();
+                let p = o.physical_properties();
+                Some(OutputInfo { name: o.name(), x: g.loc.x, y: g.loc.y, width: g.size.w, height: g.size.h, scale: o.current_scale().fractional_scale(), modes, make: p.make, model: p.model, physical_mm: [p.size.w, p.size.h] })
             })
             .collect()
     }
@@ -417,6 +461,7 @@ impl Ede {
             tracing::warn!("keyboard layout {:?} rejected on reload: {e:?}", kb.layout);
         }
         keyboard.change_repeat_info(kb.repeat_rate, kb.repeat_delay);
+        self.apply_output_settings();
         self.emit(events::CONFIG_RELOADED, serde_json::Value::Null);
         Ok(())
     }

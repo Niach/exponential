@@ -277,3 +277,89 @@ fn the_socket_lives_in_a_private_directory() {
     let mut client = Client::connect(&socket, token).unwrap();
     assert_eq!(client.outputs().unwrap().len(), 1);
 }
+
+/// #EDE-18: workspaces over ede-protocol and the bindings; parked windows
+/// leave the screen and the taskbar still lists them.
+#[test]
+fn workspaces_park_windows_and_the_taskbar_brings_them_back() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let a = app.toplevel("a");
+    app.draw(&a, 300, 200, BLUE);
+    let b = app.toplevel("b");
+    app.draw(&b, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
+
+    let mut ipc = h.ipc();
+    ipc.subscribe().unwrap();
+    ipc.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let spaces = ipc.workspaces().unwrap();
+    assert_eq!(spaces.len(), 4, "Cinnamon's four by default");
+    assert!(spaces[0].active && spaces[0].windows.len() == 2);
+
+    // Super+2: both windows park, the screen shows the background only.
+    const KEY_2: u32 = 3;
+    press(&h, KEY_LEFTMETA, true);
+    press(&h, KEY_2, true);
+    press(&h, KEY_2, false);
+    press(&h, KEY_LEFTMETA, false);
+    let switched = ipc.next_event().unwrap();
+    assert_eq!((switched.kind.as_str(), switched.data["workspace"].as_u64()), (events::WORKSPACE_SWITCHED, Some(1)));
+    assert!(h.with(|ede| ede.space.elements().count() == 0));
+    let windows = ipc.windows().unwrap();
+    assert_eq!(windows.len(), 2, "parked windows are still listed");
+    assert!(windows.iter().all(|w| w.workspace == 0 && !w.focused));
+    assert_eq!(h.capture(0).at(400, 300), 0xff0a_0a0a, "nothing on workspace 2");
+
+    // Focusing a parked window from the taskbar switches back to it.
+    let id_a = windows.iter().find(|w| w.title.as_deref() == Some("a")).unwrap().id.clone();
+    ipc.focus(id_a.clone()).unwrap();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&a.surface));
+    assert_eq!(ipc.workspaces().unwrap()[0].active, true);
+    assert!(h.with(|ede| ede.space.elements().count() == 2));
+
+    // Move b to workspace 3 over the protocol: it leaves, a stays.
+    let id_b = windows.iter().find(|w| w.title.as_deref() == Some("b")).unwrap().id.clone();
+    ipc.move_to_workspace(id_b.clone(), 2).unwrap();
+    assert!(h.with(|ede| ede.space.elements().count() == 1));
+    let spaces = ipc.workspaces().unwrap();
+    assert_eq!(spaces[2].windows, vec![id_b.clone()]);
+    assert_eq!(ipc.windows().unwrap().iter().find(|w| w.id == id_b).unwrap().workspace, 2);
+    ipc.switch_workspace(2).unwrap();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&b.surface));
+    assert_eq!(code(ipc.switch_workspace(42).unwrap_err()), ErrorCode::Invalid);
+}
+
+/// #EDE-18: an output's scale and mode over ede-protocol and from the config.
+#[test]
+fn outputs_take_a_scale_and_a_mode() {
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
+    let config = Config::parse("[[outputs]]\nname = \"HEADLESS-1\"\nscale = 2.0\n").unwrap();
+    let h = Harness::start(config, &[(800, 600)]);
+    let mut ipc = h.ipc();
+    let out = &ipc.outputs().unwrap()[0];
+    assert_eq!((out.scale, out.width, out.height), (2.0, 400, 300), "the logical size is the mode over the scale");
+    assert_eq!(out.modes.len(), 1);
+    assert!(out.modes[0].current && out.modes[0].preferred);
+    assert_eq!((out.modes[0].width, out.modes[0].height, out.modes[0].refresh), (800, 600, 60_000));
+
+    // A window opened on a 2× output hears the preferred scale.
+    let mut app = Session::connect(h.connect());
+    let t = app.toplevel("hidpi");
+    app.draw(&t, 100, 100, BLUE);
+    assert!(ipc.windows().unwrap().iter().any(|w| w.title.as_deref() == Some("hidpi")));
+
+    ipc.set_output("HEADLESS-1", None, Some(1.5), Some((10, 20))).unwrap();
+    let out = &ipc.outputs().unwrap()[0];
+    assert_eq!((out.scale, out.x, out.y, out.width), (1.5, 10, 20, 534), "800 / 1.5, rounded up");
+    assert_eq!(code(ipc.set_output("HEADLESS-1", Some("1234x999"), None, None).unwrap_err()), ErrorCode::Invalid, "a mode the output does not offer");
+    assert_eq!(code(ipc.set_output("HEADLESS-1", Some("wide"), None, None).unwrap_err()), ErrorCode::Invalid);
+    assert_eq!(code(ipc.set_output("DP-9", None, Some(1.0), None).unwrap_err()), ErrorCode::Invalid);
+    // Only the system capability changes outputs.
+    let mut root = h.ipc();
+    let grant = root.mint(SessionId::new("agent-1").unwrap(), vec![Capability::Ui], None).unwrap();
+    let mut agent = h.ipc_with(grant.token).unwrap();
+    assert_eq!(code(agent.set_output("HEADLESS-1", None, Some(1.0), None).unwrap_err()), ErrorCode::Forbidden);
+    assert!(agent.workspaces().is_ok(), "listing needs no capability");
+}
