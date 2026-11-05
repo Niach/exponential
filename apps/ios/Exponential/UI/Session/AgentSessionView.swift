@@ -1593,10 +1593,6 @@ struct AgentSessionView: View {
                     collapsedIdentifier: "agent-composer-collapsed",
                     onExpand: expandComposer
                 ) {
-                    if hasUsage {
-                        usageRingCircle(model)
-                    }
-                } card: {
                     composerCard(model)
                 }
             }
@@ -1650,13 +1646,6 @@ struct AgentSessionView: View {
 
     private func usageSeverity(_ model: AgentSessionModel) -> AgentUsageSeverity {
         AgentUsagePresentation.severity(model.sessionUsage?.percent.map(Double.init))
-    }
-
-    private func usageRingCircle(_ model: AgentSessionModel) -> some View {
-        FloatingBarCircle(accessibilityLabel: "Usage", action: { showUsageSheet = true }) {
-            ContextRing(fraction: usageFraction(model), severity: usageSeverity(model))
-        }
-        .accessibilityIdentifier("session-usage-ring")
     }
 
     private func expandComposer() {

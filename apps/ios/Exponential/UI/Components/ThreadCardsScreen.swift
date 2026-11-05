@@ -503,8 +503,6 @@ private struct ThreadStripSpecimens: View {
                     onExpand: {}
                 ) {
                     EmptyView()
-                } card: {
-                    EmptyView()
                 }
             }
             .padding(.horizontal, -16)
