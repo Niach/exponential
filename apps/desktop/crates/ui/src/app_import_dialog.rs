@@ -478,9 +478,6 @@ impl AppImportView {
             )
             .child(
                 h_flex()
-                    .pt_3()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
                     .justify_end()
                     .child(self.pending.apply(
                         Button::new("app-import-confirm")

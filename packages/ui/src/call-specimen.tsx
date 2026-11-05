@@ -175,7 +175,7 @@ export function CallControlsSpecimen() {
           <CallControls buttons={[`end`]} muted={false} end={copy.cancel} ringing />
         </Labelled>
       </div>
-      <Labelled label="compact row: the desktop's floating pill">
+      <Labelled label="compact row: the floating call pill">
         <VoiceCallPill
           agent={inCall.agent}
           avatar={assistant}

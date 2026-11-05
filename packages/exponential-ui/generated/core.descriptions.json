@@ -1413,7 +1413,6 @@
       },
       "description": "A pulsing placeholder: a block, or `rows` rows.",
       "example": {
-        "width": "60%",
         "height": "16px"
       }
     },

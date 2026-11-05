@@ -599,6 +599,20 @@ class StyleguideScreenshotsTest {
             // wait for.
             flow.waitFor(hasTestTag("comment-thread-header"), SYNC_TIMEOUT)
             flow.waitFor(hasText(SHOWCASE_COMMENT_FRAGMENT, substring = true), SYNC_TIMEOUT)
+            // --- Issue properties (EXP-1676: BEFORE the comments scroll: the page at
+            // its top behind the sheet, as web-mobile): still on APP-5. The bottom bar's leading circle
+            // opens the combined sheet (moderators only — the demo user owns the
+            // team); its rows are the real content, the GlassSheet title alone
+            // renders before they do.
+            composeRule.onNode(hasContentDescription("Issue properties")).performClick()
+            flow.waitFor(hasText("Properties"), NAV_TIMEOUT)
+            flow.waitFor(hasText("Priority"), NAV_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_issue-properties")
+            Espresso.pressBack()
+            flow.waitForGone(hasText("Priority"), NAV_TIMEOUT)
+            flow.settle(longer = true)
+
             composeRule.onNode(hasTestTag("comment-thread-header")).performScrollTo()
             composeRule.onAllNodes(hasText(SHOWCASE_COMMENT_FRAGMENT, substring = true))
                 .onFirst()
@@ -615,19 +629,6 @@ class StyleguideScreenshotsTest {
             flow.settle()
             flow.screenshot("sg_issue-comments")
 
-            // --- Issue properties: still on APP-5. The bottom bar's leading circle
-            // opens the combined sheet (moderators only — the demo user owns the
-            // team); its rows are the real content, the GlassSheet title alone
-            // renders before they do.
-            composeRule.onNode(hasContentDescription("Issue properties")).performClick()
-            flow.waitFor(hasText("Properties"), NAV_TIMEOUT)
-            flow.waitFor(hasText("Priority"), NAV_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_issue-properties")
-            Espresso.pressBack()
-            flow.waitForGone(hasText("Priority"), NAV_TIMEOUT)
-            flow.settle(longer = true)
-
             composeRule.onNode(hasContentDescription("Back")).performClick()
             flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
             flow.settle()
@@ -641,6 +642,9 @@ class StyleguideScreenshotsTest {
             composeRule.onNode(hasContentDescription("New issue")).performClick()
             flow.waitFor(hasTestTag("create-issue-title-field"), NAV_TIMEOUT)
             flow.waitFor(hasText(IssueDraftPage.HEADER), NAV_TIMEOUT)
+            flow.settle()
+            // EXP-1676: the keyboard down, the state the other clients photograph.
+            Espresso.closeSoftKeyboard()
             flow.settle()
             flow.screenshot("sg_issue-create")
             composeRule.onNode(hasContentDescription("Back")).performClick()

@@ -5,7 +5,7 @@ export const SHEET_CLASSES = {
   // The mobile sheet radius (24px = rounded-*-3xl) on the leading
   // edge. Full-screen consumers (e.g. the search sheet) pass
   // rounded-none.
-  content: `group/sheet fixed z-50 flex flex-col gap-4 border-glass-stroke-card shadow-lg motion-sheet`,
+  content: `group/sheet fixed z-50 flex flex-col gap-4 border-glass-stroke-card shadow-lg outline-none motion-sheet`,
   // Side/top drawers stay frosted glass (EXP-269); the BOTTOM sheet
   // is the opaque #18181B surface every client shares (EXP-687) — it
   // covers the screen edge to edge, so there is nothing to blur.

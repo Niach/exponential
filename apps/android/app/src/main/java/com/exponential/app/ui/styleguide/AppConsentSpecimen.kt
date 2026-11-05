@@ -38,8 +38,9 @@ fun AppConsentSpecimenScreen() {
                 componentId = "postComment",
                 name = "exponential.comments.create",
                 args = linkedMapOf(
-                    "issueId" to JsonValue.Str("APP-15"),
+                    // The stored package's order (JSONB: the shorter key first), as web shows it.
                     "body" to JsonValue.Str("Logged 8 h: docs, admin"),
+                    "issueId" to JsonValue.Str("APP-15"),
                 ),
             ),
         )

@@ -331,14 +331,22 @@ fn call_avatar(id: ElementId, face: &CallFace, edge: f32, cx: &App) -> AnyElemen
             })
         }
         "listening" => {
-            let glow = disc + 8. + 28. * face.level.clamp(0., 1.);
+            // Web `CallAvatar`'s one box-shadow: the 3 px ring + a soft glow
+            // that widens with the level (EXP-1676).
+            let glow = 6. + 22. * face.level.clamp(0., 1.);
             Some(
                 div()
-                    .size(px(glow))
+                    .size(px(disc + 6.))
                     .rounded_full()
-                    .bg(theme.success.opacity(0.12 + 0.18 * face.level.clamp(0., 1.)))
-                    .border_2()
-                    .border_color(theme.success.opacity(0.7))
+                    .border_3()
+                    .border_color(theme.success.opacity(0.8))
+                    .shadow(vec![gpui::BoxShadow {
+                        color: theme.success.opacity(0.35),
+                        offset: gpui::point(px(0.), px(0.)),
+                        blur_radius: px(glow),
+                        spread_radius: px(6.),
+                        inset: false,
+                    }])
                     .into_any_element(),
             )
         }

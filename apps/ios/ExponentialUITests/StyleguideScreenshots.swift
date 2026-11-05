@@ -336,15 +336,9 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.sync,
             "The comment thread on APP-5 never synced"
         )
-        // The detail is one long ScrollView with no scroll-to anchor; walk down
-        // until the "Activity" header is on screen, then two more swipes so the
-        // thread — not the header — fills the frame.
-        scrollUntilVisible(app, commentsHeader, attempts: 14)
-        app.swipeUp()
-        app.swipeUp()
-        snapshot("sg_issue-comments", settle: 2)
-
         // ── sg_issue-properties: the combined properties sheet ───────────────
+        // EXP-1676: BEFORE the comments scroll: the page at its top behind the
+        // sheet, the backdrop web-mobile photographs.
         // Still on APP-5: the bottom bar's leading circle opens it (moderators
         // only — the demo user owns the team). The sheet rows carry the
         // property name inside the row BUTTON's merged label, so match on a
@@ -382,6 +376,15 @@ final class StyleguideScreenshots: XCTestCase {
             _ = propertiesHeadline.waitForNonExistence(timeout: Wait.nav)
             settle(1)
         }
+        // The detail is one long ScrollView with no scroll-to anchor; walk down
+        // until the "Activity" header is on screen, then two more swipes so the
+        // thread — not the header — fills the frame.
+        scrollUntilVisible(app, commentsHeader, attempts: 14)
+        // EXP-1676: web's and Android's frame = the END of the page's scroller.
+        for _ in 0..<6 { app.swipeUp() }
+        settle(1)
+        snapshot("sg_issue-comments", settle: 2)
+
         goBack(app)
 
         // ── sg_issue-create: the new-issue page ─────────────────────────────
@@ -427,6 +430,8 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.sync,
             "Search never returned the seeded issue for \"\(Self.searchQuery)\""
         )
+        // EXP-1676: the keyboard down, the state the other clients photograph.
+        dismissKeyboard(app)
         snapshot("sg_search", settle: 2)
         goBack(app)
 
@@ -644,6 +649,8 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.sync,
             "The # sheet never listed the seeded issues for \"APP\""
         )
+        // EXP-1676: the keyboard down, the state the other clients photograph.
+        dismissKeyboard(app)
         snapshot("sg_search-list", settle: 2)
         dismissSheet(app, whileVisible: refSheet)
         _ = refSheet.waitForNonExistence(timeout: Wait.nav)
@@ -820,6 +827,13 @@ final class StyleguideScreenshots: XCTestCase {
         // phone's own pages of web's General / Members / Labels /
         // Repositories (settings-nav.json `phone`), each a detour off the
         // Team tab gated on its seeded content (EXP-1558).
+        // EXP-1676: from the page's top: the walk left it scrolled, General sat
+        // under the glass header (it "exists", so scrollUntilVisible never
+        // moved, and the tap landed on the header).
+        if ScreenshotShots.isWanted("sg_settings-general") {
+            for _ in 0..<2 { app.swipeDown() }
+            settle(1)
+        }
         for (label, shot, gate) in [
             ("General", "sg_settings-general", "team-settings-identity"),
             ("Members", "sg_settings-members", ScreenshotSeed.demoEmail),

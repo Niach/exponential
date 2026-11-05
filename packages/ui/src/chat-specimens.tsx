@@ -494,16 +494,18 @@ export function SealedLockedSpecimen() {
   return (
     <TooltipProvider>
       <div data-testid="sealed-locked-specimen" className="flex flex-wrap items-start gap-6">
-        <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4">
-          <div className="mb-3 text-xs text-muted-foreground">Phone (bubbles)</div>
+        {/* EXP-1676: a phone draws what the native phones draw: its own bubbles
+            and the rows, no board around them. */}
+        <div className="w-[22rem] max-w-full rounded-3xl border border-glass-stroke-card bg-background p-4 max-md:w-full max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0">
+          <div className="mb-3 text-xs text-muted-foreground max-md:hidden">Phone (bubbles)</div>
           <LockedTranscript layout="bubbles" />
         </div>
-        <div className="w-[32rem] max-w-full">
+        <div className="w-[32rem] max-w-full max-md:hidden">
           <div className="mb-3 text-xs text-muted-foreground">Web wide (transcript)</div>
           <LockedTranscript layout="transcript" />
         </div>
-        <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0">
-          <div className="text-xs text-muted-foreground">Chats list</div>
+        <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:w-full max-md:rounded-none max-md:bg-transparent max-md:p-0">
+          <div className="text-xs text-muted-foreground max-md:hidden">Chats list</div>
           <ChatList flat rows={LOCKED_LIST_ROWS} agentOf={() => `claude`} />
         </div>
       </div>

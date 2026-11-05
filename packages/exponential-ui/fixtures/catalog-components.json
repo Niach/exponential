@@ -6484,7 +6484,6 @@
         "id": "skeleton",
         "component": "Skeleton",
         "props": {
-          "width": "60%",
           "height": "16px"
         }
       }
@@ -6495,7 +6494,6 @@
         "id": "skeleton",
         "component": "Skeleton",
         "props": {
-          "width": "60%",
           "height": "16px",
           "rounded": true
         }
@@ -6507,7 +6505,6 @@
         "id": "skeleton",
         "component": "Skeleton",
         "props": {
-          "width": "60%",
           "height": "16px",
           "rounded": false
         }
@@ -6519,7 +6516,6 @@
         "id": "skeleton",
         "component": "Skeleton",
         "props": {
-          "width": "60%",
           "height": "16px",
           "dot": true
         }
@@ -6531,7 +6527,6 @@
         "id": "skeleton",
         "component": "Skeleton",
         "props": {
-          "width": "60%",
           "height": "16px",
           "dot": false
         }

@@ -281,6 +281,9 @@ async function recipeOpenAppConsent(page: Page): Promise<void> {
   await post.waitFor({ timeout: 15_000 })
   await post.click()
   await page.getByTestId(`exponential-ui-consent`).waitFor({ timeout: 15_000 })
+  // EXP-1676: the card alone over the editor, as desktop and the natives shoot
+  // it: the entry dialog that raised it stays open but out of the picture.
+  await page.addStyleTag({ content: `.xui-Dialog-content { visibility: hidden !important; }` })
 }
 
 async function recipeOpenOnboardingJoin(page: Page): Promise<void> {

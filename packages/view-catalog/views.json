@@ -75,6 +75,10 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/t/$teamSlug/needs-you",
+      "reason": "Live rows on every client; the `needs-you` view shoots the specimen (`?dev=needs-you`) so ×5 show the same state."
+    },
+    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
@@ -2333,6 +2337,9 @@
         "drive": {
           "kind": "dialog",
           "value": "getting-started"
+        },
+        "env": {
+          "EXP_DEV_TOOL": "board"
         }
       },
       "notes": {
@@ -4600,7 +4607,7 @@
           "kind": "screen",
           "value": "exponential-ui-zoomable-image"
         },
-        "anchorDelayMs": 800
+        "anchorDelayMs": 3000
       },
       "ios": {
         "shot": "exponential-ui-zoomable-image",
@@ -7569,7 +7576,7 @@
         },
         "anchorDelayMs": 1500,
         "env": {
-          "EXP_DEV_SCREEN": "app:working-hours"
+          "EXP_DEV_SCREEN": "app:working-hours:settings"
         }
       },
       "ios": {

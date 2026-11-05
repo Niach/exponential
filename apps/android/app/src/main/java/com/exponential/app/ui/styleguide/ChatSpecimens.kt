@@ -230,7 +230,7 @@ fun ChatListSpecimenScreen() {
  *  selection (iOS ChatListSpecimen line for line): `a` live (needs you),
  *  `c` ended with one unread, both the viewer's. */
 const val CHAT_SELECTION_ARCHIVED = 2
-val CHAT_SELECTION_IDS: List<String> = listOf("a", "c")
+val CHAT_SELECTION_IDS: List<String> = listOf("b", "c")
 
 /** The selection bar's actions for the specimen's selection. */
 fun chatSelectionSpecimenActions(): List<Chats.ChatSelectionEntry> = Chats.chatSelectionActions(

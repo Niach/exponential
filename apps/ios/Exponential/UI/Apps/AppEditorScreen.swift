@@ -613,7 +613,8 @@ struct AppVersionsSheet: View {
                         .padding(.vertical, 8)
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(model.versions) { version in
+                        ForEach(Array(model.versions.enumerated()), id: \.element.id) { index, version in
+                            if index > 0 { GlassDivider() }
                             row(version, pointers: model.app?.versions ?? Apps.Versions(headVersion: 0, publishedVersion: 0))
                         }
                     }
@@ -635,7 +636,7 @@ struct AppVersionsSheet: View {
         let when = RelativeTime.long(wire: version.createdAt)
         // eApps R8 (apps.json `migrationCases`): the record sweep's line.
         let migration = Apps.versionMigration(state: version.migrationState, total: version.migrationTotal, done: version.migrationDone, error: version.migrationError)
-        return HStack(spacing: 10) {
+        return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     GlassPill(Apps.versionLabel(version.number))
@@ -661,7 +662,7 @@ struct AppVersionsSheet: View {
                     Button { onPreview(version.number) } label: {
                         Text(Apps.Copy.preview)
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .foregroundStyle(.white)
                             .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
                             .frame(height: GlassPillTokens.heightSm)
                             .contentShape(Capsule())
@@ -675,8 +676,8 @@ struct AppVersionsSheet: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("\(Apps.TestIds.versionRow)-\(version.number)")
     }
