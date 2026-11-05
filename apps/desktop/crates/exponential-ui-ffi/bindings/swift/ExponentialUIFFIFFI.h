@@ -812,6 +812,11 @@ int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(uint64_t ptr, Rus
 void uniffi_exponential_ui_ffi_fn_method_surface_set_insets(uint64_t ptr, float top, float right, float bottom, float left, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_LAYER_VIEWPORT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_LAYER_VIEWPORT
+int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(uint64_t ptr, float width, float height, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_LOCALE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_LOCALE
 void uniffi_exponential_ui_ffi_fn_method_surface_set_locale(uint64_t ptr, RustBuffer locale, RustCallStatus *_Nonnull out_status
@@ -2699,6 +2704,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_INSETS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_INSETS
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_insets(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_LAYER_VIEWPORT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_LAYER_VIEWPORT
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_layer_viewport(void
     
 );
 #endif

@@ -509,6 +509,8 @@ pub struct Surface {
     memo_versions: HashMap<u32, u32>,
     last_measurer: Option<u64>,
     viewport: (f32, f32),
+    /// #VAPP-253: [`Surface::set_layer_viewport`].
+    layer_viewport: Option<(f32, f32)>,
     max_height: Option<f32>,
     direction: Direction,
     rounding: bool,
@@ -610,6 +612,7 @@ impl Surface {
             memo_versions: HashMap::new(),
             last_measurer: None,
             viewport: (0.0, 0.0),
+            layer_viewport: None,
             max_height: None,
             direction: Direction::Ltr,
             rounding: options.rounding,
@@ -907,6 +910,26 @@ impl Surface {
 
     pub fn viewport(&self) -> (f32, f32) {
         self.viewport
+    }
+
+    /// #VAPP-253: the window a host hangs this surface's modal layers from
+    /// (the surface may be narrower: a sidebar, a padded pane). A top or
+    /// bottom Drawer lays out at its width, at `x = 0`, and on its height
+    /// (height <= 0 = the surface's); a popup opened above that sheet lands in
+    /// it too. Those frames are relative to the window's origin, the host
+    /// paints them there. Width <= 0 (or not finite) = unset, the default: a
+    /// sheet takes the surface's size. Returns whether anything changed.
+    pub fn set_layer_viewport(&mut self, width: f32, height: f32) -> bool {
+        let next = (width.is_finite() && width > 0.0).then_some((width, if height.is_finite() { height.max(0.0) } else { 0.0 }));
+        if self.layer_viewport == next {
+            return false;
+        }
+        self.layer_viewport = next;
+        true
+    }
+
+    pub fn layer_viewport(&self) -> Option<(f32, f32)> {
+        self.layer_viewport
     }
 
     /// The breakpoint of the current width (theme tokens, else the defaults).

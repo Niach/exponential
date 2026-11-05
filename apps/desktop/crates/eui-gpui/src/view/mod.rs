@@ -952,6 +952,10 @@ impl SurfaceView {
         let max_h = (visible_h > 0.0).then_some(visible_h);
         self.sync_appearance(window);
         self.surface.set_viewport(self.width, 0.0, max_h);
+        // #VAPP-253: a lifted top or bottom sheet spans the window.
+        if self.lift_layers {
+            self.surface.set_layer_viewport(self.window_size.0, self.window_size.1);
+        }
         self.track_focus(window, cx);
         self.flush_states();
         // While a layer is open, keep what this pass replaces: a layer that
@@ -1471,7 +1475,7 @@ impl SurfaceView {
         }
         let viewport = window.viewport_size();
         let window_size = (f32::from(viewport.width), f32::from(viewport.height));
-        if self.layers_lifted() && (window_size.1 - self.window_size.1).abs() > 0.5 {
+        if self.layers_lifted() && ((window_size.0 - self.window_size.0).abs() > 0.5 || (window_size.1 - self.window_size.1).abs() > 0.5) {
             again = true;
         }
         self.window_size = window_size;

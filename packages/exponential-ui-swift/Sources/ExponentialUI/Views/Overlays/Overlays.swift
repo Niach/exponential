@@ -92,9 +92,10 @@ struct PaintedLayers: View {
 
 /// #VAPP-252: the part of the window a lifted layer lives in: `size` = its
 /// safe area above the keyboard, `insets` = what lies outside it. The scrim
-/// covers all of it; the core laid the layers out at the surface's width and
-/// `size.height` (`overlayViewportHeight`), so a modal lands by the place the
-/// core gave it (`position`) and a popup opened inside it moves with it.
+/// covers all of it; the core laid the layers out at `size.height`, a top or
+/// bottom sheet at `size.width` too (`overlayViewport`, #VAPP-253: it spans the
+/// safe area, which is the whole width of a phone held upright), so a modal lands by the place
+/// the core gave it (`position`) and a popup opened inside it moves with it.
 struct LayerStage: Equatable {
     var size: CGSize
     var insets: EdgeInsets
@@ -112,7 +113,7 @@ struct LayerStage: Equatable {
 
     /// Where a modal of `layerSize` lands: a Dialog centred (`OVERLAY_PADDING`
     /// clear of the top when taller), a sheet on its edge; a top or bottom
-    /// sheet keeps the surface's width, centred.
+    /// sheet is `size.width` wide, so centring it lands it at the stage's left.
     func origin(position: String, layerSize: CGSize) -> CGPoint {
         let centreX = (size.width - layerSize.width) / 2
         switch position {
@@ -163,7 +164,7 @@ public struct ExponentialSurfaceLayers: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-            .onChange(of: proxy.size.height, initial: true) { _, height in model.overlayViewportHeight(height) }
+            .onChange(of: proxy.size, initial: true) { _, size in model.overlayViewport(size) }
         }
         .background {
             Color.clear
@@ -178,7 +179,7 @@ public struct ExponentialSurfaceLayers: View {
         .modifier(KeyboardRouting(model: model, rootFocused: $rootFocused, onStage: true))
         .modifier(FilePicking(model: model, onStage: true))
         .onAppear { appeared = true }
-        .onDisappear { model.overlayViewportHeight(nil) }
+        .onDisappear { model.overlayViewport(nil) }
     }
 }
 

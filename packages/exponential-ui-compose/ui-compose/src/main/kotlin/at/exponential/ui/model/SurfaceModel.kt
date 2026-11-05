@@ -715,6 +715,21 @@ class SurfaceModel(
         }
     }
 
+    /** #VAPP-253: while set, the width a top or bottom Drawer spans ([overlayLayerWidth]). */
+    internal var layerViewportWidth: Float? = null
+        private set
+
+    /**
+     * #VAPP-253: a bottom sheet hangs from the whole window: its width for the
+     * core's layer viewport while it is up, null = back to the surface's.
+     */
+    internal fun overlayLayerWidth(width: Float?) {
+        if (width == layerViewportWidth) return
+        layerViewportWidth = width
+        layoutNeeded = true
+        if (this.width > 0f) pass()
+    }
+
     /** The surface's width from its own layout (`ExponentialSurface`). */
     internal fun setSurfaceWidth(width: Float) = applyViewport(width, viewportHeight, maxHeight)
 
@@ -793,6 +808,7 @@ class SurfaceModel(
         val t0 = System.nanoTime()
         benchCounters?.sent(0)
         surface.setViewport(width, viewportHeight, maxHeight)
+        surface.setLayerViewport(layerViewportWidth ?: 0f, 0f)
         var measureCalls = 0
         var tries = 0
         val touched = HashSet<Int>()

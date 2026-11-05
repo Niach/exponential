@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -228,10 +229,18 @@ private fun DrawerLayer(model: SurfaceModel, layer: LayerInfo) {
         tonalElevation = 0.dp,
         scrimColor = scrim,
         dragHandle = null,
+        // #VAPP-253: the sheet spans the window, a tablet's too; the core keeps
+        // its content clear of the safe area.
+        sheetMaxWidth = Dp.Unspecified,
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = dismissible),
     ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            val windowWidth = maxWidth.value
+            DisposableEffect(model, windowWidth) {
+                model.overlayLayerWidth(windowWidth)
+                onDispose { model.overlayLayerWidth(null) }
+            }
             LayerView(layer)
         }
     }
@@ -292,7 +301,8 @@ private fun SideDrawerLayer(model: SurfaceModel, layer: LayerInfo) {
 @Composable
 private fun PopoverLayer(model: SurfaceModel, layer: LayerInfo) {
     val density = LocalDensity.current.density
-    val provider = remember(layer, density) { LayerPositionProvider(layer, density) }
+    val inWindow = model.layerViewportWidth != null
+    val provider = remember(layer, density, inWindow) { LayerPositionProvider(layer, density, inWindow) }
     val submenu = model.isSubmenuLayer(layer)
     Popup(
         popupPositionProvider = provider,
@@ -308,12 +318,13 @@ private fun PopoverLayer(model: SurfaceModel, layer: LayerInfo) {
  * (`placementSide`, else `position`), the core's gap to the anchor and its
  * cross-axis offset, flipped to the other side when the window has no room
  * there and clamped into the window. `anchorBounds` = the surface (the
- * popup's parent), so surface coordinates map by its origin.
+ * popup's parent), so surface coordinates map by its origin; #VAPP-253 above a
+ * sheet spanning the window ([inWindow]) x is the window's already.
  */
-private class LayerPositionProvider(val layer: LayerInfo, val density: Float) : PopupPositionProvider {
+private class LayerPositionProvider(val layer: LayerInfo, val density: Float, val inWindow: Boolean) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val d = density
-        val ox = anchorBounds.left.toFloat()
+        val ox = if (inWindow) 0f else anchorBounds.left.toFloat()
         val oy = anchorBounds.top.toFloat()
         val f = layer.frame
         val a = layer.anchorFrame ?: f

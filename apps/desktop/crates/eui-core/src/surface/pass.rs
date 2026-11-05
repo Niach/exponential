@@ -177,13 +177,35 @@ impl Surface {
         let ins = self.settings.insets;
         let view = View { x: ins.left, y: ins.top, w: (vw - ins.left - ins.right).max(0.0), h: (vh_eff - ins.top - ins.bottom).max(0.0) };
         let mut toast_stack = 0.0f32;
+        // #VAPP-253: a popup opened above a sheet laid out at the layer
+        // viewport lands in that viewport, like the frames it anchors to.
+        let mut popup_view = view;
         for k in 0..self.layers.len() {
-            let p = self.place_layer(k, view, vw, vh_eff, &mut frames, &guesses, &mut toast_stack);
+            let popup = matches!(self.layers[k].placement, LayerPlacement::Anchored { .. } | LayerPlacement::AtPoint { .. });
+            let p = self.place_layer(k, if popup { popup_view } else { view }, vw, vh_eff, &mut frames, &guesses, &mut toast_stack);
             placed.push(p);
+            if self.layers[k].modal {
+                popup_view = match self.layers[k].placement {
+                    LayerPlacement::Edge(OverlaySide::Top | OverlaySide::Bottom) => {
+                        let (w, h) = self.sheet_viewport(vw, vh_eff);
+                        View { x: ins.left, y: ins.top, w: (w - ins.left - ins.right).max(0.0), h: (h - ins.top - ins.bottom).max(0.0) }
+                    }
+                    _ => view,
+                };
+            }
         }
         let mut seen = HashSet::new();
         let pending: Vec<HeightRequest> = guesses.into_inner().into_iter().filter(|r| seen.insert((r.index, MeasureMemo::width_key(r.width)))).collect();
         (frames, placed, pending)
+    }
+
+    /// What a top or bottom Drawer lays out against: the layer viewport
+    /// (#VAPP-253; height <= 0 = the surface's), else the surface's.
+    fn sheet_viewport(&self, vw: f32, vh: f32) -> (f32, f32) {
+        match self.layer_viewport {
+            Some((w, h)) => (w, if h > 0.0 { h } else { vh }),
+            None => (vw, vh),
+        }
     }
 
     fn finish(&mut self, frames: Vec<Frame>, placed: Vec<Placed>, state: PassState) -> LayoutOutput {
@@ -372,13 +394,15 @@ impl Surface {
                     OverlaySide::Left => [ins.top, 0.0, ins.bottom, ins.left],
                     OverlaySide::Right => [ins.top, ins.right, ins.bottom, 0.0],
                 };
+                let (sheet_w, sheet_h) = self.sheet_viewport(vw, vh);
+                let sheet_finite = sheet_h.is_finite() && sheet_h > 0.0;
                 self.layer_root_style(root, extra, |s| {
-                    if vertical && finite && body_shrinks {
-                        s.max_size.height = length((vh * SHEET_MAX_HEIGHT).max(0.0));
+                    if vertical && sheet_finite && body_shrinks {
+                        s.max_size.height = length((sheet_h * SHEET_MAX_HEIGHT).max(0.0));
                     }
                 });
                 let available = if vertical {
-                    Size { width: AvailableSpace::Definite(vw), height: AvailableSpace::MaxContent }
+                    Size { width: AvailableSpace::Definite(sheet_w), height: AvailableSpace::MaxContent }
                 } else {
                     Size { width: AvailableSpace::Definite((vw - 2.0 * pad).clamp(0.0, DRAWER_MAX_WIDTH)), height: if finite { AvailableSpace::Definite(vh) } else { AvailableSpace::MaxContent } }
                 };
@@ -386,7 +410,7 @@ impl Surface {
                 let size = self.engine.layout(root).size;
                 let (x, y) = match side {
                     OverlaySide::Top | OverlaySide::Left => (0.0, 0.0),
-                    OverlaySide::Bottom => (0.0, if finite { vh - size.height } else { 0.0 }),
+                    OverlaySide::Bottom => (0.0, if sheet_finite { sheet_h - size.height } else { 0.0 }),
                     OverlaySide::Right => (vw - size.width, 0.0),
                 };
                 (None, side.as_str().to_string(), None, x, y)

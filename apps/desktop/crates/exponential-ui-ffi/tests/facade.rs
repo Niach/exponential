@@ -191,6 +191,8 @@ fn messages_events_and_overlays_cross_the_facade_as_json() {
     ]}}).to_string()).unwrap();
     surface.set_data("/title".into(), Some("\"Hello\"".into())).unwrap();
     surface.set_viewport(400.0, 700.0, None);
+    assert!(surface.set_layer_viewport(1000.0, 800.0), "VAPP-253: the layer viewport goes through");
+    assert!(surface.set_layer_viewport(0.0, 0.0), "and unsets");
     let out = surface.layout_fixed(None, true).unwrap();
     assert!(out.layers.is_empty());
     let b = surface.index_of("b".into()).unwrap();

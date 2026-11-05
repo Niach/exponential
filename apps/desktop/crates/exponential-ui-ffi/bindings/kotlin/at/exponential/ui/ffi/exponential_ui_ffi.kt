@@ -1053,6 +1053,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_insets(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_layer_viewport(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_locale(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_mode(
@@ -1378,6 +1380,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(`ptr`: Long
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_insets(`ptr`: Long,`top`: Float,`right`: Float,`bottom`: Float,`left`: Float,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(`ptr`: Long,`width`: Float,`height`: Float,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_locale(`ptr`: Long,`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_mode(`ptr`: Long,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -5614,6 +5618,13 @@ public interface SurfaceInterface {
      */
     fun `setInsets`(`top`: kotlin.Float, `right`: kotlin.Float, `bottom`: kotlin.Float, `left`: kotlin.Float)
     
+    /**
+     * #VAPP-253: the window a host hangs the modal layers from: a top or
+     * bottom Drawer lays out at its width and height (height <= 0 = the
+     * surface's). Width <= 0 = unset, the default: the surface's size.
+     */
+    fun `setLayerViewport`(`width`: kotlin.Float, `height`: kotlin.Float): kotlin.Boolean
+    
     fun `setLocale`(`locale`: kotlin.String)
     
     /**
@@ -6441,6 +6452,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 }
     }
     
+    
+
+    
+    /**
+     * #VAPP-253: the window a host hangs the modal layers from: a top or
+     * bottom Drawer lays out at its width and height (height <= 0 = the
+     * surface's). Width <= 0 = unset, the default: the surface's size.
+     */override fun `setLayerViewport`(`width`: kotlin.Float, `height`: kotlin.Float): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(
+        it,
+        FfiConverterFloat.lower(`width`),FfiConverterFloat.lower(`height`),_status)
+}
+    }
+    )
+    }
     
 
     override fun `setLocale`(`locale`: kotlin.String)

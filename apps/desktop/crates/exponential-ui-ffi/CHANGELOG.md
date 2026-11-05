@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- #VAPP-253: `Surface.set_layer_viewport(width, height)`, the core's layer viewport; bindings regenerated.
+
 ## 0.16.0 (2026-11-05)
 
 - VAPP-212: `RecordStore`: one app's rows behind a handle (`applyJson`, `valueJson`, `count`), so a query no longer has to carry the rows across the FFI.
