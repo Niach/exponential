@@ -133,6 +133,9 @@ const CLAMP_LINES: usize = 6;
 /// Free-text answers are capped like the web input.
 const FREE_TEXT_MAX: usize = 4000;
 
+/// The most viewer events applied in one foreground update.
+const DRAIN_BATCH_MAX: usize = 512;
+
 /// How often the staged-replay fallback re-checks its quiet window.
 const STAGING_TICK: Duration = Duration::from_millis(100);
 
@@ -768,17 +771,22 @@ impl SteerSessionView {
             }
         }));
 
-        // The socket task publishes into this channel; the drain applies each
-        // event on the gpui foreground (the `steer_wiring` recipe).
+        // The socket task publishes into this channel; the drain applies it
+        // on the gpui foreground (the `steer_wiring` recipe), a batch at a
+        // time: `recv_async` never suspends while the channel holds a
+        // backlog, so a loop over single events would hold the whole replay
+        // of a long chat in one poll, with no frame or input between events.
         let (events_tx, events_rx) = flume::unbounded::<ViewerEvent>();
         let drain = cx.spawn(async move |this, cx| {
-            while let Ok(event) = events_rx.recv_async().await {
+            while let Ok(first) = events_rx.recv_async().await {
+                let batch = next_batch(first, &events_rx);
                 if this
-                    .update(cx, |this, cx| this.apply_event(event, cx))
+                    .update(cx, |this, cx| this.apply_events(batch, cx))
                     .is_err()
                 {
                     return;
                 }
+                cx.background_executor().timer(Duration::ZERO).await;
             }
         });
 
@@ -1864,9 +1872,23 @@ impl SteerSessionView {
 
     // ── Viewer events ──────────────────────────────────────────────────────
 
-    fn apply_event(&mut self, event: ViewerEvent, cx: &mut gpui::Context<Self>) {
-        let was_compacting = self.feed.compacting().is_some();
+    /// One drained batch, then ONE [`Self::refresh_derived`]: it walks the
+    /// whole feed, so a per-event call makes a replay quadratic.
+    fn apply_events(&mut self, events: impl IntoIterator<Item = ViewerEvent>, cx: &mut gpui::Context<Self>) {
         let pulse = feed_pulse(&self.feed);
+        for event in events {
+            // Per event: a compaction may start and end inside one batch.
+            let was_compacting = self.feed.compacting().is_some();
+            self.apply_event(event, cx);
+            self.note_compaction(was_compacting, cx);
+        }
+        self.refresh_derived();
+        self.note_feed_moved(pulse);
+        self.keep_stream_slots(cx);
+        cx.notify();
+    }
+
+    fn apply_event(&mut self, event: ViewerEvent, cx: &mut gpui::Context<Self>) {
         match event {
             ViewerEvent::Phase(phase) => self.note_phase(phase),
             ViewerEvent::Connected(connected) => {
@@ -1956,11 +1978,6 @@ impl SteerSessionView {
                 }
             }
         }
-        self.refresh_derived();
-        self.note_feed_moved(pulse);
-        self.note_compaction(was_compacting, cx);
-        self.keep_stream_slots(cx);
-        cx.notify();
     }
 
     /// FEED-26 — every phase assignment that is not an END goes through here.
@@ -3957,6 +3974,12 @@ pub(crate) fn merge_ended_phase(current: &ViewerPhase, next: ViewerPhase) -> Vie
 /// out of scope: it can only make the caption appear a beat early, never
 /// hide a genuinely stalled run.
 pub(crate) type FeedPulse = (usize, Option<FeedItem>);
+
+/// `first` and what the channel already holds, in order, at most
+/// [`DRAIN_BATCH_MAX`] events.
+fn next_batch(first: ViewerEvent, events: &flume::Receiver<ViewerEvent>) -> Vec<ViewerEvent> {
+    std::iter::once(first).chain(events.try_iter().take(DRAIN_BATCH_MAX - 1)).collect()
+}
 
 pub(crate) fn feed_pulse(feed: &SteerFeed) -> FeedPulse {
     (feed.len(), feed.items().last().cloned())
@@ -9160,6 +9183,28 @@ fn may_seed_from_journal(row: &domain::rows::SessionRow, device_id: &str) -> boo
 
 #[cfg(test)]
 mod tests {
+    /// A long chat's replay: the drain takes the backlog in order, bounded,
+    /// so a frame and input run between batches.
+    #[test]
+    fn a_drained_batch_keeps_its_order_and_its_bound() {
+        let (tx, rx) = flume::unbounded();
+        for ix in 0..super::DRAIN_BATCH_MAX + 2 {
+            tx.send(ViewerEvent::LocalMessage(ix.to_string())).unwrap();
+        }
+        let text = |event: &ViewerEvent| match event {
+            ViewerEvent::LocalMessage(text) => text.clone(),
+            _ => unreachable!(),
+        };
+        let first = rx.try_recv().unwrap();
+        let batch = super::next_batch(first, &rx);
+        assert_eq!(batch.len(), super::DRAIN_BATCH_MAX);
+        assert_eq!(text(&batch[0]), "0");
+        assert_eq!(text(&batch[super::DRAIN_BATCH_MAX - 1]), (super::DRAIN_BATCH_MAX - 1).to_string());
+        let first = rx.try_recv().unwrap();
+        assert_eq!(super::next_batch(first, &rx).len(), 2);
+        assert!(rx.is_empty());
+    }
+
     /// EXP-1266: the transcript menu's Copy dispatches after the native menu
     /// closes, through whatever holds focus — here nothing does — so only an
     /// App-global handler reaches it, and it copies the text snapshotted
