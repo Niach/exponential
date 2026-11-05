@@ -40,3 +40,4 @@
 - Vlasnici u Postavkama određuju kada javna poveznica istječe
 - Zadaci, postavke i chatovi izgledaju isto u svim aplikacijama
 - Spremanje zapisa s datumom i vremenom više ga ne pomiče za vremensku zonu
+- Zadaci koje je stvorila aplikacija pokazuju "putem" te aplikacije

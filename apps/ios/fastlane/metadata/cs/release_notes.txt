@@ -40,3 +40,4 @@
 - Vlastníci nastaví vypršení veřejného odkazu v Nastavení
 - Problémy, nastavení a chaty vypadají stejně ve všech aplikacích
 - Uložení záznamu s datem a časem ho už neposune o časové pásmo
+- Úlohy vytvořené aplikací ukazují „přes“ tuto aplikaci

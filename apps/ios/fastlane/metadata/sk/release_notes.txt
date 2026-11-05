@@ -40,3 +40,4 @@
 - Vlastníci nastavia v Nastaveniach, kedy verejný odkaz vyprší
 - Úlohy, nastavenia a chaty vyzerajú rovnako vo všetkých aplikáciách
 - Uloženie záznamu s dátumom a časom ho už neposunie o časové pásmo
+- Úlohy vytvorené aplikáciou ukazujú „cez“ túto aplikáciu

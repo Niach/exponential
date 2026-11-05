@@ -40,3 +40,4 @@
 - Los propietarios fijan en Ajustes cuándo caduca un enlace público
 - Las incidencias, los ajustes y los chats se ven igual en todas las apps
 - Guardar un registro con fecha y hora ya no lo desplaza según tu zona horaria
+- Las incidencias creadas por una app indican «vía» esa app

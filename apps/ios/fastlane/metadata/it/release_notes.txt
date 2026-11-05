@@ -40,3 +40,4 @@
 - I proprietari impostano la scadenza di un link pubblico dalle Impostazioni
 - Issue, impostazioni e chat hanno lo stesso aspetto su ogni app
 - Salvare un record con data e ora non lo sposta più del fuso orario
+- Le issue create da un'app indicano «via» quell'app

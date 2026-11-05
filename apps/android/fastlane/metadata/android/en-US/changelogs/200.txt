@@ -1,0 +1,2 @@
+- Issues an app created read "via" that app
+- Publishing an older app version warns that migrated data stays

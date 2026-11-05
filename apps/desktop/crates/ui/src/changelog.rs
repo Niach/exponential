@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-05-apps-automations-and-rollback",
+    date: "2026-11-05",
+    title: "Dropped runs, rollback warnings, via on issues",
+    summary: "Automations rows show the runs the rate limit dropped, publishing an older app version warns that migrated data stays, and issues an app created read via that app.",
+    body: r#"- **Automations**: an app's record automations that fire more than 30 times a minute are dropped, not retried, and the Automations row shows how many were dropped.
+- **Rollback warning**: publishing an older version of an app, past a version that migrated its records, asks first: the records stay in the newer shape.
+- **Via the app**: board and My issues rows end with "via" the app that created the issue, on every app."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_213: ChangelogEntry = ChangelogEntry {
     id: "2026-11-05-same-look-and-fixes",
     date: "2026-11-05",
     title: "One look on every app, and fixes",

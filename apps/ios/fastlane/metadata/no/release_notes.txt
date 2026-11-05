@@ -40,3 +40,4 @@
 - Eiere setter utløp for en offentlig lenke i Innstillinger
 - Saker, innstillinger og chatter ser like ut i alle appene
 - Å lagre en post med dato og tid flytter den ikke lenger med tidssonen
+- Saker en app opprettet viser "via" appen

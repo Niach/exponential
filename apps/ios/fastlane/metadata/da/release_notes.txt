@@ -40,3 +40,4 @@
 - Ejere sætter udløb for et offentligt link i Indstillinger
 - Opgaver, indstillinger og chats ser ens ud i alle apps
 - At gemme en post med dato og tid flytter den ikke længere med tidszonen
+- Opgaver oprettet af en app viser "via" appen
