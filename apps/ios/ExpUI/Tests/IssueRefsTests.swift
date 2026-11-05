@@ -93,7 +93,7 @@ final class IssueRefsDecorateForDisplayTests: XCTestCase {
 
     func testChipShowsTheIssueTitleAndTheWholeChipIsTappable() {
         let out = display("see #EXP-1 now")
-        XCTAssertEqual(out.string, "see #EXP-1 Fix login flow now")
+        XCTAssertEqual(out.string, "see #EXP-1\u{00A0}Fix\u{00A0}login\u{00A0}flow now")
         let ns = out.string as NSString
         let chipStart = ns.range(of: "#EXP-1").location
         var range = NSRange(location: 0, length: 0)
@@ -101,7 +101,7 @@ final class IssueRefsDecorateForDisplayTests: XCTestCase {
             .markdownIssueRef, at: chipStart,
             longestEffectiveRange: &range, in: NSRange(location: 0, length: ns.length))
         XCTAssertEqual(value as? String, "id-1")
-        XCTAssertEqual(ns.substring(with: range), "#EXP-1 Fix login flow")
+        XCTAssertEqual(ns.substring(with: range), "#EXP-1\u{00A0}Fix\u{00A0}login\u{00A0}flow")
     }
 
     func testMissingTitleKeepsTheBareTokenButStillDecorates() {
@@ -118,13 +118,13 @@ final class IssueRefsDecorateForDisplayTests: XCTestCase {
 
     func testMultipleTokensAllGainTheirTitle() {
         let out = display("#EXP-1 and #EXP-1")
-        XCTAssertEqual(out.string, "#EXP-1 Fix login flow and #EXP-1 Fix login flow")
+        XCTAssertEqual(out.string, "#EXP-1\u{00A0}Fix\u{00A0}login\u{00A0}flow and #EXP-1\u{00A0}Fix\u{00A0}login\u{00A0}flow")
     }
 
     func testLongTitlesTruncateWithAnEllipsis() {
         let long = String(repeating: "x", count: 80)
         let out = display("#EXP-1", titleResolver: { _ in long })
-        XCTAssertEqual(out.string, "#EXP-1 " + String(repeating: "x", count: 59) + "…")
+        XCTAssertEqual(out.string, "#EXP-1\u{00A0}" + String(repeating: "x", count: IssueRefs.maxInlineChipTitle) + "…")
     }
 
     /// This pass REPLACES characters, and a display model re-decorates whenever
@@ -134,7 +134,7 @@ final class IssueRefsDecorateForDisplayTests: XCTestCase {
         let once = display("see #EXP-1 now")
         let twice = IssueRefs.decorateForDisplay(once, resolver: resolver, titleResolver: titles)
         XCTAssertEqual(twice.string, once.string)
-        XCTAssertEqual(twice.string, "see #EXP-1 Fix login flow now")
+        XCTAssertEqual(twice.string, "see #EXP-1\u{00A0}Fix\u{00A0}login\u{00A0}flow now")
     }
 }
 
@@ -245,7 +245,7 @@ final class IssueRefsBareModeTests: XCTestCase {
             statusResolver: { _ in IssueRefStatusInfo(iconName: "status-backlog", color: .red) },
             bare: true
         )
-        XCTAssertEqual(out.string, "filed #EXP-1 Fix login flow today")
+        XCTAssertEqual(out.string, "filed #EXP-1\u{00A0}Fix\u{00A0}login\u{00A0}flow today")
         let hash = (out.string as NSString).range(of: "#EXP-1").location
         XCTAssertEqual(out.attribute(.markdownIssueRef, at: hash, effectiveRange: nil) as? String, "id-1")
         XCTAssertNotNil(out.attribute(.markdownIssueRefStatus, at: hash, effectiveRange: nil))

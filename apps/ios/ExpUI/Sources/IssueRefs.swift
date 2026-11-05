@@ -299,7 +299,7 @@ public enum IssueRefs {
             guard let issueId = resolver(identifier) else { continue }
             let token = ns.substring(with: match.range)
             let hasHash = token.hasPrefix("#")
-            let title = titleResolver(identifier).map(chipTitle) ?? ""
+            let title = titleResolver(identifier).map(inlineChipTitle) ?? ""
             let status = statusResolver?(identifier)
             // EXP-885: the glyph is painted OVER a hidden cell, and a bare
             // token (EXP-760) brings none — hiding its own first character
@@ -312,7 +312,7 @@ public enum IssueRefs {
             // `decorateForDisplay` is display-only by contract.
             let hashPrefix = (status != nil && !hasHash) ? "#" : ""
             let head = hashPrefix + token
-            let display = title.isEmpty ? head : "\(head) \(title)"
+            let display = title.isEmpty ? head : "\(head)\u{00A0}\(title)"
             var chipAttrs = attrs
             for (key, value) in expChipAttributes(baseColor: attrs[.foregroundColor] as? PlatformColor) {
                 chipAttrs[key] = value
@@ -394,6 +394,23 @@ public enum IssueRefs {
         guard trimmed.count > 60 else { return trimmed }
         let cut = String(trimmed.prefix(59)).trimmingCharacters(in: .whitespaces)
         return "\(cut)…"
+    }
+
+    /// What of a title fits web's 18rem inline chip beside a short identifier.
+    public static let maxInlineChipTitle = 34
+
+    /// EXP-1676: the title an INLINE chip splices: one chip stays on one line
+    /// (`.issue-chip` `nowrap`) with an ellipsis at web's `max-w-[18rem]`. The
+    /// chip is a painted run of the paragraph's own text, which has no box to
+    /// clip, so the width is a character budget and non-breaking spaces.
+    public static func inlineChipTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var cut = trimmed
+        if trimmed.count > maxInlineChipTitle {
+            let head = String(trimmed.prefix(maxInlineChipTitle))
+            cut = head.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "…"))) + "…"
+        }
+        return cut.replacingOccurrences(of: " ", with: "\u{00A0}")
     }
 
     /// Display-only markdown transform for read-mode renderers (e.g. the iOS

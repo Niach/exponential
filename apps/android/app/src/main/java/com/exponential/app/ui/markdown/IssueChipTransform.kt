@@ -167,13 +167,13 @@ internal class IssueChipTransform private constructor(
             for ((match, target) in pills.sortedBy { it.first.start }) {
                 if (match.start < last) continue // overlapping token: keep the first
                 if (match.start < 0 || match.end > source.length || match.end <= match.start) continue
-                val title = chipTitle(target.title)
+                val title = inlineChipTitle(target.title)
                 if (title.isEmpty()) continue // blank title keeps the bare token
                 out.append(source, last, match.start)
                 val displayStart = out.length
                 out.append(source, match.start, match.end)
                 val displayTokenEnd = out.length
-                out.append(' ').append(title)
+                out.append(CHIP_NBSP).append(title)
                 chips.add(
                     Chip(match.start, match.end, displayStart, displayTokenEnd, out.length, target),
                 )

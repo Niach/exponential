@@ -4193,9 +4193,9 @@ fn build_display_line(
                 decorations.push(Decoration {
                     range: token.clone(),
                     display_text: format!(
-                        "{CHIP_MARGIN}{CHIP_GUTTER}{} {}{CHIP_MARGIN}",
+                        "{CHIP_MARGIN}{CHIP_GUTTER}{}{CHIP_NBSP}{}{CHIP_MARGIN}",
                         &line[token.clone()],
-                        truncate_chip_title(&chip.title)
+                        inline_chip_title(&chip.title)
                     ),
                     style: DecorationStyle::IssuePill {
                         identifier,
@@ -4469,6 +4469,27 @@ pub(crate) fn truncate_chip_title(title: &str) -> String {
     }
     let cut: String = trimmed.chars().take(MAX_CHIP_TITLE_CHARS - 1).collect();
     format!("{}…", cut.trim_end())
+}
+
+/// What of a title fits web's 18rem inline chip beside a short identifier.
+const MAX_INLINE_CHIP_TITLE_CHARS: usize = 34;
+
+/// The unbreakable space between an inline chip's identifier and its title.
+const CHIP_NBSP: &str = "\u{00a0}";
+
+/// EXP-1676: the title an INLINE chip displays: one chip stays on one line
+/// (`.issue-chip` `nowrap`) with an ellipsis at web's `max-w-[18rem]`. The chip
+/// is a painted run of the paragraph's own text, which has no box to clip, so
+/// the width is a character budget and non-breaking spaces.
+fn inline_chip_title(title: &str) -> String {
+    let trimmed = title.trim();
+    let cut = if trimmed.chars().count() <= MAX_INLINE_CHIP_TITLE_CHARS {
+        trimmed.to_string()
+    } else {
+        let head: String = trimmed.chars().take(MAX_INLINE_CHIP_TITLE_CHARS).collect();
+        format!("{}…", head.trim_end().trim_end_matches('…').trim_end())
+    };
+    cut.replace(' ', CHIP_NBSP)
 }
 
 // -- Token scanners (mirror web `mentions.ts` / `issue-refs.ts`) ------------
@@ -4923,7 +4944,7 @@ mod tests {
             assert_eq!(
                 display.text,
                 format!(
-                    "Ping {MENTION_PAD}@Ada{MENTION_PAD} about {CHIP_MARGIN}{CHIP_GUTTER}#EXP-42 Fix login flow{CHIP_MARGIN} now"
+                    "Ping {MENTION_PAD}@Ada{MENTION_PAD} about {CHIP_MARGIN}{CHIP_GUTTER}#EXP-42{CHIP_NBSP}Fix{CHIP_NBSP}login{CHIP_NBSP}flow{CHIP_MARGIN} now"
                 )
             );
             let mention = display.text.find("@Ada").expect("mention") - MENTION_PAD.len();
@@ -4937,7 +4958,7 @@ mod tests {
             );
             assert_eq!(
                 display.issue_pill_ranges,
-                vec![chip..issue + "#EXP-42 Fix login flow".len()],
+                vec![chip..issue + format!("#EXP-42{CHIP_NBSP}Fix{CHIP_NBSP}login{CHIP_NBSP}flow").len()],
                 "the issue pill covers gutter + token + title"
             );
             // Only the identifier renders monospace — the injected title stays

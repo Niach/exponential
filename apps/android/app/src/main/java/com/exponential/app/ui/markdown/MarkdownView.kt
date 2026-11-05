@@ -729,6 +729,11 @@ internal fun annotateLine(
 /** Keep chips readable (web parity: `MAX_CHIP_TITLE_LENGTH` = 60). */
 internal const val MAX_CHIP_TITLE_CHARS = 60
 
+/** What of a title fits web's 18rem inline chip beside a short identifier. */
+internal const val MAX_INLINE_CHIP_TITLE_CHARS = 34
+
+internal const val CHIP_NBSP = '\u00A0'
+
 /**
  * EXP-885: the cell a BARE `EXP-758` chip paints its status glyph in. A
  * `#IDENTIFIER` token brings its own — the `#` goes transparent and the art
@@ -783,6 +788,22 @@ internal fun chipTitle(title: String): String {
     val trimmed = title.trim()
     if (trimmed.length <= MAX_CHIP_TITLE_CHARS) return trimmed
     return trimmed.take(MAX_CHIP_TITLE_CHARS - 1).trimEnd() + "…"
+}
+
+/**
+ * EXP-1676: the title an INLINE chip splices: one chip stays on one line
+ * (`.issue-chip` `nowrap`) with an ellipsis at web's `max-w-[18rem]`. The chip is
+ * a painted run of the paragraph's own text, which has no box to clip, so the
+ * width is a budget of [MAX_INLINE_CHIP_TITLE_CHARS] and non-breaking spaces.
+ */
+internal fun inlineChipTitle(title: String): String {
+    val trimmed = title.trim()
+    val cut = if (trimmed.length <= MAX_INLINE_CHIP_TITLE_CHARS) {
+        trimmed
+    } else {
+        trimmed.take(MAX_INLINE_CHIP_TITLE_CHARS).trimEnd().trimEnd('…') + "…"
+    }
+    return cut.replace(' ', CHIP_NBSP)
 }
 
 /**
@@ -927,7 +948,7 @@ internal class MentionDisplay private constructor(
             // splice being the one place an offset shift is already handled.
             for ((match, target) in refPills) {
                 if (match.start < 0 || match.end > text.length || match.end <= match.start) continue
-                val title = chipTitle(target.title)
+                val title = inlineChipTitle(target.title)
                 val glyphCell = match.bare && target.resolvedStatus != null
                 if (title.isEmpty() && !glyphCell) continue
                 val token = text.substring(match.start, match.end)
@@ -937,7 +958,7 @@ internal class MentionDisplay private constructor(
                         buildString {
                             if (glyphCell) append(CHIP_GLYPH_CELL)
                             append(token)
-                            if (title.isNotEmpty()) append(' ').append(title)
+                            if (title.isNotEmpty()) append(CHIP_NBSP).append(title)
                         },
                         isMention = false,
                         glyphCell = glyphCell,
