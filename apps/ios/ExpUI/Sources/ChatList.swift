@@ -1,8 +1,7 @@
 import ExpCore
 import SwiftUI
 
-// Thread 58cb32df (chats.json, ×4: web `ChatRow` / `AgentBubbles`, Android
-// `ChatRow.kt`): the phone Chats list's pieces. Content only: the host wraps
+// Thread 58cb32df (chats.json, ×4: web `ChatRow`, Android `ChatRow.kt`): the phone Chats list's pieces. Content only: the host wraps
 // a row in its own tap + long-press (THE menu's sheet) and hands the lead in
 // (the run mark, a PR glyph), sized here to the 52pt muted disc.
 
@@ -34,6 +33,9 @@ public struct ChatRowView<Lead: View>: View {
     private let time: String
     /// nil = no preview line (#EXP-1388: the Archived entry row).
     private let preview: String?
+    /// #FEED-191: a count Badge in the needs-you tone in the time slot (the
+    /// Needs you entry row); nil = the time.
+    private let needsYouCount: Int?
     /// The preview's leading label (`Question:` / `Plan:`) painted a step
     /// brighter; nil = none.
     private let previewLabel: String?
@@ -54,6 +56,7 @@ public struct ChatRowView<Lead: View>: View {
         title: String,
         time: String,
         preview: String?,
+        needsYouCount: Int? = nil,
         previewLabel: String? = nil,
         previewItalic: Bool = false,
         needsYou: Bool = false,
@@ -67,6 +70,7 @@ public struct ChatRowView<Lead: View>: View {
         self.title = title
         self.time = time
         self.preview = preview
+        self.needsYouCount = needsYouCount
         self.previewLabel = previewLabel
         self.previewItalic = previewItalic
         self.needsYou = needsYou
@@ -97,11 +101,15 @@ public struct ChatRowView<Lead: View>: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
-                    Text(time)
-                        .font(.subheadline)
-                        .monospacedDigit()
-                        .foregroundStyle(timeColor)
-                        .fixedSize()
+                    if let needsYouCount {
+                        NeedsYouCountBadge(count: needsYouCount)
+                    } else {
+                        Text(time)
+                            .font(.subheadline)
+                            .monospacedDigit()
+                            .foregroundStyle(timeColor)
+                            .fixedSize()
+                    }
                 }
                 if let preview {
                 HStack(alignment: .center, spacing: 8) {
@@ -227,8 +235,8 @@ public struct ChatArchivedRow: View {
     }
 }
 
-/// S-3 (chats.json `copy.sections`): the Agents / Chats header over the
-/// list's two sections, only while an agent row exists. A plain muted
+/// #FEED-191 (chats.json `copy.sections`): a header over one of the list's
+/// sections (Agents, `chatSections`' Needs you · Working · Unread · Chats). A plain muted
 /// caption (web `ChatSectionHeader` `pt-2 pb-1 text-xs font-medium
 /// text-muted-foreground`, Android `ChatSectionHeader`), never the filled
 /// Form band (`GlassSectionHeader`).
@@ -250,32 +258,8 @@ public struct ChatSectionHeader: View {
     }
 }
 
-/// One agent of the Chats header's bubble row.
-public struct AgentBubbleItem: Identifiable, Equatable {
-    public let id: String
-    public let name: String
-    /// A registry glyph (`AppIcons`), resolved by the host.
-    public let icon: String
-    public let color: Color
-    /// S-3: the viewer's Assistant wears the brand mark, never its stored
-    /// icon/colour.
-    public let assistant: Bool
-
-    public init(id: String, name: String, icon: String, color: Color, assistant: Bool = false) {
-        self.id = id
-        self.name = name
-        self.icon = icon
-        self.color = color
-        self.assistant = assistant
-    }
-
-    public var glyph: AgentBubbleCircle.Glyph {
-        assistant ? .brand : .icon(icon, color)
-    }
-}
-
 extension AgentBubbleCircle {
-    /// The Chats header's bubble: `size` and `ringGap` default to its shell.
+    /// THE bubble at the Chats shell's size: `size` and `ringGap` default to it.
     public init(
         glyph: Glyph,
         ringColor: Color,
@@ -292,75 +276,6 @@ extension AgentBubbleCircle {
             ringSlot: ringSlot,
             glyphSize: glyphSize
         )
-    }
-}
-
-/// THE STORY ROW of the Chats header (stories.json STORY ROW, #EXP-1461):
-/// ONLY rings (`Stories.storyRow`). A bubble whose agent has a ring (the
-/// last 24 h) wears it (THE StoryRing at the bubble size, the agent's glyph
-/// inside, its name under it; a tap opens the viewer at the ring, a hold
-/// its agent menu); a bubble without one is not drawn; the rings no bubble
-/// wears follow in ring order. Nothing = no row at all (no reserved height).
-/// Layout per `Stories.Row`: items exactly `itemWidth` wide, `gap` apart,
-/// `padBottom` under the names; the row scrolls sideways from the list
-/// column's leading edge.
-public struct AgentBubbles<RingAvatar: View>: View {
-    let items: [AgentBubbleItem]
-    /// The story rings (`Stories.rings`, ring order).
-    let rings: [Stories.StoryRing]
-    let onHold: (String) -> Void
-    let onOpenStory: (String) -> Void
-    /// A trailing ring's avatar (a root ring's brand mark), by the host.
-    let ringAvatar: (Stories.StoryRing) -> RingAvatar
-
-    public init(
-        items: [AgentBubbleItem],
-        rings: [Stories.StoryRing],
-        onHold: @escaping (String) -> Void,
-        onOpenStory: @escaping (String) -> Void,
-        @ViewBuilder ringAvatar: @escaping (Stories.StoryRing) -> RingAvatar
-    ) {
-        self.items = items
-        self.rings = rings
-        self.onHold = onHold
-        self.onOpenStory = onOpenStory
-        self.ringAvatar = ringAvatar
-    }
-
-    public var body: some View {
-        let row = Stories.storyRow(items.map(\.id), rings)
-        let byId = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if !row.bubbles.isEmpty || !row.rest.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: CGFloat(Stories.Row.gap)) {
-                    ForEach(row.bubbles, id: \.self) { id in
-                        if let item = byId[id], let story = row.byAgent[id] {
-                            bubbleButton(item, story: story)
-                        }
-                    }
-                    ForEach(row.rest) { ring in
-                        StoryRingButton(ring: ring, onOpen: onOpenStory) { ringAvatar(ring) }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, CGFloat(Stories.Row.padBottom))
-            }
-        }
-    }
-
-    private func bubbleButton(_ item: AgentBubbleItem, story: Stories.StoryRing) -> some View {
-        StoryRowItem(title: item.name, unseen: story.unseen) {
-            // The ring's inner disc, the bubble's glyph at its 26pt.
-            StoryRing(stories: story.stories, size: ChatListMetrics.bubble) {
-                ZStack {
-                    Circle().fill(DesignTokens.Palette.muted)
-                    AgentBubbleGlyph(glyph: item.glyph, size: 26)
-                }
-            }
-        }
-        .glassLongPress(onTap: { onOpenStory(story.key) }, onHold: { onHold(item.id) })
-        .accessibilityLabel(item.name)
-        .accessibilityIdentifier(Chats.TestIds.agentBubble)
     }
 }
 

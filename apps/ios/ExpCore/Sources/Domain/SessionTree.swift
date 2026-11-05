@@ -2373,7 +2373,7 @@ public enum SessionTree {
     }
 
     /// Epoch milliseconds of a wire timestamp; nil when missing or unreadable.
-    static func ms(_ value: String?) -> Double? {
+    public static func ms(_ value: String?) -> Double? {
         guard let value, !value.isEmpty, let date = WireTimestamps.parse(value) else { return nil }
         return ms(date)
     }

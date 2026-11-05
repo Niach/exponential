@@ -78,8 +78,8 @@ struct ThreadStripGroup: Equatable {
 /// phone's pager tabs, and it NEVER scrolls: the "+" (link or file an issue)
 /// and `Conversation` (ICON-ONLY on phones, `action-chat`) pinned left,
 /// #EXP-1662 the plan chip right after it while the thread holds a plan;
-/// stories.json: the Stories tab (icon-only, `thread-stories`, a dot while
-/// `storyTab.unseen`) pinned right. Between them `threadStripMode`: at most
+/// results-tab.json: the Results tab (icon-only, `thread-results`, no dot)
+/// pinned right. Between them `threadStripMode`: at most
 /// ONE issue and no session = that issue's chip (status glyph + mono
 /// identifier, the pager's short chip; a long press opens THE Menu: Link an
 /// issue · New issue · Unlink); anything more = ONE group tab (the
@@ -108,9 +108,9 @@ struct ThreadStripTabs: View {
     var showsSessions = true
     /// The group tab's tap: the host presents THE Menu's sheet.
     var onOpenGroup: () -> Void = {}
-    /// stories.json STORIES TAB: the Stories tab pinned right (nil = none,
-    /// an app editor's chat); true = its dot (`storyTab(input).unseen`).
-    var storiesDot: Bool?
+    /// results-tab.json: the Results tab pinned right (false = none: an agent's
+    /// chat, an app editor's).
+    var showsResults = false
     /// #EXP-1562 (waiting-cards.json CHIPS): the waiting cards; phones draw
     /// ONE button right after the Conversation tab while one waits.
     var waiting: WaitingCards.Chips?
@@ -156,8 +156,8 @@ struct ThreadStripTabs: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: Self.chipHeight)
-            if storiesDot != nil {
-                pageTab(.stories)
+            if showsResults {
+                pageTab(.results)
                     .fixedSize()
             }
         }
@@ -295,28 +295,18 @@ struct ThreadStripTabs: View {
     private func pageTab(_ page: ThreadPage) -> some View {
         let selected = page == selection
         switch page {
-        case .issue, .session, .plan:
+        case .issue, .session, .plan, .card:
             EmptyView()
-        case .stories:
-            // Phones: icon-only like Conversation (the word = the label),
-            // the Guide's emerald dot while a story is waiting or unseen.
+        case .results:
+            // Phones: icon-only like Conversation (the word = the label).
             ThreadStripTab(selected: selected, bordered: false, fresh: false) {
-                AppIcon(AppIcons.threadStories, size: ThreadStripMetrics.pinnedIconSize, weight: .medium)
-                    .overlay(alignment: .topTrailing) {
-                        if storiesDot == true {
-                            Circle()
-                                .fill(DesignTokens.Semantic.green)
-                                .frame(width: 6, height: 6)
-                                .offset(x: 4, y: -3)
-                                .accessibilityHidden(true)
-                        }
-                    }
+                AppIcon(AppIcons.threadResults, size: ThreadStripMetrics.pinnedIconSize, weight: .medium)
             }
             .onTapGesture { onSelect(page) }
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(Stories.Tab.Copy.label)
-            .accessibilityIdentifier(Stories.Tab.TestIds.tab)
+            .accessibilityLabel(ResultsTab.Tab.Copy.label)
+            .accessibilityIdentifier(ResultsTab.Tab.TestIds.tab)
         case .conversation:
             ThreadStripTab(selected: selected, bordered: false, fresh: false) {
                 AppIcon(AppIcons.actionChat, size: ThreadStripMetrics.pinnedIconSize, weight: .medium)
@@ -333,7 +323,7 @@ struct ThreadStripTabs: View {
 /// The strip's type and glyph metrics.
 enum ThreadStripMetrics {
     static let innerSpacing: CGFloat = 5
-    /// The icon-only Conversation / Stories tabs (phones).
+    /// The icon-only Conversation / Results tabs (phones).
     static let pinnedIconSize: CGFloat = 16
     static let identifierFont = Font.system(.footnote, design: .monospaced)
     static let nameFont = Font.footnote.weight(.medium)

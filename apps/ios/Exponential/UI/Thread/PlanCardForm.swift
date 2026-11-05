@@ -602,7 +602,7 @@ private struct PlanCardLiveSurface: View {
                     // A rebuilt model = a fresh painter: the surface feeds its
                     // width from a geometry CHANGE, so a new model under the
                     // same view (an unchanged width) would never lay out and
-                    // paint an empty bar (the Stories tab's question card).
+                    // paint an empty bar (a question card).
                     .id(ObjectIdentifier(model))
             } else if failed {
                 EmptyView()

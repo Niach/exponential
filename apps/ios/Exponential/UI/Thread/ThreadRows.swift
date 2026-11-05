@@ -6,17 +6,20 @@ import SwiftUI
 
 /// EXP-1295: a thread screen's page — the strip's tabs as the phone's
 /// pager (Conversation · one per linked issue, EXP-1334: the folded
-/// sub-issues too; the "+" is a button) · stories.json STORIES TAB: the
-/// Stories page, always the last.
+/// sub-issues too; the "+" is a button) · results-tab.json: the Results page,
+/// always the last.
 enum ThreadPage: Hashable {
     case conversation
     /// #EXP-1662 (plan-page.json): the plan tab, right after Conversation.
     /// The page itself is `.plan(nil)`; a way in names the plan it opens
     /// (nil = `PlanPage.planTabTarget`), which `ThreadScreen` holds aside.
     case plan(String?)
-    /// stories.json STORIES TAB (not a session-thread.json tab: the host
-    /// pins it after the last chip).
-    case stories
+    /// results-tab.json (not a session-thread.json tab: the host pins it after
+    /// the last chip).
+    case results
+    /// #FEED-191 (needs-you.json): a WAY IN, never a page: the Conversation,
+    /// scrolled to this waiting card (THE waiting button's pick).
+    case card(String)
     case issue(String)
     /// EXP-1343: a session chip (or a nested session) as a page — its raw
     /// work + composer under the thread's header.
@@ -535,8 +538,7 @@ final class ThreadLanding: @unchecked Sendable {
 
 // MARK: - #EXP-1662 a plan's ways in = the thread's tab
 
-/// Inside a thread (its Conversation, an embedded session page, the Stories
-/// tab) a plan opens in that thread's tab; `open` answers whether the thread
+/// Inside a thread (its Conversation, an embedded session page) a plan opens in that thread's tab; `open` answers whether the thread
 /// took it. The same reference box as `ThreadIssueOutlet`.
 final class ThreadPlanOutlet: @unchecked Sendable {
     private var handler: ((String) -> Bool)?
