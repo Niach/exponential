@@ -7,8 +7,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
 
 /** EXP-792: one `mcpServers.list` row (#VAPP-185: + what Settings › MCP reads). */
 @Serializable
@@ -207,17 +210,23 @@ data class AppShareDto(
     val expiresAt: String? = null,
 )
 
-/** #VAPP-243: one `appAccess.appTools` upstream: the team's server of that
- *  name (null = none) and the viewer's OWN connection state. */
+/** #VAPP-243: one `appAccess.appTools` upstream: the team's server filling it
+ *  (null = none; #VAPP-254: the app's mapping, else exactly its name) and the
+ *  viewer's OWN connection state. */
 @Serializable
 data class AppUpstreamDto(
     val name: String = "",
     val serverId: String? = null,
+    val serverName: String? = null,
     val auth: String? = null,
     val state: String? = null,
 ) {
     fun toRowInput() = com.exponential.app.domain.Apps.AccountRowInput(name, serverId, state)
 }
+
+/** #VAPP-254: one team server an owner may pick for an upstream. */
+@Serializable
+data class AppServerDto(val id: String = "", val name: String = "")
 
 /** #VAPP-243: one `appAccess.appTools` exposed tool and its switch. */
 @Serializable
@@ -233,6 +242,8 @@ data class AppMcpToolDto(
 data class AppToolsDto(
     val canToggle: Boolean = false,
     val upstreams: List<AppUpstreamDto> = emptyList(),
+    /** #VAPP-254: what an owner may pick; empty for a member. */
+    val servers: List<AppServerDto> = emptyList(),
     val tools: List<AppMcpToolDto> = emptyList(),
     val automations: List<AppAutomationDto> = emptyList(),
     val hooks: List<AppHookDto> = emptyList(),
@@ -250,6 +261,17 @@ private data class AppShareLinkInput(val appId: String, val name: String, val ac
 
 @Serializable
 private data class AppToolEnabledInput(val appId: String, val tool: String, val enabled: Boolean)
+
+/**
+ * #VAPP-254: `appAccess.setUpstreamMapping {appId, upstream, serverId}`. The
+ * router requires the key, so clearing travels as a literal `null`, which the
+ * shared Json's `explicitNulls = false` would drop off a `@Serializable` class.
+ */
+internal fun setUpstreamMappingInput(appId: String, upstream: String, serverId: String?): JsonObject = buildJsonObject {
+    put("appId", appId)
+    put("upstream", upstream)
+    put("serverId", serverId?.let(::JsonPrimitive) ?: JsonNull)
+}
 
 @Serializable
 private data class AppAccessSetInput(val appId: String, val userId: String, val level: String)
@@ -315,6 +337,11 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
     /** #VAPP-243: switch one exposed tool off (or back on) for every client (owners). */
     suspend fun setToolEnabled(accountId: String, appId: String, tool: String, enabled: Boolean) {
         trpc.mutationUnit(accountId, "appAccess.setToolEnabled", AppToolEnabledInput(appId, tool, enabled), AppToolEnabledInput.serializer())
+    }
+
+    /** #VAPP-254: which team server fills an upstream the app declares (owners); null clears it. */
+    suspend fun setUpstreamMapping(accountId: String, appId: String, upstream: String, serverId: String?) {
+        trpc.mutationUnit(accountId, "appAccess.setUpstreamMapping", setUpstreamMappingInput(appId, upstream, serverId), JsonObject.serializer())
     }
 
     suspend fun setAppAccess(accountId: String, appId: String, userId: String, level: String) {

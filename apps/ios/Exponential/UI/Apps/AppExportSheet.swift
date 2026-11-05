@@ -103,6 +103,47 @@ private enum AppExportError: LocalizedError {
     var errorDescription: String? { Apps.Copy.previewEmpty }
 }
 
+/// #VAPP-254 (`upstreamPickerCases`): which team server fills an upstream the
+/// app declares: the Settings sheet's Accounts rows and the import step's. THE
+/// picker with the Data tab's chevron pill as its trigger; no servers = nothing.
+struct UpstreamPickerPill: View {
+    let name: String
+    let serverId: String?
+    let servers: [AppServerWire]
+    var disabled = false
+    let testId: String
+    let onPick: (String) -> Void
+
+    var body: some View {
+        if let picker = Apps.upstreamPicker(name: name, serverId: serverId, servers: servers.map { (id: $0.id, name: $0.name) }) {
+            GlassPicker(
+                items: picker.options.map { PickerItem(value: $0.value, label: $0.label) },
+                mode: .single,
+                value: [picker.value],
+                onChange: { next in
+                    if let next = next.first, next != picker.value { onPick(next) }
+                },
+                disabled: disabled
+            ) {
+                // The pill's own tap is off; the trigger takes it.
+                ZStack {
+                    GlassPill(
+                        picker.options.first { $0.value == picker.value }?.label ?? Apps.Copy.Accounts.notSetUp,
+                        enabled: !disabled
+                    ) {
+                        EmptyView()
+                    } trailing: {
+                        AppIcon(AppIcons.uiChevronDown, size: 12)
+                    }
+                    .allowsHitTesting(false)
+                }
+                .contentShape(Capsule())
+            }
+            .accessibilityIdentifier(testId)
+        }
+    }
+}
+
 /// VAPP-121: the import step (`copy.importTitle`; VAPP-176: its own sheet,
 /// opened by the Apps band's `Import…` pill): paste or choose an
 /// app file; as the text changes (debounced) the SERVER lists its issues as
@@ -110,7 +151,8 @@ private enum AppExportError: LocalizedError {
 /// and opens its editor. VAPP-234 (fixtures/app-templates.json): the
 /// TEMPLATES step above the field: one row per signed template (a tap =
 /// `apps.importTemplate` at once, then its editor) and the sample-records
-/// switch row.
+/// switch row. #VAPP-254: an owner's Accounts group, one server picker per
+/// upstream the file declares (`upstreamPickerCases`).
 struct AppImportStep: View {
     let teamId: String
     /// The imported app's id.
@@ -123,6 +165,11 @@ struct AppImportStep: View {
     @State private var text = ""
     /// The server's issues for `text` (nil = not checked yet / empty).
     @State private var issues: [ImportIssue]?
+    /// #VAPP-254: the file's upstreams and what an owner may pick for them.
+    @State private var upstreams: [AppImportUpstreamWire] = []
+    @State private var servers: [AppServerWire] = []
+    /// The owner's picks by upstream name; an absent one = the exact-name default.
+    @State private var picks: [String: String] = [:]
     @State private var choosing = false
     @State private var importing = false
     @State private var withRecords = false
@@ -169,6 +216,9 @@ struct AppImportStep: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier(AppExport.TestIds.importIssues)
                     }
+                    if issues?.isEmpty == true, !upstreams.isEmpty, !servers.isEmpty {
+                        upstreamsGroup
+                    }
                 }
                 .padding(16)
             },
@@ -188,6 +238,48 @@ struct AppImportStep: View {
             guard case let .success(url) = result else { return }
             Task { await read(url) }
         }
+    }
+
+    /// #VAPP-254: one row per upstream the file declares: its name and the
+    /// server picker, starting at the exact-name default.
+    private var upstreamsGroup: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassSectionBand(Apps.Copy.Accounts.title)
+            VStack(spacing: 0) {
+                ForEach(Array(upstreams.enumerated()), id: \.element.name) { index, upstream in
+                    if index > 0 { GlassDivider() }
+                    InlinePickerRow {
+                        HStack(spacing: 10) {
+                            Text(upstream.name)
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            UpstreamPickerPill(
+                                name: upstream.name,
+                                serverId: pickedServerId(upstream),
+                                servers: servers,
+                                disabled: importing,
+                                testId: "\(Apps.TestIds.importUpstream)-\(upstream.name)-picker"
+                            ) { picks[upstream.name] = $0 }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("\(Apps.TestIds.importUpstream)-\(upstream.name)")
+                }
+            }
+            .glassSection()
+        }
+        .padding(.top, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Apps.TestIds.importUpstreams)
+    }
+
+    private func pickedServerId(_ upstream: AppImportUpstreamWire) -> String? {
+        guard let picked = picks[upstream.name] else { return upstream.serverId }
+        return picked == Apps.upstreamPickerNone ? nil : picked
     }
 
     /// VAPP-234: the band, one row per template (glyph, name over the muted
@@ -269,6 +361,8 @@ struct AppImportStep: View {
     private func validate(_ value: String) async {
         guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             issues = nil
+            upstreams = []
+            servers = []
             return
         }
         try? await Task.sleep(for: .milliseconds(300))
@@ -277,6 +371,8 @@ struct AppImportStep: View {
             let check = try await deps.appsApi.validateImport(accountId: accountId, teamId: teamId, text: value)
             guard !Task.isCancelled, value == text else { return }
             issues = check.issues
+            upstreams = check.upstreams
+            servers = check.servers
         } catch {
             guard !Task.isCancelled else { return }
             issues = nil
@@ -301,7 +397,12 @@ struct AppImportStep: View {
         guard issues?.isEmpty == true, !importing else { return }
         importing = true
         do {
-            let created = try await deps.appsApi.importApp(accountId: accountId, teamId: teamId, text: text)
+            // #VAPP-254: the picks for names the file still declares, never `none`.
+            let mappings = upstreams.compactMap { upstream -> AppUpstreamMapping? in
+                guard let picked = picks[upstream.name], picked != Apps.upstreamPickerNone else { return nil }
+                return AppUpstreamMapping(upstream: upstream.name, serverId: picked)
+            }
+            let created = try await deps.appsApi.importApp(accountId: accountId, teamId: teamId, text: text, upstreamMappings: mappings)
             dismiss()
             onImported(created.id)
         } catch {

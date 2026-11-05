@@ -80,12 +80,68 @@ private struct AppImportInput: Encodable {
     let text: String
 }
 
+/// #VAPP-254 `apps.import` input: the file's text and an owner's picks.
+private struct AppImportCreateInput: Encodable {
+    let teamId: String
+    let text: String
+    let upstreamMappings: [AppUpstreamMapping]
+}
+
+/// #VAPP-254: one team server an owner may pick for an upstream.
+public struct AppServerWire: Decodable, Sendable, Equatable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+/// #VAPP-254: one upstream the file declares and its exact-name default.
+public struct AppImportUpstreamWire: Decodable, Sendable, Equatable {
+    public let name: String
+    public let serverId: String?
+    public let serverName: String?
+
+    public init(name: String, serverId: String?, serverName: String?) {
+        self.name = name
+        self.serverId = serverId
+        self.serverName = serverName
+    }
+}
+
+/// #VAPP-254: an owner's pick on the import step (`apps.import`).
+public struct AppUpstreamMapping: Encodable, Sendable, Equatable {
+    public let upstream: String
+    public let serverId: String
+
+    public init(upstream: String, serverId: String) {
+        self.upstream = upstream
+        self.serverId = serverId
+    }
+}
+
 /// VAPP-121 `apps.validateImport`'s answer: the server's issues (JSON
-/// pointers into the file), the app's name and the record count.
+/// pointers into the file), the app's name and the record count. #VAPP-254:
+/// the file's upstreams and the servers an owner may pick (empty for a member).
 public struct AppImportCheck: Decodable, Sendable, Equatable {
     public let issues: [ImportIssue]
     public let name: String?
     public let records: Int
+    public let upstreams: [AppImportUpstreamWire]
+    public let servers: [AppServerWire]
+
+    private enum CodingKeys: String, CodingKey { case issues, name, records, upstreams, servers }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        issues = try c.decode([ImportIssue].self, forKey: .issues)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        records = try c.decode(Int.self, forKey: .records)
+        upstreams = (try? c.decodeIfPresent([AppImportUpstreamWire].self, forKey: .upstreams)) ?? []
+        servers = (try? c.decodeIfPresent([AppServerWire].self, forKey: .servers)) ?? []
+    }
 }
 
 /// VAPP-234 `apps.importTemplate` input (fixtures/app-templates.json).
@@ -425,18 +481,21 @@ public struct AppHookWire: Decodable, Sendable, Equatable {
 }
 
 /// #VAPP-243: one `appTools.upstreams` row: an upstream the app declares,
-/// the team's server of that name (nil = none) and the viewer's OWN state.
+/// the team's server filling it (nil = none; #VAPP-254: the app's mapping,
+/// else exactly its name) and the viewer's OWN state.
 public struct AppAccountWire: Decodable, Sendable, Equatable {
     public let name: String
     public let serverId: String?
+    public let serverName: String?
     public let auth: String?
     public let state: String?
 
-    private enum CodingKeys: String, CodingKey { case name, serverId, auth, state }
+    private enum CodingKeys: String, CodingKey { case name, serverId, serverName, auth, state }
 
-    public init(name: String, serverId: String?, auth: String?, state: String?) {
+    public init(name: String, serverId: String?, serverName: String? = nil, auth: String?, state: String?) {
         self.name = name
         self.serverId = serverId
+        self.serverName = serverName
         self.auth = auth
         self.state = state
     }
@@ -445,6 +504,7 @@ public struct AppAccountWire: Decodable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
         serverId = try? c.decodeIfPresent(String.self, forKey: .serverId)
+        serverName = try? c.decodeIfPresent(String.self, forKey: .serverName)
         auth = try? c.decodeIfPresent(String.self, forKey: .auth)
         state = try? c.decodeIfPresent(String.self, forKey: .state)
     }
@@ -519,10 +579,11 @@ public struct AppShareWire: Decodable, Sendable, Equatable {
 }
 
 /// `appTools`' part the Settings sheet reads: the accounts, the exposed
-/// tools, automations, webhooks, public links and `canToggle` (= a team
-/// owner).
+/// tools, automations, webhooks, public links, `canToggle` (= a team owner)
+/// and #VAPP-254 the servers an owner may pick (empty for a member).
 public struct AppToolsSummary: Sendable, Equatable {
     public let upstreams: [AppAccountWire]
+    public let servers: [AppServerWire]
     public let tools: [AppMcpToolWire]
     public let automations: [AppAutomationWire]
     public let hooks: [AppHookWire]
@@ -532,23 +593,43 @@ public struct AppToolsSummary: Sendable, Equatable {
 
 private struct AppToolsResult: Decodable {
     let upstreams: [AppAccountWire]
+    let servers: [AppServerWire]
     let tools: [AppMcpToolWire]
     let automations: [AppAutomationWire]
     let hooks: [AppHookWire]
     let shares: [AppShareWire]
     let canToggle: Bool
 
-    private enum CodingKeys: String, CodingKey { case upstreams, tools, automations, hooks, shares, canToggle }
+    private enum CodingKeys: String, CodingKey { case upstreams, servers, tools, automations, hooks, shares, canToggle }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         upstreams = (try? c.decodeIfPresent([AppAccountWire].self, forKey: .upstreams)) ?? []
+        servers = (try? c.decodeIfPresent([AppServerWire].self, forKey: .servers)) ?? []
         tools = (try? c.decodeIfPresent([AppMcpToolWire].self, forKey: .tools)) ?? []
         automations = (try? c.decodeIfPresent([AppAutomationWire].self, forKey: .automations)) ?? []
         hooks = (try? c.decodeIfPresent([AppHookWire].self, forKey: .hooks)) ?? []
         // VAPP-241: absent on a server before public links.
         shares = (try? c.decodeIfPresent([AppShareWire].self, forKey: .shares)) ?? []
         canToggle = (try? c.decodeIfPresent(Bool.self, forKey: .canToggle)) ?? false
+    }
+}
+
+/// #VAPP-254 `appAccess.setUpstreamMapping {appId, upstream, serverId}`:
+/// clearing travels as a literal `null` (the router requires the key, and a
+/// synthesized `encode` would drop a nil).
+struct AppUpstreamMappingInput: Encodable {
+    let appId: String
+    let upstream: String
+    let serverId: String?
+
+    private enum CodingKeys: String, CodingKey { case appId, upstream, serverId }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(appId, forKey: .appId)
+        try c.encode(upstream, forKey: .upstream)
+        try c.encode(serverId, forKey: .serverId)
     }
 }
 
@@ -607,9 +688,10 @@ public final class AppsApi: Sendable {
 
     /// VAPP-121 `apps.import`: creates the app from the file (v1 noted
     /// `Imported`, its records as mine); the editor opens on it like Create.
-    public func importApp(accountId: String, teamId: String, text: String) async throws -> AppCreated {
+    public func importApp(accountId: String, teamId: String, text: String, upstreamMappings: [AppUpstreamMapping] = []) async throws -> AppCreated {
         let result: AppImportResult = try await trpc.mutation(
-            accountId: accountId, path: "apps.import", input: AppImportInput(teamId: teamId, text: text)
+            accountId: accountId, path: "apps.import",
+            input: AppImportCreateInput(teamId: teamId, text: text, upstreamMappings: upstreamMappings)
         )
         return result.app
     }
@@ -786,7 +868,7 @@ public final class AppsApi: Sendable {
             accountId: accountId, path: "appAccess.appTools", input: AppToolsInput(appId: appId)
         )
         return AppToolsSummary(
-            upstreams: result.upstreams, tools: result.tools,
+            upstreams: result.upstreams, servers: result.servers, tools: result.tools,
             automations: result.automations, hooks: result.hooks, shares: result.shares, canToggle: result.canToggle
         )
     }
@@ -797,6 +879,15 @@ public final class AppsApi: Sendable {
         try await trpc.mutationVoid(
             accountId: accountId, path: "appAccess.setToolEnabled",
             input: AppToolEnabledInput(appId: appId, tool: tool, enabled: enabled)
+        )
+    }
+
+    /// #VAPP-254 `appAccess.setUpstreamMapping` (owners): which team server
+    /// fills an upstream the app declares; nil clears the mapping.
+    public func setUpstreamMapping(accountId: String, appId: String, upstream: String, serverId: String?) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "appAccess.setUpstreamMapping",
+            input: AppUpstreamMappingInput(appId: appId, upstream: upstream, serverId: serverId)
         )
     }
 

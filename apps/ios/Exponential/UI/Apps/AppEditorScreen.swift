@@ -708,6 +708,9 @@ struct AppSettingsSheet: View {
     /// #VAPP-243: the upstreams the app declares with my OWN connection, and
     /// the exposed tools with their switch (`appAccess.appTools`).
     @State private var accounts: [AppAccountWire] = []
+    /// #VAPP-254: what an owner may pick for an upstream (empty for a member).
+    @State private var servers: [AppServerWire] = []
+    @State private var upstreamBusy: String?
     @State private var mcpTools: [AppMcpToolWire] = []
     @State private var mcpToolBusy: String?
     /// The app's team slug: Connect opens Settings › MCP on the web.
@@ -961,8 +964,10 @@ struct AppSettingsSheet: View {
     }
 
     /// #VAPP-243: `copy.accounts` (shown when the published package declares
-    /// upstreams): one row per upstream, the server name and my OWN state
-    /// (`Apps.accountRow`): the muted text, or Connect / Reconnect.
+    /// upstreams): one row per upstream, the declared name and my OWN state
+    /// (`Apps.accountRow`): the muted text, or Connect / Reconnect. #VAPP-254
+    /// (`upstreamPickerCases`): the real server on a second muted line when
+    /// it differs; an owner's server picker before the trailing state.
     @ViewBuilder
     private var accountsGroup: some View {
         if !accounts.isEmpty {
@@ -985,28 +990,69 @@ struct AppSettingsSheet: View {
 
     private func accountRow(_ account: AppAccountWire) -> some View {
         let row = Apps.accountRow(account.row)
-        return HStack(spacing: 12) {
-            Text(account.name)
-                .font(.subheadline)
-                .foregroundStyle(.white)
-                .lineLimit(1)
+        let caption = Apps.accountCaption(name: account.name, serverName: account.serverName)
+        // N-14: inside this sheet the picker's rows open under the whole row.
+        return InlinePickerRow {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let caption {
+                        Text(caption)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(1)
+                    }
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if let label = row.actionLabel, let serverId = account.serverId {
-                GlassPill(label, icon: row.action == .reconnect ? AppIcons.uiWarning : AppIcons.uiSignIn,
-                          mode: .action { connect(serverId) })
-                    .fixedSize()
-                    .accessibilityIdentifier("\(Apps.TestIds.accountRow)-\(account.name)-\(row.action?.rawValue ?? "")")
-            } else if let label = row.label {
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .fixedSize()
+                UpstreamPickerPill(
+                    name: account.name,
+                    serverId: account.serverId,
+                    servers: servers,
+                    disabled: upstreamBusy != nil,
+                    testId: "\(Apps.TestIds.accountRow)-\(account.name)-picker"
+                ) { pickServer(upstream: account.name, value: $0) }
+                if let label = row.actionLabel, let serverId = account.serverId {
+                    GlassPill(label, icon: row.action == .reconnect ? AppIcons.uiWarning : AppIcons.uiSignIn,
+                              mode: .action { connect(serverId) })
+                        .fixedSize()
+                        .accessibilityIdentifier("\(Apps.TestIds.accountRow)-\(account.name)-\(row.action?.rawValue ?? "")")
+                } else if let label = row.label, row.status != "notSetUp" || servers.isEmpty {
+                    Text(label)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .fixedSize()
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("\(Apps.TestIds.accountRow)-\(account.name)")
+    }
+
+    /// #VAPP-254 `appAccess.setUpstreamMapping` at once (`none` = cleared),
+    /// then the group re-reads; a failure = the failed-action toast and the
+    /// old value (the row only ever shows what the server answered).
+    private func pickServer(upstream: String, value: String) {
+        guard upstreamBusy == nil, let app = model.app else { return }
+        upstreamBusy = upstream
+        let api = deps.appsApi
+        let account = accountId
+        Task {
+            defer { upstreamBusy = nil }
+            do {
+                try await api.setUpstreamMapping(
+                    accountId: account, appId: app.id, upstream: upstream,
+                    serverId: value == Apps.upstreamPickerNone ? nil : value
+                )
+                await loadAutomations()
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the server"), description: error.trpcUserMessage)
+            }
+        }
     }
 
     /// My OWN account: Settings › MCP's connect on the web page in the
@@ -1346,6 +1392,7 @@ struct AppSettingsSheet: View {
     private func loadAutomations() async {
         guard let app = model.app else {
             accounts = []
+            servers = []
             mcpTools = []
             automations = []
             hooks = []
@@ -1361,6 +1408,7 @@ struct AppSettingsSheet: View {
             teamSlug = try? await pool.read { db in try TeamEntity.fetchOne(db, key: teamId)?.slug }
         }
         accounts = summary?.upstreams ?? []
+        servers = summary?.servers ?? []
         mcpTools = summary?.tools ?? []
         automations = summary?.automations ?? []
         hooks = summary?.hooks ?? []

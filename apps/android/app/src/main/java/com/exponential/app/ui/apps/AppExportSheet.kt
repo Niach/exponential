@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,22 +26,35 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.json.JsonValue
+import com.exponential.app.data.api.AppUpstreamMapping
+import com.exponential.app.data.api.AppServerDto
+import com.exponential.app.data.api.AppImportUpstreamDto
 import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.domain.AppExport
+import com.exponential.app.domain.Apps
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.SwitchRow
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.components.picker.PickerMode
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.issue.fileProviderUri
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -149,6 +165,96 @@ private fun shareAppExport(context: Context, file: File) {
     )
 }
 
+/** #VAPP-254: what the server answered for a file: its issues, the upstreams it
+ *  declares and the servers an owner may pick for them (empty for a member). */
+data class AppImportCheck(
+    val issues: List<AppExport.Issue>,
+    val upstreams: List<AppImportUpstreamDto> = emptyList(),
+    val servers: List<AppServerDto> = emptyList(),
+)
+
+/** #VAPP-254: the owner's [picks] (name → option value) for `apps.import`:
+ *  only names the file still declares, never `none`. */
+internal fun importUpstreamMappings(upstreams: List<AppImportUpstreamDto>, picks: Map<String, String>): List<AppUpstreamMapping> =
+    upstreams.mapNotNull { upstream ->
+        picks[upstream.name]?.takeUnless { it == Apps.UPSTREAM_PICKER_NONE }?.let { AppUpstreamMapping(upstream.name, it) }
+    }
+
+/** #VAPP-254 (`upstreamPickerCases`): which team server fills an upstream the
+ *  app declares: the Settings Accounts rows and the import step's. THE picker
+ *  with the Data tab's chevron pill as its trigger; no servers = nothing. */
+@Composable
+internal fun UpstreamPickerPill(
+    name: String,
+    serverId: String?,
+    servers: List<AppServerDto>,
+    testTag: String,
+    enabled: Boolean = true,
+    onPick: (String) -> Unit,
+) {
+    val picker = Apps.upstreamPicker(name, serverId, servers.map { it.id to it.name }) ?: return
+    Picker(
+        items = picker.options.map { PickerItem(it.value, it.label) },
+        mode = PickerMode.Single,
+        value = setOf(picker.value),
+        onChange = { next -> next.firstOrNull()?.takeIf { it != picker.value }?.let(onPick) },
+        enabled = enabled,
+    ) { open ->
+        GlassPill(
+            picker.options.firstOrNull { it.value == picker.value }?.label ?: Apps.AccountsCopy.NOT_SET_UP,
+            size = PillSize.Sm,
+            onClick = open,
+            enabled = enabled,
+            trailing = { Icon(ExpIcons.uiChevronDown, contentDescription = null, modifier = Modifier.size(14.dp)) },
+            shrinkLabel = true,
+            modifier = Modifier.widthIn(max = 128.dp).testTag(testTag),
+        )
+    }
+}
+
+/** #VAPP-254: the import step's Accounts group: one row per upstream the file
+ *  declares, its name and the server picker from the exact-name default. */
+@Composable
+internal fun AppImportUpstreams(
+    check: AppImportCheck,
+    picks: Map<String, String>,
+    enabled: Boolean,
+    onPick: (upstream: String, value: String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.IMPORT_UPSTREAMS)) {
+        SectionHeader(Apps.AccountsCopy.TITLE, modifier = Modifier.padding(horizontal = 16.dp))
+        OptionGroup {
+            check.upstreams.forEachIndexed { index, upstream ->
+                if (index > 0) GroupDivider()
+                val picked = picks[upstream.name]
+                InlinePickerRow(
+                    modifier = Modifier.testTag("${Apps.TestIds.IMPORT_UPSTREAM}-${upstream.name}"),
+                    rowModifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    scroll = false,
+                ) {
+                    Text(
+                        upstream.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    UpstreamPickerPill(
+                        name = upstream.name,
+                        serverId = if (picked == null) upstream.serverId else picked.takeUnless { it == Apps.UPSTREAM_PICKER_NONE },
+                        servers = check.servers,
+                        testTag = "${Apps.TestIds.IMPORT_UPSTREAM}-${upstream.name}-picker",
+                        enabled = enabled,
+                        onPick = { onPick(upstream.name, it) },
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** The import step's body: the monospace field, Choose file and the
  *  server's issues. [issues] null = not checked yet (or the check failed). */
 @Composable
@@ -230,15 +336,15 @@ private fun java.io.InputStream.readNBytesCompat(limit: Int): ByteArray {
 
 /** Validate [text] against the server, debounced; blank = no issues listed. */
 @Composable
-fun rememberImportIssues(text: String, validate: suspend (String) -> List<AppExport.Issue>?): List<AppExport.Issue>? {
-    var issues by remember { mutableStateOf<List<AppExport.Issue>?>(null) }
+fun rememberImportCheck(text: String, validate: suspend (String) -> AppImportCheck?): AppImportCheck? {
+    var check by remember { mutableStateOf<AppImportCheck?>(null) }
     LaunchedEffect(text) {
         if (text.isBlank()) {
-            issues = null
+            check = null
             return@LaunchedEffect
         }
         delay(VALIDATE_DEBOUNCE_MS)
-        issues = validate(text)
+        check = validate(text)
     }
-    return issues
+    return check
 }
