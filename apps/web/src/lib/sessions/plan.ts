@@ -21,7 +21,7 @@ import {
   sealedBodyMax,
 } from "@exp/db-schema/domain"
 import { PLAN_CARD_COPY, resolveUpload, type AskCardLike } from "@exp/domain-contract/plan-card"
-import { isStoryCard } from "@exp/domain-contract/stories"
+import { isPrPictureCard } from "@exp/domain-contract/results-tab"
 import { parseSealedValue } from "@exp/domain-contract/sealed-content"
 import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
@@ -402,7 +402,7 @@ export function buildSurfaceCard(input: {
   surface: CardSurfaceInput
   title?: string
   pictures?: CardPictureInput[]
-  story?: boolean
+  result?: boolean
   description?: string
 }): Extract<MessageCard, { kind: `surface` }> {
   const surface = validateCardSurface(input.surface)
@@ -411,8 +411,8 @@ export function buildSurfaceCard(input: {
   if (title && title.length > SURFACE_CARD_TITLE_MAX) {
     throw bad(`title is ${title.length} characters; the cap is ${SURFACE_CARD_TITLE_MAX}`)
   }
-  // S-3 stories.json: a surface may carry a result story's screenshots;
-  // a plain surface is a story only when asked (or once a picture lands).
+  // results-tab.json: a surface may carry a result's screenshots; a plain
+  // surface is a result only when asked (or once a picture lands).
   const pictures = cardPictures(input.pictures)
   // The cap lives here, not in the show schema (its own byte budget).
   const description = input.description?.trim() || null
@@ -425,7 +425,7 @@ export function buildSurfaceCard(input: {
     title,
     ...(description ? { description } : {}),
     ...(pictures.length ? { pictures } : {}),
-    ...(input.story !== undefined ? { story: input.story } : {}),
+    ...(input.result !== undefined ? { result: input.result } : {}),
   }
 }
 
@@ -943,11 +943,11 @@ export async function publishCardPicture(
     await rollbackSessionImage(prepared.storageKey)
     throw error
   }
-  // S-3: a story picture is a PR picture: the thread's live PR bodies
+  // A shown picture is a PR picture: the thread's live PR bodies
   // re-render (lib/pull-requests.ts, lazily: it imports this module's peers).
-  // A card outside the stories (`story: false`, an engine ask) is no PR picture.
-  if (isStoryCard(published.card)) void import(`@/lib/pull-requests`)
+  // A card flagged off (`result: false`, an engine ask) is no PR picture.
+  if (isPrPictureCard(published.card)) void import(`@/lib/pull-requests`)
     .then(({ syncPullRequestBodies }) => syncPullRequestBodies(published.rootId))
-    .catch((error: unknown) => console.error(`[stories] PR body sync failed`, error))
+    .catch((error: unknown) => console.error(`[results] PR body sync failed`, error))
   return { label: published.label, card: published.card }
 }

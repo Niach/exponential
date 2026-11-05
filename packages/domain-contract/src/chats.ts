@@ -357,6 +357,23 @@ export function chatList(input: {
 
 /** #EXP-1388: the Chats nav dot = an unread chat outside the archive (an
  *  archived chat never lights it; one that needs you is never archived). */
+/** #FEED-191: a chat list section (`sectionCases`). */
+export type ChatSectionKey = `needs_you` | `working` | `unread` | `chats`
+export const CHAT_SECTION_KEYS: readonly ChatSectionKey[] = [`needs_you`, `working`, `unread`, `chats`]
+
+/** #FEED-191: `chatList`'s rows grouped: needs you, working, unread, the rest
+ *  by activity; empty sections absent. */
+export function chatSections<R extends Pick<ChatRow, `group` | `unreadCount`>>(
+  rows: readonly R[]
+): { key: ChatSectionKey; rows: R[] }[] {
+  const keyOf = (row: R): ChatSectionKey =>
+    row.group === `needs_you` ? `needs_you` : row.group === `running` ? `working` : row.unreadCount > 0 ? `unread` : `chats`
+  return CHAT_SECTION_KEYS.flatMap((key) => {
+    const own = rows.filter((row) => keyOf(row) === key)
+    return own.length > 0 ? [{ key, rows: own }] : []
+  })
+}
+
 export function chatsUnread(groups: readonly ThreadsListGroup[], reads: readonly TreeSessionRead[] = []): boolean {
   const archived = new Set(reads.filter((r) => r.archivedAt).map((r) => r.sessionId))
   return groups.some((group) =>
@@ -659,6 +676,9 @@ function digestMessage(m: TreeMessage, body: string = digestText(m.body)): Diges
         ...(typeof m.card.question === `string` ? { question: cut(digestText(m.card.question)) } : {}),
         ...(typeof m.card.plan === `string` ? { plan: cut(digestText(m.card.plan)) } : {}),
         ...(typeof m.card.title === `string` ? { title: cut(m.card.title) } : {}),
+        // #FEED-191: an `ask` mirror names its origin card (needs-you.json).
+        ...(m.card.kind === `ask` && typeof m.card.sessionId === `string` ? { sessionId: m.card.sessionId } : {}),
+        ...(m.card.kind === `ask` && typeof m.card.messageId === `string` ? { messageId: m.card.messageId } : {}),
       }
     : null
   return {

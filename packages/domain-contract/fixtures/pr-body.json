@@ -628,7 +628,7 @@
       "expected": "### not RUN\n\nandroid: settings"
     }
   ],
-  "storyCases": [
+  "pictureCases": [
     {
       "name": "title only",
       "input": {
@@ -637,7 +637,7 @@
         "commits": [],
         "pictures": [],
         "notRun": null,
-        "storiesUrl": null
+        "resultsUrl": null
       },
       "expected": "Fix the nav"
     },
@@ -661,9 +661,9 @@
         ],
         "pictures": [],
         "notRun": null,
-        "storiesUrl": "https://exp.example/t/acme/sessions/r1"
+        "resultsUrl": "https://exp.example/t/acme/sessions/r1"
       },
-      "expected": "S-3 stories\n\n- #EXP-1 Stories replace the Guide\n- S-3 stories: the fold\n- S-3 stories: the viewer\n\n---\n\n[Stories in Exponential](https://exp.example/t/acme/sessions/r1)"
+      "expected": "S-3 stories\n\n- #EXP-1 Stories replace the Guide\n- S-3 stories: the fold\n- S-3 stories: the viewer\n\n---\n\n[Results in Exponential](https://exp.example/t/acme/sessions/r1)"
     },
     {
       "name": "pictures grouped by platform word in platform order (web-mobile = web, unknown = other), then Not run",
@@ -694,10 +694,10 @@
           }
         ],
         "notRun": "android:  chats   list",
-        "storiesUrl": null
+        "resultsUrl": null
       },
       "expected": "Chats\n\n**web** · [web chats](https://exp.example/api/attachments/w) · [web-mobile chats](https://exp.example/api/attachments/m)\n**ios** · [iOS chats](https://exp.example/api/attachments/i)\n**desktop** · [desktop chats](https://exp.example/api/attachments/d)\n**other** · [Figma draft](https://exp.example/api/attachments/f)\n\n**Not run:** android: chats list"
     }
   ],
-  "$storyComment": "S-3 (owner 2026-10-28): stories replace the Guide; `prBodyFromStories(input, max?)` (apps/web lib/pr-body.ts) is what pr_open writes and every story picture upload re-syncs. Line 1 = the PR title (whitespace collapsed). Then up to 3 bullets '- <text>': the linked issues ('#<identifier> <title>') first, then the commits' first lines oldest first; 'Merge branch|pull request|remote-tracking' subjects skipped, a line equal (case-insensitive, whitespace collapsed) to the title or an earlier bullet skipped. Then the story pictures (the opener's logical session + its subtree, resolved pictures of story cards, oldest first) as one line per platform '**<platform>** · [<label>](<url>) · …' in order web, ios, android, desktop, other; the platform = the label's first word lowercased, equal to the platform or starting '<platform>-' (web-mobile = web); '[' and ']' dropped from the label; url = <app>/api/attachments/<id> (GitHub cannot load member-only pictures, so links). Then '**Not run:** <notRun>' (pull_requests.not_run, whitespace collapsed). Blocks join with a blank line; storiesUrl adds '\\n\\n---\\n\\n[Stories in Exponential](<url>)'. Over max the body cuts at the last newline that fits and ends in '\\n…', the footer kept. The Guide `cases` above stay for legacy readers."
+  "$pictureComment": "`prBodyFromPictures(input, max?)` (apps/web lib/pr-body.ts) is what pr_open writes and every picture upload re-syncs. Line 1 = the PR title (whitespace collapsed). Then up to 3 bullets '- <text>': the linked issues ('#<identifier> <title>') first, then the commits' first lines oldest first; 'Merge branch|pull request|remote-tracking' subjects skipped, a line equal (case-insensitive, whitespace collapsed) to the title or an earlier bullet skipped. Then the pictures (the opener's logical session + its subtree, resolved pictures of its result, plan and question cards, results-tab.json `isPrPictureCard`, oldest first) as one line per platform '**<platform>** · [<label>](<url>) · …' in order web, ios, android, desktop, other; the platform = the label's first word lowercased, equal to the platform or starting '<platform>-' (web-mobile = web); '[' and ']' dropped from the label; url = <app>/api/attachments/<id> (GitHub cannot load member-only pictures, so links). Then '**Not run:** <notRun>' (pull_requests.not_run, whitespace collapsed). Blocks join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Results in Exponential](<url>)'. Over max the body cuts at the last newline that fits and ends in '\\n…', the footer kept. The Guide `cases` above stay for legacy readers."
 }

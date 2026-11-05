@@ -12,7 +12,7 @@
 //! - `exponential_show`: the card is BUILT here (the port of
 //!   `lib/sessions/plan.ts` buildPlanCard / buildQuestionCard /
 //!   buildSurfaceCard and the show tool's checks) and sent as
-//!   `{sealedCard, kind, replace?, story?}`.
+//!   `{sealedCard, kind, replace?, result?}`.
 //! - `exponential_sessions {op: "end", summary}` → `{sealedReport, copies}`.
 //! - `exponential_sessions {op: "escalate"}` → `+ sealedCard` for the target.
 //! - `exponential_session_self {op: "suggest"}` → `{sealed}`.
@@ -390,8 +390,8 @@ impl SealingTransform {
         if let Some(replace) = args.get("replace") {
             out["replace"] = replace.clone();
         }
-        if let Some(story) = args.get("story") {
-            out["story"] = story.clone();
+        if let Some(flag) = args.get("result") {
+            out["result"] = flag.clone();
         }
         Ok(out)
     }
@@ -1174,7 +1174,7 @@ pub struct ShowInput {
     pub plan: Option<PlanInput>,
     pub pictures: Option<Vec<PictureInput>>,
     pub description: Option<String>,
-    pub story: Option<bool>,
+    pub result: Option<bool>,
 }
 
 fn strict<'a>(value: &'a Value, path: &str, keys: &[&str]) -> Result<&'a Map<String, Value>, String> {
@@ -1255,7 +1255,7 @@ fn parse_options(value: Option<&Value>, path: &str, max: usize) -> Result<Vec<Op
 
 impl ShowInput {
     pub fn parse(args: &Value) -> Result<ShowInput, String> {
-        let obj = strict(args, "arguments", &["surface", "title", "replace", "ask", "plan", "pictures", "description", "story"])?;
+        let obj = strict(args, "arguments", &["surface", "title", "replace", "ask", "plan", "pictures", "description", "result"])?;
         let surface = match obj.get("surface") {
             None | Some(Value::Null) => None,
             Some(surface) => {
@@ -1354,7 +1354,7 @@ impl ShowInput {
             plan,
             pictures,
             description: opt_str(obj, "description", "arguments")?,
-            story: opt_bool(obj, "story", "arguments")?,
+            result: opt_bool(obj, "result", "arguments")?,
         })
     }
 }
@@ -1539,7 +1539,7 @@ pub fn build_surface_card(
     surface: &Value,
     title: Option<&str>,
     pictures: Option<&[PictureInput]>,
-    story: Option<bool>,
+    result: Option<bool>,
     description: Option<&str>,
 ) -> Result<Value, String> {
     let surface = validate_card_surface(Some(surface))?;
@@ -1568,8 +1568,8 @@ pub fn build_surface_card(
     if !pictures.is_empty() {
         card.insert("pictures".into(), json!(pictures));
     }
-    if let Some(story) = story {
-        card.insert("story".into(), json!(story));
+    if let Some(flag) = result {
+        card.insert("result".into(), json!(flag));
     }
     Ok(Value::Object(card))
 }
@@ -1635,15 +1635,15 @@ pub fn build_show_card(input: &ShowInput) -> Result<Value, String> {
         build_question_card(ask, pictures, input.surface.as_ref())?
     } else {
         let shown = input.surface.clone().unwrap_or_else(|| pictures_only_surface(input.title.as_deref(), pictures.unwrap_or_default()));
-        build_surface_card(&shown, input.title.as_deref(), pictures, input.story, input.description.as_deref())?
+        build_surface_card(&shown, input.title.as_deref(), pictures, input.result, input.description.as_deref())?
     };
     if let Some(surface) = &input.surface {
         if let Some(problem) = show_surface_problem(surface, input.ask.is_none() && input.plan.is_none() && !has_pictures) {
             return Err(problem.to_string());
         }
     }
-    if let Some(story) = input.story {
-        card["story"] = json!(story);
+    if let Some(flag) = input.result {
+        card["result"] = json!(flag);
     }
     Ok(card)
 }
@@ -2361,7 +2361,7 @@ mod tests {
         let input = ShowInput::parse(&json!({
             "ask": { "question": "Which?", "options": [{ "label": "A", "picture": "web-a" }, { "label": "B" }], "multi": true },
             "pictures": [{ "label": "web-a", "caption": "Look" }],
-            "story": false,
+            "result": false,
         }))
         .unwrap();
         let card = build_show_card(&input).unwrap();
@@ -2372,7 +2372,7 @@ mod tests {
                 "optionPictures": ["web-a", null],
                 "pictures": [{ "label": "web-a", "attachmentId": null, "width": null, "height": null, "caption": "Look" }],
                 "multi": true, "custom": true, "surface": null, "answer": null, "answers": null, "surfaceData": null,
-                "story": false,
+                "result": false,
             })
         );
         let closed = ShowInput::parse(&json!({ "ask": { "question": "Q", "options": [], "custom": false } })).unwrap();
@@ -2399,7 +2399,7 @@ mod tests {
         let card = build_show_card(&pictures).unwrap();
         assert_eq!(card["surface"]["root"]["children"][0]["props"]["text"], "web-chats, ios-chats");
         assert_eq!(card["pictures"].as_array().unwrap().len(), 2);
-        assert!(card.get("story").is_none());
+        assert!(card.get("result").is_none());
 
         // Text only alone is refused; a Card root is refused.
         let text = ShowInput::parse(&json!({ "surface": { "root": { "id": "s", "component": "Stack", "children": [{ "id": "t", "component": "Text", "props": { "text": "hi" } }] } } })).unwrap();

@@ -314,6 +314,9 @@ public struct TreeMessageCard: Equatable, Sendable {
     /// S-3 (stories.json) plan | question | surface: the explicit story flag
     /// (nil = absent: ask/plan or a resolved picture make it one).
     public let story: Bool?
+    /// #FEED-191 (results-tab.json) surface: the explicit result flag (nil =
+    /// absent: `story`, else a resolved picture makes it one).
+    public let result: Bool?
     /// The card's `pictures` (plan uploads; S-3: a result story's screenshots).
     public let pictures: [PlanCardPicture]
     /// #EXP-1432 stories.json: the story's one line under its title.
@@ -353,6 +356,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         eventName: String? = nil,
         messageId: String? = nil,
         story: Bool? = nil,
+        result: Bool? = nil,
         pictures: [PlanCardPicture] = [],
         description: String? = nil,
         dismissed: Bool = false
@@ -360,6 +364,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         self.kind = kind
         self.dismissed = dismissed
         self.story = story
+        self.result = result
         self.pictures = pictures
         self.description = description
         self.eventName = eventName
@@ -496,6 +501,9 @@ public struct TreeMessageCard: Equatable, Sendable {
             messageId: text("messageId"),
             // `typeof card.story === 'boolean'` in the reference.
             story: (object["story"] as? NSNumber).flatMap {
+                CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil
+            },
+            result: (object["result"] as? NSNumber).flatMap {
                 CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil
             },
             pictures: pictures,

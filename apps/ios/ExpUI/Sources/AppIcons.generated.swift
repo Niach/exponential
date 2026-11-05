@@ -504,6 +504,7 @@ public enum AppIcons {
         "nav-inbox": "inbox",
         "nav-issues": "list",
         "nav-my-issues": "list",
+        "nav-needs-you": "triangle-alert",
         "nav-notifications": "bell",
         "nav-rail-collapse": "panel-left-close",
         "nav-rail-expand": "panel-left-open",
@@ -585,6 +586,7 @@ public enum AppIcons {
         "status-todo": "circle",
         "support-open": "circle-dot",
         "support-resolved": "circle-check",
+        "thread-results": "images",
         "thread-stories": "images",
         "tool-script": "braces",
         "trace-background": "repeat",
@@ -899,6 +901,8 @@ public enum AppIcons {
     public static let navIssues: String = "list"
     /// Concept `nav-my-issues`.
     public static let navMyIssues: String = "list"
+    /// Concept `nav-needs-you`.
+    public static let navNeedsYou: String = "triangle-alert"
     /// Concept `nav-notifications`.
     public static let navNotifications: String = "bell"
     /// Concept `nav-rail-collapse`.
@@ -1061,6 +1065,8 @@ public enum AppIcons {
     public static let supportOpen: String = "circle-dot"
     /// Concept `support-resolved`.
     public static let supportResolved: String = "circle-check"
+    /// Concept `thread-results`.
+    public static let threadResults: String = "images"
     /// Concept `thread-stories`.
     public static let threadStories: String = "images"
     /// Concept `tool-script`.

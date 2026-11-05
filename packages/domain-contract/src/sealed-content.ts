@@ -274,9 +274,9 @@ export function openBody(body: string, keys: TreeKeys): OpenedBody {
  *  `label` and `attachmentId` only (captions and sizes stay sealed; a
  *  label without an id = a picture still to upload). Opening fills a sealed
  *  picture's missing `attachmentId` from the clear entry of its label
- *  (`resolveClearPictures`); the clear part never replaces it. `story`
- *  (addendum 5) stays in clear only when a boolean: PR stories honour it
- *  (false = chat only) without opening the card. */
+ *  (`resolveClearPictures`); the clear part never replaces it. `result`
+ *  (and an older writer's `story`; addendum 5) stays in clear only when a
+ *  boolean: PR pictures honour it (false = chat only) without opening the card. */
 export const CARD_CLEAR_FIELDS = [
   `kind`,
   `messageId`,
@@ -291,6 +291,7 @@ export const CARD_CLEAR_FIELDS = [
   `answered`,
   `pictures`,
   `story`,
+  `result`,
 ] as const
 
 /** The clear projection of a card's `pictures`: `{label, attachmentId}`
@@ -362,8 +363,8 @@ export function splitCard(card: Card): { clear: Card; plaintext: string } {
     } else if (field === `pictures`) {
       const pictures = clearPictures(full.pictures)
       if (pictures) clear.pictures = pictures
-    } else if (field === `story`) {
-      if (typeof full.story === `boolean`) clear.story = full.story
+    } else if (field === `story` || field === `result`) {
+      if (typeof full[field] === `boolean`) clear[field] = full[field]
     } else if (full[field] !== undefined && full[field] !== null) {
       clear[field] = full[field]
     }

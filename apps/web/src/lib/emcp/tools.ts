@@ -432,7 +432,7 @@ const cardSurfaceInput = z
 // S-3: the show tool's description (always-loaded bytes; its own per-tool
 // cap in context-budget.test.ts): the nested node syntax, one example, the
 // reply rule and the component names; props come from the apps catalog.
-const SHOW_TOOL_DESCRIPTION = `ONE card in your chat a turn (result, status, draft, choice); replace: true edits it. surface = nested nodes {id, component, props?, children?, slots?, on?} + data. The chat draws the card: never a Card root; a Stack/List of real components (Row, Badge, StatTile, Table…); text only = a plain message. E.g. {root:{id:"s",component:"Stack",children:[{id:"r",component:"Row",props:{title:"Tests"},slots:{trailing:{id:"g",component:"Badge",props:{text:"Green"}}}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event = the answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[…]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Ask/plan/pictures are stories (PR pictures; +description); story: false = chat only. After ask/plan end your turn; the answer comes next.`
+const SHOW_TOOL_DESCRIPTION = `ONE card in your chat a turn (result, status, draft, choice); replace: true edits it. surface = nested nodes {id, component, props?, children?, slots?, on?} + data. The chat draws the card: never a Card root; a Stack/List of real components (Row, Badge, StatTile, Table…); text only = a plain message. E.g. {root:{id:"s",component:"Stack",children:[{id:"r",component:"Row",props:{title:"Tests"},slots:{trailing:{id:"g",component:"Badge",props:{text:"Green"}}}},{id:"b",component:"Button",props:{label:"Ship"},on:{press:{event:{name:"reply",context:{text:"Ship"}}}}}]}}: a reply event = the answer. Components: Box Stack Grid Card Separator List Row Section Text Heading Markdown CodeBlock Label Image Icon Avatar Carousel Tabs Accordion Stepper Badge Alert Chip Progress Meter Ring EmptyState Table Chart Sparkline StatTile Button Link Toggle Form Input Textarea Checkbox Radio ChoiceTiles Switch Select Slider; props: exponential_apps {op:"catalog", only:[…]}. ask = one question (options; multi; custom free text, default on). plan = text (GFM) + questions [{id, prompt, options}]. pictures = labels (screenshots, platform first: 'web chats'; options; ![a](upload:label) in plan.text); run each curl. Pictures make a result (+description) and are PR pictures; result: false = chat only. After ask/plan end your turn; the answer comes next.`
 
 // EXP-1445: the chat already draws every surface in a card, so a Card root
 // is a card in a card; a surface of text alone adds nothing over a plain
@@ -2897,7 +2897,7 @@ export function registerExponentialTools(
             .optional(),
           pictures: cardPicturesInput,
           description: z.string().optional(),
-          story: z.boolean().optional(),
+          result: z.boolean().optional(),
           // EXP-1458: the device's sealed card (+ an ask's sealed ask text
           // and per-tree copies); bare `{}`, sealedShowExtrasSchema checks.
           sealedCard: z.any().optional(),
@@ -2906,19 +2906,19 @@ export function registerExponentialTools(
           listenerCopies: z.any().optional(),
         }),
       },
-      async ({ surface, title, replace, ask, plan, pictures, description, story, sealedCard, kind, askText, listenerCopies }) => {
+      async ({ surface, title, replace, ask, plan, pictures, description, result, sealedCard, kind, askText, listenerCopies }) => {
         try {
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_show`))
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
           if (sealedCard !== undefined || kind !== undefined || askText !== undefined || listenerCopies !== undefined) {
-            // EXP-1458: everything but replace/story lives inside sealedCard.
+            // EXP-1458: everything but replace/result lives inside sealedCard.
             if (surface || title || ask || plan || pictures || description) {
               throw new Error(`An encrypted card carries surface, ask, plan, pictures, title and description inside sealedCard.`)
             }
             const extras = sealedShowExtrasSchema.parse({ sealedCard, kind, askText, listenerCopies })
             const card = buildSealedShowCard(extras.sealedCard, extras.kind)
-            if (story !== undefined && (CARD_CLEAR_FIELDS as readonly string[]).includes(`story`)) card.story = story
+            if (result !== undefined && (CARD_CLEAR_FIELDS as readonly string[]).includes(`result`)) card.result = result
             return ok(
               await postShowCard({
                 userId: user.id,
@@ -2931,7 +2931,7 @@ export function registerExponentialTools(
           }
           if (ask && plan) throw new Error(`Pass ask or plan, not both: one card per call.`)
           if (!ask && !plan && !surface && !pictures?.length) throw new Error(`Pass surface, ask, plan or pictures.`)
-          // F38: pictures alone (a result story's screenshots) = a surface
+          // F38: pictures alone (a result's screenshots) = a surface
           // card whose surface is a Stack holding the title.
           const shown = surface ?? picturesOnlySurface(title, pictures ?? [])
           const card = plan
@@ -2943,7 +2943,7 @@ export function registerExponentialTools(
                   title,
                   pictures,
                   ...(description ? { description } : {}),
-                  ...(story !== undefined ? { story } : {}),
+                  ...(result !== undefined ? { result } : {}),
                 })
           // EXP-1445: a valid surface still refuses a Card root and, as the
           // whole card, text alone.
@@ -2952,8 +2952,8 @@ export function registerExponentialTools(
           // `ignore` reads only a link's shape: any non-empty team expands `~/`.
           const linkProblem = surface ? showSurfaceLinkProblem(surface, appBaseUrl(), own.teamId) : null
           if (linkProblem) throw new Error(linkProblem)
-          // S-3 stories.json: an explicit flag rides every kind.
-          if (story !== undefined) card.story = story
+          // results-tab.json: an explicit flag rides every kind.
+          if (result !== undefined) card.result = result
           return ok(await postShowCard({ userId: user.id, sessionId: own.id, card, replace: replace === true }))
         } catch (e) {
           return err(e)

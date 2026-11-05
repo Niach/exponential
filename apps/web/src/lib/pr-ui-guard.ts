@@ -4,8 +4,7 @@ import { isNotRunTopic } from "@/lib/pr-body"
 
 // EXP-1315: `exponential_pr_open` refuses a UI diff without pictures. The
 // changed paths (GitHub compare base...head) name the UI platforms they
-// touch; each touched platform needs ONE story picture (S-3; formerly a
-// Guide picture) whose label starts
+// touch; each touched platform needs ONE picture whose label starts
 // with that platform word (`web-mobile` counts for web), else `notRun` must
 // name it ("<platform>: <screen you could not run>"). Pure helpers + the one
 // compare read; a compare failure never blocks a PR (the caller skips).
@@ -76,7 +75,7 @@ export function missingPlatformPictures(
 
 /** The refusal, naming the exact next step. */
 export function missingPicturesMessage(missing: readonly UiPlatform[]): string {
-  return `This diff changes UI on ${missing.join(`, `)} but your stories have no picture labelled ${missing
+  return `This diff changes UI on ${missing.join(`, `)} but your session has no picture labelled ${missing
     .map((platform) => `'${platform} …'`)
     .join(` / `)}. Capture the screen, then exponential_show {surface, pictures: [{label: '<platform> …'}]} and run the returned curl line; or pass notRun: '<platform>: <screen you could not run>'.`
 }

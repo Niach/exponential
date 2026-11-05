@@ -165,6 +165,10 @@ pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;
 pub mod plan_page;
+// #FEED-191: every plan and question waiting on the viewer, fixture-locked ×4.
+pub mod needs_you;
+// #FEED-191: a chat tree's results (the session screen's last tab), fixture-locked ×4.
+pub mod results_tab;
 pub mod placeholder_status;
 // #EXP-1611: CI on the thread's PR (Merge pill, Checks submenu), fixture-locked ×4.
 pub mod pr_checks;

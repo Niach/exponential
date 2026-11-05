@@ -1,6 +1,6 @@
 import { githubFetch } from "@/lib/integrations/github-client"
 import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm"
-import { isStoryCard } from "@exp/domain-contract/stories"
+import { isPrPictureCard } from "@exp/domain-contract/results-tab"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { issues, messages, pullRequestIssues, pullRequests, sessions } from "@/db/schema"
@@ -12,44 +12,43 @@ import { headPusher, headSession } from "@/lib/sessions/push-attribution"
 import { inSessions, messageSessionId } from "@/lib/sessions/messages"
 import { isSealedCard } from "@/lib/sessions/sealed"
 
-// S-3 (owner 2026-10-28): stories replace the Guide. The I/O half of a PR
-// body (`prBodyFromStories`, lib/pr-body.ts): the opener's story pictures,
-// the PR's commits and the thread link.
+// The I/O half of a PR body (`prBodyFromPictures`, lib/pr-body.ts): the
+// opener's pictures, the PR's commits and the thread link.
 
-export interface StoryPicture {
+export interface PrPicture {
   label: string
   attachmentId: string
   url: string
 }
 
-/** One story card's PR pictures (label + attachment). A plaintext card is
- *  read as is (`isStoryCard`). EXP-1468 (sealed-content addendum 5): a
+/** One card's PR pictures (label + attachment). A plaintext card is
+ *  read as is (`isPrPictureCard`). EXP-1468 (sealed-content addendum 5): a
  *  SEALED card is read through its CLEAR part only: the `pictures`
  *  projection's entries that carry an attachmentId, none when the clear
- *  `story` is false. Captions stay sealed: a PR body is a public export and
+ *  `result` (or an older card's `story`) is false. Captions stay sealed: a PR body is a public export and
  *  never carries sealed text (the label stands in for the caption). */
-export function storyPicturesOfCard(card: unknown): { label: string; attachmentId: string }[] {
+export function prPicturesOfCard(card: unknown): { label: string; attachmentId: string }[] {
   if (isSealedCard(card)) {
     const clear = card as Record<string, unknown>
     if (clear.kind !== `surface` && clear.kind !== `question` && clear.kind !== `plan`) return []
-    if (clear.story === false || !Array.isArray(clear.pictures)) return []
+    if ((clear.result ?? clear.story) === false || !Array.isArray(clear.pictures)) return []
     return clear.pictures.flatMap((entry: unknown) => {
       const { label, attachmentId } = (entry ?? {}) as Record<string, unknown>
       return typeof label === `string` && typeof attachmentId === `string` ? [{ label, attachmentId }] : []
     })
   }
-  if (!isStoryCard(card)) return []
+  if (!isPrPictureCard(card)) return []
   return ((card as Extract<MessageCard, { kind: `surface` }>).pictures ?? []).flatMap((picture) =>
     picture.attachmentId ? [{ label: picture.label, attachmentId: picture.attachmentId }] : []
   )
 }
 
-/** #EXP-1402: the sessions whose stories a PR body shows: the opener's
+/** #EXP-1402: the sessions whose pictures a PR body shows: the opener's
  *  LOGICAL session (its continuation lineage) and its subtree, never a
  *  descendant's subtree that opened a PR of its own (`claimed`: that PR's
  *  body shows them, FEED-166). Null opener = the whole tree, minus the
  *  claimed subtrees. */
-export function storySessionIds(
+export function prPictureSessionIds(
   tree: readonly GuideTreeRow[],
   openerSessionId: string | null,
   claimed: ReadonlySet<string>
@@ -71,18 +70,18 @@ export function storySessionIds(
   return ids
 }
 
-/** The resolved pictures of the story cards of a PR's sessions
- *  (`storySessionIds`), oldest first; sealed cards count through their
- *  clear part (`storyPicturesOfCard`). `pullRequestId` = the PR rendered
+/** The resolved pictures of the cards of a PR's sessions
+ *  (`prPictureSessionIds`), oldest first; sealed cards count through their
+ *  clear part (`prPicturesOfCard`). `pullRequestId` = the PR rendered
  *  (every OTHER PR of the thread claims its opener's lineage); `head` = its
  *  branch: a PR with no opener resolves through it (`headSession`: the
  *  session credited with its latest push in `repositoryId`, else the one
  *  lineage on it, #EXP-1540). */
-export async function loadStoryPictures(
+export async function loadPrPictures(
   rootId: string,
   recordedOpenerId: string | null,
   opts: { pullRequestId?: string | null; head?: string | null; repositoryId?: string | null } = {}
-): Promise<StoryPicture[]> {
+): Promise<PrPicture[]> {
   const tree = await db
     .select({
       id: sessions.id,
@@ -116,7 +115,7 @@ export async function loadStoryPictures(
       for (const id of logicalSessionIds(sessionId, tree)) claimed.add(id)
     }
   }
-  const ids = storySessionIds(tree, openerSessionId, claimed)
+  const ids = prPictureSessionIds(tree, openerSessionId, claimed)
   if (ids.size === 0) return []
   const rows = await db
     .select({ card: messages.card })
@@ -131,9 +130,9 @@ export async function loadStoryPictures(
     )
     .orderBy(asc(messages.createdAt))
   const base = appBaseUrl()
-  const out: StoryPicture[] = []
+  const out: PrPicture[] = []
   for (const { card } of rows) {
-    for (const picture of storyPicturesOfCard(card)) {
+    for (const picture of prPicturesOfCard(card)) {
       out.push({ ...picture, url: `${base}${buildAttachmentUrl(picture.attachmentId)}` })
     }
   }
@@ -173,6 +172,6 @@ export async function linkedIssuesOfPullRequest(
 }
 
 /** The footer link of every PR body: the thread (root session). */
-export function storiesUrlFor(teamSlug: string, rootId: string): string {
+export function chatUrlFor(teamSlug: string, rootId: string): string {
   return `${appBaseUrl()}${buildSessionDeepLinkPath(teamSlug, rootId)}`
 }

@@ -588,7 +588,9 @@ RETURNS jsonb AS $$
       'kind', m.card->>'kind',
       'question', CASE WHEN jsonb_typeof(m.card->'question') = 'string' THEN left(conversation_digest_text(m.card->>'question'), 500) END,
       'plan', CASE WHEN jsonb_typeof(m.card->'plan') = 'string' THEN left(conversation_digest_text(m.card->>'plan'), 500) END,
-      'title', CASE WHEN jsonb_typeof(m.card->'title') = 'string' THEN left(m.card->>'title', 500) END)) END,
+      'title', CASE WHEN jsonb_typeof(m.card->'title') = 'string' THEN left(m.card->>'title', 500) END,
+      'sessionId', CASE WHEN m.card->>'kind' = 'ask' AND jsonb_typeof(m.card->'sessionId') = 'string' THEN m.card->>'sessionId' END,
+      'messageId', CASE WHEN m.card->>'kind' = 'ask' AND jsonb_typeof(m.card->'messageId') = 'string' THEN m.card->>'messageId' END)) END,
     'answeredAt', CASE WHEN m.answered_at IS NULL THEN NULL ELSE conversation_digest_ms(m.answered_at) END,
     'createdAt', conversation_digest_ms(m.created_at))
 $$ LANGUAGE sql STABLE;

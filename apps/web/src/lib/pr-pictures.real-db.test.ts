@@ -11,9 +11,9 @@ import { probeRealDb } from "@/test/real-db"
 const ready = await probeRealDb(`
   SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'messages' AND column_name = 'ref_issue_ids') AS ok
 `)
-if (!ready.ok) console.info(`[pr-stories.real-db] skipped: ${ready.reason}`)
+if (!ready.ok) console.info(`[pr-pictures.real-db] skipped: ${ready.reason}`)
 
-const { loadStoryPictures } = await import(`@/lib/pr-stories`)
+const { loadPrPictures } = await import(`@/lib/pr-pictures`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -46,8 +46,8 @@ describe.skipIf(!ready.ok)(`EXP-1468: story pictures of sealed cards`, () => {
     const sealed = `v1:1:${`A`.repeat(80)}`
     const cards = [
       { kind: `surface`, pictures: [{ label: `web list`, attachmentId: plain }] },
-      { kind: `surface`, story: true, pictures: [{ label: `ios list`, attachmentId: sealedId }, { label: `web later` }], sealed },
-      { kind: `surface`, story: false, pictures: [{ label: `web chat`, attachmentId: crypto.randomUUID() }], sealed },
+      { kind: `surface`, result: true, pictures: [{ label: `ios list`, attachmentId: sealedId }, { label: `web later` }], sealed },
+      { kind: `surface`, result: false, pictures: [{ label: `web chat`, attachmentId: crypto.randomUUID() }], sealed },
     ]
     for (const [index, card] of cards.entries()) {
       await db.execute(sql`
@@ -55,7 +55,7 @@ describe.skipIf(!ready.ok)(`EXP-1468: story pictures of sealed cards`, () => {
         VALUES (${sessionId}, ${teamId}, ${conversationId}, 'agent', ${sessionId}, '', ${JSON.stringify(card)}::jsonb,
           now() + ${`${index} seconds`}::interval)`)
     }
-    const pictures = await loadStoryPictures(sessionId, null)
+    const pictures = await loadPrPictures(sessionId, null)
     expect(pictures.map((picture) => [picture.label, picture.attachmentId])).toEqual([
       [`web list`, plain],
       [`ios list`, sealedId],

@@ -111,6 +111,7 @@
   "semantic": {
     "nav-search": "search",
     "nav-inbox": "inbox",
+    "nav-needs-you": "triangle-alert",
     "nav-issues": "list",
     "nav-my-issues": "list",
     "nav-boards": "folder-kanban",
@@ -388,6 +389,7 @@
     "work-faces": "layers-2",
     "work-results": "images",
     "thread-stories": "images",
+    "thread-results": "images",
     "media-fast-forward": "fast-forward",
     "media-rewind": "rewind",
     "media-skip-next": "skip-forward",

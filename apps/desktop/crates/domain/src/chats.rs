@@ -11,7 +11,8 @@
 //! spec, [`plain_line`], and the lists' per-conversation digest
 //! ([`digest_messages`], `digestCases`), and #EXP-1388's selection + archive
 //! ([`chat_selection_actions`], [`chat_selection_range`], [`chats_unread`],
-//! [`chat_delete_title`]). Byte-locked by `fixtures/chats.json`; pure.
+//! [`chat_delete_title`]), and #FEED-191's list sections ([`chat_sections`]).
+//! Byte-locked by `fixtures/chats.json`; pure.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
@@ -184,6 +185,10 @@ pub struct ChatsCopy {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ChatsSectionsCopy {
     pub agents: String,
+    /// #FEED-191: the list's sections (`chat_sections`).
+    pub needs_you: String,
+    pub working: String,
+    pub unread: String,
     pub chats: String,
 }
 
@@ -1152,6 +1157,56 @@ pub fn chats_unread(groups: &[ThreadsListGroup], reads: &[&SessionReadRow]) -> b
     })
 }
 
+/// #FEED-191: a chat list section (`sectionCases`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatSectionKey {
+    NeedsYou,
+    Working,
+    Unread,
+    Chats,
+}
+
+impl ChatSectionKey {
+    pub const ALL: [ChatSectionKey; 4] = [Self::NeedsYou, Self::Working, Self::Unread, Self::Chats];
+
+    /// The header (`copy.sections`).
+    pub fn title(self) -> &'static str {
+        let copy = &CHATS.copy.sections;
+        match self {
+            Self::NeedsYou => &copy.needs_you,
+            Self::Working => &copy.working,
+            Self::Unread => &copy.unread,
+            Self::Chats => &copy.chats,
+        }
+    }
+}
+
+/// #FEED-191: one section of the list.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct ChatSection {
+    pub key: ChatSectionKey,
+    pub rows: Vec<ChatRow>,
+}
+
+/// #FEED-191: `chat_list`'s rows grouped: needs you, working, unread, the rest
+/// by activity; empty sections absent.
+pub fn chat_sections(rows: &[ChatRow]) -> Vec<ChatSection> {
+    let key_of = |row: &ChatRow| match row.group {
+        ThreadsListKey::NeedsYou => ChatSectionKey::NeedsYou,
+        ThreadsListKey::Running => ChatSectionKey::Working,
+        ThreadsListKey::Recent if row.unread_count > 0 => ChatSectionKey::Unread,
+        ThreadsListKey::Recent => ChatSectionKey::Chats,
+    };
+    ChatSectionKey::ALL
+        .into_iter()
+        .filter_map(|key| {
+            let own: Vec<ChatRow> = rows.iter().filter(|row| key_of(row) == key).cloned().collect();
+            (!own.is_empty()).then_some(ChatSection { key, rows: own })
+        })
+        .collect()
+}
+
 /// #EXP-1388: a selection bar action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChatSelectionAction {
@@ -1817,6 +1872,49 @@ mod tests {
             let got = chat_selection_range(&order, case["anchor"].as_str(), case["target"].as_str().unwrap());
             let want: Vec<String> = serde_json::from_value(case["expected"].clone()).unwrap();
             assert_eq!(got, want, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn chat_sections_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["sectionCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<ChatRow> = case["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| ChatRow {
+                    session_id: row["sessionId"].as_str().unwrap().into(),
+                    team_id: String::new(),
+                    title: String::new(),
+                    device_id: None,
+                    group: serde_json::from_value(row["group"].clone()).unwrap(),
+                    lead: ChatLead::Waiting,
+                    preview: ChatPreview { kind: ChatPreviewKind::Empty, text: String::new() },
+                    activity_at: String::new(),
+                    time: String::new(),
+                    unread_count: row["unreadCount"].as_u64().unwrap() as usize,
+                    needs_you: false,
+                    busy: false,
+                    word: None,
+                    dim: false,
+                })
+                .collect();
+            let actual: Vec<Value> = chat_sections(&rows)
+                .iter()
+                .map(|section| {
+                    let ids: Vec<&str> = section.rows.iter().map(|row| row.session_id.as_str()).collect();
+                    serde_json::json!({ "key": section.key, "ids": ids })
+                })
+                .collect();
+            assert_eq!(Value::Array(actual), case["expected"], "{}", case["name"]);
+        }
+        let copy = &fixture["copy"]["sections"];
+        for key in ChatSectionKey::ALL {
+            let wire = serde_json::to_value(key).unwrap();
+            assert_eq!(key.title(), copy[wire.as_str().unwrap()].as_str().unwrap());
         }
     }
 

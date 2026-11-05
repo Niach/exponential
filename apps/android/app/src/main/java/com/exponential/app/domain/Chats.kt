@@ -108,6 +108,10 @@ object Chats {
         /** S-3 `copy.sections`: the Chats list's headers, only while an
          *  agent row exists. */
         const val SECTION_AGENTS = "Agents"
+        /** #FEED-191: the list's sections ([chatSections]). */
+        const val SECTION_NEEDS_YOU = "Needs you"
+        const val SECTION_WORKING = "Working"
+        const val SECTION_UNREAD = "Unread"
         const val SECTION_CHATS = "Chats"
 
         /** `copy.selection.count` filled. */
@@ -403,6 +407,30 @@ object Chats {
         val dim: Boolean = false,
     )
 
+    /** #FEED-191: a chat list section (`sectionCases`). */
+    enum class ChatSectionKey(val wire: String, val title: String) {
+        NeedsYou("needs_you", Copy.SECTION_NEEDS_YOU),
+        Working("working", Copy.SECTION_WORKING),
+        Unread("unread", Copy.SECTION_UNREAD),
+        Chats("chats", Copy.SECTION_CHATS),
+    }
+
+    data class ChatSection(val key: ChatSectionKey, val rows: List<ChatRow>)
+
+    /** #FEED-191: [chatList]'s rows grouped: needs you, working, unread, the
+     *  rest by activity; empty sections absent. */
+    fun chatSections(rows: List<ChatRow>): List<ChatSection> {
+        fun keyOf(row: ChatRow) = when {
+            row.group == SessionTree.ThreadsGroupKey.NeedsYou -> ChatSectionKey.NeedsYou
+            row.group == SessionTree.ThreadsGroupKey.Running -> ChatSectionKey.Working
+            row.unreadCount > 0 -> ChatSectionKey.Unread
+            else -> ChatSectionKey.Chats
+        }
+        return ChatSectionKey.entries.mapNotNull { key ->
+            rows.filter { keyOf(it) == key }.takeIf { it.isNotEmpty() }?.let { ChatSection(key, it) }
+        }
+    }
+
     data class ChatCounts(val needsYou: Int, val running: Int, val unread: Int) {
         operator fun get(filter: ChatFilter): Int = when (filter) {
             ChatFilter.All -> 0
@@ -596,7 +624,7 @@ object Chats {
      *  block), which the list digest keeps too. A PRIVATE origin (the server's
      *  neutral body, or a session outside [visible]) shows the private copy,
      *  never its text. */
-    private fun askPreview(message: SessionTree.Message, visible: Set<String>?): ChatPreview {
+    fun askPreview(message: SessionTree.Message, visible: Set<String>?): ChatPreview {
         val card = message.card!!
         fun question(text: String) = ChatPreview("question", Copy.PREVIEW_QUESTION.replace("{text}", text))
         fun plan(text: String) = ChatPreview("plan", Copy.PREVIEW_PLAN.replace("{text}", text))

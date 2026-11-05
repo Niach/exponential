@@ -588,6 +588,8 @@ pub const NAV_INBOX: ExpIcon = ExpIcon::Inbox;
 pub const NAV_ISSUES: ExpIcon = ExpIcon::List;
 /// Registry concept `nav-my-issues` -> Lucide `list`.
 pub const NAV_MY_ISSUES: ExpIcon = ExpIcon::List;
+/// Registry concept `nav-needs-you` -> Lucide `triangle-alert`.
+pub const NAV_NEEDS_YOU: ExpIcon = ExpIcon::TriangleAlert;
 /// Registry concept `nav-notifications` -> Lucide `bell`.
 pub const NAV_NOTIFICATIONS: ExpIcon = ExpIcon::Bell;
 /// Registry concept `nav-rail-collapse` -> Lucide `panel-left-close`.
@@ -750,6 +752,8 @@ pub const STATUS_TODO: ExpIcon = ExpIcon::Circle;
 pub const SUPPORT_OPEN: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `support-resolved` -> Lucide `circle-check`.
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `thread-results` -> Lucide `images`.
+pub const THREAD_RESULTS: ExpIcon = ExpIcon::Images;
 /// Registry concept `thread-stories` -> Lucide `images`.
 pub const THREAD_STORIES: ExpIcon = ExpIcon::Images;
 /// Registry concept `tool-script` -> Lucide `braces`.
@@ -1115,6 +1119,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-inbox" => NAV_INBOX,
         "nav-issues" => NAV_ISSUES,
         "nav-my-issues" => NAV_MY_ISSUES,
+        "nav-needs-you" => NAV_NEEDS_YOU,
         "nav-notifications" => NAV_NOTIFICATIONS,
         "nav-rail-collapse" => NAV_RAIL_COLLAPSE,
         "nav-rail-expand" => NAV_RAIL_EXPAND,
@@ -1196,6 +1201,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "status-todo" => STATUS_TODO,
         "support-open" => SUPPORT_OPEN,
         "support-resolved" => SUPPORT_RESOLVED,
+        "thread-results" => THREAD_RESULTS,
         "thread-stories" => THREAD_STORIES,
         "tool-script" => TOOL_SCRIPT,
         "trace-background" => TRACE_BACKGROUND,

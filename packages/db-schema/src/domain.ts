@@ -1243,7 +1243,9 @@ export type MessageCard =
       multi?: boolean | null
       custom?: boolean | null
       surface?: CardSurface | null
-      /** S-3 stories.json: false keeps the card in the chat only. */
+      /** results-tab.json: false keeps the card out of the PR pictures. */
+      result?: boolean | null
+      /** The flag on a card written before `result`. */
       story?: boolean | null
       /** The picks joined by ", " (compat), or the free text. */
       answer?: string | null
@@ -1259,7 +1261,9 @@ export type MessageCard =
       pictures?: PlanCardPicture[] | null
       questions?: PlanCardQuestion[] | null
       surface?: CardSurface | null
-      /** S-3 stories.json: false keeps the card in the chat only. */
+      /** results-tab.json: false keeps the card out of the PR pictures. */
+      result?: boolean | null
+      /** The flag on a card written before `result`. */
       story?: boolean | null
       /** FEED-140: `superseded` = replaced by a newer plan (server-written). */
       decision?: `approved` | `rejected` | `superseded` | `dismissed` | null
@@ -1317,11 +1321,13 @@ export type MessageCard =
       kind: `surface`
       surface: CardSurface
       title?: string | null
-      /** S-3: a result story's screenshots (labels resolved by upload). */
+      /** A result's screenshots (labels resolved by upload). */
       pictures?: PlanCardPicture[] | null
-      /** S-3 stories.json: a story (absent = pictures make it one). */
+      /** results-tab.json: a result (absent = pictures make it one). */
+      result?: boolean | null
+      /** The flag on a card written before `result`. */
       story?: boolean | null
-      /** #EXP-1432 stories.json: the story's one line under its title. */
+      /** #EXP-1432: a result's one line under its title. */
       description?: string | null
     }
 
