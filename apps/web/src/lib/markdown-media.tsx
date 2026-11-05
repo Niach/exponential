@@ -137,7 +137,7 @@ function MarkdownMediaNodeView({
   const label = typeof node.attrs.label === `string` ? node.attrs.label : ``
   const src = typeof node.attrs.src === `string` ? node.attrs.src : ``
   const attachmentId = attachmentIdFromSrc(src)
-  const { data: attachments } = useLiveQuery(
+  const { data: attachments, isReady: attachmentsReady } = useLiveQuery(
     (query) =>
       attachmentId
         ? query
@@ -217,11 +217,14 @@ function MarkdownMediaNodeView({
     }
   }
 
-  const body = !attachment ? (
+  // #EXP-1683: a session upload has no synced row (the shape carries only
+  // issue-owned files), so a settled query without one is that file's link,
+  // never an empty placeholder with nothing to press.
+  const body = !attachment && !attachmentsReady ? (
     <div className="editor-media-placeholder" contentEditable={false}>
       <span className="truncate">{displayLabel}</span>
     </div>
-  ) : isMedia ? (
+  ) : attachment && isMedia ? (
     <AttachmentMediaPlayer
       attachment={attachment}
       displayWidth={isVideo ? renderWidth : null}
