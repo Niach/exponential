@@ -511,12 +511,100 @@ fn size(v: &Value) -> R<Value> {
     }))
 }
 
+/// VAPP-206: `string(v)`: a number's or a bool's text, a string as it is.
+fn string_of(v: &Value) -> R<Value> {
+    Ok(Value::String(match v {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => num_text(n.as_f64().unwrap_or(0.0)),
+        Value::Bool(b) => b.to_string(),
+        _ => return Err(format!("string needs a number, string or bool, got {}", type_name(v))),
+    }))
+}
+
+fn list_of<'a>(f: &str, v: &'a Value) -> R<&'a Vec<Value>> {
+    v.as_array().ok_or_else(|| format!("{f} needs a list, got {}", type_name(v)))
+}
+
+/// VAPP-206: a list's numbers; a null entry (a row's missing optional field)
+/// is skipped.
+fn numbers_of(f: &str, v: &Value) -> R<Vec<f64>> {
+    let mut out = Vec::new();
+    for x in list_of(f, v)? {
+        match x {
+            Value::Null => {}
+            Value::Number(n) => out.push(n.as_f64().unwrap_or(0.0)),
+            _ => return Err(format!("{f} needs a list of numbers, got {}", type_name(x))),
+        }
+    }
+    Ok(out)
+}
+
+fn field_of<'a>(row: &'a Value, field: &str) -> &'a Value {
+    row.as_object().and_then(|m| m.get(field)).unwrap_or(&Value::Null)
+}
+
+/// VAPP-206: `sortBy`'s order: numbers by value, strings by UTF-16 code unit,
+/// anything else equal (the sort is stable). A missing value sorts last in
+/// either order.
+fn sort_by(args: &[Value]) -> R<Value> {
+    use std::cmp::Ordering;
+    let list = list_of("sortBy", &args[0])?;
+    let field = text("sortBy", &args[1])?;
+    let desc = match args.get(2) {
+        None => false,
+        Some(Value::String(o)) if o == "asc" => false,
+        Some(Value::String(o)) if o == "desc" => true,
+        Some(_) => return Err("sortBy order is asc or desc".into()),
+    };
+    let mut out = list.clone();
+    out.sort_by(|x, y| {
+        let (a, b) = (field_of(x, field), field_of(y, field));
+        if a.is_null() || b.is_null() {
+            return match (a.is_null(), b.is_null()) {
+                (true, true) => Ordering::Equal,
+                (true, false) => Ordering::Greater,
+                _ => Ordering::Less,
+            };
+        }
+        let c = match (a, b) {
+            (Value::Number(p), Value::Number(q)) => p.as_f64().unwrap_or(0.0).partial_cmp(&q.as_f64().unwrap_or(0.0)).unwrap_or(Ordering::Equal),
+            (Value::String(p), Value::String(q)) => utf16_cmp(p, q),
+            _ => Ordering::Equal,
+        };
+        if desc {
+            c.reverse()
+        } else {
+            c
+        }
+    });
+    Ok(Value::Array(out))
+}
+
+fn group_of(args: &[Value]) -> R<Value> {
+    let field = text("groupOf", &args[1])?;
+    let mut out: Vec<(Value, Vec<Value>)> = Vec::new();
+    for row in list_of("groupOf", &args[0])? {
+        let key = field_of(row, field);
+        match out.iter_mut().find(|(k, _)| deep_equal(k, key)) {
+            Some((_, rows)) => rows.push(row.clone()),
+            None => out.push((key.clone(), vec![row.clone()])),
+        }
+    }
+    Ok(Value::Array(out.into_iter().map(|(key, rows)| serde_json::json!({"key": key, "rows": rows})).collect()))
+}
+
+/// The TS twin's `String.prototype.trim` set: White_Space without U+0085, plus U+FEFF.
+fn trim_text(v: &str) -> &str {
+    v.trim_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{FEFF}')
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Param {
     Number,
     Text,
     Temporal,
     Sized,
+    List,
     Any,
 }
 
@@ -527,15 +615,19 @@ struct Def {
     args: &'static [&'static str],
 }
 
-use Param::{Any as A, Number as N, Sized as Z, Temporal as T, Text as S};
+use Param::{Any as A, List as L, Number as N, Sized as Z, Temporal as T, Text as S};
 
 /// THE function table (spec §4.2), positional for CEL, named (`args`) for
 /// the A2UI form. Generic only: no working days, no holidays.
-pub const FUNCTION_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "size", "orElse"];
+pub const FUNCTION_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "size", "orElse", "string", "trim", "lower", "upper", "split", "join", "sumOf", "avgOf", "minOf", "maxOf", "countOf", "sortBy", "groupOf"];
 
 /// The A2UI form's names in the bind table (`size` = the existing `len`;
 /// `expr` = the string form, `{expr, vars}`).
 pub const CALL_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "orElse", "expr"];
+
+/// VAPP-206: reachable from CEL only (`{call: expr}`): the bind table and the
+/// catalog keep their names.
+pub const CEL_ONLY: &[&str] = &["size", "string", "trim", "lower", "upper", "split", "join", "sumOf", "avgOf", "minOf", "maxOf", "countOf", "sortBy", "groupOf"];
 
 fn def(name: &str) -> Option<Def> {
     let d = |params: &'static [Param], args: &'static [&'static str]| Def { params, min: params.len(), variadic: false, args };
@@ -552,6 +644,14 @@ fn def(name: &str) -> Option<Def> {
         "hours" => d(&[N], &["minutes"]),
         "formatDuration" => d(&[N, S], &["hours", "format"]),
         "size" => d(&[Z], &["value"]),
+        // VAPP-206: the Text and Arrays rows (CEL only, like size: `CEL_ONLY`).
+        "string" => d(&[A], &["value"]),
+        "trim" | "lower" | "upper" => d(&[S], &["value"]),
+        "split" => d(&[S, S], &["value", "separator"]),
+        "join" => Def { params: &[L, S], min: 1, variadic: false, args: &["values", "separator"] },
+        "sumOf" | "avgOf" | "minOf" | "maxOf" | "countOf" => d(&[L], &["values"]),
+        "sortBy" => Def { params: &[L, S, S], min: 2, variadic: false, args: &["values", "field", "order"] },
+        "groupOf" => d(&[L, S], &["values", "field"]),
         // VAPP-195: the value, or the default when it is missing (null).
         "orElse" => d(&[A, A], &["value", "default"]),
         _ => return None,
@@ -618,6 +718,48 @@ fn run(name: &str, args: &[Value], env: &Env) -> R<Value> {
         "hours" => Ok(json::number(num(number("hours", &args[0])? / 60.0)?)),
         "formatDuration" => format_duration(args),
         "size" => size(&args[0]),
+        "string" => string_of(&args[0]),
+        "trim" => Ok(Value::String(trim_text(text("trim", &args[0])?).to_string())),
+        "lower" => Ok(Value::String(text("lower", &args[0])?.to_lowercase())),
+        "upper" => Ok(Value::String(text("upper", &args[0])?.to_uppercase())),
+        "split" => {
+            let value = text("split", &args[0])?;
+            let separator = text("split", &args[1])?;
+            if separator.is_empty() {
+                return Err("split needs a separator".into());
+            }
+            Ok(Value::Array(value.split(separator).map(|s| Value::String(s.to_string())).collect()))
+        }
+        "join" => {
+            let separator = match args.get(1) {
+                Some(v) => text("join", v)?,
+                None => "",
+            };
+            let mut parts: Vec<&str> = Vec::new();
+            for x in list_of("join", &args[0])? {
+                match x {
+                    Value::String(s) => parts.push(s),
+                    _ => return Err(format!("join needs a list of strings, got {}", type_name(x))),
+                }
+            }
+            Ok(Value::String(parts.join(separator)))
+        }
+        "sumOf" => Ok(json::number(num(numbers_of("sumOf", &args[0])?.iter().sum::<f64>())?)),
+        "avgOf" => {
+            let ns = numbers_of("avgOf", &args[0])?;
+            if ns.is_empty() {
+                return Ok(Value::Null);
+            }
+            Ok(json::number(num(ns.iter().sum::<f64>() / ns.len() as f64)?))
+        }
+        "minOf" | "maxOf" => {
+            let ns = numbers_of(name, &args[0])?;
+            let picked = ns.into_iter().reduce(|a, b| if (name == "minOf" && b < a) || (name == "maxOf" && b > a) { b } else { a });
+            Ok(picked.map_or(Value::Null, json::number))
+        }
+        "countOf" => Ok(json::number(list_of("countOf", &args[0])?.iter().filter(|x| !x.is_null()).count() as f64)),
+        "sortBy" => sort_by(args),
+        "groupOf" => group_of(args),
         "orElse" => Ok(if args[0].is_null() { args.get(1).cloned().unwrap_or(Value::Null) } else { args[0].clone() }),
         _ => Err(format!("unknown function {name}")),
     }
@@ -635,7 +777,7 @@ pub fn call_expression_function(name: &str, args: &Map<String, Value>, env: &Exp
         let vars = args.get("vars").and_then(Value::as_object).unwrap_or(&empty);
         return evaluate_expression(expr, vars, env).map_or_else(|_| fallback(), |v| Some(Some(v)));
     }
-    if name == "size" {
+    if CEL_ONLY.contains(&name) {
         return None;
     }
     let def = def(name)?;
@@ -664,6 +806,8 @@ pub enum Node {
     Lit(Value, usize),
     Id(String, usize),
     List(Vec<Node>, usize),
+    /// VAPP-206: `{'k': e}`, string keys in source order.
+    Map(Vec<(String, Node)>, usize),
     Field(Box<Node>, String, usize),
     Index(Box<Node>, Box<Node>, usize),
     Unary(char, Box<Node>, usize),
@@ -692,7 +836,7 @@ struct Token {
 }
 
 const OPS2: &[&str] = &["==", "!=", "<=", ">=", "&&", "||"];
-const OPS1: &[&str] = &["+", "-", "*", "/", "%", "<", ">", "!", "(", ")", "[", "]", ",", ".", "?", ":"];
+const OPS1: &[&str] = &["+", "-", "*", "/", "%", "<", ">", "!", "(", ")", "[", "]", "{", "}", ",", ".", "?", ":"];
 
 fn is_digit(c: Option<&char>) -> bool {
     c.is_some_and(char::is_ascii_digit)
@@ -971,6 +1115,34 @@ impl Parser {
         }
     }
 
+    /// VAPP-206: `{'k': e, …}`: string keys, no duplicates, `?` never (it
+    /// spells an optional type).
+    fn map(&mut self) -> R<Vec<(String, Node)>> {
+        let mut entries: Vec<(String, Node)> = Vec::new();
+        while !self.is_op("}") {
+            let key = self.peek().clone();
+            let Tok::Str(name) = key.t else {
+                return Err(format!("at {}: a map key is a string", key.at));
+            };
+            if name == "?" {
+                return Err(format!("at {}: ? is not a map key", key.at));
+            }
+            if entries.iter().any(|(k, _)| *k == name) {
+                return Err(format!("at {}: duplicate key {name}", key.at));
+            }
+            self.next();
+            self.expect(":")?;
+            let value = self.expr()?;
+            entries.push((name, value));
+            if !self.is_op(",") {
+                break;
+            }
+            self.next();
+        }
+        self.expect("}")?;
+        Ok(entries)
+    }
+
     fn primary(&mut self) -> R<Node> {
         let t = self.peek().clone();
         match t.t {
@@ -1030,6 +1202,10 @@ impl Parser {
                 self.next();
                 Ok(Node::List(self.list("]")?, t.at))
             }
+            Tok::Op("{") => {
+                self.next();
+                Ok(Node::Map(self.map()?, t.at))
+            }
             _ => self.unexpected(),
         }
     }
@@ -1056,6 +1232,7 @@ pub fn expression_names(node: &Node) -> Vec<String> {
                 }
             }
             Node::List(items, _) | Node::Call(_, items, _) => items.iter().for_each(|x| walk(x, bound, out)),
+            Node::Map(entries, _) => entries.iter().for_each(|(_, x)| walk(x, bound, out)),
             Node::Field(of, _, _) | Node::Has(of, _) | Node::Unary(_, of, _) => walk(of, bound, out),
             Node::Index(of, index, _) => {
                 walk(of, bound, out);
@@ -1104,7 +1281,7 @@ pub fn path_text(node: &Node) -> Option<String> {
 /// The code point a node starts at (its own `at`).
 fn node_at(node: &Node) -> usize {
     match node {
-        Node::Lit(_, at) | Node::Id(_, at) | Node::List(_, at) | Node::Field(_, _, at) | Node::Index(_, _, at) | Node::Unary(_, _, at) | Node::Bin(_, _, _, at) | Node::Cond(_, _, _, at) | Node::Call(_, _, at) | Node::Macro(_, _, _, _, at) | Node::Has(_, at) => *at,
+        Node::Lit(_, at) | Node::Id(_, at) | Node::List(_, at) | Node::Map(_, at) | Node::Field(_, _, at) | Node::Index(_, _, at) | Node::Unary(_, _, at) | Node::Bin(_, _, _, at) | Node::Cond(_, _, _, at) | Node::Call(_, _, at) | Node::Macro(_, _, _, _, at) | Node::Has(_, at) => *at,
     }
 }
 
@@ -1160,6 +1337,13 @@ impl Evaluator<'_> {
         match node {
             Node::Lit(v, _) => Ok(v.clone()),
             Node::List(items, _) => items.iter().map(|i| self.ev(i, scope)).collect::<R<Vec<_>>>().map(Value::Array),
+            Node::Map(entries, _) => {
+                let mut out = Map::new();
+                for (k, v) in entries {
+                    out.insert(k.clone(), self.ev(v, scope)?);
+                }
+                Ok(Value::Object(out))
+            }
             Node::Id(name, _) => {
                 let mut s = scope;
                 while let Some(sc) = s {
@@ -1400,6 +1584,7 @@ fn accepts(param: Param, t: &Value) -> bool {
         Param::Number => is(t, "number"),
         Param::Text | Param::Temporal => is_textual(t),
         Param::Sized => is(t, "string") || is(t, "map") || t.is_array() || is_row(t),
+        Param::List => t.is_array(),
         Param::Any => true,
     }
 }
@@ -1410,6 +1595,7 @@ fn param_name(p: Param) -> &'static str {
         Param::Text => "a string",
         Param::Temporal => "a date",
         Param::Sized => "a list, string or map",
+        Param::List => "a list",
         Param::Any => "a value",
     }
 }
@@ -1515,6 +1701,13 @@ impl Checker<'_> {
                     Some(first) if items.iter().all(|t| t == first) => first.clone(),
                     Some(_) => ty("dyn"),
                 }]))
+            }
+            Node::Map(entries, _) => {
+                let mut out = Map::new();
+                for (k, v) in entries {
+                    out.insert(k.clone(), self.tc(v, scope)?);
+                }
+                Ok(Value::Object(out))
             }
             Node::Id(name, _) => {
                 let mut s = scope;
@@ -1751,6 +1944,16 @@ impl Checker<'_> {
                 }
             }
         }
+        if name == "sortBy" {
+            if let Some(Value::String(o)) = lit(2) {
+                if o != "asc" && o != "desc" {
+                    return Err("sortBy order is asc or desc".into());
+                }
+            }
+        }
+        if name == "split" && matches!(lit(1), Some(Value::String(s)) if s.is_empty()) {
+            return Err("split needs a separator".into());
+        }
         if name == "div" && lit(1).and_then(Value::as_f64) == Some(0.0) {
             return Err("division by zero".into());
         }
@@ -1774,7 +1977,20 @@ impl Checker<'_> {
             }
             "today" => ty("date"),
             "now" => ty("timestamp"),
-            "formatDuration" => ty("string"),
+            "formatDuration" | "string" | "trim" | "lower" | "upper" | "join" => ty("string"),
+            "split" => Value::Array(vec![ty("string")]),
+            "avgOf" | "minOf" | "maxOf" => optional_type(ty("number")),
+            "sortBy" => {
+                if types[0].is_array() {
+                    types[0].clone()
+                } else {
+                    Value::Array(vec![ty("dyn")])
+                }
+            }
+            "groupOf" => {
+                let rows = if types[0].is_array() { types[0].clone() } else { Value::Array(vec![ty("dyn")]) };
+                Value::Array(vec![serde_json::json!({"key": optional_type(ty("dyn")), "rows": rows})])
+            }
             "orElse" => {
                 let x = required_type(&types[0]);
                 if is(&x, "null") {

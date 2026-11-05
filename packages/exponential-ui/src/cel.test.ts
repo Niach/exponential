@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/expressions.json"
-import { EXPRESSION_CALL_NAMES, EXPRESSION_FUNCTIONS, EXPRESSION_LIMITS, checkExpression, evaluateExpression, parseTimestamp } from "./cel"
+import { CEL_ONLY, EXPRESSION_CALL_NAMES, EXPRESSION_FUNCTIONS, EXPRESSION_LIMITS, checkExpression, evaluateExpression, parseTimestamp } from "./cel"
 import type { ExprType } from "./cel"
 import { BIND_FUNCTIONS, resolveDynamic } from "./dynamic"
 import { intlZoneOffset } from "./format"
@@ -84,7 +84,7 @@ describe(`expressions.json`, () => {
       expect(core[name], name).toBeDefined()
       expect(coreCatalog.functions.names, name).toContain(name)
     }
-    expect([...EXPRESSION_CALL_NAMES]).toEqual([...Object.keys(EXPRESSION_FUNCTIONS).filter((n) => n !== `size`), `expr`])
+    expect([...EXPRESSION_CALL_NAMES]).toEqual([...Object.keys(EXPRESSION_FUNCTIONS).filter((n) => !CEL_ONLY.includes(n)), `expr`])
   })
 
   test(`a deep list keeps the step limit`, () => {
