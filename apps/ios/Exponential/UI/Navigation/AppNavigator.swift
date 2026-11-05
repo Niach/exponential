@@ -399,6 +399,13 @@ struct AppNavigator: View {
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToIssue(String(issueId))
         }
+        // exponential://session/<sessionId>[?userId=<id>]: Android's session
+        // link, the same route as a session push tap.
+        if url.host == "session", let sessionId = url.pathComponents.dropFirst().first {
+            let userId = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "userId" }?.value
+            deps.deepLinkBus.navigateToSession(String(sessionId), userId: userId)
+        }
         // exponential://invite/<token>
         if url.host == "invite", let token = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToInvite(String(token))
