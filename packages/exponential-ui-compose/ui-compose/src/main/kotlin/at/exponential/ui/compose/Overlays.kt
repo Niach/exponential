@@ -189,6 +189,22 @@ internal fun NativeOverlays(model: SurfaceModel) {
 @Composable
 private fun DialogLayer(model: SurfaceModel, layer: LayerInfo) {
     val dismissible = model.dismissible(layer.owner)
+    // #VAPP-252: the core centres it in the window less the insets (the keyboard's
+    // among them), the safe area its dialog window sits in; the body scrolls only
+    // if it truly doesn't fit. Asked of the HOST's view: the dialog window hugs
+    // the Dialog, a height read inside it would shrink it pass by pass.
+    val host = LocalView.current
+    val density = LocalDensity.current.density
+    DisposableEffect(model, host, density) {
+        val follow = { if (host.height > 0) model.overlayViewportHeight(host.height / density) }
+        val listener = android.view.View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> follow() }
+        host.addOnLayoutChangeListener(listener)
+        follow()
+        onDispose {
+            host.removeOnLayoutChangeListener(listener)
+            model.overlayViewportHeight(null)
+        }
+    }
     Dialog(
         onDismissRequest = { if (dismissible) model.dismissLayer(layer.owner) },
         properties = DialogProperties(
