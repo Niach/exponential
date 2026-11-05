@@ -11,6 +11,8 @@ eui-core.workspace = true
 eui-gpui.workspace = true
 ede-protocol.workspace = true
 ede-ui = { path = "../../../crates/ede-ui" }
+# The services data source (#EDE-13): /services/<domain> in every document.
+ede-services = { path = "../../../crates/ede-services" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
@@ -31,3 +33,8 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 futures-util = { version = "0.3", default-features = false }
 # ede-sealed (#EDE-17): PAM through the system libpam, opened at run time.
 libloading = "0.8"
+# The settings pages (#EDE-14) edit compositor.toml.
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

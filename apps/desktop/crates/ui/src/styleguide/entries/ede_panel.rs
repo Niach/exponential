@@ -20,6 +20,7 @@ const OSD: &str = include_str!("../../../../../../ede/ui/osd.json");
 const NOTIFICATIONS: &str = include_str!("../../../../../../ede/ui/notifications.json");
 const CENTER: &str = include_str!("../../../../../../ede/ui/notification-center.json");
 const TRAY_MENU: &str = include_str!("../../../../../../ede/ui/tray-menu.json");
+const SETTINGS: &str = include_str!("../../../../../../ede/ui/settings.json");
 
 fn document(source: &str) -> (Value, Value) {
     let doc: Value = serde_json::from_str(source).expect("an eDE factory document");
@@ -60,6 +61,20 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let (notifications, _) = document(NOTIFICATIONS);
     let (center, _) = document(CENTER);
     let (tray_menu, _) = document(TRAY_MENU);
+    let (settings, mut settings_data) = document(SETTINGS);
+    if let Some(d) = settings_data.as_object_mut() {
+        d.insert("services".into(), json!({
+            "network": {"available": true, "wifiEnabled": true, "devices": [{"path": "/dev/1", "interface": "wlp3s0", "state": "connected", "connection": "Home"}], "accessPoints": [{"ssid": "Home", "strength": 82, "active": true}, {"ssid": "Cafe Nero", "strength": 47, "active": false}]},
+            "sound": {"available": true, "volume": 40, "muted": false, "micVolume": 100, "sinks": [{"id": 55, "name": "Built-in Audio Analog Stereo", "volume": 40, "default": true}]},
+            "bluetooth": {"available": true, "powered": true, "devices": [{"path": "/bt/1", "name": "Keyboard K380", "address": "F4:73:35:12:AB:01", "connected": true}]},
+            "power": {"available": true, "batteryText": "73% · discharging", "profile": "balanced"},
+            "updates": {"available": true, "countText": "2", "packages": [{"name": "firefox", "from": "129.0", "version": "130.0"}]},
+            "printers": {"available": true, "printers": [{"name": "HP_LaserJet", "state": "idle", "default": true}]},
+            "about": {"available": true, "hostname": "ubuntu-wayland", "os": "Ubuntu 26.04 LTS", "kernel": "7.0.0-38-generic", "cpu": "13th Gen Intel Core i9-13900K", "memoryText": "7.2 GB", "ede": "0.1.0"}
+        }));
+        d.insert("outputs".into(), json!([{"name": "HEADLESS-1", "summary": "Exponential eDE headless · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1, "scaleText": "1"}]));
+        d.insert("user".into(), json!({"name": "Danny", "login": "danny"}));
+    }
     let sample_tray_menu = json!({"traymenu": {"service": "demo/network", "title": "Network", "items": [
         {"id": 1, "label": "Connect to Wi-Fi", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0},
         {"id": 2, "label": "Airplane mode", "enabled": true, "separator": false, "checked": false, "checkable": true, "depth": 0},
@@ -75,4 +90,5 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notifications", notifications, None, Some(sample_notifications.clone()), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notification-center", center, None, Some(sample_notifications), window, cx)))
         .child(div().w(px(280.0)).child(styleguide_surface_in("sg-ede-tray-menu", tray_menu, None, Some(sample_tray_menu), window, cx)))
+        .child(div().w(px(960.0)).child(styleguide_surface_in("sg-ede-settings", settings, None, Some(settings_data), window, cx)))
 }

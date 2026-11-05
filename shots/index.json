@@ -1890,6 +1890,15 @@
         "sha256": "d972c7507640cd96b965872d3b6a72fb537d27d0a27f0d8eb825e7165debd03b"
       }
     },
+    "ede-settings": {
+      "ede": {
+        "file": "shots/ede-settings/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 13016,
+        "sha256": "b2873da0456b5bf539f4be1e49315b6c8e4ff0b32eb436d7b869a61481a2c9bf"
+      }
+    },
     "ede-switcher": {
       "ede": {
         "file": "shots/ede-switcher/ede.webp",

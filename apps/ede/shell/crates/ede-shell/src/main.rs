@@ -37,6 +37,7 @@
 mod apps;
 mod assets;
 mod dbus;
+mod settings;
 mod system;
 mod thumbs;
 
@@ -125,6 +126,13 @@ struct ShellData {
     notifications: Value,
     tray: Vec<Value>,
     traymenu: Value,
+    /// `/services/<domain>` from ede-services (#EDE-13).
+    services: Value,
+    /// `/outputs` (the compositor's, with the options a page picks from),
+    /// `/config` (compositor.toml), `/user`: the settings pages (#EDE-14).
+    outputs: Vec<Value>,
+    config: Value,
+    user: Value,
 }
 
 /// The notifications heard this session, newest first.
@@ -345,6 +353,63 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| tray_press(&shell, &service, cx));
                 }
             }
+            "ede.open_document" | "ede.close_document" => {
+                if let Some(doc) = args.get("name").and_then(Value::as_str).map(String::from) {
+                    let shell = self.shell.clone();
+                    let open_it = name == "ede.open_document";
+                    cx.defer(move |cx| {
+                        if open_it {
+                            close(&shell, "menu", cx);
+                            open_on_demand(&shell, &doc, cx);
+                            refresh_data(&shell, cx);
+                        } else {
+                            close(&shell, &doc, cx);
+                        }
+                    });
+                }
+            }
+            "ede.service" => {
+                let (domain, action) = (args.get("domain").and_then(Value::as_str).map(String::from), args.get("action").and_then(Value::as_str).map(String::from));
+                if let (Some(domain), Some(action)) = (domain, action) {
+                    let call_args = args.get("args").cloned().unwrap_or_else(|| json!({}));
+                    // Off the main loop: a daemon round trip, and polkit may ask.
+                    std::thread::spawn(move || match ede_services::socket::Client::connect_default().map_err(|e| e.to_string()).and_then(|mut c| c.call(json!({"op": "call", "domain": domain, "action": action, "args": call_args}))) {
+                        Ok(v) => tracing::info!(%domain, %action, result = %v, "service"),
+                        Err(e) => tracing::warn!(%domain, %action, "service: {e}"),
+                    });
+                }
+            }
+            "ede.output" => {
+                if let Some(output) = args.get("name").and_then(Value::as_str).map(String::from) {
+                    let mode = args.get("mode").and_then(Value::as_str).map(String::from);
+                    let scale = args.get("scale").and_then(|s| s.as_f64().or_else(|| s.as_str().and_then(|t| t.parse().ok())));
+                    with_ede(&self.shell, |ede| ede.set_output(&output, mode.as_deref(), scale, None));
+                    if let Err(e) = settings::persist_output(&output, mode.as_deref(), scale) {
+                        tracing::warn!("compositor.toml: {e}");
+                    }
+                    let shell = self.shell.clone();
+                    cx.defer(move |cx| {
+                        outputs_refresh(&shell);
+                        refresh_data(&shell, cx);
+                    });
+                }
+            }
+            "ede.config" => {
+                match settings::persist_config(args) {
+                    Ok(()) => {
+                        with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
+                        if args.get("theme").is_some() {
+                            system::launch("ede-theme apply");
+                        }
+                    }
+                    Err(e) => tracing::warn!("compositor.toml: {e}"),
+                }
+                let shell = self.shell.clone();
+                cx.defer(move |cx| {
+                    shell.borrow_mut().data.config = settings::config_json();
+                    refresh_data(&shell, cx);
+                });
+            }
             "ede.tray_menu" => {
                 let (service, id) = (args.get("service").and_then(Value::as_str).map(String::from), args.get("id").and_then(Value::as_i64));
                 if let (Some(service), Some(id)) = (service, id) {
@@ -518,6 +583,10 @@ fn feed(view: &mut SurfaceView, data: &ShellData, cx: &mut gpui::Context<Surface
     let _ = view.set_data("/notifications", Some(data.notifications.clone()), cx);
     let _ = view.set_data("/tray", Some(Value::Array(data.tray.clone())), cx);
     let _ = view.set_data("/traymenu", Some(data.traymenu.clone()), cx);
+    let _ = view.set_data("/services", Some(data.services.clone()), cx);
+    let _ = view.set_data("/outputs", Some(Value::Array(data.outputs.clone())), cx);
+    let _ = view.set_data("/config", Some(data.config.clone()), cx);
+    let _ = view.set_data("/user", Some(data.user.clone()), cx);
 }
 
 fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
@@ -827,6 +896,12 @@ fn notifications_changed(shell: &SharedShell, cx: &mut App) {
     refresh_data(shell, cx);
 }
 
+/// The outputs as the Displays page binds them (#EDE-14).
+fn outputs_refresh(shell: &SharedShell) {
+    let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
+    shell.borrow_mut().data.outputs = outputs.iter().map(settings::output_json).collect();
+}
+
 /// Reads the tray items again (a short blocking round on the bus).
 fn tray_refresh(shell: &SharedShell) {
     let items = shell.borrow().dbus.as_ref().map(|d| d.tray_items()).unwrap_or_default();
@@ -921,6 +996,7 @@ fn main() {
     // Window events and hotkeys from the compositor on their own connection.
     let (windows_tx, windows_rx) = mpsc::channel::<Vec<Value>>();
     let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<String>();
+    let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
     std::thread::Builder::new()
         .name("ede-shell-events".into())
         .spawn(move || {
@@ -942,6 +1018,10 @@ fn main() {
                             return;
                         }
                     }
+                } else if event.kind.starts_with("output.") {
+                    if outputs_tx.send(()).is_err() {
+                        return;
+                    }
                 } else if event.kind.starts_with("window.") || event.kind.starts_with("workspace.") {
                     if let Some(list) = windows_json(&mut calls) {
                         if windows_tx.send(list).is_err() {
@@ -957,6 +1037,46 @@ fn main() {
     tracing::info!(apps = installed.len(), demo, "desktop entries");
     // Thumbnails from the capture thread while the switcher is open.
     let (thumbs_tx, thumbs_rx) = mpsc::channel::<(String, String)>();
+    // The services data source: every domain's snapshot, then its changes.
+    let (services_tx, services_rx) = mpsc::channel::<(String, Value)>();
+    if !demo {
+        std::thread::Builder::new()
+            .name("ede-shell-services".into())
+            .spawn(move || {
+                // The daemon may start after the shell: try for a while.
+                let mut client = None;
+                for _ in 0..30 {
+                    match ede_services::socket::Client::connect_default() {
+                        Ok(c) => {
+                            client = Some(c);
+                            break;
+                        }
+                        Err(_) => std::thread::sleep(Duration::from_secs(1)),
+                    }
+                }
+                let Some(mut client) = client else {
+                    tracing::info!("no ede-services socket: /services stays empty");
+                    return;
+                };
+                let domains: Vec<String> = client.call(json!({"op": "list"})).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+                for d in &domains {
+                    if let Ok(snapshot) = client.get(d) {
+                        let _ = services_tx.send((d.clone(), snapshot));
+                    }
+                }
+                if client.subscribe().is_err() {
+                    return;
+                }
+                while let Ok(event) = client.next_event() {
+                    if let (Some(d), Some(s)) = (event["domain"].as_str(), event.get("snapshot")) {
+                        if services_tx.send((d.to_string(), s.clone())).is_err() {
+                            return;
+                        }
+                    }
+                }
+            })
+            .expect("the services thread");
+    }
     // Notifications and tray changes from the session bus.
     let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Event>();
     let dbus = if demo { None } else { dbus::Dbus::start(dbus_tx, clock) };
@@ -991,7 +1111,8 @@ fn main() {
         } else {
             json!({"service": "", "title": "", "items": []})
         };
-        let data = ShellData { time: clock(), apps: apps::filter(&installed, ""), switcher, osd, notifications, tray, traymenu, ..Default::default() };
+        let (services, outputs) = if demo { (settings::demo_services(), settings::demo_outputs()) } else { (json!({}), Vec::new()) };
+        let data = ShellData { time: clock(), apps: apps::filter(&installed, ""), switcher, osd, notifications, tray, traymenu, services, outputs, config: settings::config_json(), user: settings::user_json(), ..Default::default() };
         let shell: SharedShell = Rc::new(RefCell::new(Shell { options, ui: ui.clone(), open: HashMap::new(), data, ede: ede_protocol::Client::connect_env().ok(), theme, apps: installed, switcher: None, capturing: Arc::new(AtomicBool::new(false)), osd_until: None, notifications: Notifications::default(), dbus, tray: Vec::new(), _watcher: watcher }));
         if demo {
             // The toasts golden: the sample toast as an open surface.
@@ -1005,8 +1126,9 @@ fn main() {
             })
             .detach();
         } else {
-            // The tray as it stands at start.
+            // The tray and the outputs as they stand at start.
             tray_refresh(&shell);
+            outputs_refresh(&shell);
         }
 
         // Every layer document on screen; popups wait for their anchor.
@@ -1053,6 +1175,14 @@ fn main() {
                 }
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
+                }
+                while let Ok((domain, snapshot)) = services_rx.try_recv() {
+                    s.borrow_mut().data.services[domain] = settings::decorate(&domain, snapshot);
+                    dirty = true;
+                }
+                while let Ok(()) = outputs_rx.try_recv() {
+                    outputs_refresh(&s);
+                    dirty = true;
                 }
                 let expired = s.borrow_mut().notifications.expire(Instant::now());
                 if !expired.is_empty() {

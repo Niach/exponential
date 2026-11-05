@@ -1,0 +1,21 @@
+[package]
+name = "ede-services"
+description = "eDE's services (#EDE-13): one per domain over the daemons the distro runs (NetworkManager, BlueZ, PipeWire, UPower, logind, udisks2, apt, fwupd), each with two faces, a genUI data source over a unix socket and MCP tools on eMCP's loopback server, the same grants and audit"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ede-protocol = { path = "../ede-protocol" }
+# The MCP face: eMCP's loopback server (grants, callers) and audit rules.
+emcp = { path = "../../../desktop/crates/emcp" }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+serde.workspace = true
+serde_json = "1"
+tracing.workspace = true
+tracing-subscriber.workspace = true
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

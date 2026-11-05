@@ -127,6 +127,54 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 - Fallback focus cycling (Alt+Tab without a shell) is in [Hotkeys](#hotkeys-ede-12).
 - The consent shield and the takeover banner wait for the agent spaces (M2).
 
+## Settings (#EDE-14)
+
+`settings.json`, a shell document like the rest (editable, in the
+history), not an eApps package: one on-demand surface in the middle of the
+screen (the menu's Settings row opens it with `ede.open_document`, its
+close button `ede.close_document`) with a page per domain: Displays
+(every output's modes and scale, `ede.output` applies live and writes
+`[[outputs]]`), Network (Wi-Fi switch, connections, networks in reach),
+Sound (volumes, mute, output devices), Bluetooth, Power (battery, profile,
+suspend/restart/shut down), Input (keyboard layout and repeat,
+`ede.config` writes `[keyboard]` and reloads), Theme (the GTK/Qt bridge
+switch, #EDE-19), Apps & updates (apt, Software), Users, Printers (CUPS),
+About. Pages bind `/services/<domain>` (#EDE-13), `/outputs`, `/config`
+and `/user`; a control is two-way bound and calls `ede.service {domain,
+action, args}` with the new value. Users and printers management open the
+native tools until there is more to show.
+
+## Services: `ede-services` (#EDE-13)
+
+One service per domain over the daemons the distribution runs, each with
+two faces on one registry (`crates/ede-services`): `network`
+(NetworkManager: state, devices, Wi-Fi access points; connect, disconnect,
+Wi-Fi on/off), `sound` (PipeWire through `wpctl`: default sink and source,
+volumes, mutes; set, mute, default), `bluetooth` (BlueZ: adapters,
+devices; power, connect, disconnect, discover), `power` (UPower battery,
+power-profiles-daemon profile, logind: suspend, hibernate, reboot, power
+off), `disks` (udisks2: drives, filesystems; mount, unmount), `updates`
+(apt: upgradable packages; refresh, upgrade through `pkexec`), `firmware`
+(fwupd), `about` (host, OS, kernel, CPU, memory). A missing daemon gives
+`{available: false, reason}`, so a page can say so.
+
+- **Data source**: `$XDG_RUNTIME_DIR/ede/services.sock`, ede-protocol
+  framing, `list`, `get {domain}`, `call {domain, action, args}` (every
+  capability: the shell's own buttons), `subscribe` (`services.changed`
+  per domain whose snapshot moved, polled every 2 s). The shell feeds
+  every document `/services/<domain>`; the settings pages (#EDE-14) bind
+  it. `ede-services get sound`, `ede-services call sound set_volume
+  '{"percent": 40}'` from a terminal.
+- **MCP face**: eMCP's loopback server (`ede-services tools` lists them:
+  `<domain>_get` and `<domain>_<action>`), a bearer per agent session from
+  `ede-services grant <session> [label] [system,ui]` (over the socket;
+  ede-tools wires it in M2), each action gated by the eCore capability its
+  description names (`ui` for volume, `system` for the rest), a refusal
+  answered as `isError` content, and an `mcp_calls`-shaped row per call in
+  `$XDG_STATE_HOME/ede/mcp-audit.jsonl` (audit.json's columns, the
+  canonical `args_hash`).
+- `ede-services.service` runs it in the session.
+
 ## Tier B: `ede-sealed` (#EDE-17)
 
 The surfaces a document on disk must never be: compiled into

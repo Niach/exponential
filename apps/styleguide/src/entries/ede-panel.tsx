@@ -8,6 +8,7 @@ import osd from "../../../ede/ui/osd.json"
 import notifications from "../../../ede/ui/notifications.json"
 import center from "../../../ede/ui/notification-center.json"
 import trayMenu from "../../../ede/ui/tray-menu.json"
+import settings from "../../../ede/ui/settings.json"
 import type { StyleguideEntry } from "./types.ts"
 
 // #EDE-10 / #EDE-11 / #EDE-12: eDE's factory shell documents (apps/ede/ui),
@@ -24,6 +25,18 @@ const OSD = osd as unknown as { root: NestedNode }
 const NOTIFICATIONS = notifications as unknown as { root: NestedNode }
 const CENTER = center as unknown as { root: NestedNode }
 const TRAY_MENU = trayMenu as unknown as { root: NestedNode }
+const SETTINGS = settings as unknown as { root: NestedNode; data: Record<string, unknown> }
+
+const SAMPLE_SERVICES = {
+  network: { available: true, wifiEnabled: true, devices: [{ path: `/dev/1`, interface: `wlp3s0`, state: `connected`, connection: `Home` }], accessPoints: [{ ssid: `Home`, strength: 82, active: true }, { ssid: `Cafe Nero`, strength: 47, active: false }] },
+  sound: { available: true, volume: 40, muted: false, micVolume: 100, sinks: [{ id: 55, name: `Built-in Audio Analog Stereo`, volume: 40, default: true }] },
+  bluetooth: { available: true, powered: true, devices: [{ path: `/bt/1`, name: `Keyboard K380`, address: `F4:73:35:12:AB:01`, connected: true }] },
+  power: { available: true, batteryText: `73% · discharging`, profile: `balanced` },
+  updates: { available: true, countText: `2`, packages: [{ name: `firefox`, from: `129.0`, version: `130.0` }] },
+  printers: { available: true, printers: [{ name: `HP_LaserJet`, state: `idle`, default: true }] },
+  about: { available: true, hostname: `ubuntu-wayland`, os: `Ubuntu 26.04 LTS`, kernel: `7.0.0-38-generic`, cpu: `13th Gen Intel Core i9-13900K`, memoryText: `7.2 GB`, ede: `0.1.0` },
+}
+const SAMPLE_OUTPUTS = [{ name: `HEADLESS-1`, summary: `Exponential eDE headless · 1280×720 at 1× (0, 0)`, current: `1280x720@60`, modeOptions: [{ label: `1280x720@60 (preferred)`, value: `1280x720@60` }], scale: 1, scaleText: `1` }]
 
 const SAMPLE_NOTIFICATIONS = {
   toasts: [{ id: 1, app: `Thunderbird`, summary: `Release notes for 1.4`, body: `Danny: the eDE M1 demo runs on Friday, bring the VM.`, icon: ``, actions: [{ key: `open`, label: `Open` }, { key: `archive`, label: `Archive` }], urgency: 1, at: `11:58` }],
@@ -57,7 +70,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EDE-10`,
   title: `eDE panel`,
-  blurb: `The desktop environment's factory shell documents: the panel (apps/ede/ui/panel.json: the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface), the launcher menu (menu.json, the panel's own popup surface: search, the installed apps, the power row), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json) and a tray item's dbusmenu (tray-menu.json). Agents and people edit these files; ede-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
+  blurb: `The desktop environment's factory shell documents: the panel (apps/ede/ui/panel.json: the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface), the launcher menu (menu.json, the panel's own popup surface: search, the installed apps, the power row), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json), a tray item's dbusmenu (tray-menu.json) and the settings surface (settings.json, a page per domain over ede-services). Agents and people edit these files; ede-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
   status: {
     web: {
       state: `ok`,
@@ -96,6 +109,10 @@ export const entry: StyleguideEntry = {
       <span className="text-xs text-muted-foreground">tray-menu.json · a tray item's dbusmenu as the tray's popup</span>
       <div style={{ width: 280 }}>
         <ExponentialUiTree id="ede-tray-menu" node={TRAY_MENU.root} data={{ traymenu: SAMPLE_TRAY_MENU }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">settings.json · the settings surface, a page per domain over ede-services</span>
+      <div style={{ width: 960 }}>
+        <ExponentialUiTree id="ede-settings" node={SETTINGS.root} data={{ ...SETTINGS.data, services: SAMPLE_SERVICES, outputs: SAMPLE_OUTPUTS, user: { name: `Danny`, login: `danny` } }} formFactor="wide" />
       </div>
     </div>
   ),

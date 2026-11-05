@@ -1,0 +1,104 @@
+{
+  "$comment": "eDE's factory settings (#EDE-14): shell documents, not an eApps package. One on-demand top-layer surface in the middle of the screen (the menu's Settings row opens it with ede.open_document, the close button closes it), a Tabs strip with a page per domain. Pages bind what the shell feeds: /services/<domain> from ede-services (#EDE-13), /outputs from the compositor, /config from compositor.toml. Controls are two-way bound and call a host function with the new value: ede.service {domain, action, args} for a service action, ede.output {name, mode?, scale?} for a display (applied live and written to [[outputs]]), ede.config {keyboard} for the keyboard, ede.launch for the tools that stay native.",
+  "surface": {"layer": "top", "size": {"width": 960, "height": 640}, "keyboard": "on-demand", "onDemand": true, "functions": ["ede.service", "ede.output", "ede.config", "ede.launch", "ede.close_document"]},
+  "root": {
+    "id": "settings",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.md", "width": 960, "height": 640, "backgroundColor": "$color.card", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "children": [
+      {"id": "head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
+        {"id": "title", "component": "Heading", "props": {"text": "Settings", "level": "h3"}},
+        {"id": "close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.close_document", "args": {"name": "settings"}}}}}
+      ]},
+      {"id": "pages", "component": "Tabs", "props": {"value": {"path": "/settings/page"}, "tabs": [
+        {"label": "Displays", "value": "displays"}, {"label": "Network", "value": "network"}, {"label": "Sound", "value": "sound"}, {"label": "Bluetooth", "value": "bluetooth"}, {"label": "Power", "value": "power"}, {"label": "Input", "value": "input"}, {"label": "Theme", "value": "theme"}, {"label": "Apps & updates", "value": "updates"}, {"label": "Users", "value": "users"}, {"label": "Printers", "value": "printers"}, {"label": "About", "value": "about"}
+      ]}, "children": [
+        {"id": "displays", "component": "ScrollArea", "props": {"maxHeight": 520}, "children": [
+          {"id": "outputs", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "template": {"component": "output", "path": "/outputs", "key": "name"}, "children": []},
+          {"id": "output", "component": "Section", "props": {"title": {"path": "name"}, "caption": {"path": "summary"}}, "children": [
+            {"id": "mode", "component": "Select", "props": {"label": "Resolution", "name": "mode", "options": {"path": "modeOptions"}, "value": {"path": "current"}}, "on": {"change": {"functionCall": {"call": "ede.output", "args": {"name": {"path": "name"}, "mode": {"path": "current"}}}}}},
+            {"id": "scale", "component": "ChoiceTiles", "props": {"name": "scale", "options": [{"label": "100%", "value": "1"}, {"label": "125%", "value": "1.25"}, {"label": "150%", "value": "1.5"}, {"label": "200%", "value": "2"}], "value": {"path": "scaleText"}, "columns": 4}, "on": {"change": {"functionCall": {"call": "ede.output", "args": {"name": {"path": "name"}, "scale": {"path": "scaleText"}}}}}}
+          ]},
+          {"id": "no-outputs", "component": "Text", "props": {"text": "No display", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/outputs"}}}, "b": 0}}}
+        ]},
+        {"id": "network", "component": "ScrollArea", "props": {"maxHeight": 520}, "children": [
+          {"id": "net-off", "component": "Alert", "props": {"type": "warning", "title": "Network is not available", "message": {"path": "/services/network/reason"}}, "visible": {"call": "not", "args": {"value": {"path": "/services/network/available"}}}},
+          {"id": "wifi", "component": "Switch", "props": {"label": "Wi-Fi", "name": "wifi", "checked": {"path": "/services/network/wifiEnabled"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "network", "action": "wifi_enable", "args": {"on": {"path": "/services/network/wifiEnabled"}}}}}}},
+          {"id": "devices-title", "component": "Text", "props": {"text": "Connections", "variant": "label"}},
+          {"id": "devices", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "device", "path": "/services/network/devices", "key": "path"}, "children": []},
+          {"id": "device", "component": "Row", "props": {"title": {"path": "interface"}, "subtitle": {"path": "connection"}, "meta": {"path": "state"}, "density": "compact"}},
+          {"id": "aps-title", "component": "Text", "props": {"text": "Wi-Fi networks", "variant": "label"}},
+          {"id": "aps", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "ap", "path": "/services/network/accessPoints", "key": "ssid"}, "children": []},
+          {"id": "ap", "component": "Row", "props": {"title": {"path": "ssid"}, "meta": {"path": "strength"}, "selected": {"path": "active"}, "pressable": true, "density": "compact"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "network", "action": "connect", "args": {"ssid": {"path": "ssid"}}}}}}},
+          {"id": "no-aps", "component": "Text", "props": {"text": "No Wi-Fi network in reach", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/network/accessPoints"}}}, "b": 0}}}
+        ]},
+        {"id": "sound", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "sound-off", "component": "Alert", "props": {"type": "warning", "title": "Sound is not available", "message": {"path": "/services/sound/reason"}}, "visible": {"call": "not", "args": {"value": {"path": "/services/sound/available"}}}},
+          {"id": "volume", "component": "Slider", "props": {"label": "Output volume", "min": 0, "max": 100, "step": 1, "value": {"path": "/services/sound/volume"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "set_volume", "args": {"percent": {"path": "/services/sound/volume"}}}}}}},
+          {"id": "mute", "component": "Switch", "props": {"label": "Mute output", "name": "mute", "checked": {"path": "/services/sound/muted"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "mute", "args": {"on": {"path": "/services/sound/muted"}}}}}}},
+          {"id": "mic", "component": "Slider", "props": {"label": "Input volume", "min": 0, "max": 100, "step": 1, "value": {"path": "/services/sound/micVolume"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "set_mic_volume", "args": {"percent": {"path": "/services/sound/micVolume"}}}}}}},
+          {"id": "sinks-title", "component": "Text", "props": {"text": "Output devices", "variant": "label"}},
+          {"id": "sinks", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "sink", "path": "/services/sound/sinks", "key": "id"}, "children": []},
+          {"id": "sink", "component": "Row", "props": {"title": {"path": "name"}, "meta": {"path": "volume"}, "selected": {"path": "default"}, "pressable": true, "density": "compact"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "sound", "action": "set_default", "args": {"id": {"path": "id"}}}}}}}
+        ]},
+        {"id": "bluetooth", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "bt-off", "component": "Alert", "props": {"type": "warning", "title": "Bluetooth is not available", "message": {"path": "/services/bluetooth/reason"}}, "visible": {"call": "not", "args": {"value": {"path": "/services/bluetooth/available"}}}},
+          {"id": "bt-power", "component": "Switch", "props": {"label": "Bluetooth", "name": "bluetooth", "checked": {"path": "/services/bluetooth/powered"}}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "bluetooth", "action": "power", "args": {"on": {"path": "/services/bluetooth/powered"}}}}}}},
+          {"id": "bt-devices", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "bt-device", "path": "/services/bluetooth/devices", "key": "path"}, "children": []},
+          {"id": "bt-device", "component": "Row", "props": {"title": {"path": "name"}, "subtitle": {"path": "address"}, "selected": {"path": "connected"}, "pressable": true, "density": "compact"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "bluetooth", "action": "connect", "args": {"device": {"path": "path"}}}}}}},
+          {"id": "no-bt", "component": "Text", "props": {"text": "No paired device", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/bluetooth/devices"}}}, "b": 0}}}
+        ]},
+        {"id": "power", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "battery", "component": "StatTile", "props": {"label": "Battery", "value": {"path": "/services/power/batteryText"}}},
+          {"id": "profile", "component": "ChoiceTiles", "props": {"name": "profile", "options": [{"label": "Power saver", "value": "power-saver"}, {"label": "Balanced", "value": "balanced"}, {"label": "Performance", "value": "performance"}], "value": {"path": "/services/power/profile"}, "columns": 3}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "power", "action": "set_profile", "args": {"profile": {"path": "/services/power/profile"}}}}}}},
+          {"id": "power-actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm"}, "children": [
+            {"id": "suspend", "component": "Button", "props": {"label": "Suspend", "variant": "outline", "icon": "ede-suspend"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "power", "action": "suspend"}}}}},
+            {"id": "reboot", "component": "Button", "props": {"label": "Restart", "variant": "outline", "icon": "ui-refresh"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "power", "action": "reboot"}}}}},
+            {"id": "poweroff", "component": "Button", "props": {"label": "Shut down", "variant": "outline", "icon": "ede-power"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "power", "action": "poweroff"}}}}}
+          ]}
+        ]},
+        {"id": "input", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "layout", "component": "Select", "props": {"label": "Keyboard layout", "name": "layout", "options": [{"label": "English (US)", "value": "us"}, {"label": "English (UK)", "value": "gb"}, {"label": "German", "value": "de"}, {"label": "German (Switzerland)", "value": "ch"}, {"label": "French", "value": "fr"}, {"label": "Spanish", "value": "es"}, {"label": "Italian", "value": "it"}, {"label": "Dutch", "value": "nl"}, {"label": "Swedish", "value": "se"}, {"label": "Norwegian", "value": "no"}, {"label": "Danish", "value": "dk"}, {"label": "Finnish", "value": "fi"}, {"label": "Polish", "value": "pl"}, {"label": "Czech", "value": "cz"}, {"label": "Portuguese", "value": "pt"}, {"label": "Portuguese (Brazil)", "value": "br"}, {"label": "Russian", "value": "ru"}, {"label": "Japanese", "value": "jp"}], "value": {"path": "/config/keyboard/layout"}}, "on": {"change": {"functionCall": {"call": "ede.config", "args": {"keyboard": {"layout": {"path": "/config/keyboard/layout"}}}}}}},
+          {"id": "repeat", "component": "Slider", "props": {"label": "Key repeat rate (per second)", "min": 10, "max": 60, "step": 5, "value": {"path": "/config/keyboard/repeat_rate"}}, "on": {"change": {"functionCall": {"call": "ede.config", "args": {"keyboard": {"repeat_rate": {"path": "/config/keyboard/repeat_rate"}}}}}}},
+          {"id": "delay", "component": "Slider", "props": {"label": "Key repeat delay (ms)", "min": 150, "max": 1000, "step": 50, "value": {"path": "/config/keyboard/repeat_delay"}}, "on": {"change": {"functionCall": {"call": "ede.config", "args": {"keyboard": {"repeat_delay": {"path": "/config/keyboard/repeat_delay"}}}}}}}
+        ]},
+        {"id": "theme", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "theme-mode", "component": "Text", "props": {"text": "Dark, from the design tokens the Exponential app uses. The shell's documents live in ~/.config/ede/ui; every edit is a commit there.", "variant": "body"}},
+          {"id": "theme-bridge", "component": "Switch", "props": {"label": "Theme GTK and Qt apps to match", "name": "bridge", "checked": {"path": "/config/theme/bridge"}}, "on": {"change": {"functionCall": {"call": "ede.config", "args": {"theme": {"bridge": {"path": "/config/theme/bridge"}}}}}}},
+          {"id": "theme-open", "component": "Button", "props": {"label": "Open the shell's documents", "variant": "outline", "icon": "ui-folder"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "xdg-open ~/.config/ede/ui"}}}}}
+        ]},
+        {"id": "updates", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "updates-count", "component": "StatTile", "props": {"label": "Updates available", "value": {"path": "/services/updates/countText"}}},
+          {"id": "updates-actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm"}, "children": [
+            {"id": "refresh", "component": "Button", "props": {"label": "Check again", "variant": "outline", "icon": "ui-refresh"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "updates", "action": "refresh"}}}}},
+            {"id": "upgrade", "component": "Button", "props": {"label": "Install all", "icon": "settings-import"}, "on": {"press": {"functionCall": {"call": "ede.service", "args": {"domain": "updates", "action": "upgrade"}}}}},
+            {"id": "software", "component": "Button", "props": {"label": "Software", "variant": "ghost", "icon": "nav-apps"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "mintinstall || gnome-software"}}}}}
+          ]},
+          {"id": "packages-scroll", "component": "ScrollArea", "props": {"maxHeight": 380}, "children": [
+            {"id": "packages", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "package", "path": "/services/updates/packages", "key": "name"}, "children": []},
+            {"id": "package", "component": "Row", "props": {"title": {"path": "name"}, "subtitle": {"path": "from"}, "meta": {"path": "version"}, "density": "compact"}}
+          ]}
+        ]},
+        {"id": "users", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "me", "component": "Row", "props": {"title": {"path": "/user/name"}, "subtitle": {"path": "/user/login"}, "icon": "settings-account"}},
+          {"id": "users-tool", "component": "Button", "props": {"label": "Manage users", "variant": "outline", "icon": "settings-members"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "cinnamon-settings user || gnome-control-center user-accounts"}}}}}
+        ]},
+        {"id": "printers", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
+          {"id": "printers-off", "component": "Alert", "props": {"type": "warning", "title": "Printers is not available", "message": {"path": "/services/printers/reason"}}, "visible": {"call": "not", "args": {"value": {"path": "/services/printers/available"}}}},
+          {"id": "printer-list", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "printer", "path": "/services/printers/printers", "key": "name"}, "children": []},
+          {"id": "printer", "component": "Row", "props": {"title": {"path": "name"}, "meta": {"path": "state"}, "selected": {"path": "default"}, "density": "compact"}},
+          {"id": "no-printers", "component": "Text", "props": {"text": "No printer", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/services/printers/printers"}}}, "b": 0}}},
+          {"id": "printers-tool", "component": "Button", "props": {"label": "Add a printer", "variant": "outline", "icon": "ui-add"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "system-config-printer"}}}}}
+        ]},
+        {"id": "about", "component": "Stack", "props": {"direction": "vertical", "gap": "sm"}, "children": [
+          {"id": "about-host", "component": "Row", "props": {"title": {"path": "/services/about/hostname"}, "subtitle": {"path": "/services/about/os"}, "icon": "settings-about"}},
+          {"id": "about-kernel", "component": "Row", "props": {"title": "Kernel", "value": {"path": "/services/about/kernel"}, "density": "compact"}},
+          {"id": "about-cpu", "component": "Row", "props": {"title": "Processor", "value": {"path": "/services/about/cpu"}, "density": "compact"}},
+          {"id": "about-memory", "component": "Row", "props": {"title": "Memory", "value": {"path": "/services/about/memoryText"}, "density": "compact"}},
+          {"id": "about-ede", "component": "Row", "props": {"title": "Exponential desktop", "value": {"path": "/services/about/ede"}, "density": "compact"}}
+        ]}
+      ]}
+    ]
+  },
+  "data": {"settings": {"page": "displays"}, "outputs": [], "services": {}, "config": {"keyboard": {"layout": "us", "repeat_rate": 30, "repeat_delay": 400}, "theme": {"bridge": true}}, "user": {"name": "", "login": ""}}
+}
