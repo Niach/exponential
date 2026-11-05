@@ -30,3 +30,4 @@
 - As ligações em chats e cartões abrem o ecrã certo na app
 - Um formulário fechado continua fechado; tocar numa linha abre o registo
 - Cronologias e tabelas largas leem-se bem em telemóveis estreitos
+- O plano de uma sessão fica aberto, com a sua barra de separadores

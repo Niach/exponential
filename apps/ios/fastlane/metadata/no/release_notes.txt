@@ -30,3 +30,4 @@
 - Lenker i chatter og kort åpner riktig skjerm i appen
 - Et lukket skjema forblir lukket; et trykk på en rad åpner posten
 - Tidslinjer og brede tabeller kan leses på smale telefoner
+- En økts plan forblir åpen med fanelinjen

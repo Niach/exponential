@@ -30,3 +30,4 @@
 - Poveznice u razgovorima i karticama otvaraju pravi zaslon u aplikaciji
 - Zatvoreni obrazac ostaje zatvoren; dodir retka otvara zapis
 - Vremenske crte i široke tablice čitljive su na uskim telefonima
+- Plan sesije ostaje otvoren, s trakom kartica

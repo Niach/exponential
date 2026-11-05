@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-05-plans-stay-open",
+    date: "2026-11-05",
+    title: "Plans stay open",
+    summary: "A session's plan opens as its tab again and stays open with its strip, long answers wrap in cards, and desktop downloads always find a build.",
+    body: r#"- **Plans**: opening a session's plan in an agent chat keeps it open, with its tab strip, on every app.
+- **Cards**: long answers wrap inside their card on desktop instead of running off the edge.
+- **Downloads**: the desktop download links fall back to the newest release that has your platform's build.
+- **Starting sessions**: a start whose base branch is not on GitHub says what to do, and the desktop app recovers starts it had not finished.
+- **Reconnecting**: the desktop app reconnects to the relay sooner after a dropped connection."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_208: ChangelogEntry = ChangelogEntry {
     id: "2026-11-04-apps-read-better-on-phones",
     date: "2026-11-04",
     title: "Apps read better on phones",

@@ -30,3 +30,4 @@
 - I link nelle chat e nelle schede aprono la schermata giusta nell'app
 - Un modulo chiuso resta chiuso; toccare una riga apre il record
 - Timeline e tabelle larghe si leggono bene sui telefoni stretti
+- Il piano di una sessione resta aperto, con la sua barra delle schede

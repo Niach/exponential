@@ -30,3 +30,4 @@
 - Les liens des discussions et cartes ouvrent le bon écran dans l'app
 - Un formulaire fermé reste fermé ; toucher une ligne ouvre l'élément
 - Les frises et tableaux larges se lisent bien sur les téléphones étroits
+- Le plan d'une session reste ouvert, avec sa barre d'onglets

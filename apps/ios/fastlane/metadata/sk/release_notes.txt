@@ -30,3 +30,4 @@
 - Odkazy v chatoch a kartách otvárajú správnu obrazovku v aplikácii
 - Zatvorený formulár zostane zatvorený; ťuknutie na riadok otvorí záznam
 - Časové osi a široké tabuľky sú na úzkych telefónoch čitateľné
+- Plán relácie zostane otvorený aj s pásom kariet

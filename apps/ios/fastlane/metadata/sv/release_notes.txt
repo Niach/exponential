@@ -30,3 +30,4 @@
 - Länkar i chattar och kort öppnar rätt skärm i appen
 - Ett stängt formulär förblir stängt; ett tryck på en rad öppnar posten
 - Tidslinjer och breda tabeller går att läsa på smala telefoner
+- En sessions plan förblir öppen med sitt flikfält
