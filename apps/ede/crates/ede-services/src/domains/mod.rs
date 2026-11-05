@@ -8,6 +8,7 @@ pub mod disks;
 pub mod firmware;
 pub mod network;
 pub mod power;
+pub mod printers;
 pub mod sound;
 pub mod updates;
 
@@ -26,6 +27,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(disks::Disks),
         Box::new(updates::Updates),
         Box::new(firmware::Firmware),
+        Box::new(printers::Printers),
         Box::new(about::About),
     ]
 }

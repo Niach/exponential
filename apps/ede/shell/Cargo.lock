@@ -1583,6 +1583,8 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
+ "tempfile",
+ "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
  "zbus",

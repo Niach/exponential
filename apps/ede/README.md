@@ -127,6 +127,23 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 - Fallback focus cycling (Alt+Tab without a shell) is in [Hotkeys](#hotkeys-ede-12).
 - The consent shield and the takeover banner wait for the agent spaces (M2).
 
+## Settings (#EDE-14)
+
+`settings.json`, a shell document like the rest (editable, in the
+history), not an eApps package: one on-demand surface in the middle of the
+screen (the menu's Settings row opens it with `ede.open_document`, its
+close button `ede.close_document`) with a page per domain: Displays
+(every output's modes and scale, `ede.output` applies live and writes
+`[[outputs]]`), Network (Wi-Fi switch, connections, networks in reach),
+Sound (volumes, mute, output devices), Bluetooth, Power (battery, profile,
+suspend/restart/shut down), Input (keyboard layout and repeat,
+`ede.config` writes `[keyboard]` and reloads), Theme (the GTK/Qt bridge
+switch, #EDE-19), Apps & updates (apt, Software), Users, Printers (CUPS),
+About. Pages bind `/services/<domain>` (#EDE-13), `/outputs`, `/config`
+and `/user`; a control is two-way bound and calls `ede.service {domain,
+action, args}` with the new value. Users and printers management open the
+native tools until there is more to show.
+
 ## Services: `ede-services` (#EDE-13)
 
 One service per domain over the daemons the distribution runs, each with

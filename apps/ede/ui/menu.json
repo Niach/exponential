@@ -1,6 +1,6 @@
 {
-  "$comment": "eDE's factory menu (#EDE-10, #EDE-12): the launcher. It opens from the panel's first button (or Super) as its own popup surface, an xdg_popup child of the panel's layer surface, and takes the keyboard while open. The shell feeds /apps (the installed desktop entries, filtered by /query as the person types) and answers the host functions the header allows: ede.launch, ede.lock, ede.logout, ede.power.",
-  "surface": {"popup": {"parent": "panel", "anchor": "menu", "placement": "bottom-start", "size": {"width": 360, "height": 520}}, "functions": ["ede.launch", "ede.lock", "ede.logout", "ede.power"]},
+  "$comment": "eDE's factory menu (#EDE-10, #EDE-12): the launcher. It opens from the panel's first button (or Super) as its own popup surface, an xdg_popup child of the panel's layer surface, and takes the keyboard while open. The shell feeds /apps (the installed desktop entries, filtered by /query as the person types) and answers the host functions the header allows: ede.launch, ede.lock, ede.logout, ede.power, ede.open_document (the settings).",
+  "surface": {"popup": {"parent": "panel", "anchor": "menu", "placement": "bottom-start", "size": {"width": 360, "height": 520}}, "functions": ["ede.launch", "ede.lock", "ede.logout", "ede.power", "ede.open_document"]},
   "root": {
     "id": "menu",
     "component": "Box",
@@ -16,7 +16,7 @@
       ]},
       {"id": "menu-sep", "component": "Separator"},
       {"id": "power", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center", "justify": "end"}, "children": [
-        {"id": "menu-settings", "component": "Button", "props": {"icon": "nav-settings", "variant": "ghost", "size": "icon", "label": "Settings"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "ede-settings"}}}}},
+        {"id": "menu-settings", "component": "Button", "props": {"icon": "nav-settings", "variant": "ghost", "size": "icon", "label": "Settings"}, "on": {"press": {"functionCall": {"call": "ede.open_document", "args": {"name": "settings"}}}}},
         {"id": "menu-lock", "component": "Button", "props": {"icon": "ede-lock", "variant": "ghost", "size": "icon", "label": "Lock"}, "on": {"press": {"functionCall": {"call": "ede.lock"}}}},
         {"id": "menu-logout", "component": "Button", "props": {"icon": "nav-sign-out", "variant": "ghost", "size": "icon", "label": "Log out"}, "on": {"press": {"functionCall": {"call": "ede.logout"}}}},
         {"id": "menu-suspend", "component": "Button", "props": {"icon": "ede-suspend", "variant": "ghost", "size": "icon", "label": "Suspend"}, "on": {"press": {"functionCall": {"call": "ede.power", "args": {"action": "suspend"}}}}},

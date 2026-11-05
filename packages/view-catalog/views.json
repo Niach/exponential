@@ -8158,6 +8158,27 @@
         "ios": "eDE only.",
         "android": "eDE only."
       }
+    },
+    {
+      "id": "ede-settings",
+      "group": "ede",
+      "title": "eDE · settings",
+      "blurb": "The factory settings (apps/ede/ui/settings.json): one on-demand surface with a page per domain (Displays, Network, Sound, Bluetooth, Power, Input, Theme, Apps & updates, Users, Printers, About) bound to ede-services' snapshots, the compositor's outputs and compositor.toml (sample data in the golden).",
+      "order": 8,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "settings"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
+      }
     }
   ]
 }
