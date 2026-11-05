@@ -64,15 +64,32 @@ const plainTitle = (raw: string) =>
     .replaceAll("`", ``)
     .trim()
 
-/** #EXP-1662: the plan a thread's tab shows (`tabCases`): the newest waiting
- *  card, else the newest approved or rejected one. `plans` = oldest first. */
-export function planTabTarget(plans: readonly { id: string; decision: string | null }[]): string | null {
-  const newest = (pick: (decision: string | null) => boolean) => [...plans].reverse().find((plan) => pick(plan.decision))
-  return (
-    newest((decision) => decision === null)?.id ??
-    newest((decision) => decision === `approved` || decision === `rejected`)?.id ??
-    null
-  )
+/** #EXP-1662 / #FEED-191: the plan a thread's tab shows (`tabCases`): the
+ *  newest waiting card, else `kept` while it is an approved or rejected plan
+ *  of the thread (the plan the tab showed during THIS visit of the chat; the
+ *  host clears it when the person leaves), else none: a decided plan leaves
+ *  the strip. `plans` = oldest first. */
+export function planTabTarget(
+  plans: readonly { id: string; decision: string | null }[],
+  kept: string | null = null
+): string | null {
+  const waiting = [...plans].reverse().find((plan) => plan.decision === null)
+  if (waiting) return waiting.id
+  const held = kept === null ? undefined : plans.find((plan) => plan.id === kept)
+  return held && (held.decision === `approved` || held.decision === `rejected`) ? held.id : null
+}
+
+export interface PlanTabGlyph {
+  icon: `coding-plan` | `ui-check`
+  /** `text` = the chip's own text colour (as before), `approved` = emerald
+   *  (the plan row's approved check). */
+  tone: `text` | `approved`
+}
+
+/** #FEED-191: the plan tab's lead glyph (`tabGlyphCases`): an approved plan =
+ *  THE check in emerald (as its row), anything else = the plan glyph. */
+export function planTabGlyph(decision: string | null): PlanTabGlyph {
+  return decision === `approved` ? { icon: `ui-check`, tone: `approved` } : { icon: `coding-plan`, tone: `text` }
 }
 
 /** #EXP-1662: `Plan: title`, the row's and the wide tab's label
