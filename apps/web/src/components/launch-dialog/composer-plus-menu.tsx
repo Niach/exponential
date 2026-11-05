@@ -37,7 +37,7 @@ import {
   subagentModelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
-import { SkillMenuRows, type SkillPickerRow } from "@/components/launch-dialog/skill-picker"
+import { SkillSearchList, type SkillPickerRow } from "@/components/launch-dialog/skill-picker"
 import { skillsMenuValue } from "@exp/domain-contract/skills"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
@@ -447,9 +447,9 @@ export function ComposerOptionsMenu({
           kind: `submenu`,
           value: skillsMenuValue(options.skillIds.length) ?? undefined,
           disabled: rowsDisabled,
-          contentClassName: `w-[20rem]`,
+          contentClassName: SUBMENU_PICKER_CLASS,
           body: (
-            <SkillMenuRows
+            <SkillSearchList
               skills={options.skills}
               selectedIds={options.skillIds}
               onToggle={options.toggleSkill}

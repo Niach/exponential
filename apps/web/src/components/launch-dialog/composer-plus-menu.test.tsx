@@ -19,7 +19,7 @@ vi.mock(`@/components/launch-dialog/launch-options-pane`, () => ({
   subagentModelChoices: () => [],
 }))
 vi.mock(`@/components/launch-dialog/mcp-server-picker`, () => ({ McpServerMenuRows: () => null }))
-vi.mock(`@/components/launch-dialog/skill-picker`, () => ({ SkillMenuRows: () => null }))
+vi.mock(`@/components/launch-dialog/skill-picker`, () => ({ SkillSearchList: () => null }))
 
 const { ComposerOptionsMenu } = await import(`@/components/launch-dialog/composer-plus-menu`)
 
