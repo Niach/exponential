@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - VAPP-212: `RecordStore`: one app's rows behind a handle (`applyJson`, `valueJson`, `count`), so a query no longer has to carry the rows across the FFI.
+- **Breaking** VAPP-212: `records_value_json` is gone; use `RecordStore`.
 
 ## 0.15.4 (2026-11-05)
 

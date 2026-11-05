@@ -4,8 +4,8 @@ import ExponentialUICore
 /// VAPP-189: THE records query, the core's one evaluator
 /// (`@exponential_app/eui/host/query`, eui-core `host::query`,
 /// `fixtures/records-query.json`). A binding's URL sugar parses INTO the
-/// structured query; `RecordsQuery.value(rows:…)` evaluates it over the rows
-/// of whatever store the host has.
+/// structured query; `RecordsQuery.value(store:…)` evaluates it over a
+/// `RecordsStore`.
 public struct RecordsQuery: Sendable, Equatable {
     /// The structured query as the core spells it: `{from, app, mine, user,
     /// where, or, sort, limit, sum, month, group, aggregate, running, before}`.
@@ -60,8 +60,9 @@ public struct RecordsQuery: Sendable, Equatable {
         ExponentialUICore.dateBucket(date: date, bucket: bucket)
     }
 
-    /// The value the binding emits over `rows` (every row of the app, any
-    /// kind): `.null` without a kind, else `{rows, count, sum?, month?,
+    /// The value the binding emits over `store` (every row of the app, any
+    /// kind; VAPP-212: the rows stay in Rust, so only the query crosses the
+    /// FFI): `.null` without a kind, else `{rows, count, sum?, month?,
     /// groups?, totals?, before?}`.
     /// `me` = the viewer (nil: `mine` matches nothing), `now` = ISO 8601
     /// (the month view's default month), `names` = user id → display name.
@@ -76,21 +77,8 @@ public struct RecordsQuery: Sendable, Equatable {
     /// VAPP-222 (R6): `transitions` = the queried kind's state machine
     /// (`records.<kind>.transitions`, `.null` = none): every row carries
     /// `transitions`, the next states the viewer (`me`, `role`) may take.
-    public func value(rows: [RecordRow], me: String?, now: Date = Date(), today: String? = nil, names: [String: String] = [:], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:], transitions: JSONValue = .null, role: String? = nil) -> JSONValue {
-        value(rows: rows, me: me, now: RecordsQuery.iso(now), today: today, names: names, computed: computed, refs: refs, issues: issues, transitions: transitions, role: role)
-    }
-
-    /// `value` with `now` as ISO 8601 text.
-    public func value(rows: [RecordRow], me: String?, now: String, today: String? = nil, names: [String: String], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:], transitions: JSONValue = .null, role: String? = nil) -> JSONValue {
-        let rowsJson = JSONValue.array(rows.map(\.json)).json
-        let context = contextJson(me: me, now: now, today: today, names: names, computed: computed, refs: refs, issues: issues, transitions: transitions, role: role)
-        guard let out = try? recordsValueJson(rowsJson: rowsJson, queryJson: json, contextJson: context) else { return .null }
-        return JSONValue.parse(out)
-    }
-
-    /// VAPP-212: the same value over `store`; the rows stay in Rust, so only
-    /// the query crosses the FFI. `overlay` = the host's unsynced writes for
-    /// this one query (the store keeps its rows).
+    /// `overlay` = the host's unsynced writes for this one query (the store
+    /// keeps its rows).
     public func value<Source>(store: RecordsStore<Source>, me: String?, now: Date = Date(), today: String? = nil, names: [String: String] = [:], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:], transitions: JSONValue = .null, role: String? = nil, overlay: RecordsOverlay? = nil) -> JSONValue {
         value(store: store, me: me, now: RecordsQuery.iso(now), today: today, names: names, computed: computed, refs: refs, issues: issues, transitions: transitions, role: role, overlay: overlay)
     }
@@ -115,11 +103,6 @@ public struct RecordsQuery: Sendable, Equatable {
             "transitions": transitions,
             "role": role.map(JSONValue.string) ?? .null,
         ]).json
-    }
-
-    /// The raw JSON value (for a host that compares emits as text).
-    public func valueJson(rows: [RecordRow], me: String?, now: String, names: [String: String]) -> String {
-        value(rows: rows, me: me, now: now, names: names).json
     }
 
     /// VAPP-214: a package's computed fields of `kind` (`records.<kind>.computed`,

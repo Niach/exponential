@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - VAPP-212: `RecordsStore` + `RecordsOverlay`: one app's rows stay in Rust, `sync` pushes only what changed, and `RecordsQuery.value(store, …)` carries no rows across the FFI.
+- **Breaking** VAPP-212: `RecordsQuery.value(rows, …)` is gone; use `RecordsStore`.
 
 ## 0.15.4 (2026-11-05)
 

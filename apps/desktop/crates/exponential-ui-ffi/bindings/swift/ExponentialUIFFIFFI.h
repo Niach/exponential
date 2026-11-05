@@ -1377,11 +1377,6 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_place_overlay(double anchor_x, doub
 RustBuffer uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(RustBuffer value, RustBuffer level, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RECORDS_VALUE_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RECORDS_VALUE_JSON
-RustBuffer uniffi_exponential_ui_ffi_fn_func_records_value_json(RustBuffer rows_json, RustBuffer query_json, RustBuffer context_json, RustCallStatus *_Nonnull out_status
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_REDUCE_NESTED_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_REDUCE_NESTED_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(RustBuffer nested_json, RustBuffer catalog_id, RustBuffer extensions_json, RustCallStatus *_Nonnull out_status
@@ -2122,12 +2117,6 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_place_overlay(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_QR_MATRIX_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_QR_MATRIX_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(void
-    
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RECORDS_VALUE_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RECORDS_VALUE_JSON
-uint16_t uniffi_exponential_ui_ffi_checksum_func_records_value_json(void
     
 );
 #endif

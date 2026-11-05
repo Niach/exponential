@@ -859,8 +859,6 @@ external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(
 ): Short
-external fun uniffi_exponential_ui_ffi_checksum_func_records_value_json(
-): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
@@ -1603,8 +1601,6 @@ external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuff
 external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(`value`: RustBuffer.ByValue,`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
-external fun uniffi_exponential_ui_ffi_fn_func_records_value_json(`rowsJson`: RustBuffer.ByValue,`queryJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -4817,9 +4813,13 @@ public interface RecordStoreInterface {
     fun `count`(): kotlin.ULong
     
     /**
-     * THE records value over the store: `query_json` and `context_json` as
-     * in [`records_value_json`]; `overlay_json` = the unsynced writes laid
-     * over this one query, a delta (`MemoryRecordStore::value`).
+     * VAPP-189: THE records value over the store (`valueCases`): `query_json`
+     * = a parsed query, `context_json` = `{me, now, today?, names, computed?,
+     * refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's
+     * computed fields; VAPP-219: its refs and the issue summaries `expand`
+     * inlines); `overlay_json` = the unsynced writes laid over this one
+     * query, a delta (`MemoryRecordStore::value`). The value JSON, `null`
+     * without a kind.
      */
     fun `valueJson`(`queryJson`: kotlin.String, `contextJson`: kotlin.String, `overlayJson`: kotlin.String?): kotlin.String
     
@@ -4972,9 +4972,13 @@ open class RecordStore: Disposable, AutoCloseable, RecordStoreInterface
 
     
     /**
-     * THE records value over the store: `query_json` and `context_json` as
-     * in [`records_value_json`]; `overlay_json` = the unsynced writes laid
-     * over this one query, a delta (`MemoryRecordStore::value`).
+     * VAPP-189: THE records value over the store (`valueCases`): `query_json`
+     * = a parsed query, `context_json` = `{me, now, today?, names, computed?,
+     * refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's
+     * computed fields; VAPP-219: its refs and the issue summaries `expand`
+     * inlines); `overlay_json` = the unsynced writes laid over this one
+     * query, a delta (`MemoryRecordStore::value`). The value JSON, `null`
+     * without a kind.
      */
     @Throws(UiException::class)override fun `valueJson`(`queryJson`: kotlin.String, `contextJson`: kotlin.String, `overlayJson`: kotlin.String?): kotlin.String {
             return FfiConverterString.lift(
@@ -11189,23 +11193,6 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(
     
         FfiConverterString.lower(`value`),FfiConverterString.lower(`level`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
-         * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
-         * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's computed fields; VAPP-219: its refs and the issue summaries `expand` inlines);
-         * the value JSON, `null` without a kind.
-         */
-    @Throws(UiException::class) fun `recordsValueJson`(`rowsJson`: kotlin.String, `queryJson`: kotlin.String, `contextJson`: kotlin.String): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCallWithError(UiException) { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_records_value_json(
-    
-        FfiConverterString.lower(`rowsJson`),FfiConverterString.lower(`queryJson`),FfiConverterString.lower(`contextJson`),_status)
 }
     )
     }
