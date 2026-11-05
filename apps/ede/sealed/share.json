@@ -1,0 +1,28 @@
+{
+  "$comment": "eDE's sealed screen-share chooser (#EDE-15, Tier B): compiled into ede-sealed, run by the portal (`ede-sealed share`) when an app asks to capture the screen or drive it. The app's name, what it asks for, the outputs and windows to pick from; the choice is printed for the portal (output:NAME / window:ID lines, `allow` when remote control was granted). Never a document on disk.",
+  "root": {
+    "id": "share",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "alignItems": "center", "justifyContent": "center", "width": "100%", "height": "100%"},
+    "children": [
+      {"id": "card", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.xl", "width": 480, "backgroundColor": "$color.card", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"}, "children": [
+        {"id": "title", "component": "Heading", "props": {"text": {"path": "/title"}, "level": "h3"}},
+        {"id": "body", "component": "Text", "props": {"text": {"path": "/body"}, "variant": "muted"}},
+        {"id": "outputs-label", "component": "Text", "props": {"text": "Screens", "variant": "label"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/outputs"}}}, "b": 0}}}}},
+        {"id": "outputs", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "output", "path": "/outputs", "key": "id"}, "children": []},
+        {"id": "output", "component": "Row", "props": {"title": {"path": "label"}, "subtitle": {"path": "detail"}, "icon": "ede-window", "pressable": true, "selected": {"path": "selected"}, "density": "compact"}, "on": {"press": {"functionCall": {"call": "sealed.pick", "args": {"id": {"path": "id"}}}}}},
+        {"id": "windows-label", "component": "Text", "props": {"text": "Windows", "variant": "label"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/windows"}}}, "b": 0}}}}},
+        {"id": "windows-scroll", "component": "ScrollArea", "props": {"maxHeight": 220}, "children": [
+          {"id": "windows", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "window", "path": "/windows", "key": "id"}, "children": []},
+          {"id": "window", "component": "Row", "props": {"title": {"path": "label"}, "subtitle": {"path": "detail"}, "pressable": true, "selected": {"path": "selected"}, "density": "compact"}, "on": {"press": {"functionCall": {"call": "sealed.pick", "args": {"id": {"path": "id"}}}}}}
+        ]},
+        {"id": "control", "component": "Switch", "props": {"label": "Let it control the keyboard and pointer", "name": "allow", "checked": {"path": "/allow"}}, "visible": {"path": "/remoteControl"}},
+        {"id": "actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "justify": "end"}, "children": [
+          {"id": "cancel", "component": "Button", "props": {"label": "Cancel", "variant": "ghost"}, "on": {"press": {"functionCall": {"call": "sealed.answer", "args": {"answer": "cancel"}}}}},
+          {"id": "ok", "component": "Button", "props": {"label": "Share"}, "on": {"press": {"functionCall": {"call": "sealed.answer", "args": {"answer": "share"}}}}}
+        ]}
+      ]}
+    ]
+  },
+  "data": {"title": "", "body": "", "outputs": [], "windows": [], "remoteControl": false, "allow": false}
+}

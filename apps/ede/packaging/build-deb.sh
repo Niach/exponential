@@ -41,7 +41,7 @@ chmod 755 "$stage"
 trap 'rm -rf "$stage"' EXIT
 
 release=(--release); [ "$profile" = debug ] && release=()
-cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services --features ede-compositor/udev
+cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services -p ede-portal --features ede-compositor/udev
 # The shell is its own workspace (gpui never enters the compositor's).
 (cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell --bins)
 
@@ -49,6 +49,13 @@ for bin in ede-compositor ede-session ede-ui ede-services; do
   install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
 done
 install -Dm755 "$shell_target/$profile/ede-shell" "$stage/usr/bin/ede-shell"
+# The portal backend (#EDE-15): ScreenCast, Screenshot, RemoteDesktop,
+# GlobalShortcuts, Settings; the frontend routes them here (ede-portals.conf).
+install -Dm755 "$target/$profile/xdg-desktop-portal-ede" "$stage/usr/libexec/xdg-desktop-portal-ede"
+install -Dm644 "$here/portal/ede.portal" "$stage/usr/share/xdg-desktop-portal/portals/ede.portal"
+install -Dm644 "$here/portal/ede-portals.conf" "$stage/usr/share/xdg-desktop-portal/ede-portals.conf"
+install -Dm644 "$here/portal/org.freedesktop.impl.portal.desktop.ede.service" "$stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.ede.service"
+install -Dm644 "$here/portal/xdg-desktop-portal-ede.service" "$stage/usr/lib/systemd/user/xdg-desktop-portal-ede.service"
 # Tier B (#EDE-17): the lock screen, the polkit agent and consent.
 install -Dm755 "$shell_target/$profile/ede-sealed" "$stage/usr/bin/ede-sealed"
 for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/ede/ui/$(basename "$f")"; done
@@ -58,7 +65,7 @@ install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/ede/copyright"
 
 # The compositor's, then the shell's (gpui on Wayland: Vulkan through the
 # loader + a driver, fontconfig/freetype) and ede-ui's history (git).
-depends="libc6, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, git"
+depends="libc6, libpipewire-0.3-0, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, git"
 if [ "$bundle_xwayland" = 1 ]; then
   xwl="${EDE_XWAYLAND:-$target/ede-xwayland}"
   if [ -z "${EDE_XWAYLAND:-}" ]; then
@@ -83,7 +90,7 @@ Maintainer: Exponential <hello@exponential.at>
 Section: x11
 Priority: optional
 Homepage: https://exponential.at
-Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin
+Depends: $depends, dbus-user-session | dbus-x11, systemd, libglib2.0-bin, xdg-desktop-portal (>= 1.18), xdg-desktop-portal-gtk, pipewire
 Recommends: gnome-keyring
 Description: eDE, the Exponential desktop
  A Wayland desktop session: the ede-compositor (floating windows with edge

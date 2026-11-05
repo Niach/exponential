@@ -241,6 +241,7 @@ pub fn capture_window(window: &smithay::desktop::Window) -> Result<headless::Fra
 /// After a frame went out: frame callbacks so clients draw the next one,
 /// then housekeeping and a flush.
 pub fn frame_done(state: &mut Ede, output: &Output) {
+    state.frame_serial += 1;
     let now = state.start_time.elapsed();
     for window in state.space.elements() {
         window.send_frame(output, now, Some(Duration::ZERO), |_, _| Some(output.clone()));

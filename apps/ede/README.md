@@ -144,6 +144,26 @@ and `/user`; a control is two-way bound and calls `ede.service {domain,
 action, args}` with the new value. Users and printers management open the
 native tools until there is more to show.
 
+## The portal: `xdg-desktop-portal-ede` (#EDE-15)
+
+`crates/ede-portal`, the xdg-desktop-portal backend the frontend routes
+ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts and Settings to
+(`ede-portals.conf`; the GTK backend keeps the file chooser and the rest),
+D-Bus activated in the session (`xdg-desktop-portal-ede.service`). Every
+call is an ede-protocol call under a grant minted for the portal
+(`capture`, `input:person`, `ui`), never the root token. A ScreenCast is
+a PipeWire node fed by captures polled at the stream's rate with `since`:
+when nothing was presented the compositor answers `unchanged` and draws
+nothing; the GPU (dmabuf) path for udev is still to come. What to share
+is the sealed chooser `ede-sealed share` (`[screencast] chooser` in
+`~/.config/ede/portal.toml` replaces it): screens and windows to pick,
+the remote-control switch, Share or Cancel; remote control is never
+granted silently (the switch, or `[remote_desktop] allow`). Global
+shortcuts follow the XDG spec (`CTRL+SHIFT+a`), never take a plain key or
+a compositor binding, never fire on the lock or a protected surface.
+Settings serves `org.freedesktop.appearance` (dark, the accent). Tests
+run a private dbus-daemon, a private PipeWire and a headless compositor.
+
 ## Services: `ede-services` (#EDE-13)
 
 One service per domain over the daemons the distribution runs, each with

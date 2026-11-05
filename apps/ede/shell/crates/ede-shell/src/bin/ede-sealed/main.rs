@@ -12,6 +12,10 @@
 //!   the prompt, `polkit-agent-helper-1` checks the password.
 //! - `ede-sealed consent --title T --body B [--allow A] [--deny D]`: a
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
+//! - `ede-sealed share`: the screen-share chooser the portal runs
+//!   (#EDE-15): the ask as JSON on stdin (`app_id`, `types`, `multiple`,
+//!   `remote_control`, `outputs`, `windows`), the picks on stdout
+//!   (`output:NAME`, `window:ID`, and `allow` for remote control).
 //!
 //! Drawn with the same gpui + eui-gpui the shell uses, the same tokens;
 //! the compositor marks every layer surface of this executable as
@@ -38,6 +42,7 @@ use serde_json::{json, Value};
 const LOCK: &str = include_str!("../../../../../../sealed/lock.json");
 const POLKIT: &str = include_str!("../../../../../../sealed/polkit.json");
 const CONSENT: &str = include_str!("../../../../../../sealed/consent.json");
+const SHARE: &str = include_str!("../../../../../../sealed/share.json");
 
 struct Surface {
     view: Entity<SurfaceView>,
@@ -203,7 +208,7 @@ fn user_name() -> String {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: ede-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL]");
+    eprintln!("usage: ede-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL] | share (the ask as JSON on stdin)");
     std::process::exit(2)
 }
 
@@ -425,6 +430,91 @@ fn consent(args: &[String]) {
     });
 }
 
+/// The screen-share chooser: a pick (several when `multiple`), the
+/// remote-control switch, Share or Cancel; the answer on stdout.
+fn share() {
+    let mut input = String::new();
+    let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
+    let ask: Value = serde_json::from_str(&input).unwrap_or(json!({}));
+    let app = ask["app_id"].as_str().filter(|a| !a.is_empty()).unwrap_or("An app").to_string();
+    let types: Vec<String> = ask["types"].as_array().map(|l| l.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
+    let multiple = ask["multiple"].as_bool().unwrap_or(false);
+    let remote = ask["remote_control"].as_bool().unwrap_or(false);
+    let outputs: Vec<Value> = ask["outputs"].as_array().map(|l| l.iter().map(|o| json!({"id": format!("output:{}", o["name"].as_str().unwrap_or("")), "label": o["name"], "detail": format!("{}×{}", o["width"], o["height"]), "selected": false})).collect()).unwrap_or_default();
+    let windows: Vec<Value> = ask["windows"].as_array().map(|l| l.iter().map(|w| json!({"id": format!("window:{}", w["id"].as_str().unwrap_or("")), "label": w["title"].as_str().or(w["app_id"].as_str()).unwrap_or("Window"), "detail": w["app_id"].as_str().unwrap_or(""), "selected": false})).collect()).unwrap_or_default();
+    let what = match (types.iter().any(|t| t == "monitor"), types.iter().any(|t| t == "window")) {
+        (true, true) => "share a screen or a window",
+        (true, false) => "share a screen",
+        (false, true) => "share a window",
+        (false, false) => "control the keyboard and pointer",
+    };
+    let title = format!("{app} wants to {what}");
+    let body = if remote { "It also asks to control this desktop. Nothing is shared until you choose.".to_string() } else { "Nothing is shared until you choose.".to_string() };
+    run_app(move |cx| {
+        let (acts_tx, acts_rx) = mpsc::channel::<Act>();
+        let data = json!({"title": title, "body": body, "outputs": outputs.clone(), "windows": windows.clone(), "remoteControl": remote, "allow": false});
+        let open = Rc::new(open(SHARE, data, acts_tx, cx));
+        if open.is_none() {
+            std::process::exit(1);
+        }
+        let mut picks: Vec<String> = Vec::new();
+        let mut allow = false;
+        let (mut outputs, mut windows) = (outputs, windows);
+        cx.spawn(async move |cx| {
+            loop {
+                while let Ok(act) = acts_rx.try_recv() {
+                    match act {
+                        Act::Input { path, value } if path == "/allow" => allow = value.as_bool().unwrap_or(false),
+                        Act::Call { name, args } => match name.as_str() {
+                            "sealed.pick" => {
+                                let id = args["id"].as_str().unwrap_or("").to_string();
+                                if picks.contains(&id) {
+                                    picks.retain(|p| p != &id);
+                                } else {
+                                    if !multiple {
+                                        picks.clear();
+                                    }
+                                    picks.push(id);
+                                }
+                                for list in [&mut outputs, &mut windows] {
+                                    for item in list.iter_mut() {
+                                        let chosen = picks.iter().any(|p| Some(p.as_str()) == item["id"].as_str());
+                                        item["selected"] = json!(chosen);
+                                    }
+                                }
+                                if let Some(o) = open.as_ref() {
+                                    let (os, ws) = (outputs.clone(), windows.clone());
+                                    cx.update(|cx| {
+                                        set(o, "/outputs", Value::Array(os), cx);
+                                        set(o, "/windows", Value::Array(ws), cx);
+                                    });
+                                }
+                            }
+                            "sealed.answer" => {
+                                let answer = args["answer"].as_str().unwrap_or("cancel");
+                                if answer == "share" {
+                                    for p in &picks {
+                                        println!("{p}");
+                                    }
+                                    if allow {
+                                        println!("allow");
+                                    }
+                                }
+                                cx.update(|cx| cx.quit());
+                                std::process::exit(if answer == "share" { 0 } else { 1 });
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                }
+                cx.background_executor().timer(Duration::from_millis(100)).await;
+            }
+        })
+        .detach();
+    });
+}
+
 fn main() {
     tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -432,6 +522,7 @@ fn main() {
         Some("lock") => lock(),
         Some("polkit") => polkit_agent(),
         Some("consent") => consent(&args[1..]),
+        Some("share") => share(),
         _ => usage(),
     }
 }

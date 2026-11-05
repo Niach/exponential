@@ -83,7 +83,7 @@ mod tests {
         for _ in 0..(w * h) {
             pixels.extend_from_slice(&0xff00_80ffu32.to_le_bytes());
         }
-        let capture = Capture { info: CaptureInfo { width: w, height: h, stride: w * 4, format: "argb8888".into() }, pixels };
+        let capture = Capture { info: CaptureInfo { width: w, height: h, stride: w * 4, format: "argb8888".into(), serial: 1, unchanged: false }, pixels };
         let (tw, th, rgba) = shrink(&capture, THUMB);
         assert_eq!((tw, th), (184, 46));
         assert_eq!(&rgba[..4], &[0x00, 0x80, 0xff, 0xff]);
