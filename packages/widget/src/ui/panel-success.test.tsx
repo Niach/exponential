@@ -40,6 +40,7 @@ const renderSuccess = (args: {
       captureDelay={0}
       onCycleCaptureDelay={noop}
       onRetake={noop}
+      onAddScreenshot={noop}
       onAnnotate={noop}
       onRemoveScreenshot={noop}
       onAddImages={noop}
