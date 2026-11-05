@@ -182,6 +182,7 @@ const SOURCE_TABLES: Record<string, readonly StoreTable[]> = {
   issues: [`issues`, `boards`, `users`],
   boards: [`boards`],
   members: [`members`, `users`],
+  me: [`members`, `users`],
   sessions: [`sessions`],
   comments: [`comments`, `issues`, `boards`, `users`],
   attachments: [`attachments`, `issues`, `boards`, `users`],
@@ -299,7 +300,7 @@ function teamSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope)
   let ready = false
   const push = () => {
     if (!ready) return
-    const value = sourceValue(source.name, source.params, team.store(), { me: scope.me })
+    const value = sourceValue(source.name, source.params, team.store(), { me: scope.me, access: scope.access })
     const key = JSON.stringify(value)
     if (key === last) return
     last = key
@@ -334,6 +335,8 @@ export interface RecordsScope {
   appId: string | null
   teamId: string | null
   me: string | null
+  /** VAPP-206: the viewer's app access (`exp:me`). */
+  access?: string
   /** VAPP-198 (Run as): only the rows this member may read (record-policy.json `readable`). */
   readable?: (rows: readonly RecordRow[]) => RecordRow[]
   /** VAPP-214: the hosting package's kinds (their `computed` fields apply on read). */
@@ -520,6 +523,8 @@ export interface AppHostOptions {
    *  the records are what their role and app access may read, and every
    *  write or host call is refused with `copy.runAs.writesOff`. */
   runAs?: { id: string; name: string; role: string; access?: AppAccessLevel } | null
+  /** VAPP-206: the viewer's app access (`exp:me`; Run as: theirs). */
+  access?: AppAccessLevel
   /** eApps R8 (apps.json `migrationCases`): previewing a draft with
    *  `migrations`: the published package's `version`; the hosting app's
    *  rows read through `migrateRecord` (copies, nothing written). */
@@ -646,6 +651,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
     appId: options.appId ?? null,
     teamId: options.teamId ?? null,
     me: runAs ? runAs.id : (options.me ?? null),
+    access: runAs ? (runAs.access ?? `write`) : (options.access ?? `write`),
     readable: runAs ? (rows) => readableRows(rows, kinds, { id: runAs.id, role: runAs.role, access: runAs.access }) : undefined,
     records: kinds,
     migrate: options.migrateFrom && packageMigrations(options.packages?.[0]).length ? { migrations: packageMigrations(options.packages?.[0]), from: options.migrateFrom } : null,

@@ -423,6 +423,11 @@ relative `{"path": "date"}` reads the day, `{"path": "id"}` the record (a
 bar's row is under `row`). `Timeline` takes `source` (a `view=timeline`
 binding), `labelField`, `rowTitle` and `showCount`.
 
+**The viewer** (VAPP-206): in Exponential, the source `exp:me` binds
+`{id, name, email, avatar, role, access}` (team role `owner` | `member`, app
+access `read` | `write`). An owners-only card reads it in `visible`; the kind's
+`policy` stays the authority.
+
 **Named queries:** `queries: {<name>: <JSON query>}` (names
 `^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).
 A template binding `records:<kind>?query=<name>&<params>` follows it: the router replaces it

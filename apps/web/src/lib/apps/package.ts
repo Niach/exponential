@@ -225,6 +225,7 @@ export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:boards`, value: `{rows: [{id, slug, name, prefix, icon, color, value, label}], count}: the team's boards in sidebar order` },
   { source: `exp:members`, value: `{rows: [{id, name, email, avatar, role, value, label}], count, me}: the team's members by name; me = the viewer's user id` },
   { source: `exp:sessions?status=<status>&mine=1&limit=<n>`, value: `{rows: [{id, title, status, busy, needsInput, kind: thread|agent, updatedAt}], count}: the team's threads and agent chats, newest first` },
+  { source: `exp:me`, value: `{id, name, email, avatar, role, access}: the viewer; role = their team role (owner | member), access = their app access (read | write). Bind it to read in visible, e.g. {call: "eq", args: {a: {path: "/me/role"}, b: "owner"}}` },
   { source: `exp:comments?issue=<identifier>&limit=<n>`, value: `{rows: [{id, body, author, authorName, parent, source, createdAt}], count}: an issue's comments, oldest first (null without the issue)` },
   { source: `exp:attachments?issue=<identifier>&limit=<n>`, value: `{rows: [{id, name, type, size, url, width, height, uploader, uploaderName, createdAt}], count}: an issue's files; url loads through the media policy (Image src)` },
   {

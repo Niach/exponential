@@ -11,7 +11,7 @@ public enum AppSources {
     // MARK: - Fixture constants
 
     /// The source names this module derives (`scheme:name` without `exp:`).
-    public static let kinds = ["issues", "boards", "members", "sessions", "comments", "attachments"]
+    public static let kinds = ["issues", "boards", "members", "me", "sessions", "comments", "attachments"]
     public static let limitDefault = 50
     public static let limitMax = 500
 
@@ -400,6 +400,16 @@ public enum AppSources {
         }, params)
     }
 
+    /// VAPP-206: the viewer, so a package's `visible` reads their team role
+    /// and app access (nil = write).
+    public static func meValue(_ store: Store, me: String?, access: String?) -> CardJSON {
+        let user = store.users.first { $0.id == me }
+        return .object([
+            "id": str(me), "name": .string(user?.name ?? ""), "email": str(user?.email), "avatar": str(user?.image),
+            "role": str(store.members.first { $0.userId == me }?.role), "access": .string(access ?? "write"),
+        ])
+    }
+
     public static func attachmentsValue(_ store: Store, params: [String: String]) -> CardJSON? {
         guard let issue = issueOf(store, params["issue"]) else { return nil }
         let rows = store.attachments
@@ -427,8 +437,9 @@ public enum AppSources {
     /// One `exp:<name>?params` over the store: the value the host emits at the
     /// bound path (nil = null: a name this module does not derive, or a
     /// comments / attachments source without a resolvable issue).
-    public static func sourceValue(name: String, params: [String: String], store: Store, me: String?) -> CardJSON? {
+    public static func sourceValue(name: String, params: [String: String], store: Store, me: String?, access: String? = nil) -> CardJSON? {
         switch name {
+        case "me": return meValue(store, me: me, access: access)
         case "issues": return issuesValue(store, params: params, me: me)
         case "boards": return boardsValue(store, params: params)
         case "members": return membersValue(store, params: params, me: me)

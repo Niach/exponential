@@ -67,7 +67,7 @@ class AppSourcesTest {
         assert(all.size >= 17)
         for (case in all) {
             val params = case["params"]?.obj?.mapValues { it.value.string!! } ?: emptyMap()
-            val got = AppSources.sourceValue(case.s("source"), params, store, case.os("me"))
+            val got = AppSources.sourceValue(case.s("source"), params, store, case.os("me"), case.os("access"))
             val expected = case["expected"]!!
             // `json` sorts object keys: the comparison is key-order-insensitive.
             if (expected.isNull) assertNull(case.s("name"), got) else assertEquals(case.s("name"), expected.json, got!!.json)

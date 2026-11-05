@@ -18,7 +18,7 @@ import kotlin.math.floor
 // rows of a team.
 object AppSources {
     // Fixture `sources`, `limits` (locked by AppSourcesTest).
-    val SOURCES: List<String> = listOf("issues", "boards", "members", "sessions", "comments", "attachments")
+    val SOURCES: List<String> = listOf("issues", "boards", "members", "me", "sessions", "comments", "attachments")
     const val LIMIT_DEFAULT = 50
     const val LIMIT_MAX = 500
 
@@ -216,6 +216,19 @@ object AppSources {
         )
     }
 
+    /** VAPP-206: the viewer, so a package's `visible` reads their team role and app access (null = write). */
+    fun meValue(store: Store, me: String?, access: String?): JsonValue {
+        val user = store.users.firstOrNull { it.id == me }
+        return obj(
+            "id" to str(me),
+            "name" to JsonValue.Str(user?.name ?: ""),
+            "email" to str(user?.email),
+            "avatar" to str(user?.image),
+            "role" to str(store.members.firstOrNull { it.userId == me }?.role),
+            "access" to JsonValue.Str(access ?: "write"),
+        )
+    }
+
     fun membersValue(store: Store, params: Map<String, String>, me: String?): JsonValue {
         val users = store.users.associateBy { it.id }
         val rows = store.members.map { m ->
@@ -309,7 +322,8 @@ object AppSources {
     /** One `exp:<name>?params` over [store]: the value the host emits at the
      *  bound path (null for a name this module does not derive, or a comments /
      *  attachments source without a resolvable issue). [me] = the viewer. */
-    fun sourceValue(name: String, params: Map<String, String>, store: Store, me: String?): JsonValue? = when (name) {
+    fun sourceValue(name: String, params: Map<String, String>, store: Store, me: String?, access: String? = null): JsonValue? = when (name) {
+        "me" -> meValue(store, me, access)
         "issues" -> issuesValue(store, params, me)
         "boards" -> boardsValue(store, params)
         "members" -> membersValue(store, params, me)

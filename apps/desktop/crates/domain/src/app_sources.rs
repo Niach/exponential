@@ -410,11 +410,32 @@ pub fn is_source(name: &str) -> bool {
     APP_SOURCES.sources.iter().any(|s| s == name)
 }
 
+/// VAPP-206: the viewer, so a package's `visible` reads their team role and
+/// app access (`None` = write).
+pub fn me_value(store: &SourceStore, me: Option<&str>, access: Option<&str>) -> Value {
+    let member = me.and_then(|me| store.members.iter().find(|m| m.user_id == me));
+    let user = me.and_then(|me| store.users.iter().find(|u| u.id == me));
+    json!({
+        "id": me,
+        "name": user.map(|u| u.name.clone()).unwrap_or_default(),
+        "email": user.and_then(|u| u.email.clone()),
+        "avatar": user.and_then(|u| u.image.clone()),
+        "role": member.map(|m| m.role.clone()),
+        "access": access.unwrap_or("write"),
+    })
+}
+
 /// One `exp:<name>?params` over the store: the value the host emits at the
 /// bound path (null for a name this module does not derive, or a comments /
 /// attachments source without a resolvable issue).
 pub fn source_value(name: &str, params: &Params, store: &SourceStore, me: Option<&str>) -> Value {
+    source_value_as(name, params, store, me, None)
+}
+
+/// [`source_value`] with the viewer's app access (`exp:me`).
+pub fn source_value_as(name: &str, params: &Params, store: &SourceStore, me: Option<&str>, access: Option<&str>) -> Value {
     match name {
+        "me" => me_value(store, me, access),
         "issues" => issues_value(store, params, me),
         "boards" => boards_value(store, params),
         "members" => members_value(store, params, me),
@@ -452,7 +473,7 @@ mod tests {
         assert!(cases.len() >= 17);
         for case in cases {
             let name = case["source"].as_str().unwrap();
-            let got = source_value(name, &params_of(&case["params"]), &store, case["me"].as_str());
+            let got = source_value_as(name, &params_of(&case["params"]), &store, case["me"].as_str(), case["access"].as_str());
             assert_eq!(got, case["expected"], "{}", case["name"]);
         }
     }

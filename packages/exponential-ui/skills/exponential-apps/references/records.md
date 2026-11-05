@@ -290,6 +290,11 @@ relative `{"path": "date"}` reads the day, `{"path": "id"}` the record (a
 bar's row is under `row`). `Timeline` takes `source` (a `view=timeline`
 binding), `labelField`, `rowTitle` and `showCount`.
 
+**The viewer** (VAPP-206): in Exponential, the source `exp:me` binds
+`{id, name, email, avatar, role, access}` (team role `owner` | `member`, app
+access `read` | `write`). An owners-only card reads it in `visible`; the kind's
+`policy` stays the authority.
+
 **Named queries:** `queries: {<name>: <JSON query>}` (names
 `^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).
 A template binding `records:<kind>?query=<name>&<params>` follows it: the router replaces it
@@ -414,6 +419,8 @@ Layers, all intersected:
 The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as Apps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
 
 The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. ✅ R6 (#VAPP-222): `role:<field>` levels live on a kind's `transitions.who` (the member a `member` ref names), not on `policy`.
+
+   ✅ #VAPP-206: a package reads the viewer through the `exp:me` source, `{id, name, email, avatar, role, access}` (`app-sources.json` ×4; in `sources` like any other), so an owners-only card hides itself: `"visible": {"call": "eq", "args": {"a": {"path": "/me/role"}, "b": "owner"}}`. An action reads it as `data.me.role`. This is presentation only: the policy above stays the authority.
 
 4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
 5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.

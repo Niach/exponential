@@ -320,6 +320,8 @@ The defaults are `member/member/author/author`. This is the common case; it ship
 
 The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. ✅ R6 (#VAPP-222): `role:<field>` levels live on a kind's `transitions.who` (the member a `member` ref names), not on `policy`.
 
+   ✅ #VAPP-206: a package reads the viewer through the `exp:me` source, `{id, name, email, avatar, role, access}` (`app-sources.json` ×4; in `sources` like any other), so an owners-only card hides itself: `"visible": {"call": "eq", "args": {"a": {"path": "/me/role"}, "b": "owner"}}`. An action reads it as `data.me.role`. This is presentation only: the policy above stays the authority.
+
 4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
 5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.
 
@@ -386,7 +388,7 @@ Today a binding is a URL (`records:entry?mine=1&by=date&sum=hours`). URLs stay a
 | Aggregates | ✅ Q1 `sum avg min max count countDistinct first last` (per group + `totals`) | |
 | Running values | ✅ Q1 `running: {field: "sum"}` (sum count avg min max, over groups, rows or month days) and `before: <date>` (totals up to a date, seeding the running values) | streaks |
 | Joins | ✅ R5 (#VAPP-219) `expand: ["customer"]` / `expand=customer` follows refs (one level): a record row, an issue summary `{id, identifier, title, status}`, a member `{id, name}`; dangling = null (TS + Rust, `records-query.json` ×4; the server's Q4 reads too) | There are no free joins. |
-| Sources | `records:<kind>`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices`, ✅ `upstream:<server>/<tool>` (§6.3, the tool's answer, no query) | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests` |
+| Sources | `records:<kind>`, `exp:issues`, `exp:boards`, `exp:members`, ✅ `exp:me` (#VAPP-206), `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices`, ✅ `upstream:<server>/<tool>` (§6.3, the tool's answer, no query) | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests` |
 
 **One evaluator:**
 
