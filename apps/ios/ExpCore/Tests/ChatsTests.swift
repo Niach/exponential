@@ -604,8 +604,15 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(header["buttons"] as? [String], Sh.Header.buttons)
         XCTAssertEqual(header["circle"] as? Double, Sh.Header.circle)
         XCTAssertEqual(Set(header.keys), ["pages", "buttons", "circle"])
+        let chatHeader = try XCTUnwrap(shell["chatHeader"] as? [String: Double])
+        XCTAssertEqual(chatHeader, [
+            "row": Sh.ChatHeader.row, "paddingX": Sh.ChatHeader.paddingX, "gap": Sh.ChatHeader.gap,
+            "button": Sh.ChatHeader.button, "glyph": Sh.ChatHeader.glyph, "disc": Sh.ChatHeader.disc,
+            "discGlyph": Sh.ChatHeader.discGlyph, "discGap": Sh.ChatHeader.discGap,
+            "title": Sh.ChatHeader.title, "subtitle": Sh.ChatHeader.subtitle,
+        ])
         XCTAssertEqual(Set(shell.keys), [
-            "tabs", "tabIcons", "bar", "boardTab", "teamTab", "boardMenu", "header", "boardChips", "leadDisc",
+            "tabs", "tabIcons", "bar", "boardTab", "teamTab", "boardMenu", "header", "boardChips", "chatHeader", "leadDisc",
             "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "selectBadgeRadius", "archivedGlyph",
             "dimOpacity", "chatLead",
         ])

@@ -152,6 +152,7 @@
     { "id": "phone-tab-bar", "class": "expressible", "with": "Segmented in its full-width bar variant (icon over label, Avatar for Team, a trailing caret icon on the Board tab) beside a two-Button Group capsule" },
     { "id": "phone-board-menu", "class": "expressible", "with": "Menu (check items with a leading icon) in a full-width bottom panel" },
     { "id": "phone-page-header", "class": "expressible", "with": "AppBar with a large title and two icon Buttons in its trailing slot" },
+    { "id": "chat-header", "class": "expressible", "with": "AppBar with a leading ghost Button, an Avatar, a title over a subtitle and ghost icon Buttons in its trailing slot" },
     { "id": "schedule-picker", "class": "expressible", "with": "Section of Rows with trailing Select values (Repeat, Every, Minute, Time, Days, Time zone) + a searchable Select" },
     { "id": "session", "class": "native", "with": "the session feed native; AppBar + Button Stop + Composer otherwise" },
     { "id": "agent-channel", "class": "native", "with": "the conversation feed native; Row + Markdown + Composer otherwise" }

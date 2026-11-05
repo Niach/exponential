@@ -74,6 +74,17 @@ import com.exponential.app.ui.components.agentMenuItems
 import com.exponential.app.ui.components.chatMenuItems
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import com.exponential.app.ui.components.ChatLeadDisc
+import com.exponential.app.ui.components.ChatMenuItem
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.thread.AgentGlyph
+import com.exponential.app.ui.thread.ChatHeader
+import com.exponential.app.ui.thread.ChatHeaderButton
 import com.exponential.app.ui.thread.ThreadConversation
 import com.exponential.app.ui.thread.ThreadRowMeta
 import com.exponential.app.ui.threads.ChatsContent
@@ -83,6 +94,7 @@ import kotlinx.serialization.json.jsonObject
 
 // Thread 58cb32df (fixtures/chats.json): the Android twins of the styleguide
 // entries `chat-list`, `phone-tab-bar`, `phone-board-menu`, `phone-page-header`,
+// `chat-header`,
 // `chat-transcript`, `chat-menus` and
 // the updated `schedule-picker` — capture-only screens (no server, no
 // sign-in) drawn by the REAL composables over specimen data, shot by
@@ -93,6 +105,7 @@ const val PhoneTabBarSpecimenTestId = "phone-tab-bar-specimen"
 const val PhoneBoardMenuSpecimenTestId = "phone-board-menu-specimen"
 const val TeamAvatarSpecimenTestId = "team-avatar-specimen"
 const val PhonePageHeaderSpecimenTestId = "phone-page-header-specimen"
+const val ChatHeaderSpecimenTestId = "chat-header-specimen"
 const val ChatTranscriptSpecimenTestId = "chat-transcript-specimen"
 const val ChatMenusSpecimenTestId = "chat-menus-specimen"
 const val ChatSelectionSpecimenTestId = "chat-selection-specimen"
@@ -457,6 +470,56 @@ fun PhonePageHeaderSpecimenScreen() {
                 title = Chats.Copy.HEADERS.getValue("devices"),
                 onBack = {},
                 actions = PageHeaderActions({}, {}, inboxUnread = false),
+            )
+        }
+    }
+}
+
+/** #EXP-1688 THE chat header (`shell.chatHeader`, shot `sg_chat-header`): a chat
+ *  waiting on you, a working one with a title that truncates, an agent chat
+ *  with its telephone: the real [ChatHeader], web's `ChatHeaderSpecimen`. */
+@Composable
+fun ChatHeaderSpecimenScreen() {
+    val discSize = Chats.Shell.ChatHeader.DISC.dp
+    val more = listOf(ChatMenuItem(label = "More", icon = ExpIcons.uiMore, onClick = {}))
+    AppBackground {
+        Column(
+            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 24.dp).testTag(ChatHeaderSpecimenTestId),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Caption("A chat that needs you (${Chats.Shell.ChatHeader.ROW}px, ghost buttons, always leading)")
+            ChatHeader(
+                title = "Reduce cold start",
+                subtitle = "${SessionTree.ThreadRowWord.NeedsInput.text} · Alex's MacBook",
+                subtitleColor = NeedsInputAmber,
+                lead = { ChatLeadDisc(Chats.ChatLead.NeedsYou, agent = "claude", size = discSize) },
+                onBack = {},
+                menu = more,
+            )
+            Caption("A working chat")
+            ChatHeader(
+                title = "A title long enough that it truncates on one line",
+                subtitle = Chats.Copy.PREVIEW_WORKING,
+                subtitleColor = MaterialTheme.colorScheme.onSurface,
+                lead = { ChatLeadDisc(Chats.ChatLead.Working, agent = "claude", size = discSize) },
+                onBack = {},
+                menu = more,
+            )
+            Caption("An agent chat (the telephone)")
+            ChatHeader(
+                title = "Triage",
+                subtitle = SessionTree.agentChatSubtitle(null),
+                lead = {
+                    Box(
+                        Modifier.size(discSize).clip(CircleShape).background(DesignTokens.Palette.Muted, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AgentGlyph(icon = "bug", color = "#a855f7", size = Chats.Shell.ChatHeader.DISC_GLYPH.dp)
+                    }
+                },
+                onBack = {},
+                menu = more,
+                call = { ChatHeaderButton(ExpIcons.voiceCall, "Call", onClick = {}) },
             )
         }
     }

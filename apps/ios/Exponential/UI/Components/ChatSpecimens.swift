@@ -417,6 +417,60 @@ private struct ClearNavigationBackground: ViewModifier {
     }
 }
 
+/// `chat-header` (#EXP-1688, chats.json `shell.chatHeader`): THE chat header:
+/// a chat waiting on you, a working one, an agent chat with its telephone.
+struct ChatHeaderSpecimens: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PhoneShellSpecimen.caption(
+                "A chat that needs you (\(Int(Chats.Shell.ChatHeader.row))px, ghost buttons, always leading)"
+            )
+            ChatHeader {
+                ChatHeaderTitle(
+                    title: "Reduce cold start",
+                    subtitle: "needs input · Alex's MacBook",
+                    subtitleTone: .needsYou,
+                    cli: "claude",
+                    mark: .needsYou
+                )
+            } trailing: {
+                more
+            }
+            PhoneShellSpecimen.caption("A working chat")
+            ChatHeader {
+                ChatHeaderTitle(
+                    title: "A title long enough that it truncates on one line",
+                    subtitle: Chats.Copy.Preview.working,
+                    subtitleTone: .working,
+                    cli: "claude",
+                    mark: .working
+                )
+            } trailing: {
+                more
+            }
+            PhoneShellSpecimen.caption("An agent chat (the telephone)")
+            ChatHeader {
+                ChatHeaderTitle(
+                    title: "Triage",
+                    subtitle: Chats.agentChatSubtitle(modelLabel: nil),
+                    agentIcon: BoardTypeDisplay.iconName(for: "bug"),
+                    agentColor: "#a855f7"
+                )
+            } trailing: {
+                ChatHeaderGhostButton(icon: AppIcons.voiceCall, label: "Call") {}
+                more
+            }
+        }
+        .padding(.horizontal, -16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat-header-specimen")
+    }
+
+    private var more: some View {
+        ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More") {}
+    }
+}
+
 /// `chat-transcript`: the web entry's phone column — the person's and the
 /// agent's bubbles (each time inside, bottom-right), the superseded plan
 /// card, the agent's inline preview (THE surface card through the real

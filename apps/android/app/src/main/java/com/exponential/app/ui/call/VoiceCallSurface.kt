@@ -523,8 +523,8 @@ class AgentCallViewModel @Inject constructor(
 }
 
 /**
- * THE telephone in the agent chat's header, left of `…`: the header's icon
- * button (44 / 18 like the menu). Disabled = dimmed, its reason on long
+ * THE telephone in the agent chat's header, left of `…`: the header's ghost
+ * button ([com.exponential.app.ui.thread.ChatHeaderButton], like the menu). Disabled = dimmed, its reason on long
  * press (the app's tooltip). A tap asks for the microphone once, then calls.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -544,16 +544,14 @@ fun AgentCallButton(
     }
     val enabled = target.availability.enabled && agentId != null
     val button: @Composable () -> Unit = {
-        CircleIconButton(
+        com.exponential.app.ui.thread.ChatHeaderButton(
             ExpIcons.voiceCall,
             VoiceCall.Copy.call(agentName),
             onClick = {
-                if (agentId == null) return@CircleIconButton
+                if (agentId == null) return@ChatHeaderButton
                 if (viewModel.hasMicPermission()) viewModel.start(agentId, agentName, agentIcon, agentColor) else permission.launch(Manifest.permission.RECORD_AUDIO)
             },
             enabled = enabled,
-            size = 44.dp,
-            glyphSize = 18.dp,
             modifier = Modifier.testTag(VoiceCall.TestIds.CALL),
         )
     }

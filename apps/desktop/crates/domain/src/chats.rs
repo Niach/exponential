@@ -290,6 +290,7 @@ pub struct ChatsShell {
     pub board_tab: ChatsBoardTab,
     pub board_menu: ChatsBoardMenu,
     pub header: ChatsHeader,
+    pub chat_header: ChatsChatHeader,
     pub lead_disc: f32,
     /// Touch-only select badge on a selected row's disc (#EXP-1388); the IDE keeps the checkbox column.
     pub select_badge: f32,
@@ -351,6 +352,22 @@ pub struct ChatsHeader {
     pub pages: Vec<String>,
     pub buttons: Vec<String>,
     pub circle: f32,
+}
+
+/// `shell.chatHeader` (#EXP-1688): the chat header on a phone.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsChatHeader {
+    pub row: f32,
+    pub padding_x: f32,
+    pub gap: f32,
+    pub button: f32,
+    pub glyph: f32,
+    pub disc: f32,
+    pub disc_glyph: f32,
+    pub disc_gap: f32,
+    pub title: f32,
+    pub subtitle: f32,
 }
 
 /// `fixtures/chats.json` minus its cases.

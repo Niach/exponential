@@ -135,10 +135,7 @@ struct AgentPageView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
-                // EXP-1649: a column taller than the room (the `/` menu over
-                // the card, the keyboard up) keeps its BOTTOM in view — the
-                // card, never the dawn above it.
-                .defaultScrollAnchor(.bottom)
+                .modifier(HomeScrollAnchor())
                 // On the SCROLLER itself (EXP-36), so the composer clears
                 // the floating bar.
                 .tabBarBottomInset(reservesTabBar)
@@ -470,6 +467,24 @@ struct AgentPageView: View {
             )
         default:
             break
+        }
+    }
+}
+
+/// EXP-1649: a column taller than the room (the `/` menu over the card, the
+/// keyboard up) keeps its BOTTOM in view — the card, never the dawn above it.
+/// #EXP-1688: but the scroller OPENS at its top: one that opens anchored off
+/// it reads as scrolled to the page header, whose large title then collapses
+/// into the small centred one on the material bar.
+private struct HomeScrollAnchor: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .defaultScrollAnchor(.top, for: .initialOffset)
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
+                .defaultScrollAnchor(.bottom, for: .alignment)
+        } else {
+            content.defaultScrollAnchor(.bottom)
         }
     }
 }
