@@ -36,7 +36,8 @@ import type { Tx } from "@/lib/sessions/tx"
 //   watchdog            → `session_unclaimed`/`session_stuck` wake;
 //                         S-3: an interruption (device_offline, restarted)
 //                         posts nothing (it continues by itself);
-//                         `session_interrupted` wakes once it did not
+//                         `session_interrupted` wakes once it did not, or
+//                         (#EXP-1675) once its device stayed away too long
 //
 // With nobody listening (a root without watchers) a line lands on S
 // itself, pre-consumed, so a person still sees it.
@@ -419,6 +420,7 @@ export const BUS_COPY = {
   session_stuck: (silent: number) =>
     `No sign of life for ${silent} minutes while busy (no message, tool call, push or background task). Check whether it is still needed.`,
   session_unresumed: `Interrupted ${minutes.resumeMinutes}+ minutes ago and not continued by its device. A person sees it under Needs you; a message continues it.`,
+  session_offline: `Interrupted: its device has been offline for ${minutes.offlineMinutes}+ minutes. A person sees it under Needs you; it continues when the device is back.`,
   pr_opened: (number: number, url: string) => `Opened PR #${number}: ${url}`,
 } as const
 

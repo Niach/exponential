@@ -21,6 +21,7 @@ import {
   stampMs,
   stuckText,
   unclaimedText,
+  offlineText,
   unresumedText,
 } from "./copy"
 import type {
@@ -813,6 +814,14 @@ function tick(ctx: Ctx): StepResult {
     if (b.resumeSince == null || !(b.resumeSince < now - w.resumeMinutes * MIN)) continue
     Object.assign(row, { needsInput: true, updatedAt: now })
     busLine(ctx, row, `session_interrupted`, unresumedText(), { waking: true })
+  }
+  // Offline too long: a cut run whose device never came back = on a person, said once.
+  for (const row of ordered(ctx.state)) {
+    const b = row.blocked
+    if (!isWorking(row) || b?.kind !== `device_offline` || row.needsInput || b.resume !== true) continue
+    if (b.resumeSince != null || !(b.since < now - w.offlineMinutes * MIN)) continue
+    Object.assign(row, { needsInput: true, updatedAt: now })
+    busLine(ctx, row, `session_interrupted`, offlineText(), { waking: true })
   }
   // A usage wall whose reset passed: cleared, silently.
   for (const row of ordered(ctx.state)) {
