@@ -54,6 +54,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Long chats**: opening a long agent chat no longer freezes the desktop app, also when it reopens that chat on launch.
 - **Dates in apps**: saving a date-time record on a phone no longer shifts it by your time zone, and desktop reads app date-times in your zone instead of UTC.
 - **Drawers**: a top or bottom drawer in an app spans the whole window on desktop, iPhone and Android, and a top drawer on Android opens from the top.
+- **Offline devices**: when a session's device goes offline mid-run and stays offline, the session reaches Needs you after 30 minutes with a notice saying so, instead of waiting silently.
 - **Android**: signing out no longer crashes the app.
 - **Guest pages**: a public page that shows an app's own screen opens instead of reading as a dead link, and a file uploaded to a session is a link instead of an empty tile."#,
 };
