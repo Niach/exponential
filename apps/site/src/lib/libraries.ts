@@ -16,6 +16,6 @@ export const LIBRARIES: Library[] = [
   { slug: `p2p`, name: `P2P`, product: `/sdk/p2p/`, from: `/net/` },
   { slug: `computer-use`, name: `Computer Use`, product: `/sdk/computer-use/`, from: `/pilot/` },
   { slug: `mcp-proxy`, name: `MCP Proxy`, product: `/sdk/mcp-proxy/`, from: `/mcp/` },
-  { slug: `acp`, name: `ACP`, product: `/sdk/acp/`, from: `/agent/` },
+  { slug: `agents`, name: `Agents`, product: `/sdk/agents/`, from: `/agent/` },
   { slug: `core`, name: `Core`, product: `/sdk/core/`, from: `/core/` },
 ]

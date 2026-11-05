@@ -91,7 +91,7 @@ const EXTRA: Record<string, { guides?: [string, string][]; reference?: [string, 
   p2p: { reference: [[`ffi`, `FFI`], [`wasm`, `WASM`]] },
   "computer-use": { reference: [[`screen`, `Screen`]] },
   "mcp-proxy": { reference: [[`contract`, `Contract`]] },
-  acp: { reference: [[`orchestration`, `Orchestration`], [`hub-core`, `Hub core`], [`hub-core-wasm`, `Hub core WASM`], [`migrating`, `Migrating`]] },
+  agents: { reference: [[`orchestration`, `Orchestration`], [`hub-core`, `Hub core`], [`hub-core-wasm`, `Hub core WASM`], [`migrating`, `Migrating`]] },
   core: { reference: [[`contract`, `Contract`]] },
 }
 
