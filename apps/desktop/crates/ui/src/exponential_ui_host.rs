@@ -1227,7 +1227,7 @@ pub(crate) fn dev_open_consent(cx: &mut App) {
         surface_id: "dev-app-consent".into(),
         component_id: "dev-app-consent".into(),
         name: "exponential.comments.create".into(),
-        args: serde_json::json!({"issueId": "APP-15", "body": "Logged 8 h: docs, admin"}),
+        args: serde_json::json!({"body": "Logged 8 h: docs, admin", "issueId": "APP-15"}),
     };
     consent_hook(None)(&call, cx).detach();
 }
