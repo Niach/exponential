@@ -155,6 +155,8 @@
     { "id": "chat-header", "class": "expressible", "with": "AppBar with a leading ghost Button, an Avatar, a title over a subtitle and ghost icon Buttons in its trailing slot" },
     { "id": "schedule-picker", "class": "expressible", "with": "Section of Rows with trailing Select values (Repeat, Every, Minute, Time, Days, Time zone) + a searchable Select" },
     { "id": "session", "class": "native", "with": "the session feed native; AppBar + Button Stop + Composer otherwise" },
-    { "id": "agent-channel", "class": "native", "with": "the conversation feed native; Row + Markdown + Composer otherwise" }
+    { "id": "agent-channel", "class": "native", "with": "the conversation feed native; Row + Markdown + Composer otherwise" },
+    { "id": "ede-panel", "class": "expressible", "with": "already a genUI document (apps/ede/ui/panel.json): Box + Stack + Button + Text; the surface header is eDE's, not the catalog's" },
+    { "id": "ede-panel-menu", "class": "expressible", "with": "already a genUI document (apps/ede/ui/menu.json): Box + Text + Row + Separator, the panel's popup surface" }
   ]
 }
