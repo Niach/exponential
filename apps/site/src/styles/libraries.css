@@ -1,5 +1,5 @@
 /* Styles of the libraries area (one file per area; shared tokens live in theme.css).
-   eUI + Motion split into partials, one per part of the area; every class is eui-prefixed. */
+   genUI + Motion split into partials, one per part of the area; every class is eui-prefixed. */
 @import "./libraries/eui-product.css";
 @import "./libraries/eui-guides.css";
 @import "./libraries/eui-components.css";

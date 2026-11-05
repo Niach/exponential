@@ -1,4 +1,4 @@
-/* The eUI playground (an island, `client:load` through Playground.astro):
+/* The genUI playground (an island, `client:load` through Playground.astro):
    an editor that takes A2UI messages (a JSON array/object or JSONL), a flat
    component list or a nested node; the live render beside it (debounced)
    with the reducer's issues and the actions it fires; a theme switch (the
@@ -23,7 +23,7 @@ type Mode = `light` | `dark`
 type Tab = `surface` | `theme` | `extension`
 type PromptModule = typeof import("@exponential_app/eui/prompt")
 
-/** The share-hash payload (format kept identical to the old /ui/ site). */
+/** The share-hash payload (format kept identical to the old /sdk/genui/ site). */
 interface ShareState {
   v: 1
   source: string

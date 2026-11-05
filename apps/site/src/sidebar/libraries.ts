@@ -1,14 +1,15 @@
-/* Libraries: each one Overview / Guides / Reference. eUI and Motion list
-   their pages by hand (eUI's components come from the catalog, by group);
-   the other libraries keep the generic three. */
+/* The SDK: each module Overview / Guides / Reference. genUI and Motion list
+   their pages by hand (genUI's components come from the catalog, by group);
+   the other modules keep the generic three. */
 import componentsDoc from "@exponential_app/eui/docs/components.generated.json"
+import { EAPPS } from "./eapps.ts"
 import { LIBRARIES } from "../lib/libraries.ts"
 import { EUI_GROUP_LABELS, EUI_GROUP_ORDER, euiComponentPath } from "../lib/eui-components.ts"
 
-const EUI = `/docs/libraries/eui`
-const MOTION = `/docs/libraries/motion`
+const EUI = `/docs/sdk/genui`
+const MOTION = `/docs/sdk/motion`
 
-/** The eUI guides in reading order (slug → sidebar label). */
+/** The genUI guides in reading order (slug → sidebar label). */
 export const EUI_GUIDES: [string, string][] = [
   [`react`, `React`],
   [`solid`, `Solid`],
@@ -30,7 +31,7 @@ const componentGroups = EUI_GROUP_ORDER.map((group) => ({
 })).filter((g) => g.items.length > 0)
 
 const eui = {
-  label: `eUI`,
+  label: `genUI`,
   collapsed: false,
   items: [
     { label: `Overview`, link: `${EUI}/` },
@@ -81,21 +82,21 @@ const motion = {
   ],
 }
 
-/** The other libraries' extra guides and references (slug → page slugs under guides/ and reference/). */
+/** The other modules' extra guides and references (slug → page slugs under guides/ and reference/). */
 const EXTRA: Record<string, { guides?: [string, string][]; reference?: [string, string][] }> = {
-  etalk: {
+  voice: {
     guides: [[`install`, `Install`], [`your-voice`, `Your voice`], [`push-to-talk`, `Push to talk`]],
     reference: [[`api`, `API`], [`numbers`, `Numbers`], [`licences`, `Licences`], [`contract`, `Contract`], [`gpui`, `gpui`], [`ffi`, `FFI`], [`wakeword`, `Wake word`]],
   },
-  enet: { reference: [[`ffi`, `FFI`], [`wasm`, `WASM`]] },
-  epilot: { reference: [[`screen`, `Screen`]] },
-  emcp: { reference: [[`contract`, `Contract`]] },
-  eagent: { reference: [[`orchestration`, `Orchestration`], [`hub-core`, `Hub core`], [`hub-core-wasm`, `Hub core WASM`], [`migrating`, `Migrating`]] },
-  ecore: { reference: [[`contract`, `Contract`]] },
+  p2p: { reference: [[`ffi`, `FFI`], [`wasm`, `WASM`]] },
+  "computer-use": { reference: [[`screen`, `Screen`]] },
+  "mcp-proxy": { reference: [[`contract`, `Contract`]] },
+  acp: { reference: [[`orchestration`, `Orchestration`], [`hub-core`, `Hub core`], [`hub-core-wasm`, `Hub core WASM`], [`migrating`, `Migrating`]] },
+  core: { reference: [[`contract`, `Contract`]] },
 }
 
 function otherLibrary(slug: string, name: string) {
-  const base = `/docs/libraries/${slug}`
+  const base = `/docs/sdk/${slug}`
   const extra = EXTRA[slug] ?? {}
   const section = (label: string, dir: string, pages?: [string, string][]) =>
     pages?.length
@@ -109,13 +110,15 @@ function otherLibrary(slug: string, name: string) {
 }
 
 export const LIBRARIES_GROUP = {
-  label: `Libraries`,
+  label: `SDK`,
   items: [
-    { label: `Install from a release tag`, link: `/docs/libraries/install/` },
+    { label: `Overview`, link: `/docs/sdk/` },
+    { label: `Install from a release tag`, link: `/docs/sdk/install/` },
     ...LIBRARIES.map((lib) => {
-      if (lib.slug === `eui`) return eui
+      if (lib.slug === `genui`) return eui
       if (lib.slug === `motion`) return motion
       return otherLibrary(lib.slug, lib.name)
     }),
+    EAPPS,
   ],
 }

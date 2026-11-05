@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import type { ReferenceSource } from "../sync-reference.ts"
 
-/* Docs area (Get started, eApps, Build, Reference): pages generated from
+/* Docs area (Get started, Apps, Build, Reference): pages generated from
    the repo. Markdown sources pass through; for TS and Rust sources the
    `transform` ignores the file text and renders the page from the parsed
    source, so `source` and the edit link still name the file of truth.
@@ -32,7 +32,7 @@ function sections(markdown: string, level = 2): { heading: string; body: string 
   })
 }
 
-/* ── eApps: spec images live at /eapps/ (the old site's URLs) ── */
+/* ── Apps: spec images live at /eapps/ (the old site's URLs) ── */
 const SPEC_IMAGES: Record<string, string> = { "m5-admin.webp": `admin-console.webp` }
 const specImages = (markdown: string) =>
   markdown.replace(/!\[([^\]]*)\]\(apps\/([^)]+\.webp)\)/g, (_, alt: string, file: string) => {
@@ -45,7 +45,7 @@ function eappsLimits(): string {
   return [
     `## Limits`,
     ``,
-    `From ${link(`/docs/reference/spec/apps/#${slug(limits.heading)}`, `the eApps spec`)} (✅ = enforced today, 🆕 = planned).`,
+    `From ${link(`/docs/reference/spec/apps/#${slug(limits.heading)}`, `the Apps spec`)} (✅ = enforced today, 🆕 = planned).`,
     limits.body.trimEnd(),
     ``,
   ].join(`\n`)
@@ -56,8 +56,8 @@ const SPEC_FILES: { source: string; slug: string; title: string; description: st
   {
     source: `docs/spec/apps.md`,
     slug: `docs/reference/spec/apps`,
-    title: `eApps spec`,
-    description: `The approved eApps spec: package, records, queries, UI, actions, automation, MCP, access, security, runtime, sync, limits, the gap list and the decisions.`,
+    title: `Apps spec`,
+    description: `The approved Apps spec: package, records, queries, UI, actions, automation, MCP, access, security, runtime, sync, limits, the gap list and the decisions.`,
   },
   ...readdirSync(join(REPO, `packages/exponential-ui/docs`))
     .filter((f) => /^round-\d+-contract\.md$/.test(f))
@@ -66,9 +66,9 @@ const SPEC_FILES: { source: string; slug: string; title: string; description: st
       const n = file.match(/\d+/)![0]
       return {
         source: `packages/exponential-ui/docs/${file}`,
-        slug: `docs/reference/spec/eui-round-${n}`,
-        title: `eUI round ${n} contract`,
-        description: `The contract of eUI's round ${n}: what every renderer implements, as written for the round.`,
+        slug: `docs/reference/spec/genui-round-${n}`,
+        title: `genUI round ${n} contract`,
+        description: `The contract of genUI's round ${n}: what every renderer implements, as written for the round.`,
       }
     }),
 ]
@@ -81,16 +81,16 @@ function specIndex(): string {
     ``,
     `| spec | source |`,
     `|---|---|`,
-    `| ${link(`/docs/libraries/motion/reference/`, `Motion`)} | \`docs/spec/motion.md\` |`,
+    `| ${link(`/docs/sdk/motion/reference/`, `Motion`)} | \`docs/spec/motion.md\` |`,
     ...rows,
     ``,
-    `## eApps: status and decisions`,
+    `## Apps: status and decisions`,
     ``,
-    `The eApps spec ends with its gap list, the decisions taken on it and the readiness verdict:`,
+    `The Apps spec ends with its gap list, the decisions taken on it and the readiness verdict:`,
     ``,
     ...apps.map((s) => `- ${link(`/docs/reference/spec/apps/#${slug(s.heading)}`, s.heading.replace(/^\d+\.\s*/, ``))}`),
     ``,
-    `The user-facing parts (the package format and its limits) are on ${link(`/docs/eapps/reference/`, `the eApps package reference`)}.`,
+    `The user-facing parts (the package format and its limits) are on ${link(`/docs/sdk/apps/reference/`, `the Apps package reference`)}.`,
     ``,
   ].join(`\n`)
 }
@@ -100,7 +100,7 @@ async function changelog(): Promise<string> {
   const { CHANGELOG } = (await import(join(REPO, `apps/web/src/lib/changelog.ts`))) as {
     CHANGELOG: { id: string; date: string; title: string; summary: string; body: string }[]
   }
-  const out = [`What's new in Exponential, newest first: the same entries as the app's What's new card. Libraries keep their own changelogs (eUI: \`packages/exponential-ui/CHANGELOG.md\`).`, ``]
+  const out = [`What's new in Exponential, newest first: the same entries as the app's What's new card. SDK modules keep their own changelogs (genUI: \`packages/exponential-ui/CHANGELOG.md\`).`, ``]
   let month = ``
   for (const entry of CHANGELOG) {
     const m = entry.date.slice(0, 7)
@@ -165,7 +165,7 @@ ${rustUsage(`${CLI}/commands/mcp.rs`)}
 
 ### motion
 
-Convert, check and preview ${link(`/docs/libraries/motion/`, `Motion`)} animations (the dialect is in the ${link(`/docs/libraries/motion/reference/`, `Motion reference`)}).
+Convert, check and preview ${link(`/docs/sdk/motion/`, `Motion`)} animations (the dialect is in the ${link(`/docs/sdk/motion/reference/`, `Motion reference`)}).
 
 \`\`\`text
 ${rustUsage(`${CLI}/commands/motion.rs`)}
@@ -206,7 +206,7 @@ You also need \`git\` and a coding agent: Claude Code on your \`PATH\`, or Codex
 
 ## Other devices
 
-\`--device <name|id>\` on \`code\` or \`run\` starts the session on another of your devices (it must be online); \`--follow\` tails it. \`sessions log\` streams a transcript from the device that ran it over eNet, end-to-end encrypted.
+\`--device <name|id>\` on \`code\` or \`run\` starts the session on another of your devices (it must be online); \`--follow\` tails it. \`sessions log\` streams a transcript from the device that ran it over P2P, end-to-end encrypted.
 
 \`\`\`sh
 exponential devices
@@ -293,7 +293,7 @@ Session content is end-to-end encrypted: a client connected straight to \`/api/m
 
 ## App tools
 
-A team's ${link(`/docs/eapps/`, `eApps`)} expose their tools at \`/api/mcp/apps\`, each as \`<app>__<tool>\`, running as you. Connecting asks for its own consent: a team, all apps or a pick, then Read only or Full. Owners set each member's access per app and can switch single tools off.
+A team's ${link(`/docs/sdk/apps/`, `Apps`)} expose their tools at \`/api/mcp/apps\`, each as \`<app>__<tool>\`, running as you. Connecting asks for its own consent: a team, all apps or a pick, then Read only or Full. Owners set each member's access per app and can switch single tools off.
 
 ## Your own MCP servers
 
@@ -318,9 +318,9 @@ export const REFERENCE: ReferenceSource[] = [
   },
   {
     source: `packages/exponential-ui/docs/package-format.md`,
-    slug: `docs/eapps/reference`,
+    slug: `docs/sdk/apps/reference`,
     title: `Package reference`,
-    description: `The eApps package format in full: versions, records, expressions, actions, tests, tools, exposes, extensions, the file, and the limits.`,
+    description: `The Apps package format in full: versions, records, expressions, actions, tests, tools, exposes, extensions, the file, and the limits.`,
     transform: (md) => `${md.trimEnd()}\n\n${eappsLimits()}`,
   },
   ...SPEC_FILES.map((s) => ({ ...s, transform: s.source === `docs/spec/apps.md` ? specImages : undefined })),
@@ -329,7 +329,7 @@ export const REFERENCE: ReferenceSource[] = [
       source: `docs/spec/apps.md`,
       slug: `docs/reference/spec`,
       title: `Specs`,
-      description: `The design specs behind Exponential and its libraries, generated from the repo.`,
+      description: `The design specs behind Exponential and its SDK, generated from the repo.`,
     },
     specIndex
   ),

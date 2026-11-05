@@ -18,7 +18,7 @@ empty, each language uses its built-in clip.
 Speech out runs on the voice device's GPU only (at least 4 GB). Without one,
 replies are shown, not spoken, in either language.
 
-Human version: https://exponential.at/docs/libraries/etalk/guides/your-voice/
+Human version: https://exponential.at/docs/sdk/voice/guides/your-voice/
 
 ## Consent first
 

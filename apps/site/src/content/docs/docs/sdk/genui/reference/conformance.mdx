@@ -1,0 +1,80 @@
+---
+title: Conformance
+description: What makes a genUI renderer conformant, the suites and their case counts, the report, the first-party runners and the real-font harness.
+---
+
+import ConformanceSuites from "../../../../../../components/eui/reference/ConformanceSuites.astro"
+import ConformanceReport from "../../../../../../components/eui/reference/ConformanceReport.astro"
+import ConformanceCheck from "../../../../../../components/eui/reference/ConformanceCheck.astro"
+
+## What it means
+
+A renderer is **genUI conformant** when its runner replays every suite of the manifest and the report passes: every suite present, every case run, nothing failed or skipped. A surface then means the same thing on it as on ours. The same tree comes out of the reducer, every macro expands the same way, a theme resolves to the same colours, a control measures to the same box, and the host makes the same policy decisions.
+
+The fixtures in [`fixtures/`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/fixtures) are the contract. The TypeScript reference generated their expected values, and the Rust core replays them byte for byte. A renderer built on the Rust core gets the pure suites through its bindings, one built on the TypeScript package gets them from `@exponential_app/eui`, and anything else implements the reducer and [`host.json`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/host.json) itself.
+
+## The suites
+
+Generated from the fixtures into [`conformance/manifest.json`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/conformance/manifest.json), which drift-gates the case counts. A suite's *unit* says what one case is.
+
+<ConformanceSuites />
+
+## Run it on your renderer
+
+A third-party renderer (Flutter, Qt, a terminal UI) becomes conformant in four steps:
+
+1. **Read the manifest.** It lists each suite's fixture files, the unit and the case count. It ships in the npm package as `@exponential_app/eui/conformance/manifest.json`, next to the fixtures.
+2. **Replay every case** the way the suite's *check* says: reduce, expand, resolve, measure, lay out, place, paint, decode or decide, and compare with the fixture's expected value. Geometry suites take your painter's own measurements (controls within 0.5, a CSS layout within 1 px).
+3. **Write the report** (below), one entry per suite, naming every failed case.
+4. **Check it.** The checker compares the report with the manifest and prints the verdict:
+
+<ConformanceCheck />
+
+Outside the monorepo, `checkReport()` from `@exponential_app/eui` gives the same verdict in code. A report with a missing suite, a short case count or a skipped case fails.
+
+## The report
+
+One JSON object per run, validated by [`report.schema.json`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/conformance/report.schema.json):
+
+<ConformanceReport />
+
+- `renderer`, `platform`, `version`: who ran it, where.
+- `conformanceVersion`: the manifest version the runner was written against.
+- `suites.<id>`: `cases` run, `passed`, `failed` (the failed cases' names with a short reason) and, optionally, `skipped`.
+
+Our runners write it to `$EXPONENTIAL_UI_CONFORMANCE_REPORT` (default `.conformance/<name>.json` at the repo root).
+
+## Our runners and CI
+
+The core and all six first-party renderers run the full suite. The three web renderers run it in headless Chromium, and Solid and the web component must also match React exactly: the same DOM, computed styles, frames and pixels for every case and, for Solid, every primitive specimen, compared over the whole page body.
+
+| Renderer | Runner | Command |
+|---|---|---|
+| eui-core (Rust core) | [`conformance.rs`](https://github.com/Niach/exponential/blob/master/apps/desktop/crates/eui-core/tests/conformance.rs) | `cargo test -p eui-core --test conformance` |
+| `@exponential_app/eui-react` | [`suites.test.ts`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-react/browser/suites.test.ts) | `bun run --filter @exponential_app/eui-react test:conformance` |
+| `@exponential_app/eui-solid` | [`suites.test.ts`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-solid/browser/suites.test.ts) | `bun run --filter @exponential_app/eui-solid test:conformance` |
+| `@exponential_app/eui-solid` (web parity with React: renderer + primitives) | [`parity.test.ts`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-solid/browser/parity.test.ts) | `bun run --filter @exponential_app/eui-solid test:parity` |
+| `@exponential_app/eui-element` | [`suites.test.ts`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-element/browser/suites.test.ts) | `bun run --filter @exponential_app/eui-element test:conformance` |
+| `@exponential_app/eui-element` (web parity with React) | [`parity.test.ts`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-element/browser/parity.test.ts) | `bun run --filter @exponential_app/eui-element test:parity` |
+| eui-gpui | [`suites.rs`](https://github.com/Niach/exponential/blob/master/apps/desktop/crates/eui-gpui/tests/suites.rs) | `cargo test -p eui-gpui --test suites` |
+| ExponentialUI (SwiftUI) | [`ConformanceTests.swift`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-swift/Tests/ExponentialUITests/ConformanceTests.swift) | `swift test` |
+| `at.exponential:eui-compose` | [`ConformanceTest.kt`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-compose/ui-compose/src/test) | `./gradlew :ui-compose:testDebugUnitTest` |
+
+CI ([`exponential-ui.yml`](https://github.com/Niach/exponential/blob/master/.github/workflows/exponential-ui.yml)) runs all of them on every SDK pull request and fails unless every report is conformant. A release tag is only cut from a commit where that workflow is green.
+
+## The real-font harness
+
+The suites lock the **contract** with a fixed fake measure. The real-font harness locks what real text does to it: the kitchen sink, the responsive cases and a project dashboard in both modes, rendered by React (headless Chromium) and gpui with the same committed fonts (Inter, Geist, JetBrains Mono, Nunito, Fira Code), compared frame by frame against a committed web baseline.
+
+| Step | What it checks |
+|---|---|
+| **Frame dumps** | Every placed part of every case (fixture × theme × mode × width × direction): frame, text, line count. |
+| **Comparison** | Frames within a pixel tolerance; a text may wrap one line more or less. Unexplained divergences are origins: the fix list. |
+| **Known divergences** | `conformance-known.json`: per cause, which side is right and who fixes it; the ratchet only goes down. |
+| **Pixel step** | The web surface beside a real gpui window: pixel ratio and SSIM. Reported only; it does not gate. |
+
+```sh
+bun run --filter @exponential_app/eui conformance -- --only kitchen-sink/playful/dark/390/ltr
+```
+
+The full harness (the matrix, recording, the shared browser runner and the web-parity details) is documented in [`conformance/README.md`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/conformance/README.md).

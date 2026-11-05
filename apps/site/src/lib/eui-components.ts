@@ -1,8 +1,8 @@
-/* eUI's components as the site lists them: one page per catalog component at
-   /docs/libraries/eui/reference/components/<slug>/ (slug = specimen id minus
+/* genUI's components as the site lists them: one page per catalog component at
+   /docs/sdk/genui/reference/components/<slug>/ (slug = specimen id minus
    the prefix), grouped in this order. Shared by the sidebar, the generator
    (scripts/reference/eui-components.ts) and the index. */
-export const EUI_COMPONENTS_BASE = `/docs/libraries/eui/reference/components`
+export const EUI_COMPONENTS_BASE = `/docs/sdk/genui/reference/components`
 
 export const EUI_GROUP_ORDER = [`layout`, `text`, `media`, `navigation`, `overlay`, `feedback`, `data`, `action`, `input`, `list`] as const
 

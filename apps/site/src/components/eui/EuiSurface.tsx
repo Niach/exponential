@@ -1,4 +1,4 @@
-/* eUI inside Astro: ONE React component, two ways to use it.
+/* genUI inside Astro: ONE React component, two ways to use it.
    - `<EuiSurface tree={…} />` (no client directive): Astro renders it at
      build time with react-dom/server; the page ships the HTML and the
      surface's CSS, zero JS.

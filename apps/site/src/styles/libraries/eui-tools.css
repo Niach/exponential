@@ -1,5 +1,5 @@
 /* eui-tools: classes prefixed eui-. The playground and the theme builder
-   (docs/libraries/eui/tools/*). Built on Starlight's variables, so both
+   (docs/sdk/genui/tools/*). Built on Starlight's variables, so both
    follow the site's theme; the surfaces carry their own theme. The
    builder's chrome is its own scoped `.xb` sheet (packages/exponential-ui/
    builder/builder.css, imported by ThemeBuilder.astro); the rules here

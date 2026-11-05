@@ -1,4 +1,4 @@
-/* eUI surfaces rendered at build time each inline the full theme sheet
+/* genUI surfaces rendered at build time each inline the full theme sheet
    (BASE_CSS + the compiled theme, ~186 KB). This step moves every distinct
    sheet into ONE hashed file under /_astro/ (cached across pages), links it
    once in <head>, and leaves the surface's <style> empty. Hydration keeps
@@ -45,7 +45,7 @@ export function euiStyles(): AstroIntegration {
           writeFileSync(file, next.replace(`</head>`, `${[...links].join(``)}</head>`))
           pages++
         }
-        logger.info(`${written.size} eUI theme sheet(s) shared by ${pages} page(s)`)
+        logger.info(`${written.size} genUI theme sheet(s) shared by ${pages} page(s)`)
       },
     },
   }

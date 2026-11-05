@@ -1,0 +1,75 @@
+---
+title: Render A2UI in Solid
+description: Install the two npm packages, feed createSurface and paint it with ExponentialSurface.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+
+## Install
+
+These npm packages are the genUI module.
+
+Two packages: `@exponential_app/eui` (the catalog, themes, reducer and host runtime) and `@exponential_app/eui-solid` (the renderer). It needs Solid 1.9 with `vite-plugin-solid`. The surface injects its own styles, so a stylesheet setup is unnecessary.
+
+```sh
+npm install @exponential_app/eui @exponential_app/eui-solid solid-js
+```
+
+The guide project's whole dependency list and its Vite config:
+
+<GuideFile path="solid/package.json" />
+
+<GuideFile path="solid/vite.config.ts" />
+
+## Paint a surface
+
+`createSurface` reduces A2UI messages into a tree and a data model (a Solid store); `<ExponentialSurface>` paints it in a theme and a mode. The plugin object takes icons, `onAction`, `onInput`, `openUrl` and extra functions.
+
+<GuideFile path="solid/src/App.tsx" />
+
+The DOM, the compiled stylesheet and the themes are the React renderer's, checked case by case in headless Chromium (DOM, computed styles, frames and pixels).
+
+## With a host
+
+One `ExponentialHost` per app reads messages from a transport and posts actions back; `<HostSurface>` paints one of its surfaces by id, with a fallback until the agent has created it.
+
+```tsx
+const host = new ExponentialHost({ transport: new JsonlStreamTransport({ url: "/a2ui.jsonl", postUrl: "/action" }) })
+onMount(() => host.connect()); onCleanup(() => host.close())
+return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Waiting for the agent…</p>} />
+```
+
+Extensions use `defineSolidExtension`; the hooks have Solid names (`createSurface`, `createHostSurface`, `createField`). More in the [Solid renderer's README](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-solid/README.md).
+
+<GuideFile path="solid/src/TrendLine.tsx" />
+
+## A surface in TypeScript
+
+`defineSurface` from `@exponential_app/eui` works unchanged in a Solid project: the typed tree becomes the same messages an agent sends, and `createSurface` applies them. The file compiles under this project's tsconfig and runs under Node, with nothing Solid-specific in it. The DSL is the one from [Write a surface in TypeScript](/docs/sdk/genui/guides/define/); the second file paints it with the Solid renderer.
+
+<GuideFile path="solid/src/defined.ts" />
+
+<GuideFile path="solid/src/Defined.tsx" />
+
+## Primitives
+
+`@exponential_app/eui-solid/primitives` is the React primitive set on Solid, module for module, with the same DOM and classes (one set of recipes, checked against React in headless Chromium). `@exponential_app/eui-solid/styles.css` is the same stylesheet as React's; `globalsCss(theme)` from `@exponential_app/eui/web` themes them outside a surface. The names differ in three ways: `class` for `className`, `as` for `asChild`, and `create*` for the `use*` hooks.
+
+```tsx
+import "@exponential_app/eui-solid/styles.css"
+import { builtinTheme } from "@exponential_app/eui"
+import { globalsCss } from "@exponential_app/eui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential_app/eui-solid/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger as={Button}>Open</DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" class="ml-2" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />
+```
+
+## Compiled in CI
+
+`bun packages/exponential-ui/guides/check.ts solid` builds [guides/solid](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/guides/solid) in an empty directory from the packed packages.

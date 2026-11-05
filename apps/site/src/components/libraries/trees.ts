@@ -1,4 +1,4 @@
-/* The libraries' product-page visuals as eUI trees: rendered at build time
+/* The libraries' product-page visuals as genUI trees: rendered at build time
    by EuiSurface (HTML + CSS, no JS), so every diagram is drawn with the same
    components the apps use. A node = icon + short title; an arrow = an Icon. */
 import type { NestedNode } from "@exponential_app/eui"
@@ -52,7 +52,7 @@ function column(id: string, items: Node[]): Node {
   return { id, component: `Stack`, props: { gap: `sm`, style: { flex: 1 } }, children: items }
 }
 
-/* eTalk ------------------------------------------------------------------ */
+/* Voice ------------------------------------------------------------------ */
 
 /** The push-to-talk capsule through its three states (voice.json `overlaySpecimens`). */
 export const TALK_CAPSULES: Node = {
@@ -83,7 +83,7 @@ export const TALK_CAPSULES: Node = {
   })) as Node[],
 }
 
-/** Measured numbers (docs: /docs/libraries/etalk/reference/numbers/). */
+/** Measured numbers (docs: /docs/sdk/voice/reference/numbers/). */
 export const TALK_NUMBERS: Node = grid(
   `talk-numbers`,
   [
@@ -95,7 +95,7 @@ export const TALK_NUMBERS: Node = grid(
   4
 )
 
-/* eNet ------------------------------------------------------------------- */
+/* P2P ------------------------------------------------------------------- */
 
 export const NET_PATHS: Node = {
   id: `net`,
@@ -119,7 +119,7 @@ export const NET_CHANNELS: Node = grid(
   5
 )
 
-/* ePilot ----------------------------------------------------------------- */
+/* Computer Use ----------------------------------------------------------------- */
 
 export const PILOT_LOOP: Node = flow(`loop`, [
   box(`p-observe`, `eye`, `Observe`),
@@ -134,7 +134,7 @@ export const PILOT_PLATFORMS: Node = grid(
   3
 )
 
-/* eMCP ------------------------------------------------------------------- */
+/* MCP Proxy ------------------------------------------------------------------- */
 
 export const MCP_HUB: Node = {
   id: `hub`,
@@ -149,15 +149,15 @@ export const MCP_HUB: Node = {
   ],
 }
 
-/* eAgent ----------------------------------------------------------------- */
+/* ACP ----------------------------------------------------------------- */
 
 export const AGENT_FLOW: Node = flow(`agent`, [
   box(`a-app`, `app-window`, `Your app`),
-  box(`a-eagent`, `cpu`, `eAgent`),
+  box(`a-eagent`, `cpu`, `ACP`),
   box(`a-cli`, `terminal`, `claude · codex`),
 ])
 
-/* eCore ------------------------------------------------------------------ */
+/* Core ------------------------------------------------------------------ */
 
 export const CORE_MODULES: Node = {
   id: `core`,
@@ -167,16 +167,16 @@ export const CORE_MODULES: Node = {
     grid(
       `core-mods`,
       [
-        box(`m-talk`, `mic`, `eTalk`),
-        box(`m-pilot`, `mouse-pointer-click`, `ePilot`),
-        box(`m-net`, `network`, `eNet`),
-        box(`m-agent`, `cpu`, `eAgent`),
-        box(`m-mcp`, `plug`, `eMCP`),
+        box(`m-talk`, `mic`, `Voice`),
+        box(`m-pilot`, `mouse-pointer-click`, `Computer Use`),
+        box(`m-net`, `network`, `P2P`),
+        box(`m-agent`, `cpu`, `ACP`),
+        box(`m-mcp`, `plug`, `MCP Proxy`),
       ],
       5
     ),
     { id: `core-down`, component: `Stack`, props: { align: `center` }, children: [arrow(`core-a`, `arrow-down`)] },
-    box(`m-core`, `boxes`, `eCore`),
+    box(`m-core`, `boxes`, `Core`),
   ],
 }
 
@@ -199,7 +199,7 @@ export const CORE_LANGUAGES: Node = grid(
   4
 )
 
-/* eApps ------------------------------------------------------------------ */
+/* Apps ------------------------------------------------------------------ */
 
 export const APPS_PARTS: Node = grid(
   `parts`,

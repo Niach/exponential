@@ -1,5 +1,5 @@
 /* The built site in Chromium under the production CSP: no CSP or console
-   errors, the build-time eUI card is there before any JS, the islands
+   errors, the build-time genUI card is there before any JS, the islands
    hydrate, and every Motion tile paints non-empty pixels (the old site's
    tiles stayed blank when the CSP refused WebAssembly).
    `bun run scripts/paint-check.ts [baseUrl] [shotsDir]` (serve dist first). */
@@ -34,13 +34,13 @@ async function open(path: string, theme: `dark` | `light`, js = true) {
 
 // 1. No JS: the build-time card is real HTML.
 {
-  const { ctx, page } = await open(`/ui/`, `dark`, false)
-  if (!(await page.getByText(`Deploy web 0.20.27`).isVisible())) problems.push(`no-JS: the build-time eUI card is missing`)
+  const { ctx, page } = await open(`/sdk/genui/`, `dark`, false)
+  if (!(await page.getByText(`Deploy web 0.20.27`).isVisible())) problems.push(`no-JS: the build-time genUI card is missing`)
   await ctx.close()
 }
 
 for (const theme of [`dark`, `light`] as const) {
-  const { ctx, page } = await open(`/ui/`, theme)
+  const { ctx, page } = await open(`/sdk/genui/`, theme)
   // 2. The islands hydrate: typing reaches the data model (the echo Text).
   const input = page.getByLabel(`Board name`)
   await input.scrollIntoViewIfNeeded()
@@ -88,7 +88,7 @@ for (const theme of [`dark`, `light`] as const) {
   await ctx.close()
 }
 
-// 5. /motion/ and the Motion guide: every player paints (the first two,
+// 5. /sdk/motion/ and the Motion guide: every player paints (the first two,
 //    the eight gallery tiles, the three showcase steps, the like button and
 //    the level bar), under the production CSP, in both themes.
 async function canvasesPaint(page: import("playwright").Page, label: string, expected: number) {
@@ -118,17 +118,17 @@ async function canvasesPaint(page: import("playwright").Page, label: string, exp
   problems.push(`${label}: Motion players painted ${JSON.stringify(painted)} (expected ${expected}, all > 0)`)
 }
 for (const theme of [`dark`, `light`] as const) {
-  for (const [path, expected] of [[`/motion/`, 15], [`/docs/libraries/motion/guides/animate/`, 12]] as const) {
+  for (const [path, expected] of [[`/sdk/motion/`, 15], [`/docs/sdk/motion/guides/animate/`, 12]] as const) {
     const { ctx, page } = await open(path, theme)
     await canvasesPaint(page, `${path} ${theme}`, expected)
     await ctx.close()
   }
 }
 
-// 6. The eUI playground: prerendered editor, hydrated stage in the site's
+// 6. The genUI playground: prerendered editor, hydrated stage in the site's
 //    mode, an example switch reaches the preview.
 for (const theme of [`dark`, `light`] as const) {
-  const path = `/docs/libraries/eui/tools/playground/`
+  const path = `/docs/sdk/genui/tools/playground/`
   const { ctx, page } = await open(path, theme)
   const ready = await page
     .locator(`.eui-playground[data-ready="true"] .eui-stage .xui-surface`)
@@ -151,7 +151,7 @@ for (const theme of [`dark`, `light`] as const) {
 }
 
 // 7. Pictures of the key pages (CI uploads them; mint captures nothing).
-const PAGES = [`/`, `/ui/`, `/motion/`, `/apps/`, `/talk/`, `/net/`, `/pilot/`, `/mcp/`, `/agent/`, `/core/`, `/docs/`, `/docs/using/sessions/`, `/docs/eapps/`, `/docs/build/mcp/`, `/docs/libraries/motion/`, `/docs/libraries/motion/guides/animate/`, `/docs/libraries/motion/reference/`, `/docs/libraries/eui/`, `/docs/libraries/eui/guides/react/`, `/docs/libraries/eui/reference/components/`, `/docs/libraries/eui/reference/components/button/`, `/docs/libraries/eui/reference/themes/`, `/docs/libraries/eui/tools/playground/`, `/docs/libraries/eui/tools/theme-builder/`, `/docs/libraries/etalk/`, `/pricing/`, `/download/`, `/contact/`, `/imprint/`, `/blog/`, `/blog/exponentialos/`, `/blog/session-as-interface/`]
+const PAGES = [`/`, `/sdk/genui/`, `/sdk/motion/`, `/sdk/apps/`, `/sdk/voice/`, `/sdk/p2p/`, `/sdk/computer-use/`, `/sdk/mcp-proxy/`, `/sdk/acp/`, `/sdk/core/`, `/docs/`, `/docs/using/sessions/`, `/docs/sdk/apps/`, `/docs/build/mcp/`, `/docs/sdk/motion/`, `/docs/sdk/motion/guides/animate/`, `/docs/sdk/motion/reference/`, `/docs/sdk/genui/`, `/docs/sdk/genui/guides/react/`, `/docs/sdk/genui/reference/components/`, `/docs/sdk/genui/reference/components/button/`, `/docs/sdk/genui/reference/themes/`, `/docs/sdk/genui/tools/playground/`, `/docs/sdk/genui/tools/theme-builder/`, `/docs/sdk/voice/`, `/pricing/`, `/download/`, `/contact/`, `/imprint/`, `/blog/`, `/blog/exponentialos/`, `/blog/session-as-interface/`]
 if (shots) {
   for (const path of PAGES) {
     for (const theme of [`dark`, `light`] as const) {

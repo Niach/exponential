@@ -4,7 +4,7 @@
 //   apps/desktop/crates/app/tests/pinned_revs.rs (the cargo-side lock gate)
 //   apps/desktop/crates/eui-gpui/README.md (the consumer policy table)
 //   packages/exponential-ui/guides/gpui/Cargo.toml + Cargo.lock (the third-party guide app)
-//   apps/site/src/content/docs/docs/libraries/eui/guides/gpui.mdx (the install snippet on exponential.at)
+//   apps/site/src/content/docs/docs/sdk/genui/guides/gpui.mdx (the install snippet on exponential.at)
 // plus the rust toolchain of both,
 // and both consumers carry the ztracing [patch]. Text only, no cargo: it runs
 // in the test.yml gate.
@@ -99,7 +99,7 @@ if (SHA.test(zedRev) && SHA.test(componentRev)) {
   checkManifest(`packages/exponential-ui/guides/gpui/Cargo.toml`)
   checkLock(`packages/exponential-ui/guides/gpui/Cargo.lock`)
   checkMentions(`apps/desktop/crates/app/tests/pinned_revs.rs`, { zed: true, component: true })
-  checkMentions(`apps/site/src/content/docs/docs/libraries/eui/guides/gpui.mdx`, { zed: true, component: true })
+  checkMentions(`apps/site/src/content/docs/docs/sdk/genui/guides/gpui.mdx`, { zed: true, component: true })
 }
 
 // The compiler the pinned gpui needs: `| rust | \`1.96.0\` |`.

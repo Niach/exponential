@@ -22,7 +22,7 @@ export const POSTS: Post[] = [
     description: `A Linux system where agents are part of the computer: their own seats in the compositor, a desktop drawn as data, every service a tool, and a handful of libraries that fit together through MCP. One architecture, part by part.`,
     date: `2026-10-31`,
     author: DANNY,
-    cover: { src: `/blog/os-stack.webp`, alt: `ExponentialOS as layers, from Linux and the compositor up through services, the glue and the libraries to apps and you`, width: 1392, height: 828 },
+    cover: { src: `/blog/os-stack.webp`, alt: `ExponentialOS as layers, from Linux and the compositor up through services, the glue and the SDK modules to apps and you`, width: 1392, height: 768 },
     ogImage: `/og/og-blog-exponentialos.png`,
   },
   {

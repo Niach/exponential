@@ -1,7 +1,7 @@
 # exponential.at (apps/site)
 
 The public site on Astro + Starlight: landing pages, product pages, docs,
-the library docs (the old /ui/ site merged in), blog. The audit and
+the SDK docs (the old /ui/ site merged in), blog. The audit and
 the URL map: `docs/site/audit.md`.
 
 ```bash
@@ -19,11 +19,11 @@ bun run apps/site/scripts/paint-check.ts http://localhost:4391 [shotsDir]
 | `src/content/docs/docs/**` | the docs (Starlight), URL = path |
 | `src/sidebar/<group>.ts` | the docs sidebar, one file per group |
 | `src/styles/{theme,landing,docs,libraries}.css` | tokens (theme.css) + one file per area |
-| `src/components/eui/EuiSurface.tsx` | eUI in Astro: no directive = rendered at build time (HTML, no JS); `client:visible` = hydrated island |
+| `src/components/eui/EuiSurface.tsx` | genUI in Astro: no directive = rendered at build time (HTML, no JS); `client:visible` = hydrated island |
 | `src/components/PlatformShots.astro` | one view of the repo's `shots/` store per platform |
 | `scripts/reference/<area>.ts` | repo markdown → generated reference pages (`*.gen.md`, gitignored, `slug` in frontmatter) |
 | `src/redirects.ts` | every 301 (old URL → new), written into `dist/serve.json` |
-| `src/integrations/` | shot store copy, shared eUI theme sheet, serve.json (CSP hashes + redirects) |
+| `src/integrations/` | shot store copy, shared genUI theme sheet, serve.json (CSP hashes + redirects) |
 
 ## Writing
 

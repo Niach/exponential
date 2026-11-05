@@ -1,4 +1,4 @@
-/* Shared helpers of the eUI reference pages (themes, conformance, numbers,
+/* Shared helpers of the genUI reference pages (themes, conformance, numbers,
    eval): repo links, the component page of a catalog name, backtick prose
    as HTML. Everything here runs at build time. */
 import componentsDoc from "@exponential_app/eui/docs/components.generated.json"

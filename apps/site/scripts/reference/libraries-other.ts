@@ -1,10 +1,10 @@
 import type { ReferenceSource } from "../sync-reference.ts"
 
-/* The libraries eTalk, eNet, ePilot, eMCP, eAgent and eCore: their
+/* The modules Voice, P2P, Computer Use, MCP Proxy, ACP and Core: their
    reference pages, generated from the crate and package READMEs, the
-   library table (docs/libraries.md) and eTalk's licence sections
+   library table (docs/libraries.md) and Voice's licence sections
    (docs/third-party-licences.md). Hand-written pages next to them
-   (eTalk's api and numbers) have no markdown source in the repo. */
+   (Voice's api and numbers) have no markdown source in the repo. */
 
 const CRATES = `apps/desktop/crates`
 
@@ -27,146 +27,146 @@ export const REFERENCE: ReferenceSource[] = [
   /* Shared: how to depend on a git-tag library. */
   {
     source: `docs/libraries.md`,
-    slug: `docs/libraries/install`,
+    slug: `docs/sdk/install`,
     title: `Install from a release tag`,
-    description: `How to depend on eTalk, ePilot, eMCP and eAgent: a git dependency pinned to the library's release tag, the semver rules and what gpui consumers copy.`,
+    description: `How to depend on Voice, Computer Use, MCP Proxy and ACP: a git dependency pinned to the module's release tag, the semver rules and what gpui consumers copy.`,
     transform: (md) => untitled(section(`Consuming from another repo`, `Migrating`))(`\n` + md),
   },
 
-  /* eTalk */
+  /* Voice */
   {
     source: `${CRATES}/etalk/README.md`,
-    slug: `docs/libraries/etalk/reference`,
-    title: `eTalk reference`,
-    description: `eTalk's crates, its contract, hosting the speech worker and consuming the crates.`,
+    slug: `docs/sdk/voice/reference`,
+    title: `Voice reference`,
+    description: `Voice's crates, its contract, hosting the speech worker and consuming the crates.`,
   },
   {
     source: `packages/etalk/README.md`,
-    slug: `docs/libraries/etalk/reference/contract`,
+    slug: `docs/sdk/voice/reference/contract`,
     title: `Contract (@exponential_app/etalk)`,
-    description: `eTalk's speech contract: voice settings, caller mode and meeting mode as TypeScript references plus the JSON fixtures every platform replays.`,
+    description: `Voice's speech contract: voice settings, caller mode and meeting mode as TypeScript references plus the JSON fixtures every platform replays.`,
   },
   {
     source: `${CRATES}/etalk-gpui/README.md`,
-    slug: `docs/libraries/etalk/reference/gpui`,
+    slug: `docs/sdk/voice/reference/gpui`,
     title: `etalk-gpui`,
-    description: `eTalk's UI for gpui apps: tray voice, the push-to-talk overlay, the call panel, the reply speaker and meeting mode behind the TalkHost sink.`,
+    description: `Voice's UI for gpui apps: tray voice, the push-to-talk overlay, the call panel, the reply speaker and meeting mode behind the TalkHost sink.`,
   },
   {
     source: `${CRATES}/etalk-ffi/README.md`,
-    slug: `docs/libraries/etalk/reference/ffi`,
+    slug: `docs/sdk/voice/reference/ffi`,
     title: `etalk-ffi (Swift and Kotlin)`,
-    description: `The UniFFI facade over eTalk's call machine and Opus codec for iOS, macOS and Android.`,
+    description: `The UniFFI facade over Voice's call machine and Opus codec for iOS, macOS and Android.`,
   },
   {
     source: `${CRATES}/etalk-wakeword/README.md`,
-    slug: `docs/libraries/etalk/reference/wakeword`,
+    slug: `docs/sdk/voice/reference/wakeword`,
     title: `etalk-wakeword`,
     description: `The wake word with a model of its own: an openWakeWord-compatible detector on tract.`,
   },
   {
     source: `docs/third-party-licences.md`,
-    slug: `docs/libraries/etalk/reference/licences`,
+    slug: `docs/sdk/voice/reference/licences`,
     title: `Licences`,
-    description: `The licences of everything eTalk downloads or ships: the CrispASR runtime, the CUDA libraries, Qwen3-TTS, Parakeet, Silero VAD and the wake word models.`,
+    description: `The licences of everything Voice downloads or ships: the CrispASR runtime, the CUDA libraries, Qwen3-TTS, Parakeet, Silero VAD and the wake word models.`,
     transform: (md) =>
       section(`exponentialTalk: one voice engine on the GPU`, `eDE's bundled Xwayland`)(md)
         .replace(/^## exponentialTalk: one voice engine on the GPU.*$/m, `## The voice engine`)
-        .replace(/^## eTalk wake word models.*$/m, `## Wake word models`),
+        .replace(/^## Voice wake word models.*$/m, `## Wake word models`),
   },
 
-  /* eNet */
+  /* P2P */
   {
     source: `${CRATES}/enet-core/README.md`,
-    slug: `docs/libraries/enet/reference`,
-    title: `eNet reference`,
+    slug: `docs/sdk/p2p/reference`,
+    title: `P2P reference`,
     description: `enet-core: the node, identities and tickets, the channels, push encryption, the security model, targets and features.`,
   },
   {
     source: `${CRATES}/exponential-net-ffi/README.md`,
-    slug: `docs/libraries/enet/reference/ffi`,
+    slug: `docs/sdk/p2p/reference/ffi`,
     title: `exponential-net-ffi (Swift and Kotlin)`,
-    description: `eNet for iOS and Android through UniFFI.`,
+    description: `P2P for iOS and Android through UniFFI.`,
   },
   {
     source: `${CRATES}/exponential-net-wasm/README.md`,
-    slug: `docs/libraries/enet/reference/wasm`,
+    slug: `docs/sdk/p2p/reference/wasm`,
     title: `exponential-net-wasm (browser)`,
-    description: `eNet in the browser through wasm-bindgen, relay only.`,
+    description: `P2P in the browser through wasm-bindgen, relay only.`,
   },
 
-  /* ePilot */
+  /* Computer Use */
   {
     source: `${CRATES}/epilot/README.md`,
-    slug: `docs/libraries/epilot/reference`,
-    title: `ePilot reference`,
+    slug: `docs/sdk/computer-use/reference`,
+    title: `Computer Use reference`,
     description: `epilot: plan, act, observe, the public API, the tools, the input lock, permissions per OS.`,
   },
   {
     source: `${CRATES}/epilot-screen/README.md`,
-    slug: `docs/libraries/epilot/reference/screen`,
+    slug: `docs/sdk/computer-use/reference/screen`,
     title: `epilot-screen`,
     description: `Screen memory: the last minutes of the screen as deduplicated frames on the device, and its get_screenshots tool.`,
   },
 
-  /* eMCP */
+  /* MCP Proxy */
   {
     source: `${CRATES}/emcp/README.md`,
-    slug: `docs/libraries/emcp/reference`,
-    title: `eMCP reference`,
+    slug: `docs/sdk/mcp-proxy/reference`,
+    title: `MCP Proxy reference`,
     description: `emcp: the loopback server, the client, OAuth and the vault, the local hub, code mode, the public API and the dependency rule.`,
   },
   {
     source: `packages/emcp/README.md`,
-    slug: `docs/libraries/emcp/reference/contract`,
+    slug: `docs/sdk/mcp-proxy/reference/contract`,
     title: `Contract (@exp/emcp)`,
-    description: `eMCP's fixtures: exposes, access, audit, vault and upstream, with the TypeScript references that replay them.`,
+    description: `MCP Proxy's fixtures: exposes, access, audit, vault and upstream, with the TypeScript references that replay them.`,
   },
 
-  /* eAgent */
+  /* ACP */
   {
     source: `${CRATES}/eagent/README.md`,
-    slug: `docs/libraries/eagent/reference`,
-    title: `eAgent reference`,
+    slug: `docs/sdk/acp/reference`,
+    title: `ACP reference`,
     description: `eagent: the rules, the seams a host implements, what stays in Exponential, the extraction order and using it without a server.`,
   },
   {
     source: `packages/eagent/README.md`,
-    slug: `docs/libraries/eagent/reference/orchestration`,
+    slug: `docs/sdk/acp/reference/orchestration`,
     title: `Orchestration spec (@exp/eagent)`,
     description: `The session tree, the bus, wake-ups, end reports, caps and the watchdog as fixtures and a pure TypeScript reducer.`,
   },
   {
     source: `${CRATES}/eagent-hub-core/README.md`,
-    slug: `docs/libraries/eagent/reference/hub-core`,
+    slug: `docs/sdk/acp/reference/hub-core`,
     title: `eagent-hub-core`,
     description: `The orchestration reducer in Rust, replaying the same fixtures as the TypeScript reference.`,
   },
   {
     source: `${CRATES}/eagent-hub-core-wasm/README.md`,
-    slug: `docs/libraries/eagent/reference/hub-core-wasm`,
+    slug: `docs/sdk/acp/reference/hub-core-wasm`,
     title: `eagent-hub-core-wasm`,
     description: `The orchestration reducer as WebAssembly.`,
   },
   {
     source: `docs/libraries.md`,
-    slug: `docs/libraries/eagent/reference/migrating`,
+    slug: `docs/sdk/acp/reference/migrating`,
     title: `Migrating from agent-runtime`,
     description: `Moving from exponential-agent-runtime to eagent: the one-release shim and the new tag.`,
     transform: (md) => untitled(section(`Migrating`, `Rules for the extractions`))(`\n` + md),
   },
 
-  /* eCore */
+  /* Core */
   {
     source: `${CRATES}/ecore/README.md`,
-    slug: `docs/libraries/ecore/reference`,
-    title: `eCore reference`,
+    slug: `docs/sdk/core/reference`,
+    title: `Core reference`,
     description: `ecore: ids, grants, capabilities, the delivery verdict, the error shape and the event envelope; types and pure rules only.`,
   },
   {
     source: `packages/ecore/README.md`,
-    slug: `docs/libraries/ecore/reference/contract`,
+    slug: `docs/sdk/core/reference/contract`,
     title: `Contract (@exp/ecore)`,
-    description: `contract.json, the one source of eCore's types, and what it generates in Rust, TypeScript, Swift and Kotlin.`,
+    description: `contract.json, the one source of Core's types, and what it generates in Rust, TypeScript, Swift and Kotlin.`,
   },
 ]

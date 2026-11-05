@@ -1,0 +1,20 @@
+---
+title: Exponential SDK
+description: The modules Exponential is built on, each usable on its own, and the packages they ship as.
+---
+
+Package names and release tags keep their short form.
+
+| Module | What it does | Packages | Tag |
+|---|---|---|---|
+| [genUI](/docs/sdk/genui/) | Agents send A2UI, native renderers paint it on web, iOS, Android and desktop | `@exponential_app/eui*`, `eui-core`, `eui-gpui`, `at.exponential:eui-compose*`, `ExponentialUI` | `eui-v*` |
+| [Motion](/docs/sdk/motion/) | Vector animation for genUI: one engine, the same pixels everywhere | `eui-motion`, `@exponential_app/eui/motion` | `eui-v*` |
+| [Voice](/docs/sdk/voice/) | Speech in and out: push to talk, wake word, spoken replies, calls | `etalk*`, `at.exponential:etalk`, `ExponentialTalk` | `etalk-v*` |
+| [P2P](/docs/sdk/p2p/) | Peer to peer, end-to-end encrypted networking on iroh | `enet-core` | `enet-v*` |
+| [Computer Use](/docs/sdk/computer-use/) | The agent sees the real screen and drives the real pointer and keyboard | `epilot`, `epilot-screen` | `epilot-v*` |
+| [MCP Proxy](/docs/sdk/mcp-proxy/) | MCP on rmcp: a loopback server, a client with OAuth and a vault, a hub with grants | `emcp` | `emcp-v*` |
+| [ACP](/docs/sdk/acp/) | The server-free agent core: runs the user's own Claude Code or Codex, plus the orchestration spec | `eagent` | `eagent-v*` |
+| [Core](/docs/sdk/core/) | The plain types the modules share, one contract for Rust, TS, Swift and Kotlin | `ecore` | none yet |
+| [Apps](/docs/sdk/apps/) | The app package format: templates, bindings, records and tools as data | inside `eui-core` and `@exponential_app/eui/host` | `eui-v*` |
+
+[Install from a release tag](/docs/sdk/install/) covers the git dependencies.

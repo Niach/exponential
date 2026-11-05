@@ -1,0 +1,63 @@
+---
+title: Render A2UI in React
+description: Install the two npm packages, connect a host and paint a surface with HostSurface.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+
+## Install
+
+These npm packages are the genUI module.
+
+Two packages: `@exponential_app/eui` (the catalog, themes, reducer and host runtime) and `@exponential_app/eui-react` (the renderer). It needs React 19. The renderer ships its own styles, so a stylesheet or Tailwind setup is unnecessary.
+
+```sh
+npm install @exponential_app/eui @exponential_app/eui-react
+```
+
+The guide project's whole dependency list:
+
+<GuideFile path="react/package.json" />
+
+## Paint a surface
+
+One `ExponentialHost` per app: it reads A2UI messages from a transport, routes them to surfaces and posts the user's actions back. `<HostSurface>` paints one surface by id, in a theme and a mode, with a fallback until the agent has created it.
+
+<GuideFile path="react/src/App.tsx" />
+
+The transport here reads a JSONL stream and posts actions to `/action`. Swap in `SseTransport`, `WebSocketTransport`, `McpTransport` (A2UI inside MCP tool results) or `MemoryTransport` (you push the messages) and the surface stays as it is. `theme` takes a built-in id, a theme JSON or a resolved theme.
+
+## Without a host
+
+When you already have the messages (a chat transcript, a test), skip the host: `useSurface` reduces messages into a tree and `<ExponentialSurface>` paints it. The plugin object takes icons, `onAction`, `onInput`, `openUrl` and extra functions.
+
+```tsx
+const surface = useSurface({ surfaceId: "main" })
+useEffect(() => messages.forEach(surface.apply), [messages])
+return <ExponentialSurface surface={surface} theme="neutral" mode="light" host={{ onAction }} />
+```
+
+The [React renderer's README](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-react/README.md) covers how a theme becomes scoped CSS, overlays, windowed lists and painter overrides.
+
+## Primitives
+
+The app around a surface can use the same components: `@exponential_app/eui-react/primitives` is the shadcn set on Radix (button, dialog, select, table, command, toast, calendar and more). Import its compiled stylesheet once. Inside a surface they wear its theme; outside one, `globalsCss(theme)` from `@exponential_app/eui/web` writes the theme as shadcn variables.
+
+```tsx
+import "@exponential_app/eui-react/styles.css"
+import { builtinTheme } from "@exponential_app/eui"
+import { globalsCss } from "@exponential_app/eui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential_app/eui-react/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger asChild><Button>Open</Button></DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />
+```
+
+## Compiled in CI
+
+`bun packages/exponential-ui/guides/check.ts react` builds [guides/react](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/guides/react) in an empty directory from the packed packages.

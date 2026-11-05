@@ -98,7 +98,7 @@ export const MOTION_GALLERY: NestedNode = {
   })),
 }
 
-/** One small card, painted once per built-in theme on /ui/. */
+/** One small card, painted once per built-in theme on /sdk/genui/. */
 export const THEME_CARD: NestedNode = {
   id: `theme-card`,
   component: `Card`,

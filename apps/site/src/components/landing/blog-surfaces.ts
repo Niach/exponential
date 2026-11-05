@@ -1,5 +1,5 @@
 /* The blog posts' two A2UI surfaces (from apps/marketing/src/blog/surfaces.ts),
-   painted at build time by eUI (EuiSurface without a client directive). */
+   painted at build time by genUI (EuiSurface without a client directive). */
 import type { NestedNode as Nested } from "@exponential_app/eui"
 
 /** The expense form: nine components, the whole window of the desktop draft. */

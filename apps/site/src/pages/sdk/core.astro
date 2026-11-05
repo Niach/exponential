@@ -1,0 +1,41 @@
+---
+/* Core's product page. The docs: /docs/sdk/core/. */
+import { Code } from "@astrojs/starlight/components"
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import Diagram from "../../components/libraries/Diagram.astro"
+import { CORE_LANGUAGES, CORE_MODULES, CORE_TYPES } from "../../components/libraries/trees.ts"
+import "../../styles/libraries-other.css"
+
+const ENVELOPE = JSON.stringify(
+  { v: 1, id: `evt-1`, kind: `session.turn_ended`, at: 1761934527000, source: `eagent`, sessionId: `8296328e-d2e8-4e99-a79f-c8fcc620fd86`, data: {} },
+  null,
+  2
+)
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Core`,
+    description: `The plain types every module shares: ids, grants, capabilities, the delivery verdict, errors and the event envelope, in Rust, TypeScript, Swift and Kotlin.`,
+    template: `splash`,
+    hero: {
+      tagline: `The types every module shares.`,
+      actions: [
+        { text: `Get started`, link: `/docs/sdk/core/guides/`, icon: `right-arrow` },
+        { text: `Docs`, link: `/docs/sdk/core/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <h2>One vocabulary under every module</h2>
+  <Diagram id="core-modules" tree={CORE_MODULES} />
+
+  <h2>Six kinds of type</h2>
+  <Diagram id="core-types" tree={CORE_TYPES} />
+
+  <h2>One envelope for every event</h2>
+  <div class="lib-code"><Code code={ENVELOPE} lang="json" /></div>
+
+  <h2>One contract, four languages</h2>
+  <Diagram id="core-languages" tree={CORE_LANGUAGES} />
+</StarlightPage>

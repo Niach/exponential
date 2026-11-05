@@ -1,0 +1,92 @@
+---
+title: Animate with Motion
+description: "Vector animations drawn the same on every platform: a first animation, models writing it, the three sources, theme colours, playback, state machines and events."
+---
+
+import { Code } from "@astrojs/starlight/components"
+import Eui from "../../../../../../components/eui/Eui.astro"
+import { FIRST, INTERACTIVE, INTERACTIVE_DATA, LIKE, SPINNER, replyJson } from "../../../../../../components/eui/motion.ts"
+import { MOTION_GALLERY } from "../../../../../../components/eui/trees.ts"
+import progressRing from "@exponential_app/eui/eval/motion/fixtures/dialect/progress-ring.json"
+
+export const json = (v) => JSON.stringify(v, null, 2)
+
+## A first animation
+
+A `Motion` node's props are the animation itself: `size`, `duration` (ms), `fps` and `layers`, in the [dialect](/docs/sdk/motion/reference/dialect/), readable JSON that compiles to Lottie. One engine (`eui-motion`, Rust) samples every frame into a flat display list and each renderer paints that list, so React, Solid, the web component, SwiftUI, Compose and gpui show the same picture. The web renderers load the engine as WebAssembly on the first Motion they paint (about 200 KB gzipped; bundlers emit it as a hashed asset).
+
+<div class="exp-live"><Eui hydrate id="motion-guide" tree={FIRST} /></div>
+
+<Code lang="json" code={json({ component: `Motion`, props: SPINNER })} />
+
+## Written by a model
+
+Each of these was written by a model from the dialect guide alone, on its first try, from one sentence. The prompts and every reply are in [the eval](https://github.com/Niach/exponential/tree/master/packages/exponential-ui/eval/motion).
+
+<div class="exp-live"><Eui hydrate id="motion" tree={MOTION_GALLERY} /></div>
+
+<Code lang="json" title={progressRing.prompt} code={json(replyJson(progressRing.text))} />
+
+The guide is part of `catalogPrompt()`: the `Motion` entry carries it (about 600 tokens), so an agent that builds surfaces can animate them with no extra setup. What it sends is checked before anyone sees it:
+
+| Where | How |
+|---|---|
+| Your server | `motionPropsProblems(props)` from `@exponential_app/eui/motion/server`: every problem with its code and JSON pointer, to send back to the model. |
+| Exponential | `exponential_show` refuses a card whose Motion does not compile, carries an expression or breaks a limit, naming the path. |
+| Your terminal | `exponential motion check \| compile \| decompile \| render --gif <file>`. |
+
+What the eval taught: ask for one idea per animation, keep it under two seconds, prefer `$color` tokens so it follows the theme, and give a `label` unless it is decoration. Limits: 2 MB, 5,000 shapes, 100,000 vertices per frame, 120 s.
+
+## Sources
+
+A `Motion` takes exactly one source.
+
+| Prop | What |
+|---|---|
+| `layers` (+ `size`, `duration`, `fps`, `assets`, `markers`) | The dialect, inline in the surface. |
+| `lottie` | A Lottie JSON animation as is. Expressions are refused; 3D layers are skipped. |
+| `src` | An attached `.json` or `.lottie` file (the first animation of a `.lottie`, its images inlined), fetched under the host's media policy. |
+
+## Theming
+
+A colour written as `$color.primary` (or any colour token) becomes a Lottie slot the renderer fills with the theme's colour for the current mode, and refills when the theme or mode changes; a `{light, dark}` pair picks its half by mode. A Lottie file is recoloured through `slots` (`{slotId: value}`).
+
+## Playback
+
+One clock, the engine's, on every platform.
+
+| Prop or rule | Effect |
+|---|---|
+| `autoplay`, `loop`, `plays`, `direction`, `speed` | Plays when visible; repeats, plays n times, reverses or alternates; scales time. |
+| `segment`, `marker` | Plays only [from, to] ms, or a named marker's segment. |
+| `progress` (bindable) | Scrubs to 0–1 instead of playing: bind it to drive the animation from data. |
+| `play` (bindable) | `false` freezes the clock where it is. |
+| `poster` | The still frame (ms) shown before playing, off-screen and under reduced motion. |
+| Frame rate | At most 60 fps (the display's rate when lower). |
+| Visibility | Paused off-screen and while the window is hidden; at most 8 Motions animate per surface (tree order), the rest show their poster. |
+| Reduced motion | Shows the poster and stays still. |
+
+Unstyled, the box is the composition's px size, shrinking to the available width with its aspect kept; a style width or height wins. `fit` is `contain` (default), `cover` or `fill`.
+
+## Interactivity
+
+A `stateMachine` (dotLottie 2 JSON; a `.lottie` `src` brings its own first machine) turns a Motion into a control. Its states pick what plays (a segment or a marker, loop, speed, autoplay, `final`); transitions guard on inputs; interactions (Click, PointerDown/Up, PointerEnter/Exit, OnComplete) run actions on them. The engine interprets the machine, the same code on every platform; a renderer reports what happened and restarts the clock when the state changes. Click the heart; drag the slider past 50 and to 100.
+
+<div class="exp-live"><Eui hydrate id="motion-interactive" tree={INTERACTIVE} data={INTERACTIVE_DATA} /></div>
+
+| Prop or event | Effect |
+|---|---|
+| `stateMachine` | The machine; while it runs, its current state's playback replaces the playback props. |
+| `inputs` (bindable) | `{name: value}` written into the machine on every change: bind it so a data model drives the states. |
+| Interactions | A press (pointer, or Enter / Space when focusable) is Click; pointer down / up; hover enters and leaves; a finished play is OnComplete. |
+| `on.press` | A press. With it the Motion is a button: focusable, named by its label. |
+| `on.hover` | The pointer entered. |
+| `on.visible` | The first time half of it is on screen. |
+| `on.complete` | A finite play finished, or the machine reached a final state. |
+| `on.state` | Each state the machine enters, with context `{state}`. |
+
+<Code lang="json" code={json({ component: `Motion`, props: { stateMachine: LIKE.stateMachine, markers: LIKE.markers }, on: { press: { event: { name: `like` } } } })} />
+
+## Accessibility
+
+With a `label` a Motion is an image named by it; without one it is decorative and hidden from assistive technology. With `on.press` it is a button named by its label: focusable, pressed with Enter or Space.
