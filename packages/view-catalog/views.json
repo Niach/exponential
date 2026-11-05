@@ -75,6 +75,10 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/t/$teamSlug/needs-you",
+      "reason": "Live rows on every client; the `needs-you` view shoots the specimen (`?dev=needs-you`) so ×5 show the same state."
+    },
+    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
