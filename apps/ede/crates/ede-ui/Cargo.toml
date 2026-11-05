@@ -1,0 +1,19 @@
+[package]
+name = "ede-ui"
+description = "eDE's eUI-on-disk runtime: shell documents and the theme in ~/.config/ede/ui, validated by eui-core, hot reloaded, every edit a git commit"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+# A library for the shell (#NEW-108) and the ede-tools MCP (#NEW-115), plus
+# a small CLI. eui-core does the validating; history is the git CLI in the
+# ui directory (no libgit2 to build).
+[dependencies]
+eui-core = { path = "../../../desktop/crates/eui-core" }
+serde.workspace = true
+serde_json = "1"
+notify = { version = "7", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"

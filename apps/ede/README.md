@@ -8,6 +8,7 @@ libraries, never the other way round.
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it. |
+| `ede-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/ede/ui` (factory copies in `/usr/share/ede/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `ede-ui` is its CLI. |
 | `ede-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`. |
 | `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
@@ -202,6 +203,79 @@ black screen, and `swaylock` from a VT (`WAYLAND_DISPLAY=wayland-1
 XDG_RUNTIME_DIR=/run/user/$UID swaylock`) takes over; a video in Firefox
 holds off the idle lock; fcitx5 or ibus types into a GTK app but not into a
 polkit prompt (`pkexec true`).
+
+## genUI on disk (ede-ui)
+
+`$XDG_CONFIG_HOME/ede/ui/` (default `~/.config/ede/ui/`; `$EDE_UI_DIR` wins)
+holds the shell: one genUI surface per `<name>.json` (lowercase, digits, `-`,
+`_`) and the look in `theme.json` (the theme format of the SDK; `extends` may
+name a built-in theme; none = `exponential`). The factory copies live in
+`/usr/share/ede/ui` (`$EDE_FACTORY_DIR`; `apps/ede/ui` in this repo): a fresh
+account gets them as the first commits, and a rollback always has somewhere
+to go. The contract is `packages/ede` (#EDE-8): its fixtures are the spec and
+`crates/ede-ui/tests/contract.rs` replays them.
+
+```json
+{
+  "surface": {"layer": "top", "anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40},
+  "root": {"id": "panel", "component": "Box", "style": {"display": "flex"},
+           "children": [{"id": "clock", "component": "Text", "props": {"text": {"path": "/time"}}}]},
+  "data": {"time": "12:00"}
+}
+```
+
+`surface` says where the shell puts it: a layer surface (`layer`, `anchor`,
+`size`, `exclusiveZone`, `margin`, `keyboard`) or `popup` (a popup of another
+document under one of its components, drawn as an `xdg_popup` so it can leave
+the parent's box); `functions` lists the host functions the document may
+call. `root` is the nested authoring form; `components` (A2UI's flat
+`updateComponents` list, from the component `root`) works too; `catalogId`
+defaults to the core. Tier C (a document grants no privileges): no password
+inputs, no `functionCall` outside `surface.functions`, ids once; then
+eui-core's reducer validates every component, prop, style and token. One
+issue refuses the whole file and the last good version stays on screen
+(after a restart, the last committed one). The directory is a git repository
+(the git CLI; created on first open): every edit that applies is a commit, an
+edit through the API with its own message, a hand edit as `Edit <files>` once
+it validates; refused files are never committed. Undo reverts the newest
+commit as a new commit, so an undo is undoable too.
+
+```bash
+cargo run -p ede-ui -- check                    # what applies, what is refused and why
+cargo run -p ede-ui -- set panel panel.json     # validate, write, commit
+cargo run -p ede-ui -- undo                     # revert the newest edit
+cargo run -p ede-ui -- discard panel            # drop a broken hand edit
+cargo run -p ede-ui -- log
+cargo run -p ede-ui -- watch                    # hot reload, one JSON change per line
+cargo run -p ede-ui -- supervise -- ede-shell   # run the shell under the watchdog
+```
+
+**The supervisor** (`ede-ui supervise -- <shell command>`) owns the history
+and runs the apply machine of `packages/ede/fixtures/apply.json`: it starts
+the shell with `EDE_UI_DIR`, commits hand edits, refuses broken ones, and
+expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
+(`ede-ui digest FILE`, the content digest) on stdout once it drew a document.
+No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
+panel.json, rolled back`); the shell dying counts as a crash, it restarts
+after 500 ms, and three crashes after an edit revert it, three more put the
+factory copy back (`Factory panel`). The shell itself opens the directory
+read-only (`Runtime::open_readonly`): it validates and reloads but never
+writes history.
+
+```rust
+let (ui, _) = ede_ui::Runtime::open_readonly(ede_ui::default_dir())?;
+let ui = std::sync::Arc::new(std::sync::Mutex::new(ui));
+let _w = ede_ui::watch(ui.clone(), |changes| for c in changes { println!("{}", c.kind()) })?;
+// ui.lock().document("panel") → .surface (where it goes) and .surface(theme) → an eui-core Surface to lay out and paint
+```
+
+Changes: `ui.applied`, `ui.rejected` (issues, whether a last good version
+stays), `ui.removed`, `theme.applied`, `theme.rejected`. Try it: `ede-ui
+--factory apps/ede/ui check` on a fresh directory creates it with the
+factory commits; `ede-ui watch` in one terminal, edit `panel.json` in an
+editor (gedit, vim: both save through a rename) and see `ui.applied`, break
+it and see `ui.rejected` with `"fallback": true`, then `ede-ui undo` and
+`git -C ~/.config/ede/ui log`.
 
 ## Tests
 

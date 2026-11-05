@@ -234,7 +234,8 @@ export function documentIssues(document: unknown): Issue[] {
     const id = typeof node.id === `string` ? node.id : `?`
     if (seen.has(id)) issues.push({ path: `#${id}`, message: `id used more than once` })
     seen.add(id)
-    if (node.component === `Input` && isRecord(node.props) && node.props.type === `password`) {
+    const type = isRecord(node.props) ? node.props.type : (node as Record<string, unknown>).type
+    if (node.component === `Input` && type === `password`) {
       issues.push({ path: `#${id}`, message: `password inputs are refused in a shell document (a sealed surface asks for passwords)` })
     }
     if (isRecord(node.on)) {
