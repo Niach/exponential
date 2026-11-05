@@ -402,6 +402,19 @@ fn push_layer(
         });
     }
     window.refresh();
+    // A tooltip already up on the opener stays over the scrim until the pointer
+    // moves: once the scrim has drawn (it occludes the opener), report the
+    // pointer where it is, so the opener's hover ends with its tooltip.
+    window.on_next_frame(|window, _| {
+        window.on_next_frame(|window, cx| {
+            let event = gpui::MouseMoveEvent {
+                position: window.mouse_position(),
+                pressed_button: None,
+                modifiers: window.modifiers(),
+            };
+            window.dispatch_event(gpui::PlatformInput::MouseMove(event), cx);
+        });
+    });
 }
 
 /// Every open dialog layer of `window`, bottom first — composed by each
