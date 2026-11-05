@@ -52,7 +52,13 @@ struct AgentPageView: View {
     /// session: it is a launch.
     @State private var agentPick: String?
 
-    private var reservesTabBar: Bool { isTabRoot && !keyboardVisible }
+    /// EXP-1676: only the composer's OWN keyboard gives the bar's room up. A
+    /// keyboard in a sheet over the page (the + menu's issue search) must not
+    /// reflow the column: that leaves the scroller off its top, and the large
+    /// title collapses into the small centred one.
+    private var reservesTabBar: Bool {
+        isTabRoot && !(keyboardVisible && composer?.draftEditor.isEditing == true)
+    }
 
     /// The team the composer starts in: a play button's subject team (an
     /// issue opened from the Inbox or Search may sit in another team) for
