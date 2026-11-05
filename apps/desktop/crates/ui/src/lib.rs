@@ -167,6 +167,8 @@ mod story_viewer;
 mod story_tab;
 // #FEED-191: the session screen's Results tab body + THE PR review pane.
 mod results_tab;
+// #FEED-191: the Needs you page + its rail entry's rows.
+mod needs_you;
 mod pr_diff;
 mod pr_graph;
 mod pr_merge;

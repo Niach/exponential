@@ -2100,6 +2100,11 @@ impl Render for RailView {
                     .count()
             })
             .unwrap_or(0);
+        // #FEED-191 (needs-you.json): Needs you lists only while a row exists
+        // (or its page is up: it stays reachable after the last answer).
+        let needs_you_count = active_team_id(&self.nav, cx)
+            .map(|id| crate::needs_you::rows_in_team(&id, cx).len())
+            .unwrap_or(0);
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
         let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
@@ -2305,6 +2310,20 @@ impl Render for RailView {
                 cx,
             )
         });
+        let on_needs_you = matches!(resolved_screen(&self.nav, cx), Some(Screen::NeedsYou));
+        let needs_you_entry = (needs_you_count > 0 || on_needs_you).then(|| {
+            self.rail_screen_entry(
+                "rail-needs-you",
+                Icon::from(registry::NAV_NEEDS_YOU),
+                domain::needs_you::NEEDS_YOU.copy.entry.as_str(),
+                Screen::NeedsYou,
+                Some(RailBadge::Count(
+                    needs_you_count,
+                    crate::surface::BadgeTone::Muted,
+                )),
+                cx,
+            )
+        });
         // The footer's Computer menu: Terminal (EXP-791's footer button),
         // Files and Source Control.
         let computer_entry = self.rail_computer_entry(
@@ -2394,6 +2413,8 @@ impl Render for RailView {
                     // page (EXP-772). EXP-1192: the first entry — the page
                     // the window lands on.
                     .child(self.rail_home_entry(cx))
+                    // #FEED-191: Needs you (while any), right after Agent.
+                    .children(needs_you_entry)
                     .child(self.rail_tool_icon(
                         "rail-inbox",
                         Icon::new(registry::NAV_INBOX),

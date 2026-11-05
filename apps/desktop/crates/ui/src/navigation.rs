@@ -74,6 +74,10 @@ pub enum Screen {
     /// the rail's conditional Drafts entry; context-free, so it lends no list
     /// to the page it reopens.
     Drafts,
+    /// #FEED-191 (needs-you.json `route`): every plan, question and PR ready to
+    /// merge waiting on the viewer. Tab-less full-page mode like Drafts, opened
+    /// from the rail's conditional entry.
+    NeedsYou,
     /// EXP-1170: the NEW ISSUE page — the issue detail in DRAFT mode
     /// ([`crate::issue_draft_screen`]). There is no create dialog any more:
     /// every "New issue" opener mints `draft_id` at click time
@@ -440,6 +444,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::SourceControl => "Source Control".into(),
         Screen::Devices => "Devices".into(),
         Screen::Drafts => "Drafts".into(),
+        Screen::NeedsYou => domain::needs_you::NEEDS_YOU.copy.entry.clone().into(),
         // EXP-1170: the draft page names itself by the contract's header.
         Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
         Screen::Home => "Home".into(),
@@ -859,6 +864,7 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "devices" => Some(Screen::Devices),
         // EXP-878: the drafts list.
         "drafts" => Some(Screen::Drafts),
+        "needs-you" => Some(Screen::NeedsYou),
         // EXP-1170: a fresh New issue page on the window's active board.
         "draft" => Some(Screen::IssueDraft {
             draft_id: api::issue_drafts::new_draft_id(),

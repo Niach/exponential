@@ -190,6 +190,9 @@ pub(crate) fn build_screen_content(
         Screen::Drafts => cx
             .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
             .into(),
+        Screen::NeedsYou => cx
+            .new(|cx| crate::needs_you::NeedsYouView::new(window, cx))
+            .into(),
         // EXP-1170: the New issue page is never undocked (one shared view
         // owns the draft's autosave).
         Screen::IssueDraft { .. } => cx.new(|_| NeverUndocked).into(),
@@ -883,6 +886,7 @@ pub struct ScreensPanel {
     /// The Drafts page (EXP-878 — the New issue pages left with content in
     /// them; the same tab-less full-page mode).
     drafts: Entity<crate::drafts_view::DraftsView>,
+    needs_you: Entity<crate::needs_you::NeedsYouView>,
     /// EXP-1170: the New issue page — ONE shared view re-pointed per draft
     /// like the PR diff ([`Self::sync_issue_draft`]); a navigation off it
     /// pays the draft out.
@@ -1117,6 +1121,7 @@ impl ScreensPanel {
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
+        let needs_you = cx.new(|cx| crate::needs_you::NeedsYouView::new(window, cx));
         let issue_draft =
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
@@ -1206,6 +1211,7 @@ impl ScreensPanel {
             file_viewer,
             devices,
             drafts,
+            needs_you,
             issue_draft,
             chat,
             threads_page,
@@ -1550,6 +1556,7 @@ impl ScreensPanel {
             | Screen::SourceControl
             | Screen::Devices
             | Screen::Drafts
+            | Screen::NeedsYou
             | Screen::IssueDraft { .. }
             | Screen::Home
             | Screen::Threads
@@ -3387,6 +3394,7 @@ impl Render for ScreensPanel {
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
+            Some(Screen::NeedsYou) => self.needs_you.clone().into_any_element(),
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
             Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
