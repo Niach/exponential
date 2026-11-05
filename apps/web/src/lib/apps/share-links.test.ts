@@ -6,13 +6,13 @@
 // share-links.real-db.test.ts.
 import { describe, expect, it, vi } from "vitest"
 import { APP_SHARE, APP_SHARE_COPY } from "@exp/domain-contract/app-share"
-import { validatePackage } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, validatePackage, type PackageShare } from "@exponential_app/eui"
 
 vi.mock(`@/db/connection`, () => ({
   db: new Proxy({}, { get: () => { throw new Error(`the database was touched`) } }),
 }))
 
-const { guestPage, handleSharePage, handleShareSubmit } = await import(`@/lib/apps/share-links`)
+const { guestPackage, guestPage, handleSharePage, handleShareSubmit } = await import(`@/lib/apps/share-links`)
 
 const BAD_TOKENS = [``, `a\0b`, `a/b`, `a b`, `' OR 1=1 --`, `%00`, `x`.repeat(65)]
 
@@ -45,5 +45,38 @@ describe(`install refuses a submit link no guest could fill (package-share.json)
   it.each([`member`, `issue`])(`a required %s ref`, (target) => {
     const issues = validatePackage(pkg({ who: target }, [{ name: `a`, mode: `submit`, kind: `t` }])).filter((i) => i.path.startsWith(`/share`))
     expect(issues).toEqual([{ path: `/share/0/kind`, message: `a submit link cannot fill the required ref field who` }])
+  })
+})
+
+describe(`a view link's template (VAPP-246)`, () => {
+  const kind = { title: `Lead`, schema: { type: `object`, required: [`email`], properties: { email: { type: `string` }, note: { type: `string` } } }, policy: { read: `all` } }
+  const table = { id: `t`, component: `RecordTable`, kind: `lead`, editable: false }
+  const published = (components: unknown[], bindings: unknown[] = []) => ({
+    records: { lead: kind },
+    queries: { recent: { from: `lead`, sort: `note`, where: { email: `private@acme.example` } } },
+    catalogId: CORE_CATALOG_ID,
+    templates: { board: { components, bindings } },
+    actions: { hidden: { steps: [] } },
+  })
+  const share: PackageShare = { name: `board`, mode: `view`, kind: `lead`, fields: [`note`], query: `recent`, template: `board` }
+  const page = [{ id: `root`, component: `Page`, title: `Board`, children: [`t`] }, table]
+  const build = (pkg: Record<string, unknown>) => guestPackage(pkg, share, kind as never, [`note`], `Lead`)
+
+  it(`passes the host, narrowed: no query, no other field, no action`, () => {
+    const pkg = build(published(page, [{ path: `/list`, source: `records:lead?query=recent` }]))!
+    expect(validatePackage(pkg)).toEqual([])
+    expect(pkg.templates.main!.bindings).toEqual([{ path: `/list`, source: `records:lead` }])
+    expect(Object.keys(pkg.records!.lead!.schema.properties)).toEqual([`note`])
+    expect(pkg.functions).toEqual([])
+    expect(pkg.sources).toEqual([`records:lead`])
+    const text = JSON.stringify(pkg)
+    for (const leak of [`private@acme.example`, `email`, `hidden`, `queries`, `actions`, `policy`]) expect(text).not.toContain(leak)
+  })
+
+  it(`a template that skipped install is gone: an exp: binding, a write, a press`, () => {
+    expect(build(published(page, [{ path: `/m`, source: `exp:members` }]))).toBeNull()
+    expect(build(published([page[0], { id: `t`, component: `RecordForm`, kind: `lead` }]))).toBeNull()
+    expect(build(published([page[0], { ...table, on: { press: { functionCall: { call: `actions.hidden` } } } }]))).toBeNull()
+    expect(guestPackage(published(page), { ...share, template: `nope` }, kind as never, [`note`], `Lead`)).toBeNull()
   })
 })

@@ -4,11 +4,13 @@
 // and expiry; one `gone` answer for everything but a live link; the field
 // allowlist; the honeypot; the caps, in parallel too; validation and quota; the
 // sponsor as author with `via=share:<name>`; a view link's narrow snapshot; and
-// that no other kind or member data reaches a guest.
+// that no other kind or member data reaches a guest; a view link's template
+// (VAPP-246) over that same snapshot.
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 import { and, eq, sql } from "drizzle-orm"
 import { APP_SHARE_CAPS, APP_SHARE_COPY } from "@exp/domain-contract/app-share"
+import { CORE_CATALOG_ID, validatePackage } from "@exponential_app/eui"
 import { db } from "@/db/connection"
 import { appRecordEvents, appRecords, apps, appShareLinks, appShareSubmissions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
@@ -81,7 +83,21 @@ const PACKAGE = {
     { name: `soon`, mode: `submit`, kind: `signup`, fields: [`email`], expires: 1 },
     { name: `wall`, mode: `view`, kind: `signup`, fields: [`note`], query: `recent` },
     { name: `all`, mode: `view`, kind: `signup`, query: `expanded` },
+    { name: `board`, mode: `view`, kind: `signup`, fields: [`note`], query: `recent`, template: `board` },
+    { name: `tampered`, mode: `view`, kind: `signup`, fields: [`note`], template: `tampered` },
   ],
+  catalogId: CORE_CATALOG_ID,
+  templates: {
+    board: {
+      components: [
+        { id: `root`, component: `Stack`, children: { componentId: `row`, path: `/list/rows` } },
+        { id: `row`, component: `Text`, text: { path: `note` } },
+      ],
+      bindings: [{ path: `/list`, source: `records:signup?query=recent` }],
+    },
+    // Past install's checks only by a direct write: the server must still refuse it.
+    tampered: { components: [{ id: `root`, component: `Text`, text: `hi` }], bindings: [{ path: `/m`, source: `exp:members` }] },
+  },
 }
 
 const NOW = new Date()
@@ -438,6 +454,31 @@ describe.skipIf(!ready.ok)(`public links (real db)`, () => {
       for (const row of page.value!.rows) expect(Object.keys(row).sort()).toEqual([`email`, `id`, `note`, `secret`, `updatedAt`])
       const text = JSON.stringify(page)
       for (const leak of [`TOP-SECRET-LEAD`, leadId, w.owner, w.member, SECRET_NAME]) expect(text).not.toContain(leak)
+    })
+
+    it(`a template renders the same narrow snapshot: no query, no other field, no member data`, async () => {
+      const { w, leadId } = await seeded()
+      const page = (await guestPage(await linkOn(w, `board`), NOW))!
+      expect(validatePackage(page.package)).toEqual([])
+      expect(page.value!.rows.map((r) => r.note)).toEqual([`first`, `second`])
+      for (const row of page.value!.rows) expect(Object.keys(row).sort()).toEqual([`id`, `note`, `updatedAt`])
+      const pkg = page.package as unknown as { templates: Record<string, { bindings: { source: string }[]; components: { id: string }[] }>; records: Record<string, { schema: { properties: object } }> } & Record<string, unknown>
+      expect(Object.keys(pkg.templates)).toEqual([`main`])
+      expect(pkg.templates.main!.bindings).toEqual([{ path: `/list`, source: `records:signup` }])
+      expect(pkg.templates.main!.components.map((c) => c.id)).toEqual([`root`, `row`])
+      expect(Object.keys(pkg.records)).toEqual([`signup`])
+      expect(Object.keys(pkg.records.signup!.schema.properties)).toEqual([`note`])
+      expect(pkg.functions).toEqual([])
+      expect(pkg.queries).toBeUndefined()
+      const text = JSON.stringify(page)
+      for (const leak of [`S3CRET`, `b@x.y`, `email`, `TOP-SECRET-LEAD`, `deleted`, `exp:`, leadId, w.owner, w.member, SECRET_NAME, `authorId`, `createdBy`]) expect(text).not.toContain(leak)
+    })
+
+    it(`a template that cannot run on a guest's host is the one gone answer, and stays unwritable`, async () => {
+      const { w } = await seeded()
+      await expectGone(await linkOn(w, `tampered`))
+      const board = await linkOn(w, `board`)
+      expect((await submit(board, { note: `x` })).status).toBe(404)
     })
 
     it(`caps at viewRows`, async () => {

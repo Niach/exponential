@@ -656,14 +656,15 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 
 ### 9.4 Public links (P1, decided: Phase 7, §18 item 5)
 
-`share: [{name, mode: "submit" | "view", kind, fields?, query?, expires?}]` (the format: `package-format.md` "Public links"; the rules ×4: fixture `app-share.json`):
+`share: [{name, mode: "submit" | "view", kind, fields?, query?, template?, expires?}]` (the format: `package-format.md` "Public links"; the rules ×4: fixture `app-share.json`):
 
 - **submit:** a guest fills one `RecordForm` of one kind and creates exactly one record.
   - The guest sees nothing else.
   - Rate-limited per link and per hashed IP, with a honeypot field and no captcha; schema validation and the plan quota apply as to any write. Optional email verification is not built.
   - A record needs a member as its author, so the owner who enabled the link is its sponsor (`author_id` = `created_by`, `share_name` = the link's name, `via` = `share:<name>` in the history). Clients DISPLAY such a record's author as "Guest".
   - Every submission is audited in `app_share_submissions` (the IP only as a keyed hash).
-- **view:** a frozen query rendered read-only as a `RecordTable`. It is a snapshot computed by the server at view time, with no shape and no live sync to the guest, carrying only the named fields, no member data and no `exp:` source. Rendering a package template is a later step.
+- **view:** a frozen query rendered read-only, as the link's `template` (#VAPP-246), else as a `RecordTable`. It is a snapshot computed by the server at view time, with no shape and no live sync to the guest, carrying only the named fields, no member data and no `exp:` source.
+  - A template reaches a guest as a one-template package with the narrowed kind, no queries, actions or functions, and every binding reading the snapshot. Install refuses a template that could not run that way (`package-format.md`), and the server re-checks per request, so a refused template is the dead link's page.
 - URL: `/s/<token>`, a random token. An owner turns a link on and off in the app's Settings tab, and can rotate its token. Expiry comes from the package's `expires`.
 - Billing: counts as one link, not a seat.
 

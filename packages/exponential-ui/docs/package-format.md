@@ -509,7 +509,8 @@ links an owner can turn on; nothing is public until one does.
 ```jsonc
 "share": [
   { "name": "signup", "mode": "submit", "kind": "lead", "fields": ["email", "note"], "expires": 30 },
-  { "name": "wall", "mode": "view", "kind": "lead", "fields": ["note"], "query": "recent" }
+  { "name": "wall", "mode": "view", "kind": "lead", "fields": ["note"], "query": "recent" },
+  { "name": "board", "mode": "view", "kind": "lead", "fields": ["note"], "query": "recent", "template": "publicBoard" }
 ]
 ```
 
@@ -522,9 +523,19 @@ links an owner can turn on; nothing is public until one does.
   required field, and cannot fill a required file or ref field.
 - `query` (view only) = a package query of the kind. `expires` = whole days
   from enabling, 1 to 3650; default never.
+- `template` (view only, VAPP-246) = a package template the guest's page
+  renders; default a read-only RecordTable. Install refuses one a guest's host
+  could not run. It may read only `records:<kind>`, or
+  `records:<kind>?query=<the link's query>`, and every read gets the one
+  snapshot as `{rows, count}`. It holds no RecordForm, and a RecordTable sets
+  `editable: false`. A press may call only `set` and `openUrl`. It uses no
+  listed extension component and no `exp:` string. Its expressions must check
+  over the named fields with no query, so a totals or sum read and a field
+  outside `fields` are refused; the `template` issue names the expression's reason.
 - **submit:** a guest fills one RecordForm and creates exactly one record,
-  validated like any write. **view:** a read-only RecordTable of a snapshot
-  the host computes per request, only the named fields, no live data.
+  validated like any write. **view:** the `template`, else a read-only
+  RecordTable, over a snapshot the host computes per request: only `id`,
+  `updatedAt` and the named fields, no live data.
 - A host offers no other kind, no member data and no `exp:` source to a guest.
 
 ## Expressions

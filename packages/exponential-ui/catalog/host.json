@@ -78,7 +78,7 @@
       "paramsKey": "params"
     },
     "share": {
-      "$comment": "VAPP-241 (P1, src/host/share.ts, fixtures/package-share.json, spec docs/spec/apps.md §9.4): `share: [{name, mode, kind, fields?, query?, expires?}]` = the public links an owner can turn on, at most `max`; `name` follows `namePattern`, unique; `mode` is one of `modes`; `kind` a declared kind; `fields` names of its fields, no file, and every required field for `submit`; `query` (view only) a package query of the kind; `expires` whole days, 1..`expiresMax`. The links (tokens, caps, the guest pages) are the host's.",
+      "$comment": "VAPP-241 (P1, src/host/share.ts, fixtures/package-share.json, spec docs/spec/apps.md §9.4): `share: [{name, mode, kind, fields?, query?, template?, expires?}]` = the public links an owner can turn on, at most `max`; `name` follows `namePattern`, unique; `mode` is one of `modes`; `kind` a declared kind; `fields` names of its fields, no file, and every required field for `submit`; `query` (view only) a package query of the kind; `template` (view only, VAPP-246) a package template a guest's host can run: it reads only `records:<kind>` (at most `?query=<the link's query>`), holds no RecordForm and only `editable: false` RecordTables, calls nothing but `set` and `openUrl`, uses no listed extension component and no `exp:` string, and its expressions check over the narrowed row with no query; `expires` whole days, 1..`expiresMax`. The links (tokens, caps, the guest pages) are the host's.",
       "max": 5,
       "namePattern": "^[a-z][a-z0-9_]{0,23}$",
       "modes": ["submit", "view"],
