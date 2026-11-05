@@ -14,9 +14,8 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SupportTokenRouteImport } from './routes/support/$token'
-import { Route as InviteTokenRouteImport } from './routes/invite/$token'
-import { Route as ApiShareTokenRouteImport } from './routes/api/share/$token'
 import { Route as STokenRouteImport } from './routes/s/$token'
+import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as IntegrationsGithubRouteImport } from './routes/integrations/github'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
@@ -54,6 +53,7 @@ import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
+import { Route as ApiShareTokenRouteImport } from './routes/api/share/$token'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
@@ -127,8 +127,8 @@ import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSl
 import { Route as TTeamSlugSettingsAssistantRouteImport } from './routes/t/$teamSlug/settings/assistant'
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
-import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
 import { Route as TTeamSlugIssuesIdentifierRouteImport } from './routes/t/$teamSlug/issues/$identifier'
+import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
 import { Route as TTeamSlugAppsAppSlugRouteImport } from './routes/t/$teamSlug/apps/$appSlug'
 import { Route as TTeamSlugAppEditorAppSlugRouteImport } from './routes/t/$teamSlug/app-editor/$appSlug'
 import { Route as TTeamSlugAgentsAgentIdRouteImport } from './routes/t/$teamSlug/agents/$agentId'
@@ -188,11 +188,6 @@ const SupportTokenRoute = SupportTokenRouteImport.update({
 const STokenRoute = STokenRouteImport.update({
   id: '/s/$token',
   path: '/s/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShareTokenRoute = ApiShareTokenRouteImport.update({
-  id: '/api/share/$token',
-  path: '/api/share/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteTokenRoute = InviteTokenRouteImport.update({
@@ -388,6 +383,11 @@ const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
 const ApiSupportAttachmentRoute = ApiSupportAttachmentRouteImport.update({
   id: '/api/support/attachment',
   path: '/api/support/attachment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShareTokenRoute = ApiShareTokenRouteImport.update({
+  id: '/api/share/$token',
+  path: '/api/share/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
@@ -778,14 +778,15 @@ const TTeamSlugSessionsSessionIdRoute =
     path: '/sessions/$sessionId',
     getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
+const TTeamSlugIssuesIdentifierRoute =
+  TTeamSlugIssuesIdentifierRouteImport.update({
+    id: '/issues/$identifier',
+    path: '/issues/$identifier',
+    getParentRoute: () => TTeamSlugRouteRoute,
+  } as any)
 const TTeamSlugDraftsDraftIdRoute = TTeamSlugDraftsDraftIdRouteImport.update({
   id: '/drafts/$draftId',
   path: '/drafts/$draftId',
-  getParentRoute: () => TTeamSlugRouteRoute,
-} as any)
-const TTeamSlugIssuesIdentifierRoute = TTeamSlugIssuesIdentifierRouteImport.update({
-  id: '/issues/$identifier',
-  path: '/issues/$identifier',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugAppsAppSlugRoute = TTeamSlugAppsAppSlugRouteImport.update({
@@ -998,7 +999,6 @@ export interface FileRoutesByFullPath {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/api/share/$token': typeof ApiShareTokenRoute
   '/s/$token': typeof STokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
@@ -1050,6 +1050,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/share/$token': typeof ApiShareTokenRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -1148,7 +1149,6 @@ export interface FileRoutesByTo {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/api/share/$token': typeof ApiShareTokenRoute
   '/s/$token': typeof STokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/admin/connections': typeof AuthenticatedAdminConnectionsRoute
@@ -1199,6 +1199,7 @@ export interface FileRoutesByTo {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/share/$token': typeof ApiShareTokenRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -1301,7 +1302,6 @@ export interface FileRoutesById {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
-  '/api/share/$token': typeof ApiShareTokenRoute
   '/s/$token': typeof STokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
@@ -1353,6 +1353,7 @@ export interface FileRoutesById {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/share/$token': typeof ApiShareTokenRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -1456,9 +1457,6 @@ export interface FileRouteTypes {
     | '/integrations/github'
     | '/invite/$token'
     | '/s/$token'
-    | '/api/share/$token'
-    | '/api/share/$token'
-    | '/s/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
     | '/admin/connections'
@@ -1509,6 +1507,7 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/share/$token'
     | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1608,9 +1607,6 @@ export interface FileRouteTypes {
     | '/integrations/github'
     | '/invite/$token'
     | '/s/$token'
-    | '/api/share/$token'
-    | '/api/share/$token'
-    | '/s/$token'
     | '/support/$token'
     | '/admin/connections'
     | '/admin/conversions'
@@ -1660,6 +1656,7 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/share/$token'
     | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1762,9 +1759,6 @@ export interface FileRouteTypes {
     | '/integrations/github'
     | '/invite/$token'
     | '/s/$token'
-    | '/api/share/$token'
-    | '/api/share/$token'
-    | '/s/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
     | '/_authenticated/admin/connections'
@@ -1815,6 +1809,7 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/share/$token'
     | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1913,7 +1908,6 @@ export interface RootRouteChildren {
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   IntegrationsGithubRoute: typeof IntegrationsGithubRoute
   InviteTokenRoute: typeof InviteTokenRoute
-  ApiShareTokenRoute: typeof ApiShareTokenRoute
   STokenRoute: typeof STokenRoute
   SupportTokenRoute: typeof SupportTokenRoute
   ApiAttachmentUploadsTokenRoute: typeof ApiAttachmentUploadsTokenRoute
@@ -1958,6 +1952,7 @@ export interface RootRouteChildren {
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
+  ApiShareTokenRoute: typeof ApiShareTokenRoute
   ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
   ApiSupportThreadRoute: typeof ApiSupportThreadRoute
@@ -2019,13 +2014,6 @@ declare module '@tanstack/react-router' {
       path: '/s/$token'
       fullPath: '/s/$token'
       preLoaderRoute: typeof STokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/share/$token': {
-      id: '/api/share/$token'
-      path: '/api/share/$token'
-      fullPath: '/api/share/$token'
-      preLoaderRoute: typeof ApiShareTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$token': {
@@ -2292,6 +2280,13 @@ declare module '@tanstack/react-router' {
       path: '/api/support/attachment'
       fullPath: '/api/support/attachment'
       preLoaderRoute: typeof ApiSupportAttachmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/share/$token': {
+      id: '/api/share/$token'
+      path: '/api/share/$token'
+      fullPath: '/api/share/$token'
+      preLoaderRoute: typeof ApiShareTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/users': {
@@ -2805,18 +2800,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSessionsSessionIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/drafts/$draftId': {
-      id: '/t/$teamSlug/drafts/$draftId'
-      path: '/drafts/$draftId'
-      fullPath: '/t/$teamSlug/drafts/$draftId'
-      preLoaderRoute: typeof TTeamSlugDraftsDraftIdRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
     '/t/$teamSlug/issues/$identifier': {
       id: '/t/$teamSlug/issues/$identifier'
       path: '/issues/$identifier'
       fullPath: '/t/$teamSlug/issues/$identifier'
       preLoaderRoute: typeof TTeamSlugIssuesIdentifierRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/drafts/$draftId': {
+      id: '/t/$teamSlug/drafts/$draftId'
+      path: '/drafts/$draftId'
+      fullPath: '/t/$teamSlug/drafts/$draftId'
+      preLoaderRoute: typeof TTeamSlugDraftsDraftIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/apps/$appSlug': {
@@ -3254,7 +3249,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   IntegrationsGithubRoute: IntegrationsGithubRoute,
   InviteTokenRoute: InviteTokenRoute,
-  ApiShareTokenRoute: ApiShareTokenRoute,
   STokenRoute: STokenRoute,
   SupportTokenRoute: SupportTokenRoute,
   ApiAttachmentUploadsTokenRoute: ApiAttachmentUploadsTokenRoute,
@@ -3299,6 +3293,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
+  ApiShareTokenRoute: ApiShareTokenRoute,
   ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,
   ApiSupportThreadRoute: ApiSupportThreadRoute,
