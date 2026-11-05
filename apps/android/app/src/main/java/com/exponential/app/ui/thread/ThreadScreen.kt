@@ -181,10 +181,10 @@ fun ThreadScreen(
     // `planTabTarget`), any plan of the tree, kept while the tab is shown.
     var pinnedPlan by rememberSaveable { mutableStateOf(viewModel.initialPlan) }
     // #FEED-191 (plan-page.json `planTabTarget`'s `kept`): the plan the tab
-    // showed during THIS visit of the chat; plain `remember`, so leaving the
-    // chat (the screen leaves composition) clears it and a decided plan has
-    // no chip on the way back; tab switches inside the chat keep it.
-    var keptPlan by remember { mutableStateOf<String?>(null) }
+    // showed during THIS visit of the chat, kept until the person leaves the
+    // chat (saveable, so rotation keeps it; leaving pops the entry and a
+    // decided plan has no chip on the way back); tab switches keep it.
+    var keptPlan by rememberSaveable { mutableStateOf<String?>(null) }
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
