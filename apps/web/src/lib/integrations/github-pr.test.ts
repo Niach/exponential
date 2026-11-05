@@ -172,6 +172,7 @@ describe(`fetchPullState`, () => {
           state: `closed`,
           merged: true,
           merged_by: { login: `octocat`, id: 1 },
+          merged_at: `2026-11-04T23:40:00Z`,
           base: { ref: `exp/EXP-314` },
           head: { sha: `abc123` },
         })
@@ -184,6 +185,8 @@ describe(`fetchPullState`, () => {
       baseRef: `exp/EXP-314`,
       mergeCommitSha: null,
       headSha: `abc123`,
+      // EXP-1705: the real merge time, for the live-PR backfill.
+      mergedAt: new Date(`2026-11-04T23:40:00Z`),
     })
   })
 
@@ -199,6 +202,7 @@ describe(`fetchPullState`, () => {
       baseRef: null,
       mergeCommitSha: null,
       headSha: null,
+      mergedAt: null,
     })
   })
 })

@@ -207,7 +207,7 @@ export type ResolvedAutomation = { enabled: boolean; target: AutomationTarget | 
 /** The team's switch + target row for an event (EXP-319). The session
  *  lifecycle's events (`started`, `resumed`, `unlinked`) have no team
  *  setting: always on, the builtin row. */
-async function resolveAutomationTarget(
+export async function resolveAutomationTarget(
   tx: Tx,
   teamId: string,
   event: IssueAutomationEvent
