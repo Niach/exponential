@@ -18,8 +18,6 @@
 //   * the sidebar's Running rows navigate with the `running` origin
 //     (`TABLESS_ORIGIN`), which creates NO tab — the row IS the affordance;
 //     it only focuses a tab that is already open;
-//   * the Inbox's list-detail opens share ONE preview slot (`PREVIEW_ORIGINS`):
-//     stepping the list replaces that tab in place;
 //   * every tab closes; closing never stops a session.
 //
 // Pure: no React, no storage, no router — every rule is a test
@@ -182,29 +180,6 @@ export function originCreatesTab(from: string | null | undefined): boolean {
   return from !== TABLESS_ORIGIN
 }
 
-/** EXP-1250: the list-detail origins (`detail-origin.ts` `originHasListNav`)
- * whose opens share ONE preview slot — stepping the Inbox item by item
- * REPLACES that list's tab in place instead of piling a chip per item onto
- * the strip. */
-export const PREVIEW_ORIGINS: readonly string[] = [`inbox`, `inbox:my-issues`]
-
-/** The preview SLOT an origin opens into — both Inbox lists share ONE slot
- * (the desktop's `inbox_slot`). `null` = not a preview. */
-const PREVIEW_SLOTS: Readonly<Record<string, string>> = {
-  inbox: `inbox`,
-  'inbox:my-issues': `inbox`,
-}
-
-export function previewSlotKey(from: string | null | undefined): string | null {
-  return from != null && Object.hasOwn(PREVIEW_SLOTS, from)
-    ? PREVIEW_SLOTS[from]
-    : null
-}
-
-export function isPreviewOrigin(from: string | null | undefined): boolean {
-  return previewSlotKey(from) !== null
-}
-
 /**
  * The URL opened a work item: focus its tab, creating it when absent. An
  * EXPLICIT `from` on the route overwrites the stored one (a tab reopened from
@@ -217,8 +192,7 @@ export function isPreviewOrigin(from: string | null | undefined): boolean {
  * origin lands nothing: the New session tab stays.
  *
  * EXP-923: a `running`-origin route creates nothing and never restamps a
- * tab's stored origin. EXP-1250: a PREVIEW origin replaces the tab its list
- * opened last, in place; an item that already has a tab just focuses it.
+ * tab's stored origin.
  */
 export function upsertFromRoute(
   state: WorkTabsState,
@@ -241,25 +215,15 @@ export function upsertFromRoute(
     return { ...state, tabs }
   }
 
-  const preview = isPreviewOrigin(route.from)
   if (at >= 0) {
     const current = tabs[at]!
-    if (preview || !creates || route.from === null || current.from === route.from) {
+    if (!creates || route.from === null || current.from === route.from) {
       return state
     }
     tabs[at] = { ...current, from: route.from } as WorkTab
     return { ...state, tabs }
   }
   if (!creates) return state
-  const slotKey = previewSlotKey(route.from)
-  if (slotKey) {
-    for (let i = tabs.length - 1; i >= 0; i--) {
-      if (previewSlotKey(tabs[i]!.from) === slotKey) {
-        tabs[i] = tab
-        return { ...state, tabs }
-      }
-    }
-  }
   tabs.push(tab)
   return { ...state, tabs }
 }

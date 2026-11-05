@@ -13,10 +13,7 @@ vi.mock(`@tanstack/react-router`, () => ({
     select({ location: location.value }),
 }))
 
-import {
-  useSecondSidebar,
-  useSidebarOccupant,
-} from "@/hooks/use-sidebar-occupant"
+import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
 afterEach(() => {
   location.value = { pathname: `/t/acme/agent`, search: {} }
 })
@@ -62,34 +59,5 @@ describe(`useSidebarOccupant`, () => {
         kind: `main`,
       })
     }
-  })
-})
-
-describe(`useSecondSidebar`, () => {
-  // EXP-1246: the diff face no longer swaps the panel — the inbox stays.
-  it(`keeps the inbox beside an issue on any face`, () => {
-    location.value = {
-      pathname: `/t/acme/boards/web/issues/MET-1`,
-      search: { view: `diff`, from: `inbox` },
-    }
-    expect(renderHook(() => useSecondSidebar()).result.current).toEqual({
-      kind: `inbox`,
-    })
-  })
-
-  it(`reads the inbox page's tab`, () => {
-    location.value = { pathname: `/t/acme/inbox`, search: { tab: `my-issues` } }
-    expect(renderHook(() => useSecondSidebar()).result.current).toEqual({
-      kind: `inbox`,
-      tab: `my-issues`,
-    })
-  })
-
-  it(`shows none for a running-origin detail`, () => {
-    location.value = {
-      pathname: `/t/acme/sessions/s1`,
-      search: { from: `running` },
-    }
-    expect(renderHook(() => useSecondSidebar()).result.current).toBeNull()
   })
 })

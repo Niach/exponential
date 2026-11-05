@@ -24,7 +24,6 @@ import {
 import { WorkTabsStrip } from "@/components/team/work-tabs-strip"
 import { WorkTabsSync } from "@/components/team/work-tabs-sync"
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
-import { SecondSidebarHost } from "@/components/team/list-detail"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -43,7 +42,6 @@ import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 import { useKeyHolder } from "@/lib/enet/use-key-holder"
 import { useWebInstall } from "@/lib/enet/use-web-install"
-import { useStoryBackgroundSync } from "@/hooks/use-stories"
 import {
   useTeamBySlug,
   useTeamBoards,
@@ -138,9 +136,6 @@ function TeamLayout() {
   // under the team app too (`_authenticated` does not wrap /t/$teamSlug).
   useWebInstall(user?.id)
   useKeyHolder(user?.id)
-  // S-3 stories: the agent conversations' and recent roots' messages sync
-  // in the background (`useStoryBackgroundSync`), every breakpoint.
-  useStoryBackgroundSync(team?.id)
 
   // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
   // search, unconditionally (EXP-870: the app's one navigation chord).
@@ -242,13 +237,9 @@ function TeamLayout() {
                     every breakpoint. Renders nothing while the server is
                     reachable. */}
                 <OfflineBanner />
-                {/* #EXP-1672: the Inbox list rides in the card as its
-                    second sidebar (desktop `render_with_side`). */}
-                <SecondSidebarHost teamSlug={teamSlug}>
-                  <div className={MAIN_OUTLET_CLASS}>
-                    <Outlet />
-                  </div>
-                </SecondSidebarHost>
+                <div className={MAIN_OUTLET_CLASS}>
+                  <Outlet />
+                </div>
               </main>
               {/* EXP-818: no dock band under the card — EXP-870 put every
                   live session in a work tab above it instead. */}

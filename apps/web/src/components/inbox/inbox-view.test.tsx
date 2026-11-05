@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Notification, Team } from "@/db/schema"
 
-// M4: a message row that opens a run is the ACTIVE row while that run is the
-// open detail beside the list, like an issue row is for its issue.
+// #FEED-191: the compact rows are the wide popover's: a press reports back so
+// it closes, and every row carries its time.
 
 const data = vi.hoisted(() => ({
   notifications: [] as unknown[],
@@ -90,17 +90,13 @@ describe(`InboxView message rows`, () => {
     navigate.mockClear()
   })
 
-  it(`marks the row of the open run active`, () => {
-    render(<InboxView compact activeSessionId="s2" from="inbox" />)
+  it(`reports a press and shows the time, read or unread`, () => {
+    const onRowOpen = vi.fn()
+    render(<InboxView compact onRowOpen={onRowOpen} />)
     const rows = screen.getAllByTestId(`inbox-row-session_blocked`)
-    expect(rows.map((row) => row.className.includes(`bg-glass-active`))).toEqual([false, true])
-  })
-
-  it(`marks nothing without an open run`, () => {
-    render(<InboxView compact from="inbox" />)
-    for (const row of screen.getAllByTestId(`inbox-row-session_blocked`)) {
-      expect(row.className).not.toContain(`bg-glass-active`)
-    }
+    expect(rows[0]!.textContent).toMatch(/\d+[mhdwy]|now/)
+    fireEvent.click(rows[0]!)
+    expect(onRowOpen).toHaveBeenCalledTimes(1)
   })
 
   it(`opens the run beside the list with the inbox origin`, () => {

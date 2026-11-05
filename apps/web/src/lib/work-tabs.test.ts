@@ -3,13 +3,11 @@ import {
   closeTabs,
   EMPTY_WORK_TABS,
   isNewRunPath,
-  isPreviewOrigin,
   NEW_RUN_TAB,
   openNewRunTab,
   originCreatesTab,
   parseWorkTabsState,
   partitionTabs,
-  previewSlotKey,
   pruneTabs,
   routePathFromLocation,
   routeTabKey,
@@ -24,7 +22,7 @@ import {
 // EXP-870 / EXP-1293: the work-tab model — route-driven: an issue, a thread,
 // an agent's channel or a raw session the URL opened is a tab; the New
 // session tab turns into whatever its page navigates to; a `running`-origin
-// navigation opens none; the Inbox shares one preview slot; and the desktop's
+// navigation opens none; and the desktop's
 // `partition_tabs` vectors (apps/desktop/crates/ui/src/screens.rs).
 
 const state = (tabs: WorkTab[]) => ({ tabs }) satisfies WorkTabsState
@@ -125,16 +123,11 @@ describe(`upsertFromRoute`, () => {
     ).toBe(open)
   })
 
-  it(`steps the Inbox through ONE preview slot`, () => {
-    expect(isPreviewOrigin(`inbox`)).toBe(true)
-    expect(previewSlotKey(`inbox:my-issues`)).toBe(`inbox`)
-    expect(isPreviewOrigin(`board:app`)).toBe(false)
+  it(`#FEED-191: an old Inbox origin opens an ordinary tab`, () => {
     let s = state([issue(`i0`, `board:app`)])
     s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `inbox` })
     s = upsertFromRoute(s, { kind: `issue`, issueId: `i2`, from: `inbox:my-issues` })
-    expect(s.tabs).toEqual([issue(`i0`, `board:app`), issue(`i2`, `inbox:my-issues`)])
-    // An item that already has a tab only focuses it, keeping its origin.
-    expect(upsertFromRoute(s, { kind: `issue`, issueId: `i0`, from: `inbox` })).toBe(s)
+    expect(keys(s)).toEqual([`issue:i0`, `issue:i1`, `issue:i2`])
   })
 
   it(`lands a navigation from the New session page IN its tab`, () => {

@@ -13,7 +13,6 @@ import { isAdminUser } from "@/lib/auth/app-user"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
-import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 
 // The main menu's shared pieces: the nav dots, the team's live dot and the
 // account menu. One set of counts for every row that reads them.
@@ -67,13 +66,6 @@ export function TeamLiveDot({
       {...rest}
     />
   )
-}
-
-/** Unread notifications from the per-user shape. */
-export function InboxUnreadBadge() {
-  const unread = useUnreadNotificationCount()
-  if (unread === 0) return null
-  return <NavDot tone="unread" />
 }
 
 /** EXP-1293: the Threads entry's dot — green while a thread of the team

@@ -27,8 +27,8 @@ type BoardSearch = {
    *  its main menu either way — the param only has to survive the round trip
    *  instead of being dropped on the way in. */
   from?: string
-  /** Thread 58cb32df (chats.json `shell.boardChips`): the phone board's
-   *  chip — My issues or Drafts (absent = All issues). */
+  /** Thread 58cb32df (chats.json `shell.boardChips`): the board's chip — My
+   *  issues or (phones) Drafts; absent = All issues. */
   chip?: `mine` | `drafts`
 }
 
@@ -72,16 +72,16 @@ function BoardPage() {
   // #EXP-1383: the team's agents (agent assignees, the picker's agent rows).
   const agents = useAgentRows(team?.id)
 
-  // Thread 58cb32df: the phone board's chips (All issues · My issues N ·
-  // Drafts N); md+ keeps My issues + Drafts in the sidebar.
+  // Thread 58cb32df: the board's chips (All issues · My issues N · Drafts N).
+  // #FEED-191: md+ draws them too, without Drafts (its sidebar entry).
   const { data: authSession } = useSession()
   const mine = useMyIssuesData({
-    userId: isMobile ? authSession?.user?.id : undefined,
+    userId: authSession?.user?.id,
     teamSlug,
   })
   const drafts = useDraftEntriesWithReady(isMobile ? team?.id : undefined)
   const draftCount = drafts.entries.length
-  const requestedChip: BoardChip = isMobile ? (search.chip ?? `all`) : `all`
+  const requestedChip: BoardChip = !isMobile && search.chip === `drafts` ? `all` : (search.chip ?? `all`)
   // Drafts only while the viewer has one (a cold link waits for the shape).
   const chip: BoardChip =
     requestedChip === `drafts` && drafts.isReady && draftCount === 0 ? `all` : requestedChip
@@ -147,7 +147,11 @@ function BoardPage() {
         onChange={setChip}
       />
     </div>
-  ) : null
+  ) : (
+    <div className="shrink-0 pt-3">
+      <BoardChips value={chip} counts={{ mine: mine.totalIssueCount, drafts: 0 }} onChange={setChip} />
+    </div>
+  )
 
   if (chip === `mine`) {
     return (

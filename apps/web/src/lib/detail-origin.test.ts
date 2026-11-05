@@ -6,11 +6,9 @@ import {
   isContextFree,
   originBoardSlug,
   originLabel,
-  originHasListNav,
   originListNavigation,
   parseOrigin,
   screenFromPath,
-  secondSidebarFor,
   sidebarOccupant,
   type DetailOrigin,
 } from "@/lib/detail-origin"
@@ -212,7 +210,6 @@ describe(`sidebarOccupant`, () => {
     expect(sidebarOccupant(`/t/acme/settings/members`)).toEqual({
       kind: `settings`,
     })
-    expect(secondSidebarFor(`/t/acme/settings/members`, `inbox`)).toBeNull()
   })
 
   // #EXP-1672: the Inbox never folds the main menu (desktop parity).
@@ -227,98 +224,17 @@ describe(`sidebarOccupant`, () => {
   })
 })
 
-// EXP-1246 / #EXP-1672: the content card's second sidebar, from the URL alone.
-describe(`secondSidebarFor`, () => {
-  it(`keeps the inbox beside a detail opened from it`, () => {
-    for (const path of [
-      `/t/acme/boards/web/issues/MET-12`,
-      `/t/acme/sessions/s1`,
-    ]) {
-      expect(secondSidebarFor(path, `inbox`), path).toEqual(inbox)
-      expect(secondSidebarFor(path, `inbox:my-issues`), path).toEqual({
-        kind: `inbox`,
-        tab: `my-issues`,
-      })
-    }
-  })
-
-  it(`keeps the inbox beside a thread and an agent's channel too`, () => {
-    for (const path of [`/t/acme/threads/th1`, `/t/acme/agents/a1`]) {
-      expect(secondSidebarFor(path, null), path).toBeNull()
-      expect(secondSidebarFor(path, `inbox`), path).toEqual(inbox)
-    }
-  })
-
-  // EXP-1246: the md+ Inbox page IS the list-detail host with nothing picked.
-  it(`shows the inbox host on the inbox page itself`, () => {
-    expect(secondSidebarFor(`/t/acme/inbox`, null)).toEqual(inbox)
-    expect(
-      secondSidebarFor(`/t/acme/inbox`, null, { tab: `my-issues` })
-    ).toEqual({ kind: `inbox`, tab: `my-issues` })
-    // The phone-only Drafts tab has no list host.
-    expect(secondSidebarFor(`/t/acme/inbox`, null, { tab: `drafts` })).toEqual(inbox)
-  })
-
-  it(`shows none on the Agent page`, () => {
-    expect(secondSidebarFor(`/t/acme/agent`, null)).toBeNull()
-  })
-
-  // EXP-1246: board and reviews origins keep Back but no list — the
-  // review state of the bug report (a Reviews list beside a plain issue tab)
-  // cannot happen any more.
-  it(`shows none for every other origin`, () => {
-    for (const from of [
-      `board:web`,
-      `threads`,
-      `action:a1`,
-      `agent:recent`,
-      `sessions`,
-      `running`,
-      `drafts`,
-      `inbox:drafts`,
-    ]) {
-      expect(secondSidebarFor(`/t/acme/sessions/s1`, from), from).toBeNull()
-      expect(
-        secondSidebarFor(`/t/acme/boards/web/issues/MET-12`, from),
-        from
-      ).toBeNull()
-    }
-    // They still parse, so Back and the tabless rule can read them.
+// The origins still parse, so Back and the tabless rule can read them.
+describe(`the running origin`, () => {
+  it(`parses, names no Back destination and travels no further`, () => {
     expect(parseOrigin(`running`)).toEqual({ kind: `running` })
     expect(formatOrigin({ kind: `running` })).toBe(`running`)
-    expect(originHasListNav({ kind: `running` })).toBe(false)
-    expect(originHasListNav({ kind: `threads` })).toBe(false)
-    expect(originHasListNav({ kind: `board`, boardSlug: `web` })).toBe(false)
-    expect(originHasListNav({ kind: `inbox` })).toBe(true)
-    expect(originHasListNav({ kind: `inbox`, tab: `my-issues` })).toBe(true)
-    // The Running section is not a page: no Back destination of its own.
     expect(originListNavigation(`acme`, { kind: `running` })).toBeNull()
     // EXP-923: `running` never travels on to the next detail.
-    expect(
-      capturedOrigin({ kind: `session` }, { kind: `running` })
-    ).toBeNull()
-  })
-
-  it(`shows none everywhere else`, () => {
-    for (const path of [
-      `/t/acme`,
-      `/t/acme/actions/a1`,
-      `/t/acme/threads`,
-      `/t/acme/agent`,
-      `/t/acme/devices`,
-      `/t/acme/boards/web`,
-      `/onboarding`,
-    ]) {
-      expect(secondSidebarFor(path, `inbox`), path).toBeNull()
-    }
-    // A detail WITHOUT a token — a pinned row, a sidebar session row, a deep
-    // link — shows none too.
-    expect(secondSidebarFor(`/t/acme/sessions/s1`, null)).toBeNull()
-    expect(secondSidebarFor(`/t/acme/boards/web/issues/MET-12`, `junk`)).toBeNull()
+    expect(capturedOrigin({ kind: `session` }, { kind: `running` })).toBeNull()
   })
 })
 
-// EXP-870: the one back-to-the-list destination.
 describe(`originListNavigation`, () => {
   it(`names every list's own route`, () => {
     expect(originListNavigation(`acme`, board)).toEqual({
@@ -370,27 +286,5 @@ describe(`originListNavigation`, () => {
       search: {},
     })
     expect(originLabel({ kind: `drafts` })).toBe(`Drafts`)
-    expect(originHasListNav({ kind: `drafts` })).toBe(false)
-  })
-})
-
-// EXP-1170: the New issue page is the issue detail in DRAFT mode, so it keeps
-// the list it was opened from beside it exactly like a detail does.
-describe(`secondSidebarFor on the draft page`, () => {
-  const draftPath = `/t/acme/drafts/1b4e28ba-2fa1-11d2-883f-0016d3cca427`
-
-  it(`keeps the inbox beside a draft opened from it`, () => {
-    expect(secondSidebarFor(draftPath, `inbox`)).toEqual(inbox)
-    // EXP-1246: a board origin names Back only.
-    expect(secondSidebarFor(draftPath, `board:web`)).toBeNull()
-  })
-
-  it(`shows none without a list origin`, () => {
-    expect(secondSidebarFor(draftPath, null)).toBeNull()
-    expect(secondSidebarFor(draftPath, `drafts`)).toBeNull()
-  })
-
-  it(`treats the Drafts list itself as a list screen`, () => {
-    expect(secondSidebarFor(`/t/acme/drafts`, `board:web`)).toBeNull()
   })
 })

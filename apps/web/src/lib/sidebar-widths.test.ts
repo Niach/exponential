@@ -20,7 +20,6 @@ import {
 describe(`sidebar width tokens`, () => {
   it(`gives every panel its default`, () => {
     expect(sidebarDefaultWidth(`main`)).toBe(272)
-    expect(sidebarDefaultWidth(`list`)).toBe(352)
     expect(sidebarDefaultWidth(`settings`)).toBe(272)
   })
 
@@ -55,10 +54,7 @@ describe(`clampSidebarWidth`, () => {
 
 describe(`parseSidebarWidths`, () => {
   it(`reads known finite numbers`, () => {
-    expect(parseSidebarWidths(`{"settings":300,"list":400}`)).toEqual({
-      settings: 300,
-      list: 400,
-    })
+    expect(parseSidebarWidths(`{"settings":300}`)).toEqual({ settings: 300 })
   })
 
   it(`never reads a width for the fixed main menu`, () => {
@@ -120,20 +116,18 @@ describe(`the width store`, () => {
     expect(settings.result.current).toBe(SIDEBAR_MIN_WIDTH)
     const main = renderHook(() => useSidebarWidth(`main`))
     expect(main.result.current).toBe(272)
-    const list = renderHook(() => useSidebarWidth(`list`))
-    expect(list.result.current).toBe(352)
   })
 
   it(`updates in memory at once and persists only when asked`, () => {
-    const { result } = renderHook(() => useSidebarWidth(`list`))
-    act(() => setSidebarWidth(`list`, 380, { persist: false }))
+    const { result } = renderHook(() => useSidebarWidth(`settings`))
+    act(() => setSidebarWidth(`settings`, 380, { persist: false }))
     expect(result.current).toBe(380)
     expect(window.localStorage.getItem(SIDEBAR_WIDTHS_STORAGE_KEY)).toBeNull()
-    act(() => setSidebarWidth(`list`, 390))
+    act(() => setSidebarWidth(`settings`, 390))
     expect(result.current).toBe(390)
     expect(
       JSON.parse(window.localStorage.getItem(SIDEBAR_WIDTHS_STORAGE_KEY)!)
-    ).toEqual({ list: 390 })
+    ).toEqual({ settings: 390 })
   })
 
   it(`reset drops the key and falls back to the default`, () => {
@@ -149,15 +143,15 @@ describe(`the width store`, () => {
   it(`follows the viewport: half the window bounds the column`, () => {
     const scale = sidebarUnitScale()
     window.innerWidth = 600 * scale
-    const width = renderHook(() => useSidebarWidth(`list`))
-    const bounds = renderHook(() => useSidebarWidthBounds(`list`))
-    expect(width.result.current).toBe(300)
+    const width = renderHook(() => useSidebarWidth(`settings`))
+    const bounds = renderHook(() => useSidebarWidthBounds(`settings`))
+    expect(width.result.current).toBe(272)
     expect(bounds.result.current.max).toBe(300)
     act(() => {
       window.innerWidth = 2000 * scale
       window.dispatchEvent(new Event(`resize`))
     })
-    expect(width.result.current).toBe(352)
+    expect(width.result.current).toBe(272)
     expect(bounds.result.current.max).toBe(SIDEBAR_MAX_WIDTH)
   })
 })

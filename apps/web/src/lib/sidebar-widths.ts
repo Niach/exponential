@@ -25,18 +25,16 @@ export const SIDEBAR_MAX_WIDTH: number = tokens.maxWidth
 export const SIDEBAR_HANDLE_WIDTH: number = tokens.handleWidth
 export const SIDEBAR_KEYBOARD_STEP: number = tokens.keyboardStep
 
-/** The resizable columns: the main menu, the settings nav in its place, and (#EXP-1672) the content card's second sidebar, the Inbox `list`. */
-export type SidebarPanelKey = `main` | `list` | `settings`
+/** The resizable columns: the main menu and the settings nav in its place. */
+export type SidebarPanelKey = `main` | `settings`
 
 export const SIDEBAR_PANEL_KEYS: readonly SidebarPanelKey[] = [
   `main`,
-  `list`,
   `settings`,
 ]
 
 const DEFAULTS: Record<SidebarPanelKey, number> = {
   main: tokens.defaultMain,
-  list: tokens.defaultList,
   settings: tokens.defaultSettings,
 }
 
@@ -46,9 +44,8 @@ export function sidebarDefaultWidth(key: SidebarPanelKey): number {
   return DEFAULTS[key]
 }
 
-/** The main menu is FIXED at its default: only the settings nav and the
- * card's second sidebar drag, and a stored `main` (an older build's) is
- * never read. */
+/** The main menu is FIXED at its default: only the settings nav drags, and a
+ * stored `main` (an older build's) is never read. */
 export function sidebarResizable(key: SidebarPanelKey): boolean {
   return key !== `main`
 }
