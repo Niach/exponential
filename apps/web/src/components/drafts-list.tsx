@@ -125,9 +125,9 @@ export function DraftsList({
             >
               {entry.title}
             </span>
-            <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-              <BoardGlyph board={entry.board} className="size-3" />
-              {entry.board.name}
+            <span className="flex max-w-[140px] shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:max-w-none">
+              <BoardGlyph board={entry.board} className="size-3 shrink-0" />
+              <span className="truncate">{entry.board.name}</span>
             </span>
             <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
               {compactRelativeTime(entry.draft.updatedAt)}

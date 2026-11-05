@@ -194,7 +194,7 @@ private fun InstallCard(
     onSecondary: (() -> Unit)? = null,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp),
+        modifier = Modifier.fillMaxWidth().glassCard().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         CardHeader(icon = icon, title = title)
@@ -276,7 +276,7 @@ private fun ServerCard(
         }
     }
     Column(
-        modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp),
+        modifier = Modifier.fillMaxWidth().glassCard().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         CardHeader(icon = ExpIcons.uiServer, title = GettingStartedCopy.SERVER_TITLE)

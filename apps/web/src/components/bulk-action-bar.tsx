@@ -556,7 +556,7 @@ export function BulkBarDock({ children }: { children: ReactNode }) {
 const StartCodingIcon = conceptIcon(`action-run`)
 const START_CODING_LABEL = READINESS_COPY.start
 // ×4 concepts (iOS `IssueListView` bulk bar): status fallback, priority (the
-// shared priority glyph), assignee, labels, close, delete.
+// neutral signal bars, whatever is selected), assignee, labels, close, delete.
 const StatusIcon = conceptIcon(`ui-checklist`)
 const PriorityIcon = conceptIcon(`priority-high`)
 const DeleteIcon = conceptIcon(`ui-delete`)

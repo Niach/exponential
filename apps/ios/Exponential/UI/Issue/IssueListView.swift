@@ -632,11 +632,11 @@ struct IssueListView: View {
                 bulkSheet = .status
             }
 
-            // Priority — shared priority glyph, else the neutral "no priority"
-            // glyph.
+            // Priority — the neutral signal bars ×4, whatever is selected
+            // (web + desktop `priority-high`, #EXP-1676).
             barIconButton(
-                iconName: sharedPriority(vm)?.iconName ?? IssuePriority.none.iconName,
-                color: sharedPriority(vm)?.color ?? .white.opacity(TextOpacity.secondary),
+                iconName: AppIcons.priorityHigh,
+                color: .white.opacity(TextOpacity.secondary),
                 accessibility: "Set priority"
             ) {
                 bulkSheet = .priority

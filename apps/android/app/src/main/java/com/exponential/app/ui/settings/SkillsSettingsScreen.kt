@@ -44,9 +44,7 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSwitch
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
@@ -63,6 +61,12 @@ import com.exponential.app.ui.theme.glassGroup
 // opens the skill's page = the prompt page's layout read-only (name, the
 // description, the SKILL.md body in mono, Pre-select in new sessions). No New skill, no
 // row menu, no Save / Delete: web and desktop own the writes.
+
+/** A glass group edge to edge under its band (the sheets' OptionGroup insets). */
+@Composable
+private fun SkillGroup(content: @Composable () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().glassGroup()) { content() }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -194,7 +198,7 @@ internal fun SkillPageContent(
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Column {
         SectionHeader(skill?.name.orEmpty())
-        OptionGroup {
+        SkillGroup {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -203,30 +207,25 @@ internal fun SkillPageContent(
                     Icon(ExpIcons.uiDocs, contentDescription = null, modifier = Modifier.size(20.dp), tint = muted)
                 }
                 Spacer(Modifier.width(12.dp))
-                GlassTextField(
-                    value = skill?.name.orEmpty(),
-                    onValueChange = {},
+                // Read-only text at full strength (web's readOnly inputs).
+                Text(
+                    skill?.name.orEmpty(),
                     modifier = Modifier.weight(1f).testTag("skill-name"),
-                    placeholder = Skills.FIELD_NAME,
-                    singleLine = true,
-                    enabled = false,
-                    bordered = false,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
                 )
             }
             GroupDivider()
-            GlassTextField(
-                value = skill?.description.orEmpty(),
-                onValueChange = {},
-                modifier = Modifier.fillMaxWidth().testTag("skill-description"),
-                placeholder = Skills.FIELD_DESCRIPTION,
-                minLines = 2,
-                enabled = false,
-                bordered = false,
+            Text(
+                skill?.description.orEmpty(),
+                modifier = Modifier.fillMaxWidth().padding(16.dp).testTag("skill-description"),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
         Spacer(Modifier.height(8.dp))
-        OptionGroup {
+        SkillGroup {
             when {
                 // EXP-1275: the fetch = skeleton rows, never "Loading…".
                 bodyLoading -> SkeletonRows(dot = false, modifier = Modifier.padding(vertical = 4.dp))
@@ -242,25 +241,27 @@ internal fun SkillPageContent(
                     )
                     TextButton(onClick = onRetry) { Text(FeedbackStates.RETRY) }
                 }
-                else -> GlassTextField(
-                    value = body.orEmpty(),
-                    onValueChange = {},
-                    modifier = Modifier.fillMaxWidth().testTag("skill-body"),
-                    placeholder = Skills.FIELD_BODY,
-                    minLines = 8,
-                    enabled = false,
-                    bordered = false,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                else -> Text(
+                    body.orEmpty(),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp).testTag("skill-body"),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
         Spacer(Modifier.height(8.dp))
-        OptionGroup {
+        SkillGroup {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(Skills.FIELD_DEFAULT, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                // Read-only: the label dims with its switch, like web's disabled row.
+                Text(
+                    Skills.FIELD_DEFAULT,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier.weight(1f),
+                )
                 GlassSwitch(checked = skill?.enabledByDefault == true, onCheckedChange = null, enabled = false)
             }
         }

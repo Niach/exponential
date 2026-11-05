@@ -51,9 +51,8 @@ import {
 // teams (the active one checked, a team with an unread notification an
 // amber dot; a tap SWITCHES = opens that team's Team tab — the only place a
 // phone switches team), then the team's settings rows FROM settings-nav.json
-// (`phoneRows` in fixture order, each group's web-only rows after its phone
-// rows; each opens its OWN page, Devices pushed; #EXP-1632: ONE Apps row
-// after Skills, opening Settings › Apps), then the account row (the viewer's avatar) and the rest of the old
+// (`phoneRows` in fixture order, then the web-only rows; each opens its OWN
+// page, Devices pushed), then the account row (the viewer's avatar) and the rest of the old
 // avatar menu. md+ has the sidebar for all of it; this route still renders
 // there (a plain column).
 
@@ -124,27 +123,6 @@ export function teamRowPath(id: string): TeamRowPath {
   return `/t/$teamSlug/settings/${id}` as TeamRowPath
 }
 
-/** The Team page's settings rows in order: per fixture group, the
- *  `phoneRows` first (fixture order), then that group's web-only rows. */
-export function teamSettingsRows(visible: (row: SettingsNavRow) => boolean): SettingsNavRow[] {
-  return teamSettingsGroups().flatMap((group) => group.rows).filter(visible)
-}
-
-function teamSettingsGroups(): { group: string; rows: SettingsNavRow[] }[] {
-  const groups: string[] = []
-  for (const row of SETTINGS_NAV_ROWS) if (!groups.includes(row.group)) groups.push(row.group)
-  const phone = SETTINGS_NAV_PHONE_ROWS.map((id) => SETTINGS_NAV_ROWS.find((row) => row.id === id)).filter(
-    (row): row is SettingsNavRow => Boolean(row)
-  )
-  return groups.map((group) => ({
-    group,
-    rows: [
-      ...phone.filter((row) => row.group === group),
-      ...SETTINGS_NAV_ROWS.filter((row) => row.group === group && !row.phone),
-    ],
-  }))
-}
-
 /** S-3 (settings-nav.json `nav`): a group's web pages that are no `rows`
  *  row (Team: Storage, Import; Boards: Archived boards; the Advanced group
  *  is gone), drawn after that group's rows on the Team page. */
@@ -157,18 +135,28 @@ export function teamExtraPages(group: string): SettingsNavItem[] {
 /** One Team-page settings row: a fixture row, or a web page after it. */
 export type TeamPageRow = { kind: `row`; row: SettingsNavRow } | { kind: `page`; item: SettingsNavItem }
 
-/** The Team page's settings rows: per fixture group its rows (phone rows
- *  first), then the group's extra web pages, each filtered for the viewer. */
+/** The Team page's settings rows: the `phoneRows` in fixture order, the same
+ *  list every phone draws (#EXP-1676), then the web-only rows, then the web
+ *  pages that are no `rows` row, each filtered for the viewer. */
 export function teamPageRows(
   visibleRow: (row: SettingsNavRow) => boolean,
   visibleItem: (item: SettingsNavItem) => boolean
 ): TeamPageRow[] {
-  return teamSettingsGroups().flatMap(({ group, rows }) => [
-    ...rows.filter(visibleRow).map((row): TeamPageRow => ({ kind: `row`, row })),
-    ...teamExtraPages(group)
-      .filter(visibleItem)
-      .map((item): TeamPageRow => ({ kind: `page`, item })),
-  ])
+  const phone = SETTINGS_NAV_PHONE_ROWS.map((id) => SETTINGS_NAV_ROWS.find((row) => row.id === id)).filter(
+    (row): row is SettingsNavRow => Boolean(row)
+  )
+  const groups: string[] = []
+  for (const row of SETTINGS_NAV_ROWS) if (!groups.includes(row.group)) groups.push(row.group)
+  return [
+    ...[...phone, ...SETTINGS_NAV_ROWS.filter((row) => !row.phone)]
+      .filter(visibleRow)
+      .map((row): TeamPageRow => ({ kind: `row`, row })),
+    ...groups.flatMap((group) =>
+      teamExtraPages(group)
+        .filter(visibleItem)
+        .map((item): TeamPageRow => ({ kind: `page`, item }))
+    ),
+  ]
 }
 
 function RowLink({

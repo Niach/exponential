@@ -283,7 +283,7 @@ export function settingsRouteOf(pathname: string): { section: string | null; sub
 }
 
 /** The pages under a section that list rows (their sub-pages go back to them). */
-export const SETTINGS_LIST_SECTIONS = [`boards`, `agents`, `prompts`, `apps`] as const
+export const SETTINGS_LIST_SECTIONS = [`boards`, `agents`, `prompts`, `skills`, `apps`] as const
 
 /** A section's label: the settings-nav.json row's (the phones' row title AND
  *  page title) where the fixture has it, else SETTINGS_NAV's (the group label

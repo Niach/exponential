@@ -40,7 +40,7 @@ struct DraftsListContent: View {
     }
 
     /// Web's `DraftsList` row (`ListRow`: p-3, gap-3): the status glyph, the
-    /// title (muted italic while untitled) and the compact age right-aligned
+    /// title (muted italic while untitled), the board chip and the compact age right-aligned
     /// — one line, no buttons. Discard lives in the row's hold menu, the way
     /// web's long-press/right-click Menu carries it (EXP-1647).
     private func draftRow(_ row: IssueDraftRow) -> some View {
@@ -58,6 +58,18 @@ struct DraftsListContent: View {
                 .foregroundStyle(.white.opacity(untitled ? TextOpacity.secondary : TextOpacity.primary))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            // The board chip ×4 (web's drafts row): its glyph + name.
+            HStack(spacing: 6) {
+                AppIcon(BoardTypeDisplay.iconName(for: row.board), size: 12)
+                    .foregroundStyle(Color(hex: row.board.color ?? "#888888") ?? .gray)
+                Text(row.board.name)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: 140, alignment: .trailing)
+            .fixedSize(horizontal: true, vertical: false)
 
             Text(relativeWireDate(row.draft.updatedAt))
                 .font(.system(size: 12).monospacedDigit())

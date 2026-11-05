@@ -10,10 +10,12 @@ import { SETTINGS_NAV_TEST_IDS } from "@exp/domain-contract/settings-nav"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { NEW_PROMPT_LABEL } from "@/components/team/prompts-section"
+import { NEW_SKILL_LABEL } from "@/components/team/skills-section"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
 import { useAgents } from "@/hooks/use-session-tree"
 import { useApps } from "@/hooks/use-apps"
 import { usePrompts } from "@/hooks/use-prompts"
+import { useSkills } from "@/hooks/use-skills"
 import { useSession } from "@/hooks/use-session"
 import {
   NEW_AGENT_LABEL,
@@ -118,6 +120,7 @@ function SubPageTitle({
   if (sub === `new`) {
     if (section === `agents`) return <>{NEW_AGENT_LABEL}</>
     if (section === `prompts`) return <>{NEW_PROMPT_LABEL}</>
+    if (section === `skills`) return <>{NEW_SKILL_LABEL}</>
   }
   switch (section) {
     case `boards`:
@@ -128,6 +131,8 @@ function SubPageTitle({
       return <AppName teamSlug={teamSlug} id={sub} fallback={fallback} />
     case `prompts`:
       return <PromptName teamSlug={teamSlug} id={sub} fallback={fallback} />
+    case `skills`:
+      return <SkillName teamSlug={teamSlug} id={sub} fallback={fallback} />
     default:
       return <>{fallback}</>
   }
@@ -152,6 +157,12 @@ function AppName({ teamSlug, id, fallback }: NameProps) {
   const team = useTeamBySlug(teamSlug)
   const { apps } = useApps(team?.id)
   return <>{apps.find((row) => row.id === id)?.name ?? fallback}</>
+}
+
+function SkillName({ teamSlug, id, fallback }: NameProps) {
+  const team = useTeamBySlug(teamSlug)
+  const { skills } = useSkills(team?.id)
+  return <>{skills.find((row) => row.id === id)?.name || fallback}</>
 }
 
 function PromptName({ teamSlug, id, fallback }: NameProps) {

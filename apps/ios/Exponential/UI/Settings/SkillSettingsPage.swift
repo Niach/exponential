@@ -50,61 +50,79 @@ struct SkillSettingsPage: View {
 
     // MARK: - Form
 
+    /// The layout ×5 (web `SkillForm`, read-only): the band, one group of the
+    /// glyph + mono name over the description, the body, the Pre-select switch.
     private var form: some View {
-        Form {
-            Section {
-                Text(skill?.name ?? "")
-                    .font(.subheadline.monospaced())
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("skill-name")
-                if skill?.enabledByDefault == true {
-                    HStack {
-                        GlassPill(Skills.defaultPill).fixedSize()
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-            .listRowBackground(glassFormRowFill)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                GlassSectionBand(skill?.name ?? "")
 
-            Section {
-                Text(skill?.description ?? "")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .accessibilityIdentifier("skill-description")
-            }
-            .listRowBackground(glassFormRowFill)
-
-            Section {
-                if loadingBody {
-                    // The prompt page's body placeholder (EXP-1275 D8).
-                    SkeletonRows(rows: 3, rowHeight: 22, dot: false, dividers: false)
-                } else if loadFailed {
-                    VStack(spacing: 12) {
-                        Text("Skill unavailable")
-                            .font(.subheadline)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 12) {
+                        AppIcon(AppIcons.uiDocs, size: 16)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
-                            Task { await loadBody(retried: true) }
-                        })
+                        Text(skill?.name ?? "")
+                            .font(.subheadline.monospaced())
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("skill-name")
                     }
-                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                } else {
-                    Text(bodyText ?? "")
-                        .font(.system(.footnote, design: .monospaced))
+                    GlassDivider()
+                    Text(skill?.description ?? "")
+                        .font(.subheadline)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .accessibilityIdentifier("skill-body")
+                        .padding(16)
+                        .accessibilityIdentifier("skill-description")
                 }
+                .glassSection()
+
+                bodySection
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassSection()
+
+                GlassToggleRow(
+                    Skills.Field.enabledByDefault,
+                    isOn: .constant(skill?.enabledByDefault == true)
+                )
+                .disabled(true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .glassSection()
             }
-            .listRowBackground(glassFormRowFill)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .scrollContentBackground(.hidden)
-        .listSectionSpacing(8)
         .tint(DesignTokens.Palette.primary)
         .accessibilityIdentifier("skill-form")
+    }
+
+    @ViewBuilder
+    private var bodySection: some View {
+        if loadingBody {
+            // The prompt page's body placeholder (EXP-1275 D8).
+            SkeletonRows(rows: 3, rowHeight: 22, dot: false, dividers: false)
+        } else if loadFailed {
+            VStack(spacing: 12) {
+                Text("Skill unavailable")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
+                    Task { await loadBody(retried: true) }
+                })
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+        } else {
+            Text(bodyText ?? "")
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(.white)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("skill-body")
+        }
     }
 
     // MARK: - Load

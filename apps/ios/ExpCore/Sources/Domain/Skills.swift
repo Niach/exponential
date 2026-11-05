@@ -28,6 +28,7 @@ public enum Skills {
         public static let name = (label: "Name", placeholder: "review-checklist")
         public static let description = (label: "Description", placeholder: "What the skill does and when to use it")
         public static let body = (label: "Instructions", placeholder: "The SKILL.md body, in markdown")
+        public static let enabledByDefault = "Pre-select in new sessions"
     }
 
     public enum TestId {

@@ -2,12 +2,14 @@ package com.exponential.app.ui.drafts
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.domain.DraftRow
 import com.exponential.app.domain.IssueDraftPage
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.StatusIcon
@@ -79,6 +82,22 @@ fun DraftListRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            Spacer(Modifier.width(12.dp))
+            // The board chip ×4 (web's drafts row): its glyph + name.
+            Row(
+                modifier = Modifier.widthIn(max = 140.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                BoardIcon(row.board, size = 12.dp)
+                Text(
+                    row.board.name,
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Text(
                 compactRelativeTime(row.draft.updatedAt),

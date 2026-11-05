@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { deviceCollection, sessionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { useIsMobile } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
 import {
   useTeamBoards,
@@ -237,8 +238,9 @@ export function useGettingStartedProgress(
     (canManageWidgets && hasWidget === null) ||
     mcpConnected === null
 
-  // The web is a pointer client on every viewport: a phone-width browser
-  // lists the same eight steps (only the native phones drop mcp + widget).
+  // A phone-width browser is a phone (#EXP-1676): `phones: false` steps go
+  // there too, so every phone lists the same steps and count.
+  const isMobile = useIsMobile()
   const state = useMemo(
     () =>
       deriveGettingStarted(
@@ -247,9 +249,9 @@ export function useGettingStartedProgress(
           canManageMembers: permissions.canManageMembers,
           canManageWidgets: permissions.canManageWidgets,
         },
-        `pointer`
+        isMobile ? `phone` : `pointer`
       ),
-    [signals, permissions.canManageMembers, permissions.canManageWidgets]
+    [signals, permissions.canManageMembers, permissions.canManageWidgets, isMobile]
   )
 
   return {
