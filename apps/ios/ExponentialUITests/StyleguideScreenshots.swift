@@ -747,11 +747,11 @@ final class StyleguideScreenshots: XCTestCase {
             settle(1)
         }
 
-        // ── sg_thread-stories: APP-14's thread on its Stories tab ──────────
-        // stories.json STORIES TAB, LIVE: from Chats, APP-14's thread (the
-        // stack top over APP-15, the seeded PR with a real GitHub diff), then
-        // the strip's last tab (icon-only, pinned right). Gate on the Changes
-        // row (the PR's files loaded) and a tile.
+        // ── sg_thread-stories: APP-14's thread on its Results tab ──────────
+        // results-tab.json, LIVE: from Chats, APP-14's thread (the stack top
+        // over APP-15, the seeded PR with a real GitHub diff), then the
+        // strip's last tab (icon-only, pinned right). Gate on the Changes row
+        // (the PR's files loaded) and a result.
         if ScreenshotShots.isWanted("sg_thread-stories") {
             walkThreadStories(app)
             showBoard(app)
@@ -1644,8 +1644,9 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
-    /// stories.json STORIES TAB: Chats → APP-14's thread → its Stories tab
-    /// (`sg_thread-stories`); ends back on the Chats list.
+    /// results-tab.json: Chats → APP-14's thread → its Results tab
+    /// (`sg_thread-stories`, its name until the Android lane renames both);
+    /// ends back on the Chats list.
     @MainActor
     private func walkThreadStories(_ app: XCUIApplication) {
         let threadsTab = app.buttons["tab-threads"]
@@ -1654,16 +1655,16 @@ final class StyleguideScreenshots: XCTestCase {
         let row = threadRow(app, containing: Self.guideTitle)
         expect(row, within: Wait.sync, "The Chats list has no \"\(Self.guideTitle)\" thread — reseed with `bun run seed:screenshots`")
         row.tap()
-        let tab = anyElement(app, identified: "thread-stories-tab")
-        expect(tab, within: Wait.sync, "The thread strip drew no Stories tab")
-        XCTAssertTrue(tab.isHittable, "The Stories tab is off screen — the strip must never scroll")
+        let tab = anyElement(app, identified: "thread-results-tab")
+        expect(tab, within: Wait.sync, "The thread strip drew no Results tab")
+        XCTAssertTrue(tab.isHittable, "The Results tab is off screen — the strip must never scroll")
         tab.tap()
         expect(
-            anyElement(app, identified: "thread-stories-changes"),
+            anyElement(app, identified: "thread-results-changes"),
             within: Wait.network,
-            "The Stories tab drew no Changes row — are the seeded PR's files reachable on GitHub?"
+            "The Results tab drew no Changes row — are the seeded PR's files reachable on GitHub?"
         )
-        expect(anyElement(app, identified: "story-tile"), within: Wait.sync, "The Stories tab drew no story tile")
+        expect(anyElement(app, identified: "result-section"), within: Wait.sync, "The Results tab drew no result")
         snapshot("sg_thread-stories", settle: 3)
         goBack(app)
         settle(1)
@@ -1690,8 +1691,7 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_threads", settle: 2)
 
         // ── sg_agent-channel: the Triage agent's chat (DEMO_AGENT_ID) off its
-        // pinned agent row (S-3: its header bubble wears a story ring and
-        // opens the viewer, not the channel; the agent rows sit above every
+        // pinned agent row (the agent rows sit above every
         // chat row, so the first `chat-row` named Triage is its own). Like Android, a scoped run that
         // does not ask for this shot skips the walk.
         if ScreenshotShots.isWanted("sg_agent-channel") {

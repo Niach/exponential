@@ -14,7 +14,7 @@ struct ThreadCardsScreen: View {
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks", "session-row", "device-attention", "device-attention-menu"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks", "session-row", "device-attention", "device-attention-menu"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -44,6 +44,18 @@ struct ThreadCardsScreen: View {
             // #EXP-1388 `chat-selection` = the same list selecting two rows
             // over THE BAR.
             ChatListSpecimens(selection: kind == "chat-selection" ? ["a", "c"] : nil)
+                .preferredColorScheme(.dark)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-cards-screen")
+        } else if kind == "needs-you" {
+            // #FEED-191: THE entry row + THE list (needs-you.json `cases[1]`).
+            NeedsYouSpecimens()
+                .preferredColorScheme(.dark)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("thread-cards-screen")
+        } else if kind == "results-tab" || kind == "results-tab-lightbox" {
+            // #FEED-191: THE tab body (results-tab.json `tab.specimen`).
+            ResultsTabSpecimens(lightbox: kind == "results-tab-lightbox")
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("thread-cards-screen")

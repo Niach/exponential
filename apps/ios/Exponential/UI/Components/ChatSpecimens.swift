@@ -8,9 +8,9 @@ import SwiftUI
 // values. Capture only: `-uiTestingStyleguide <id>` (`ThreadCardsScreen`).
 
 /// `chat-list`: THE phone Chats screen over the bottom bar — the large
-/// "Chats" headline with the search + inbox circles, the agent bubbles, the
-/// four filter chips and the flat rows (the web entry's and Android's
-/// `ChatListSpecimenScreen` composition and data: the draft's list).
+/// "Chats" headline with the search + inbox circles, the Agents section, then
+/// the rows under their section headers (#FEED-191; the web entry's and
+/// Android's `ChatListSpecimenScreen` composition and data: the draft's list).
 struct ChatListSpecimens: View {
     private struct Row: Identifiable {
         let id: String
@@ -40,28 +40,6 @@ struct ChatListSpecimens: View {
         Row(id: "d", title: "Merged", group: "recent", lead: .merged,
             previewKind: .you, preview: "You: ship it", time: Chats.Copy.Time.yesterday, dim: true),
     ]
-
-    private static let counts: [Chats.ChatFilter: Int] = [.needsYou: 1, .running: 1, .unread: 1]
-
-    /// chats.json `bubbleCases[0].expected`'s agents, the viewer's
-    /// Assistant first (the brand mark). #EXP-1461: only the ones with a
-    /// story ring are drawn.
-    private static let bubbles = [
-        bubble("as", "Assistant", "bot", "#6366f1", assistant: true),
-        bubble("ag1", "Triage", "bug", "#a855f7"),
-        bubble("ag2", "Designer", "bot", "#6366f1"),
-        bubble("ag3", "Release", "package", "#22c55e"),
-    ]
-
-    private static func bubble(
-        _ id: String, _ name: String, _ icon: String, _ color: String, assistant: Bool = false
-    ) -> AgentBubbleItem {
-        AgentBubbleItem(
-            id: id, name: name,
-            icon: BoardTypeDisplay.iconName(for: icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-            color: Color(hex: color) ?? .white, assistant: assistant
-        )
-    }
 
     /// S-3 chats.json `agentRowCases[0].expected`: the pinned agent rows,
     /// the Assistant first (the lead disc always holds the avatar; busy reads
@@ -110,29 +88,18 @@ struct ChatListSpecimens: View {
         )
     }
 
-    @State private var filter: Chats.ChatFilter = .all
-
-    private var shown: [Row] {
-        Self.rows.filter { row in
-            switch filter {
-            case .all: true
-            case .needsYou: row.group == "needs_you"
-            case .running: row.group == "running"
-            case .unread: row.unread > 0
-            }
+    /// #FEED-191 `chatSections` over `listCases[0]`, in order.
+    private static let sections: [(key: Chats.ChatSectionKey, rows: [Row])] = {
+        func key(_ row: Row) -> Chats.ChatSectionKey {
+            if row.group == "needs_you" { return .needsYou }
+            if row.group == "running" { return .working }
+            return row.unread > 0 ? .unread : .chats
         }
-    }
-
-    private var shownAgents: [Chats.AgentChatRow] {
-        Self.agentRows.filter { row in
-            switch filter {
-            case .all: true
-            case .needsYou: row.needsYou
-            case .running: row.busy
-            case .unread: row.unreadCount > 0
-            }
+        return Chats.ChatSectionKey.allCases.compactMap { section in
+            let own = rows.filter { key($0) == section }
+            return own.isEmpty ? nil : (section, own)
         }
-    }
+    }()
 
     var body: some View {
         NavigationStack {
@@ -140,73 +107,41 @@ struct ChatListSpecimens: View {
                 AppBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        // #EXP-1461 THE STORY ROW (stories.json specimen):
-                        // Triage + Designer wear their rings, the two chat
-                        // rings follow; Assistant and Release have none.
-                        AgentBubbles(
-                            items: Self.bubbles,
-                            rings: StorySpecimensScreen.rings,
-                            onHold: { _ in },
-                            onOpenStory: { _ in }
-                        ) { ring in
-                            StoryRingAvatarView(avatar: StorySpecimensScreen.avatar(ring))
-                        }
-                        .padding(.horizontal, -16)
-                        .padding(.top, 4)
-                        .padding(.bottom, 10)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(Chats.filters, id: \.self) { option in
-                                    GlassPill(
-                                        Chats.chatFilterLabel(option, counts: Self.counts),
-                                        size: .md,
-                                        mode: .select(isSelected: filter == option) { filter = option }
-                                    )
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                        .padding(.horizontal, -16)
-                        .padding(.bottom, 4)
                         // EXP-1553: the Agents section STAYS while selecting
                         // (agents are never selectable), as in `ChatsView`.
-                        let agentRows = shownAgents
-                        let archivedEntry = selection != nil && filter == .all
-                        if !agentRows.isEmpty {
-                            ChatSectionHeader(Chats.Copy.Sections.agents)
-                            ForEach(agentRows) { row in
-                                ChatRowView(
-                                    title: row.name,
-                                    time: row.time,
-                                    preview: row.preview.text,
-                                    previewLabel: row.preview.kind == .question ? "Question:" : nil,
-                                    previewItalic: row.preview.kind == .working,
-                                    needsYou: row.needsYou,
-                                    unreadCount: row.unreadCount
-                                ) { AgentChatLead(row: row) }
-                            }
-                            if !shown.isEmpty || archivedEntry {
-                                ChatSectionHeader(Chats.Copy.Sections.chats)
-                            }
-                        }
-                        if archivedEntry {
-                            ChatArchivedRow(count: Self.archived)
-                        }
-                        ForEach(shown) { row in
+                        ChatSectionHeader(Chats.Copy.Sections.agents)
+                        ForEach(Self.agentRows) { row in
                             ChatRowView(
-                                title: row.title,
+                                title: row.name,
                                 time: row.time,
-                                preview: row.preview,
-                                previewLabel: row.previewKind == .question ? "Question:" : nil,
-                                previewItalic: row.previewKind == .working,
+                                preview: row.preview.text,
+                                previewLabel: row.preview.kind == .question ? "Question:" : nil,
+                                previewItalic: row.preview.kind == .working,
                                 needsYou: row.needsYou,
-                                unreadCount: row.unread,
-                                word: row.word?.text,
-                                wordIcon: row.word == .stack ? AppIcons.prStack : nil,
-                                selected: selection?.contains(row.id) == true
-                            ) { ChatLeadMark(lead: row.lead) }
-                            .opacity(row.dim ? Chats.Shell.dimOpacity : 1)
-                            .chatSelectedTint(selection?.contains(row.id) == true)
+                                unreadCount: row.unreadCount
+                            ) { AgentChatLead(row: row) }
+                        }
+                        ForEach(Self.sections, id: \.key) { section in
+                            ChatSectionHeader(Chats.Copy.Sections.title(section.key))
+                            if section.key == .chats, selection != nil {
+                                ChatArchivedRow(count: Self.archived)
+                            }
+                            ForEach(section.rows) { row in
+                                ChatRowView(
+                                    title: row.title,
+                                    time: row.time,
+                                    preview: row.preview,
+                                    previewLabel: row.previewKind == .question ? "Question:" : nil,
+                                    previewItalic: row.previewKind == .working,
+                                    needsYou: row.needsYou,
+                                    unreadCount: row.unread,
+                                    word: row.word?.text,
+                                    wordIcon: row.word == .stack ? AppIcons.prStack : nil,
+                                    selected: selection?.contains(row.id) == true
+                                ) { ChatLeadMark(lead: row.lead) }
+                                .opacity(row.dim ? Chats.Shell.dimOpacity : 1)
+                                .chatSelectedTint(selection?.contains(row.id) == true)
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -913,6 +848,80 @@ struct StorySpecimensScreen: View {
     }
 }
 
+/// #FEED-191 `needs-you` (needs-you.json `cases[1]`, hardcoded ×4): the phone
+/// entry row, then THE list.
+struct NeedsYouSpecimens: View {
+    private static let rows = [
+        NeedsYou.Row(
+            messageId: "p1", sessionId: "r1", rootId: "r1", kind: .plan, opens: .plan,
+            title: "Plan: Group by assignee", chat: "Assignee groups", meta: "", age: "24m",
+            createdAt: "2027-01-15T07:36:00.000Z"
+        ),
+        NeedsYou.Row(
+            messageId: "q1", sessionId: "r2", rootId: "r2", kind: .question, opens: .card,
+            title: "Which palette?", chat: "Palette", meta: "", age: "1h",
+            createdAt: "2027-01-15T07:00:00.000Z"
+        ),
+    ]
+
+    var body: some View {
+        ZStack {
+            AppBackground()
+            VStack(alignment: .leading, spacing: 16) {
+                NeedsYouEntryRow(count: Self.rows.count)
+                NeedsYouList(rows: Self.rows, onOpen: { _ in })
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+}
+
+/// #FEED-191 `results-tab` (results-tab.json `tab.specimen` = `cases[1]`,
+/// hardcoded ×4): the tab body, no PR block, THE committed sample pictures.
+/// `results-tab-lightbox` = the same with THE lightbox open on picture 1.
+struct ResultsTabSpecimens: View {
+    var lightbox = false
+
+    private static let results = [
+        ResultsTab.Result(
+            id: "res-web", sessionId: "c1", sessionName: "Web draft", createdAt: 1_799_992_800_000, age: "2h",
+            title: "Label picker", description: nil,
+            pictures: [
+                ResultsTab.Picture(label: "web picker", attachmentId: "att-w", width: 1600, height: 1000, caption: "Mixed state"),
+                ResultsTab.Picture(label: "ios picker", attachmentId: "att-i", width: 1179, height: 2556, caption: nil),
+            ],
+            surface: true
+        ),
+        ResultsTab.Result(
+            id: "old-result", sessionId: "r1", sessionName: "Batch-edit labels", createdAt: 1_799_222_400_000, age: "9d",
+            title: "First draft", description: nil, pictures: [], surface: true
+        ),
+    ]
+
+    @State private var opened: PictureViewerSet?
+
+    var body: some View {
+        ZStack {
+            AppBackground()
+            ScrollView {
+                ResultsTabView(
+                    results: Self.results,
+                    onOpenPicture: { result, index in opened = resultPictureSet(result, start: index) },
+                    lead: { EmptyView() },
+                    thumbnail: { ResultThumbnailImage(picture: $0) },
+                    surface: { _ in EmptyView() }
+                )
+                .padding(16)
+            }
+        }
+        .pictureViewer($opened)
+        .onAppear {
+            if lightbox { opened = resultPictureSet(Self.results[0], start: 1) }
+        }
+    }
+}
+
 /// #EXP-1662 `plan-page`, the phone form (web `PlanPageSpecimen`): the thread's
 /// title + strip with the plan chip active, the tab's body under them, waiting.
 private struct PlanPageSpecimen: View {
@@ -943,7 +952,7 @@ private struct PlanPageSpecimen: View {
                         tabs: [.conversation],
                         selection: .plan(nil),
                         onSelect: { _ in },
-                        storiesDot: false,
+                        showsResults: true,
                         planWaiting: true
                     )
                 }
