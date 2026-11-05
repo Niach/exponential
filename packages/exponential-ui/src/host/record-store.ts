@@ -9,7 +9,7 @@
 
 import type { AppPackage } from "./package"
 import { RECORDS_SCHEME, parseRecordsSource, recordsValue, type RecordRow, type RecordsContext } from "./query"
-import { validateRecord } from "./records"
+import { validateRecord, withoutNulls } from "./records"
 import { RECORDS_BATCH_FUNCTION, applyRecordBatch, type ActionWrite } from "./actions"
 import type { SourceResolver } from "./sources"
 
@@ -64,7 +64,7 @@ export class MemoryRecordStore implements RecordStore {
       return { id: input.id }
     }
     const id = this.options.newId?.() ?? `r${++this.seq}`
-    this.rows = [...this.rows, { id, kind: input.kind, data: input.data, createdBy: this.options.me ?? null, createdAt: now, updatedAt: now }]
+    this.rows = [...this.rows, { id, kind: input.kind, data: withoutNulls(input.data), createdBy: this.options.me ?? null, createdAt: now, updatedAt: now }]
     this.changed()
     return { id }
   }

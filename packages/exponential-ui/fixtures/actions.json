@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, records.upsert/delete) write; openUrl, bind, app.navigate (VAPP-218: always allowed, the package need not list it; host/screens.ts) and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields; one not in its `required` is T?, VAPP-195), data (dyn?) and me (string?: null when unknown); a value that may be missing fits only a field that may be; any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema, in words because the failure is the toast (VAPP-207): `<field> must be <reason>; …`, `<field> is required`, `<field> is not in the schema`, an enum `<field> must be one of a, b`. Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit). VAPP-204: a press's `actions.<name>` args are the action's params at install: a key that is not a param (`<k> is not a param of action <name>`, unless the params allow additional properties), a required param left out (`<f> is required by action <name>`, at the args) and a literal scalar of another type (`<k> is <T>, got <U>`); a dynamic arg is checked when it runs. A press of `bind` with a literal `source` is checked like a template binding (a URI, in `sources`, a declared kind, a package query). VAPP-205: `hostCalls` runs on every host: a `call` step reaches the SAME dispatcher as a press, so `bind` re-binds (`bound` = the params the source resolver saw) and `openUrl` opens through the URL policy (`opened`). A built-in that refuses after the commit is the outcome's `error` (`<name> was not allowed`), never a silent allow.",
+  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, records.upsert/delete) write; openUrl, bind, app.navigate (VAPP-218: always allowed, the package need not list it; host/screens.ts) and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields; one not in its `required` is T?, VAPP-195), data (dyn?) and me (string?: null when unknown); a value that may be missing fits only a field that may be; any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema, in words because the failure is the toast (VAPP-207): `<field> must be <reason>; …`, `<field> is required`, `<field> is not in the schema`, an enum `<field> must be one of a, b`. Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit). VAPP-204: a press's `actions.<name>` args are the action's params at install: a key that is not a param (`<k> is not a param of action <name>`, unless the params allow additional properties), a required param left out (`<f> is required by action <name>`, at the args) and a literal scalar of another type (`<k> is <T>, got <U>`); a dynamic arg is checked when it runs. A press of `bind` with a literal `source` is checked like a template binding (a URI, in `sources`, a declared kind, a package query). VAPP-205: `hostCalls` runs on every host: a `call` step reaches the SAME dispatcher as a press, so `bind` re-binds (`bound` = the params the source resolver saw) and `openUrl` opens through the URL policy (`opened`). A built-in that refuses after the commit is the outcome's `error` (`<name> was not allowed`), never a silent allow. VAPP-206: CREATE OR PATCH, and absent stays absent. An action's params may name a reserved record key (`id`): they are no record. `records.upsert`'s id may be `string?` (then the step may create, so its data names every required field): at run time null or \"\" = a create, a non-empty string = a patch, anything else `id is a string, got <T>`. Writing a field: an expression evaluating to null writes nothing (a param left out neither stores null nor clears the row's value); \"\" in a field the kind does not require (an unpicked Select, an emptied Input) writes nothing on a create and null on a patch (it clears); a literal JSON null (not an expression) writes nothing on a create and null on a patch. An optional param given as \"\" passes the params check as absent (its value stays readable as \"\"). `batch`: a create drops its null fields; a patch keeps them.",
   "limits": {
     "actions": 32,
     "steps": 64,
@@ -157,6 +157,13 @@
               "items": {
                 "type": "string"
               }
+            },
+            "project": {
+              "type": "string",
+              "enum": [
+                "a",
+                "b"
+              ]
             }
           },
           "required": [
@@ -482,6 +489,103 @@
             "set": {
               "path": "/form/stage",
               "value": "params.stage"
+            }
+          }
+        ]
+      },
+      "save": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            },
+            "project": {
+              "type": "string",
+              "enum": [
+                "a",
+                "b"
+              ]
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "steps": [
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "id": "params.id",
+              "data": {
+                "date": "params.date",
+                "hours": "params.hours",
+                "note": "params.note",
+                "project": "params.project"
+              }
+            }
+          }
+        ]
+      },
+      "clearNote": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "entryId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entryId"
+          ]
+        },
+        "steps": [
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "id": "params.entryId",
+              "data": {
+                "note": null
+              }
+            }
+          }
+        ]
+      },
+      "fresh": {
+        "steps": [
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "data": {
+                "date": "today()",
+                "hours": 1,
+                "note": null
+              }
+            }
+          }
+        ]
+      },
+      "byData": {
+        "steps": [
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "id": "data.id",
+              "data": {
+                "date": "today()",
+                "hours": 1
+              }
             }
           }
         ]
@@ -899,10 +1003,6 @@
           "message": "steps is a non-empty array"
         },
         {
-          "path": "/actions/noSteps/params/properties/id",
-          "message": "id is a reserved record key"
-        },
-        {
           "path": "/actions/noSteps/steps",
           "message": "steps is a non-empty array"
         },
@@ -1090,6 +1190,81 @@
           "message": "source is a scheme:name URI"
         }
       ]
+    },
+    {
+      "name": "VAPP-206: an id that may be missing may create",
+      "with": {
+        "addActions": {
+          "half": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            },
+            "steps": [
+              {
+                "records.upsert": {
+                  "kind": "entry",
+                  "id": "params.id",
+                  "data": {
+                    "note": "'x'"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/actions/half/steps/0/records.upsert/data",
+          "message": "date is required by entry"
+        },
+        {
+          "path": "/actions/half/steps/0/records.upsert/data",
+          "message": "hours is required by entry"
+        }
+      ]
+    },
+    {
+      "name": "VAPP-206: an id is still a string",
+      "with": {
+        "addActions": {
+          "badId": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "n"
+              ]
+            },
+            "steps": [
+              {
+                "records.upsert": {
+                  "kind": "entry",
+                  "id": "params.n",
+                  "data": {
+                    "note": "'x'"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/actions/badId/steps/0/records.upsert/id",
+          "message": "id is a string, got number"
+        }
+      ]
     }
   ],
   "run": [
@@ -1130,7 +1305,7 @@
       }
     },
     {
-      "name": "log: a missing optional param is null",
+      "name": "log: a missing optional param stays absent",
       "action": "log",
       "params": {
         "date": "2026-11-02",
@@ -1143,8 +1318,7 @@
             "kind": "entry",
             "data": {
               "date": "2026-11-02",
-              "hours": 2,
-              "note": null
+              "hours": 2
             }
           }
         ],
@@ -1467,6 +1641,181 @@
       "name": "no such action",
       "action": "nope",
       "error": "no action nope"
+    },
+    {
+      "name": "save: no id creates",
+      "action": "save",
+      "params": {
+        "date": "2026-11-02",
+        "hours": 2
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 2
+            }
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "save: an empty id creates, an unpicked Select stays absent",
+      "action": "save",
+      "params": {
+        "id": "",
+        "date": "2026-11-02",
+        "hours": 2,
+        "note": "",
+        "project": ""
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 2
+            }
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "save: an id patches, an absent param keeps the row's value",
+      "action": "save",
+      "params": {
+        "id": "e1",
+        "date": "2026-11-02",
+        "hours": 2
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 2
+            },
+            "id": "e1"
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "save: on a patch an emptied field clears",
+      "action": "save",
+      "params": {
+        "id": "e1",
+        "date": "2026-11-02",
+        "hours": 2,
+        "note": "",
+        "project": ""
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 2,
+              "note": null,
+              "project": null
+            },
+            "id": "e1"
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "save: a picked Select is checked",
+      "action": "save",
+      "params": {
+        "date": "2026-11-02",
+        "hours": 2,
+        "project": "z"
+      },
+      "error": "project must be one of a, b"
+    },
+    {
+      "name": "clearNote: a literal null clears on a patch",
+      "action": "clearNote",
+      "params": {
+        "entryId": "e1"
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "note": null
+            },
+            "id": "e1"
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "fresh: a literal null writes nothing on a create",
+      "action": "fresh",
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 1
+            }
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "byData: a null id creates",
+      "action": "byData",
+      "data": {},
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 1
+            }
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "byData: an id is a string",
+      "action": "byData",
+      "data": {
+        "id": 5
+      },
+      "error": "step 0: id is a string, got number"
     }
   ],
   "batch": {
@@ -1744,6 +2093,55 @@
           }
         ],
         "ids": []
+      },
+      {
+        "name": "VAPP-206: a create drops its null fields",
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "other",
+            "data": {
+              "x": null
+            }
+          }
+        ],
+        "rows": [
+          {
+            "id": "e1",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-01",
+              "hours": 4
+            },
+            "createdBy": "u1",
+            "createdAt": "2026-11-01T08:00:00.000Z",
+            "updatedAt": "2026-11-01T08:00:00.000Z"
+          },
+          {
+            "id": "e2",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 3,
+              "note": "x"
+            },
+            "createdBy": "u2",
+            "createdAt": "2026-11-02T08:00:00.000Z",
+            "updatedAt": "2026-11-02T08:00:00.000Z"
+          },
+          {
+            "id": "n1",
+            "kind": "other",
+            "data": {},
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-02T10:00:00.000Z",
+            "updatedAt": "2026-11-02T10:00:00.000Z"
+          }
+        ],
+        "ids": [
+          "n1"
+        ]
       }
     ]
   },

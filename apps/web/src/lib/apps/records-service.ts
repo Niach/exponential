@@ -19,7 +19,7 @@
 import { afterRecordWrite, type RecordTriggerOp } from "@/lib/apps/automation-scope"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
-import { validateRecord, type RecordSchema } from "@exponential_app/eui"
+import { validateRecord, withoutNulls, type RecordSchema } from "@exponential_app/eui"
 import { RECORD_POLICY_COPY, kindTransitions, migrateRecord, packageMigrations, recordPolicy, recordRefusal, transitionRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
 import { kindComputed, kindRefs, parseRecordsJson, recordsValue, withComputed, type RecordRefTarget, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
@@ -427,7 +427,8 @@ export async function upsertRecord(
       })
     }
     assertRecordOp(app, input.kind, `create`, viewer)
-    const data = checked(input.data)
+    // VAPP-206: a create's null field is absent.
+    const data = checked(withoutNulls(input.data))
     assertTransition(app, input.kind, viewer, null, data)
     // VAPP-188: an on-behalf create (owners only; the author a member).
     assertCanWriteAs(userId, member.role, input.author, members)
@@ -603,7 +604,7 @@ export async function commitRecordBatch(
           }
           assertRecordOp(app, w.kind, `create`, viewer)
           assertCanWriteAs(userId, viewer.role, w.author, members)
-          const data = checkedAgainst(schema, w.data)
+          const data = checkedAgainst(schema, withoutNulls(w.data))
           assertTransition(app, w.kind, viewer, null, data)
           await assertRecordRefs(tx, app, w.kind, data)
           const author = w.author ?? userId

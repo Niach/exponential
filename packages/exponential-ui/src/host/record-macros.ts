@@ -169,10 +169,14 @@ function editAction(base: string, fields: RecordFormField[]): Json {
 }
 
 /** The form's write: `records.upsert {kind, id?, data}`, data = one
- *  binding per field. */
+ *  binding per field. VAPP-206: an optional field left "" (an unpicked Select,
+ *  an emptied Input) writes null: absent on a create, cleared on a patch. */
 function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown): Json {
   const data: Json = {}
-  for (const f of fields) data[f.name] = f.widget === `datetime` ? dateTimeValue(f) : f.value
+  for (const f of fields) {
+    const value = f.widget === `datetime` ? dateTimeValue(f) : f.value
+    data[f.name] = f.required ? value : { call: `expr`, args: { expr: `v == '' ? null : v`, vars: { v: value }, default: null } }
+  }
   const args: Json = { kind }
   if (recordId !== undefined) args.id = recordId
   args.data = data

@@ -536,7 +536,7 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     let out = press("actions.log", json!({"date": "2026-11-03", "hours": 2}), cx);
     assert_eq!(out.error, None);
     assert_eq!(out.result, Some(json!({"ids": ["n1"]})));
-    assert!(rows.borrow().iter().any(|r| r["data"] == json!({"date": "2026-11-03", "hours": 2, "note": null})));
+    assert!(rows.borrow().iter().any(|r| r["data"] == json!({"date": "2026-11-03", "hours": 2})));
     assert_eq!(data(&host, "s", cx)["form"]["hours"], json!(0));
     assert_eq!(*toasts.borrow(), vec!["Logged 2:00".to_string()]);
 

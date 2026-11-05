@@ -455,7 +455,6 @@
                 "id": "new-1",
                 "date": "2026-11-04",
                 "hours": 2,
-                "note": null,
                 "author": "member"
               }
             ]
@@ -801,7 +800,6 @@
               {
                 "date": "2026-11-04",
                 "hours": 2,
-                "note": null,
                 "id": "new-1",
                 "author": "member"
               }
@@ -1068,7 +1066,6 @@
                     "id": "new-1",
                     "date": "2026-11-04",
                     "hours": 2,
-                    "note": null,
                     "author": "member"
                   }
                 ]

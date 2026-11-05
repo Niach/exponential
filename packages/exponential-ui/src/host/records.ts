@@ -66,8 +66,16 @@ export interface RecordKind {
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
 const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === `string`)
 
-/** Every problem with a kind's schema, each with a JSON pointer under `at`. */
-export function validateRecordSchema(schema: unknown, at: string): PackageIssue[] {
+/** VAPP-206: a create's data without its null fields: absent stays absent
+ *  (a patch keeps them: null clears a field). */
+export function withoutNulls(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== null && v !== undefined))
+}
+
+/** Every problem with a kind's schema, each with a JSON pointer under `at`.
+ *  VAPP-206: an action's params are no record: `params` lets them name a
+ *  reserved key (`id`). */
+export function validateRecordSchema(schema: unknown, at: string, options: { params?: boolean } = {}): PackageIssue[] {
   const issues: PackageIssue[] = []
   if (!isObject(schema) || schema.type !== `object` || !isObject(schema.properties)) return [{ path: at, message: `a record schema is {type: "object", properties}` }]
   // Keys in sorted order: the issue order never depends on how a host's JSON
@@ -75,7 +83,7 @@ export function validateRecordSchema(schema: unknown, at: string): PackageIssue[
   for (const name of Object.keys(schema.properties).sort()) {
     const field = (schema.properties as Record<string, unknown>)[name]
     const fp = `${at}/properties/${name}`
-    if (RECORD_RESERVED_KEYS.includes(name)) issues.push({ path: fp, message: `${name} is a reserved record key` })
+    if (!options.params && RECORD_RESERVED_KEYS.includes(name)) issues.push({ path: fp, message: `${name} is a reserved record key` })
     if (!isObject(field) || typeof field.type !== `string` || !RECORD_FIELD_TYPES.includes(field.type)) {
       issues.push({ path: fp, message: `a field is {type: ${RECORD_FIELD_TYPES.join(`|`)}}` })
       continue
