@@ -56,6 +56,25 @@ class GeometryTest {
         }
     }
 
+    /** #VAPP-253: under the window's width a top or bottom sheet spans it; unset, the surface's. */
+    @Test
+    fun aSheetSpansTheLayerViewport() {
+        for (side in listOf("bottom", "top")) {
+            val tree = JsonValue.parse("""{"id":"root","component":"Box","children":[{"id":"d","component":"Drawer","props":{"open":true,"side":"$side"},"children":[{"id":"x","component":"Text","props":{"text":"Sheet"}}]}]}""")
+            val m = SurfaceModel("sheet", SurfaceOptions(theme = null, mode = Mode.Light), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(tree.json)
+            m.setViewport(358f, 600f)
+            assertEquals(358f, m.layers.single().frame.width, 0.001f)
+            m.overlayLayerWidth(800f)
+            assertEquals(side, m.layers.single().position)
+            assertEquals(0f, m.layers.single().frame.left, 0.001f)
+            assertEquals(800f, m.layers.single().frame.width, 0.001f)
+            m.overlayLayerWidth(null)
+            assertEquals(358f, m.layers.single().frame.width, 0.001f)
+        }
+    }
+
     @Test
     fun overlayPlacement() {
         val cases = Fixtures.json("overlay-geometry.json")["cases"]?.array ?: emptyList()

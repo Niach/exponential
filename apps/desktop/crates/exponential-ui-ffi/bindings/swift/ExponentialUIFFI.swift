@@ -2866,6 +2866,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func setInsets(top: Float, right: Float, bottom: Float, left: Float) 
     
+    /**
+     * #VAPP-253: the window a host hangs the modal layers from: a top or
+     * bottom Drawer lays out at its width and height (height <= 0 = the
+     * surface's). Width <= 0 = unset, the default: the surface's size.
+     */
+    func setLayerViewport(width: Float, height: Float)  -> Bool
+    
     func setLocale(locale: String) 
     
     /**
@@ -3509,6 +3516,21 @@ open func setInsets(top: Float, right: Float, bottom: Float, left: Float)  {try!
         FfiConverterFloat.lower(left),$0
     )
 }
+}
+    
+    /**
+     * #VAPP-253: the window a host hangs the modal layers from: a top or
+     * bottom Drawer lays out at its width and height (height <= 0 = the
+     * surface's). Width <= 0 = unset, the default: the surface's size.
+     */
+open func setLayerViewport(width: Float, height: Float) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_layer_viewport(
+            self.uniffiCloneHandle(),
+        FfiConverterFloat.lower(width),
+        FfiConverterFloat.lower(height),$0
+    )
+})
 }
     
 open func setLocale(locale: String)  {try! rustCall() {
@@ -8896,6 +8918,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 63206) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_layer_viewport() != 58085) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_locale() != 43927) {

@@ -1654,7 +1654,8 @@ impl SurfaceView {
 /// #VAPP-252: where a lifted modal of `size` lands in the window (`position`
 /// = the core's: `centered`, or the edge it hangs from). A Dialog is centred
 /// (`OVERLAY_PADDING` clear of the top when it is taller), a sheet on its
-/// edge; a top or bottom sheet keeps the surface's width, centred.
+/// edge; a top or bottom sheet is the window's width (#VAPP-253,
+/// `set_layer_viewport`), so centring it lands it on the window's left.
 fn window_layer_at(position: &str, size: (f32, f32), window: (f32, f32)) -> (f32, f32) {
     let (w, h) = size;
     let (win_w, win_h) = window;
@@ -1718,8 +1719,8 @@ mod tests {
         assert_eq!(window_layer_at("centered", (400.0, 590.0), window), (300.0, 8.0), "a tall Dialog stays clear of the top");
         assert_eq!(window_layer_at("right", (448.0, 600.0), window), (552.0, 0.0));
         assert_eq!(window_layer_at("left", (448.0, 600.0), window), (0.0, 0.0));
-        assert_eq!(window_layer_at("bottom", (800.0, 300.0), window), (100.0, 300.0));
-        assert_eq!(window_layer_at("top", (800.0, 300.0), window), (100.0, 0.0));
+        assert_eq!(window_layer_at("bottom", (1000.0, 300.0), window), (0.0, 300.0));
+        assert_eq!(window_layer_at("top", (1000.0, 300.0), window), (0.0, 0.0));
     }
 
     #[test]

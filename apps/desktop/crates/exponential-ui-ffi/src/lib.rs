@@ -1401,6 +1401,15 @@ impl Surface {
         })
     }
 
+    /// #VAPP-253: the window a host hangs the modal layers from: a top or
+    /// bottom Drawer lays out at its width and height (height <= 0 = the
+    /// surface's). Width <= 0 = unset, the default: the surface's size.
+    pub fn set_layer_viewport(&self, width: f32, height: f32) -> bool {
+        self.shield("set_layer_viewport", || false, || {
+            self.core().set_layer_viewport(width, height)
+        })
+    }
+
     /// Off = fractional frames (the default; Android rounds once itself).
     pub fn set_rounding(&self, on: bool) {
         self.shield("set_rounding", || (), || {

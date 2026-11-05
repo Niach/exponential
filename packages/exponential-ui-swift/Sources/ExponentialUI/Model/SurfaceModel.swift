@@ -130,6 +130,8 @@ public final class SurfaceModel {
     @ObservationIgnored public internal(set) var viewportHeight: CGFloat = 0
     /// While lifted layers are up, the host's height they replaced.
     @ObservationIgnored private var viewportBeforeOverlay: CGFloat?
+    /// #VAPP-253: while lifted layers are up, the stage they hang from.
+    @ObservationIgnored private var layerViewport: CGSize?
     @ObservationIgnored public internal(set) var maxHeight: CGFloat?
     @ObservationIgnored var nodesDirty = true
     @ObservationIgnored var visualsDirty = true
@@ -355,6 +357,14 @@ public final class SurfaceModel {
         if width > 0 { pass() }
     }
 
+    /// #VAPP-253: `overlayViewportHeight` with the stage's width too: a top or
+    /// bottom sheet spans it (the core's layer viewport), nil = back to the
+    /// surface's width and the host's height.
+    func overlayViewport(_ size: CGSize?) {
+        layerViewport = size
+        overlayViewportHeight(size?.height)
+    }
+
     // MARK: - The pass
 
     /// Run one layout pass (the core, the measurer, the caches), then the
@@ -365,6 +375,7 @@ public final class SurfaceModel {
         inPass = true
         let t0 = DispatchTime.now().uptimeNanoseconds
         _ = surface.setViewport(width: Float(width), height: Float(viewportHeight), maxHeight: maxHeight.map { Float($0) })
+        _ = surface.setLayerViewport(width: Float(layerViewport?.width ?? 0), height: Float(layerViewport?.height ?? 0))
         var changed = Set<Int>()
         var calls = 0
         var layoutNs: UInt64 = 0

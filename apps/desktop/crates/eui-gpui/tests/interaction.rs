@@ -240,6 +240,43 @@ fn a_lifted_side_drawer_hangs_from_the_window_edge(cx: &mut TestAppContext) {
     assert!(x > window - 400.0, "against the window's right edge: {x} of {window}");
 }
 
+/// #VAPP-253: where a sheet painted in a 400 px surface, and the window's width.
+fn sheet_in_a_narrow_surface(cx: &mut TestAppContext, side: &str, lift_layers: bool) -> (f32, f32, f32) {
+    init(cx);
+    let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, lift_layers, ..Default::default() };
+    let (view, vcx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+    let tree = json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Drawer", "props": {"open": true, "side": side}, "children": [{"id": "body", "component": "Text", "props": {"text": "x"}}]}]});
+    view.update(vcx, |v, cx| {
+        v.record_bounds(true);
+        v.set_width(400.0, cx);
+        v.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap(), cx);
+    });
+    draw(vcx);
+    draw(vcx);
+    let b = view.read_with(vcx, |v, _| v.painted_bounds("d.content")).expect("the sheet painted");
+    let window = vcx.update(|window, _| f32::from(window.viewport_size().width));
+    (f32::from(b.origin.x), f32::from(b.size.width), window)
+}
+
+#[gpui::test]
+fn a_lifted_bottom_sheet_spans_the_window(cx: &mut TestAppContext) {
+    let (x, w, window) = sheet_in_a_narrow_surface(cx, "bottom", true);
+    assert!(window > 800.0, "the test window is wider than the surface: {window}");
+    assert_eq!((x, w), (0.0, window));
+}
+
+#[gpui::test]
+fn a_lifted_top_sheet_spans_the_window(cx: &mut TestAppContext) {
+    let (x, w, window) = sheet_in_a_narrow_surface(cx, "top", true);
+    assert_eq!((x, w), (0.0, window));
+}
+
+#[gpui::test]
+fn a_sheet_keeps_the_surface_width_by_default(cx: &mut TestAppContext) {
+    let (x, w, _) = sheet_in_a_narrow_surface(cx, "bottom", false);
+    assert_eq!((x, w), (0.0, 400.0));
+}
+
 #[gpui::test]
 fn escape_and_the_scrim_respect_dismissible(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [

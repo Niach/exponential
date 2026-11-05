@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- #VAPP-253: `ExponentialSurfaceLayers` hands the core its stage as the layer viewport: a top or bottom Drawer spans the stage instead of keeping the surface's width.
+
 ## 0.16.0 (2026-11-05)
 
 - VAPP-212: `RecordsStore` + `RecordsOverlay`: one app's rows stay in Rust, `sync` pushes only what changed, and `RecordsQuery.value(store:…)` carries no rows across the FFI.

@@ -338,6 +338,95 @@ fn layers_stay_inside_the_safe_area_and_a_tall_dialog_scrolls_its_body() {
     assert!(root.y + root.h - (text.y + text.h) >= 34.0, "content clear of the home indicator");
 }
 
+fn sheet(side: &str) -> Surface {
+    surface(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Drawer", "props": {"open": true, "side": side}, "children": [{"id": "x", "component": "Text", "props": {"text": "Sheet"}}]}]}))
+}
+
+#[test]
+fn a_layer_viewport_widens_a_top_or_bottom_drawer_to_the_window() {
+    let mut m = fixed();
+    for (side, bottom) in [("bottom", true), ("top", false)] {
+        let mut s = sheet(side);
+        s.set_viewport(358.0, 600.0, None);
+        let root = s.layout(&mut m).layers[0].frames[0];
+        assert_eq!((root.x, root.w), (0.0, 358.0), "unset: the surface's width");
+        assert!(s.set_layer_viewport(1000.0, 800.0));
+        assert!(!s.set_layer_viewport(1000.0, 800.0), "nothing changed");
+        let out = s.layout(&mut m);
+        let root = out.layers[0].frames[0];
+        assert_eq!(out.layers[0].position, side);
+        assert_eq!((root.x, root.w), (0.0, 1000.0), "{side}: the window's width");
+        assert_eq!(root.y, if bottom { 800.0 - root.h } else { 0.0 }, "{side}: on the window's edge");
+        // A window with no height of its own keeps the surface's.
+        s.set_layer_viewport(1000.0, 0.0);
+        let root = s.layout(&mut m).layers[0].frames[0];
+        assert_eq!(root.y, if bottom { 600.0 - root.h } else { 0.0 });
+        assert_eq!(root.w, 1000.0);
+        // Unset again: today's sheet, whatever the pass before it did.
+        assert!(s.set_layer_viewport(0.0, 0.0));
+        assert_eq!(s.layer_viewport(), None);
+        let root = s.layout(&mut m).layers[0].frames[0];
+        assert_eq!((root.x, root.w), (0.0, 358.0));
+    }
+}
+
+#[test]
+fn a_layer_viewport_leaves_dialogs_side_drawers_and_the_main_tree_alone() {
+    let mut m = fixed();
+    for (kind, props) in [("Dialog", json!({"open": true})), ("Drawer", json!({"open": true, "side": "right"})), ("Drawer", json!({"open": true, "side": "left"}))] {
+        let tree = json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": kind, "props": props, "children": [{"id": "x", "component": "Text", "props": {"text": "Body"}}]}]});
+        let mut s = surface(tree);
+        s.set_viewport(358.0, 600.0, None);
+        let before = s.layout(&mut m);
+        s.set_layer_viewport(1000.0, 800.0);
+        let after = s.layout(&mut m);
+        assert_eq!(before.layers[0].frames, after.layers[0].frames, "{kind}");
+        assert_eq!(before.frames, after.frames, "{kind}");
+    }
+}
+
+#[test]
+fn a_widened_sheet_stays_clear_of_the_safe_area_and_caps_on_the_window() {
+    let mut m = fixed();
+    let mut s = sheet("bottom");
+    s.set_viewport(358.0, 400.0, None);
+    s.set_insets(Insets { top: 0.0, right: 44.0, bottom: 21.0, left: 44.0 });
+    s.set_layer_viewport(844.0, 390.0);
+    let out = s.layout(&mut m);
+    let root = out.layers[0].frames[0];
+    assert_eq!((root.x, root.w), (0.0, 844.0), "the sheet reaches both edges");
+    let text = frame(&s, &out, "x");
+    assert!(text.x >= 44.0, "clear of the left inset: {}", text.x);
+    assert!(text.x + text.w <= 844.0 - 44.0, "clear of the right inset: {} + {}", text.x, text.w);
+    assert!(root.y + root.h - (text.y + text.h) >= 21.0, "clear of the bottom inset");
+
+    let tall: Vec<Value> = (0..60).map(|i| json!({"id": format!("t{i}"), "component": "Text", "props": {"text": "Line"}})).collect();
+    let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Drawer", "props": {"open": true, "side": "bottom"}, "children": tall}]}));
+    s.set_viewport(358.0, 200.0, None);
+    s.set_layer_viewport(1000.0, 800.0);
+    let root = s.layout(&mut m).layers[0].frames[0];
+    assert!(root.h > 200.0 && root.h <= 720.0 + 0.01, "at most 90 % of the window: {}", root.h);
+    assert!((root.y + root.h - 800.0).abs() < 0.01, "flush with the window's edge");
+}
+
+#[test]
+fn a_popup_above_a_widened_sheet_lands_in_the_window() {
+    let mut m = fixed();
+    let row = json!({"id": "row", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "flex-end"}, "children": [
+        {"id": "p", "component": "Popover", "props": {"open": true, "side": "top"}, "slots": {"trigger": {"id": "go", "component": "Button", "props": {"label": "Go"}}}, "children": [{"id": "y", "component": "Text", "props": {"text": "Popup"}}]}
+    ]});
+    let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Drawer", "props": {"open": true, "side": "bottom"}, "children": [row]}]}));
+    s.set_viewport(358.0, 600.0, None);
+    s.set_layer_viewport(1000.0, 800.0);
+    let out = s.layout(&mut m);
+    assert_eq!(out.layers.len(), 2);
+    let anchor = out.layers[1].anchor_frame.expect("anchored");
+    let popup = out.layers[1].frames[0];
+    assert!(anchor.x > 358.0, "the trigger sits past the surface's width: {}", anchor.x);
+    assert!(popup.x + popup.w > 358.0 && popup.x + popup.w <= 1000.0, "not pulled back into the surface: {} + {}", popup.x, popup.w);
+    assert!(popup.y + popup.h <= anchor.y, "above its trigger, in the window's height: {} vs {}", popup.y + popup.h, anchor.y);
+}
+
 #[test]
 fn font_scale_density_contrast_and_system_mode() {
     let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.md"},

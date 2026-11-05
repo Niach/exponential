@@ -237,13 +237,33 @@ final class Round1PaintTests: XCTestCase {
         XCTAssertEqual(stage.origin(position: "left", layerSize: panel), .zero)
         XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 200)), CGPoint(x: 24, y: 274))
         XCTAssertEqual(stage.origin(position: "centered", layerSize: CGSize(width: 342, height: 740)).y, 8, "a tall Dialog stays clear of the top")
-        let sheet = CGSize(width: 358, height: 200)
-        XCTAssertEqual(stage.origin(position: "top", layerSize: sheet), CGPoint(x: 16, y: 0))
-        XCTAssertEqual(stage.origin(position: "bottom", layerSize: sheet), CGPoint(x: 16, y: 582), "on the screen's edge")
+        let sheet = CGSize(width: 390, height: 200)
+        XCTAssertEqual(stage.origin(position: "top", layerSize: sheet), .zero)
+        XCTAssertEqual(stage.origin(position: "bottom", layerSize: sheet), CGPoint(x: 0, y: 582), "on the screen's edge")
         var typing = stage
         typing.size.height = 448
         typing.insets.bottom = 334
-        XCTAssertEqual(typing.origin(position: "bottom", layerSize: sheet), CGPoint(x: 16, y: 248), "above the keyboard")
+        XCTAssertEqual(typing.origin(position: "bottom", layerSize: sheet), CGPoint(x: 0, y: 248), "above the keyboard")
+    }
+
+    /// #VAPP-253: on the stage a top or bottom sheet spans its width, not the
+    /// surface's; off it the sheet takes the surface's again.
+    func testALiftedSheetSpansTheStage() throws {
+        for side in ["bottom", "top"] {
+            let drawer = node("d", "Drawer", props: .object(["open": .bool(true), "side": .string(side)]), children: [node("x", "Text", props: .object(["text": .string("Sheet")]))])
+            let m = try surface(root([drawer]))
+            m.setViewport(width: 358, height: 500)
+            XCTAssertEqual(m.layers.first?.frame.width, 358, "\(side): the surface's width")
+            m.overlayViewport(CGSize(width: 390, height: 748))
+            let frame = try XCTUnwrap(m.layers.first?.frame)
+            XCTAssertEqual(frame.minX, 0, side)
+            XCTAssertEqual(frame.width, 390, "\(side): the stage's width")
+            let stage = LayerStage(size: CGSize(width: 390, height: 748), insets: EdgeInsets(top: 62, leading: 0, bottom: 34, trailing: 0), homeInset: 34)
+            XCTAssertEqual(stage.origin(position: side, layerSize: frame.size).x, 0, "\(side): flush with the stage's left")
+            m.overlayViewport(nil)
+            XCTAssertEqual(m.layers.first?.frame.width, 358, "\(side): back to the surface's width")
+            XCTAssertEqual(m.viewportHeight, 500)
+        }
     }
 
     /// #VAPP-252: lifted layers lay out against the window; what the host
