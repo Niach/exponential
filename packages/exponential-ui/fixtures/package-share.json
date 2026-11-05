@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-241 (eApps P1, docs/package-format.md \"Public links\"): a package's `share`, validated by the TS reference (src/host/share.ts validatePackageShares) and the Rust core (host::share::validate_package_shares). Each case = `share` over the `package` below, `issues` = what validatePackage adds. The links themselves (tokens, caps, the guest pages) = packages/domain-contract/fixtures/app-share.json.",
+  "$comment": "VAPP-241 (eApps P1, docs/package-format.md \"Public links\"): a package's `share`, validated by the TS reference (src/host/share.ts validatePackageShares) and the Rust core (host::share::validate_package_shares). Each case = `share` over the `package` below, `issues` = what validatePackage adds. VAPP-246: a view link's `template` renders over the snapshot, so install refuses one a guest's host could not run: only `records:<kind>` (at most `?query=<the link's query>`) reads, no RecordForm, RecordTable `editable: false`, no call but `set` and `openUrl`, no listed extension component, no `exp:` string, and its expressions must check over the narrowed row with no query. The links themselves (tokens, caps, the guest pages) = packages/domain-contract/fixtures/app-share.json.",
   "package": {
     "records": {
       "signup": {
@@ -20,6 +20,9 @@
             "cv": {
               "type": "string",
               "format": "attachment"
+            },
+            "amount": {
+              "type": "number"
             }
           }
         }
@@ -113,6 +116,374 @@
       },
       "other": {
         "from": "photo"
+      },
+      "total": {
+        "from": "signup",
+        "sum": "amount"
+      }
+    },
+    "extensions": [
+      {
+        "id": "https://acme.example/catalogs/charts/v1",
+        "version": "1.0.0",
+        "components": [
+          "Gantt"
+        ]
+      }
+    ],
+    "templates": {
+      "wall": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": {
+              "componentId": "row",
+              "path": "/list/rows"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Text",
+            "text": {
+              "path": "note"
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/list",
+            "source": "records:signup"
+          }
+        ]
+      },
+      "byQuery": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": {
+              "componentId": "row",
+              "path": "/list/rows"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Text",
+            "text": {
+              "path": "note"
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/list",
+            "source": "records:signup?query=recent"
+          }
+        ]
+      },
+      "sorted": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": {
+              "componentId": "row",
+              "path": "/list/rows"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Text",
+            "text": {
+              "path": "note"
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/list",
+            "source": "records:signup?sort=email"
+          }
+        ]
+      },
+      "photos": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": {
+              "componentId": "row",
+              "path": "/list/rows"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Text",
+            "text": {
+              "path": "note"
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/list",
+            "source": "records:photo"
+          }
+        ]
+      },
+      "members": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": {
+              "componentId": "row",
+              "path": "/list/rows"
+            }
+          },
+          {
+            "id": "row",
+            "component": "Text",
+            "text": {
+              "path": "note"
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/list",
+            "source": "exp:members"
+          }
+        ]
+      },
+      "table": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": [
+              "t"
+            ]
+          },
+          {
+            "id": "t",
+            "component": "RecordTable",
+            "kind": "signup",
+            "editable": false
+          }
+        ]
+      },
+      "editable": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": [
+              "t"
+            ]
+          },
+          {
+            "id": "t",
+            "component": "RecordTable",
+            "kind": "signup"
+          }
+        ]
+      },
+      "tableOther": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": [
+              "t"
+            ]
+          },
+          {
+            "id": "t",
+            "component": "RecordTable",
+            "kind": "photo",
+            "editable": false,
+            "query": "sort=file"
+          }
+        ]
+      },
+      "form": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": [
+              "f"
+            ]
+          },
+          {
+            "id": "f",
+            "component": "RecordForm",
+            "kind": "signup"
+          }
+        ]
+      },
+      "presses": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ]
+          },
+          {
+            "id": "a",
+            "component": "Button",
+            "label": "Open",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/open",
+                    "value": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "b",
+            "component": "Button",
+            "label": "Log",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "actions.log"
+                }
+              }
+            }
+          },
+          {
+            "id": "c",
+            "component": "Button",
+            "label": "Go",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "app.navigate",
+                  "args": {
+                    "screen": "x"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "d",
+            "component": "Button",
+            "label": "Bind",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "bind",
+                  "args": {
+                    "path": "/m",
+                    "source": "records:signup"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "chart": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": [
+              "g"
+            ]
+          },
+          {
+            "id": "g",
+            "component": "Gantt"
+          }
+        ]
+      },
+      "literal": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Stack",
+            "children": [
+              "s"
+            ]
+          },
+          {
+            "id": "s",
+            "component": "Select",
+            "source": "exp:members"
+          }
+        ],
+        "data": {
+          "seed": [
+            "EXP:issues"
+          ]
+        }
+      },
+      "expr": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Text",
+            "text": {
+              "call": "expr",
+              "args": {
+                "expr": "a",
+                "default": "",
+                "vars": {
+                  "a": {
+                    "path": "/list/rows/0/email"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/list",
+            "source": "records:signup"
+          }
+        ]
+      },
+      "totals": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Text",
+            "text": {
+              "call": "expr",
+              "args": {
+                "expr": "a + 1",
+                "default": "",
+                "vars": {
+                  "a": {
+                    "path": "/list/sum"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "bindings": [
+          {
+            "path": "/list",
+            "source": "records:signup?query=total"
+          }
+        ]
       }
     }
   },
@@ -155,7 +526,7 @@
       "issues": [
         {
           "path": "/share",
-          "message": "share is a list of {name, mode, kind, fields?, query?, expires?}"
+          "message": "share is a list of {name, mode, kind, fields?, query?, template?, expires?}"
         }
       ]
     },
@@ -167,7 +538,7 @@
       "issues": [
         {
           "path": "/share/0",
-          "message": "a public link is {name, mode, kind, fields?, query?, expires?}"
+          "message": "a public link is {name, mode, kind, fields?, query?, template?, expires?}"
         }
       ]
     },
@@ -213,19 +584,19 @@
       ]
     },
     {
-      "name": "a template is not a key yet, a bad name, an unknown mode and kind",
+      "name": "an unknown key, a bad name, an unknown mode and kind",
       "share": [
         {
           "name": "Join",
           "mode": "edit",
           "kind": "nope",
-          "template": "x"
+          "colour": "red"
         }
       ],
       "issues": [
         {
-          "path": "/share/0/template",
-          "message": "unknown public link key template"
+          "path": "/share/0/colour",
+          "message": "unknown public link key colour"
         },
         {
           "path": "/share/0/name",
@@ -515,6 +886,306 @@
         {
           "path": "/share/0/kind",
           "message": "a submit link cannot fill a required file field"
+        }
+      ]
+    },
+    {
+      "name": "a view link renders a template of its kind, at most with its own query",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "wall"
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "signup",
+          "template": "byQuery",
+          "query": "recent"
+        },
+        {
+          "name": "c",
+          "mode": "view",
+          "kind": "signup",
+          "template": "table",
+          "fields": [
+            "note"
+          ]
+        },
+        {
+          "name": "d",
+          "mode": "view",
+          "kind": "signup",
+          "template": "wall",
+          "fields": [
+            "note"
+          ]
+        }
+      ],
+      "issues": []
+    },
+    {
+      "name": "only a view link has a template, and it names one",
+      "share": [
+        {
+          "name": "a",
+          "mode": "submit",
+          "kind": "signup",
+          "template": "wall"
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "signup",
+          "template": "nope"
+        },
+        {
+          "name": "c",
+          "mode": "view",
+          "kind": "signup",
+          "template": 1
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "only a view link has a template"
+        },
+        {
+          "path": "/share/1/template",
+          "message": "nope names no package template"
+        },
+        {
+          "path": "/share/2/template",
+          "message": "1 names no package template"
+        }
+      ]
+    },
+    {
+      "name": "a template reads only the link's own snapshot",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "byQuery"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template byQuery reads records:signup?query=recent: a public link reads only its own records:signup"
+        }
+      ]
+    },
+    {
+      "name": "a template's other reads: ad-hoc params, another kind, exp:",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "sorted"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template sorted reads records:signup?sort=email: a public link reads only its own records:signup"
+        }
+      ]
+    },
+    {
+      "name": "a template reading another kind",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "photos"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template photos reads records:photo: a public link reads only its own records:signup"
+        }
+      ]
+    },
+    {
+      "name": "a template bound to an exp: source",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "members"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template members reads exp:members: a public link reads only its own records:signup"
+        }
+      ]
+    },
+    {
+      "name": "an editable RecordTable",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "editable"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template editable has an editable RecordTable: set editable: false"
+        }
+      ]
+    },
+    {
+      "name": "a RecordTable of another kind and query",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "tableOther"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template tableOther reads records:photo?sort=file: a public link reads only its own records:signup"
+        }
+      ]
+    },
+    {
+      "name": "a RecordForm",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "form"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template form holds a RecordForm: a view link only reads"
+        }
+      ]
+    },
+    {
+      "name": "a press may only set or open a url",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "presses"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template presses calls actions.log: a guest's page only reads"
+        },
+        {
+          "path": "/share/0/template",
+          "message": "template presses calls app.navigate: a guest's page only reads"
+        },
+        {
+          "path": "/share/0/template",
+          "message": "template presses calls bind: a guest's page only reads"
+        }
+      ]
+    },
+    {
+      "name": "an extension component",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "chart"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template chart uses the extension component Gantt: a guest's page has no extensions"
+        }
+      ]
+    },
+    {
+      "name": "an exp: string anywhere in the components or the data",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "literal"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template literal reads exp:members: a guest has no exp: source"
+        },
+        {
+          "path": "/share/0/template",
+          "message": "template literal reads EXP:issues: a guest has no exp: source"
+        }
+      ]
+    },
+    {
+      "name": "an expression reading a field the link does not name",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "expr",
+          "fields": [
+            "note"
+          ]
+        },
+        {
+          "name": "b",
+          "mode": "view",
+          "kind": "signup",
+          "template": "expr"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template expr on a guest's page: unknown field email in /list/rows/0/email"
+        }
+      ]
+    },
+    {
+      "name": "an expression that needs the query's value",
+      "share": [
+        {
+          "name": "a",
+          "mode": "view",
+          "kind": "signup",
+          "template": "totals",
+          "query": "total"
+        }
+      ],
+      "issues": [
+        {
+          "path": "/share/0/template",
+          "message": "template totals on a guest's page: a may be missing: guard it with has(), a null check or orElse()"
         }
       ]
     }

@@ -8,7 +8,7 @@ import { createHmac, randomBytes } from "node:crypto"
 import { TRPCError } from "@trpc/server"
 import { and, count, eq, gt, lt, isNull, ne, sql } from "drizzle-orm"
 import { APP_SHARE_CAPS, APP_SHARE_COPY, linkState, shareFields, underShareCaps, type ShareLinkState, type ShareMode, type ShareSchema } from "@exp/domain-contract/app-share"
-import { CORE_CATALOG_ID, PACKAGE_FORMAT_VERSION, type AppPackage, type PackageShare, type RecordKind } from "@exponential_app/eui"
+import { CORE_CATALOG_ID, guestTemplate, PACKAGE_FORMAT_VERSION, validatePackage, validatePackageShares, type AppPackage, type PackageShare, type RecordKind } from "@exponential_app/eui"
 import { db } from "@/db/connection"
 import { apps, appShareLinks, appShareSubmissions, teamMembers } from "@/db/schema"
 import { readAppRecordRows, serverRecordsValue, teamMemberNames, teamToday, upsertRecord } from "@/lib/apps/records-service"
@@ -120,7 +120,7 @@ function guestFields(kind: RecordKind, fields?: readonly string[]): string[] {
 
 /** The kind as a guest sees it: only the named fields, no refs, policy,
  *  computed or transitions. */
-function guestKind(kind: RecordKind, fields: readonly string[]): RecordKind {
+export function guestKind(kind: RecordKind, fields: readonly string[]): RecordKind {
   const properties = Object.fromEntries(fields.map((f) => [f, kind.schema.properties[f]!]))
   return { title: kind.title, schema: { ...kind.schema, properties, required: (kind.schema.required ?? []).filter((f) => fields.includes(f)) } } as RecordKind
 }
@@ -129,29 +129,41 @@ export interface GuestPage {
   mode: ShareMode
   title: string
   package: AppPackage
-  /** A view link's snapshot, at the RecordTable's `records:` binding. */
+  /** A view link's snapshot, at every `records:` binding. */
   value?: { rows: Record<string, unknown>[]; count: number }
 }
 
-/** What a guest's page renders: a one-template package with nothing but
- *  the one kind's named fields, and a view link's snapshot. Null = gone. */
-export async function guestPage(token: string, now = new Date()): Promise<GuestPage | null> {
-  const live = await liveLink(token, now)
-  if (!live) return null
-  const { share, fields, app } = live
+/** The one-template package a guest's host gets: nothing but the one kind's
+ *  named fields. A view link's `template` (VAPP-246) reads only the snapshot:
+ *  re-checked here, so a package that skipped install never reaches a guest;
+ *  null = gone. Pure. */
+export function guestPackage(published: Record<string, unknown>, share: PackageShare, kind: RecordKind, fields: readonly string[], title: string): AppPackage | null {
+  const template = share.mode === `view` && share.template ? (published.templates as Record<string, Record<string, unknown>> | undefined)?.[share.template] : undefined
+  if (share.mode === `view` && share.template && (!template || validatePackageShares({ ...published, share: [share] }).length > 0)) return null
   const node = share.mode === `submit` ? { id: `form`, component: `RecordForm`, kind: share.kind } : { id: `table`, component: `RecordTable`, kind: share.kind, editable: false, add: false }
-  const title = live.kind.title ?? app.name
   const pkg = {
     formatVersion: PACKAGE_FORMAT_VERSION,
     id: `share.${share.name}`,
     name: title,
     version: `1.0.0`,
-    catalogId: CORE_CATALOG_ID,
+    catalogId: template && typeof published.catalogId === `string` ? published.catalogId : CORE_CATALOG_ID,
     functions: share.mode === `submit` ? [`records.upsert`] : [],
     sources: [`records:${share.kind}`],
-    records: { [share.kind]: guestKind(live.kind, fields) },
-    templates: { main: { components: [{ id: `root`, component: `Page`, title, children: [node.id] }, node] } },
+    records: { [share.kind]: guestKind(kind, fields) },
+    templates: { main: template ? guestTemplate(template, share.kind) : { components: [{ id: `root`, component: `Page`, title, children: [node.id] }, node] } },
   } as unknown as AppPackage
+  return template && validatePackage(pkg).length > 0 ? null : pkg
+}
+
+/** What a guest's page renders: the one-template package and a view link's
+ *  snapshot. Null = gone. */
+export async function guestPage(token: string, now = new Date()): Promise<GuestPage | null> {
+  const live = await liveLink(token, now)
+  if (!live) return null
+  const { share, fields, app } = live
+  const title = live.kind.title ?? app.name
+  const pkg = guestPackage(app.package as Record<string, unknown>, share, live.kind, fields, title)
+  if (!pkg) return null
   if (share.mode === `submit`) return { mode: share.mode, title, package: pkg }
   return { mode: share.mode, title, package: pkg, value: await snapshot(live) }
 }
