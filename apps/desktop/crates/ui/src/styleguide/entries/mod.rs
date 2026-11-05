@@ -107,6 +107,9 @@ pub(crate) mod story_ring;
 pub(crate) mod story_viewer;
 // STORIES TAB.
 pub(crate) mod story_tab;
+// #FEED-191: the Results tab + Needs you.
+pub(crate) mod results_tab;
+pub(crate) mod needs_you;
 // #EXP-1645: the team mark + the Team image row.
 pub(crate) mod team_avatar;
 
@@ -228,4 +231,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: story_ring::ID, owner: story_ring::OWNER, render: story_ring::render },
     Entry { id: story_viewer::ID, owner: story_viewer::OWNER, render: story_viewer::render },
     Entry { id: story_tab::ID, owner: story_tab::OWNER, render: story_tab::render },
+    Entry { id: results_tab::ID, owner: results_tab::OWNER, render: results_tab::render },
+    Entry { id: needs_you::ID, owner: needs_you::OWNER, render: needs_you::render },
 ];
