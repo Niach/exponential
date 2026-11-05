@@ -31,3 +31,7 @@
 - En lukket app-formular forbliver lukket; et tryk på en række åbner posten
 - Tidslinjer og brede tabeller i apps kan læses på smalle telefoner
 - En sessions plan forbliver åben med sin fanelinje
+- Historier er væk: en chats Resultater-fane gemmer det, agenterne viste dig
+- Har brug for dig samler planer og spørgsmål, der venter på dig
+- Chatlisten er grupperet, uden cirkler og filterchips
+- Teamejere vælger, hvilken MCP-server der dækker hver af en apps forbindelser

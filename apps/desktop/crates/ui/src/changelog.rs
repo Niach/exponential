@@ -54,7 +54,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Needs you**: every plan and question waiting on you and every PR ready to merge, in one list across the team.
 - **Results**: a chat's last tab keeps everything its agents showed you, and a picture opens full size.
 - **Plans**: a decision on the Plan tab returns you to the conversation, where the agent carries on.
-- **Inbox**: opens from an icon next to Search on wide screens, and My issues is a pill on the board."#,
+- **Inbox**: opens from an icon next to Search on wide screens, and My issues is a pill on the board.
+- **App connections**: a team owner picks which of the team's MCP servers fills each connection an app needs, now on iPhone and Android too.
+- **Fixes**: a finished session can always be ended, even in an encrypted chat, and the Windows app starts again by itself after an update."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

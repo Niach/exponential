@@ -31,3 +31,7 @@
 - Zatvorený formulár zostane zatvorený; ťuknutie na riadok otvorí záznam
 - Časové osi a široké tabuľky sú na úzkych telefónoch čitateľné
 - Plán relácie zostane otvorený aj s pásom kariet
+- Príbehy sú preč: karta Výsledky uchová, čo vám agenti ukázali
+- Potrebuje vás zhromažďuje plány a otázky, ktoré na vás čakajú
+- Zoznam chatov je zoskupený, bez kruhov a filtrov
+- Vlastníci tímu vyberú, ktorý MCP server obslúži každé pripojenie aplikácie

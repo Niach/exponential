@@ -31,3 +31,7 @@
 - A bezárt űrlap zárva marad; egy sorra koppintva megnyílik a rekord
 - Az idővonalak és széles táblázatok keskeny telefonon is olvashatók
 - A munkamenet terve nyitva marad a fülsávval együtt
+- A történetek megszűntek: az Eredmények lap megőrzi, amit az ügynökök mutattak
+- A Rád vár összegyűjti a rád váró terveket és kérdéseket
+- A csevegőlista csoportosított, körök és szűrők nélkül
+- A csapat tulajdonosai választják ki, melyik MCP-szerver szolgálja ki egy app kapcsolatait

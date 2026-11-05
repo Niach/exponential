@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.15.3 (2026-11-05)
+
+- The icon list follows the app: `thread-stories` is gone, `thread-results` and `nav-needs-you` are new (FEED-191).
+
 ## 0.15.2 (2026-11-04)
 
 - #VAPP-252: `SurfaceOptions.liftsLayers` / `HostOptions.liftsLayers` (default off) + `ExponentialSurfaceLayers` + `SurfaceModel.liftedLayersOpen`: a host can show a surface's Dialog and Drawer layers where the scrim should reach (a clear `fullScreenCover`) instead of inside the surface and its scroller.

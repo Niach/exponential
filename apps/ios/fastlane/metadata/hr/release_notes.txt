@@ -31,3 +31,7 @@
 - Zatvoreni obrazac ostaje zatvoren; dodir retka otvara zapis
 - Vremenske crte i široke tablice čitljive su na uskim telefonima
 - Plan sesije ostaje otvoren, s trakom kartica
+- Priče su uklonjene: kartica Rezultati čuva ono što su ti agenti pokazali
+- Treba te skuplja planove i pitanja koji te čekaju
+- Popis chatova je grupiran, bez krugova i filtara
+- Vlasnici tima biraju koji MCP poslužitelj pokriva svaku vezu aplikacije

@@ -31,3 +31,7 @@
 - Ein geschlossenes App-Formular bleibt zu; ein Tippen auf eine Zeile öffnet den Eintrag
 - Zeitleisten und breite Tabellen in Apps sind auf schmalen Handys gut lesbar
 - Der Plan einer Sitzung bleibt mit seiner Tab-Leiste geöffnet
+- Storys sind weg: Der Tab Ergebnisse eines Chats behält, was dir Agenten gezeigt haben
+- Braucht dich sammelt Pläne und Fragen, die auf dich warten
+- Die Chatliste ist gruppiert, ohne Kreise und Filter-Chips
+- Team-Inhaber wählen, welcher MCP-Server jede Verbindung einer App bedient
