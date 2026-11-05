@@ -43,6 +43,8 @@ public struct GlassSubmitLabel<Icon: View>: View {
     /// EXP-1676: web's `Button size="sm"` (h-8, px-3): the text button's shape
     /// at the control rung, hugging its label too.
     var small: Bool = false
+    /// Web's `variant="outline"`: the hairline over the page, foreground ink.
+    var outline: Bool = false
     let icon: Icon
 
     public init(
@@ -52,6 +54,7 @@ public struct GlassSubmitLabel<Icon: View>: View {
         pendingWord: String? = nil,
         compact: Bool = false,
         small: Bool = false,
+        outline: Bool = false,
         @ViewBuilder icon: () -> Icon
     ) {
         self.label = label
@@ -60,6 +63,7 @@ public struct GlassSubmitLabel<Icon: View>: View {
         self.pendingWord = pendingWord
         self.compact = compact
         self.small = small
+        self.outline = outline
         self.icon = icon()
     }
 
@@ -68,18 +72,24 @@ public struct GlassSubmitLabel<Icon: View>: View {
             label,
             pendingWord: pendingWord,
             pending: loading,
-            spinnerColor: DesignTokens.Palette.primaryForeground
+            spinnerColor: outline ? .white : DesignTokens.Palette.primaryForeground
         ) {
             icon
         }
         .font(compact || small ? .subheadline.weight(.medium) : .body.weight(.medium))
-        .foregroundStyle(DesignTokens.Palette.primaryForeground)
+        .foregroundStyle(outline ? Color.white : DesignTokens.Palette.primaryForeground)
         .frame(maxWidth: compact || small ? nil : .infinity)
         .frame(height: small ? GlassPillTokens.heightMd : nil)
         .padding(.horizontal, small ? GlassPillTokens.horizontalPaddingMd : compact ? 14 : 0)
         .padding(.vertical, small ? 0 : compact ? 8 : 14)
-        .background(DesignTokens.Palette.primary)
+        .background(outline ? DesignTokens.Glass.fillCard : DesignTokens.Palette.primary)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
+        .overlay {
+            if outline {
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    .strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+            }
+        }
         // EXP-1676: disabled = web's `disabled:opacity-50`, the whole button:
         // one group, so the label never fades twice over the fill.
         .compositingGroup()

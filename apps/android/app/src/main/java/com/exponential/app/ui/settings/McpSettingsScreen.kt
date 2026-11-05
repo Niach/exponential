@@ -393,10 +393,19 @@ private fun ServerRow(server: McpServerListRow, pending: Boolean, onConnect: () 
                 onClick = onDisconnect,
                 modifier = Modifier.testTag("mcp-server-disconnect"),
             )
-            "expired", "error" -> GlassPill(
+            // Web's outline `Button size="sm"`, its warning glyph in yellow.
+            "expired", "error" -> GlassSubmitButton(
                 "Reconnect",
-                size = PillSize.Sm,
-                icon = ExpIcons.uiWarning,
+                size = SubmitSize.Small,
+                outline = true,
+                icon = {
+                    Icon(
+                        ExpIcons.uiWarning,
+                        contentDescription = null,
+                        tint = Color(0xFFFACC15),
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
                 enabled = !pending,
                 onClick = onConnect,
             )

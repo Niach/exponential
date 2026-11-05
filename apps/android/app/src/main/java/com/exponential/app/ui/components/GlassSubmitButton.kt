@@ -67,13 +67,15 @@ fun GlassSubmitButton(
     icon: (@Composable () -> Unit)? = null,
     size: SubmitSize = SubmitSize.Full,
     loading: Boolean = false,
+    /** Web's `variant="outline"`: the hairline over the page, foreground ink. */
+    outline: Boolean = false,
 ) {
     val shape = GlassTokens.ButtonShape
     val live = enabled && !loading
     // EXP-1243 (D17): the primary button presses to 0.97.
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val content = DesignTokens.Palette.PrimaryForeground
+    val content = if (outline) Color.White else DesignTokens.Palette.PrimaryForeground
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(size.spacing, Alignment.CenterHorizontally),
@@ -82,7 +84,15 @@ fun GlassSubmitButton(
             .pressScale(pressed && live)
             .alpha(if (live) 1f else 0.5f)
             .clip(shape)
-            .background(DesignTokens.Palette.Primary, shape)
+            .then(
+                if (outline) {
+                    Modifier
+                        .background(GlassTokens.CardFill, shape)
+                        .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+                } else {
+                    Modifier.background(DesignTokens.Palette.Primary, shape)
+                },
+            )
             .then(
                 if (live) {
                     Modifier.clickable(

@@ -195,9 +195,17 @@ struct McpSettingsPage: View {
             .foregroundStyle(DesignTokens.Semantic.green)
             .fixedSize()
         case "expired", "error":
-            GlassPill("Reconnect", icon: AppIcons.uiWarning, mode: .action { connect(server) },
-                      enabled: pendingServer != server.id)
-                .fixedSize()
+            // Web's outline `Button size="sm"`, its warning glyph in yellow.
+            let live = pendingServer != server.id
+            Button { connect(server) } label: {
+                GlassSubmitLabel("Reconnect", enabled: live, small: true, outline: true) {
+                    AppIcon(AppIcons.uiWarning, size: GlassPillTokens.glyphMd).foregroundStyle(.yellow)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.pressScale)
+            .disabled(!live)
+            .fixedSize()
         default:
             let secret = server.auth == "secret"
             // EXP-1676: web's primary `Button size="sm"`, glyph + label.
