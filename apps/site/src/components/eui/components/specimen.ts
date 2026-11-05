@@ -1,6 +1,6 @@
-/* The data of one eUI component page, shared by the page generator
+/* The data of one genUI component page, shared by the page generator
    (scripts/reference/eui-components.ts) and EuiSpecimen.astro: the catalog
-   doc, the specimen tree, the variants gallery (a port of the old /ui/
+   doc, the specimen tree, the variants gallery (a port of the old /sdk/genui/
    site's VariantGallery, minus the cases the specimen already shows) and
    the playground link. */
 import { deflateRawSync } from "node:zlib"
@@ -125,7 +125,7 @@ export function variantsTree(doc: ComponentDoc): NestedNode | null {
 // JSON → deflate-raw → base64url in `#s=`)
 // ---------------------------------------------------------------------------
 
-export const PLAYGROUND_PATH = `/docs/libraries/eui/tools/playground/`
+export const PLAYGROUND_PATH = `/docs/sdk/genui/tools/playground/`
 
 export function playgroundHref(tree: NestedNode): string {
   const state = { v: 1, source: JSON.stringify(tree, null, 2), theme: `exponential`, mode: `dark` }

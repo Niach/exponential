@@ -37,7 +37,7 @@ const web = (view: string, alt: string) => shot(view, `web`, alt)
 
   <h2 id="surfaces">The agent draws its own UI</h2>
   <p>
-    A plan or a question can carry an A2UI surface: the agent describes a screen as JSON and the card paints it with the Exponential UI renderer, native on web, iPhone, Android and the desktop app. On
+    A plan or a question can carry an A2UI surface: the agent describes a screen as JSON and the card paints it with the genUI renderer, native on web, iPhone, Android and the desktop app. On
     the native platforms there is no webview in between, on the web the renderer emits DOM, and what the person sets in the surface travels back with the answer.
   </p>
   <img {...web(`plan-card`, `A plan card: a picture, the agent's surface as a live preview, a choice question`)} loading="lazy" decoding="async" />
@@ -77,6 +77,6 @@ const web = (view: string, alt: string) => shot(view, `web`, alt)
   </ul>
   <Aside title="Try it">
     The MCP server, the session view and the renderer are open source under Apache-2.0: the <a href="/docs/build/mcp/">MCP docs</a>, the <a href="/docs/using/sessions/">sessions docs</a> and <a
-      href="/ui/">exponential.at/ui</a>.
+      href="/sdk/genui/">exponential.at/sdk/genui</a>.
   </Aside>
 </BlogPost>

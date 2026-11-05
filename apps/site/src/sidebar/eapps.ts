@@ -1,9 +1,10 @@
-/* eApps: its own group, apart from the mobile apps. */
+/* The SDK's Apps module: a group under SDK, apart from the mobile apps. */
 export const EAPPS = {
-  label: `eApps`,
+  label: `Apps`,
+  collapsed: true,
   items: [
-    { label: `What eApps are`, link: `/docs/eapps/` },
-    { label: `Build an eApp`, link: `/docs/eapps/build/` },
-    { label: `Package reference`, link: `/docs/eapps/reference/` },
+    { label: `Overview`, link: `/docs/sdk/apps/` },
+    { label: `Build an app`, link: `/docs/sdk/apps/build/` },
+    { label: `Package reference`, link: `/docs/sdk/apps/reference/` },
   ],
 }

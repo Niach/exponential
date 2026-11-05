@@ -15,7 +15,7 @@ const BLOB = `https://github.com/Niach/exponential/blob/master/`
 export interface ReferenceSource {
   /** Repo-relative markdown file. */
   source: string
-  /** The page's URL path without slashes, e.g. `docs/libraries/motion/reference`. */
+  /** The page's URL path without slashes, e.g. `docs/sdk/motion/reference`. */
   slug: string
   title: string
   description: string
@@ -23,7 +23,7 @@ export interface ReferenceSource {
   transform?: (markdown: string) => string
 }
 
-/** A page a list builds itself (e.g. one per eUI component, from JSON):
+/** A page a list builds itself (e.g. one per genUI component, from JSON):
  *  `file` is relative to src/content/docs and ends in `.gen.md` or `.gen.mdx`. */
 export interface GeneratedPage {
   file: string

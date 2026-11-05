@@ -1,0 +1,71 @@
+---
+title: Guides
+description: Render genUI on your platform, make it yours, and build with agents.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components"
+
+## Render A2UI on your platform
+
+<CardGrid>
+  <LinkCard title="React" href="/docs/sdk/genui/guides/react/" />
+  <LinkCard title="Solid" href="/docs/sdk/genui/guides/solid/" />
+  <LinkCard title="Web component" href="/docs/sdk/genui/guides/element/" />
+  <LinkCard title="SwiftUI" href="/docs/sdk/genui/guides/swiftui/" />
+  <LinkCard title="Compose" href="/docs/sdk/genui/guides/compose/" />
+  <LinkCard title="gpui" href="/docs/sdk/genui/guides/gpui/" />
+</CardGrid>
+
+## Make it yours
+
+<CardGrid>
+  <LinkCard title="Write your own theme" href="/docs/sdk/genui/guides/themes/" />
+  <LinkCard title="Write an extension" href="/docs/sdk/genui/guides/extensions/" />
+  <LinkCard title="Write a host plugin" href="/docs/sdk/genui/guides/host-plugins/" />
+</CardGrid>
+
+## Build with agents
+
+<CardGrid>
+  <LinkCard title="Connect an agent" href="/docs/sdk/genui/guides/agents/" />
+  <LinkCard title="Write a surface in TypeScript" href="/docs/sdk/genui/guides/define/" />
+  <LinkCard title="Build and embed an app" href="/docs/sdk/apps/build/" />
+  <LinkCard title="Animate with Motion" href="/docs/sdk/motion/guides/animate/" />
+</CardGrid>
+
+## Renderers
+
+| Platform | Framework | Package | Source | Guide |
+|---|---|---|---|---|
+| Web | React | `@exponential_app/eui-react` | [packages/exponential-ui-react](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-react) | [React](/docs/sdk/genui/guides/react/) |
+| Web | SolidJS | `@exponential_app/eui-solid` | [packages/exponential-ui-solid](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-solid) | [Solid](/docs/sdk/genui/guides/solid/) |
+| Web | Web Components | `@exponential_app/eui-element` | [packages/exponential-ui-element](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-element) | [Web component](/docs/sdk/genui/guides/element/) |
+| iOS + macOS | SwiftUI | `ExponentialUI` | [packages/exponential-ui-swift](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-swift) | [SwiftUI](/docs/sdk/genui/guides/swiftui/) |
+| Android | Jetpack Compose | `at.exponential:eui-compose` | [packages/exponential-ui-compose](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-compose) | [Compose](/docs/sdk/genui/guides/compose/) |
+| Desktop | gpui | `eui-gpui` | [apps/desktop/crates/eui-gpui](https://github.com/Niach/exponential/blob/master/apps/desktop/crates/eui-gpui) | [gpui](/docs/sdk/genui/guides/gpui/) |
+
+## Packages
+
+Every package publishes together from an `eui-v*` tag.
+
+| Package | Registry | What | Install |
+|---|---|---|---|
+| `@exponential_app/eui` | npm | The catalog, themes, TypeScript reducer, host API and conformance suite. | `npm install @exponential_app/eui` |
+| `@exponential_app/eui-react` | npm | The React renderer and its shadcn primitive set, with a compiled stylesheet. | `npm install @exponential_app/eui-react` |
+| `@exponential_app/eui-solid` | npm | The SolidJS renderer and the same primitives, with the same DOM and stylesheet as React. | `npm install @exponential_app/eui-solid` |
+| `@exponential_app/eui-element` | npm | The custom element `<exponential-surface>`: the Solid painter inside a web component, for pages without a framework. | `npm install @exponential_app/eui-element` |
+| `eui-core` | crates.io | The Rust core: reducer, themes, taffy layout, layers, lists. | `cargo add eui-core` |
+| `exponential-ui-ffi` | bundled | The UniFFI facade. It ships inside the Swift and Kotlin artifacts, so you never install it on its own. | nothing to install |
+| `eui-gpui` | git | The gpui painter. It stays a git dependency until gpui itself is on crates.io. | a git dependency on github.com/Niach/exponential |
+| `ExponentialUI` | SwiftPM | The SwiftUI painter (iOS 17, macOS 14), from github.com/Niach/exponential-ui-swift. | `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.15.3")` |
+| `at.exponential:eui-compose` | Maven Central | The Compose painter (minSdk 26), with ui-compose-primitives. | `implementation("at.exponential:eui-compose:0.15.3")` |
+
+## Compiled in CI
+
+The guides show the files in [packages/exponential-ui/guides](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/guides) as they are. `guides/check.ts` builds each in an empty temp directory from the packed npm packages, the Swift package, local Maven artifacts and path crates:
+
+```sh
+bun packages/exponential-ui/guides/check.ts react   # or solid, element, agent, define, theme, swift, compose, gpui, all
+```
+
+The [samples](https://github.com/Niach/exponential/blob/master/samples/exponential-ui) are complete apps: web, iOS, Android and gpui hosts against one local A2UI server, with a third-party theme and an extension component.

@@ -15,7 +15,7 @@ export function redirectTarget(url: string): string {
   try {
     ;({ pathname, search } = new URL(url))
   } catch {
-    return `${ORIGIN}/ui/`
+    return `${ORIGIN}/sdk/genui/`
   }
   if (ROOT_FILES.test(pathname)) return `${ORIGIN}${pathname}${search}`
   const path = pathname === `/ui` || pathname.startsWith(`/ui/`) ? pathname : `/ui${pathname === `/` ? `/` : pathname}`

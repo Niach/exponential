@@ -1,6 +1,6 @@
 ---
 /* The site footer of the landing pages, product pages and the blog: the
-   links the header has no room for, the libraries and the legal pages. */
+   links the header has no room for, the SDK and the legal pages. */
 import { LIBRARIES } from "../../lib/libraries.ts"
 import { LINKS } from "./links.ts"
 
@@ -12,7 +12,7 @@ const GROUPS = [
     { label: `Blog`, href: `/blog/` },
     { label: `Self-host`, href: `/docs/get-started/self-host/` },
   ],
-  [...LIBRARIES.map((lib) => ({ label: lib.name, href: lib.product })), { label: `eApps`, href: `/apps/` }],
+  [...LIBRARIES.map((lib) => ({ label: lib.name, href: lib.product })), { label: `Apps`, href: `/sdk/apps/` }],
   [
     { label: `GitHub`, href: LINKS.github.repo },
     { label: `Contact`, href: `/contact/` },

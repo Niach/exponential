@@ -1,4 +1,4 @@
-/* The playground's shareable state (ported verbatim from the old /ui/ site:
+/* The playground's shareable state (ported verbatim from the old /sdk/genui/ site:
    component pages link into the playground with this format): JSON →
    deflate-raw (CompressionStream) → base64url, carried in the URL hash
    (`#s=…`), so a link holds the whole surface and never reaches a server. */

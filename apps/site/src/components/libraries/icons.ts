@@ -1,5 +1,5 @@
 /* The Lucide glyphs the libraries' diagrams name (trees.ts), as the icon
-   map a host hands eUI: EuiSurface's stub host has none, so an Icon would
+   map a host hands genUI: EuiSurface's stub host has none, so an Icon would
    paint the placeholder. Add a glyph here when a tree names a new one. */
 import {
   AppWindow,

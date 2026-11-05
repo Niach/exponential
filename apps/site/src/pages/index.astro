@@ -1,6 +1,6 @@
 ---
 /* The home page: the product in a headline and a picture per part
-   (shots/ store + the eApps pictures), the open libraries, the price. */
+   (shots/ store + the Apps pictures), the Exponential SDK, the price. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
 import { LinkButton, LinkCard } from "@astrojs/starlight/components"
 import Duo from "../components/landing/Duo.astro"
@@ -10,7 +10,7 @@ import { ORGANIZATION, SOFTWARE_APPLICATION, seoHead } from "../components/landi
 import { shot } from "../components/landing/shots.ts"
 import { LIBRARIES } from "../lib/libraries.ts"
 
-const libraries = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.product })), { name: `eApps`, href: `/apps/` }]
+const modules = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.product })), { name: `Apps`, href: `/sdk/apps/` }]
 ---
 
 <StarlightPage
@@ -35,7 +35,7 @@ const libraries = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.produc
   <div class="exp-landing">
     <Duo eager desktop={shot(`thread`, `desktop`, `A session on the desktop: a question and a plan waiting for an answer`)} phone={shot(`thread`, `ios`, `The same session on iPhone`)} />
 
-    <Feature id="talk" title="Talk to it" link={{ href: `/talk/`, label: `eTalk` }}>
+    <Feature id="talk" title="Talk to it" link={{ href: `/sdk/voice/`, label: `Voice` }}>
       Hold a key and speak; your agent answers aloud. In beta.
       <Duo slot="visual" desktop={shot(`voice-call-overlay`, `desktop`, `Push to talk: listening, heard, speaking`)} phone={shot(`voice-call`, `ios`, `A call with the assistant on iPhone`)} />
     </Feature>
@@ -49,16 +49,16 @@ const libraries = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.produc
       <Duo slot="visual" desktop={shot(`plan-page`, `desktop`, `A plan as a page: outline, pictures and questions`)} phone={shot(`plan-page`, `ios`, `The same plan on iPhone`)} />
     </Feature>
 
-    <Feature id="sealed" title="End-to-end encrypted" link={{ href: `/net/`, label: `eNet` }}>
+    <Feature id="sealed" title="End-to-end encrypted" link={{ href: `/sdk/p2p/`, label: `P2P` }}>
       Our server only ever sees ciphertext; your phone steers the machine directly.
       <Duo slot="visual" desktop={shot(`session`, `desktop`, `A running session on the desktop`)} phone={shot(`steering`, `ios`, `Steering it from iPhone`)} />
     </Feature>
 
-    <Feature id="genui" title="Generative UI" link={{ href: `/ui/`, label: `eUI` }}>
+    <Feature id="genui" title="Generative UI" link={{ href: `/sdk/genui/`, label: `genUI` }}>
       <Duo slot="visual" desktop={shot(`exponential-ui-demo`, `desktop`, `An agent's interface painted natively on the desktop`)} phone={shot(`exponential-ui-demo`, `ios`, `The same interface in SwiftUI`)} />
     </Feature>
 
-    <Feature id="apps" title="Apps, built by asking" link={{ href: `/apps/`, label: `eApps` }}>
+    <Feature id="apps" title="Apps, built by asking" link={{ href: `/sdk/apps/`, label: `Apps` }}>
       <Duo
         slot="visual"
         desktop={{ src: `/eapps/time-tracker.webp`, width: 2360, height: 1125, alt: `Stunden, a time tracker app: a month of hours as a chart and a table` }}
@@ -66,10 +66,10 @@ const libraries = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.produc
       />
     </Feature>
 
-    <section class="exp-section not-content" id="libraries">
-      <h2>Open libraries</h2>
+    <section class="exp-section not-content" id="sdk">
+      <h2>Exponential SDK</h2>
       <div class="exp-lib-grid">
-        {libraries.map((lib) => <LinkCard title={lib.name} href={lib.href} />)}
+        {modules.map((m) => <LinkCard title={m.name} href={m.href} />)}
       </div>
     </section>
 

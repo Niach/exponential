@@ -1,7 +1,7 @@
 import type { ReferenceSource } from "../sync-reference.ts"
 
-/* Libraries area (eUI + Motion): reference pages generated from repo
-   markdown. The eUI component pages are generated from the catalog in
+/* Libraries area (genUI + Motion): reference pages generated from repo
+   markdown. The genUI component pages are generated from the catalog in
    eui-components.ts; the other libraries list theirs in libraries-other.ts. */
 
 /** Drops ticket ids from headings: `## Engine (M1, EXP-1602)` → `## Engine`. */
@@ -37,20 +37,20 @@ Anything else Lottie can do rides along as raw keys under \`lottie\` on the root
 export const REFERENCE: ReferenceSource[] = [
   {
     source: `docs/spec/motion.md`,
-    slug: `docs/libraries/motion/reference`,
+    slug: `docs/sdk/motion/reference`,
     title: `Motion specification`,
     description: `The Motion component in full: sources, limits, the dialect, the engine, the display list, playback, interactivity and tooling.`,
   },
   {
     source: `packages/exponential-ui/eval/motion/guide.md`,
-    slug: `docs/libraries/motion/reference/dialect`,
+    slug: `docs/sdk/motion/reference/dialect`,
     title: `Motion dialect`,
     description: `The dialect a person or a model writes: the guide every model gets in its prompt, then every field it names.`,
     transform: (md) => `The text below is the whole guide a model gets in its prompt (the \`Motion\` entry of \`catalogPrompt()\`, about 600 tokens).\n\n## The prompt guide\n\n${md.trim()}\n${DIALECT_FIELDS}`,
   },
   {
     source: `apps/desktop/crates/eui-motion/README.md`,
-    slug: `docs/libraries/motion/reference/engine`,
+    slug: `docs/sdk/motion/reference/engine`,
     title: `Motion engine and players`,
     description: `eui-motion: the display list, packed frames, the engine, authoring, the painting and interactivity contracts every renderer keeps, and the limits.`,
     transform: (md) => plainHeadings(cutFrom(`M0 spike`)(md)),

@@ -1,4 +1,4 @@
-/* eUI's component reference: one page per catalog component plus the index,
+/* genUI's component reference: one page per catalog component plus the index,
    GENERATED from @exponential_app/eui's data (docs/components.generated.json,
    docs/themes.generated.json, catalog/macros.json, fixtures/specimens.json).
    The page body is markdown so llms.txt carries every table; the live render
@@ -12,11 +12,11 @@ import { COMPONENT_DOCS, playgroundHref, specimenFor, variantsOf, type Component
 import type { GeneratedPage } from "../sync-reference.ts"
 
 const SHOTS = resolve(import.meta.dir, `../../../../shots`)
-const DIR = `docs/libraries/eui/reference/components`
+const DIR = `docs/sdk/genui/reference/components`
 const COMPONENTS = `../../../../../../../components`
 const EDIT = `https://github.com/Niach/exponential/edit/master/packages/exponential-ui/catalog/core.catalog.json`
-const THEMES_PAGE = `/docs/libraries/eui/reference/themes/`
-const THEMES_GUIDE = `/docs/libraries/eui/guides/themes/`
+const THEMES_PAGE = `/docs/sdk/genui/reference/themes/`
+const THEMES_GUIDE = `/docs/sdk/genui/guides/themes/`
 
 // ---------------------------------------------------------------------------
 // Text: catalog sentences into MDX
@@ -181,7 +181,7 @@ function componentPage(doc: ComponentDoc): GeneratedPage {
 
 function indexPage(): GeneratedPage {
   const out: string[] = [
-    front(`Components`, `Every eUI catalog component by group, each with a live render, the four platform shots, props, events, accessibility and theming.`, DIR, EDIT),
+    front(`Components`, `Every genUI catalog component by group, each with a live render, the four platform shots, props, events, accessibility and theming.`, DIR, EDIT),
     ``,
     `${COMPONENT_DOCS.length} components in ${EUI_GROUP_ORDER.length} groups. Each page renders the component live, shows it on web, iOS, Android and desktop, and lists its props, events, slots, keyboard and recipe parts.`,
     ``,

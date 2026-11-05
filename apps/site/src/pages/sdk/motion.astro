@@ -1,0 +1,65 @@
+---
+/* Motion's product page: live players per section (WASM engine, Canvas2D),
+   the phone shots, one stat line from the eval. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import { Code, TabItem, Tabs } from "@astrojs/starlight/components"
+import EuiSurface from "../../components/eui/EuiSurface.tsx"
+import { EVAL, FIRST, INTERACTIVE, INTERACTIVE_DATA, SHOWCASE, SHOWCASE_TREE } from "../../components/eui/motion.ts"
+import { MOTION_GALLERY } from "../../components/eui/trees.ts"
+import PlatformShots from "../../components/PlatformShots.astro"
+
+const valid = `${EVAL.dialect.valid}/${EVAL.dialect.total}`
+const ratio = EVAL.ratio.toFixed(1)
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Motion`,
+    description: `Vector animation for genUI: one Rust engine samples every frame, every platform paints the same pixels; models write it in a compact dialect that compiles to Lottie.`,
+    template: `splash`,
+    hero: {
+      tagline: `Vector animation that looks the same on every platform.`,
+      actions: [
+        { text: `Animate with Motion`, link: `/docs/sdk/motion/guides/animate/`, icon: `right-arrow` },
+        { text: `Reference`, link: `/docs/sdk/motion/reference/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <div class="exp-live eui-motion-hero">
+    <EuiSurface client:visible id="motion-first" tree={FIRST} />
+  </div>
+
+  <h2>Written by a model, first try</h2>
+  <div class="exp-live">
+    <EuiSurface client:visible id="motion" tree={MOTION_GALLERY} />
+  </div>
+
+  <h2>Lottie → dialect → compile</h2>
+  <p class="eui-prompt">“{SHOWCASE.prompt}”</p>
+  <div class="exp-live">
+    <EuiSurface client:visible id="motion-showcase" tree={SHOWCASE_TREE} />
+  </div>
+  <div class="eui-steps">
+    <Tabs>
+      {
+        SHOWCASE.steps.map((s) => (
+          <TabItem label={`${s.title} · ${s.meta}`}>
+            <Code code={s.code} lang="json" />
+          </TabItem>
+        ))
+      }
+    </Tabs>
+  </div>
+
+  <h2>Interactive</h2>
+  <div class="exp-live">
+    <EuiSurface client:visible id="motion-interactive" tree={INTERACTIVE} data={INTERACTIVE_DATA} />
+  </div>
+
+  <h2>Same pixels everywhere</h2>
+  <PlatformShots view="exponential-ui-motion" platforms={[`ios`, `android`]} />
+
+  <h2>{valid} valid on the first try, {ratio}× fewer tokens than Lottie</h2>
+  <p><a href="/docs/sdk/motion/">Docs</a> · <a href="/sdk/genui/">genUI</a></p>
+</StarlightPage>

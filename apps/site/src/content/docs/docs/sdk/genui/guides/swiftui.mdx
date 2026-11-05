@@ -1,0 +1,45 @@
+---
+title: Render A2UI in SwiftUI
+description: Add the Swift package, hand the painter a host and show a surface on iOS and macOS.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+
+## Install
+
+The `ExponentialUI` Swift package is the genUI module for SwiftUI.
+
+The Swift package `ExponentialUI` (iOS 17, macOS 14) carries the painter and the Rust core as an xcframework, so your app builds no Rust. It is a SwiftPM dependency on `github.com/Niach/exponential-ui-swift`, whose tag `0.15.3` pins the xcframework of that release by checksum:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.15.3"),
+],
+targets: [
+    .executableTarget(name: "App", dependencies: [.product(name: "ExponentialUI", package: "exponential-ui-swift")]),
+]
+```
+
+The guide's own manifest builds the monorepo's package by path, so CI checks it without a download:
+
+<GuideFile path="swift/Package.swift" />
+
+## Paint a surface
+
+The same shape as on the web: one `ExponentialHost` with a transport, a theme and a mode, and a `HostSurface` per surface id. The surface is as tall as its content, so you choose the scroller.
+
+<GuideFile path="swift/Sources/GuideApp/ContentView.swift" />
+
+## Host plugin
+
+For lower-level use, `SurfaceModel` + `ExponentialSurface` take a `HostPlugin`; every method has a default and `ClosureHost` builds one from closures:
+
+- `icon(name, size)`: the catalog's icon names to your views.
+- `onAction` gets every A2UI action. `onInput` gets text edits (debounced `change` with a revision, `commit` on blur or Return).
+- `openUrl`, `textLinks`, `resolveUrl`, `fontFamily`, `markdown`.
+
+Register the font files a theme names with `ExponentialUI.registerFont(at:)`; switch themes with `ThemeHandle.load(json:)` and `setTheme`. Details in the [Swift package's README](https://github.com/Niach/exponential/blob/master/packages/exponential-ui-swift/README.md).
+
+## Compiled in CI
+
+`bun packages/exponential-ui/guides/check.ts swift` builds [guides/swift](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/guides/swift) in an empty directory against the monorepo's Swift package.

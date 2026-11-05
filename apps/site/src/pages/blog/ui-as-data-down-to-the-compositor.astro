@@ -1,6 +1,6 @@
 ---
 /* UI as data, down to the compositor (2026-10-24). The expense form is
-   painted by eUI at build time; the drafts are the old post's stills. */
+   painted by genUI at build time; the drafts are the old post's stills. */
 import { Aside } from "@astrojs/starlight/components"
 import BlogPost from "../../components/landing/BlogPost.astro"
 import { EXPENSE_SURFACE } from "../../components/landing/blog-surfaces.ts"
@@ -16,10 +16,10 @@ const android = shot(`exponential-ui-demo`, `android`, `The same surface in Comp
   <h2 id="data">A screen as data</h2>
   <p>
     A2UI is an open wire format for user interfaces, started at Google: a flat list of components from a fixed catalog, a data model they bind to, and the actions they send back. A language model can
-    write one, because the catalog fits in a prompt, and a renderer paints it with each platform's own toolkit: SwiftUI, Compose, gpui, the DOM. Exponential UI is one implementation. A Rust core lays
+    write one, because the catalog fits in a prompt, and a renderer paints it with each platform's own toolkit: SwiftUI, Compose, gpui, the DOM. genUI is one implementation. A Rust core lays
     out the tree, three native painters draw it, and the React, Solid and web-component renderers pass the same conformance replays. A theme is a JSON file loaded at runtime.
   </p>
-  <p>The form below is painted in this page by eUI from nine components. It returns in the next two sections, as a window and as a branch of a tree.</p>
+  <p>The form below is painted in this page by genUI from nine components. It returns in the next two sections, as a window and as a branch of a tree.</p>
   <div class="exp-live">
     <EuiSurface id="ui-as-data-form" tree={EXPENSE_SURFACE} />
   </div>
@@ -84,6 +84,6 @@ const android = shot(`exponential-ui-demo`, `android`, `The same surface in Comp
     <li><strong>Voice:</strong> planned. Speech-to-text and an intent router small enough for a CPU exist as open models; nothing is wired up.</li>
   </ul>
   <Aside title="Sources">
-    Each item is an issue on a public board, linked where it is named. The renderer's source and docs are at <a href="/ui/">exponential.at/ui</a>; the first layer needs none of the other three.
+    Each item is an issue on a public board, linked where it is named. The renderer's source and docs are at <a href="/sdk/genui/">exponential.at/sdk/genui</a>; the first layer needs none of the other three.
   </Aside>
 </BlogPost>

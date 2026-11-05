@@ -1,0 +1,63 @@
+---
+title: genUI
+description: "genUI is a set of A2UI clients: one catalog, a TypeScript reference and a Rust core, and native renderers for React, Solid, web components, SwiftUI, Jetpack Compose and gpui."
+---
+
+import { Code, LinkCard, CardGrid } from "@astrojs/starlight/components"
+import componentsDoc from "@exponential_app/eui/docs/components.generated.json"
+
+export const all = componentsDoc.components
+export const natives = all.filter((c) => c.kind === `native`).length
+export const macros = all.filter((c) => c.kind === `macro`).length
+export const MESSAGES = `{"version":"v0.9","createSurface":{"surfaceId":"main","catalogId":"${componentsDoc.catalogId}"}}
+{"version":"v0.9","updateComponents":{"surfaceId":"main","components":[
+  {"id":"root","component":"Card","title":"Deploy 0.18.84?","children":["note","go"]},
+  {"id":"note","component":"Text","text":{"path":"/summary"}},
+  {"id":"go","component":"Button","label":"Deploy","on":{"press":{"event":{"name":"deploy","context":{"version":"0.18.84"}}}}}
+]}}
+{"version":"v0.9","updateDataModel":{"surfaceId":"main","path":"/summary","value":"3 platforms, all checks green."}}`
+
+An agent answers with an interface: a card with the numbers, a form for the missing fields, a button that does the next step. The model decides what to show; the app decides how it looks and what it may do. [A2UI](https://a2ui.org/) is the open protocol for this: the agent sends components from a catalog both sides agree on, a data model and the actions it wants back, all as data. genUI speaks A2UI v0.9 (the pinned v0.9.1 spec, vendored byte for byte).
+
+| Word | What it is |
+|---|---|
+| Surface | One rendered UI: a component tree, its data model and its theme. |
+| Catalog | The components a surface may use and their props. The model reads it; the renderer implements it. |
+| Theme | A JSON file of tokens and component recipes, loaded at runtime. |
+| Extension | Extra components: an extension catalog plus a painter per platform. |
+| Host plugin | What the embedding app lends a surface: transport, functions, data bindings, policy. |
+
+## Messages
+
+Four messages: `createSurface`, `updateComponents` (components added or replaced by id), `updateDataModel` (a value at a JSON pointer) and `deleteSurface`, one per line as JSONL, over SSE, a WebSocket or inside an MCP tool result. Components arrive as a flat list that names children by id, so a model can stream them in any order and patch one without resending the tree. A component the renderer does not know becomes a visible placeholder and a reported issue.
+
+<Code lang="jsonl" code={MESSAGES} />
+
+## Data and actions
+
+Every surface has one JSON data model. A bindable prop takes `{"path": "/summary"}` and follows the model; inputs bind both ways. A `List` repeats a template per item, with relative paths reading the current item. Interactive components fire events: an event action goes back to the agent with its context resolved against the data model, and a function call runs on the client (built-ins on every renderer, plus the host's own, namespaced and behind a policy gate).
+
+## The catalog
+
+The core catalog has <a href="/docs/sdk/genui/reference/components/">{all.length} components</a> with shadcn's names, variants and sizes: {natives} natives each renderer paints itself and {macros} macros that expand into natives before painting. Every component and prop carries one sentence written for the model; `catalogPrompt()` turns them into a compact system prompt. Core lite is the subset without overlays, media and charts. A2UI's basic catalog maps onto the core through one table (`catalog/basic-map.json`), so a surface written for any A2UI client renders here too.
+
+## Themes, extensions, hosts
+
+A theme is one JSON file of tokens (colours per mode, radius, spacing, type, shadows, motion) and recipes (a style per component part, variant and state); `extends` overrides only what changes. Four are built in: `neutral`, `exponential`, `playful` and `orange`. An extension adds components: an extension catalog plus a painter per platform, or a macro that needs no painter. The host lends a surface its transport, functions, data bindings by source URI, and the policy for functions, URLs and media; deny wins, then allow, then ask, then the default.
+
+## How the renderers agree
+
+The TypeScript reference in `@exponential_app/eui` and the Rust core `eui-core` replay the same fixtures byte for byte. React, Solid and the web component run on the TypeScript side; SwiftUI and Compose reach the Rust core through UniFFI, and gpui links it directly. The core lays out every native surface (taffy); the platform measures text and paints each node at its frame. The web follows the same layout in CSS, within a pixel. The [conformance suite](/docs/sdk/genui/reference/conformance/) checks every renderer case by case.
+
+<Code lang="text" code={`A2UI messages ─▶ reducer ─▶ UiNode tree ─▶ layout (taffy) ─▶ frames + resolved visuals ─▶ painter`} />
+
+## Start
+
+<CardGrid>
+  <LinkCard title="Guides" href="/docs/sdk/genui/guides/" />
+  <LinkCard title="Components" href="/docs/sdk/genui/reference/components/" />
+  <LinkCard title="Playground" href="/docs/sdk/genui/tools/playground/" />
+  <LinkCard title="Motion" href="/docs/sdk/motion/" />
+  <LinkCard title="Build an app" href="/docs/sdk/apps/build/" />
+  <LinkCard title="Packages" href="/docs/sdk/genui/reference/" />
+</CardGrid>

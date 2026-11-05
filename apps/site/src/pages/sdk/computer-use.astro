@@ -1,0 +1,32 @@
+---
+/* Computer Use's product page. The docs: /docs/sdk/computer-use/. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import Diagram from "../../components/libraries/Diagram.astro"
+import Figure from "../../components/libraries/Figure.astro"
+import { PILOT_LOOP, PILOT_PLATFORMS } from "../../components/libraries/trees.ts"
+import "../../styles/libraries-other.css"
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Computer Use`,
+    description: `Computer use for agents: the agent looks at the real screen, acts on it with the real pointer and keyboard, and looks again.`,
+    template: `splash`,
+    hero: {
+      tagline: `Computer use for agents.`,
+      actions: [
+        { text: `Get started`, link: `/docs/sdk/computer-use/guides/`, icon: `right-arrow` },
+        { text: `Docs`, link: `/docs/sdk/computer-use/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <h2>Look, act, look again</h2>
+  <Diagram id="pilot-loop" tree={PILOT_LOOP} />
+
+  <h2>One switch per device</h2>
+  <Figure src="/shots/machine-settings/desktop.webp" alt="Device settings in the desktop app with the Computer use switch" width={1800} height={1126} />
+
+  <h2>The real pointer, on three systems</h2>
+  <Diagram id="pilot-platforms" tree={PILOT_PLATFORMS} />
+</StarlightPage>
