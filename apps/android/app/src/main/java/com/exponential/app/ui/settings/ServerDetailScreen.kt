@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CreatePublicKeyCredentialResponse
@@ -543,46 +544,52 @@ fun ServerDetailScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // Identity card — signed in it shows the ACCOUNT identity (avatar
-            // + "Firstname Lastname" + email, EXP-311, iOS/web parity); signed
-            // out the server block stays so the row remains identifiable.
-            Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+            // Signed in: the ACCOUNT identity (avatar + "Firstname Lastname" +
+            // email, EXP-311), web's account header: on the page, on no card
+            // (EXP-1676). Signed out the server block stays, so the row remains
+            // identifiable.
+            if (account != null && account.token != null && !account.userEmail.isNullOrBlank()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 ) {
-                    if (account != null && account.token != null && !account.userEmail.isNullOrBlank()) {
-                        // Prefer the login-time name, then the synced users row
-                        // (accounts persisted before the name was captured);
-                        // name-less accounts (Apple sign-in) fall back to the
-                        // email for the title/initials (EXP-331 iOS parity).
-                        val name = account.userName?.takeIf { it.isNotBlank() }
-                            ?: user?.name?.takeIf { it.isNotBlank() }
-                            ?: account.userEmail.orEmpty()
-                        UserAvatar(user = user, nameOrEmail = name, size = 40.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
+                    // Prefer the login-time name, then the synced users row
+                    // (accounts persisted before the name was captured);
+                    // name-less accounts (Apple sign-in) fall back to the
+                    // email for the title/initials (EXP-331 iOS parity).
+                    val name = account.userName?.takeIf { it.isNotBlank() }
+                        ?: user?.name?.takeIf { it.isNotBlank() }
+                        ?: account.userEmail.orEmpty()
+                    UserAvatar(user = user, nameOrEmail = name, size = 48.dp)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            name,
+                            style = MaterialTheme.typography.titleMedium.copy(letterSpacing = 0.sp),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val email = account.userEmail
+                        if (!email.isNullOrBlank() && email != name) {
                             Text(
-                                name,
+                                email,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            val email = account.userEmail
-                            if (!email.isNullOrBlank() && email != name) {
-                                Text(
-                                    email,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
                         }
-                    } else {
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
                         Icon(
                             ExpIcons.settingsServers,
                             contentDescription = null,
