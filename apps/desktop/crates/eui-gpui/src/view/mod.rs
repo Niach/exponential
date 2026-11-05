@@ -434,6 +434,10 @@ struct ClockWatch {
 }
 
 impl eui_core::format::Formatter for ClockWatch {
+    // #EXP-1694: the expression date maths (a date-time field's join) reads the zone too.
+    fn offset_minutes(&self, utc_ms: f64) -> i32 {
+        self.inner.offset_minutes(utc_ms)
+    }
     fn locale(&self) -> String {
         self.inner.locale()
     }

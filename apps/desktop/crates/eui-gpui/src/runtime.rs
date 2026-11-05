@@ -673,14 +673,23 @@ impl ExponentialHost {
                     extensions: self.extensions.clone(),
                     host: plugin,
                     rounding: false,
-                    formatter: self.formatter.clone(),
+                    // #EXP-1694: a date-time field's seed and its join read the host's
+                    // zone (team-zone.json), not UTC.
+                    formatter: self.formatter.clone().or_else(|| {
+                        self.zone.clone().map(|zone| Arc::new(eui_core::format::ZonedEnglishFormatter::new(zone)) as Arc<dyn eui_core::format::Formatter>)
+                    }),
                     lift_layers: self.lift_layers,
-                    settings: self.read_only.then(|| eui_core::surface::SurfaceSettings {
+                    settings: (self.read_only || self.zone.is_some()).then(|| eui_core::surface::SurfaceSettings {
                         mode: match self.mode {
                             Mode::Light => eui_core::theme::ModeSetting::Light,
                             Mode::Dark => eui_core::theme::ModeSetting::Dark,
                         },
-                        read_only: true,
+                        read_only: self.read_only,
+                        // #EXP-1694: an empty date field's calendar opens on this
+                        // month in the host's zone, as on iOS and Android.
+                        today: self.zone.as_ref().and_then(|_| {
+                            eui_core::host::host_params(self.now.as_ref().map(|f| f()), self.zone.as_deref()).get("today").and_then(|v| v.as_str()).map(str::to_string)
+                        }),
                         ..Default::default()
                     }),
                     ..Default::default()

@@ -73,6 +73,12 @@ describe(`a view link's template (VAPP-246)`, () => {
     for (const leak of [`private@acme.example`, `email`, `hidden`, `queries`, `actions`, `policy`]) expect(text).not.toContain(leak)
   })
 
+  it(`#EXP-1694: a template on the app catalog (every real app's) keeps its page`, () => {
+    const pkg = build({ ...published(page, [{ path: `/list`, source: `records:lead?query=recent` }]), catalogId: `https://ui.exponential.at/catalogs/exponential-app/v1` })!
+    expect(pkg.catalogId).toBe(CORE_CATALOG_ID)
+    expect(validatePackage(pkg)).toEqual([])
+  })
+
   it(`a template that skipped install is gone: an exp: binding, a write, a press`, () => {
     expect(build(published(page, [{ path: `/m`, source: `exp:members` }]))).toBeNull()
     expect(build(published([page[0], { id: `t`, component: `RecordForm`, kind: `lead` }]))).toBeNull()

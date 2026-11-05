@@ -1831,6 +1831,32 @@ impl eui_core::format::Formatter for ForeignFormatter {
     fn bytes(&self, value: f64, unit: eui_core::format::ByteUnit) -> String {
         self.0.bytes(value, unit.as_str().to_string())
     }
+    /// #EXP-1694: the zone is the host's: read it back from the wall clock its
+    /// `date` prints, so a date-time field's join is the exact inverse of its
+    /// seed (`formatDate` through this same formatter) and today() is the zone's.
+    fn offset_minutes(&self, utc_ms: f64) -> i32 {
+        let wall = self.0.date(utc_ms, false, Some("yyyy-MM-dd HH:mm".to_string()), None, true);
+        wall_minus_utc_minutes(&wall, utc_ms).unwrap_or(0)
+    }
+}
+
+/// `yyyy-MM-dd HH:mm` printed for the instant `utc_ms`, minus that instant, in
+/// minutes. `None` = not that shape (a host locale's own digits).
+fn wall_minus_utc_minutes(wall: &str, utc_ms: f64) -> Option<i32> {
+    let (y, rest) = wall.split_once('-')?;
+    let (mo, rest) = rest.split_once('-')?;
+    let (d, rest) = rest.split_once(' ')?;
+    let (h, mi) = rest.split_once(':')?;
+    let (y, mo, d, h, mi): (i64, i64, i64, i64, i64) = (y.parse().ok()?, mo.parse().ok()?, d.parse().ok()?, h.parse().ok()?, mi.parse().ok()?);
+    // Days from civil (Howard Hinnant's algorithm).
+    let y = if mo <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (mo + if mo > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let wall_minutes = days * 1440 + h * 60 + mi;
+    Some((wall_minutes - (utc_ms / 60_000.0).floor() as i64) as i32)
 }
 
 /// Options of the round-2 bind helpers: `{scope?, strings?: {id: text},
@@ -3108,4 +3134,20 @@ pub fn host_contract_json() -> String {
     shield("host_contract_json", || "{}".to_string(), || {
         h::host_contract().to_string()
     })
+}
+
+#[cfg(test)]
+mod zone_tests {
+    use super::wall_minus_utc_minutes;
+
+    #[test]
+    fn a_printed_wall_clock_reads_back_as_the_offset() {
+        // 2026-11-12T01:30Z
+        let at = 1_794_447_000_000.0;
+        assert_eq!(wall_minus_utc_minutes("2026-11-12 01:30", at), Some(0));
+        assert_eq!(wall_minus_utc_minutes("2026-11-12 02:30", at), Some(60));
+        assert_eq!(wall_minus_utc_minutes("2026-11-11 20:30", at), Some(-300));
+        assert_eq!(wall_minus_utc_minutes("2026-11-12 07:15", at), Some(345));
+        assert_eq!(wall_minus_utc_minutes("١٢ نوفمبر", at), None);
+    }
 }

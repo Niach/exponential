@@ -174,7 +174,7 @@ internal fun NativeOverlays(model: SurfaceModel) {
         key(layer.owner) {
             when {
                 layer.kind != "Drawer" -> DialogLayer(model, layer)
-                layer.position == "left" || layer.position == "right" -> SideDrawerLayer(model, layer)
+                layer.position == "left" || layer.position == "right" || layer.position == "top" -> SideDrawerLayer(model, layer)
                 else -> DrawerLayer(model, layer)
             }
         }
@@ -237,9 +237,15 @@ private fun DrawerLayer(model: SurfaceModel, layer: LayerInfo) {
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             val windowWidth = maxWidth.value
-            DisposableEffect(model, windowWidth) {
+            val windowHeight = maxHeight.value
+            DisposableEffect(model, windowWidth, windowHeight) {
                 model.overlayLayerWidth(windowWidth)
-                onDispose { model.overlayLayerWidth(null) }
+                // #EXP-1694: the sheet's height cap is the window's, not a short page's.
+                model.overlayViewportHeight(windowHeight)
+                onDispose {
+                    model.overlayLayerWidth(null)
+                    model.overlayViewportHeight(null)
+                }
             }
             LayerView(layer)
         }
@@ -247,7 +253,7 @@ private fun DrawerLayer(model: SurfaceModel, layer: LayerInfo) {
 }
 
 /**
- * A Drawer on a side edge: a full-screen dialog window holding the scrim and,
+ * A Drawer on a side edge or the top: a full-screen dialog window holding the scrim and,
  * against that edge, the layer tree at the core's size, the window's height
  * (back / a scrim tap dismiss unless pinned). A bottom sheet is [DrawerLayer]'s.
  */
@@ -276,14 +282,20 @@ private fun SideDrawerLayer(model: SurfaceModel, layer: LayerInfo) {
                     }
                     .hiddenFromAccessibility(),
             )
-            val edge = if (layer.position == "left") AbsoluteAlignment.TopLeft else AbsoluteAlignment.TopRight
+            val edge = if (layer.position == "right") AbsoluteAlignment.TopRight else AbsoluteAlignment.TopLeft
             // The core sizes the panel to the viewport, and a surface that hugs
             // its content has a short one: hand it the window while this is up.
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val windowHeight = maxHeight.value
-                DisposableEffect(model, windowHeight) {
+                // #EXP-1694: a top Drawer spans the window, like the bottom sheet.
+                val windowWidth = if (layer.position == "top") maxWidth.value else null
+                DisposableEffect(model, windowHeight, windowWidth) {
                     model.overlayViewportHeight(windowHeight)
-                    onDispose { model.overlayViewportHeight(null) }
+                    model.overlayLayerWidth(windowWidth)
+                    onDispose {
+                        model.overlayViewportHeight(null)
+                        model.overlayLayerWidth(null)
+                    }
                 }
                 Box(Modifier.align(edge)) {
                     LayerView(layer)

@@ -158,7 +158,10 @@ export function guestPackage(published: Record<string, unknown>, share: PackageS
     id: `share.${share.name}`,
     name: title,
     version: `1.0.0`,
-    catalogId: template && typeof published.catalogId === `string` ? published.catalogId : CORE_CATALOG_ID,
+    // #EXP-1694: always core: a template uses no extension component (install
+    // checks it), and a guest's host knows no other catalog, so the app
+    // catalog every real package names would read as a dead link.
+    catalogId: CORE_CATALOG_ID,
     functions: share.mode === `submit` ? [`records.upsert`] : [],
     sources: [`records:${share.kind}`],
     records: { [share.kind]: guestKind(kind, fields) },
