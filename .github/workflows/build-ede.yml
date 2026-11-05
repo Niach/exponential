@@ -67,6 +67,9 @@ jobs:
           # verify needs a user manager the runner has none of: the unit's syntax through the system scope.
           systemd-analyze verify /usr/lib/systemd/user/ede-shell.service || true
           grep -q 'ExecStart=/usr/bin/ede-ui supervise -- /usr/bin/ede-shell' /usr/lib/systemd/user/ede-shell.service
+          # #EDE-19: the theme bridge resolves a choice on a bare runner and writes only marked files.
+          HOME="$(mktemp -d)" ede-theme apply --files-only | tee theme.txt
+          grep -q '^GTK ' theme.txt && grep -q 'gtk-4.0/gtk.css' theme.txt
           ede-compositor doctor | tee doctor.txt || true
           grep -E '^ok +Xwayland +/usr/lib/ede/bin/Xwayland 24\.1\.' doctor.txt
       # Without the distro's xwayland this can only be the bundled one (the

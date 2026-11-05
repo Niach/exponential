@@ -35,6 +35,8 @@ futures-util = { version = "0.3", default-features = false }
 libloading = "0.8"
 # The settings pages (#EDE-14) edit compositor.toml.
 toml = "0.8"
+# The theme bridge's choice for the Theme page (#EDE-19).
+ede-theme = { path = "../../../crates/ede-theme" }
 
 [dev-dependencies]
 tempfile = "3"

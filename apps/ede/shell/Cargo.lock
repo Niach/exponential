@@ -1569,6 +1569,7 @@ dependencies = [
  "base64 0.22.1",
  "ede-protocol",
  "ede-services",
+ "ede-theme",
  "ede-ui",
  "eui-core",
  "eui-gpui",
@@ -1588,6 +1589,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zbus",
+]
+
+[[package]]
+name = "ede-theme"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "toml 0.8.23",
 ]
 
 [[package]]

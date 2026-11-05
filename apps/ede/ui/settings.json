@@ -65,6 +65,7 @@
         {"id": "theme", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
           {"id": "theme-mode", "component": "Text", "props": {"text": "Dark, from the design tokens the Exponential app uses. The shell's documents live in ~/.config/ede/ui; every edit is a commit there.", "variant": "body"}},
           {"id": "theme-bridge", "component": "Switch", "props": {"label": "Theme GTK and Qt apps to match", "name": "bridge", "checked": {"path": "/config/theme/bridge"}}, "on": {"change": {"functionCall": {"call": "ede.config", "args": {"theme": {"bridge": {"path": "/config/theme/bridge"}}}}}}},
+          {"id": "theme-summary", "component": "Text", "props": {"text": {"path": "/config/theme/summary"}, "variant": "muted"}},
           {"id": "theme-open", "component": "Button", "props": {"label": "Open the shell's documents", "variant": "outline", "icon": "ui-folder"}, "on": {"press": {"functionCall": {"call": "ede.launch", "args": {"command": "xdg-open ~/.config/ede/ui"}}}}}
         ]},
         {"id": "updates", "component": "Stack", "props": {"direction": "vertical", "gap": "md"}, "children": [
@@ -100,5 +101,5 @@
       ]}
     ]
   },
-  "data": {"settings": {"page": "displays"}, "outputs": [], "services": {}, "config": {"keyboard": {"layout": "us", "repeat_rate": 30, "repeat_delay": 400}, "theme": {"bridge": true}}, "user": {"name": "", "login": ""}}
+  "data": {"settings": {"page": "displays"}, "outputs": [], "services": {}, "config": {"keyboard": {"layout": "us", "repeat_rate": 30, "repeat_delay": 400}, "theme": {"bridge": true, "summary": ""}}, "user": {"name": "", "login": ""}}
 }

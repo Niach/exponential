@@ -924,9 +924,19 @@ dependencies = [
 name = "ede-session"
 version = "0.1.0"
 dependencies = [
+ "ede-theme",
  "tempfile",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ede-theme"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tempfile",
+ "toml 0.8.23",
 ]
 
 [[package]]

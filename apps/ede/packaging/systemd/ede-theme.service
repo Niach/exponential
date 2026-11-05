@@ -1,0 +1,16 @@
+# The theme bridge (#EDE-19): GTK 3/4, Qt, cursor and icon settings generated
+# from the design tokens so foreign apps match the shell, or removed again
+# when the Theme page's switch is off ([theme] bridge in compositor.toml).
+# Before the shell: its launcher reads EDE_ICON_THEME from what sync set.
+[Unit]
+Description=eDE theme bridge (GTK, Qt, cursors, icons from the design tokens)
+Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
+PartOf=graphical-session.target
+After=graphical-session.target
+Before=ede-shell.service
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ede-theme sync
+Slice=session.slice

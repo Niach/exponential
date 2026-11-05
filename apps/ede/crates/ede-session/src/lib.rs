@@ -207,11 +207,15 @@ mod tests {
         assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
         assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE"));
         let deb = std::fs::read_to_string(root.join("build-deb.sh")).unwrap();
-        for bin in ["ede-compositor", "ede-session", "ede-ui", "ede-shell", "ede-sealed", "ede-services"] {
+        for bin in ["ede-compositor", "ede-session", "ede-ui", "ede-shell", "ede-sealed", "ede-services", "ede-theme"] {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }
         assert!(deb.contains("/usr/share/ede/ui/"), "the factory documents ship");
         let polkit = std::fs::read_to_string(root.join("systemd/ede-polkit-agent.service")).unwrap();
         assert!(polkit.contains("ExecStart=/usr/bin/ede-sealed polkit\n"), "#EDE-17: the sealed agent");
+        // #EDE-19: the bridge runs before the shell, so the launcher's icon theme is set.
+        let theme = std::fs::read_to_string(root.join("systemd/ede-theme.service")).unwrap();
+        assert!(theme.contains("ExecStart=/usr/bin/ede-theme sync\n") && theme.contains("Before=ede-shell.service\n"));
+        assert!(std::fs::read_to_string(root.join("systemd/ede-session.target")).unwrap().contains("ede-theme.service"));
     }
 }

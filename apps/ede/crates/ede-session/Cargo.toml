@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+# The theme bridge's environment (#EDE-19: XCURSOR_* for the compositor's cursor).
+ede-theme = { path = "../ede-theme" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

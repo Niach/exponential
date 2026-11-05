@@ -45,6 +45,11 @@ fn run(mut safe_mode: bool) -> ExitCode {
     for (k, v) in SESSION_ENV {
         std::env::set_var(k, v);
     }
+    // The theme bridge's variables (#EDE-19): the compositor's cursor theme
+    // and size are read once at start, before any unit runs.
+    for (k, v) in ede_theme::environment(&ede_theme::Paths::from_env()) {
+        std::env::set_var(k, v);
+    }
     let me = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "ede-session".into());
     // ede-compositor next to us (the .deb puts both in /usr/bin), else PATH.
     let compositor = std::env::current_exe()
