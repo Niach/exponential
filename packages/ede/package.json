@@ -1,0 +1,22 @@
+{
+  "name": "@exp/ede",
+  "version": "0.0.0",
+  "description": "eDE's contract (#EDE-8): the surface header every shell document carries, the Tier C document rules and the apply state machine (validate, refuse, commit, reload, frame ack, rollback, crash revert, factory) as fixtures plus a pure TypeScript reference; ede-ui replays them in Rust",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "bun test ./src",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./surface": "./src/surface.ts",
+    "./apply": "./src/apply.ts",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}
