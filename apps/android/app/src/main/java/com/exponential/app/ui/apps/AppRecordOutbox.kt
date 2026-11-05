@@ -34,6 +34,7 @@ import com.exponential.app.data.electric.AccountHealth
 import com.exponential.app.data.electric.SyncHealthTracker
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.domain.AppRecords
+import com.exponential.app.domain.viaAppClaim
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.icons.ExpIcons
@@ -43,6 +44,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -214,6 +216,8 @@ class AppRecordOutbox @Inject constructor(
         val request = AppRecords.outboxRequest(entry)
         val input = request.input
         return try {
+            // VAPP-231 (via-app.json `claim`): the synced row at send time; the server checks it.
+            val claim = viaAppClaim(entry.appId, holder.database(account).appDao().observeById(entry.appId).first()?.publishedVersion)
             when (request.call) {
                 "upsert" -> Sent(
                     AppRecords.OutboxOutcome.DONE,
@@ -225,6 +229,7 @@ class AppRecordOutbox @Inject constructor(
                         recordId = input["recordId"]?.string,
                         newId = input["newId"]?.string,
                         writeId = entry.writeId,
+                        viaApp = claim,
                     ),
                 )
                 "delete" -> {
@@ -238,6 +243,7 @@ class AppRecordOutbox @Inject constructor(
                         entry.appId,
                         kotlinJson(input["writes"]) as? JsonArray ?: JsonArray(emptyList()),
                         writeId = entry.writeId,
+                        viaApp = claim,
                     ),
                 )
             }

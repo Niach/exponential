@@ -232,8 +232,10 @@ private struct AppRecordUpsertInput: Encodable {
     var newId: String? = nil
     /// VAPP-235: the outbox entry's idempotency key (nil = omitted).
     var writeId: String? = nil
+    /// VAPP-231 (via-app.json `claim`): the host's claim (nil = omitted).
+    var viaApp: ViaAppClaim? = nil
 
-    enum CodingKeys: String, CodingKey { case id, kind, data, recordId, author, via, newId, writeId }
+    enum CodingKeys: String, CodingKey { case id, kind, data, recordId, author, via, newId, writeId, viaApp }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -245,6 +247,7 @@ private struct AppRecordUpsertInput: Encodable {
         try c.encodeIfPresent(via, forKey: .via)
         try c.encodeIfPresent(newId, forKey: .newId)
         try c.encodeIfPresent(writeId, forKey: .writeId)
+        try c.encodeIfPresent(viaApp, forKey: .viaApp)
     }
 }
 
@@ -330,8 +333,10 @@ private struct AppRecordBatchInput: Encodable {
     /// VAPP-228: `import` = the Data tab's CSV import (up to
     /// `csvImport.maxRows` writes; nil = omitted, a package action's batch).
     var via: String? = nil
+    /// VAPP-231 (via-app.json `claim`): the host's claim (nil = omitted).
+    var viaApp: ViaAppClaim? = nil
 
-    enum CodingKeys: String, CodingKey { case id, writes, writeId, via }
+    enum CodingKeys: String, CodingKey { case id, writes, writeId, via, viaApp }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -339,6 +344,7 @@ private struct AppRecordBatchInput: Encodable {
         try c.encode(writes, forKey: .writes)
         try c.encodeIfPresent(writeId, forKey: .writeId)
         try c.encodeIfPresent(via, forKey: .via)
+        try c.encodeIfPresent(viaApp, forKey: .viaApp)
     }
 }
 
@@ -748,14 +754,14 @@ public final class AppsApi: Sendable {
     /// entry's idempotency key (a replay answers the first write's result).
     public func recordsUpsert(
         accountId: String, appId: String, kind: String, data: [String: CardJSON], recordId: String?,
-        author: String? = nil, via: String? = nil, newId: String? = nil, writeId: String? = nil
+        author: String? = nil, via: String? = nil, newId: String? = nil, writeId: String? = nil, viaApp: ViaAppClaim? = nil
     ) async throws -> AppRecordUpserted {
         try await trpc.mutation(
             accountId: accountId,
             path: "apps.records.upsert",
             input: AppRecordUpsertInput(
                 id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId, author: author,
-                via: via, newId: newId, writeId: writeId
+                via: via, newId: newId, writeId: writeId, viaApp: viaApp
             )
         )
     }
@@ -766,11 +772,11 @@ public final class AppsApi: Sendable {
     /// VAPP-235: `writeId` = the outbox entry's idempotency key.
     /// VAPP-228: `via: "import"` = the Data tab's CSV import (each upsert
     /// may carry an owner's on-behalf `author`).
-    public func recordsBatch(accountId: String, appId: String, writes: [CardJSON], writeId: String? = nil, via: String? = nil) async throws -> AppRecordBatched {
+    public func recordsBatch(accountId: String, appId: String, writes: [CardJSON], writeId: String? = nil, via: String? = nil, viaApp: ViaAppClaim? = nil) async throws -> AppRecordBatched {
         try await trpc.mutation(
             accountId: accountId,
             path: "apps.records.batch",
-            input: AppRecordBatchInput(id: appId, writes: EncodableJSON(value: .array(writes)), writeId: writeId, via: via)
+            input: AppRecordBatchInput(id: appId, writes: EncodableJSON(value: .array(writes)), writeId: writeId, via: via, viaApp: viaApp)
         )
     }
 
@@ -788,7 +794,8 @@ public final class AppsApi: Sendable {
 
     /// VAPP-235: replay ONE outbox entry (`AppRecords.outboxRequest`: its
     /// `writeId` beside the call's own input; a create's `newId`).
-    public func recordsReplay(accountId: String, entry: AppRecords.OutboxEntry) async throws -> AppRecordReplayed {
+    /// VAPP-231: `viaApp` = the host's claim (via-app.json `claim`).
+    public func recordsReplay(accountId: String, entry: AppRecords.OutboxEntry, viaApp: ViaAppClaim? = nil) async throws -> AppRecordReplayed {
         let request = AppRecords.outboxRequest(entry)
         let input = request.input
         func text(_ key: String) -> String? {
@@ -799,7 +806,7 @@ public final class AppsApi: Sendable {
         case .upsert:
             return .upserted(try await recordsUpsert(
                 accountId: accountId, appId: entry.appId, kind: text("kind") ?? "", data: input["data"]?.objectValue ?? [:],
-                recordId: text("recordId"), newId: text("newId"), writeId: text("writeId")
+                recordId: text("recordId"), newId: text("newId"), writeId: text("writeId"), viaApp: viaApp
             ))
         case .delete:
             return .deleted(try await recordsDelete(
@@ -809,7 +816,7 @@ public final class AppsApi: Sendable {
             var writes: [CardJSON] = []
             if case let .array(list)? = input["writes"] { writes = list }
             return .batched(try await recordsBatch(
-                accountId: accountId, appId: entry.appId, writes: writes, writeId: text("writeId")
+                accountId: accountId, appId: entry.appId, writes: writes, writeId: text("writeId"), viaApp: viaApp
             ))
         }
     }

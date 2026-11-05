@@ -11,6 +11,8 @@ import { db } from "@/db/connection"
 import { appAccess, apps, appRecords, comments, issues, mcpCalls, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { createTestBoard } from "@/test/factories"
+import type { ViaAppCall } from "@exp/domain-contract/via-app"
+import { verifiedViaApp } from "@/lib/apps/via-app-claim"
 
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetSessionMessageNotify: () => {},
@@ -267,6 +269,23 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
     expect(issue).toEqual({ viaAppId: filer!.id, creatorId: w.owner })
     const [plain] = await db.select({ viaAppId: issues.viaAppId }).from(issues).where(eq(issues.id, w.issueId))
     expect(plain!.viaAppId).toBeNull()
+  })
+
+  // VAPP-231 (via-app.json `claim`): a host's claim adds a caption only when it holds.
+  it(`a claim holds for a member, a published version and a declared function`, async () => {
+    const w = await world()
+    const [app] = await db
+      .insert(apps)
+      .values({ teamId: w.teamId, slug: `claimed`, name: `Claimed`, headVersion: 2, publishedVersion: 1, createdBy: w.owner, package: { functions: [`records.*`, `exponential.issues.create`] } as never })
+      .returning({ id: apps.id })
+    const appId = app!.id
+    const check = (userId: string, version: number, fn: ViaAppCall) => verifiedViaApp(userId, { appId, version }, [fn])
+    expect(await check(w.owner, 1, { fn: `records.upsert` })).toBe(appId)
+    expect(await check(w.owner, 1, { tool: `exponential_issues`, op: `create` })).toBe(appId)
+    expect(await check(w.owner, 1, { tool: `exponential_comments`, op: `create` })).toBeNull()
+    expect(await check(w.owner, 2, { fn: `records.upsert` })).toBeNull()
+    expect(await check(`not-a-member`, 1, { fn: `records.upsert` })).toBeNull()
+    expect(await verifiedViaApp(w.owner, { appId: `00000000-0000-4000-8000-000000000000`, version: 1 }, [{ fn: `records.upsert` }])).toBeNull()
   })
 
   // VAPP-187: the broker's records patch runs the records router's ownership

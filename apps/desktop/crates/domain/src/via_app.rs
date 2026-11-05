@@ -24,6 +24,33 @@ pub fn with_via_app(text: &str, app_name: Option<&str>) -> String {
     }
 }
 
+/// VAPP-231 (fixture `claim`): the MCP header a host's claim rides on.
+pub const VIA_APP_HEADER: &str = "X-Exp-Via-App";
+
+/// VAPP-231: a host's claim that a write comes from its app (`viaApp` on a
+/// records write); the server checks it, and it only adds the caption.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViaAppClaim {
+    pub app_id: String,
+    pub version: i64,
+}
+
+impl ViaAppClaim {
+    /// The MCP header's value, `{appId}@{version}`.
+    pub fn header_value(&self) -> String {
+        format!("{}@{}", self.app_id, self.version)
+    }
+}
+
+/// The claim of a host over `app_id`; `None` without an app or a published
+/// version.
+pub fn via_app_claim(app_id: Option<&str>, published_version: Option<i64>) -> Option<ViaAppClaim> {
+    let app_id = app_id.filter(|id| !id.is_empty())?;
+    let version = published_version.filter(|version| *version > 0)?;
+    Some(ViaAppClaim { app_id: app_id.to_string(), version })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,6 +81,19 @@ mod tests {
                 "{}",
                 case["name"]
             );
+        }
+    }
+
+    #[test]
+    fn replays_the_claim_cases() {
+        let fixture = fixture();
+        assert_eq!(fixture["claim"]["header"].as_str(), Some(VIA_APP_HEADER));
+        let cases = fixture["claim"]["claimCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let claim = via_app_claim(case["appId"].as_str(), case["publishedVersion"].as_i64());
+            assert_eq!(serde_json::to_value(&claim).unwrap(), case["claim"], "{}", case["name"]);
+            assert_eq!(claim.map(|c| c.header_value()).as_deref(), case["header"].as_str(), "{}", case["name"]);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.domain.ViaAppClaim
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
@@ -85,6 +86,8 @@ private data class AppRecordUpsertInput(
     val newId: String? = null,
     /** VAPP-235: the idempotency key (a replayed one answers the first result). */
     val writeId: String? = null,
+    /** VAPP-231 (via-app.json `claim`): the host's claim (null = omitted). */
+    val viaApp: ViaAppClaim? = null,
 )
 
 @Serializable
@@ -135,7 +138,7 @@ data class AppRecordEventsResult(val txid: Long? = null, val eventIds: List<Stri
 // (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`, the plan's
 // `writes` passed through unchanged) as ONE transaction.
 @Serializable
-private data class AppRecordBatchInput(val id: String, val writes: JsonArray, val writeId: String? = null, val via: String? = null)
+private data class AppRecordBatchInput(val id: String, val writes: JsonArray, val writeId: String? = null, val via: String? = null, val viaApp: ViaAppClaim? = null)
 
 @Serializable
 data class AppRecordBatchResult(
@@ -276,11 +279,13 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
         newId: String? = null,
         /** VAPP-235: the outbox entry's idempotency key. */
         writeId: String? = null,
+        /** VAPP-231: the host's claim. */
+        viaApp: ViaAppClaim? = null,
     ): AppRecordUpsertResult =
         trpc.mutation(
             accountId,
             path = "apps.records.upsert",
-            input = AppRecordUpsertInput(appId, kind, data, recordId, author, via, newId, writeId),
+            input = AppRecordUpsertInput(appId, kind, data, recordId, author, via, newId, writeId, viaApp),
             inputSerializer = AppRecordUpsertInput.serializer(),
             outputSerializer = AppRecordUpsertResult.serializer(),
         )
@@ -289,11 +294,11 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
      *  (the server checks each against its kind's schema, the caps and the
      *  quota again). VAPP-228: [via] = `import` for the Data tab's CSV
      *  import (each write may carry an owner's on-behalf `author`). */
-    suspend fun recordsBatch(accountId: String, appId: String, writes: JsonArray, writeId: String? = null, via: String? = null): AppRecordBatchResult =
+    suspend fun recordsBatch(accountId: String, appId: String, writes: JsonArray, writeId: String? = null, via: String? = null, viaApp: ViaAppClaim? = null): AppRecordBatchResult =
         trpc.mutation(
             accountId,
             path = "apps.records.batch",
-            input = AppRecordBatchInput(appId, writes, writeId, via),
+            input = AppRecordBatchInput(appId, writes, writeId, via, viaApp),
             inputSerializer = AppRecordBatchInput.serializer(),
             outputSerializer = AppRecordBatchResult.serializer(),
         )

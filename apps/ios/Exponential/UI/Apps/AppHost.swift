@@ -249,8 +249,9 @@ final class AppRecordOutbox {
             var replayed: AppRecordReplayed?
             let result: AppRecords.OutboxResult
             var message = ""
+            let claim = await AppHostMcp.hostClaim(appId: entry.appId, pool: pool)
             do {
-                replayed = try await api.recordsReplay(accountId: accountId, entry: entry)
+                replayed = try await api.recordsReplay(accountId: accountId, entry: entry, viaApp: claim)
                 result = .ok
             } catch {
                 result = AppRecords.outboxResult(error)
@@ -405,7 +406,7 @@ final class ExpAppHost {
     /// instance's MCP as the viewer: `{op, …args}` for a noun's op (the
     /// name's op wins over an `op` arg: the card and the grant name THIS
     /// operation), the args alone for the verb tool.
-    static func actionFunctions(accountId: String, base: URL?, httpClient: HTTPClient) -> [String: HostFunction] {
+    static func actionFunctions(accountId: String, base: URL?, httpClient: HTTPClient, appId: String?, pool: DatabasePool?) -> [String: HostFunction] {
         var functions: [String: HostFunction] = [:]
         // EXP-1657: the aliases too, so a package published before the
         // `team_config` split keeps working.
@@ -415,7 +416,8 @@ final class ExpAppHost {
                 try await AppHostMcp.call(
                     tool: target.tool,
                     arguments: AppActions.arguments(args, op: target.op) { .string($0) },
-                    accountId: accountId, base: base, httpClient: httpClient
+                    accountId: accountId, base: base, httpClient: httpClient,
+                    viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
                 )
             }
         }
@@ -468,7 +470,7 @@ final class ExpAppHost {
         let uploads: AppHostUploads? = (appId != nil && !readOnly)
             ? AppHostUploads(appId: appId ?? "", accountId: accountId, attachmentsApi: deps.attachmentsApi)
             : nil
-        let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient)
+        let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient, appId: appId, pool: pool)
         // VAPP-122: the app's own rows (no consent card); a refusal (the
         // kind's schema, the caps, the plan quota) = the failed-action toast,
         // and the call fails (`records.upsert` / `.delete`).
@@ -550,7 +552,8 @@ final class ExpAppHost {
                         arguments: args["arguments"]?.object ?? [:],
                         accountId: accountId,
                         base: base,
-                        httpClient: deps.httpClient
+                        httpClient: deps.httpClient,
+                        viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
                     )
                 },
                 "records.upsert": recordsUpsert,
@@ -1251,9 +1254,19 @@ enum AppHostMcp {
         var errorDescription: String? { message }
     }
 
+    /// VAPP-231 (via-app.json `claim`): what a write of `appId`'s host claims,
+    /// read off the synced row at send time; the server checks it.
+    static func hostClaim(appId: String?, pool: DatabasePool?) async -> ViaAppClaim? {
+        guard let appId, let pool else { return nil }
+        let app = try? await pool.read { db in
+            try AppEntity.filter(Column("id") == appId).fetchOne(db)
+        }
+        return viaAppClaim(appId, publishedVersion: app?.publishedVersion)
+    }
+
     @MainActor
     static func call(
-        tool: String, arguments: [String: JSONValue], accountId: String, base: URL?, httpClient: HTTPClient
+        tool: String, arguments: [String: JSONValue], accountId: String, base: URL?, httpClient: HTTPClient, viaApp: ViaAppClaim? = nil
     ) async throws -> Any? {
         guard let base, let url = URL(string: "/api/mcp", relativeTo: base)?.absoluteURL else {
             throw CallError(message: "not signed in")
@@ -1267,6 +1280,7 @@ enum AppHostMcp {
         ])
         var request = httpClient.request(url, accountId: accountId, method: "POST", body: Data(body.json.utf8))
         request.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+        if let viaApp { request.setValue(viaApp.headerValue, forHTTPHeaderField: ViaApp.header) }
         request.timeoutInterval = 60
         let (data, response) = try await httpClient.session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {

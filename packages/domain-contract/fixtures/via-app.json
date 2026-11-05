@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-229 (spec docs/spec/apps.md §9.3, M3): EVERY row an app causes reads \"via <app>\" ×4. A nullable `via_app_id` (FK apps, ON DELETE SET NULL, SYNCED) sits on `comments` (#VAPP-186, its caption = reporter-reply.json `captions.viaApp`), `issues`, `sessions` and `app_records`. The SERVER stamps it, never a client: the apps broker (`/api/mcp/apps`) runs an app's exposed tool (`run.records` / `run.action`) and, later, its automations (A1) on a server-side context naming the app (apps/web lib/emcp/via-app.ts); issues.create, sessions.send (every session row it inserts: a new root, a child, an agent's fresh thread) and the records service's create stamp that app. An app's own UI writing through the viewer's client (records.*, exponential.* over /api/mcp) is the viewer's own write and carries none (a client cannot claim an app). `sessions.via_app_id` is NOT `sessions.app_id` (the app an EDITOR session edits). A record's `via_app_id` is set on CREATE only (an update keeps it). RESOLVE: the id against the client's synced, non-trashed apps; an unknown or deleted app = no caption (null). TEXT: `viaAppCaption(name)` = `copy.viaApp` with `{app}` = the name, null without a name (`captionCases`); `withViaApp(text, name)` = text + `copy.separator` + that caption, the text alone without one (`appendCases`). WHERE ×4 (existing text, no new component): ISSUE DETAIL = the activity timeline's synthesized creation row, its muted tail `created the issue · {time}` gets the caption appended (`withViaApp`, so `Ana created the issue · 2h · via Timesheet`); SESSION VIEW = one muted text-xs line under the header's title / origin row (`viaAppCaption`, absent without one; the thread header itself stays caption-free, session-thread.json); DATA TAB = the By cell (app-records.json `dataTab`) = `withViaApp(recordByline(...), name)` (`Ana · via Timesheet`, one truncated line; phones' rows carry no By cell). Mirrors: TS packages/domain-contract/src/via-app.ts, desktop domain::via_app, iOS ExpCore ViaApp.swift, Android domain/ViaApp.kt replay every case.",
+  "$comment": "VAPP-229 (spec docs/spec/apps.md §9.3, M3): EVERY row an app causes reads \"via <app>\" ×4. A nullable `via_app_id` (FK apps, ON DELETE SET NULL, SYNCED) sits on `comments` (#VAPP-186, its caption = reporter-reply.json `captions.viaApp`), `issues`, `sessions` and `app_records`. The SERVER stamps it, never a client: the apps broker (`/api/mcp/apps`) runs an app's exposed tool (`run.records` / `run.action`) and, later, its automations (A1) on a server-side context naming the app (apps/web lib/emcp/via-app.ts); issues.create, sessions.send (every session row it inserts: a new root, a child, an agent's fresh thread) and the records service's create stamp that app. VAPP-231: an app's own UI writing through the viewer's client stamps it too, through a CLAIM the server checks (`claim` below). `sessions.via_app_id` is NOT `sessions.app_id` (the app an EDITOR session edits). A record's `via_app_id` is set on CREATE only (an update keeps it). RESOLVE: the id against the client's synced, non-trashed apps; an unknown or deleted app = no caption (null). TEXT: `viaAppCaption(name)` = `copy.viaApp` with `{app}` = the name, null without a name (`captionCases`); `withViaApp(text, name)` = text + `copy.separator` + that caption, the text alone without one (`appendCases`). WHERE ×4 (existing text, no new component): ISSUE DETAIL = the activity timeline's synthesized creation row, its muted tail `created the issue · {time}` gets the caption appended (`withViaApp`, so `Ana created the issue · 2h · via Timesheet`); SESSION VIEW = one muted text-xs line under the header's title / origin row (`viaAppCaption`, absent without one; the thread header itself stays caption-free, session-thread.json); DATA TAB = the By cell (app-records.json `dataTab`) = `withViaApp(recordByline(...), name)` (`Ana · via Timesheet`, one truncated line; phones' rows carry no By cell). Mirrors: TS packages/domain-contract/src/via-app.ts, desktop domain::via_app, iOS ExpCore ViaApp.swift, Android domain/ViaApp.kt replay every case.",
   "copy": {
     "viaApp": "via {app}",
     "separator": " · "
@@ -9,6 +9,43 @@
     { "name": "no app", "viaAppName": null, "text": null },
     { "name": "an empty name reads as none", "viaAppName": "", "text": null }
   ],
+  "claim": {
+    "$comment": "VAPP-231 (spec docs/spec/apps.md §9.3): a host says which app a write comes from: `viaApp: {appId, version}`, version = the app's synced `publishedVersion` read at send time (a queued outbox entry reads it at replay, no outbox column). WIRE: tRPC `apps.records.upsert` / `apps.records.batch` input `viaApp`; an MCP call (`harness.mcp`, `exponential.*`) the header `header` = `{appId}@{version}`. A delete carries none: it stamps nothing. HOST ×4 (`claimCases`): no app id, an unsynced row or a never-published app = no claim; the Data tab and the CSV import are not the app's UI and send none. SERVER (TS only, `verdictCases`): the claim holds when version is 1..publishedVersion (above = a draft), the caller is a team member whose app access is not `none` and whose credential reaches the team, and the app's PUBLISHED package declares the function: `records.upsert` for records.upsert and for a batch, for an MCP call its `exponential.<noun>.<op>` (aliases and `prefix*` count) or `harness.mcp`; a records claim must also name the app written to, and a JSON-RPC batch needs every call declared. A claim only adds a caption: it never widens access, and a refused or malformed header costs the write nothing, it lands with no `via_app_id`. The broker's own stamp wins over a claim.",
+    "header": "X-Exp-Via-App",
+    "recordsFunction": "records.upsert",
+    "mcpFunction": "harness.mcp",
+    "claimCases": [
+      { "name": "a published app", "appId": "a1", "publishedVersion": 3, "claim": { "appId": "a1", "version": 3 }, "header": "a1@3" },
+      { "name": "never published", "appId": "a1", "publishedVersion": 0, "claim": null, "header": null },
+      { "name": "an unsynced row", "appId": "a1", "publishedVersion": null, "claim": null, "header": null },
+      { "name": "no app", "appId": null, "publishedVersion": 3, "claim": null, "header": null },
+      { "name": "an empty app id", "appId": "", "publishedVersion": 3, "claim": null, "header": null }
+    ],
+    "parseCases": [
+      { "name": "well formed", "header": "4f7c1e0a-7f6b-4f1e-9d39-6d1f0c2b8a11@3", "claim": { "appId": "4f7c1e0a-7f6b-4f1e-9d39-6d1f0c2b8a11", "version": 3 } },
+      { "name": "no header", "header": null, "claim": null },
+      { "name": "not a uuid", "header": "a1@3", "claim": null },
+      { "name": "no version", "header": "4f7c1e0a-7f6b-4f1e-9d39-6d1f0c2b8a11", "claim": null },
+      { "name": "version zero", "header": "4f7c1e0a-7f6b-4f1e-9d39-6d1f0c2b8a11@0", "claim": null },
+      { "name": "not a number", "header": "4f7c1e0a-7f6b-4f1e-9d39-6d1f0c2b8a11@two", "claim": null }
+    ],
+    "verdictCases": [
+      { "name": "a declared record write", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["records.*"], "fn": "records.upsert", "accepted": true },
+      { "name": "a stale host still counts", "version": 2, "publishedVersion": 3, "access": "write", "functions": ["records.upsert"], "fn": "records.upsert", "accepted": true },
+      { "name": "a draft version", "version": 4, "publishedVersion": 3, "access": "write", "functions": ["records.*"], "fn": "records.upsert", "accepted": false },
+      { "name": "never published", "version": 1, "publishedVersion": 0, "access": "write", "functions": ["records.*"], "fn": "records.upsert", "accepted": false },
+      { "name": "undeclared", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["bind"], "fn": "records.upsert", "accepted": false },
+      { "name": "no functions", "version": 3, "publishedVersion": 3, "access": "write", "functions": null, "fn": "records.upsert", "accepted": false },
+      { "name": "access none", "version": 3, "publishedVersion": 3, "access": "none", "functions": ["records.*"], "fn": "records.upsert", "accepted": false },
+      { "name": "read access is still app access", "version": 3, "publishedVersion": 3, "access": "read", "functions": ["exponential.comments.create"], "tool": "exponential_comments", "op": "create", "accepted": true },
+      { "name": "a declared action", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["exponential.issues.create"], "tool": "exponential_issues", "op": "create", "accepted": true },
+      { "name": "a prefix pattern", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["exponential.issues.*"], "tool": "exponential_issues", "op": "create", "accepted": true },
+      { "name": "another action", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["exponential.issues.get"], "tool": "exponential_issues", "op": "create", "accepted": false },
+      { "name": "harness.mcp covers any tool", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["harness.mcp"], "tool": "exponential_issues", "op": "create", "accepted": true },
+      { "name": "a verb tool", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["exponential.sessions.send"], "tool": "exponential_sessions_send", "op": null, "accepted": true },
+      { "name": "an unknown tool", "version": 3, "publishedVersion": 3, "access": "write", "functions": ["exponential.*"], "tool": "nope", "op": null, "accepted": false }
+    ]
+  },
   "appendCases": [
     { "name": "issue creation tail", "text": "created the issue · 2h", "viaAppName": "Timesheet", "expected": "created the issue · 2h · via Timesheet" },
     { "name": "issue creation tail without an app", "text": "created the issue · 2h", "viaAppName": null, "expected": "created the issue · 2h" },

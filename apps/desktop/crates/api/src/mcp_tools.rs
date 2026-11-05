@@ -56,10 +56,25 @@ fn mcp_error(error: emcp::ClientError) -> ApiError {
 /// call result as the server sent it (`content`, `structuredContent`,
 /// `isError`, `_meta`). The IDE's `harness.mcp` reads it whole.
 pub fn call_tool_result(trpc: &TrpcClient, name: &str, arguments: &Value) -> Result<Value, ApiError> {
+    call_tool_result_via(trpc, name, arguments, None)
+}
+
+/// [`call_tool_result`] from an app's host: VAPP-231, `via_app` = its claim
+/// (via-app.json `claim`), as the header the server checks.
+pub fn call_tool_result_via(
+    trpc: &TrpcClient,
+    name: &str,
+    arguments: &Value,
+    via_app: Option<&domain::via_app::ViaAppClaim>,
+) -> Result<Value, ApiError> {
+    let mut headers = trpc.auth_headers();
+    if let Some(claim) = via_app {
+        headers.push((domain::via_app::VIA_APP_HEADER.to_string(), claim.header_value()));
+    }
     let upstream = emcp::Upstream {
         name: "exponential".to_string(),
         url: format!("{}/api/mcp", trpc.base_url()),
-        headers: trpc.auth_headers(),
+        headers,
     };
     emcp::client::call_once(&upstream, CLIENT_NAME, name, arguments.clone(), MCP_TIMEOUT).map_err(mcp_error)
 }

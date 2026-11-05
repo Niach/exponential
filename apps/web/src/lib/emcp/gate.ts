@@ -29,6 +29,7 @@ import { confineMcpAccessToActingSession } from "@/lib/sessions/acting"
 import { hostedByCondition } from "@/lib/sessions/host"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { runAsSession } from "@/lib/apps/automation-scope"
+import { requestWithViaAppClaim } from "@/lib/apps/via-app-claim"
 
 /** Who a request acts as, after the gate. */
 export interface EmcpCaller {
@@ -56,8 +57,15 @@ type Served = McpServer | Server | Response | { server: McpServer | Server; audi
  * apps grant). */
 export type ToolProvider = (caller: EmcpCaller, request: Request) => Served | Promise<Served>
 
-export const exponentialToolProvider: ToolProvider = (caller, request) =>
-  createExponentialMcpServer(caller.user, request, caller.access, caller.sessionId, caller.gates)
+export const exponentialToolProvider: ToolProvider = async (caller, request) =>
+  createExponentialMcpServer(
+    caller.user,
+    // VAPP-231: an app host's checked claim makes its writes read "via <app>".
+    await requestWithViaAppClaim(request, caller.user.id, caller.access),
+    caller.access,
+    caller.sessionId,
+    caller.gates
+  )
 
 // Session cookies, bearer session tokens, and UNSCOPED personal `expu_` api
 // keys are the user's own credentials → full membership access. A SCOPED key
