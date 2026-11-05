@@ -219,11 +219,12 @@ export function CallAvatar({ agent, activity, level = 0, bands, children, size =
         className={cn(
           `relative flex items-center justify-center overflow-hidden rounded-full bg-card text-foreground transition-[opacity,box-shadow] duration-standard`,
           lg ? `size-24 [&_svg]:size-14` : `size-7 [&_svg]:size-4`,
-          activity === `listening` && `ring-emerald-500/80`,
-          activity === `listening` && (lg ? `ring-4` : `ring-2`),
+          activity === `listening` && !lg && `ring-2 ring-emerald-500/80`,
           activity === `thinking` && `opacity-60`
         )}
-        style={activity === `listening` && lg ? { boxShadow: `0 0 ${glow}px 2px rgb(16 185 129 / 0.35)` } : undefined}
+        // The ring + its glow in ONE box-shadow: an inline shadow would drop a
+        // `ring-*` utility (EXP-1676: the ring ×4).
+        style={activity === `listening` && lg ? { boxShadow: `0 0 0 3px rgb(16 185 129 / 0.8), 0 0 ${glow}px 6px rgb(16 185 129 / 0.35)` } : undefined}
       >
         {children}
       </span>

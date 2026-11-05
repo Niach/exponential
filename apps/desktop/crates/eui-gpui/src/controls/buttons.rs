@@ -116,10 +116,19 @@ pub fn call_button(
     // ([`CUSTOM_VARIANT_ALPHA_FACTOR`]) and the built-in `danger` is the
     // web's tint: the SOLID red circle rides a transparent custom variant
     // (its hover and press, handed over unmixed) under a refined rest fill.
-    // The dark theme's `primary` IS the inverted neutral fill.
+    // Neutral = web's `bg-secondary`, toggled = the inverted neutral fill
+    // (`bg-foreground`, EXP-1676: never the off-white `primary`).
+    let solid = |id: ElementId, fill: gpui::Hsla, glyph: gpui::Hsla, icon: Icon, cx: &App| {
+        let variant = ButtonCustomVariant::new(cx)
+            .color(gpui::transparent_black())
+            .hover(fill.opacity(0.9))
+            .active(fill.opacity(0.8))
+            .foreground(glyph);
+        gpui_component::button::Button::new(id).custom(variant).bg(fill).icon(icon)
+    };
     let button = match tone {
-        CallTone::Neutral => glass_icon_button(id, icon, cx),
-        CallTone::Toggled => gpui_component::button::Button::new(id).primary().icon(icon),
+        CallTone::Neutral => solid(id.into(), cx.theme().secondary, cx.theme().foreground, icon, cx),
+        CallTone::Toggled => solid(id.into(), cx.theme().foreground, cx.theme().background, icon, cx),
         CallTone::Destructive => {
             let red = cx.theme().danger;
             let variant = ButtonCustomVariant::new(cx)
