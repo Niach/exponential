@@ -167,7 +167,7 @@ class ActionsTest {
         val out = s.call("actions.log", logArgs(2.0))
         assertNull(out.error)
         assertEquals(1, s.batches)
-        val logged = JsonValue.Obj(mapOf("date" to JsonValue.Str("2026-11-03"), "hours" to JsonValue.Num(2.0), "note" to JsonValue.Null))
+        val logged = JsonValue.Obj(mapOf("date" to JsonValue.Str("2026-11-03"), "hours" to JsonValue.Num(2.0)))
         assertTrue(s.rows.any { it["data"] == logged })
         assertEquals(JsonValue.Num(0.0), s.formHours)
         assertEquals(listOf("Logged 2:00"), s.toasts)

@@ -174,7 +174,7 @@ final class ActionsTests: XCTestCase {
         let out = await s.call("actions.log", ["date": .string("2026-11-03"), "hours": .number(2)])
         XCTAssertNil(out.error)
         XCTAssertEqual(s.batches, 1)
-        XCTAssertTrue(s.rows.contains { $0["data"] == .object(["date": .string("2026-11-03"), "hours": .number(2), "note": .null]) })
+        XCTAssertTrue(s.rows.contains { $0["data"] == .object(["date": .string("2026-11-03"), "hours": .number(2)]) })
         XCTAssertEqual(s.formHours, .number(0))
         XCTAssertEqual(s.toasts, ["Logged 2:00"])
     }
