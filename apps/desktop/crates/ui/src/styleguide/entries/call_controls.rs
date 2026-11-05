@@ -81,7 +81,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     pill_face.view.end = copy.end_call.clone();
     let pill = call_pill("call-controls-pill", &pill_face, &actions, cx).into_any_element();
     // Web's grid stretches this figure: the pill centred on the full width.
-    let compact = labelled("compact row: the desktop's floating pill", pill, cx).w_full();
+    let compact = labelled("compact row: the floating call pill", pill, cx).w_full();
 
     v_flex().w_full().items_start().gap(px(32.)).child(first).child(second).child(compact)
 }
