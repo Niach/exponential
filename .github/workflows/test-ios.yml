@@ -97,7 +97,12 @@ jobs:
       # .build/workspace-state.json holds absolute artifact paths, so an entry
       # saved by another Mac instance sends `tuist generate` to that instance's
       # checkout ("Couldn't find xcframework at ~/actions-runner/_work/...").
+      #
+      # #EXP-1680: not on a Mac's PR compile. A PR can't restore another PR's
+      # entry, so every new PR uploaded ~790 MB (5 min, and the repo's cache budget)
+      # to save a resolve that takes ~30 s from the Mac's own SwiftPM cache.
       - name: Cache SPM dependencies
+        if: ${{ !(inputs.compile_only && runner.environment == 'self-hosted') }}
         uses: actions/cache@v4
         with:
           path: apps/ios/Tuist/.build
