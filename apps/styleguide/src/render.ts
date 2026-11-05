@@ -66,7 +66,7 @@ const COMPONENT_PLATFORM_LABEL: Record<ComponentPlatform, string> = {
  * carries one link there in their place.
  */
 export const SITE_GROUP_ID = `exponential-ui-catalog`
-export const SITE_COMPONENTS_URL = `https://exponential.at/docs/libraries/eui/reference/components/`
+export const SITE_COMPONENTS_URL = `https://exponential.at/docs/sdk/genui/reference/components/`
 
 /** The gallery minus the site-owned group: what this page lists. */
 export function listedGallery(data: GalleryData): GalleryData {

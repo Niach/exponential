@@ -268,7 +268,7 @@ painters through the facade); `catalog/host.json` is the contract and
   `allowPrivate: ["localhost"]` (`*.suffix`, or `*` for all), which a
   `hosts` allowlist does not do. Literals only: no DNS lookup (a public
   name that resolves privately is the network's job). The threat model:
-  https://exponential.at/docs/libraries/eui/reference/security/.
+  https://exponential.at/docs/sdk/genui/reference/security/.
 - **Runtime**: `new ExponentialHost({transport, functions, sources,
   extensions, packages, policy})`: `connect()`, `receive(message)`,
   `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,
