@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -1123,7 +1124,10 @@ private fun InviteMemberForm(viewModel: TeamSettingsViewModel) {
             label = "Add without inviting",
             onClick = { if (canSubmit && !busy) viewModel.addWithoutInviting(email, name) { toaster.success(it) } },
             icon = { Icon(ExpIcons.uiInvite, contentDescription = null, modifier = Modifier.size(16.dp)) },
-            modifier = Modifier.testTag("invite-add-without-inviting"),
+            // Dimmed until it can act, like its twins ×4.
+            modifier = Modifier
+                .alpha(if (canSubmit && !busy) 1f else 0.5f)
+                .testTag("invite-add-without-inviting"),
         )
         form.inviteUrl?.let { url ->
             Text(
