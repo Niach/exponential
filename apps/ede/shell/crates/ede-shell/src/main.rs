@@ -373,8 +373,11 @@ fn refresh_data(shell: &SharedShell, cx: &mut App) {
     }
 }
 
-/// `HH:MM` local time.
+/// `HH:MM` local time; `EDE_SHELL_CLOCK` pins it (the goldens, #EDE-11).
 fn clock() -> String {
+    if let Some(fixed) = std::env::var_os("EDE_SHELL_CLOCK").filter(|v| !v.is_empty()) {
+        return fixed.to_string_lossy().into_owned();
+    }
     // SAFETY: time() with a null pointer only returns; localtime_r writes
     // into the tm we own.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };

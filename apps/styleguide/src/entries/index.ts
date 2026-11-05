@@ -71,6 +71,7 @@ import { entry as chatTranscript } from "./chat-transcript.tsx"
 import { entry as chatMenus } from "./chat-menus.tsx"
 import { entry as resultsTab } from "./results-tab.tsx"
 import { entry as needsYou } from "./needs-you.tsx"
+import { entry as edePanel } from "./ede-panel.tsx"
 import { entry as chatSelection } from "./chat-selection.tsx"
 import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
@@ -178,6 +179,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   sealedLocked,
   resultsTab,
   needsYou,
+  edePanel,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

@@ -66,6 +66,7 @@ export const RESOURCE_REASONS = {
    * screengrab, demo mode and the autofill toggle all drive it.
    */
   "adb-device": `the android lanes share the one attached emulator`,
+  "ede-headless": `the eDE lane runs one headless compositor at a time (one ede-protocol socket per run)`,
 } as const
 
 export type ResourceKey = keyof typeof RESOURCE_REASONS

@@ -439,6 +439,8 @@ const SOURCE_ROOTS: { test: RegExp; platforms: readonly Platform[] }[] = [
   { test: /^apps\/desktop\//, platforms: [`desktop`] },
   { test: /^apps\/ios\//, platforms: [`ios`] },
   { test: /^apps\/android\//, platforms: [`android`] },
+  // eDE's shell draws the factory documents with eui-gpui; the compositor composes them.
+  { test: /^apps\/ede\//, platforms: [`ede`] },
 ]
 
 /** A changed path whose DIFF proved it draws nothing — see `contentDropsSince`. */

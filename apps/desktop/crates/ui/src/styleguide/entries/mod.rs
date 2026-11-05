@@ -106,6 +106,7 @@ pub(crate) mod entity_chip;
 // #FEED-191: the Results tab + Needs you.
 pub(crate) mod results_tab;
 pub(crate) mod needs_you;
+pub(crate) mod ede_panel;
 // #EXP-1645: the team mark + the Team image row.
 pub(crate) mod team_avatar;
 
@@ -227,4 +228,5 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: sealed_locked::ID, owner: sealed_locked::OWNER, render: sealed_locked::render },
     Entry { id: results_tab::ID, owner: results_tab::OWNER, render: results_tab::render },
     Entry { id: needs_you::ID, owner: needs_you::OWNER, render: needs_you::render },
+    Entry { id: ede_panel::ID, owner: ede_panel::OWNER, render: ede_panel::render },
 ];
