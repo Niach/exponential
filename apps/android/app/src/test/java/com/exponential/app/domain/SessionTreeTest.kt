@@ -72,7 +72,13 @@ class SessionTreeTest {
     )
 
     private fun blocked(json: JsonObject) = (json["blocked"] as? JsonObject)?.let {
-        SessionTree.Blocked(it.str("window"), it.str("resetsAt"), it.str("kind"), (it["resume"] as? JsonPrimitive)?.booleanOrNull)
+        SessionTree.Blocked(
+            it.str("window"),
+            it.str("resetsAt"),
+            it.str("kind"),
+            (it["resume"] as? JsonPrimitive)?.booleanOrNull,
+            it.str("resumeSince"),
+        )
     }
 
     /** EXP-1374: a `bannerCases` session carries only the state's fields. */
@@ -406,6 +412,8 @@ class SessionTreeTest {
                         put("parentId", nullable(row.parentId))
                         put("rootId", row.rootId)
                         put("unread", row.unread)
+                        // #EXP-1703: set only when true.
+                        if (row.offline) put("offline", true)
                     }
                 },
             ),
@@ -447,7 +455,8 @@ class SessionTreeTest {
         val cases = cardFixture.list("bannerCases")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
-            val actual = SessionTree.sessionBanner(bannerSession(case.getValue("session").jsonObject))
+            // #EXP-1703: a case may name the host device (`deviceName`).
+            val actual = SessionTree.sessionBanner(bannerSession(case.getValue("session").jsonObject), case.str("deviceName"))
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
         }
     }
@@ -559,6 +568,17 @@ class SessionTreeTest {
                 now = input.str("now")!!,
             )
             assertEquals(case.str("name"), case.str("expected"), actual.wire)
+        }
+    }
+
+    // #EXP-1703 (TS `treeOffline`): a tree on a person only because its device stayed away.
+    @Test
+    fun `every tree offline case matches the fixture`() {
+        val cases = listFixture.list("offlineCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val tree = case.getValue("tree").jsonArray.map { session(it.jsonObject) }
+            assertEquals(case.str("name"), case.bool("expected"), SessionTree.treeOffline(tree))
         }
     }
 
@@ -754,7 +774,13 @@ class SessionTreeTest {
         }
         assertEquals(setOf("states", "blockedKinds"), cardFixture.getValue("copy").jsonObject.keys)
         val banner = cardFixture.getValue("banner").jsonObject
-        assertEquals(setOf("background", "queued"), banner.keys)
+        assertEquals(setOf("background", "queued", "offline"), banner.keys)
+        // #EXP-1703: a device that stayed away, with Move.
+        assertEquals(banner.str("offline"), SessionTree.CardCopy.BANNER_OFFLINE)
+        assertEquals(cardFixture.str("bannerDevice"), SessionTree.CardCopy.BANNER_DEVICE)
+        val bannerActions = cardFixture.getValue("bannerActions").jsonObject
+        assertEquals(bannerActions.keys, SessionTree.CardCopy.BANNER_ACTIONS.keys)
+        for ((key, value) in bannerActions) assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BANNER_ACTIONS[key])
         assertEquals(banner.str("background"), SessionTree.CardCopy.BANNER_BACKGROUND)
         // #EXP-1405: a queued row waits for its device.
         assertEquals(banner.str("queued"), SessionTree.CardCopy.BANNER_QUEUED)

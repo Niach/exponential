@@ -181,6 +181,7 @@ class ThreadsViewModel @Inject constructor(
                 needsYou = row.needsYou,
                 prs = byRoot[row.sessionId].orEmpty(),
                 teamPrs = byTeam[row.teamId].orEmpty(),
+                offline = row.offline,
             )?.let { row.sessionId to it }
         }.toMap()
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())

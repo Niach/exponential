@@ -1055,6 +1055,12 @@ class AgentSessionViewModel @AssistedInject constructor(
                 if (online != null) last = online
             }
         }
+        // #EXP-1703: an away host's live row redials on the device-offline cadence.
+        viewModelScope.launch {
+            combine(hostDevice, session) { device, row -> device.offline && row != null && !row.isEnded }
+                .distinctUntilChanged()
+                .collect { offline -> connection.noteHostOffline(offline) }
+        }
     }
 
     private val _configureError = MutableStateFlow<String?>(null)

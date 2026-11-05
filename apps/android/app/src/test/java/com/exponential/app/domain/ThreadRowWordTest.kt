@@ -47,6 +47,8 @@ class ThreadRowWordTest {
                 busy = input.bool("busy"),
                 needsYou = input.bool("needsYou"),
                 inStack = input.bool("inStack"),
+                // #EXP-1703: `treeOffline` (absent = false).
+                offline = input.bool("offline"),
             )
             assertEquals(case.str("name"), case.str("expected"), actual?.wire)
         }

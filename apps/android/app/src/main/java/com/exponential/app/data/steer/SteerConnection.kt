@@ -397,6 +397,16 @@ class SteerConnection internal constructor(
     /** The app is in the background ([setBackground]): a feed that goes down parks instead of redialing. */
     @Volatile private var background = false
 
+    /** #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): the viewer's
+     *  presence read of the host (the synced devices row, [noteHostOffline]):
+     *  a live row's NO FEED then redials every staleMs, not on the backoff. */
+    @Volatile private var hostOffline = false
+
+    /** #EXP-1703: the host device is offline in presence and the row is live. */
+    fun noteHostOffline(offline: Boolean) {
+        hostOffline = offline
+    }
+
     init {
         (transport as? FallbackSteerTransport)?.listener = viewStats
         // VAPP-173: a feed that answered while the row still read ended landed
@@ -515,8 +525,14 @@ class SteerConnection internal constructor(
                         // meanwhile gets one more dial, which replays its
                         // stored journal or lands on the device-offline line.
                         setPhase(AgentPhase.Starting, "no feed")
+                        // #EXP-1703: an away host redials on the device-offline
+                        // cadence (presence online / a wakeup cut it short).
                         delayOrWake(
-                            steerStartingRetryDelayMs(startingRetries++, timings.startingRetryMs, timings.startingRetryMaxMs),
+                            if (hostOffline) {
+                                timings.offlineRedialMs
+                            } else {
+                                steerStartingRetryDelayMs(startingRetries++, timings.startingRetryMs, timings.startingRetryMaxMs)
+                            },
                         )
                         if (connectJob !== me) return@launch
                     }

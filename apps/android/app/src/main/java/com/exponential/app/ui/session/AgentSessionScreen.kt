@@ -381,6 +381,7 @@ import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.data.steer.STEER_NO_FEED_IDLE_TEXT
 import com.exponential.app.data.steer.STEER_NO_FEED_IDLE_TITLE
 import com.exponential.app.data.steer.SteerNoFeedState
+import com.exponential.app.data.steer.steerNoFeedAway
 import com.exponential.app.data.steer.steerNoFeedState
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
@@ -851,9 +852,16 @@ private fun RunFaceContent(
     val bottomInset = padding.calculateBottomPadding()
     var bandHeightPx by remember { mutableIntStateOf(0) }
     val bandClearance = with(LocalDensity.current) { bandHeightPx.toDp() } + bottomInset
+    // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row whose host
+    // is offline in presence (unknown = online) says so at once, never
+    // "starting"; anything cached shows as the transcript instead.
+    val noFeedAway = feed.isEmpty() && history == null && phase != AgentPhase.Live &&
+        session?.let {
+            steerNoFeedState(ended = sessionEnded, busy = it.busy, deviceOffline = hostDevice.offline)
+        } == SteerNoFeedState.Away
     // The placeholder states (no feed yet) centre in the space between the
     // bands; the feed itself scrolls under both.
-    val feedPlaceholder = feed.isEmpty() && (
+    val feedPlaceholder = noFeedAway || feed.isEmpty() && (
         history != null ||
             phase == AgentPhase.Connecting || phase == AgentPhase.Starting ||
             (!everRendered && phase == AgentPhase.Live && latestDiff == null)
@@ -931,6 +939,15 @@ private fun RunFaceContent(
     val noFeedIdle = session?.let { steerNoFeedState(ended = sessionEnded, busy = it.busy) } == SteerNoFeedState.Idle
     val placeholderBody: @Composable () -> Unit = {
         when {
+            noFeedAway -> {
+                val away = steerNoFeedAway(hostDevice.label)
+                EmptyState(
+                    title = away.title,
+                    description = away.text,
+                    icon = ExpIcons.uiDeviceOffline,
+                    modifier = Modifier.testTag("transcript-device-away"),
+                )
+            }
             // EXP-773: a finished run's transcript lives on the
             // machine that ran it (VAPP-43: served over eNet). Say
             // plainly when that machine cannot answer — this is not a
@@ -2515,9 +2532,11 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
     val taskQueue = rememberSessionTaskQueue(feed, activity.taskList, activity.backgroundTasks)
         .takeIf { streamSlots }
     // EXP-1374 (session-card.json `banner`): a background or queued
-    // session's own Dock banner. S-3: an offline host and an interruption
-    // draw nothing (no Paused, no interrupted banner).
-    val sessionBanner = session?.let { SessionTree.sessionBanner(SessionTree.session(it)) }
+    // session's own Dock banner. S-3: an interruption draws nothing (no
+    // Paused, no interrupted banner); #EXP-1703: a device that stayed away
+    // names itself (the synced devices row's label), with Move.
+    val sessionBanner = session?.let { SessionTree.sessionBanner(SessionTree.session(it), hostDevice.label) }
+    val deviceMove by viewModel.deviceMove.collectAsStateWithLifecycle()
     val hostAway = hostOffline && phase.isWaitingForStream
     val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
     val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
@@ -2626,6 +2645,38 @@ internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: 
                     size = PillSize.Sm,
                     mode = PillMode.Action,
                     modifier = Modifier.testTag("dock-instructions-new"),
+                )
+            }
+            // #EXP-1703 (session-card.json `bannerActions`): Move opens THE
+            // device-move picker (SessionDeviceMove rows + refusals); a pick =
+            // `sessions.send({sessionId, deviceId})`, a refusal the move toast.
+            if (row.id == "banner:offline" && row.action != null &&
+                deviceMove.visible && deviceMove.blockedReason == null
+            ) {
+                DevicePicker(
+                    devices = deviceMove.rows.map { move ->
+                        DevicePickerDevice(
+                            id = move.id,
+                            name = move.name,
+                            icon = move.icon,
+                            isServer = move.isServer,
+                            description = move.reason,
+                            disabled = move.reason != null,
+                        )
+                    },
+                    value = deviceMove.deviceId,
+                    onChange = viewModel::moveToDevice,
+                    title = SessionDeviceMove.PICKER_TITLE,
+                    trigger = { open ->
+                        GlassPill(
+                            row.action,
+                            onClick = open,
+                            size = PillSize.Sm,
+                            mode = PillMode.Action,
+                            icon = ExpIcons.uiSwap,
+                            modifier = Modifier.testTag("session-device-move"),
+                        )
+                    },
                 )
             }
             if (row.id == "banner:blocked" && row.action != null && onOpenUsage != null) {
