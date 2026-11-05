@@ -135,7 +135,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(crate::dock::dock_card(&question, 0., None, cx))
         .child(caption("A banner: never opens; its action word trails", cx))
         .child(crate::dock::dock_card(&banner, 0., Some(switch_button("sg-dock-card-banner")), cx))
-        .child(caption("The session's own state: interrupted, background tasks, queued", cx))
+        .child(caption("The session's own state: background tasks, queued", cx))
         .children(state_rows().iter().map(|row| crate::dock::dock_card(row, 0., None, cx)))
         .child(caption("Five cards piled: the front one whole, the rest peeking out above it", cx))
         .child(pile_specimen("sg-dock-card-pile", &rows, false, window, cx))

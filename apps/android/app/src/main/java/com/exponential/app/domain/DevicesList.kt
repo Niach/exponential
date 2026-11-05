@@ -102,7 +102,7 @@ object DevicesList {
 
     /** EXP-1560: the card grid's geometry (`fixture.card`), ×4. */
     object Card {
-        const val MIN_WIDTH = 256
+        const val MIN_WIDTH = 320
         const val GAP = 12
         const val PADDING = 12
         const val ICON_SIZE = 28

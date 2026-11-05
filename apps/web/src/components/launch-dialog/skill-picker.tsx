@@ -2,7 +2,8 @@
 // the composer's "+" › Skills (inside the menu, the MCP servers' twin) and
 // the agent page's Skills row. A row = the skill's name, its description as
 // the caption, the skill glyph; name order (the caller passes `useSkills`).
-import { PickerMenuRows, conceptIcon, type PickerItem } from "@exp/ui"
+import { SearchList, conceptIcon, type PickerItem } from "@exp/ui"
+import { COMPOSER_MENU_TEST_IDS } from "@/components/launch-dialog/composer-menu"
 
 const SkillIcon = conceptIcon(`ui-docs`)
 
@@ -22,8 +23,9 @@ export function skillPickerItems(skills: readonly SkillPickerRow[]): PickerItem[
   }))
 }
 
-/** The rows INSIDE a menu: the menu stays open across toggles. */
-export function SkillMenuRows({
+/** The "+" menu's Skills submenu (composer-menu.json + skills.json `menuRow`):
+ *  THE search list, rows of one height: the name over a one-line description. */
+export function SkillSearchList({
   skills,
   selectedIds,
   onToggle,
@@ -33,16 +35,29 @@ export function SkillMenuRows({
   onToggle: (id: string) => void
 }) {
   return (
-    <PickerMenuRows
-      mode="multi"
-      items={skillPickerItems(skills)}
-      value={selectedIds}
-      onChange={(next) => {
-        const added = next.find((id) => !selectedIds.includes(id))
-        const removed = selectedIds.find((id) => !next.includes(id))
-        const changed = added ?? removed
-        if (changed) onToggle(changed)
-      }}
-    />
+    <div className="flex max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] min-h-0 flex-col">
+      <SearchList
+        mode="multi"
+        items={skillPickerItems(skills)}
+        value={selectedIds}
+        onChange={(next) => {
+          const added = next.find((id) => !selectedIds.includes(id))
+          const removed = selectedIds.find((id) => !next.includes(id))
+          const changed = added ?? removed
+          if (changed) onToggle(changed)
+        }}
+        inputTestId={COMPOSER_MENU_TEST_IDS.submenuSearch}
+        rowClassName="h-11"
+        renderItem={(item) => (
+          <>
+            <SkillIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm">{item.label}</span>
+              <span className="truncate text-xs text-muted-foreground">{item.description}</span>
+            </span>
+          </>
+        )}
+      />
+    </div>
   )
 }

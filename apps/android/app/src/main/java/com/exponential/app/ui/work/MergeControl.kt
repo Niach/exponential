@@ -1,5 +1,10 @@
 package com.exponential.app.ui.work
 
+import com.exponential.app.ui.components.InlineSpinner
+import com.exponential.app.domain.FeedbackStates
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -151,21 +156,35 @@ fun MergePill(
         GlassPill(
             if (failing) pill.label else merge.label,
             icon = ExpIcons.prMerged,
-            leading = if (failing && !merge.loading) {
-                {
-                    Icon(
-                        ExpIcons.ciFailed,
-                        contentDescription = null,
-                        modifier = Modifier.size(GlassPillDefaults.glyphSize(size)),
-                        tint = DesignTokens.Semantic.Red,
-                    )
+            leading = when {
+                merge.loading -> null
+                failing -> {
+                    {
+                        Icon(
+                            ExpIcons.ciFailed,
+                            contentDescription = null,
+                            modifier = Modifier.size(GlassPillDefaults.glyphSize(size)),
+                            tint = DesignTokens.Semantic.Red,
+                        )
+                    }
                 }
-            } else {
-                null
+                // Pending checks: THE Spinner in the glyph slot on the full
+                // pill, nothing is in flight (only `loading` dims it).
+                pill.glyph == "spinner" -> {
+                    {
+                        Box(Modifier.size(GlassPillDefaults.glyphSize(size)), contentAlignment = Alignment.Center) {
+                            InlineSpinner(
+                                size = FeedbackStates.PENDING_SPINNER.dp,
+                                color = if (header && pill.primary) DesignTokens.Palette.PrimaryForeground else LocalContentColor.current,
+                            )
+                        }
+                    }
+                }
+                else -> null
             },
             size = size,
             primary = header && pill.primary,
-            loading = merge.loading || pill.glyph == "spinner",
+            loading = merge.loading,
             enabled = !merge.loading,
             onClick = onClick,
             modifier = modifier,

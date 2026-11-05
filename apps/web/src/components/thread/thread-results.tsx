@@ -159,7 +159,7 @@ function ResultsReview({
           title={`${additionsLabel(counts.additions)} ${deletionsLabel(counts.deletions)} · ${guideFileCountLabel(counts.fileCount)}`}
         >
           <DiffCounts additions={counts.additions} deletions={counts.deletions} className="text-xs" />
-          {!isMobile && <span>{`· ${guideFileCountLabel(counts.fileCount)}`}</span>}
+          <span>{`· ${guideFileCountLabel(counts.fileCount)}`}</span>
         </span>
       </div>
       <div className="flex min-w-0 gap-3 md:px-5">

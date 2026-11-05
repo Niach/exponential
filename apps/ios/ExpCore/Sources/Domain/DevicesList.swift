@@ -56,7 +56,7 @@ public enum DevicesList {
 
     /// EXP-1560: the card grid's geometry (`fixture.card`), ×4.
     public enum Card {
-        public static let minWidth: CGFloat = 256
+        public static let minWidth: CGFloat = 320
         public static let gap: CGFloat = 12
         public static let padding: CGFloat = 12
         public static let iconSize: CGFloat = 28

@@ -4865,7 +4865,7 @@ impl SteerSessionView {
                 ViewerPhase::Connecting | ViewerPhase::Starting | ViewerPhase::Reconnecting
             ) {
                 centered(vec![
-                    Spinner::new().small().into_any_element(),
+                    Spinner::new().icon(crate::icons::registry::UI_LOADING).small().into_any_element(),
                     div()
                         .text_xs()
                         .text_color(muted)
@@ -6787,7 +6787,7 @@ impl SteerSessionView {
                         .mt_2()
                         .gap_1p5()
                         .items_center()
-                        .child(Spinner::new().xsmall())
+                        .child(Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
                         .child(
                             div()
                                 .text_xs()
@@ -7031,7 +7031,7 @@ impl SteerSessionView {
                 .mt_2()
                 .text_xs()
                 .text_color(muted)
-                .child(Spinner::new().xsmall())
+                .child(Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall())
                 .child(SharedString::from(domain::plan_card::copy().answering.clone()))
                 .when(!labels.is_empty(), |this| {
                     this.child(
@@ -7279,7 +7279,7 @@ impl SteerSessionView {
                     crate::surface::PillMode::Select { selected },
                     cx,
                 )
-                .when(!agent.done, |this| this.child(Spinner::new().xsmall()))
+                .when(!agent.done, |this| this.child(Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall()))
                 .child(SharedString::from(subagent_label(
                     agent.title.as_deref(),
                     &agent.agent_type,
@@ -7329,7 +7329,7 @@ impl SteerSessionView {
                                 )
                             },
                         )
-                        .when(!summary.done, |this| this.child(Spinner::new().xsmall()))
+                        .when(!summary.done, |this| this.child(Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall()))
                         .child(
                             div()
                                 .flex_shrink_0()

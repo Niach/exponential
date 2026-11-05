@@ -187,7 +187,7 @@ function AgentRoute() {
         ) : dev === `chat-selection` ? (
           <ChatSelectionSpecimen />
         ) : dev === `chat-transcript` ? (
-          <ChatTranscriptSpecimen />
+          <ChatTranscriptSpecimen single />
         ) : dev === `session-xref` ? (
           <SessionXrefSpecimen />
         ) : dev === `pr-checks` ? (

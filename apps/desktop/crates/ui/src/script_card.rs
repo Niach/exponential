@@ -77,7 +77,7 @@ pub(crate) fn script_card(props: ScriptCardProps<'_>, cx: &App) -> AnyElement {
             )
         })
         .child(div().flex_1())
-        .when(props.running, |this| this.child(Spinner::new().xsmall()));
+        .when(props.running, |this| this.child(Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall()));
     if has_source && !props.running {
         let open = props.source_open;
         let disclosure = h_flex()

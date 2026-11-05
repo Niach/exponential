@@ -1805,16 +1805,7 @@ struct ThreadComposer: View {
         Group {
             if let draft, draft.sessionId == sessionId {
                 let open = composerOpen
-                VStack(spacing: 8) {
-                    if open, slashMenuVisible(draft) {
-                        SlashCommandMenu(
-                            candidates: slashMatches(draft),
-                            highlighted: slashHighlight
-                        ) { candidate in
-                            applySlashCandidate(candidate, draft)
-                        }
-                        .padding(.horizontal, 16)
-                    }
+                Group {
                     FloatingComposer(
                         placeholder: placeholder,
                         open: open,
@@ -1847,6 +1838,24 @@ struct ThreadComposer: View {
                             },
                             fieldIdentifier: "thread-composer-field"
                         )
+                    }
+                }
+                // Web's TypeaheadMenu `placement="above"`: the `/` menu floats
+                // 4pt over the card, over what stands above it (the quick
+                // replies), and takes no room; nothing moves.
+                .overlay(alignment: .top) {
+                    if open, slashMenuVisible(draft) {
+                        Color.clear.frame(height: 0).overlay(alignment: .bottom) {
+                            SlashCommandMenu(
+                                candidates: slashMatches(draft),
+                                highlighted: slashHighlight
+                            ) { candidate in
+                                applySlashCandidate(candidate, draft)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 4)
+                        }
                     }
                 }
                 .animation(motion.standard, value: open)

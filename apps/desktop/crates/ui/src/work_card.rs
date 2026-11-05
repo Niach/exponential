@@ -66,7 +66,7 @@ fn hairline() -> gpui::Hsla {
 fn state_glyph(state: WorkState, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     match state {
-        WorkState::Running => Spinner::new().xsmall().into_any_element(),
+        WorkState::Running => Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall().into_any_element(),
         WorkState::Done => Icon::new(registry::UI_CHECK)
             .xsmall()
             .text_color(muted)
@@ -151,7 +151,7 @@ fn lane_row(
             )
         })
         .child(div().flex_1())
-        .when(running, |this| this.child(Spinner::new().xsmall()))
+        .when(running, |this| this.child(Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall()))
         .children(trailing(lane.duration.as_deref(), cx));
     match props.on_lane.clone() {
         Some(on_lane) => line
@@ -215,7 +215,7 @@ pub(crate) fn header_row(row: HeaderRow, cx: &App) -> AnyElement {
             this.child(div().flex_shrink_0().text_color(row.kind_tint.unwrap_or(muted)).child(word))
         })
         .child(div().flex_1())
-        .when(row.running, |this| this.child(Spinner::new().xsmall()))
+        .when(row.running, |this| this.child(Spinner::new().icon(crate::icons::registry::UI_LOADING).xsmall()))
         .when_some(row.meta, |this, meta| {
             this.child(div().flex_shrink_0().text_color(muted).child(meta))
         })

@@ -68,7 +68,7 @@ final class DevicesListTests: XCTestCase {
         XCTAssertEqual((card["panelGap"] as? NSNumber)?.doubleValue, Double(DevicesList.Card.panelGap))
         // A 390pt phone's section (16pt page padding each side) = 1 column.
         XCTAssertEqual(DevicesList.columns(width: 358), 1)
-        XCTAssertEqual(DevicesList.columns(width: 1100), 4)
+        XCTAssertEqual(DevicesList.columns(width: 1100), 3)
         XCTAssertEqual(DevicesList.columns(width: 0), 1)
     }
 

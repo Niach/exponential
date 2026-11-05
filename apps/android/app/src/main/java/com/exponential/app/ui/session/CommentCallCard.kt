@@ -334,6 +334,9 @@ fun CommentCallCard(
                     androidx.compose.runtime.CompositionLocalProvider(
                         com.exponential.app.ui.markdown.LocalMarkdownBodyStyle provides CommentCallBodyStyle,
                         com.exponential.app.ui.markdown.LocalInlineCodeStyle provides com.exponential.app.ui.markdown.MdStyle.Chat,
+                        // A comment is stored GFM, no narration: only a `#IDENT`
+                        // chips (issue-refs.json `bare` = agent narration only).
+                        com.exponential.app.ui.markdown.LocalIssueRefBare provides false,
                     ) {
                         MarkdownView(body)
                     }

@@ -117,7 +117,9 @@ struct FeedbackStatesScreen: View {
             AppIcon(AppIcons.uiSubmit, size: AppIcon.Size.small)
         }
         .fixedSize()
-        // Pending = disabled (web `Button` `disabled:opacity-50`).
+        // Pending = disabled (web `Button` `disabled:opacity-50`): one group,
+        // so the label never fades twice over the fill.
+        .compositingGroup()
         .opacity(loading ? 0.5 : 1)
     }
 

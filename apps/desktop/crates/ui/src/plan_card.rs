@@ -1379,7 +1379,7 @@ pub(crate) fn question_parts(facts: &QuestionFacts, answer: bool, images: &Entit
     } else if answering {
         crate::thread_screen::card_answering(cx)
     } else if interactive {
-        h_flex().mt_3().w_full().justify_end().child(answer_button(facts, cx)).into_any_element()
+        h_flex().mt_3().w_full().child(answer_button(facts, cx)).into_any_element()
     } else {
         div().into_any_element()
     };

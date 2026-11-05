@@ -87,7 +87,7 @@ const LIVENESS_TICK: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// EXP-1560: the card grid's geometry (`fixture.card`), byte-locked by
 /// `device_card_geometry_matches_the_fixture`.
-pub(crate) const CARD_MIN_W: f32 = 256.;
+pub(crate) const CARD_MIN_W: f32 = 320.;
 pub(crate) const CARD_GAP: f32 = 12.;
 pub(crate) const CARD_PADDING: f32 = 12.;
 pub(crate) const CARD_ICON_SIZE: f32 = 28.;
@@ -2082,10 +2082,10 @@ mod tests {
         // The `$comment`'s examples: a phone in portrait gets 1 column,
         // wider sections 2 or more.
         assert_eq!(device_card_columns(358.), 1);
-        assert_eq!(device_card_columns(1100.), 4);
+        assert_eq!(device_card_columns(1100.), 3);
         assert_eq!(device_card_columns(0.), 1);
-        assert_eq!(device_card_columns(523.), 1);
-        assert_eq!(device_card_columns(524.), 2);
+        assert_eq!(device_card_columns(651.), 1);
+        assert_eq!(device_card_columns(652.), 2);
     }
 
     /// EXP-1560: [`device_card_account_icons`] replays `fixture.accountIcons`.

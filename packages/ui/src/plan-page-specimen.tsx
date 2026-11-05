@@ -60,10 +60,15 @@ export function PlanPageSpecimen({ size = `wide` }: { size?: `wide` | `phone` })
   return (
     <div
       data-testid="plan-page-specimen"
-      className="relative flex flex-col overflow-hidden rounded-3xl border border-glass-stroke-card bg-glass-card-opaque"
-      style={{ width: wide ? 1280 : 390, height: wide ? 720 : 760, maxWidth: `100%` }}
+      // Phones: the tab IS the screen (plan-page.json: no fill, frame or card of
+      // its own), as iOS and Android draw it.
+      className={cn(
+        `relative flex flex-col overflow-hidden`,
+        wide ? `rounded-3xl border border-glass-stroke-card bg-glass-card-opaque` : `-mx-4 -mt-4`
+      )}
+      style={wide ? { width: 1280, height: 720, maxWidth: `100%` } : { width: `calc(100% + 2rem)`, height: `100dvh` }}
     >
-      <div className={cn(`shrink-0 border-b border-border`, wide ? `px-10 pt-6 pb-3` : `px-3 pt-4 pb-2`)}>
+      <div className={cn(`shrink-0`, wide ? `border-b border-border px-10 pt-6 pb-3` : `px-3 pt-4 pb-2`)}>
         <div className="text-lg font-semibold">{PLAN_PAGE_SPECIMEN.chatName}</div>
         <ThreadTabs
           className="mt-4"

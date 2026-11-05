@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useState, type ComponentProps, type ReactNode } from "react"
 import chats from "@exp/domain-contract/fixtures/chats.json"
 import {
   agentMenuEntries,
@@ -29,6 +29,7 @@ import { SurfaceCard } from "./surface-card"
 import { TeamAvatar } from "./team-avatar"
 import { agentMenuRows, chatMenuRows } from "./threads-list"
 import { TooltipProvider } from "./tooltip"
+import { useIsMobile } from "./use-mobile"
 
 // Thread 58cb32df (#EXP-1373, fixtures/chats.json): THE chat + phone-shell specimens,
 // one source for the styleguide entries (`chat-list`, `chat-menus`,
@@ -138,6 +139,7 @@ export function ChatHeaderSpecimen() {
 const ARCHIVED_COUNT = chats.listCases[1]!.expected.archived
 const SELECTED = new Set([`b`, `c`])
 export function ChatSelectionSpecimen() {
+  const isMobile = useIsMobile()
   const [selected, setSelected] = useState<ReadonlySet<string>>(SELECTED)
   const toggle = (id: string) =>
     setSelected((current) => {
@@ -159,8 +161,12 @@ export function ChatSelectionSpecimen() {
       data-testid="chat-selection-specimen"
       className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
+      {/* The phones' screen: the title over the list; the Agents section stays
+          while selecting (agents are never selectable), every form factor. */}
+      {isMobile && <ChatsHeader inboxUnread />}
       <ChatList
         rows={LIST_ROWS}
+        agentRows={AGENT_ROWS}
         agentOf={() => `claude`}
         archived={ARCHIVED_COUNT}
         selection={selected}
@@ -230,6 +236,15 @@ function DeleteConfirm() {
 }
 
 export function ChatMenusSpecimen() {
+  // Pointers draw the dropdowns, touch the long-press sheets (titled): the
+  // look each form factor really opens, the phones' set ×3.
+  const isMobile = useIsMobile()
+  const menu = (entries: ComponentProps<typeof MenuPanel>[`entries`], title: string) =>
+    isMobile ? (
+      <MenuPanel entries={entries} look="sheet" density="touch" title={title} />
+    ) : (
+      <MenuPanel entries={entries} density="pointer" />
+    )
   return (
     // #EXP-1553: phones stack with half the gap, so the delete confirm shows
     // whole (its buttons included) in the phone frame.
@@ -237,25 +252,21 @@ export function ChatMenusSpecimen() {
       data-testid="chat-menus-specimen"
       className="flex flex-wrap items-start gap-8 max-md:gap-4"
     >
-      <div>
+      <div className="max-md:w-full">
         {caption(`A live chat`)}
-        <MenuPanel entries={LIVE} density="pointer" />
+        {menu(LIVE, `Spike: offline queue`)}
       </div>
-      <div>
+      <div className="max-md:w-full">
         {caption(`An ended chat`)}
-        <MenuPanel entries={ENDED} density="pointer" />
+        {menu(ENDED, `#APP-16 Fix flaky scroll restore`)}
       </div>
-      <div>
+      <div className="max-md:w-full">
         {caption(`The agent menu (busy, owner)`)}
-        <MenuPanel entries={AGENT_BUSY_OWNER} density="pointer" />
+        {menu(AGENT_BUSY_OWNER, `Triage`)}
       </div>
-      <div>
+      <div className="max-md:w-full">
         {caption(`The agent menu (idle, member)`)}
-        <MenuPanel entries={AGENT_IDLE} density="pointer" />
-      </div>
-      <div className="w-[24rem] max-w-full">
-        {caption(`Phone: the long-press sheet`)}
-        <MenuPanel entries={LIVE} look="sheet" density="touch" title="Spike: offline queue" />
+        {menu(AGENT_IDLE, `Triage`)}
       </div>
       <DeleteConfirm />
     </div>
@@ -389,7 +400,20 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
   )
 }
 
-export function ChatTranscriptSpecimen() {
+export function ChatTranscriptSpecimen({ single = false }: { single?: boolean }) {
+  const isMobile = useIsMobile()
+  // The shot (`?dev=chat-transcript`): only the layout this form factor really
+  // draws, as desktop (transcript) and the phones (bubbles) shoot it. The
+  // styleguide entry keeps both labelled, and the enter replay.
+  if (single) {
+    return (
+      <TooltipProvider>
+        <div data-testid="chat-transcript-specimen" className="w-[42rem] max-w-full">
+          <Transcript layout={isMobile ? `bubbles` : `transcript`} />
+        </div>
+      </TooltipProvider>
+    )
+  }
   return (
     <TooltipProvider>
       <div data-testid="chat-transcript-specimen" className="flex flex-wrap items-start gap-6">

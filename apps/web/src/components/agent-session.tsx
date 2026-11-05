@@ -1882,8 +1882,7 @@ export function useAgentHintDock(session: SessionRow | null): {
     return (
       <Button
         variant="outline"
-        size="sm"
-        className="h-6"
+        size="xs"
         data-testid="dock-instructions-new"
         onClick={() =>
           void sendAgentLine({ teamId: session.teamId, agentId: agent.id, conversationId: session.id, text })
@@ -2173,7 +2172,7 @@ export function useSessionDock(
   const renderAction = (row: DockRow): ReactNode => {
     if (row.id === `banner:closed`) {
       return (
-        <Button variant="outline" size="sm" className="h-6" onClick={() => store.reconnect()}>
+        <Button variant="outline" size="xs" onClick={() => store.reconnect()}>
           <UiRefreshIcon />
           Reconnect
         </Button>

@@ -57,6 +57,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -643,16 +645,23 @@ fun AgentScreen(
                         // NEW-2: the launch composer's `/` = the team's prompts
                         // alone; a pick is the subject (its chip), never text.
                         // EXP-1649: web's TypeaheadMenu `placement="above"` —
-                        // its own 288dp menu surface ABOVE the card, 4dp gap.
+                        // its own menu surface floats over what stands above
+                        // the card (the agent row), the card's width, 4dp gap;
+                        // it takes no room, so nothing moves.
                         if (slashPrompts.isNotEmpty()) {
                             SlashPromptRows(
                                 prompts = slashPrompts,
+                                modifier = Modifier
+                                    .zIndex(1f)
+                                    .layout { measurable, constraints ->
+                                        val menu = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+                                        layout(menu.width, 0) { menu.place(0, -menu.height - 4.dp.roundToPx()) }
+                                    },
                                 onPick = { prompt ->
                                     viewModel.pickPrompt(prompt.id)
                                     viewModel.setDraft("")
                                 },
                             )
-                            Spacer(Modifier.height(4.dp))
                         }
                         AgentComposer(
                             value = composerField,
@@ -1083,10 +1092,10 @@ internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
 
 /** NEW-2: the launch composer's `/` rows — the team's prompts (icon + name).
  *  EXP-1649: web `SlashCommandMenu` = a TypeaheadMenu ABOVE the card, its own
- *  bordered menu surface `w-72` (288dp), start-aligned. */
+ *  bordered menu surface, the card's width (`w-full`). */
 @Composable
-private fun SlashPromptRows(prompts: List<SlashPrompt>, onPick: (SlashPrompt) -> Unit) {
-    com.exponential.app.ui.components.GlassMenuSurface(modifier = Modifier.width(288.dp).testTag("agent-composer-slash-menu")) {
+private fun SlashPromptRows(prompts: List<SlashPrompt>, modifier: Modifier = Modifier, onPick: (SlashPrompt) -> Unit) {
+    com.exponential.app.ui.components.GlassMenuSurface(modifier = modifier.fillMaxWidth().testTag("agent-composer-slash-menu")) {
         Column(modifier = Modifier.padding(vertical = 4.dp)) {
             prompts.forEachIndexed { index, prompt ->
                 com.exponential.app.ui.session.SlashPromptRow(
