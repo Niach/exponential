@@ -890,8 +890,8 @@ private fun CardButton(
         modifier = modifier
             .alpha(if (enabled) 1f else PlanCard.Look.INERT_OPACITY)
             .clip(shape)
-            .background(if (primary) MaterialTheme.colorScheme.primary else GlassTokens.RowFill, shape)
-            .then(if (primary) Modifier else Modifier.border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape))
+            // Web's `secondary` button: the quiet solid, no hairline.
+            .background(if (primary) MaterialTheme.colorScheme.primary else DesignTokens.Palette.Secondary, shape)
             .then(if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
             .padding(horizontal = 12.dp),

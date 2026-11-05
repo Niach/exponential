@@ -239,26 +239,25 @@ struct PlanCardFooter: View {
             InlinePickerRow {
                 HStack(spacing: PlanCard.Stepper.buttonGap) {
                     if let onBack {
-                        GlassPill(PlanCard.Copy.back, mode: .action(onBack))
+                        PlanCardSecondaryButton(label: PlanCard.Copy.back, action: onBack)
                             .accessibilityIdentifier(PlanCard.TestIds.stepBack)
                     }
                     Spacer(minLength: 0)
                     if let onNext {
-                        GlassPill(PlanCard.Copy.next, mode: .action(onNext))
+                        PlanCardSecondaryButton(label: PlanCard.Copy.next, action: onNext)
                             .accessibilityIdentifier(PlanCard.TestIds.stepNext)
                     } else if let decision, let reject = Self.option("reject"), let approve = Self.option("approve") {
                         if decision.rejecting {
-                            GlassPill(PlanCard.Copy.cancel, mode: .action { decision.rejecting = false })
+                            PlanCardSecondaryButton(label: PlanCard.Copy.cancel) { decision.rejecting = false }
                             GlassPill(
                                 reject.label, mode: .action { decision.onDecide(reject) }, primary: true,
                                 enabled: !decision.busy
                             )
                             .accessibilityIdentifier("plan-card-decide")
                         } else {
-                            GlassPill(
-                                reject.label, mode: .action { decision.rejecting = true }, enabled: !decision.busy
-                            )
-                            .accessibilityIdentifier("plan-card-reject")
+                            PlanCardSecondaryButton(label: reject.label) { decision.rejecting = true }
+                                .disabled(decision.busy)
+                                .accessibilityIdentifier("plan-card-reject")
                             PlanCardApproveButton(
                                 approve: approve,
                                 fresh: Self.option("approve-fresh"),
@@ -281,8 +280,33 @@ struct PlanCardFooter: View {
     }
 }
 
-/// "Yes" as the small primary button joined to its trailing chevron, whose
-/// menu holds "Yes, and start with a fresh context" (web split button).
+/// A footer's secondary button (web's `secondary` Button): the quiet solid, no
+/// hairline.
+private struct PlanCardSecondaryButton: View {
+    let label: String
+    let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(DesignTokens.Palette.secondaryForeground)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
+                .frame(height: GlassPillTokens.heightSm)
+                .background(DesignTokens.Palette.secondary, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressScaleButtonStyle(dims: true))
+        .opacity(isEnabled ? 1 : 0.5)
+    }
+}
+
+/// "Yes" and its chevron as ONE small primary button split by a hairline, whose
+/// menu holds "Yes, and start with a fresh context" (web's split button).
 private struct PlanCardApproveButton: View {
     let approve: AskDock.PlanOption
     let fresh: AskDock.PlanOption?
@@ -294,40 +318,56 @@ private struct PlanCardApproveButton: View {
     @Environment(\.pickerPresentation) private var hostPresentation
 
     var body: some View {
-        HStack(spacing: 1) {
-            GlassPill(approve.label, mode: .action { onDecide(approve) }, primary: true, enabled: enabled)
-                .accessibilityIdentifier(PlanCard.TestIds.decision)
-            if let fresh, hostPresentation == .inline {
-                GlassPicker(
-                    items: [PickerItem(value: fresh.key, label: fresh.label)],
-                    mode: .single,
-                    value: [],
-                    onChange: { _ in onDecide(fresh) },
-                    disabled: !enabled
-                ) {
-                    // The pill's own tap is off; the trigger takes it.
-                    ZStack { chevron }.contentShape(Rectangle())
+        HStack(spacing: 0) {
+            Button { onDecide(approve) } label: {
+                Text(approve.label)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
+                    .frame(height: GlassPillTokens.heightSm)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressScaleButtonStyle(dims: true))
+            .accessibilityIdentifier(PlanCard.TestIds.decision)
+            if let fresh {
+                DesignTokens.Palette.primaryForeground.opacity(0.2)
+                    .frame(width: GlassTokens.hairline, height: GlassPillTokens.heightSm)
+                if hostPresentation == .inline {
+                    GlassPicker(
+                        items: [PickerItem(value: fresh.key, label: fresh.label)],
+                        mode: .single,
+                        value: [],
+                        onChange: { _ in onDecide(fresh) },
+                        disabled: !enabled
+                    ) {
+                        chevron
+                    }
+                    .accessibilityLabel(fresh.label)
+                    .accessibilityIdentifier("plan-card-decide-fresh")
+                } else {
+                    GlassMenu {
+                        GlassMenuItem(fresh.label) { onDecide(fresh) }
+                    } label: {
+                        chevron
+                    }
+                    .accessibilityLabel(fresh.label)
+                    .accessibilityIdentifier("plan-card-decide-fresh")
                 }
-                .accessibilityLabel(fresh.label)
-                .accessibilityIdentifier("plan-card-decide-fresh")
-            } else if let fresh {
-                GlassMenu {
-                    GlassMenuItem(fresh.label) { onDecide(fresh) }
-                } label: {
-                    chevron
-                }
-                .disabled(!enabled)
-                .accessibilityLabel(fresh.label)
-                .accessibilityIdentifier("plan-card-decide-fresh")
             }
         }
+        .foregroundStyle(DesignTokens.Palette.primaryForeground)
+        .background(DesignTokens.Palette.primary, in: Capsule())
+        .clipShape(Capsule())
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.5)
     }
 
     private var chevron: some View {
-        GlassPill("", primary: true, enabled: enabled) {
-            AppIcon(AppIcons.uiChevronDown, size: 12)
-        }
-        .allowsHitTesting(false)
+        AppIcon(AppIcons.uiChevronDown, size: 12)
+            .foregroundStyle(DesignTokens.Palette.primaryForeground)
+            .frame(width: 26, height: GlassPillTokens.heightSm)
+            .contentShape(Rectangle())
     }
 }
 
