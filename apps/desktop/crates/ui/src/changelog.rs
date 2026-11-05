@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-05-exponential-sdk",
+    date: "2026-11-05",
+    title: "The open libraries are now the Exponential SDK",
+    summary: "genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core and Apps are its modules; docs moved to /docs/sdk/.",
+    body: r#"- **New names**: genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core and Apps replace the old library names everywhere you read them; package names and release tags stay.
+- **Docs**: product pages live under /sdk/ and docs under /docs/sdk/, and every old link still lands on the right page.
+- **Built-in skills**: exponential-ui is now exponential-genui, and picks and agents that used it follow."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_210: ChangelogEntry = ChangelogEntry {
     id: "2026-11-05-chats-grouped-stories-gone",
     date: "2026-11-05",
     title: "Chats are grouped and stories are gone",
@@ -56,8 +68,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Plans**: a decision on the Plan tab returns you to the conversation, where the agent carries on.
 - **Inbox**: opens from an icon next to Search on wide screens, and My issues is a pill on the board.
 - **App connections**: a team owner picks which of the team's MCP servers fills each connection an app needs, now on iPhone and Android too.
-- **Fixes**: a finished session can always be ended, even in an encrypted chat, and the Windows app starts again by itself after an update.
-- **Exponential SDK**: the open libraries are now one SDK with the modules genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core and Apps, and the built-in skill exponential-ui is now exponential-genui."#,
+- **Fixes**: a finished session can always be ended, even in an encrypted chat, and the Windows app starts again by itself after an update."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
