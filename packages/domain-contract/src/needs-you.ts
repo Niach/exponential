@@ -91,7 +91,8 @@ function rowOf(
     createdAt: message.createdAt,
   }
   if (card.kind === `plan` || card.kind === `question`) {
-    if (cardState(card, message.answeredAt) !== `waiting`) return null
+    // A digest's card is cut (no `decision`): `answeredAt` settles it.
+    if (message.answeredAt !== null || cardState(card, message.answeredAt) !== `waiting`) return null
     const plan = card.kind === `plan`
     return {
       ...base,
