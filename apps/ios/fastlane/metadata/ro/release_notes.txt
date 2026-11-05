@@ -35,3 +35,4 @@
 - Are nevoie de tine adună planurile și întrebările care te așteaptă
 - Lista de chaturi este grupată, fără cercuri și filtre
 - Proprietarii echipei aleg ce server MCP deservește fiecare conexiune a unei aplicații
+- Același aspect peste tot: un singur antet de chat, iar un fișier dintr-un chat criptat apare ca rând de fișier

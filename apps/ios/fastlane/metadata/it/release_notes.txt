@@ -35,3 +35,4 @@
 - Ti aspetta raccoglie i piani e le domande che attendono te
 - L'elenco chat è raggruppato, senza cerchi né filtri
 - I proprietari scelgono quale server MCP del team serve ogni connessione di un'app
+- Lo stesso aspetto ovunque: un'unica intestazione della chat, e un file in una chat cifrata appare come una riga di file

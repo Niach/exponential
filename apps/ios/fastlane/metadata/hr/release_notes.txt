@@ -35,3 +35,4 @@
 - Treba te skuplja planove i pitanja koji te čekaju
 - Popis chatova je grupiran, bez krugova i filtara
 - Vlasnici tima biraju koji MCP poslužitelj pokriva svaku vezu aplikacije
+- Isti izgled svugdje: jedno zaglavlje chata, a datoteka u šifriranom chatu prikazuje se kao redak datoteke

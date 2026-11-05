@@ -35,3 +35,4 @@
 - Potrzebuje cię zbiera plany i pytania, które na ciebie czekają
 - Lista czatów jest pogrupowana, bez kółek i filtrów
 - Właściciele zespołu wybierają, który serwer MCP obsługuje każde połączenie aplikacji
+- Ten sam wygląd wszędzie: jeden nagłówek czatu, a plik w szyfrowanym czacie wyświetla się jako wiersz pliku

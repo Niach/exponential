@@ -35,3 +35,4 @@
 - Needs you collects the plans and questions waiting on you
 - The chat list is grouped, with no circles or filter chips
 - Team owners pick which team MCP server fills each of an app's connections
+- The same look everywhere: one chat header, and a file in an encrypted chat shows as a file line

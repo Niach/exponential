@@ -1,6 +1,6 @@
 # Expressions (CEL), functions and optional values
 
-> Generated from packages/exponential-ui/docs/package-format.md (Expressions) (genUI 0.15.3) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Expressions) (genUI 0.15.4) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Expressions
 

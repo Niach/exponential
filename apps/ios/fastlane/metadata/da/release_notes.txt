@@ -35,3 +35,4 @@
 - Har brug for dig samler planer og spørgsmål, der venter på dig
 - Chatlisten er grupperet, uden cirkler og filterchips
 - Teamejere vælger, hvilken MCP-server der dækker hver af en apps forbindelser
+- Samme udseende overalt: én chat-overskrift, og en fil i en krypteret chat vises som en fillinje
