@@ -1670,7 +1670,7 @@
           "component": "Row",
           "props": {
             "title": "MacBook Pro",
-            "subtitle": "Online · 2 runs",
+            "subtitle": "Online · 2 sessions",
             "icon": "ui-device",
             "meta": "now",
             "surface": "card",
