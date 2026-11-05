@@ -637,7 +637,7 @@
     }
   ],
   "card": {
-    "minWidth": 256,
+    "minWidth": 320,
     "gap": 12,
     "padding": 12,
     "iconSize": 28,
