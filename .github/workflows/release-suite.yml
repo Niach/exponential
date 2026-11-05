@@ -171,6 +171,49 @@ jobs:
         run: bun run shots:check
 
 
+  # #EDE-11: eDE's goldens. The headless compositor draws the factory
+  # documents through the supervisor and the shell (apps/ede/scripts/shots.sh),
+  # the shots lane encodes them, and the committed store must not move:
+  # a pixel that changed is a look that changed, and the PR re-records it
+  # with `bun run shots -- --platform ede --skip-seed`.
+  ede-goldens:
+    needs: [dedupe, pick]
+    if: needs.dedupe.outputs.run == 'true'
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (smithay + wgpu/gpui)
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config libxcb1-dev libssl-dev libfontconfig1-dev clang \
+            mesa-vulkan-drivers libegl1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: |
+            apps/ede
+            apps/ede/shell
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede/shell
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Capture the eDE views
+        run: bun run shots -- --platform ede --skip-seed
+      - name: The store did not move
+        run: git diff --exit-code --stat -- shots/
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ede-goldens
+          path: |
+            .shots-raw/ede
+            shots/ede-panel
+            shots/ede-panel-menu
+          retention-days: 14
+          if-no-files-found: ignore
+
   migrations:
     needs: [dedupe, pick]
     if: needs.dedupe.outputs.run == 'true'

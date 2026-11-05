@@ -47,6 +47,7 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   desktop: `Desktop`,
   ios: `iOS`,
   android: `Android`,
+  ede: `eDE`,
 }
 
 /** The component table has no web-mobile column — a control is one control. */

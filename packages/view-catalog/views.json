@@ -71,6 +71,12 @@
       "label": "genUI · core catalog",
       "blurb": "One specimen per core catalog component (packages/exponential-ui/fixtures/specimens.json) plus the home page demo, painted by all four renderers under the exponential theme: the shots ui.exponential.at shows on each component page. The site owns these; apps/styleguide does not list them.",
       "order": 12
+    },
+    {
+      "id": "ede",
+      "label": "eDE",
+      "blurb": "The Exponential desktop environment's shell (#NEW-10, apps/ede): genUI documents on disk drawn as layer-shell surfaces by ede-shell on ede-compositor, photographed headless.",
+      "order": 13
     }
   ],
   "excludedRoutes": [
@@ -8007,6 +8013,43 @@
         "web": "No capture: the natives' specimen; web shows the mark in the team switcher and Settings › General.",
         "web-mobile": "See web.",
         "desktop": "No capture: see web."
+      }
+    },
+    {
+      "id": "ede-panel",
+      "group": "ede",
+      "title": "eDE · panel",
+      "blurb": "The factory panel (apps/ede/ui/panel.json): the launcher button, the taskbar and the clock in a 40 px top layer surface on the headless compositor's 1280×720 output.",
+      "order": 1,
+      "ede": {
+        "size": "1280x720",
+        "settleMs": 1500
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
+      }
+    },
+    {
+      "id": "ede-panel-menu",
+      "group": "ede",
+      "title": "eDE · panel with the menu",
+      "blurb": "The factory menu (apps/ede/ui/menu.json) open as the panel's own popup surface, an xdg_popup under the launcher button.",
+      "order": 2,
+      "ede": {
+        "size": "1280x720",
+        "popup": true,
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
       }
     }
   ]

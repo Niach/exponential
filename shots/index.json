@@ -1845,6 +1845,24 @@
         "sha256": "21c011658ac53b5db5244787e953b45c2f3afa54c151f46f5af59f1cbfcb2879"
       }
     },
+    "ede-panel": {
+      "ede": {
+        "file": "shots/ede-panel/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 2600,
+        "sha256": "6826e3f01017b3e916d4fa34a069a252230a5a11ff8d20f4a3ac38cbd42e3aa7"
+      }
+    },
+    "ede-panel-menu": {
+      "ede": {
+        "file": "shots/ede-panel-menu/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 4892,
+        "sha256": "d0bee385d0b18c4f8380ac5fe56206e5cfe57db0b706c5991efe99bb33f92acb"
+      }
+    },
     "exponential-ui-accordion": {
       "android": {
         "file": "shots/exponential-ui-accordion/android.webp",

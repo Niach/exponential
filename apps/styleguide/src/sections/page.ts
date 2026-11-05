@@ -189,6 +189,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`sealed-locked`]: `Surfaces`,
   [`results-tab`]: `Surfaces`,
   [`needs-you`]: `Lists & rows`,
+  [`ede-panel`]: `Surfaces`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

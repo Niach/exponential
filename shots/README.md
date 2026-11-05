@@ -285,6 +285,7 @@ scripts/lanes/lane.sh heavy <owner> -- sh -c 'CARGO_TARGET_DIR=/tmp/<x> bun run 
 | ios        | `cd apps/ios && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
 | android    | `cd apps/android && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
 | ios `package` | `packages/exponential-ui-swift/Example` KitchenSink: `xcodebuild` once, then `simctl launch … -shot <view-id>` + `simctl io screenshot` per view |
+| ede        | `apps/ede/scripts/shots.sh --out <raw> [--popup]` per view: the headless `ede-compositor` with `ede-ui supervise` and `ede-shell` drawing the factory documents, `ede-ctl capture` (#EDE-11); no backend, no display |
 | android `package` | `build-android.sh` (device ABI) → `./gradlew :example:assembleRelease` in `packages/exponential-ui-compose` → per view `am start --es shot <view-id>`, the on-screen gate above, `adb exec-out screencap -p` |
 
 Both native lanes take a `shots:<id,id,…>` option (`bundle exec fastlane

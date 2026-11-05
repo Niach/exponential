@@ -123,9 +123,10 @@ const groupIds = [
   `getting-started`,
   `exponential-ui`,
   `exponential-ui-catalog`,
+  `ede`,
 ] as const
 
-const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `android`])
+const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `android`, `ede`])
 
 const anchorSchema = z
   .strictObject({
@@ -169,6 +170,12 @@ const desktopCaptureSchema = z.strictObject({
   env: z.record(z.string().startsWith(`EXP_DEV_`), z.string().min(1)).optional(),
 })
 
+const edeCaptureSchema = z.strictObject({
+  popup: z.boolean().optional(),
+  size: z.string().regex(/^\d+x\d+$/).optional(),
+  settleMs: z.number().int().positive().optional(),
+})
+
 const viewSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
   group: z.enum(groupIds),
@@ -180,6 +187,7 @@ const viewSchema = z.strictObject({
   ios: nativeCaptureSchema.optional(),
   android: nativeCaptureSchema.optional(),
   desktop: desktopCaptureSchema.optional(),
+  ede: edeCaptureSchema.optional(),
   diffTolerance: z.number().gt(0).lt(1).optional(),
   notes: z.partialRecord(platformEnum, z.string().min(1)).optional(),
 })
@@ -270,11 +278,15 @@ describe(`catalog shape`, () => {
     // Silent gaps are the failure mode this catalog exists to prevent: a view
     // that simply lacks an iOS entry is indistinguishable from one nobody got
     // round to. Every hole is annotated.
+    // #EDE-11: `ede` is the desktop environment's own platform; only the
+    // `ede` group's views exist there, and those note every OTHER platform.
+    // An app view has no eDE shot by definition, so that hole needs no note.
     const gaps: string[] = []
     for (const view of VIEWS) {
       for (const platform of PLATFORMS) {
         if (captureFor(view, platform) !== undefined) continue
         if (view.notes?.[platform]) continue
+        if (platform === `ede` && view.group !== `ede`) continue
         gaps.push(`${view.id} · ${platform}`)
       }
     }
@@ -634,6 +646,7 @@ describe(`store geometry`, () => {
     desktop: { w: 1440, h: 900 },
     ios: { w: 1320, h: 2868 },
     android: { w: 1080, h: 2400 },
+    ede: { w: 1280, h: 720 },
   }
 
   test(`every platform has a frame`, () => {

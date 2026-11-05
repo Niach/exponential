@@ -50,7 +50,7 @@ import catalogJson from "../views.json"
  * (`packages/store-shots/scripts/store/raw-store.ts`) reads the `iPad…-<shot>.png`
  * files straight out of fastlane's output. They never enter this store.
  */
-export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `android`
+export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `android` | `ede`
 
 /** Group ids, kept in sync with `views.json`'s `groups`. */
 export type GroupId =
@@ -66,6 +66,7 @@ export type GroupId =
   | `getting-started`
   | `exponential-ui`
   | `exponential-ui-catalog`
+  | `ede`
 
 /** A section of the catalog. Purely presentational grouping. */
 export interface Group {
@@ -200,6 +201,18 @@ export interface DesktopCapture {
  * the point: the catalog records the whole product, not just the parts that
  * already photograph.
  */
+/**
+ * eDE (#EDE-11): the headless compositor draws the shell from the factory
+ * documents (`apps/ede/ui`) and `ede-ctl` captures the output as the
+ * compositor composes it (`apps/ede/scripts/shots.sh`). `popup` opens every
+ * popup document first (the menu); `size` is the virtual output.
+ */
+export interface EdeCapture {
+  popup?: boolean
+  size?: `${number}x${number}`
+  settleMs?: number
+}
+
 export interface View {
   id: string
   group: GroupId
@@ -212,6 +225,7 @@ export interface View {
   ios?: NativeCapture
   android?: NativeCapture
   desktop?: DesktopCapture
+  ede?: EdeCapture
   /** Per-view override of `STORE_DEFAULT_TOLERANCE`. */
   diffTolerance?: number
   notes?: Partial<Record<Platform, string>>
@@ -237,6 +251,7 @@ export const PLATFORMS: readonly Platform[] = [
   `desktop`,
   `ios`,
   `android`,
+  `ede`,
 ]
 
 export const GROUPS: readonly Group[] = catalog.groups
@@ -259,6 +274,7 @@ export const STORE_DEFAULT_TOLERANCE = 0.005
  *   desktop     1440×900  @2x  → 2880×1800 → 1800×1125
  *   ios         iPhone 17 Pro Max 1320×2868 → 828×1800
  *   android     1080×2400                   → 810×1800
+ *   ede         1280×720 (the headless output) → 1800×1013
  */
 export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   web: { w: 1800, h: 1200 },
@@ -266,6 +282,7 @@ export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   desktop: { w: 1800, h: 1125 },
   ios: { w: 828, h: 1800 },
   android: { w: 810, h: 1800 },
+  ede: { w: 1800, h: 1013 },
 }
 
 const BY_ID = new Map(catalog.views.map((view) => [view.id, view]))
@@ -299,7 +316,7 @@ export function viewsFor(platform: Platform): View[] {
 export function captureFor(
   view: View,
   platform: Platform
-): WebCapture | NativeCapture | DesktopCapture | undefined {
+): WebCapture | NativeCapture | DesktopCapture | EdeCapture | undefined {
   switch (platform) {
     case `web`:
       return view.web
@@ -311,6 +328,8 @@ export function captureFor(
       return view.ios
     case `android`:
       return view.android
+    case `ede`:
+      return view.ede
   }
 }
 

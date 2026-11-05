@@ -44,8 +44,12 @@ consumes them as dependencies.
 | **Core** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/sdk/core/ |
 
 **eDE** (#NEW-10, ExponentialOS's desktop) is not an SDK module: its own Cargo
-workspace in `apps/ede` (`ede-compositor`, `ede-session`), in progress, no
-release. The vision is the blog post exponential.at/blog/exponentialos/.
+workspaces in `apps/ede` (`ede-compositor`, `ede-session`, `ede-protocol` = the
+control plane every client links, `ede-ui` = the genUI-on-disk runtime and its
+supervisor, `ede-ctl`; `apps/ede/shell` = `ede-shell`, the gpui shell) and the
+contract `@exp/ede` (`packages/ede`: the surface header, the Tier C rules and
+the apply machine as fixtures + a TS reference, replayed by `ede-ui`), in
+progress, no release.
 
 Voice, Computer Use, MCP Proxy and Agents are git dependencies (`publish = false`: the
 fixtures are compiled in with `include_str!` from outside the crate), so their

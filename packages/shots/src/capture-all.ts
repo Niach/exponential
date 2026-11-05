@@ -39,7 +39,9 @@ import { dirname, join, resolve } from "node:path"
 import {
   PLATFORMS,
   captureFor,
+  viewById,
   viewsFor,
+  type EdeCapture,
   type NativeCapture,
   type Platform,
 } from "@exp/view-catalog"
@@ -877,7 +879,8 @@ async function waitForPaintedFrames(path: string, timeoutMs: number): Promise<bo
  */
 function packageOnly(scope: Scope): boolean {
   if (laneViews(scope, `web`, `web-mobile`, `desktop`).length > 0) return false
-  let any = false
+  // #EDE-11: the eDE lane is its own headless compositor, backend-free too.
+  let any = laneViews(scope, `ede`).length > 0
   for (const platform of [`ios`, `android`] as const) {
     const views = laneViews(scope, platform)
     if (views.length === 0) continue
@@ -886,6 +889,46 @@ function packageOnly(scope: Scope): boolean {
     if (views.some((id) => !pkg.has(id))) return false
   }
   return any
+}
+
+/**
+ * #EDE-11: eDE's views from the headless compositor
+ * (`apps/ede/scripts/shots.sh`: compositor + supervisor + shell from the
+ * factory documents, `ede-ctl capture`). Builds once, then one run per view;
+ * no backend, no display.
+ */
+async function captureEde(views: string[], outcomes: LaneOutcome[]): Promise<void> {
+  const script = join(repoRoot(), `apps/ede/scripts/shots.sh`)
+  const failed: string[] = []
+  let built = false
+  for (const id of views) {
+    const view = viewById(id)
+    const capture = view ? (captureFor(view, `ede`) as EdeCapture | undefined) : undefined
+    const out = rawShotPath(`ede`, id)
+    mkdirSync(dirname(out), { recursive: true })
+    const cmd = [
+      script,
+      `--out`, out,
+      ...(capture?.popup ? [`--popup`] : []),
+      ...(capture?.size ? [`--size`, capture.size] : []),
+      ...(capture?.settleMs ? [`--settle`, String(capture.settleMs)] : []),
+      ...(built ? [`--no-build`] : []),
+    ]
+    const result = await run({ cmd, timeoutMs: 30 * 60_000 })
+    built = true
+    if (result.code === 0) {
+      console.log(`  ✓ ${id}`)
+    } else {
+      failed.push(id)
+      console.log(`  ✗ ${id}\n${result.stderr.trim().split(`\n`).slice(-12).join(`\n`)}`)
+    }
+  }
+  outcomes.push({
+    platform: `ede`,
+    ok: failed.length === 0,
+    detail: failed.length === 0 ? undefined : `${failed.length} view(s) failed: ${failed.join(`, `)}`,
+    failedViews: failed,
+  })
 }
 
 /** In-scope views whose capture on `platform` is the `package` lane. */
@@ -2103,6 +2146,14 @@ function buildLanes(
           await restoreAndroidStatusBar(demoMode)
         }
       })
+  }
+
+  // #EDE-11: eDE's shell on the headless compositor. No backend, no display.
+  const edeViews = options.platforms.includes(`ede`) ? laneViews(scope, `ede`) : []
+  if (edeViews.length > 0) {
+    add(`ede`, count(edeViews, `ede headless`), new Map([[`ede`, edeViews]]),
+      [{ key: `ede-headless`, mode: `exclusive` }], false,
+      (outcomes) => captureEde(edeViews, outcomes))
   }
 
   const desktopViews = options.platforms.includes(`desktop`) ? laneViews(scope, `desktop`) : []
