@@ -381,6 +381,19 @@ pub(crate) fn left_behind() -> std::collections::HashSet<String> {
     left.ids.clone()
 }
 
+/// #EXP-1412: rows of this device nothing here runs, found once the shapes
+/// synced ([`crate::session_pickup`]): a start that died between the claim and
+/// the spawn left no entry behind, so [`reconcile_stale_sessions`] cannot name
+/// it. They take the re-claim like any left-behind session.
+pub(crate) fn note_left_behind(ids: Vec<String>) {
+    if ids.is_empty() {
+        return;
+    }
+    let mut left = lock_left_behind();
+    left.until = Some(std::time::Instant::now() + RECLAIM_GRACE);
+    left.ids.extend(ids);
+}
+
 /// NEW-5: the re-claim took `session_id` over.
 pub(crate) fn settle_left_behind(session_id: &str) {
     lock_left_behind().ids.remove(session_id);

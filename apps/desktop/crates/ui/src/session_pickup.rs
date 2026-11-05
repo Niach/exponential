@@ -56,6 +56,8 @@ struct PickupHost {
     stalled: HashMap<String, String>,
     /// A pass is already scheduled for the next effect cycle.
     scheduled: bool,
+    /// #EXP-1412: [`stranded_rows`] ran for this app run.
+    boot_swept: bool,
     /// #EXP-1492: a re-claim retry pass is armed ([`retry_reclaim`]).
     reclaim_retry: bool,
 }
@@ -78,6 +80,7 @@ pub(crate) fn install(cx: &mut App) {
         in_flight: HashSet::new(),
         stalled: HashMap::new(),
         scheduled: false,
+        boot_swept: false,
         reclaim_retry: false,
     });
     cx.spawn(async move |cx| {
@@ -238,6 +241,13 @@ fn run_pass(cx: &mut App) {
     cx.global_mut::<PickupHost>()
         .stalled
         .retain(|session_id, at| fingerprints.get(session_id.as_str()) == Some(&*at));
+    // #EXP-1412: once per app run, as the daemon's reconcile does: a start
+    // that died before its spawn left no registry entry to name it.
+    if !cx.global::<PickupHost>().boot_swept && collections.sessions.read(cx).is_ready() {
+        let host = cx.global_mut::<PickupHost>();
+        host.boot_swept = true;
+        crate::session_registry::note_left_behind(stranded_rows(&device_id, &sessions, &live_ids, &host.in_flight));
+    }
     // NEW-5: the sessions an earlier process left behind, re-claimed first
     // (a continuation goes in flight before this pass plans).
     reclaim_left_behind(&device_id, &sessions, &messages, &live, &fingerprints, cx);
@@ -368,6 +378,28 @@ pub(crate) fn hosted_ids(cx: &App) -> Vec<String> {
     let mut ids = host.live.session_ids();
     ids.extend(host.in_flight.iter().cloned());
     ids
+}
+
+/// #EXP-1412: the rows of this device that read `running` (or idle but `busy`)
+/// with no engine here and nothing starting them, the set the daemon's
+/// `reconcile_rows` takes back at startup.
+fn stranded_rows(
+    device_id: &str,
+    sessions: &[SessionRow],
+    live: &HashSet<String>,
+    in_flight: &HashSet<String>,
+) -> Vec<String> {
+    sessions
+        .iter()
+        .filter(|row| {
+            row.on_device(device_id)
+                && (row.status_is(domain::contract::SESSION_STATUS_RUNNING)
+                    || (row.status_is(domain::contract::SESSION_STATUS_IDLE) && row.busy))
+                && !live.contains(&row.id)
+                && !in_flight.contains(&row.id)
+        })
+        .map(|row| row.id.clone())
+        .collect()
 }
 
 /// NEW-5 (the daemon's `reconcile_rows`): re-claim each session an earlier
@@ -740,6 +772,32 @@ fn launch_fn(cx: &App) -> pickup::LaunchFn {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-1412: a claimed row nothing here runs is stranded; a row with an
+    /// engine, a start in flight, between turns or on another device is not.
+    #[test]
+    fn a_running_row_with_nothing_behind_it_is_stranded() {
+        let row = |id: &str, status: &str, busy: bool, device: &str| SessionRow {
+            id: id.to_string(),
+            status: Some(status.to_string()),
+            busy,
+            device_id: Some(device.to_string()),
+            ..SessionRow::default()
+        };
+        let rows = vec![
+            row("claimed", "running", false, "dev"),
+            row("cut", "idle", true, "dev"),
+            row("waiting", "idle", false, "dev"),
+            row("queued", "queued", false, "dev"),
+            row("ended", "ended", true, "dev"),
+            row("live", "running", true, "dev"),
+            row("starting", "running", false, "dev"),
+            row("moved", "running", false, "other"),
+        ];
+        let live: HashSet<String> = HashSet::from(["live".to_string()]);
+        let in_flight: HashSet<String> = HashSet::from(["starting".to_string()]);
+        assert_eq!(stranded_rows("dev", &rows, &live, &in_flight), vec!["claimed".to_string(), "cut".to_string()]);
+    }
 
     #[test]
     fn the_fingerprint_moves_with_the_row_and_its_queue() {
