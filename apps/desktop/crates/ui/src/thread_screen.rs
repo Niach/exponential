@@ -4416,6 +4416,8 @@ mod tests {
             theme::init(cx);
             let store = Store::open(cx, None, None);
             cx.set_global(store);
+            // The relay view asks for it once the session row exists (#EXP-1412).
+            crate::queries::set_own_device_id_for_test("d1", cx);
             let collections = Store::global(cx).collections().clone();
             let root: SessionRow = serde_json::from_value(serde_json::json!({
                 "id": "r1",
