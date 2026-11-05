@@ -194,9 +194,9 @@ class NeedsYouResultsUiTest {
             me = "me",
             now = 1_800_000_000_000L,
         )
-        assertEquals(listOf("pr1", "q3", "q1"), rows.map { it.messageId })
-        assertEquals(NeedsYou.Kind.Pr, rows[0].kind)
-        assertEquals("#7", rows[0].meta)
-        assertEquals("Triage", rows[1].chat)
+        assertEquals(listOf("q3", "q1", "pr1"), rows.map { it.messageId })
+        assertEquals(NeedsYou.Kind.Pr, rows[2].kind)
+        assertEquals("#7", rows[2].meta)
+        assertEquals("Triage", rows[0].chat)
     }
 }
