@@ -35,3 +35,4 @@
 - Te necesita reúne los planes y preguntas que te esperan
 - La lista de chats está agrupada, sin círculos ni filtros
 - Los propietarios eligen qué servidor MCP del equipo cubre cada conexión de una app
+- El mismo aspecto en todas partes: una cabecera de chat, y un archivo en un chat cifrado se muestra como una línea de archivo

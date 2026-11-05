@@ -35,3 +35,4 @@
 - Precisa de ti reúne os planos e perguntas à tua espera
 - A lista de chats está agrupada, sem círculos nem filtros
 - Os proprietários escolhem que servidor MCP serve cada ligação de uma app
+- O mesmo aspeto em todo o lado: um único cabeçalho de chat, e um ficheiro num chat cifrado aparece como uma linha de ficheiro

@@ -35,3 +35,4 @@
 - Braucht dich sammelt Pläne und Fragen, die auf dich warten
 - Die Chatliste ist gruppiert, ohne Kreise und Filter-Chips
 - Team-Inhaber wählen, welcher MCP-Server jede Verbindung einer App bedient
+- Überall gleicher Look: ein Chat-Kopf, und eine Datei in einem verschlüsselten Chat erscheint als Dateizeile

@@ -35,3 +35,4 @@
 - Potřebuje vás shromažďuje plány a otázky, které na vás čekají
 - Seznam chatů je seskupený, bez kruhů a filtrů
 - Vlastníci týmu vyberou, který MCP server obslouží každé připojení aplikace
+- Stejný vzhled všude: jedna hlavička chatu a soubor v šifrovaném chatu se zobrazí jako řádek souboru

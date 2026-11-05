@@ -1,0 +1,2 @@
+- The same look everywhere: one chat header, one warning colour
+- A file in an encrypted chat shows as a file line, never a broken image

@@ -31,7 +31,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core and Apps are its modules; docs moved to /docs/sdk/.`,
     body: `- **New names**: genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core and Apps replace the old library names everywhere you read them; package names and release tags stay.
 - **Docs**: product pages live under /sdk/ and docs under /docs/sdk/, and every old link still lands on the right page.
-- **Built-in skills**: exponential-ui is now exponential-genui, and picks and agents that used it follow.`,
+- **Built-in skills**: exponential-ui is now exponential-genui, and picks and agents that used it follow.
+- **Same look everywhere**: one chat header on every app, one warning colour, and a file in an encrypted chat shows as a file line instead of a broken image.
+- **Needs you**: a pull request stacked on a draft waits until the draft is ready.`,
   },
   {
     id: `2026-11-05-chats-grouped-stories-gone`,

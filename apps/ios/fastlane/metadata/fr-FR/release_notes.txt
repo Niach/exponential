@@ -35,3 +35,4 @@
 - Vous attend regroupe les plans et questions qui vous attendent
 - La liste des chats est groupée, sans cercles ni filtres
 - Les propriétaires choisissent quel serveur MCP de l'équipe sert chaque connexion d'une app
+- Le même aspect partout : un seul en-tête de chat, et un fichier dans un chat chiffré s'affiche comme une ligne de fichier

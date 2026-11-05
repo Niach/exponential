@@ -35,3 +35,4 @@
 - Tarvitsee sinua kokoaa sinua odottavat suunnitelmat ja kysymykset
 - Keskustelulista on ryhmitelty, ilman ympyröitä ja suodattimia
 - Tiimin omistajat valitsevat, mikä MCP-palvelin hoitaa kunkin sovelluksen yhteyden
+- Sama ulkoasu kaikkialla: yksi keskustelun otsikko, ja salatun keskustelun tiedosto näkyy tiedostorivinä

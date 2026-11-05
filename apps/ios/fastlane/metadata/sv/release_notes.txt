@@ -35,3 +35,4 @@
 - Behöver dig samlar planer och frågor som väntar på dig
 - Chattlistan är grupperad, utan cirklar och filterchips
 - Teamägare väljer vilken MCP-server som fyller varje anslutning i en app
+- Samma utseende överallt: ett chatthuvud, och en fil i en krypterad chatt visas som en filrad

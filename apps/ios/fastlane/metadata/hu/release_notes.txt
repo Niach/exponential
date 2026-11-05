@@ -35,3 +35,4 @@
 - A Rád vár összegyűjti a rád váró terveket és kérdéseket
 - A csevegőlista csoportosított, körök és szűrők nélkül
 - A csapat tulajdonosai választják ki, melyik MCP-szerver szolgálja ki egy app kapcsolatait
+- Mindenhol ugyanaz a megjelenés: egy csevegőfejléc, és a titkosított csevegés fájlja fájlsorként jelenik meg
