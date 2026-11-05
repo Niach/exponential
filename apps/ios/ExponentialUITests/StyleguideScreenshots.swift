@@ -1128,7 +1128,8 @@ final class StyleguideScreenshots: XCTestCase {
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
         // sg_device-readiness (EXP-1375) · sg_session-xref · sg_pr-checks (#EXP-1611) ·
-        // sg_story-ring · sg_story-viewer · sg_story-tab (S-3, stories.json): the
+        // sg_story-ring · sg_story-viewer · sg_story-tab (S-3, stories.json) ·
+        // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
         walkSpecimens(app)
         // ── sg_app-consent (VAPP-120, app-actions.json): the consent card an
@@ -1176,6 +1177,7 @@ final class StyleguideScreenshots: XCTestCase {
         "call-controls", "call-pill", "device-readiness", "session-xref", "story-ring", "story-viewer",
         "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
+        "needs-you", "results-tab",
     ]
 
     /// EXP-1635: the entries whose capture-only screen has another name.
@@ -1218,6 +1220,9 @@ final class StyleguideScreenshots: XCTestCase {
             case "story-tab": snapshot("sg_story-tab", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
+            // #FEED-191: THE entry row + THE list, THE Results tab body.
+            case "needs-you": snapshot("sg_needs-you", settle: 2)
+            case "results-tab": snapshot("sg_results-tab", settle: 2)
             case "pr-row": snapshot("sg_pr-row", settle: 2)
             // Thread 20b7fdc2: THE session row (web's `session-row` island).
             case "session-row": snapshot("sg_session-row", settle: 2)
@@ -1645,7 +1650,7 @@ final class StyleguideScreenshots: XCTestCase {
     }
 
     /// results-tab.json: Chats → APP-14's thread → its Results tab
-    /// (`sg_thread-stories`, its name until the Android lane renames both);
+    /// (`sg_thread-stories`, its name until the final cleanup renames it ×2);
     /// ends back on the Chats list.
     @MainActor
     private func walkThreadStories(_ app: XCUIApplication) {

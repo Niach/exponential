@@ -197,41 +197,19 @@ object ChatListSpecimen {
 
 private val ROWS get() = ChatListSpecimen.LIST.rows
 private val LIST get() = ChatListSpecimen.LIST
-private val BUBBLES get() = ChatListSpecimen.BUBBLES
 
-/** THE phone Chats screen over the bottom bar (shot `sg_chat-list`). */
+/** THE phone Chats screen over the bottom bar (shot `sg_chat-list`, #FEED-191:
+ *  the Agents section, then the chats grouped; the Needs you entry is the
+ *  `needs-you` specimen's, as on web and iOS). */
 @Composable
 fun ChatListSpecimenScreen() {
-    var filter by remember { mutableStateOf(Chats.ChatFilter.All) }
     AppBackground {
         Box(Modifier.fillMaxSize().testTag(ChatListSpecimenTestId)) {
             Scaffold(containerColor = Color.Transparent) { padding ->
                 ChatsContent(
-                    list = LIST.copy(
-                        rows = ROWS.filter {
-                            filter == Chats.ChatFilter.All ||
-                                (filter == Chats.ChatFilter.NeedsYou && it.group == SessionTree.ThreadsGroupKey.NeedsYou) ||
-                                (filter == Chats.ChatFilter.Running && it.group == SessionTree.ThreadsGroupKey.Running) ||
-                                (filter == Chats.ChatFilter.Unread && it.unreadCount > 0)
-                        },
-                    ),
-                    filter = filter,
-                    bubbles = BUBBLES,
-                    // S-3 (stories.json specimen): Triage + Designer wear
-                    // their rings, the two chat rings follow.
-                    rings = STORY_RING_SPECIMEN,
-                    ringAvatar = ::storySpecimenAvatar,
-                    // S-3: the pinned Agents section, filtered by the chip like a chat.
-                    agentRows = ChatListSpecimen.AGENT_ROWS.filter {
-                        when (filter) {
-                            Chats.ChatFilter.All -> true
-                            Chats.ChatFilter.NeedsYou -> it.needsYou
-                            Chats.ChatFilter.Running -> it.busy
-                            Chats.ChatFilter.Unread -> it.unreadCount > 0
-                        }
-                    },
+                    list = LIST,
+                    agentRows = ChatListSpecimen.AGENT_ROWS,
                     agentOf = { "claude" },
-                    onSelectFilter = { filter = it },
                     onOpenChat = {},
                     onLongPressChat = {},
                     onLongPressAgent = {},
@@ -265,8 +243,8 @@ fun chatSelectionSpecimenActions(): List<Chats.ChatSelectionEntry> = Chats.chatS
     },
 )
 
-/** THE Chats list in selection mode under the agent bubbles + the Agents
- *  section (EXP-1553): the Archived entry first, listCases[0]
+/** THE Chats list in selection mode under the Agents section (EXP-1553):
+ *  the Archived entry first under its header, listCases[0]
  *  with two rows selected (nothing shifts: the full-width tint + the select
  *  badge on the stronger disc), THE BAR (the bare count) in the tab bar's
  *  slot (shot `sg_chat-selection`). */
@@ -278,15 +256,10 @@ fun ChatSelectionSpecimenScreen() {
             Scaffold(containerColor = Color.Transparent) { padding ->
                 ChatsContent(
                     list = LIST.copy(archived = CHAT_SELECTION_ARCHIVED),
-                    filter = Chats.ChatFilter.All,
-                    bubbles = BUBBLES,
-                    // EXP-1553: the agent bubble row and the Agents section
-                    // stay while selecting (agents are never selectable).
-                    rings = STORY_RING_SPECIMEN,
-                    ringAvatar = ::storySpecimenAvatar,
+                    // EXP-1553: the Agents section stays while selecting
+                    // (agents are never selectable).
                     agentRows = ChatListSpecimen.AGENT_ROWS,
                     agentOf = { "claude" },
-                    onSelectFilter = {},
                     onOpenChat = {},
                     onLongPressChat = {},
                     onLongPressAgent = {},

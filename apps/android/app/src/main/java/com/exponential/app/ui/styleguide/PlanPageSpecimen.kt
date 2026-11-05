@@ -63,7 +63,7 @@ internal fun planPageSpecimenState(card: JsonObject = PlanPageSpecimenCard): Pla
 }
 
 /** `plan-page`: THE plan tab, phone, over the specimen card: the thread's title
- *  and strip (Conversation · Plan with its dot · Stories), the body under them. */
+ *  and strip (Conversation · Plan with its dot · Results), the body under them. */
 @Composable
 fun PlanPageSpecimenScreen() {
     val samples = SpecimenSamples.resolver(LocalContext.current)
@@ -79,7 +79,7 @@ fun PlanPageSpecimenScreen() {
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
                 )
                 ThreadTabStrip(
-                    tabs = listOf(SessionTree.ThreadTab.Conversation, SessionTree.ThreadTab.Plan, SessionTree.ThreadTab.Stories),
+                    tabs = listOf(SessionTree.ThreadTab.Conversation, SessionTree.ThreadTab.Plan, SessionTree.ThreadTab.Results),
                     selectedKey = PLAN_TAB_KEY,
                     onSelect = {},
                     onAdd = null,
