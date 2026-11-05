@@ -1,6 +1,6 @@
 # @exp/eagent
 
-ACP's orchestration spec (#EXP-1508): the session tree, the bus, wake-ups,
+The Agents module's orchestration spec (#EXP-1508): the session tree, the bus, wake-ups,
 end reports, caps and the watchdog, extracted from Exponential's server
 (`apps/web/src/lib/sessions`, `lib/agents/triggers.ts`). Each
 `fixtures/*.json` is the spec (its `$comment`) plus scenario cases; `src/`

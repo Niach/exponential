@@ -2,9 +2,10 @@
 
 Decided 2026-10-29 for the epic #EXP-1420, renamed 2026-10-30 (#EXP-1438) and
 2026-11-05 (Danny). The product is one **Exponential SDK** with the modules
-genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core and Apps: that is
-what copy, docs and the front page say. ACP's crate is `eagent` (renamed from
-`exponential-agent-runtime` by #EXP-1505). The **package names** keep their short
+genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Core and Apps: that is
+what copy, docs and the front page say. The Agents crate is `eagent` (renamed from
+`exponential-agent-runtime` by #EXP-1505). The module was called ACP until
+2026-11-05; ACP now only ever means the Agent Client Protocol, written in full in copy. The **package names** keep their short
 scheme (`eui*`, `etalk*`, `epilot*`, `enet*`, `emcp`, `eagent`, `ecore`) on every
 registry, and so do the tags (`eui-v*`, `etalk-v*`, `epilot-v*`, `enet-v*`). The
 bare crates.io names `eui` and `enet` are taken, so the core crates are `eui-core`
@@ -38,7 +39,7 @@ consumes them as dependencies.
 | **Computer Use** | `epilot`, `epilot-screen` (git dependencies on the tag) | none (desktop only) | none | none (desktop only) | `epilot-v*` → `release-epilot.yml` | exponential.at/sdk/computer-use/ |
 | **P2P** | `enet-core` (crates.io), `exponential-net-ffi`, `exponential-net-wasm` (not published yet) | `enet` (the wasm build, planned) | `enet` (planned) | `ExponentialNet` (planned) | `enet-v*` → `release-enet.yml` | exponential.at/sdk/p2p/ |
 | **Apps** | inside `eui-core` for now; the runtime crate `eapps` is planned (#EXP-1420) | inside `@exponential_app/eui/host`; `@exponential_app/eapps` if it gets a JS package (planned) | `eapps` (planned) | `ExponentialApps` (planned) | rides `eui-v*`; `eapps-v*` once the crate ships | exponential.at/sdk/apps/ |
-| **ACP** | `eagent` (from `coding` + `engine`, #EXP-1426; renamed from `exponential-agent-runtime` in #EXP-1505, which stays one release as a re-export shim; git dependency on the tag) | `@exp/eagent` (the orchestration spec: fixtures + a pure TS reducer, `packages/eagent`, #EXP-1508; private for now; its Rust port `eagent-hub-core` + WASM `eagent-hub-core-wasm`, #EXP-1509, replay the same fixtures) | none | none | `eagent-v*` → `release-eagent.yml` (still accepts `agent-runtime-v*` for one release) | exponential.at/sdk/acp/ |
+| **Agents** | `eagent` (from `coding` + `engine`, #EXP-1426; renamed from `exponential-agent-runtime` in #EXP-1505, which stays one release as a re-export shim; git dependency on the tag) | `@exp/eagent` (the orchestration spec: fixtures + a pure TS reducer, `packages/eagent`, #EXP-1508; private for now; its Rust port `eagent-hub-core` + WASM `eagent-hub-core-wasm`, #EXP-1509, replay the same fixtures) | none | none | `eagent-v*` → `release-eagent.yml` (still accepts `agent-runtime-v*` for one release) | exponential.at/sdk/agents/ |
 | **MCP Proxy** | `emcp` (on rmcp, for the devices and spezl, #EXP-1492; the local hub and code mode (feature `codemode`), #EXP-1507; git dependency on the tag) | `emcp` (the contract + fixtures, `packages/emcp`, #EXP-1490; private for now) | none | none | `emcp-v*` → `release-emcp.yml` | exponential.at/sdk/mcp-proxy/ |
 | **Core** | `ecore` (types only, serde; #EXP-1504; git dependency) | `@exp/ecore` (the contract + generated TS, `packages/ecore`; private for now) | generated into the Android app (`com.exponential.app.ecore`) | generated into ExpCore (`ECore`) | none yet | exponential.at/sdk/core/ |
 
@@ -46,7 +47,7 @@ consumes them as dependencies.
 workspace in `apps/ede` (`ede-compositor`, `ede-session`), in progress, no
 release. The vision is the blog post exponential.at/blog/exponentialos/.
 
-Voice, Computer Use, MCP Proxy and ACP are git dependencies (`publish = false`: the
+Voice, Computer Use, MCP Proxy and Agents are git dependencies (`publish = false`: the
 fixtures are compiled in with `include_str!` from outside the crate), so their
 release is the tag plus a GitHub release; no crates.io name is spent.
 
@@ -100,13 +101,13 @@ How spezl (or anyone) depends on the `publish = false` crates:
 | Voice | `etalk-v*` | `etalk`, `etalk-codec`, `etalk-engine`, `etalk-crispasr`, `etalk-wakeword`, `etalk-gpui` (+ npm `@exponential_app/etalk`, SwiftPM `ExponentialTalk`, Maven `at.exponential:etalk`) | `release-etalk.yml` |
 | Computer Use | `epilot-v*` | `epilot`, `epilot-screen` | `release-epilot.yml` |
 | MCP Proxy | `emcp-v*` | `emcp` | `release-emcp.yml` |
-| ACP | `eagent-v*` (+ `agent-runtime-v*` for one release) | `eagent`, `exponential-agent-runtime` (the shim, one release) | `release-eagent.yml` |
+| Agents | `eagent-v*` (+ `agent-runtime-v*` for one release) | `eagent`, `exponential-agent-runtime` (the shim, one release) | `release-eagent.yml` |
 
 Every new name was checked free on 2026-10-30: crates.io `eui-core`, `eui-gpui`,
 `enet-core`, `etalk`, `epilot`, and npm `@exponential_app/eui*`, `@exponential_app/enet`,
 `@exponential_app/etalk`.
 
-## Migrating: agent-runtime → ACP (#EXP-1505)
+## Migrating: agent-runtime → Agents (#EXP-1505)
 
 The agent runtime crate `exponential-agent-runtime` is now `eagent` (lib
 `eagent`, tags `eagent-v*`, workflow `release-eagent.yml`). For ONE release:
@@ -147,7 +148,7 @@ release after that removes the shim crate and the old tag pattern.
 | Computer Use | 0.1.0 | GitHub release (git dependencies on the tag) | `epilot-v0.1.0` |
 | P2P | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | genUI (old `ui` packages) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
-| ACP | 0.1.0 (`exponential-agent-runtime` = its one-release re-export shim) | GitHub release (git dependency on the tag) | `eagent-v0.1.0` |
-| agent-runtime (old name of ACP) | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
+| Agents | 0.1.0 (`exponential-agent-runtime` = its one-release re-export shim) | GitHub release (git dependency on the tag) | `eagent-v0.1.0` |
+| agent-runtime (old name of Agents) | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
 | MCP Proxy | 0.2.0 | GitHub release (git dependency on the tag) | `emcp-v0.2.0` |
 | Core | unreleased | none (built: `ecore` + the generated TS/Swift/Kotlin) | none |

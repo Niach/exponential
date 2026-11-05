@@ -1,7 +1,7 @@
 # eagent
 
 The single-account agent core shared by **Exponential** and **spezl** (EXP-1426, epic EXP-1420).
-It spawns the user's own, unmodified `claude` / `codex` binary over ACP, streams what the agent
+It spawns the user's own, unmodified `claude` / `codex` binary over the Agent Client Protocol, streams what the agent
 does, lists the CLIs' own session history (with their own session names), runs the agent's login
 in a PTY and wires MCP servers. One local account, no server.
 
@@ -78,7 +78,7 @@ caller changes until a later cleanup.
    logout. `run_doctor`, the profiles, the device caps and Exponential's `ToolCheck` (the lean
    one plus the account fields), the staging / commit / import flow and its emulator-driven PTY
    stay in `coding` / `cli` / `ui` and call the core.
-4. The ACP engine core behind `RunBackend` / `EventSink`; `engine` becomes Exponential's adapter.
+4. The Agent Client Protocol engine core behind `RunBackend` / `EventSink`; `engine` becomes Exponential's adapter.
    - **4a, done.** `spawn` (`SpawnSpec`, `ChildExit`, `login_path`, out of `terminal::pty`, which
      re-exports them; the PTY emulator stays in `terminal`) and `engine::` = the child-process
      line transport (`transport`), the child's exit link (`child_exit`, out of `engine::host`),
@@ -94,7 +94,7 @@ caller changes until a later cleanup.
      `engine::context_layout` (plus `ContextLayers` / `ProjectMemoryFile` / `CarriedBase` out of
      `coding`, which re-exports them), `engine::exp_tool_refs` (the rule; the spec comes from
      `HostTools::preview_spec`, and `engine::exp_tool_refs` keeps the name-keyed entry and the
-     fixture lock), and `engine::terminals` (the ACP `terminal/*` capability). The headless PTY
+     fixture lock), and `engine::terminals` (the Agent Client Protocol `terminal/*` capability). The headless PTY
      (`Pty`, `open_pty`, `build_command`, `winsize`) moved out of `terminal::pty` into `spawn`;
      the emulator stays in `terminal`. The wire got `RemoteAnswer`, `SessionBlocked` (the
      `sessions.report` conversion is `steer::SessionBlockedReport`), `now_unix_millis`,
@@ -102,7 +102,7 @@ caller changes until a later cleanup.
      and `JOURNAL_WORKFLOW_CAP`. The contract values the mapper and refs inline are pinned in
      `engine::mapper` / `engine::exp_tool_refs` tests.
    - **4c, done (the adapters).** `engine::adapters` (`mod`, `claude`, `claude_wire`, `codex`,
-     `codex_wire`, moved whole): a host starts the user's own `claude` / `codex` ACP adapter
+     `codex_wire`, moved whole): a host starts the user's own `claude` / `codex` Agent Client Protocol adapter
      with `Adapter::new(impl Into<LaunchSpec>)` and drives it as a `ConnectTo<Client>`.
      `LaunchSpec` is the core launch spec (program / args / env / cwd as `SpawnSpec`,
      `CodingAgent`, `RunOptions`, resume handle, `AgentMcp` + `McpServerWire` servers, system
@@ -115,7 +115,7 @@ caller changes until a later cleanup.
      `merge_live_windows` and the process-global `live` registry, out of
      `coding::agent_usage`; the OAuth fetch and the collector stay), `claude_transcript`
      (`locate_claude_transcript`), `engine::launch` (`RunOptions`, `ResumeHandle`, `EngineError`
-     whose `Api` arm boxes the backend error, the ACP `_meta` keys, the aside tool posture) and
+     whose `Api` arm boxes the backend error, the Agent Client Protocol `_meta` keys, the aside tool posture) and
      `child_exit::until_either_closes`. `coding` converts `ResumeSeed`, `api` its `ApiError`.
    - **4d, done (the host and the session).** `engine::host` and `engine::session` moved whole
      (`engine` re-exports both; `lifecycle`, `outbox` and `aside`'s posture stay there). The knot

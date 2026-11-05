@@ -1,6 +1,6 @@
 import type { ReferenceSource } from "../sync-reference.ts"
 
-/* The modules Voice, P2P, Computer Use, MCP Proxy, ACP and Core: their
+/* The modules Voice, P2P, Computer Use, MCP Proxy, Agents and Core: their
    reference pages, generated from the crate and package READMEs, the
    library table (docs/libraries.md) and Voice's licence sections
    (docs/third-party-licences.md). Hand-written pages next to them
@@ -29,7 +29,7 @@ export const REFERENCE: ReferenceSource[] = [
     source: `docs/libraries.md`,
     slug: `docs/sdk/install`,
     title: `Install from a release tag`,
-    description: `How to depend on Voice, Computer Use, MCP Proxy and ACP: a git dependency pinned to the module's release tag, the semver rules and what gpui consumers copy.`,
+    description: `How to depend on Voice, Computer Use, MCP Proxy and Agents: a git dependency pinned to the module's release tag, the semver rules and what gpui consumers copy.`,
     transform: (md) => untitled(section(`Consuming from another repo`, `Migrating`))(`\n` + md),
   },
 
@@ -123,34 +123,34 @@ export const REFERENCE: ReferenceSource[] = [
     description: `MCP Proxy's fixtures: exposes, access, audit, vault and upstream, with the TypeScript references that replay them.`,
   },
 
-  /* ACP */
+  /* Agents */
   {
     source: `${CRATES}/eagent/README.md`,
-    slug: `docs/sdk/acp/reference`,
-    title: `ACP reference`,
+    slug: `docs/sdk/agents/reference`,
+    title: `Agents reference`,
     description: `eagent: the rules, the seams a host implements, what stays in Exponential, the extraction order and using it without a server.`,
   },
   {
     source: `packages/eagent/README.md`,
-    slug: `docs/sdk/acp/reference/orchestration`,
+    slug: `docs/sdk/agents/reference/orchestration`,
     title: `Orchestration spec (@exp/eagent)`,
     description: `The session tree, the bus, wake-ups, end reports, caps and the watchdog as fixtures and a pure TypeScript reducer.`,
   },
   {
     source: `${CRATES}/eagent-hub-core/README.md`,
-    slug: `docs/sdk/acp/reference/hub-core`,
+    slug: `docs/sdk/agents/reference/hub-core`,
     title: `eagent-hub-core`,
     description: `The orchestration reducer in Rust, replaying the same fixtures as the TypeScript reference.`,
   },
   {
     source: `${CRATES}/eagent-hub-core-wasm/README.md`,
-    slug: `docs/sdk/acp/reference/hub-core-wasm`,
+    slug: `docs/sdk/agents/reference/hub-core-wasm`,
     title: `eagent-hub-core-wasm`,
     description: `The orchestration reducer as WebAssembly.`,
   },
   {
     source: `docs/libraries.md`,
-    slug: `docs/sdk/acp/reference/migrating`,
+    slug: `docs/sdk/agents/reference/migrating`,
     title: `Migrating from agent-runtime`,
     description: `Moving from exponential-agent-runtime to eagent: the one-release shim and the new tag.`,
     transform: (md) => untitled(section(`Migrating`, `Rules for the extractions`))(`\n` + md),

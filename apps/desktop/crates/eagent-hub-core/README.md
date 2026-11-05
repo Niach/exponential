@@ -1,4 +1,4 @@
-# `eagent-hub-core`: ACP's orchestration reducer
+# `eagent-hub-core`: the Agents orchestration reducer
 
 A pure Rust port of `packages/eagent/src/reduce.ts` (#EXP-1509): the session
 tree, the bus, wake-ups, end reports, caps and the watchdog as one function,

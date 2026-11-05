@@ -42,7 +42,7 @@ Exponential is built on the open Exponential SDK, whose modules it shares with o
 | **P2P** | Peer to peer, end-to-end encrypted networking on iroh: encrypted sessions, steering, calls, encrypted push | `apps/desktop/crates/enet-core*` | [exponential.at/sdk/p2p](https://exponential.at/sdk/p2p/) |
 | **MCP Proxy** | MCP on rmcp: a loopback server, a client with OAuth and a vault, the app tool contract | `apps/desktop/crates/emcp`, `packages/emcp` | [exponential.at/sdk/mcp-proxy](https://exponential.at/sdk/mcp-proxy/) |
 | **Apps** | The app package format: templates, bindings, records and tools as data | `packages/exponential-ui/src/host` (runtime crate `eapps` planned) | [exponential.at/sdk/apps](https://exponential.at/sdk/apps/) |
-| **ACP** | The server-free agent core: run the user's own Claude Code or Codex, plus the orchestration spec (tree, bus, wake-ups) | `apps/desktop/crates/eagent`, `packages/eagent` | [exponential.at/sdk/acp](https://exponential.at/sdk/acp/) |
+| **Agents** | The server-free agent core: run the user's own Claude Code or Codex, plus the orchestration spec (tree, bus, wake-ups) | `apps/desktop/crates/eagent`, `packages/eagent` | [exponential.at/sdk/agents](https://exponential.at/sdk/agents/) |
 | **Core** | The plain types the modules share, one contract for Rust, TS, Swift and Kotlin (unreleased) | `apps/desktop/crates/ecore`, `packages/ecore` | [exponential.at/sdk/core](https://exponential.at/sdk/core/) |
 
 In progress: **eDE**, the desktop of ExponentialOS (`apps/ede`, not released; [the vision](https://exponential.at/blog/exponentialos/)).

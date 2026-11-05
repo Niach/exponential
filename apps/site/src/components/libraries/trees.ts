@@ -149,11 +149,11 @@ export const MCP_HUB: Node = {
   ],
 }
 
-/* ACP ----------------------------------------------------------------- */
+/* Agents -------------------------------------------------------------- */
 
 export const AGENT_FLOW: Node = flow(`agent`, [
   box(`a-app`, `app-window`, `Your app`),
-  box(`a-eagent`, `cpu`, `ACP`),
+  box(`a-eagent`, `cpu`, `Agents`),
   box(`a-cli`, `terminal`, `claude · codex`),
 ])
 
@@ -170,7 +170,7 @@ export const CORE_MODULES: Node = {
         box(`m-talk`, `mic`, `Voice`),
         box(`m-pilot`, `mouse-pointer-click`, `Computer Use`),
         box(`m-net`, `network`, `P2P`),
-        box(`m-agent`, `cpu`, `ACP`),
+        box(`m-agent`, `cpu`, `Agents`),
         box(`m-mcp`, `plug`, `MCP Proxy`),
       ],
       5

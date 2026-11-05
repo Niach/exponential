@@ -1,11 +1,11 @@
 ---
-title: ACP guides
+title: Agents guides
 description: Depend on eagent and run the user's own Claude Code or Codex from your app with eagent::local.
 ---
 
 ## Install
 
-`eagent` is the ACP module.
+`eagent` is the Agents module.
 
 A git dependency on a release tag: the contract is compiled in from the repo's fixtures. The policy: [Install from a release tag](/docs/sdk/install/).
 
@@ -14,7 +14,7 @@ A git dependency on a release tag: the contract is compiled in from the repo's f
 eagent = { git = "https://github.com/Niach/exponential", tag = "eagent-v0.1.0" }
 ```
 
-Coming from `exponential-agent-runtime`: [Migrating](/docs/sdk/acp/reference/migrating/).
+Coming from `exponential-agent-runtime`: [Migrating](/docs/sdk/agents/reference/migrating/).
 
 ## Run an agent without a server
 
@@ -46,4 +46,4 @@ cargo run -p eagent --example local_chat -- "reply with the word ok"
 cargo run -p eagent --example local_chat -- --agent codex "hi"
 ```
 
-Events, history and the seams in full: [Reference](/docs/sdk/acp/reference/).
+Events, history and the seams in full: [Reference](/docs/sdk/agents/reference/).

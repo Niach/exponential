@@ -32,7 +32,7 @@ export default defineConfig({
       plugins: [
         starlightLlmsTxt({
           projectName: `Exponential`,
-          description: `Exponential is a real-time issue tracker with coding agents, and the Exponential SDK it is built on, with the modules genUI (generative native UI), Motion, Voice, P2P, Computer Use, MCP Proxy, ACP, Core and Apps.`,
+          description: `Exponential is a real-time issue tracker with coding agents, and the Exponential SDK it is built on, with the modules genUI (generative native UI), Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Core and Apps.`,
         }),
       ],
       sidebar: SIDEBAR,
