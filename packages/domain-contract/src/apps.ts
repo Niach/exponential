@@ -272,6 +272,14 @@ export function automationSponsor(paused: string | null, sponsorName: string | n
   return sponsorName ? copy.runsAs.replace(`{name}`, sponsorName) : null
 }
 
+/** #VAPP-255 (`automationDroppedCases`): the runs the rate cap dropped in the
+ *  last 24 h; null = nothing to say. */
+export function automationDropped(n: number): string | null {
+  const copy = fixture.copy.automations
+  if (n <= 0) return null
+  return n === 1 ? copy.droppedOne : copy.dropped.replace(`{n}`, String(n))
+}
+
 /** #VAPP-238 (`webhookRowCases`): one row of the Settings tab's Webhooks
  *  group, from tRPC `appAccess.appTools` `hooks`; `isOwner` = `canToggle`. */
 export interface WebhookRowInput {

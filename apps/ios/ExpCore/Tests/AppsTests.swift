@@ -81,6 +81,7 @@ final class AppsTests: XCTestCase {
             "paused": Apps.Copy.Automations.paused,
             "failed": Apps.Copy.Automations.failed, "ok": Apps.Copy.Automations.ok,
             "never": Apps.Copy.Automations.never, "runsAs": Apps.Copy.Automations.runsAs,
+            "dropped": Apps.Copy.Automations.dropped, "droppedOne": Apps.Copy.Automations.droppedOne,
         ])
         XCTAssertEqual(copy["webhooks"] as? [String: String], [
             "title": Apps.Copy.Webhooks.title, "ready": Apps.Copy.Webhooks.ready,
@@ -256,6 +257,20 @@ final class AppsTests: XCTestCase {
         for item in list {
             XCTAssertEqual(
                 Apps.automationSponsor(paused: item["paused"] as? String, sponsorName: item["sponsorName"] as? String),
+                item["expected"] as? String,
+                item["name"] as? String ?? ""
+            )
+        }
+    }
+
+    // #VAPP-255: `automationDropped` replays `automationDroppedCases`.
+    func testAutomationDroppedCases() throws {
+        let block = try XCTUnwrap(try fixture()["automationDroppedCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            XCTAssertEqual(
+                Apps.automationDropped(try XCTUnwrap(item["n"] as? Int)),
                 item["expected"] as? String,
                 item["name"] as? String ?? ""
             )

@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { Button, conceptIcon, GlassGroup, Menu, Pill, Prompt, Switch, toast } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { accountCaption, accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, automationSponsor, UPSTREAM_PICKER_NONE, webhookRow } from "@exp/domain-contract/apps"
+import { accountCaption, accountRow, APPS_COPY, APPS_TEST_IDS, automationDropped, automationRow, automationSponsor, UPSTREAM_PICKER_NONE, webhookRow } from "@exp/domain-contract/apps"
 import { APP_SHARE, APP_SHARE_COPY, APP_SHARE_EXPIRY_CHOICES, shareRowSubtitle, shareSwitchOn } from "@exp/domain-contract/app-share"
 import { promptActions, rotateWebhookSecretPrompt } from "@/lib/prompts"
 import { UpstreamPickerSelect } from "./upstream-picker-select"
@@ -227,7 +227,7 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
                 <div key={a.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.automationRow}-${a.name}`}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-mono text-sm">{a.name}</div>
-                    <div className="line-clamp-2 text-xs text-muted-foreground">{sponsor ? `${row.trigger} · ${sponsor}` : row.trigger}</div>
+                    <div className="line-clamp-2 text-xs text-muted-foreground">{[row.trigger, sponsor, automationDropped(a.droppedRuns)].filter(Boolean).join(` · `)}</div>
                   </div>
                   <Pill size="sm" className="shrink-0">
                     {row.label}

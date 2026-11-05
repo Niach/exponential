@@ -306,6 +306,12 @@ pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDe
                 Some(sponsor) => format!("{trigger} · {sponsor}"),
                 None => trigger,
             };
+            // #VAPP-255: the runs the rate cap dropped.
+            let trigger = match domain::apps::automation_dropped(automation.dropped_runs) {
+                Some(dropped) if trigger.is_empty() => dropped,
+                Some(dropped) => format!("{trigger} · {dropped}"),
+                None => trigger,
+            };
             crate::surface::glass_row_shell()
                 .justify_between()
                 .gap_3()
@@ -315,7 +321,7 @@ pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDe
                         .flex_1()
                         .min_w_0()
                         .child(div().text_sm().truncate().child(automation.name.clone()))
-                        .when(!trigger.is_empty(), |col| col.child(div().text_xs().text_color(muted).truncate().child(trigger))),
+                        .when(!trigger.is_empty(), |col| col.child(div().text_xs().text_color(muted).line_clamp(2).child(trigger))),
                 )
                 .child(
                     crate::surface::glass_pill(

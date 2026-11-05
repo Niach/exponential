@@ -105,6 +105,9 @@ public enum Apps {
             public static let never = "Not run yet"
             /// #VAPP-243: who a run acts as, or why it is paused.
             public static let runsAs = "Runs as {name}"
+            /// #VAPP-255: the runs the rate cap dropped.
+            public static let dropped = "{n} runs dropped in 24 h"
+            public static let droppedOne = "1 run dropped in 24 h"
             public static let pausedReasons: [String: String] = [
                 "sponsorGone": "Its sponsor is no longer on the team",
                 "sponsorReadOnly": "Its sponsor has read-only access",
@@ -602,6 +605,14 @@ public enum Apps {
         if let paused, !paused.isEmpty { return Strings.pausedReasons[paused] ?? Strings.paused }
         guard let sponsorName, !sponsorName.isEmpty else { return nil }
         return Strings.runsAs.replacingOccurrences(of: "{name}", with: sponsorName)
+    }
+
+    /// #VAPP-255 (`automationDroppedCases`): the runs the rate cap dropped in
+    /// the last 24 h; nil = nothing to say.
+    public static func automationDropped(_ n: Int) -> String? {
+        typealias Strings = Apps.Copy.Automations
+        if n <= 0 { return nil }
+        return n == 1 ? Strings.droppedOne : Strings.dropped.replacingOccurrences(of: "{n}", with: String(n))
     }
 
     // MARK: - eApps webhooks (#VAPP-238, fixture `webhookRowCases`)

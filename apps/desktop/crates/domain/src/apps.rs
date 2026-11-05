@@ -164,6 +164,10 @@ pub struct AppsAutomationsCopy {
     pub never: String,
     /// #VAPP-243: `Runs as {name}`.
     pub runs_as: String,
+    /// #VAPP-255: `{n} runs dropped in 24 h`.
+    pub dropped: String,
+    /// #VAPP-255: `1 run dropped in 24 h`.
+    pub dropped_one: String,
     /// #VAPP-243: a pause's reason, by `sponsorStates` word.
     pub paused_reasons: std::collections::BTreeMap<String, String>,
 }
@@ -944,6 +948,17 @@ pub fn automation_sponsor(paused: Option<&str>, sponsor_name: Option<&str>) -> O
     sponsor_name.filter(|n| !n.is_empty()).map(|name| copy.runs_as.replace("{name}", name))
 }
 
+/// #VAPP-255 (`automationDroppedCases`): the runs the rate cap dropped in the
+/// last 24 h; `None` = nothing to say.
+pub fn automation_dropped(n: i64) -> Option<String> {
+    let copy = &APPS.copy.automations;
+    match n {
+        n if n <= 0 => None,
+        1 => Some(copy.dropped_one.clone()),
+        n => Some(copy.dropped.replace("{n}", &n.to_string())),
+    }
+}
+
 /// `Delete {name}?`.
 pub fn delete_title(name: &str) -> String {
     APPS.copy.delete_title.replace("{name}", name)
@@ -1350,6 +1365,17 @@ mod tests {
             let name = case["name"].as_str().unwrap();
             let got = automation_sponsor(case["paused"].as_str(), case["sponsorName"].as_str());
             assert_eq!(got.as_deref(), case["expected"].as_str(), "{name}");
+        }
+    }
+
+    #[test]
+    fn automation_dropped_cases_replay() {
+        let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).unwrap();
+        let all = fixture["automationDroppedCases"]["cases"].as_array().unwrap();
+        assert!(!all.is_empty());
+        for case in all {
+            let got = automation_dropped(case["n"].as_i64().unwrap());
+            assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
         }
     }
 
