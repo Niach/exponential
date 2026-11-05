@@ -242,6 +242,8 @@ export interface PullState {
   // EXP-1608: the PR's head commit, out of the same response: the poller
   // repairs checks at that sha (and when a push left them at an older one).
   headSha?: string | null
+  // EXP-1705: when GitHub merged it (the backfill records the real time).
+  mergedAt?: Date | null
 }
 
 // Fetch a PR's open/closed/merged state (server-side merge detection).
@@ -266,6 +268,7 @@ export async function fetchPullState(
     state: string
     merged: boolean
     merged_by?: GithubActorRef | null
+    merged_at?: string | null
     merge_commit_sha?: string | null
     base?: { ref?: string }
     head?: { sha?: string }
@@ -278,6 +281,7 @@ export async function fetchPullState(
     baseRef: data.base?.ref || null,
     mergeCommitSha: merged ? (data.merge_commit_sha ?? null) : null,
     headSha: data.head?.sha || null,
+    mergedAt: merged && data.merged_at ? new Date(data.merged_at) : null,
   }
 }
 
