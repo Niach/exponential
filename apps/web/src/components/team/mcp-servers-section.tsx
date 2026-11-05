@@ -837,7 +837,7 @@ function ConnectionAction({
             pendingLabel={FEEDBACK_WORDS.pending.connect}
             onClick={onConnect}
           >
-            <WarningIcon className="text-amber-500" />
+            <WarningIcon className="text-yellow-400" />
             Reconnect
           </Button>
         </TooltipTrigger>

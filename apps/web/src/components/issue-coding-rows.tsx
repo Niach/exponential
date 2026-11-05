@@ -103,7 +103,7 @@ export function IssueStartButton({
           }
           className={cn(
             `relative`,
-            notReady && `border-dashed border-amber-400/60 text-foreground/70`
+            notReady && `border-dashed border-yellow-400/60 text-foreground/70`
           )}
           onClick={press}
         >
@@ -112,7 +112,7 @@ export function IssueStartButton({
             <span
               aria-hidden
               data-testid="coding-readiness-badge"
-              className="absolute top-2.5 right-2.5 size-2 rounded-full bg-amber-400 ring-2 ring-background"
+              className="absolute top-2.5 right-2.5 size-2 rounded-full bg-yellow-400 ring-2 ring-background"
             />
           )}
         </FabButton>

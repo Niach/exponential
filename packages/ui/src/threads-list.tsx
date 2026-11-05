@@ -160,7 +160,7 @@ function rowLead(
 }
 
 const GROUP_GLYPH: Record<ThreadsListGroup[`key`], ReactNode> = {
-  needs_you: <NeedsYouIcon className="size-3.5 shrink-0 text-amber-400" />,
+  needs_you: <NeedsYouIcon className="size-3.5 shrink-0 text-yellow-400" />,
   running: <AgentWorkingMark agent={null} />,
   recent: <RecentIcon className="size-3.5 shrink-0 text-muted-foreground" />,
 }

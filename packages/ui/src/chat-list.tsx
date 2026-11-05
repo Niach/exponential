@@ -240,7 +240,7 @@ function ChatRowText({
           <span
             className={cn(
               `shrink-0 text-xs tabular-nums`,
-              row.needsYou ? `text-amber-400` : unread ? `text-foreground` : `text-muted-foreground`
+              row.needsYou ? `text-yellow-400` : unread ? `text-foreground` : `text-muted-foreground`
             )}
           >
             {row.time}
@@ -267,7 +267,7 @@ function ChatRowText({
               data-slot="chat-unread"
               className={cn(
                 `flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums`,
-                row.needsYou ? `bg-amber-400 text-black` : `bg-foreground text-background`
+                row.needsYou ? `bg-yellow-400 text-black` : `bg-foreground text-background`
               )}
             >
               {row.unreadCount > 99 ? `99+` : row.unreadCount}

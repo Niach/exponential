@@ -53,7 +53,7 @@ export type SessionStatusTone = `muted` | `amber` | `emerald` | `sky`
 
 export const SESSION_STATUS_TONE_CLASS: Record<SessionStatusTone, string> = {
   muted: `text-muted-foreground`,
-  amber: `text-amber-400`,
+  amber: `text-yellow-400`,
   emerald: `text-emerald-400`,
   sky: `text-sky-400`,
 }

@@ -195,12 +195,12 @@ const GLYPHS: Record<DeviceReadinessGlyph, ReturnType<typeof conceptIcon>> = {
 }
 const GLYPH_TONE: Record<DeviceReadinessTone, string> = {
   success: `text-emerald-400`,
-  warning: `text-amber-400`,
+  warning: `text-yellow-400`,
   muted: `text-muted-foreground`,
   destructive: `text-destructive`,
 }
 const DETAIL_TONE: Record<string, string> = {
-  action: `text-amber-400`,
+  action: `text-yellow-400`,
   error: `text-destructive`,
 }
 

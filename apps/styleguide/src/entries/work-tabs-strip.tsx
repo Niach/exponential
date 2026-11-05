@@ -78,7 +78,7 @@ export const entry: StyleguideEntry = {
   },
   island: () => (
     <div className="flex items-center gap-1">
-      <Chip lead={<StatusGlyph icon="progress-2-4" colorClass="text-amber-500 size-3.5" />} identifier="EXP-1223" title="ExponentialOS" active />
+      <Chip lead={<StatusGlyph icon="progress-2-4" colorClass="text-yellow-400 size-3.5" />} identifier="EXP-1223" title="ExponentialOS" active />
       <Chip lead={<StatusGlyph icon="circle-dashed" colorClass="text-muted-foreground size-3.5" />} identifier="EXP-563" title="google keywords" hovered />
       <Chip lead={<NewRunIcon className="size-3.5 text-muted-foreground" />} title="New session" />
       <StripOverflowButton count={2} aria-label="2 more tabs" />

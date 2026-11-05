@@ -43,8 +43,8 @@ describe(`ringToneClass`, () => {
   it(`follows the shared severity thresholds`, () => {
     expect(ringToneClass(0)).toBe(`text-muted-foreground`)
     expect(ringToneClass(WARNING_PERCENT - 1)).toBe(`text-muted-foreground`)
-    expect(ringToneClass(WARNING_PERCENT)).toBe(`text-amber-500`)
-    expect(ringToneClass(DANGER_PERCENT - 1)).toBe(`text-amber-500`)
+    expect(ringToneClass(WARNING_PERCENT)).toBe(`text-yellow-400`)
+    expect(ringToneClass(DANGER_PERCENT - 1)).toBe(`text-yellow-400`)
     expect(ringToneClass(DANGER_PERCENT)).toBe(`text-destructive`)
     expect(ringToneClass(100)).toBe(`text-destructive`)
   })

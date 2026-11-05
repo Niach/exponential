@@ -12,7 +12,7 @@ import type { StyleguideEntry } from "./types.ts"
 const UiCloseIcon = conceptIcon(`ui-close`)
 const noop = (): void => {}
 
-const inProgress = <StatusGlyph icon="progress-2-4" colorClass="text-amber-500 size-3.5" />
+const inProgress = <StatusGlyph icon="progress-2-4" colorClass="text-yellow-400 size-3.5" />
 const backlog = <StatusGlyph icon="circle-dashed" colorClass="text-muted-foreground size-3.5" />
 const done = <StatusGlyph icon="circle-check" colorClass="text-emerald-500 size-3.5" />
 

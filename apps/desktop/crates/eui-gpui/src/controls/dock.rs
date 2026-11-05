@@ -20,8 +20,6 @@ use crate::chrome::{composite, Chrome};
 
 /// Tailwind `yellow-400`: a question's tint (web `text-yellow-400`).
 const YELLOW: u32 = 0xfacc15;
-/// Tailwind `amber-400`: a warning banner's tint (web `text-amber-400`).
-const AMBER: u32 = 0xfbbf24;
 /// The kind glyph and the chevron (web `size-3.5`).
 const GLYPH: f32 = 14.;
 
@@ -93,7 +91,7 @@ impl DockCardTint {
             Self::Plan => cx.theme().primary,
             Self::Question => gpui::rgb(YELLOW).into(),
             Self::Muted => cx.theme().muted_foreground,
-            Self::Warning => gpui::rgb(AMBER).into(),
+            Self::Warning => gpui::rgb(YELLOW).into(),
         }
     }
 }

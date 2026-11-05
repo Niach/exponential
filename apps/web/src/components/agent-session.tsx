@@ -1821,7 +1821,7 @@ function QuestionPrompt({
       onAnswer={answer}
     >
       {answerState?.status === `error` && (
-        <div className="mt-1.5 text-[0.6875rem] text-amber-400">
+        <div className="mt-1.5 text-[0.6875rem] text-yellow-400">
           No confirmation from the desktop. Pick again to retry.
         </div>
       )}
@@ -2536,8 +2536,8 @@ function PermissionRow({
   return (
     <div className={cn(`min-w-0 pl-0.5`, TRANSCRIPT_TOOL_TEXT)}>
       <div className="flex min-w-0 items-center gap-2">
-        <UiPermissionIcon className="size-3 shrink-0 text-amber-400/70" />
-        <span className="shrink-0 font-medium text-amber-400/90">
+        <UiPermissionIcon className="size-3 shrink-0 text-yellow-400/70" />
+        <span className="shrink-0 font-medium text-yellow-400/90">
           Permission · {tool}
         </span>
         {detail && (
@@ -2564,7 +2564,7 @@ function PermissionRow({
 function DuplicateWarningRow({ detail }: { detail: string }) {
   return (
     <div
-      className="flex min-w-0 items-start gap-2 text-amber-400"
+      className="flex min-w-0 items-start gap-2 text-yellow-400"
       data-testid="subagent-duplicate-warning"
     >
       <UiWarningIcon className="mt-0.5 size-3 shrink-0" />

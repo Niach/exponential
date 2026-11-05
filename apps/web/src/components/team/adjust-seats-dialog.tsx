@@ -132,7 +132,7 @@ export function AdjustSeatsDialog({
           </div>
 
           {belowMembers && (
-            <p className="text-xs text-amber-500">
+            <p className="text-xs text-yellow-400">
               This team has {memberCount} members. Reducing below that blocks
               new invites. Existing members keep working.
             </p>

@@ -142,12 +142,12 @@ function BucketTable({ rows, showVersion }: { rows: Bucket[]; showVersion: boole
             )}
             <div className="text-right">{formatCount(b.views)}</div>
             <div
-              className={`text-right ${successTone(b) === `ok` ? `` : successTone(b) === `warn` ? `text-amber-400` : `text-destructive`}`}
+              className={`text-right ${successTone(b) === `ok` ? `` : successTone(b) === `warn` ? `text-yellow-400` : `text-destructive`}`}
             >
               {pct(b.successRate)}
             </div>
             <div className="text-right">{ms(b.p50FirstFrameMs)}</div>
-            <div className={`text-right ${p95Tone(b) === `ok` ? `` : `text-amber-400`}`}>
+            <div className={`text-right ${p95Tone(b) === `ok` ? `` : `text-yellow-400`}`}>
               {ms(b.p95FirstFrameMs)}
             </div>
             <div className="text-right">{pct(b.fallbackRate)}</div>

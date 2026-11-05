@@ -49,8 +49,8 @@ describe(`ChatList`, () => {
     const row = { ...rows[1]!, unreadCount: 2 }
     render(<ChatList rows={[row]} />)
     const painted = screen.getByTestId(ids.chatRow)
-    expect(painted.querySelector(`[data-slot=chat-unread]`)!.className).toContain(`bg-amber-400`)
-    expect(painted.querySelector(`.text-amber-400`)?.textContent).toBe(`09:10`)
+    expect(painted.querySelector(`[data-slot=chat-unread]`)!.className).toContain(`bg-yellow-400`)
+    expect(painted.querySelector(`.text-yellow-400`)?.textContent).toBe(`09:10`)
   })
 
   it(`S-3: dims a done chat as a whole at shell.dimOpacity`, () => {

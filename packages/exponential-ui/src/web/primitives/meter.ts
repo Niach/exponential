@@ -16,7 +16,7 @@ export const METER_CLASSES = {
   root: `h-1.5 bg-glass-stroke-strong`,
   tones: {
     normal: `[&_[data-slot=progress-indicator]]:bg-foreground/30`,
-    warning: `[&_[data-slot=progress-indicator]]:bg-amber-500`,
+    warning: `[&_[data-slot=progress-indicator]]:bg-yellow-400`,
     danger: `[&_[data-slot=progress-indicator]]:bg-destructive`,
   } satisfies Record<MeterTone, string>,
 } as const

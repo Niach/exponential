@@ -39,7 +39,7 @@ export function ChatHeaderTitle({
   needsYouWord: string
 }) {
   const word = needsYou ? needsYouWord : busy ? CHATS_COPY.preview.working : null
-  const tone = needsYou ? `text-amber-400` : busy ? `text-foreground` : `text-muted-foreground`
+  const tone = needsYou ? `text-yellow-400` : busy ? `text-foreground` : `text-muted-foreground`
   const parts = [word, device].filter(Boolean).join(` · `)
   return (
     <PhoneHeaderTitle

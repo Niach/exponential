@@ -188,7 +188,7 @@ export function TeamBillingSection({
         />
         <div className="space-y-3">
           {pendingCancel && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-2 text-sm">
               <p className="text-muted-foreground">
                 {periodEndLabel
                   ? `This subscription ends on ${periodEndLabel}. The team drops to Free after that.`
@@ -223,8 +223,8 @@ export function TeamBillingSection({
           />
 
           {seatsFull && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+            <div className="flex items-start gap-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-2 text-sm">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-yellow-400" />
               <div className="space-y-1.5">
                 <p className="text-muted-foreground">
                   {usage.members > limits.seats

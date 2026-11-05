@@ -979,7 +979,7 @@ export function DeviceSettingsDialog({
                           {version ? `v${version}` : `Version unknown`}
                         </div>
                         {outdated && (
-                          <div className="truncate text-xs text-amber-500">
+                          <div className="truncate text-xs text-yellow-400">
                             Update available: v{latestVersion}
                           </div>
                         )}
@@ -990,7 +990,7 @@ export function DeviceSettingsDialog({
                             variant="ghost"
                             size="sm"
                             className={
-                              outdated ? `text-amber-500` : `text-muted-foreground`
+                              outdated ? `text-yellow-400` : `text-muted-foreground`
                             }
                             disabled={updateQueued}
                             pending={
@@ -1035,7 +1035,7 @@ export function DeviceSettingsDialog({
                   )}
                 </GlassGroup>
                 {updateQueued && (
-                  <p className="px-1 text-xs text-amber-500">
+                  <p className="px-1 text-xs text-yellow-400">
                     {QUEUED_UPDATE_TOOLTIP}
                   </p>
                 )}

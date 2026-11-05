@@ -91,11 +91,11 @@ export function ReadinessCaption({
     <Button
       variant="text"
       size="inline"
-      className={cn(`min-w-0 gap-1.5 text-amber-400 hover:text-amber-300`, className)}
+      className={cn(`min-w-0 gap-1.5 text-yellow-400 hover:text-yellow-400`, className)}
       onClick={onClick}
       data-testid="coding-readiness-caption"
     >
-      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-amber-400" />
+      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-yellow-400" />
       <span className="truncate">{caption}</span>
     </Button>
   )
@@ -140,7 +140,7 @@ export function ReadinessStartPill({
       className={cn(
         readiness.loading && `pointer-events-none`,
         notReady &&
-          `border-dashed border-amber-400/60 bg-transparent text-foreground/70 [&_svg]:text-muted-foreground`,
+          `border-dashed border-yellow-400/60 bg-transparent text-foreground/70 [&_svg]:text-muted-foreground`,
         className
       )}
       onClick={readiness.loading ? undefined : onClick}

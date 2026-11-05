@@ -180,7 +180,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                         // Legacy pre-EXP-209 config: empty allowlist is now
                         // denied at serve time, so the widget is dead until
                         // domains are added.
-                        <span className="text-amber-500">
+                        <span className="text-yellow-400">
                           Widget blocked: no allowed domains
                         </span>
                       ) : (

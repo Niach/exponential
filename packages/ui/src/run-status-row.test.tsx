@@ -43,7 +43,7 @@ describe(`RunStatusRow`, () => {
       />
     )
     expect(document.querySelector(`[data-slot="run-status-tool"]`)).toBeNull()
-    expect(screen.getByText(`Needs input · Mac`).className).toContain(`text-amber-400`)
+    expect(screen.getByText(`Needs input · Mac`).className).toContain(`text-yellow-400`)
     expect(screen.getByTestId(`run-status-row`).getAttribute(`data-show-work`)).toBe(`true`)
     expect(screen.getByRole(`button`, { name: `Hide work` })).toBeTruthy()
   })

@@ -11,7 +11,7 @@ export type StatTone = `ok` | `warn` | `bad`
 
 const TONE_CLASS: Record<StatTone, string> = {
   ok: ``,
-  warn: `text-amber-400`,
+  warn: `text-yellow-400`,
   bad: `text-destructive`,
 }
 

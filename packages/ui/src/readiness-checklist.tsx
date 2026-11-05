@@ -36,7 +36,7 @@ export interface ReadinessRowProps {
 const CheckIcon = conceptIcon(`ui-check`)
 
 /** The amber the whole not-ready language shares (dot, capsule, ring). */
-export const READINESS_AMBER = `var(--color-amber-400)`
+export const READINESS_AMBER = `var(--color-yellow-400)`
 
 export function ReadinessRowGlyph({
   icon: Glyph,
@@ -57,7 +57,7 @@ export function ReadinessRowGlyph({
       className={cn(
         `flex size-7 shrink-0 items-center justify-center rounded-full border-[1.5px]`,
         state === `current`
-          ? `border-amber-400 text-amber-400`
+          ? `border-yellow-400 text-yellow-400`
           : `border-dashed border-muted-foreground/50 text-muted-foreground`
       )}
     >
@@ -83,7 +83,7 @@ export function ReadinessRow({
       className={cn(
         `flex gap-3 px-4 py-3`,
         state === `met` ? `items-center` : `items-start`,
-        state === `current` && `bg-amber-400/[0.06]`,
+        state === `current` && `bg-yellow-400/[0.06]`,
         className
       )}
     >
@@ -182,7 +182,7 @@ export function ReadinessProgress({
             state === `met`
               ? `bg-emerald-400`
               : state === `current`
-                ? `bg-amber-400`
+                ? `bg-yellow-400`
                 : `bg-glass-stroke-strong`
           )}
         />

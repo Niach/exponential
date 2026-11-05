@@ -45,7 +45,7 @@ const DEVICE = { icon: getDeviceIcon({ kind: `desktop` }), name: `Alex's MacBook
 const PrivateIcon = conceptIcon(`ui-private`)
 
 const STATUS = [
-  { icon: SEMANTIC_ICONS[`status-in-progress`], colorClass: `text-amber-400` },
+  { icon: SEMANTIC_ICONS[`status-in-progress`], colorClass: `text-yellow-400` },
   { icon: SEMANTIC_ICONS[`status-backlog`], colorClass: `text-muted-foreground` },
 ] as const
 
