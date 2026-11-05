@@ -104,21 +104,38 @@ fun steerShowConnectionLost(
     minFailedRedials: Int = STEER_LOST_FAILED_REDIALS,
 ): Boolean = downMs >= graceMs && failedRedials >= minFailedRedials
 
-/** EXP-1487: what an empty transcript says while NO FEED holds (fixtures/steer-enet.json `noFeed`). */
-enum class SteerNoFeedState { Offline, Starting, Idle }
+/** EXP-1487: what an empty transcript says while NO FEED holds (fixtures/steer-enet.json `noFeed`);
+ *  #EXP-1703: [Away] = a live row whose device is offline. */
+enum class SteerNoFeedState { Offline, Away, Starting, Idle }
 
 /** EXP-1487: fixtures/steer-enet.json `noFeedIdle` (the fixture test pins them). */
 internal const val STEER_NO_FEED_IDLE_TITLE = "No live transcript"
 internal const val STEER_NO_FEED_IDLE_TEXT =
     "The device holding this session isn't publishing right now. Its conversation stays in the chat."
 
+/** #EXP-1703: fixtures/steer-enet.json `noFeedAway` (the fixture test pins them). */
+internal const val STEER_NO_FEED_AWAY_TITLE = "{device} is offline"
+internal const val STEER_NO_FEED_AWAY_TEXT = "This session continues when it's back. Its transcript loads then."
+internal const val STEER_NO_FEED_AWAY_DEVICE = "Its device"
+
+/** #EXP-1703: the empty state of a live row whose device is offline. */
+data class SteerNoFeedAway(val title: String, val text: String)
+
+/** #EXP-1703 (TS `steerNoFeedAway`): [deviceName] null/empty = "Its device". */
+fun steerNoFeedAway(deviceName: String?): SteerNoFeedAway = SteerNoFeedAway(
+    title = STEER_NO_FEED_AWAY_TITLE.replace("{device}", deviceName?.takeIf { it.isNotEmpty() } ?: STEER_NO_FEED_AWAY_DEVICE),
+    text = STEER_NO_FEED_AWAY_TEXT,
+)
+
 /**
  * EXP-1487 (fixtures/steer-enet.json "NO FEED, EMPTY TRANSCRIPT"): an ended
- * row = the device-offline copy, a busy row = starting, anything else (idle,
- * waiting on a question) = the idle empty state, never "starting".
+ * row = the device-offline copy; #EXP-1703: a live row whose device is
+ * offline ([deviceOffline]) = away; a busy row = starting, anything else
+ * (idle, waiting on a question) = the idle empty state, never "starting".
  */
-fun steerNoFeedState(ended: Boolean, busy: Boolean): SteerNoFeedState = when {
+fun steerNoFeedState(ended: Boolean, busy: Boolean, deviceOffline: Boolean = false): SteerNoFeedState = when {
     ended -> SteerNoFeedState.Offline
+    deviceOffline -> SteerNoFeedState.Away
     busy -> SteerNoFeedState.Starting
     else -> SteerNoFeedState.Idle
 }

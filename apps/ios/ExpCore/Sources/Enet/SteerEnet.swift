@@ -556,21 +556,34 @@ public enum SteerLostBanner {
 
 /// NO FEED, EMPTY TRANSCRIPT (EXP-1487, the fixture's `noFeed` cases +
 /// `noFeedIdle`): what a viewer with nothing to show says while NO FEED
-/// holds, keyed on the synced row. An ended row = the device-offline copy; a
-/// busy row = `starting`; a row that is neither (idle, or waiting on an open
+/// holds, keyed on the synced row. An ended row = the device-offline copy;
+/// #EXP-1703: a live row whose device is offline = `away`; a busy row =
+/// `starting`; a row that is neither (idle, or waiting on an open
 /// question) is never `starting`: the `idle` empty state (no spinner) while
 /// it keeps redialing on its backoff.
 public enum SteerNoFeed {
     public enum State: String, Equatable, Sendable {
-        case offline, starting, idle
+        case offline, away, starting, idle
     }
 
     /// `noFeedIdle.title` / `noFeedIdle.text`.
     public static let idleTitle = "No live transcript"
     public static let idleText = "The device holding this session isn't publishing right now. Its conversation stays in the chat."
 
-    public static func state(ended: Bool, busy: Bool) -> State {
+    /// #EXP-1703: `noFeedAway` — `{device}` = the device's name (nil/empty
+    /// = `awayDevice`).
+    public static let awayTitle = "{device} is offline"
+    public static let awayText = "This session continues when it's back. Its transcript loads then."
+    public static let awayDevice = "Its device"
+
+    public static func away(deviceName: String?) -> (title: String, text: String) {
+        let device = (deviceName ?? "").isEmpty ? awayDevice : deviceName ?? ""
+        return (awayTitle.replacingOccurrences(of: "{device}", with: device), awayText)
+    }
+
+    public static func state(ended: Bool, busy: Bool, deviceOffline: Bool = false) -> State {
         if ended { return .offline }
+        if deviceOffline { return .away }
         return busy ? .starting : .idle
     }
 }

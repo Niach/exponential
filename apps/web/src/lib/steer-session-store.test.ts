@@ -497,6 +497,30 @@ describe(`connection lifecycle`, () => {
     store.dispose()
   })
 
+  it(`#EXP-1703: no feed on a live row whose device is away redials every staleMs, not on the backoff`, async () => {
+    let reachable = false
+    let dials = 0
+    const { store, sockets } = makeStore({
+      feed: () => {
+        dials++
+        return reachable
+      },
+    })
+    store.noteSessionStatus(`idle`)
+    store.noteHostOffline(true)
+    store.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().phase).toEqual({ kind: `starting` })
+    const first = dials
+    // The starting backoff would have redialled several times by now.
+    await vi.advanceTimersByTimeAsync(STEER_ENET_STALE_MS - 100)
+    expect(dials).toBe(first)
+    reachable = true
+    await vi.advanceTimersByTimeAsync(200)
+    expect(sockets).toHaveLength(1)
+    store.dispose()
+  })
+
   it(`no feed on an ended row = ended with the device-offline copy`, async () => {
     const openFeed = vi.fn(async () => null)
     const store = createSteerSessionStore(`session-1`, { openFeed })

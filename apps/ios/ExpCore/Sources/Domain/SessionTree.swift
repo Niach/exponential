@@ -25,12 +25,18 @@ public struct TreeSessionBlocked: Equatable, Sendable {
     /// EXP-1374: an interruption (`device_offline`, `restarted`) of a run
     /// that was mid-turn: its device continues it by itself when back.
     public let resume: Bool?
+    /// EXP-1374: since when its device could continue it (nil = never back).
+    public let resumeSince: String?
 
-    public init(kind: String? = nil, window: String? = nil, resetsAt: String? = nil, resume: Bool? = nil) {
+    public init(
+        kind: String? = nil, window: String? = nil, resetsAt: String? = nil, resume: Bool? = nil,
+        resumeSince: String? = nil
+    ) {
         self.kind = kind
         self.window = window
         self.resetsAt = resetsAt
         self.resume = resume
+        self.resumeSince = resumeSince
     }
 
     /// The synced jsonb TEXT; nil, `null` or a non-object = not walled.
@@ -40,7 +46,8 @@ public struct TreeSessionBlocked: Equatable, Sendable {
             kind: object["kind"] as? String,
             window: object["window"] as? String,
             resetsAt: object["resetsAt"] as? String,
-            resume: object["resume"] as? Bool
+            resume: object["resume"] as? Bool,
+            resumeSince: object["resumeSince"] as? String
         )
     }
 }
@@ -733,19 +740,20 @@ public struct SessionCard: Equatable, Sendable {
     }
 }
 
-/// EXP-1374: the Dock card of a background session and (#EXP-1405) of a
-/// queued one (a dock.json `banner` source without its `kind`;
-/// `SessionTree.sessionBanner`). S-3: an interruption has no card.
+/// EXP-1374: the Dock card of a background session, (#EXP-1405) of a
+/// queued one and (#EXP-1703) of one whose device stayed away (a dock.json
+/// `banner` source without its `kind`; `SessionTree.sessionBanner`). S-3: a
+/// plain interruption has no card.
 public struct SessionBanner: Equatable, Sendable {
-    /// `background` | `queued`.
+    /// `background` | `queued` | `offline`.
     public let id: String
     /// Concept name.
     public let icon: String
     public let label: String
     public let text: String
-    /// Always `muted`.
+    /// `muted`, or `warning` (#EXP-1703: `offline`).
     public let tone: String
-    /// Always nil (no button).
+    /// #EXP-1703: `Move` opens the device-move picker; nil = no button.
     public let action: String?
 
     public init(id: String, icon: String, label: String, text: String, tone: String, action: String?) {
@@ -1178,6 +1186,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     /// EXP-1323: bold title (the tree's newest agent message is newer than
     /// the viewer's read of the root).
     public let unread: Bool
+    /// #EXP-1703: `SessionTree.treeOffline` of a needs-you tree (the word
+    /// reads `device offline`); false otherwise.
+    public let offline: Bool
 
     public var id: String { sessionId }
 
@@ -1192,9 +1203,11 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         needsYou: Bool,
         unread: Bool = false,
         activityAt: String,
-        deviceId: String? = nil
+        deviceId: String? = nil,
+        offline: Bool = false
     ) {
         self.deviceId = deviceId
+        self.offline = offline
         self.depth = depth
         self.parentId = parentId
         self.rootId = rootId ?? sessionId
@@ -1243,6 +1256,8 @@ public enum ThreadRowWord: String, Equatable, Sendable, CaseIterable {
     case stack
     case readyToMerge
     case merged
+    /// #EXP-1703: on a person only because its device stayed away.
+    case offline
     case question
     /// An agent row waiting on a person.
     case needsInput
@@ -1253,6 +1268,7 @@ public enum ThreadRowWord: String, Equatable, Sendable, CaseIterable {
         case .readyToMerge: "ready to merge"
         case .stack: "stack"
         case .merged: nil
+        case .offline: "device offline"
         case .question: "question"
         case .needsInput: "needs input"
         }
@@ -1368,20 +1384,30 @@ public enum SessionTree {
             "stuck": "Stuck",
             // EXP-1536: a failed start reads as failed, never Idle.
             "start_failed": "Couldn't start",
+            // #EXP-1703: a device that stays away.
+            "device_offline": "Device offline",
         ]
         /// S-3: `bannerIcons` / `bannerLabels` / `banner` per banner id.
         public static let bannerIcons: [String: String] = [
             "background": "trace-background",
             "queued": "ui-clock",
+            "offline": "ui-device-offline",
         ]
         public static let bannerLabels: [String: String] = [
             "background": "Background task",
             "queued": "Queued",
+            "offline": "Device offline",
         ]
         public static let banner: [String: String] = [
             "background": "The turn is over; background tasks still run on its device.",
             "queued": "Waiting for its device to pick it up. It starts by itself once the device is online.",
+            "offline": "{device} is offline. This session continues when it's back.",
         ]
+        /// #EXP-1703: `bannerActions` + `bannerDevice` (an unknown device's name).
+        public static let bannerActions: [String: String] = [
+            "offline": "Move",
+        ]
+        public static let bannerDevice = "Its device"
     }
 
     /// fixtures/session-thread.json `copy` + `testIds` (titles: `SessionTitle`).
@@ -1597,16 +1623,40 @@ public enum SessionTree {
     /// `sessionKindWord`.
     public static func sessionKindWord(_ session: TreeSession, state: SessionState) -> String {
         if state == .needsYou, let kind = session.blocked?.kind, let word = CardCopy.blockedKinds[kind] {
+            // #EXP-1703: `device_offline` names it only while the device is away.
+            if kind == "device_offline", !(session.blocked?.resumeSince ?? "").isEmpty { return state.word }
             return word
         }
         return state.word
+    }
+
+    /// #EXP-1703: on a person because its device stayed away (#EXP-1675): it
+    /// needs you, its flag is `device_offline` and its device never came
+    /// back. Web `sessionOffline`.
+    public static func sessionOffline(_ session: TreeSession) -> Bool {
+        session.status != "ended" && session.needsInput
+            && session.blocked?.kind == "device_offline"
+            && (session.blocked?.resumeSince ?? "").isEmpty
     }
 
     /// EXP-1374: the Dock card of a background session and (#EXP-1405) of a
     /// queued one waiting for its device (a dock.json `banner` source;
     /// session-card.json `bannerCases`), nil otherwise. S-3: an interruption
     /// has no card. Web `sessionBanner`.
-    public static func sessionBanner(_ session: TreeSession) -> SessionBanner? {
+    public static func sessionBanner(_ session: TreeSession, deviceName: String? = nil) -> SessionBanner? {
+        // #EXP-1703: a device that stayed away names itself, with Move.
+        if sessionOffline(session) {
+            let id = "offline"
+            let device = (deviceName ?? "").isEmpty ? CardCopy.bannerDevice : deviceName ?? ""
+            return SessionBanner(
+                id: id,
+                icon: CardCopy.bannerIcons[id] ?? "",
+                label: CardCopy.bannerLabels[id] ?? "",
+                text: (CardCopy.banner[id] ?? "").replacingOccurrences(of: "{device}", with: device),
+                tone: "warning",
+                action: CardCopy.bannerActions[id]
+            )
+        }
         if session.status == "ended" || session.needsInput { return nil }
         let id: String
         if session.status == "queued" {
@@ -2056,7 +2106,8 @@ public enum SessionTree {
                 needsYou: needsYou,
                 unread: unread(newestAgentInTree[root.id], root.id),
                 activityAt: activity,
-                deviceId: root.deviceId
+                deviceId: root.deviceId,
+                offline: needsYou && treeOffline(tree)
             )
             // #EXP-1461 (owner 2026-10-30: 'only the root ones'): a row is a
             // ROOT, never a child; the tree's state rolls up into it.
@@ -2245,20 +2296,23 @@ public enum SessionTree {
     /// EXP-1309/1318: ONE quiet trailing word for a Threads row ×4 (the lock
     /// rides beside it): an open PR in a stack → `stack`; an open PR while
     /// nothing works → `readyToMerge` (working = no word); no open PR but a
-    /// merged one → `merged`; else waiting on a person → `question`; else
-    /// none. Fixture `wordCases`.
+    /// merged one → `merged`; else waiting on a person → `offline`
+    /// (#EXP-1703: only because its device stayed away, `treeOffline`) or
+    /// `question`; else none. Fixture `wordCases`.
     public static func threadRowWord(
         prStates: [String],
         busy: Bool,
         needsYou: Bool,
-        inStack: Bool
+        inStack: Bool,
+        offline: Bool = false
     ) -> ThreadRowWord? {
         if prStates.contains(DomainContract.prStateOpen) {
             if inStack { return .stack }
             return busy ? nil : .readyToMerge
         }
         if prStates.contains(DomainContract.prStateMerged) { return .merged }
-        return needsYou ? .question : nil
+        if needsYou { return offline ? .offline : .question }
+        return nil
     }
 
     /// The synced-row form: `prs` = the root's own pull requests, `teamPrs`
@@ -2267,14 +2321,24 @@ public enum SessionTree {
         busy: Bool,
         needsYou: Bool,
         prs: [PullRequestEntity],
-        teamPrs: [PullRequestEntity]
+        teamPrs: [PullRequestEntity],
+        offline: Bool = false
     ) -> ThreadRowWord? {
         threadRowWord(
             prStates: prs.map(\.state),
             busy: busy,
             needsYou: needsYou,
-            inStack: threadInStack(prs.map(StackPr.init), teamPrs: teamPrs.map(StackPr.init))
+            inStack: threadInStack(prs.map(StackPr.init), teamPrs: teamPrs.map(StackPr.init)),
+            offline: offline
         )
+    }
+
+    /// #EXP-1703: a tree on a person ONLY because its device stayed away:
+    /// some live session needs you and every one that does is
+    /// `sessionOffline`. Fixture `offlineCases`.
+    public static func treeOffline(_ tree: [TreeSession]) -> Bool {
+        let waiting = tree.filter { $0.status != "ended" && $0.needsInput }
+        return !waiting.isEmpty && waiting.allSatisfy(sessionOffline)
     }
 
     /// The rail's Active band (`ListCopy.rail`): every Needs you row, every

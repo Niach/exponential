@@ -43,6 +43,8 @@ object SessionTree {
         val resetsAt: String? = null,
         val kind: String? = null,
         val resume: Boolean? = null,
+        /** EXP-1374: since when its device could continue it (null = never back). */
+        val resumeSince: String? = null,
     )
 
     data class GuideEntry(val text: String? = null, val label: String? = null)
@@ -170,14 +172,24 @@ object SessionTree {
             "stuck" to "Stuck",
             // EXP-1536: a failed start reads as failed, never Idle.
             "start_failed" to "Couldn't start",
+            // #EXP-1703: a device that stayed away.
+            "device_offline" to "Device offline",
         )
         /** EXP-1374 `banner.background`. */
         const val BANNER_BACKGROUND = "The turn is over; background tasks still run on its device."
         /** #EXP-1405 `banner.queued`. */
         const val BANNER_QUEUED = "Waiting for its device to pick it up. It starts by itself once the device is online."
         /** S-3 `bannerIcons` / `bannerLabels`, by banner id. */
-        val BANNER_ICONS: Map<String, String> = mapOf("background" to "trace-background", "queued" to "ui-clock")
-        val BANNER_LABELS: Map<String, String> = mapOf("background" to "Background task", "queued" to "Queued")
+        val BANNER_ICONS: Map<String, String> =
+            mapOf("background" to "trace-background", "queued" to "ui-clock", "offline" to "ui-device-offline")
+        val BANNER_LABELS: Map<String, String> =
+            mapOf("background" to "Background task", "queued" to "Queued", "offline" to "Device offline")
+        /** #EXP-1703 `banner.offline` ({device} = the host's name, else [BANNER_DEVICE]). */
+        const val BANNER_OFFLINE = "{device} is offline. This session continues when it's back."
+        /** #EXP-1703 `bannerActions`. */
+        val BANNER_ACTIONS: Map<String, String> = mapOf("offline" to "Move")
+        /** #EXP-1703 `bannerDevice`. */
+        const val BANNER_DEVICE = "Its device"
     }
 
     object ThreadCopy {
@@ -401,6 +413,10 @@ object SessionTree {
      */
     fun sessionKindWord(session: Session, state: SessionState): String {
         if (state == SessionState.NeedsYou) {
+            // #EXP-1703: `device_offline` names it only while the device is away.
+            if (session.blocked?.kind == "device_offline" && !session.blocked?.resumeSince.isNullOrEmpty()) {
+                return CardCopy.STATES.getValue(state)
+            }
             session.blocked?.kind?.let { kind -> CardCopy.BLOCKED_KINDS[kind] }?.let { return it }
         }
         return CardCopy.STATES.getValue(state)
@@ -435,7 +451,7 @@ object SessionTree {
      *  its `kind`); [tone] is always `muted`, [action] always null. S-3: an
      *  interruption has no card. */
     data class SessionBanner(
-        /** `background` | `queued`. */
+        /** `background` | `queued` | `offline`. */
         val id: String,
         /** Concept icon. */
         val icon: String,
@@ -446,12 +462,31 @@ object SessionTree {
     ) {
         /** The Dock source it draws as. */
         val source: Dock.Source.Banner
-            get() = Dock.Source.Banner(id, icon, label, text, Dock.Tint.Muted, action)
+            get() = Dock.Source.Banner(id, icon, label, text, if (tone == "warning") Dock.Tint.Warning else Dock.Tint.Muted, action)
     }
+
+    /** #EXP-1703 (TS `sessionOffline`): on a person because its device stayed
+     *  away: it needs you, its flag is `device_offline`, its device never came back. */
+    fun sessionOffline(session: Session): Boolean =
+        session.status != DomainContract.sessionStatusEnded &&
+            session.needsInput &&
+            session.blocked?.kind == "device_offline" &&
+            session.blocked?.resumeSince.isNullOrEmpty()
 
     /** EXP-1374 (TS `sessionBanner`): null unless background or (#EXP-1405)
      *  queued, waiting for its device; never once ended or needing you. */
-    fun sessionBanner(session: Session): SessionBanner? {
+    fun sessionBanner(session: Session, deviceName: String? = null): SessionBanner? {
+        // #EXP-1703: a device that stayed away names itself, with Move.
+        if (sessionOffline(session)) {
+            return SessionBanner(
+                id = "offline",
+                icon = CardCopy.BANNER_ICONS.getValue("offline"),
+                label = CardCopy.BANNER_LABELS.getValue("offline"),
+                text = CardCopy.BANNER_OFFLINE.replace("{device}", deviceName?.takeIf { it.isNotEmpty() } ?: CardCopy.BANNER_DEVICE),
+                tone = "warning",
+                action = CardCopy.BANNER_ACTIONS.getValue("offline"),
+            )
+        }
         if (session.status == DomainContract.sessionStatusEnded || session.needsInput) return null
         val (id, text) = when {
             session.status == DomainContract.sessionStatusQueued -> "queued" to CardCopy.BANNER_QUEUED
@@ -1280,6 +1315,8 @@ object SessionTree {
         /** EXP-1323: bold title (the tree's newest agent message is newer
          *  than the viewer's read of the root). */
         val unread: Boolean = false,
+        /** #EXP-1703: [treeOffline] (the fixture sets it only when true). */
+        val offline: Boolean = false,
     )
 
     data class ThreadsListGroup(val key: ThreadsGroupKey, val title: String, val rows: List<ThreadsListRow>)
@@ -1353,6 +1390,7 @@ object SessionTree {
                 parentId = null,
                 rootId = root.id,
                 unread = unreadAt(newestAgentInTree[root.id], root.id),
+                offline = needsYou && treeOffline(tree),
             )
             // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
             // child sessions, only the root ones'): a row is a ROOT, never a
@@ -1630,6 +1668,9 @@ object SessionTree {
         Stack("stack", "stack"),
         ReadyToMerge("readyToMerge", "ready to merge"),
         Merged("merged", null),
+
+        /** #EXP-1703: on a person only because its device stayed away. */
+        Offline("offline", "device offline"),
         Question("question", "question"),
 
         /** An agent row waiting on a person. */
@@ -1656,16 +1697,32 @@ object SessionTree {
      * Word order (`wordCases`): an open PR in a stack → [ThreadRowWord.Stack];
      * an open PR while nothing works → [ThreadRowWord.ReadyToMerge] (working =
      * no word); no open PR but a merged one → [ThreadRowWord.Merged]; else
-     * waiting on a person → [ThreadRowWord.Question]; else none. [states] =
-     * the root's PR states.
+     * waiting on a person → [ThreadRowWord.Question] (#EXP-1703: [offline] =
+     * [treeOffline] → [ThreadRowWord.Offline]); else none. [states] = the
+     * root's PR states.
      */
-    fun threadRowWord(states: List<String>, busy: Boolean, needsYou: Boolean, inStack: Boolean): ThreadRowWord? {
+    fun threadRowWord(
+        states: List<String>,
+        busy: Boolean,
+        needsYou: Boolean,
+        inStack: Boolean,
+        offline: Boolean = false,
+    ): ThreadRowWord? {
         if (states.any { it == DomainContract.prStateOpen }) {
             if (inStack) return ThreadRowWord.Stack
             return if (busy) null else ThreadRowWord.ReadyToMerge
         }
         if (states.any { it == DomainContract.prStateMerged }) return ThreadRowWord.Merged
-        return if (needsYou) ThreadRowWord.Question else null
+        if (needsYou) return if (offline) ThreadRowWord.Offline else ThreadRowWord.Question
+        return null
+    }
+
+    /** #EXP-1703 (TS `treeOffline`, `offlineCases`): a tree on a person ONLY
+     *  because its device stayed away: some live session needs you and every
+     *  one that does is [sessionOffline]. */
+    fun treeOffline(tree: List<Session>): Boolean {
+        val waiting = tree.filter { it.status != DomainContract.sessionStatusEnded && it.needsInput }
+        return waiting.isNotEmpty() && waiting.all(::sessionOffline)
     }
 
     private fun stackPr(row: PullRequestEntity) = StackPr(row.id, row.state, row.basePullRequestId)
@@ -1676,11 +1733,13 @@ object SessionTree {
         needsYou: Boolean,
         prs: List<PullRequestEntity>,
         teamPrs: List<PullRequestEntity> = prs,
+        offline: Boolean = false,
     ): ThreadRowWord? = threadRowWord(
         states = prs.map { it.state },
         busy = busy,
         needsYou = needsYou,
         inStack = threadInStack(prs.map(::stackPr), teamPrs.map(::stackPr)),
+        offline = offline,
     )
 
     /**
@@ -1742,7 +1801,7 @@ object SessionTree {
         busy = row.busy,
         needsInput = row.needsInput,
         blocked = parseObject(row.blocked)?.let {
-            Blocked(it.str("window"), it.str("resetsAt"), it.str("kind"), (it["resume"] as? JsonPrimitive)?.booleanOrNull)
+            Blocked(it.str("window"), it.str("resetsAt"), it.str("kind"), (it["resume"] as? JsonPrimitive)?.booleanOrNull, it.str("resumeSince"))
         },
         shared = row.shared,
         title = row.title,

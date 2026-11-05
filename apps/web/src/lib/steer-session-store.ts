@@ -772,6 +772,9 @@ export interface SteerSessionStore {
   noteSessionStatus(status: SessionStatus): void
   /** EXP-773: the host machine's label, for the history phases' copy. */
   noteDeviceLabel(label: string | null): void
+  /** #EXP-1703: the host device is offline in presence (the synced devices
+   *  row): a live row's NO FEED redials on the device-offline cadence. */
+  noteHostOffline(offline: boolean): void
   sendMessage(text: string): boolean
   answerQuestion(
     item: QuestionItem,
@@ -866,6 +869,10 @@ export function createSteerSessionStore(
    *  ended row), which keeps redialing: the stale timer, a wakeup, the
    *  device's presence flip online (fixtures/steer-enet.json OFFLINE REDIAL). */
   let deviceOffline = false
+  /** #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): the owning view's
+   *  presence read of the host; a live row's NO FEED then redials every
+   *  `staleMs` (and on the presence flip online), not on the backoff. */
+  let hostOffline = false
   let replayed = false
   /** VAPP-173: a redial's feed answered while the row still read ended, so
    *  the phase went `ended` from the ROW, not from `bye`: the row flipping
@@ -1965,6 +1972,15 @@ export function createSteerSessionStore(
     }, STEER_ENET_STALE_MS)
   }
 
+  /** #EXP-1703: a live row on an away device redials on the same cadence. */
+  const scheduleAwayRedial = () => {
+    clearRetryTimer()
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      if (steerOfflineRedial(`offline`, `staleTimer`)) void dial(true)
+    }, STEER_ENET_STALE_MS)
+  }
+
   const dial = async (retrying: boolean) => {
     if (disposed) return
     const gen = ++generation
@@ -2037,7 +2053,8 @@ export function createSteerSessionStore(
       } else {
         phase = { kind: `starting` }
         commit()
-        scheduleRedial()
+        if (hostOffline) scheduleAwayRedial()
+        else scheduleRedial()
       }
       return
     }
@@ -2428,6 +2445,9 @@ export function createSteerSessionStore(
     },
     noteDeviceLabel(label) {
       deviceLabel = label
+    },
+    noteHostOffline(offline) {
+      hostOffline = offline
     },
     /**
      * Send one message to the agent: the text, then a SEPARATE `\r` frame —

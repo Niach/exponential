@@ -192,12 +192,24 @@ class SteerEnetTest {
         val idle = fixture["noFeedIdle"]!!.jsonObject
         assertEquals(idle["title"]!!.jsonPrimitive.content, STEER_NO_FEED_IDLE_TITLE)
         assertEquals(idle["text"]!!.jsonPrimitive.content, STEER_NO_FEED_IDLE_TEXT)
+        // #EXP-1703: `noFeedAway`.
+        val away = fixture["noFeedAway"]!!.jsonObject
+        assertEquals(away["title"]!!.jsonPrimitive.content, STEER_NO_FEED_AWAY_TITLE)
+        assertEquals(away["text"]!!.jsonPrimitive.content, STEER_NO_FEED_AWAY_TEXT)
+        assertEquals(away["device"]!!.jsonPrimitive.content, STEER_NO_FEED_AWAY_DEVICE)
+        assertEquals(
+            SteerNoFeedAway("macbook is offline", away["text"]!!.jsonPrimitive.content),
+            steerNoFeedAway("macbook"),
+        )
+        assertEquals("Its device is offline", steerNoFeedAway(null).title)
+        assertEquals("Its device is offline", steerNoFeedAway("").title)
         val cases = fixture["noFeed"]!!.jsonArray
         assertTrue(cases.isNotEmpty())
         cases.forEach { element ->
             val case = element.jsonObject
             val expected = when (val state = case["state"]!!.jsonPrimitive.content) {
                 "offline" -> SteerNoFeedState.Offline
+                "away" -> SteerNoFeedState.Away
                 "starting" -> SteerNoFeedState.Starting
                 "idle" -> SteerNoFeedState.Idle
                 else -> error("unknown noFeed state $state")
@@ -208,6 +220,7 @@ class SteerEnetTest {
                 steerNoFeedState(
                     ended = case["ended"]!!.jsonPrimitive.boolean,
                     busy = case["busy"]!!.jsonPrimitive.boolean,
+                    deviceOffline = case["deviceOffline"]?.jsonPrimitive?.boolean ?: false,
                 ),
             )
         }

@@ -98,6 +98,7 @@ import { codeText } from "@exponential_app/eui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSessionDevice } from "@/hooks/use-session-device"
+import { SessionDeviceMoveButton } from "@/components/session-device-move"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
@@ -200,11 +201,12 @@ import {
   type ThreadRow,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
-import { STEER_ENET_NO_FEED_IDLE, steerNoFeedState } from "@exp/domain-contract/steer-enet"
+import { STEER_ENET_NO_FEED_IDLE, steerNoFeedAway, steerNoFeedState } from "@exp/domain-contract/steer-enet"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
+const DeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const EditorImageIcon = conceptIcon(`editor-image`)
@@ -527,6 +529,11 @@ export function AgentSessionView({
     () => store.noteDeviceLabel(device.label),
     [store, device.label]
   )
+  // #EXP-1703: an away host's live row redials on the device-offline cadence.
+  useEffect(
+    () => store.noteHostOffline(device.online === false && session.status !== `ended`),
+    [store, device.online, session.status]
+  )
   // A `closed` phase does not redial on its own: nudge the store once the
   // device flips back online (EXP-625 `kick`).
   const deviceOnline = device.online
@@ -774,6 +781,16 @@ export function AgentSessionView({
     feedPlaceholder &&
     phase.kind === `starting` &&
     steerNoFeedState({ ended: sessionEnded, busy: Boolean(session.busy) }) === `idle`
+  // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row whose host
+  // is offline says so at once, never "starting"; a cached feed shows instead.
+  const noFeedAway =
+    feedPlaceholder &&
+    phase.kind !== `live` &&
+    steerNoFeedState({
+      ended: sessionEnded,
+      busy: Boolean(session.busy),
+      deviceOffline: device.online === false,
+    }) === `away`
   const [stalled, setStalled] = useState(false)
   useEffect(() => {
     if (!waitingForRoom) {
@@ -831,7 +848,17 @@ export function AgentSessionView({
             )}
             style={edgeFadeStyle({ top: follow.scrolled, bottom: !isMobile })}
           >
-            {feedPlaceholder && starting ? (
+            {noFeedAway ? (
+              <CenteredState>
+                <div data-testid="transcript-device-away">
+                  <EmptyState
+                    icon={DeviceOfflineIcon}
+                    title={steerNoFeedAway(device.label).title}
+                    description={steerNoFeedAway(device.label).text}
+                  />
+                </div>
+              </CenteredState>
+            ) : feedPlaceholder && starting ? (
               /* N-11: no status row over the feed; before the first turn the
                  column holds the placeholder rows over "Starting on …". */
               <div
@@ -2021,7 +2048,8 @@ export function useSessionDock(
   const hostOffline = device.online === false && !sessionEnded
   // EXP-1374 (session-card.json `sessionBanner`): a queued or background run
   // says so (S-3: an interruption draws nothing).
-  const stateBanner = useMemo(() => sessionBanner(toTreeSession(session)), [session])
+  // #EXP-1703: a device that stayed away names itself, with Move.
+  const stateBanner = useMemo(() => sessionBanner(toTreeSession(session), device.label), [session, device.label])
   const blockedLabel = blockedBadgeLabel(session.blocked, now)
   // #EXP-1678: the root's own open Queue wins (no child stream at all).
   const rootOpen = useMemo(
@@ -2179,6 +2207,7 @@ export function useSessionDock(
       )
     }
     if (row.id === `banner:blocked` && row.action) return <SessionAccountSwitchButton session={session} />
+    if (row.id === `banner:offline` && row.action) return <SessionDeviceMoveButton session={session} label={row.action} />
     return agentHint.renderAction(row)
   }
   return { sources, renderSheet, renderAction }

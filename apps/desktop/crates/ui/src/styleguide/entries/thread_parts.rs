@@ -562,7 +562,7 @@ mod tests {
             .flat_map(|group| group.rows.iter())
             .filter(|row| row.depth == 0)
             .filter_map(|row| {
-                crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls)
+                crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, row.offline, &snapshot.pulls)
             })
             .map(ThreadRowWord::key)
             .collect();

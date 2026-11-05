@@ -133,16 +133,25 @@ export function steerShowConnectionLost(downMs: number, failedRedials: number): 
 
 export const STEER_ENET_NO_FEED_IDLE = fixture.noFeedIdle
 
+/** #EXP-1703: the empty state of a live row whose device is offline. */
+export function steerNoFeedAway(deviceName: string | null | undefined): { title: string; text: string } {
+  return {
+    title: fixture.noFeedAway.title.replace(`{device}`, deviceName || fixture.noFeedAway.device),
+    text: fixture.noFeedAway.text,
+  }
+}
+
 /** EXP-1487: what an empty transcript says while NO FEED holds. */
-export type SteerNoFeedState = `offline` | `starting` | `idle`
+export type SteerNoFeedState = `offline` | `away` | `starting` | `idle`
 
 /**
- * EXP-1487: an ended row = the device-offline copy, a busy row = starting,
- * anything else (idle, waiting on a question) = the idle empty state, never
- * "starting".
+ * EXP-1487: an ended row = the device-offline copy; #EXP-1703: a live row
+ * whose device is offline = `away`; a busy row = starting, anything else
+ * (idle, waiting on a question) = the idle empty state, never "starting".
  */
-export function steerNoFeedState(row: { ended: boolean; busy: boolean }): SteerNoFeedState {
+export function steerNoFeedState(row: { ended: boolean; busy: boolean; deviceOffline?: boolean }): SteerNoFeedState {
   if (row.ended) return `offline`
+  if (row.deviceOffline) return `away`
   return row.busy ? `starting` : `idle`
 }
 

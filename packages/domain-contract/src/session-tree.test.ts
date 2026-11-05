@@ -21,6 +21,7 @@ import {
   threadRowLeadPr,
   threadRowMarkState,
   threadRowWord,
+  treeOffline,
   threadsUnread,
   treeState,
   type ThreadStripMode,
@@ -47,7 +48,9 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   })
   for (const entry of card.bannerCases) {
     test(`session banner: ${entry.name}`, () => {
-      expect(sessionBanner(entry.session as never)).toEqual(entry.expected as never)
+      expect(sessionBanner(entry.session as never, (entry as { deviceName?: string | null }).deviceName ?? null)).toEqual(
+        entry.expected as never
+      )
     })
   }
   for (const entry of thread.cases) {
@@ -121,6 +124,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of list.wordCases) {
     test(`row word: ${entry.name}`, () => {
       expect(threadRowWord(entry.input)).toBe(entry.expected as never)
+    })
+  }
+  for (const entry of list.offlineCases) {
+    test(`tree offline: ${entry.name}`, () => {
+      expect(treeOffline(entry.tree as never)).toBe(entry.expected)
     })
   }
   for (const entry of list.stackCases) {

@@ -1024,7 +1024,7 @@ fn derive_chats_model(team_id: &str, groups: &[ThreadsListGroup], cx: &App) -> C
         .flat_map(|group| group.rows.iter())
         .filter(|row| row.depth == 0)
         .filter_map(|row| {
-            crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, &pulls)
+            crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, row.offline, &pulls)
                 .map(|word| (row.session_id.clone(), word))
         })
         .collect();
@@ -1281,7 +1281,7 @@ pub(crate) fn live_roots_from(
     team_pulls: &[PullRequestRow],
 ) -> Vec<LiveRootRow> {
     domain::session_tree::rail_threads(groups, |row| {
-        crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, team_pulls)
+        crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, row.offline, team_pulls)
     })
     .into_iter()
     .map(|row| {
@@ -1458,6 +1458,7 @@ mod tests {
                     needs_you: false,
                     unread: false,
                     activity_at: String::new(),
+                    offline: false,
                 })
                 .collect(),
         };
@@ -1496,6 +1497,7 @@ mod tests {
                 needs_you: false,
                 unread: false,
                 activity_at: String::new(),
+                offline: false,
             }],
         };
         assert_eq!(threads_badge_of(&[]), (false, false));

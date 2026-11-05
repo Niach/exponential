@@ -42,7 +42,7 @@ final class SessionTreeTests: XCTestCase {
         let blocked = (row["blocked"] as? [String: Any]).map {
             TreeSessionBlocked(
                 kind: $0["kind"] as? String, window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String,
-                resume: $0["resume"] as? Bool
+                resume: $0["resume"] as? Bool, resumeSince: $0["resumeSince"] as? String
             )
         }
         let guide = (row["guide"] as? [[String: Any]]).map { entries in
@@ -93,7 +93,8 @@ final class SessionTreeTests: XCTestCase {
             needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
             unread: (row["unread"] as? Bool) ?? false,
             activityAt: try XCTUnwrap(string(row["activityAt"])),
-            deviceId: string(row["deviceId"])
+            deviceId: string(row["deviceId"]),
+            offline: (row["offline"] as? Bool) ?? false
         )
     }
 
@@ -295,7 +296,7 @@ final class SessionTreeTests: XCTestCase {
             "key": group.key.rawValue,
             "title": group.title,
             "rows": group.rows.map { row -> [String: Any] in
-                [
+                var object: [String: Any] = [
                     "sessionId": row.sessionId,
                     "teamId": row.teamId,
                     "depth": row.depth,
@@ -308,6 +309,9 @@ final class SessionTreeTests: XCTestCase {
                     "activityAt": row.activityAt,
                     "deviceId": json(row.deviceId),
                 ]
+                // #EXP-1703: set only when it holds (absent = false).
+                if row.offline { object["offline"] = true }
+                return object
             },
         ]
     }
@@ -352,6 +356,9 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(fixture["banner"] as? [String: String], SessionTree.CardCopy.banner)
         XCTAssertEqual(fixture["bannerIcons"] as? [String: String], SessionTree.CardCopy.bannerIcons)
         XCTAssertEqual(fixture["bannerLabels"] as? [String: String], SessionTree.CardCopy.bannerLabels)
+        // #EXP-1703: the offline card's button and unknown-device name.
+        XCTAssertEqual(fixture["bannerActions"] as? [String: String], SessionTree.CardCopy.bannerActions)
+        XCTAssertEqual(fixture["bannerDevice"] as? String, SessionTree.CardCopy.bannerDevice)
     }
 
     func testSessionCardReplaysEveryCase() throws {
@@ -393,6 +400,11 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(try word(["kind": "stuck"]), "Stuck")
         XCTAssertEqual(try word(["kind": "start_failed"]), "Couldn't start")
         XCTAssertEqual(try word(["kind": "future_kind"]), SessionState.needsYou.word)
+        // #EXP-1703: a device back (resumeSince) no longer names the kind.
+        XCTAssertEqual(try word(["kind": "device_offline"]), "Device offline")
+        XCTAssertEqual(
+            try word(["kind": "device_offline", "resumeSince": "2026-10-13T10:07:00.000Z"]), SessionState.needsYou.word
+        )
         XCTAssertEqual(try word(["window": "weekly"]), SessionState.needsYou.word)
         row["needsInput"] = false
         XCTAssertEqual(try word(["kind": "device_offline"]), SessionState.idle.word)
@@ -400,6 +412,10 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"stuck"}"#)?.kind, "stuck")
         XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"restarted","resume":true}"#)?.resume, true)
         XCTAssertNil(TreeSessionBlocked.parse(#"{"kind":"restarted"}"#)?.resume)
+        XCTAssertEqual(
+            TreeSessionBlocked.parse(#"{"kind":"device_offline","resumeSince":"2026-10-13T10:07:00.000Z"}"#)?.resumeSince,
+            "2026-10-13T10:07:00.000Z"
+        )
     }
 
     /// EXP-1374: the Dock card of a background or queued session
@@ -416,7 +432,7 @@ final class SessionTreeTests: XCTestCase {
                 row[key] = value
             }
             if row["shared"] == nil { row["shared"] = true }
-            let banner = SessionTree.sessionBanner(try session(row))
+            let banner = SessionTree.sessionBanner(try session(row), deviceName: string(testCase["deviceName"]))
             assertJSON(json(banner), testCase["expected"], name)
         }
     }
@@ -755,9 +771,20 @@ final class SessionTreeTests: XCTestCase {
                 prStates: states,
                 busy: try XCTUnwrap(input["busy"] as? Bool),
                 needsYou: try XCTUnwrap(input["needsYou"] as? Bool),
-                inStack: try XCTUnwrap(input["inStack"] as? Bool)
+                inStack: try XCTUnwrap(input["inStack"] as? Bool),
+                offline: (input["offline"] as? Bool) ?? false
             )
             XCTAssertEqual(word?.rawValue, string(testCase["expected"]), name)
+        }
+    }
+
+    /// #EXP-1703: `offlineCases` — a tree on a person only because its
+    /// device stayed away.
+    func testTreeOfflineReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "offlineCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let tree = try XCTUnwrap(testCase["tree"] as? [Any]).map(session)
+            XCTAssertEqual(SessionTree.treeOffline(tree), try XCTUnwrap(testCase["expected"] as? Bool), name)
         }
     }
 
@@ -892,7 +919,7 @@ final class SessionTreeTests: XCTestCase {
         // Merged beats the question; a closed PR says nothing.
         XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: true, prs: [mergedBase], teamPrs: [mergedBase]), .merged)
         XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
-        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["stack", "ready to merge", nil, "question", "needs input"])
+        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["stack", "ready to merge", nil, "device offline", "question", "needs input"])
     }
 
     // MARK: - sealed-content.json `placeholder.rowCases` (EXP-1459)

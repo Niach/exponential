@@ -326,6 +326,8 @@ pub struct ViewerHandle {
     connected: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     session_ended: Arc<AtomicBool>,
+    /// #EXP-1703: the host device is offline in presence.
+    host_offline: Arc<AtomicBool>,
     carrier: Arc<AtomicU8>,
 }
 
@@ -458,6 +460,16 @@ impl ViewerHandle {
         self.session_ended.store(ended, Ordering::SeqCst);
     }
 
+    /// #EXP-1703 (`steer-enet.json` A DEVICE THAT IS AWAY, web
+    /// `noteHostOffline`): the host device is offline in presence (the synced
+    /// devices row; unknown = online). A live row's NO FEED then redials on
+    /// the device-offline cadence ([`ViewerTimings::offline_redial`], and at
+    /// once on a [`Self::kick`]: presence online, a wakeup), never on the
+    /// starting backoff.
+    pub fn note_host_offline(&self, offline: bool) {
+        self.host_offline.store(offline, Ordering::SeqCst);
+    }
+
     /// Close the connection for good (the tab closed, the app is signing
     /// out). Idempotent.
     pub fn shutdown(&self) {
@@ -565,6 +577,7 @@ pub fn spawn_viewer_with(
     let running = Arc::new(AtomicBool::new(true));
     let connected = Arc::new(AtomicBool::new(false));
     let session_ended = Arc::new(AtomicBool::new(false));
+    let host_offline = Arc::new(AtomicBool::new(false));
     let carrier = Arc::new(AtomicU8::new(0));
     let handle = ViewerHandle {
         cmd_tx,
@@ -572,6 +585,7 @@ pub fn spawn_viewer_with(
         connected: connected.clone(),
         running: running.clone(),
         session_ended: session_ended.clone(),
+        host_offline: host_offline.clone(),
         carrier: carrier.clone(),
     };
     runtime.handle().spawn(run_viewer_loop(
@@ -583,6 +597,7 @@ pub fn spawn_viewer_with(
         running,
         connected,
         session_ended,
+        host_offline,
         carrier,
     ));
     handle
@@ -736,6 +751,8 @@ struct Run {
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     session_ended: Arc<AtomicBool>,
+    /// #EXP-1703: [`ViewerHandle::note_host_offline`].
+    host_offline: Arc<AtomicBool>,
     carrier_flag: Arc<AtomicU8>,
     phases: Phases,
     backoff: Backoff,
@@ -767,6 +784,7 @@ async fn run_viewer_loop(
     running: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     session_ended: Arc<AtomicBool>,
+    host_offline: Arc<AtomicBool>,
     carrier_flag: Arc<AtomicU8>,
 ) {
     let (legs_tx, legs_rx) = flume::unbounded();
@@ -780,6 +798,7 @@ async fn run_viewer_loop(
         running,
         connected,
         session_ended,
+        host_offline,
         carrier_flag,
         carriers: CarrierState::INITIAL,
         enet_leg: None,
@@ -904,9 +923,11 @@ impl Run {
 
     /// The next eNet redial's wait: the `startingRetry` backoff (reset by a
     /// feed, see [`Run::apply`]). VAPP-169: under the device-offline copy
-    /// (both carriers failed, the row ended) the slow beat.
+    /// (both carriers failed, the row ended) the slow beat; #EXP-1703: so
+    /// does a live row's NO FEED while its host is offline in presence.
     fn redial_delay(&mut self) -> Duration {
-        if self.session_ended.load(Ordering::SeqCst) && self.relay_failed {
+        let away = self.session_ended.load(Ordering::SeqCst) || self.host_offline.load(Ordering::SeqCst);
+        if away && self.relay_failed {
             self.timings.offline_redial
         } else {
             self.backoff.next_delay_equal_jitter()
