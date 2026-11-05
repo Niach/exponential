@@ -42,7 +42,7 @@ mod add_repository_dialog;
 pub(crate) mod agent_detail;
 // VAPP-177: the app editor's Settings tab (rendered by the app screen).
 pub(crate) mod app_detail;
-mod app_mcp;
+pub(crate) mod app_mcp;
 mod new_agent;
 mod agents;
 mod agents_index;

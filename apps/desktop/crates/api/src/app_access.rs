@@ -4,10 +4,13 @@
 //! Verified against `apps/web/src/lib/trpc/app-access.ts`:
 //! - `appTools {appId}` (query, any member) → `{canToggle, tools:[{name,
 //!   title, access, via, enabled}], upstreams:[{name, serverId|null,
-//!   auth|null, state|null}], automations:[{name, on, tool, paused|null,
+//!   serverName|null, auth|null, state|null}], servers:[{id, name}] (#VAPP-254,
+//!   name order, empty for a member), automations:[{name, on, tool, paused|null,
 //!   lastRunAt, lastStatus|null, lastError, lastFailureAt}], hooks:[{name,
 //!   url, hasSecret, rotatedAt|null}], shares:[{name, mode, kind, state,
 //!   url|null, expiresAt|null}]}` (#VAPP-220, #VAPP-238, VAPP-241);
+//! - #VAPP-254: `setUpstreamMapping {appId, upstream, serverId|null}`
+//!   (mutation, owners) → `{ok: true}`;
 //! - #VAPP-238: `rotateHook {appId, name}` (mutation, owners) → `{name,
 //!   url, secret}` (the secret is shown once, never refetched);
 //! - VAPP-241: `setShareLink {appId, name, action: enable|rotate|revoke}`
@@ -41,20 +44,30 @@ pub struct AppTool {
     pub enabled: bool,
 }
 
-/// One upstream (a team MCP server by name) the app's tools call, with the
-/// caller's own connection. `server_id: None` = the team has no server of
-/// that name.
+/// One upstream the app's tools call (its DECLARED name), with the caller's
+/// own connection to the team server filling it (#VAPP-254: the app's mapping,
+/// else the server of exactly that name). `server_id: None` = nothing fills it.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppUpstream {
     pub name: String,
     #[serde(default)]
     pub server_id: Option<String>,
+    /// #VAPP-254: the REAL server's name (absent on an older server).
+    #[serde(default)]
+    pub server_name: Option<String>,
     #[serde(default)]
     pub auth: Option<String>,
     /// The upstream state (`connected` | `reconnect` | `disconnected` | …).
     #[serde(default)]
     pub state: Option<String>,
+}
+
+/// #VAPP-254: a team MCP server an owner may pick for an upstream.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct AppServer {
+    pub id: String,
+    pub name: String,
 }
 
 /// #VAPP-220: one automation the PUBLISHED package declares, with its last
@@ -142,6 +155,10 @@ pub struct AppToolsOut {
     pub tools: Vec<AppTool>,
     #[serde(default)]
     pub upstreams: Vec<AppUpstream>,
+    /// #VAPP-254: what an owner may pick, in name order (empty for a member,
+    /// absent on an older server).
+    #[serde(default)]
+    pub servers: Vec<AppServer>,
     /// #VAPP-220 (absent on an older server).
     #[serde(default)]
     pub automations: Vec<AppAutomation>,
@@ -161,6 +178,27 @@ pub fn app_tools(trpc: &TrpcClient, app_id: &str) -> Result<AppToolsOut, ApiErro
         app_id: &'a str,
     }
     trpc.query_with_input("appAccess.appTools", &Input { app_id })
+}
+
+/// #VAPP-254: `appAccess.setUpstreamMapping` — mutation (owners; the server
+/// checks). `server_id: None`, or the server named exactly like the upstream,
+/// = the automatic default.
+pub fn set_upstream_mapping(trpc: &TrpcClient, app_id: &str, upstream: &str, server_id: Option<&str>) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+        upstream: &'a str,
+        server_id: Option<&'a str>,
+    }
+    #[derive(Deserialize)]
+    struct Ok {
+        #[serde(default)]
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok = trpc.mutation("appAccess.setUpstreamMapping", &Input { app_id, upstream, server_id })?;
+    Ok(())
 }
 
 /// #VAPP-238: a freshly minted (or rotated) webhook secret.
@@ -362,6 +400,38 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.contains("GET /api/trpc/appAccess.appTools?input="), "query: {request}");
         assert!(request.contains("%22appId%22"), "encoded input: {request}");
+    }
+
+    #[test]
+    fn app_tools_decodes_the_mapping() {
+        let out: AppToolsOut = serde_json::from_str(
+            r#"{"canToggle":true,"tools":[],"upstreams":[{"name":"crm","serverId":"s-2","serverName":"hubspot","auth":"oauth","state":"connected"},{"name":"linear","serverId":null,"serverName":null,"auth":null,"state":null}],"servers":[{"id":"s-1","name":"crm"},{"id":"s-2","name":"hubspot"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(out.upstreams[0].server_name.as_deref(), Some("hubspot"));
+        assert_eq!(out.upstreams[1].server_name, None);
+        assert_eq!(out.servers, vec![AppServer { id: "s-1".into(), name: "crm".into() }, AppServer { id: "s-2".into(), name: "hubspot".into() }]);
+        // An older server sends neither.
+        let old: AppToolsOut = serde_json::from_str(r#"{"canToggle":true,"tools":[],"upstreams":[{"name":"crm","serverId":"s-1"}]}"#).unwrap();
+        assert!(old.servers.is_empty());
+        assert_eq!(old.upstreams[0].server_name, None);
+    }
+
+    #[test]
+    fn set_upstream_mapping_posts_the_server() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set_upstream_mapping(&client(&base), "a-1", "crm", Some("s-2")).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains("POST /api/trpc/appAccess.setUpstreamMapping"), "mutation: {request}");
+        assert!(request.contains(r#""appId":"a-1""#) && request.contains(r#""upstream":"crm""#) && request.contains(r#""serverId":"s-2""#), "{request}");
+    }
+
+    #[test]
+    fn set_upstream_mapping_clears_with_null() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set_upstream_mapping(&client(&base), "a-1", "crm", None).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""serverId":null"#), "{request}");
     }
 
     #[test]

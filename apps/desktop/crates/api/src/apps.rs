@@ -152,8 +152,40 @@ pub struct ImportIssue {
     pub message: String,
 }
 
+/// #VAPP-254: one upstream a checked file declares, with the team server its
+/// exact name resolves to.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportUpstream {
+    pub name: String,
+    #[serde(default)]
+    pub server_id: Option<String>,
+    #[serde(default)]
+    pub server_name: Option<String>,
+}
+
+/// #VAPP-254: an owner's pick on the import step (`apps.import`
+/// `upstreamMappings`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpstreamMapping {
+    pub upstream: String,
+    pub server_id: String,
+}
+
+/// `apps.import` input: [`ImportInput`] plus the picks (omitted when none).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportAppInput<'a> {
+    team_id: &'a str,
+    text: &'a str,
+    #[serde(skip_serializing_if = "<[UpstreamMapping]>::is_empty")]
+    upstream_mappings: &'a [UpstreamMapping],
+}
+
 /// `apps.validateImport` output: the issues (empty = importable), the app
-/// name and the record count the file carries.
+/// name and the record count the file carries; #VAPP-254: the upstreams it
+/// declares in name order and what an owner may pick (empty for a member).
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct ValidateImportOutput {
     #[serde(default)]
@@ -162,6 +194,10 @@ pub struct ValidateImportOutput {
     pub name: Option<String>,
     #[serde(default)]
     pub records: i64,
+    #[serde(default)]
+    pub upstreams: Vec<ImportUpstream>,
+    #[serde(default)]
+    pub servers: Vec<crate::app_access::AppServer>,
 }
 
 /// `apps.import` output: the new app and how many records it got.
@@ -181,9 +217,10 @@ pub fn validate_import(trpc: &TrpcClient, team_id: &str, text: &str) -> Result<V
     trpc.mutation("apps.validateImport", &ImportInput { team_id, text })
 }
 
-/// VAPP-121 `apps.import`: a new app out of an app file or a bare package.
-pub fn import(trpc: &TrpcClient, team_id: &str, text: &str) -> Result<ImportOutput, ApiError> {
-    trpc.mutation("apps.import", &ImportInput { team_id, text })
+/// VAPP-121 `apps.import`: a new app out of an app file or a bare package;
+/// #VAPP-254: `upstream_mappings` = an owner's picks.
+pub fn import(trpc: &TrpcClient, team_id: &str, text: &str, upstream_mappings: &[UpstreamMapping]) -> Result<ImportOutput, ApiError> {
+    trpc.mutation("apps.import", &ImportAppInput { team_id, text, upstream_mappings })
 }
 
 /// VAPP-234 `apps.importTemplate` input.
@@ -491,6 +528,31 @@ mod tests {
         )
         .unwrap();
         assert_eq!(checked.issues, vec![ImportIssue { path: "/package".into(), message: "is required".into() }]);
+        // An older server sends no upstreams.
+        assert!(checked.upstreams.is_empty() && checked.servers.is_empty());
+        // #VAPP-254: the owner's picker, and the picks going back.
+        let mapped: ValidateImportOutput = serde_json::from_value(serde_json::json!({
+            "issues": [], "name": "CRM", "records": 0,
+            "upstreams": [{"name": "crm", "serverId": null, "serverName": null}, {"name": "mail", "serverId": "s1", "serverName": "mail"}],
+            "servers": [{"id": "s1", "name": "mail"}, {"id": "s2", "name": "hubspot"}],
+        }))
+        .unwrap();
+        assert_eq!(mapped.upstreams[0], ImportUpstream { name: "crm".into(), server_id: None, server_name: None });
+        assert_eq!(mapped.upstreams[1].server_name.as_deref(), Some("mail"));
+        assert_eq!(mapped.servers[1], crate::app_access::AppServer { id: "s2".into(), name: "hubspot".into() });
+        assert_eq!(
+            serde_json::to_value(ImportAppInput { team_id: "t", text: "{}", upstream_mappings: &[] }).unwrap(),
+            serde_json::json!({"teamId": "t", "text": "{}"})
+        );
+        assert_eq!(
+            serde_json::to_value(ImportAppInput {
+                team_id: "t",
+                text: "{}",
+                upstream_mappings: &[UpstreamMapping { upstream: "crm".into(), server_id: "s2".into() }],
+            })
+            .unwrap(),
+            serde_json::json!({"teamId": "t", "text": "{}", "upstreamMappings": [{"upstream": "crm", "serverId": "s2"}]})
+        );
         let imported: ImportOutput = serde_json::from_value(
             serde_json::json!({"txid": 3, "app": {"id": "a", "slug": "todos", "name": "Todos", "headVersion": 1}, "records": 2}),
         )

@@ -4,15 +4,18 @@
 //! with the viewer's own connection and Connect; MCP TOOLS = the exposed
 //! tools with their Read/Write level and an owner's switch (a tool switched
 //! off is never listed on /api/mcp/apps). Both hidden when empty. The words
-//! mirror apps.json `copy.accounts` / `copy.mcpTools` (#VAPP-243).
+//! mirror apps.json `copy.accounts` / `copy.mcpTools` (#VAPP-243). #VAPP-254
+//! (`upstreamPickerCases`): an Accounts row's title is the DECLARED name, a
+//! muted second line names the real server when it differs, and an owner picks
+//! the server with [`upstream_select`] (the import step's Select too).
 
-use gpui::{div, FontWeight, IntoElement, ParentElement, SharedString, Styled};
+use gpui::{div, px, App, FontWeight, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::{
     button::Button,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
-use api::app_access::{AppToolsOut, AppUpstream};
+use api::app_access::{AppServer, AppToolsOut, AppUpstream};
 
 use super::app_detail::AppDetailPane;
 use crate::controls::{PointerMenuButtonExt as _, WebControl as _};
@@ -30,6 +33,8 @@ pub(crate) struct AppMcpCopy {
     pub add_server: &'static str,
     /// `UPSTREAM_LABELS.connected` (packages/emcp/fixtures/upstream.json).
     pub connected: &'static str,
+    /// #VAPP-254: a row's second line when another server fills the upstream.
+    pub uses_server: &'static str,
 }
 
 pub(crate) const APP_MCP_COPY: AppMcpCopy = AppMcpCopy {
@@ -42,7 +47,50 @@ pub(crate) const APP_MCP_COPY: AppMcpCopy = AppMcpCopy {
     no_server: "Not set up",
     add_server: "Add server",
     connected: "Connected",
+    uses_server: "Uses {server}",
 };
+
+/// #VAPP-254: the width of an Accounts or import row's Select (the web's).
+const UPSTREAM_SELECT_WIDTH: f32 = 144.;
+
+/// #VAPP-254: `servers` as `domain::apps::upstream_picker` takes them.
+pub(crate) fn server_options(servers: &[AppServer]) -> Vec<(String, String)> {
+    servers.iter().map(|server| (server.id.clone(), server.name.clone())).collect()
+}
+
+/// #VAPP-254: an upstream's Select on an Accounts or import row: the app
+/// screens' Select (the Data tab's kind, the preview's Run as) at the web's
+/// width; `on_pick` gets the picked option's value.
+pub(crate) fn upstream_select(
+    id: SharedString,
+    picker: domain::apps::UpstreamPicker,
+    disabled: bool,
+    on_pick: impl Fn(String, &mut App) + 'static,
+    cx: &App,
+) -> impl IntoElement {
+    let label = picker.options.iter().find(|(value, _)| *value == picker.value).map(|(_, label)| label.clone()).unwrap_or_default();
+    let on_pick = std::rc::Rc::new(on_pick);
+    Button::new(id)
+        .outline()
+        .web_sm()
+        .cursor_pointer()
+        .w(px(UPSTREAM_SELECT_WIDTH))
+        .disabled(disabled)
+        .child(div().flex_1().min_w_0().truncate().child(label))
+        .child(Icon::new(registry::UI_CHEVRON_DOWN).size(px(14.)).text_color(cx.theme().muted_foreground))
+        .pointer_menu(move |mut menu, _window, _cx| {
+            menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
+            for (value, label) in &picker.options {
+                let (on_pick, picked) = (on_pick.clone(), value.clone());
+                menu = menu.item(
+                    crate::controls::pointer_label_item(label.clone(), false)
+                        .checked(*value == picker.value)
+                        .on_click(move |_, _, cx| on_pick(picked.clone(), cx)),
+                );
+            }
+            menu
+        })
+}
 
 /// What an Accounts row shows on its right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,12 +143,18 @@ fn titled(id: &'static str, title: &'static str, rows: Vec<gpui::Div>) -> gpui::
 pub(crate) fn accounts_group(
     data: &AppToolsOut,
     busy: Option<&str>,
+    picking: Option<&str>,
     cx: &mut gpui::Context<AppDetailPane>,
 ) -> Option<gpui::Stateful<gpui::Div>> {
+    use gpui::prelude::FluentBuilder as _;
+    use gpui::InteractiveElement as _;
     if data.upstreams.is_empty() {
         return None;
     }
     let muted = cx.theme().muted_foreground;
+    let account_row = &domain::apps::APPS.test_ids.account_row;
+    let servers = server_options(&data.servers);
+    let view = cx.entity().downgrade();
     let rows = data
         .upstreams
         .iter()
@@ -140,10 +194,33 @@ pub(crate) fn accounts_group(
                         .into_any_element()
                 }
             };
+            let caption = domain::apps::account_caption(&upstream.name, upstream.server_name.as_deref(), APP_MCP_COPY.uses_server);
+            // #VAPP-254: an owner's Select (no servers = none, the row as before).
+            let select = domain::apps::upstream_picker(&upstream.name, upstream.server_id.as_deref(), &servers, APP_MCP_COPY.no_server).map(|picker| {
+                let (view, name) = (view.clone(), upstream.name.clone());
+                upstream_select(
+                    SharedString::from(format!("{account_row}-{}-picker", upstream.name)),
+                    picker,
+                    picking.is_some(),
+                    move |value, cx| {
+                        let name = name.clone();
+                        let _ = view.update(cx, |this, cx| this.pick_upstream_server(name, value, cx));
+                    },
+                    cx,
+                )
+            });
             crate::surface::glass_row_shell()
                 .justify_between()
                 .gap_3()
-                .child(div().min_w_0().text_sm().truncate().child(upstream.name.clone()))
+                .child(
+                    v_flex()
+                        .id(SharedString::from(format!("{account_row}-{}", upstream.name)))
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_sm().truncate().child(upstream.name.clone()))
+                        .when_some(caption, |col, caption| col.child(div().text_xs().text_color(muted).truncate().child(caption))),
+                )
+                .children(select)
                 .child(trailing)
         })
         .collect();
@@ -470,6 +547,7 @@ mod tests {
         AppUpstream {
             name: "github".into(),
             server_id: server_id.map(str::to_string),
+            server_name: None,
             auth: Some("oauth".into()),
             state: state.map(str::to_string),
         }
@@ -494,9 +572,33 @@ mod tests {
     }
 
     #[test]
+    fn the_account_words_match_the_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../../packages/domain-contract/fixtures/apps.json")).unwrap();
+        let accounts = &fixture["copy"]["accounts"];
+        for (key, word) in [
+            ("title", APP_MCP_COPY.accounts),
+            ("connect", APP_MCP_COPY.connect),
+            ("reconnect", APP_MCP_COPY.reconnect),
+            ("connected", APP_MCP_COPY.connected),
+            ("notSetUp", APP_MCP_COPY.no_server),
+            ("addServer", APP_MCP_COPY.add_server),
+            ("usesServer", APP_MCP_COPY.uses_server),
+        ] {
+            assert_eq!(accounts[key].as_str(), Some(word), "{key}");
+        }
+    }
+
+    #[test]
+    fn the_picker_takes_the_servers_in_order() {
+        let servers = [AppServer { id: "s1".into(), name: "crm".into() }, AppServer { id: "s2".into(), name: "hubspot".into() }];
+        assert_eq!(server_options(&servers), vec![("s1".to_string(), "crm".to_string()), ("s2".to_string(), "hubspot".to_string())]);
+    }
+
+    #[test]
     fn a_switch_flips_one_tool() {
         let tool = |name: &str| AppTool { name: name.into(), title: name.into(), access: "read".into(), via: None, enabled: true };
-        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![], automations: vec![], hooks: vec![], shares: vec![] };
+        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![], servers: vec![], automations: vec![], hooks: vec![], shares: vec![] };
         let next = with_tool_enabled(&data, "b", false);
         assert!(next.tools[0].enabled);
         assert!(!next.tools[1].enabled);

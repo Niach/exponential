@@ -341,6 +341,11 @@ pub struct AppsTestIds {
     /// eApps V1: the header's (phones: the menu's) Publish, a row's Publish.
     pub publish: String,
     pub version_publish: String,
+    /// #VAPP-254: one Accounts row (its `-picker` Select), the import step's
+    /// Accounts group and one of its rows.
+    pub account_row: String,
+    pub import_upstreams: String,
+    pub import_upstream: String,
     /// #VAPP-220: the Settings tab's Automations group and one row.
     pub automations: String,
     pub automation_row: String,
@@ -1355,6 +1360,9 @@ mod tests {
         assert_eq!(block["none"].as_str().unwrap(), UPSTREAM_PICKER_NONE);
         let accounts = &fixture["copy"]["accounts"];
         let (not_set_up, uses) = (accounts["notSetUp"].as_str().unwrap(), accounts["usesServer"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.account_row, fixture["testIds"]["accountRow"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.import_upstreams, fixture["testIds"]["importUpstreams"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.import_upstream, fixture["testIds"]["importUpstream"].as_str().unwrap());
         for case in block["cases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let row = &case["row"];
