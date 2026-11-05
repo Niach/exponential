@@ -45,8 +45,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetDefaults
+import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.components.InviteLinkCard
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionBand
@@ -243,10 +245,10 @@ private fun NextRow(entry: GettingStartedEntry, onClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
             Spacer(Modifier.height(10.dp))
-            GlassPill(
+            GlassSubmitButton(
                 GettingStartedCopy.cta(entry.key),
                 onClick = onClick,
-                primary = true,
+                size = SubmitSize.Small,
                 modifier = Modifier.testTag(GettingStartedCopy.CTA_TEST_ID),
             )
         }

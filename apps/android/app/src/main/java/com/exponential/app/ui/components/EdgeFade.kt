@@ -2,6 +2,9 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
@@ -100,6 +103,17 @@ fun EdgeFade(edge: FadeEdge, modifier: Modifier = Modifier, ground: Boolean = fa
     Box(modifier.then(backdrop))
 }
 
+/** The solid half of a bottom strip: the page's ground, else the scrim over the blur. */
+@Composable
+private fun EdgeBackdrop(ground: Boolean, modifier: Modifier) {
+    val color = GlassTokens.BackgroundBottom
+    Box(
+        modifier.then(
+            if (ground) Modifier.background(color) else Modifier.edgeBackdrop(LocalDetailHaze.current, color, mask = null),
+        ),
+    )
+}
+
 /**
  * The header band's chrome: the solid backdrop behind [content] (up through
  * the status bar, which the top bar already pads) and the `edgeTop` strip
@@ -128,12 +142,13 @@ fun HeaderEdgeChrome(content: @Composable () -> Unit) {
 }
 
 /**
- * The bottom strip behind a floating bottom bar ([content]): from the screen's
- * bottom edge ([bottomInset] below the bar — the navigation bar it sits on)
- * up to `edgeBottom` above the bar's top, fading upwards. Drawn BEHIND the bar
- * and outside its reported size, so it never shifts a slot or takes a touch.
- * [visible] hides it without touching the bar's identity (an expanded
- * composer card is its own surface).
+ * The bottom strip behind a floating bottom bar ([content]): the backdrop from
+ * the screen's bottom edge ([bottomInset] below the bar — the navigation bar
+ * it sits on) up to the bar's top, so what scrolls never shows between its
+ * cards (EXP-1676, iOS `floatingBarEdge`), then fading out over `edgeBottom`
+ * above it. Drawn BEHIND the bar and outside its reported size, so it never
+ * shifts a slot or takes a touch. [visible] hides it without touching the
+ * bar's identity (an expanded composer card is its own surface).
  */
 @Composable
 fun FloatingBarEdge(
@@ -146,7 +161,18 @@ fun FloatingBarEdge(
 ) {
     Layout(
         contents = listOf(
-            { if (visible) EdgeFade(FadeEdge.Bottom, ground = ground) },
+            {
+                if (visible) {
+                    Column {
+                        EdgeFade(
+                            FadeEdge.Bottom,
+                            modifier = Modifier.fillMaxWidth().height(DetailChrome.EDGE_BOTTOM.dp),
+                            ground = ground,
+                        )
+                        EdgeBackdrop(ground, Modifier.fillMaxWidth().weight(1f))
+                    }
+                }
+            },
             content,
         ),
         modifier = modifier,

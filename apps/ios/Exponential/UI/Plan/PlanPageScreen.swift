@@ -82,6 +82,9 @@ struct PlanPageBody: View {
                     )
                     .padding(.horizontal, gap)
                     .padding(.bottom, gap)
+                    // EXP-1676: the page's ground under the panel, so the
+                    // document never shows beneath it.
+                    .floatingBarEdge(ground: true)
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.height - gap }) { panelHeight = $0 }
                 }
                 .sheet(isPresented: $outlineOpen) {

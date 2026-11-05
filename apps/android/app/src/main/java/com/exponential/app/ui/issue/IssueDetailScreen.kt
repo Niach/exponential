@@ -53,6 +53,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.theme.DesignTokens
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.ReporterReply
@@ -1094,6 +1098,13 @@ private fun OriginChip(isAgent: Boolean) {
     )
 }
 
+/** EXP-1676: the big title on a phone is web's `max-md:!text-xl` (20/28 semibold). */
+private val IssueTitleTextStyle = TextStyle(
+    fontWeight = FontWeight.SemiBold,
+    fontSize = DesignTokens.Typography.Size.Xl.sp,
+    lineHeight = 28.sp,
+)
+
 /**
  * The issue's large borderless title — the Issue face's and the New issue
  * page's ONE title field (EXP-1170). Reports itself as the header's
@@ -1114,9 +1125,7 @@ fun IssueTitleField(
         value = text,
         onValueChange = onChange,
         readOnly = readOnly,
-        textStyle = MaterialTheme.typography.headlineSmall.copy(
-            color = MaterialTheme.colorScheme.onSurface,
-        ),
+        textStyle = IssueTitleTextStyle.copy(color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
         modifier = modifier
             .fillMaxWidth()
@@ -1127,7 +1136,7 @@ fun IssueTitleField(
             if (text.isEmpty()) {
                 Text(
                     placeholder,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = IssueTitleTextStyle,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             }

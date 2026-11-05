@@ -476,7 +476,7 @@ final class IssueRefChipTests: XCTestCase {
         guard case let .text(_, content) = blocks[0] else { return XCTFail("expected a text block") }
         let decorated = IssueRefs.decorateForDisplay(
             content, resolver: resolver, titleResolver: titles, statusResolver: statuses)
-        XCTAssertTrue(decorated.string.contains("#EXP-42 Fix login flow"))
+        XCTAssertTrue(decorated.string.contains("#EXP-42\u{00A0}Fix\u{00A0}login\u{00A0}flow"))
         let hash = (decorated.string as NSString).range(of: "#EXP-42").location
         XCTAssertEqual(
             decorated.attribute(.foregroundColor, at: hash, effectiveRange: nil) as? PlatformColor,
@@ -506,7 +506,7 @@ final class IssueRefChipTests: XCTestCase {
             statusResolver: statuses,
             bare: true
         )
-        XCTAssertTrue(decorated.string.contains("#EXP-42 Fix login flow"))
+        XCTAssertTrue(decorated.string.contains("#EXP-42\u{00A0}Fix\u{00A0}login\u{00A0}flow"))
         let hash = (decorated.string as NSString).range(of: "#EXP-42").location
         // The status the glyph is painted from...
         XCTAssertEqual(

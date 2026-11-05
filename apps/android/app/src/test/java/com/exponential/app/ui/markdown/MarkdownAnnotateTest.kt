@@ -130,11 +130,11 @@ class MarkdownAnnotateTest {
             emptyList(),
             refsTitled("MET-1" to "Fix login flow"),
         )
-        assertEquals("closes #MET-1 Fix login flow now", result.text)
+        assertEquals("closes #MET-1\u00A0Fix\u00A0login\u00A0flow now", result.text)
         val links = result.getLinkAnnotations(0, result.length)
         assertEquals(1, links.size)
         // The tappable chip covers the token AND the title.
-        assertEquals("#MET-1 Fix login flow", result.text.substring(links[0].start, links[0].end))
+        assertEquals("#MET-1\u00A0Fix\u00A0login\u00A0flow", result.text.substring(links[0].start, links[0].end))
         assertNoOverlappingLinks(result)
     }
 
@@ -149,7 +149,15 @@ class MarkdownAnnotateTest {
     fun longChipTitlesAreTruncatedWithAnEllipsis() {
         val title = "x".repeat(80)
         val result = annotate("#MET-1", emptyList(), refsTitled("MET-1" to title))
-        assertEquals("#MET-1 " + "x".repeat(59) + "…", result.text)
+        assertEquals("#MET-1\u00A0" + "x".repeat(MAX_INLINE_CHIP_TITLE_CHARS) + "…", result.text)
+    }
+
+    /** EXP-1676: one chip stays on a line: no breakable space, an ellipsis at the budget. */
+    @Test
+    fun aChipIsOneUnbreakableRunCutAtTheInlineBudget() {
+        val title = "Editor takes seconds to open on older phones"
+        val result = annotate("#FB-8", emptyList(), refsTitled("FB-8" to title))
+        assertEquals("#FB-8\u00A0Editor\u00A0takes\u00A0seconds\u00A0to\u00A0open\u00A0on\u00A0ol…", result.text)
     }
 
     @Test
@@ -158,7 +166,7 @@ class MarkdownAnnotateTest {
         val text = "see #MET-1 and bold"
         val marks = listOf(InlineMark(15, 19, InlineKind.Bold))
         val result = annotate(text, marks, refsTitled("MET-1" to "Fix it"))
-        assertEquals("see #MET-1 Fix it and bold", result.text)
+        assertEquals("see #MET-1\u00A0Fix\u00A0it and bold", result.text)
         assertNoOverlappingLinks(result)
     }
 
@@ -170,10 +178,10 @@ class MarkdownAnnotateTest {
             refsTitled("MET-1" to "Crash"),
             mentions("Ada" to "dev@example.com"),
         )
-        assertEquals("\u00A0@Ada\u00A0 bug #MET-1 Crash done", result.text)
+        assertEquals("\u00A0@Ada\u00A0 bug #MET-1\u00A0Crash done", result.text)
         val links = result.getLinkAnnotations(0, result.length)
         assertEquals(1, links.size)
-        assertEquals("#MET-1 Crash", result.text.substring(links[0].start, links[0].end))
+        assertEquals("#MET-1\u00A0Crash", result.text.substring(links[0].start, links[0].end))
         assertNoOverlappingLinks(result)
     }
 
@@ -262,12 +270,12 @@ class MarkdownAnnotateTest {
     @Test
     fun aResolvedChipCarriesItsStatusGlyphAndHidesTheHash() {
         val line = annotateLine("closes #MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"))
-        assertEquals("closes #MET-1 Fix login now", line.text.text)
+        assertEquals("closes #MET-1\u00A0Fix\u00A0login now", line.text.text)
         assertEquals(1, line.chips.size)
         val chip = line.chips[0]
         assertEquals(inProgress.iconName, chip.iconName)
         assertEquals(7, chip.tokenStart) // the `#`
-        assertEquals("#MET-1 Fix login", line.text.text.substring(chip.start, chip.end))
+        assertEquals("#MET-1\u00A0Fix\u00A0login", line.text.text.substring(chip.start, chip.end))
         // Exactly one character is hidden, and no character moved.
         assertTrue(
             "the `#` is transparent",
@@ -312,10 +320,10 @@ class MarkdownAnnotateTest {
         val bare = annotateLine(
             "closes MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"), bare = true,
         )
-        assertEquals("closes ${CHIP_GLYPH_CELL}MET-1 Fix login now", bare.text.text)
+        assertEquals("closes ${CHIP_GLYPH_CELL}MET-1\u00A0Fix\u00A0login now", bare.text.text)
         assertEquals(1, bare.chips.size)
         assertEquals(
-            "${CHIP_GLYPH_CELL}MET-1 Fix login",
+            "${CHIP_GLYPH_CELL}MET-1\u00A0Fix\u00A0login",
             bare.text.text.substring(bare.chips[0].start, bare.chips[0].end),
         )
     }
@@ -362,7 +370,7 @@ class MarkdownAnnotateTest {
         val line = annotateLine(
             "closes MET-1 now", emptyList(), refsTitled("MET-1" to "Fix login"), bare = true,
         )
-        assertEquals("closes MET-1 Fix login now", line.text.text)
+        assertEquals("closes MET-1\u00A0Fix\u00A0login now", line.text.text)
         assertNull(line.chips[0].iconName)
         assertTrue(line.text.spanStyles.none { it.item.color == Color.Transparent })
     }
@@ -383,7 +391,7 @@ class MarkdownAnnotateTest {
         val line = annotateLine(
             "closes #MET-1 now", emptyList(), refsWithStatus("MET-1", "Fix login"), bare = true,
         )
-        assertEquals("closes #MET-1 Fix login now", line.text.text)
+        assertEquals("closes #MET-1\u00A0Fix\u00A0login now", line.text.text)
         assertEquals(inProgress.iconName, line.chips[0].iconName)
         assertTrue(
             line.text.spanStyles.any {
@@ -465,7 +473,7 @@ class MarkdownAnnotateTest {
             refsTitled("MET-1" to "Crash"),
             autolink = true,
         )
-        assertEquals("docs fixes #MET-1 Crash see https://x.dev", result.text)
+        assertEquals("docs fixes #MET-1\u00A0Crash see https://x.dev", result.text)
         val links = result.getLinkAnnotations(0, result.length)
         assertEquals(3, links.size)
         assertNoOverlappingLinks(result)

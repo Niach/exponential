@@ -40,6 +40,9 @@ public struct GlassSubmitLabel<Icon: View>: View {
     /// EXP-1554: the form's own submit under its last field (web `Button`
     /// size default, `justify-end`): hugs its label, never full width.
     var compact: Bool = false
+    /// EXP-1676: web's `Button size="sm"` (h-8, px-3): the text button's shape
+    /// at the control rung, hugging its label too.
+    var small: Bool = false
     let icon: Icon
 
     public init(
@@ -48,6 +51,7 @@ public struct GlassSubmitLabel<Icon: View>: View {
         loading: Bool = false,
         pendingWord: String? = nil,
         compact: Bool = false,
+        small: Bool = false,
         @ViewBuilder icon: () -> Icon
     ) {
         self.label = label
@@ -55,6 +59,7 @@ public struct GlassSubmitLabel<Icon: View>: View {
         self.loading = loading
         self.pendingWord = pendingWord
         self.compact = compact
+        self.small = small
         self.icon = icon()
     }
 
@@ -67,11 +72,12 @@ public struct GlassSubmitLabel<Icon: View>: View {
         ) {
             icon
         }
-        .font(compact ? .subheadline.weight(.medium) : .body.weight(.medium))
+        .font(compact || small ? .subheadline.weight(.medium) : .body.weight(.medium))
         .foregroundStyle(DesignTokens.Palette.primaryForeground)
-        .frame(maxWidth: compact ? nil : .infinity)
-        .padding(.horizontal, compact ? 14 : 0)
-        .padding(.vertical, compact ? 8 : 14)
+        .frame(maxWidth: compact || small ? nil : .infinity)
+        .frame(height: small ? GlassPillTokens.heightMd : nil)
+        .padding(.horizontal, small ? GlassPillTokens.horizontalPaddingMd : compact ? 14 : 0)
+        .padding(.vertical, small ? 0 : compact ? 8 : 14)
         .background(DesignTokens.Palette.primary)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
         // EXP-1676: disabled = web's `disabled:opacity-50`, the whole button:
@@ -83,9 +89,12 @@ public struct GlassSubmitLabel<Icon: View>: View {
 
 extension GlassSubmitLabel where Icon == EmptyView {
     public init(
-        _ label: String, enabled: Bool = true, loading: Bool = false, pendingWord: String? = nil, compact: Bool = false
+        _ label: String, enabled: Bool = true, loading: Bool = false, pendingWord: String? = nil, compact: Bool = false,
+        small: Bool = false
     ) {
-        self.init(label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact) { EmptyView() }
+        self.init(
+            label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact, small: small
+        ) { EmptyView() }
     }
 }
 
@@ -97,6 +106,7 @@ public struct GlassSubmitButton: View {
     /// `FeedbackStates.Pending`); nil keeps the label.
     var pendingWord: String?
     var compact: Bool = false
+    var small: Bool = false
     let action: () -> Void
 
     public init(
@@ -105,6 +115,7 @@ public struct GlassSubmitButton: View {
         loading: Bool = false,
         pendingWord: String? = nil,
         compact: Bool = false,
+        small: Bool = false,
         action: @escaping () -> Void
     ) {
         self.label = label
@@ -112,12 +123,15 @@ public struct GlassSubmitButton: View {
         self.loading = loading
         self.pendingWord = pendingWord
         self.compact = compact
+        self.small = small
         self.action = action
     }
 
     public var body: some View {
         Button(action: action) {
-            GlassSubmitLabel(label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact)
+            GlassSubmitLabel(
+                label, enabled: enabled, loading: loading, pendingWord: pendingWord, compact: compact, small: small
+            )
                 .contentShape(Rectangle())
         }
         // EXP-1243: the face presses to 0.97.

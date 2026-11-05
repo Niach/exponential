@@ -38,6 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassSubmitButton
+import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.theme.TextEmphasis
@@ -130,11 +132,11 @@ fun TeamSetupForm(
                         )
                         PageError(state.createError)
                         PageFooter(onBack = { page = TeamSetupPage.Choice }, busy = state.busy) {
-                            GlassPill(
+                            GlassSubmitButton(
                                 label = if (state.busy) "Creating…" else TeamSetupCopy.CREATE_BUTTON,
                                 onClick = { onCreate(teamName) },
                                 enabled = !state.busy && teamName.isNotBlank(),
-                                primary = true,
+                                size = SubmitSize.Compact,
                             )
                         }
                     }
@@ -161,11 +163,11 @@ fun TeamSetupForm(
                         )
                         PageError(state.joinError)
                         PageFooter(onBack = { page = TeamSetupPage.Choice }, busy = state.busy) {
-                            GlassPill(
+                            GlassSubmitButton(
                                 label = if (state.busy) "Joining…" else TeamSetupCopy.JOIN_BUTTON,
                                 onClick = { onJoin(inviteInput) },
                                 enabled = !state.busy && inviteInput.isNotBlank(),
-                                primary = true,
+                                size = SubmitSize.Compact,
                             )
                         }
                     }

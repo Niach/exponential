@@ -79,7 +79,7 @@ class IssueChipTransformTest {
         )
         assertEquals(1, t.chips.size)
         assertEquals(4, t.chips.single().sourceStart)
-        assertEquals("see #EXP-238 mobile chips broken\n#EXP-238 literal", t.display)
+        assertEquals("see #EXP-238\u00A0mobile\u00A0chips\u00A0broken\n#EXP-238 literal", t.display)
     }
 
     @Test
@@ -108,7 +108,7 @@ class IssueChipTransformTest {
     fun titleIsAppendedAfterTheToken() {
         val t = build("see #EXP-238 now")
         assertFalse(t.isIdentity)
-        assertEquals("see #EXP-238 mobile chips broken now", t.display)
+        assertEquals("see #EXP-238\u00A0mobile\u00A0chips\u00A0broken now", t.display)
     }
 
     @Test
@@ -124,8 +124,8 @@ class IssueChipTransformTest {
     fun longTitlesTruncateWithAnEllipsis() {
         val long = "x".repeat(80)
         val t = build("#EXP-1", handler = refs("EXP-1" to long))
-        val expected = "x".repeat(MAX_CHIP_TITLE_CHARS - 1) + "…"
-        assertEquals("#EXP-1 $expected", t.display)
+        val expected = "x".repeat(MAX_INLINE_CHIP_TITLE_CHARS) + "…"
+        assertEquals("#EXP-1\u00A0$expected", t.display)
     }
 
     @Test
@@ -139,7 +139,7 @@ class IssueChipTransformTest {
         val handler = refs("EXP-1" to "first", "EXP-2" to "second")
         val t = build("#EXP-1 and #EXP-2", handler = handler)
         assertEquals(2, t.chips.size)
-        assertEquals("#EXP-1 first and #EXP-2 second", t.display)
+        assertEquals("#EXP-1\u00A0first and #EXP-2\u00A0second", t.display)
     }
 
     // --- offset mapping contract -------------------------------------------

@@ -217,12 +217,8 @@ struct GettingStartedRow: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .fixedSize(horizontal: false, vertical: true)
-                GlassPill(
-                    GettingStarted.cta(entry.key),
-                    size: .md,
-                    mode: .action(action),
-                    primary: true
-                )
+                // EXP-1676: web's `Button size="sm"`, the text button's shape.
+                GlassSubmitButton(GettingStarted.cta(entry.key), small: true, action: action)
                 .accessibilityIdentifier(GettingStarted.TestId.cta)
                 .padding(.top, 8)
             }
