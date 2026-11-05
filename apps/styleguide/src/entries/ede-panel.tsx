@@ -3,23 +3,40 @@ import type { NestedNode } from "@exponential_app/eui"
 
 import panel from "../../../ede/ui/panel.json"
 import menu from "../../../ede/ui/menu.json"
+import switcher from "../../../ede/ui/switcher.json"
+import osd from "../../../ede/ui/osd.json"
 import type { StyleguideEntry } from "./types.ts"
 
-// #EDE-10 / #EDE-11: eDE's factory shell documents (apps/ede/ui), the genUI
-// trees ede-shell draws as layer-shell surfaces on ede-compositor. The same
-// JSON, the web renderer here, the gpui painter on desktop and in eDE itself
-// (shots/ede-panel, shots/ede-panel-menu are the compositor's own captures).
-// The `surface` header (where the shell puts it) is not part of the tree.
+// #EDE-10 / #EDE-11 / #EDE-12: eDE's factory shell documents (apps/ede/ui),
+// the genUI trees ede-shell draws as layer-shell surfaces on ede-compositor.
+// The same JSON, the web renderer here, the gpui painter on desktop and in
+// eDE itself (shots/ede-panel, ede-panel-menu, ede-switcher, ede-osd are the
+// compositor's own captures). The `surface` header (where the shell puts it,
+// which host functions it may call) is not part of the tree.
 
 const PANEL = panel as unknown as { root: NestedNode; data: Record<string, unknown> }
 const MENU = menu as unknown as { root: NestedNode }
+const SWITCHER = switcher as unknown as { root: NestedNode }
+const OSD = osd as unknown as { root: NestedNode }
+
+const SAMPLE_APPS = [
+  { id: `org.gnome.Calculator.desktop`, name: `Calculator`, comment: `Perform arithmetic, scientific or financial calculations`, exec: `gnome-calculator`, icon: `` },
+  { id: `nemo.desktop`, name: `Files`, comment: `Access and organize files`, exec: `nemo`, icon: `` },
+  { id: `firefox.desktop`, name: `Firefox`, comment: `Browse the web`, exec: `firefox`, icon: `` },
+  { id: `terminal.desktop`, name: `Terminal`, comment: `Use the command line`, exec: `x-terminal-emulator`, icon: `` },
+]
+const SAMPLE_SWITCHER = { windows: [
+  { id: `w1`, title: `Firefox`, selected: false, thumbnail: `` },
+  { id: `w2`, title: `Terminal`, selected: true, thumbnail: `` },
+  { id: `w3`, title: `Files`, selected: false, thumbnail: `` },
+] }
 
 export const entry: StyleguideEntry = {
   id: `ede-panel`,
   section: `special`,
   owner: `EDE-10`,
   title: `eDE panel`,
-  blurb: `The desktop environment's factory panel (apps/ede/ui/panel.json): the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface; the menu (menu.json) is the panel's own popup surface. Agents and people edit these files; ede-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
+  blurb: `The desktop environment's factory shell documents: the panel (apps/ede/ui/panel.json: the launcher button, the taskbar from the window list and the clock in a 40 px top layer-shell surface), the launcher menu (menu.json, the panel's own popup surface: search, the installed apps, the power row), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails) and the OSD (osd.json, the media keys' level). Agents and people edit these files; ede-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
   status: {
     web: {
       state: `ok`,
@@ -35,9 +52,17 @@ export const entry: StyleguideEntry = {
     <div className="flex flex-col gap-3">
       <span className="text-xs text-muted-foreground">panel.json · a top layer surface</span>
       <ExponentialUiTree id="ede-panel" node={PANEL.root} data={{ ...PANEL.data, time: `12:00`, windows: [{ id: `w1`, title: `Firefox`, focused: true }, { id: `w2`, title: `Terminal`, focused: false }] }} formFactor="wide" />
-      <span className="text-xs text-muted-foreground">menu.json · the panel's popup surface</span>
+      <span className="text-xs text-muted-foreground">menu.json · the panel's popup surface (the launcher)</span>
+      <div style={{ width: 360 }}>
+        <ExponentialUiTree id="ede-menu" node={MENU.root} data={{ query: ``, apps: SAMPLE_APPS }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">switcher.json · Alt+Tab, an on-demand overlay</span>
+      <div style={{ width: 760 }}>
+        <ExponentialUiTree id="ede-switcher" node={SWITCHER.root} data={{ switcher: SAMPLE_SWITCHER }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">osd.json · the media keys' level</span>
       <div style={{ width: 280 }}>
-        <ExponentialUiTree id="ede-menu" node={MENU.root} formFactor="wide" />
+        <ExponentialUiTree id="ede-osd" node={OSD.root} data={{ osd: { icon: `media-volume-down`, level: 45, label: `45%` } }} formFactor="wide" />
       </div>
     </div>
   ),

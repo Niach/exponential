@@ -23,3 +23,6 @@ tracing-subscriber.workspace = true
 rust-embed = "8"
 # localtime_r for the clock.
 libc = "0.2"
+# The switcher's thumbnails: captures as PNG data URLs.
+png = "0.17"
+base64 = "0.22"

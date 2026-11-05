@@ -1447,6 +1447,7 @@ dependencies = [
 name = "ede-shell"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "ede-protocol",
  "ede-ui",
  "eui-core",
@@ -1456,6 +1457,7 @@ dependencies = [
  "gpui-component-assets",
  "gpui_platform",
  "libc",
+ "png 0.17.16",
  "rust-embed",
  "serde",
  "serde_json",

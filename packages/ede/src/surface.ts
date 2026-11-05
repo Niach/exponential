@@ -9,7 +9,7 @@ export const LAYERS = fixture.layers as readonly Layer[]
 export const EDGES = fixture.edges as readonly Edge[]
 export const KEYBOARD = fixture.keyboard as readonly Keyboard[]
 export const PLACEMENTS = fixture.placements as readonly Placement[]
-export const SURFACE_KEYS = [`layer`, `anchor`, `size`, `exclusiveZone`, `margin`, `keyboard`, `popup`, `functions`] as const
+export const SURFACE_KEYS = [`layer`, `anchor`, `size`, `exclusiveZone`, `margin`, `keyboard`, `onDemand`, `popup`, `functions`] as const
 export const DOCUMENT_KEYS = [`$schema`, `$comment`, `catalogId`, `surface`, `root`, `components`, `data`] as const
 
 export type Layer = `background` | `bottom` | `top` | `overlay`
@@ -38,6 +38,8 @@ export interface LayerHeader {
   exclusiveZone: number
   margin: Margin
   keyboard: Keyboard
+  /** Opened only when asked (a hotkey, a host function), never at start. */
+  onDemand: boolean
   functions: string[]
 }
 
@@ -82,9 +84,9 @@ export function normalizeSurface(input: unknown): { header: SurfaceHeader } | { 
     }
   }
   if (input.popup !== undefined) {
-    for (const key of [`layer`, `anchor`, `exclusiveZone`, `margin`, `keyboard`]) {
+    for (const key of [`layer`, `anchor`, `exclusiveZone`, `margin`, `keyboard`, `onDemand`]) {
       if (input[key] !== undefined) {
-        issues.push({ path: `surface.${key}`, message: `a popup surface has no layer, anchor, exclusiveZone, margin or keyboard` })
+        issues.push({ path: `surface.${key}`, message: `a popup surface has no layer, anchor, exclusiveZone, margin, keyboard or onDemand` })
         break
       }
     }
@@ -186,9 +188,17 @@ export function normalizeSurface(input: unknown): { header: SurfaceHeader } | { 
     }
   }
 
+  let onDemand = false
+  if (input.onDemand !== undefined) {
+    if (typeof input.onDemand !== `boolean`) {
+      issues.push({ path: `surface.onDemand`, message: `expected true or false` })
+    } else {
+      onDemand = input.onDemand
+    }
+  }
   const functions = functionsOf(input, issues)
   if (issues.length || layer === undefined) return { issues }
-  return { header: { kind: `layer`, layer, anchor, size, exclusiveZone, margin, keyboard, functions } }
+  return { header: { kind: `layer`, layer, anchor, size, exclusiveZone, margin, keyboard, onDemand, functions } }
 }
 
 interface Node {

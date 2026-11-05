@@ -8037,12 +8037,54 @@
       "id": "ede-panel-menu",
       "group": "ede",
       "title": "eDE · panel with the menu",
-      "blurb": "The factory menu (apps/ede/ui/menu.json) open as the panel's own popup surface, an xdg_popup under the launcher button.",
+      "blurb": "The factory menu (apps/ede/ui/menu.json), the launcher: the search box, the installed apps (sample entries in the golden) and the power row, open as the panel's own popup surface, an xdg_popup under the launcher button, with the keyboard.",
       "order": 2,
       "ede": {
         "size": "1280x720",
         "popup": true,
         "settleMs": 2500
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
+      }
+    },
+    {
+      "id": "ede-switcher",
+      "group": "ede",
+      "title": "eDE · switcher",
+      "blurb": "The factory switcher (apps/ede/ui/switcher.json): Alt+Tab's overlay in the middle of the screen with the open windows most recent first (sample windows in the golden, live thumbnails in the session), the selected one underlined.",
+      "order": 3,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "switcher"
+        ],
+        "settleMs": 2000
+      },
+      "notes": {
+        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
+        "web-mobile": "eDE only.",
+        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
+        "ios": "eDE only.",
+        "android": "eDE only."
+      }
+    },
+    {
+      "id": "ede-osd",
+      "group": "ede",
+      "title": "eDE · OSD",
+      "blurb": "The factory on-screen display (apps/ede/ui/osd.json): the volume, microphone and brightness keys' level near the bottom of the screen.",
+      "order": 4,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "osd"
+        ],
+        "settleMs": 2000
       },
       "notes": {
         "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",

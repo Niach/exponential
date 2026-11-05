@@ -1845,6 +1845,15 @@
         "sha256": "21c011658ac53b5db5244787e953b45c2f3afa54c151f46f5af59f1cbfcb2879"
       }
     },
+    "ede-osd": {
+      "ede": {
+        "file": "shots/ede-osd/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 3148,
+        "sha256": "87bb55719970527715c9b30de2039276cad3f7b3d85c24911b7b3b6cbeabb996"
+      }
+    },
     "ede-panel": {
       "ede": {
         "file": "shots/ede-panel/ede.webp",
@@ -1859,8 +1868,17 @@
         "file": "shots/ede-panel-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 4892,
-        "sha256": "d0bee385d0b18c4f8380ac5fe56206e5cfe57db0b706c5991efe99bb33f92acb"
+        "bytes": 11072,
+        "sha256": "9bf88899e65f6f262e996c8c7d3a960087b15c7ce4dfb4a1c52ee73947724e1b"
+      }
+    },
+    "ede-switcher": {
+      "ede": {
+        "file": "shots/ede-switcher/ede.webp",
+        "width": 1280,
+        "height": 720,
+        "bytes": 3744,
+        "sha256": "c2d8c92a592a8755803d2202a74d0010fb77af006bcae2728eab6ba286f6b2f9"
       }
     },
     "exponential-ui-accordion": {

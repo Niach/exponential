@@ -142,14 +142,14 @@ impl Ede {
     /// A key from an agent (or any synthetic source) to the focused surface.
     /// Compositor bindings never fire from it, and it does not count as the
     /// person being active.
-    pub fn drive_key(&mut self, keycode: Keycode, state: KeyState, time: u32) -> Result<(), Refused> {
+    pub fn drive_key(&mut self, keycode: Keycode, state: KeyState, time: u32, bindings: bool) -> Result<(), Refused> {
         if self.is_locked() {
             return Err(Refused::Locked);
         }
         if self.keyboard_focus_protected() {
             return Err(Refused::Protected);
         }
-        self.key(keycode, state, time, false);
+        self.key(keycode, state, time, bindings);
         Ok(())
     }
 

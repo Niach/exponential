@@ -1,0 +1,15 @@
+{
+  "$comment": "eDE's factory on-screen display (#EDE-12): a small overlay near the bottom of the screen for the volume, microphone and brightness keys (onDemand: the shell opens it on the compositor's media hotkeys, feeds /osd and closes it again after a moment).",
+  "surface": {"layer": "overlay", "anchor": ["bottom"], "size": {"width": 280, "height": 56}, "margin": {"bottom": 96}, "onDemand": true},
+  "root": {
+    "id": "osd",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.md", "paddingLeft": "$spacing.md", "paddingRight": "$spacing.md", "height": 56, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "children": [
+      {"id": "osd-icon", "component": "Icon", "props": {"name": {"path": "/osd/icon"}, "size": "default"}},
+      {"id": "osd-level", "component": "Progress", "props": {"value": {"path": "/osd/level"}, "max": 100, "tone": "primary"}, "style": {"flexGrow": 1}},
+      {"id": "osd-label", "component": "Text", "props": {"text": {"path": "/osd/label"}, "variant": "caption"}, "style": {"width": 40}}
+    ]
+  },
+  "data": {"osd": {"icon": "media-volume-up", "level": 0, "label": "0%"}}
+}

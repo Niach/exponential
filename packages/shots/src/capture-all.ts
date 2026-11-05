@@ -910,6 +910,7 @@ async function captureEde(views: string[], outcomes: LaneOutcome[]): Promise<voi
       script,
       `--out`, out,
       ...(capture?.popup ? [`--popup`] : []),
+      ...(capture?.open ?? []).flatMap((name) => [`--open`, name]),
       ...(capture?.size ? [`--size`, capture.size] : []),
       ...(capture?.settleMs ? [`--settle`, String(capture.settleMs)] : []),
       ...(built ? [`--no-build`] : []),

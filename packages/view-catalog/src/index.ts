@@ -209,6 +209,8 @@ export interface DesktopCapture {
  */
 export interface EdeCapture {
   popup?: boolean
+  /** On-demand layer documents to open before the capture (`switcher`, `osd`). */
+  open?: string[]
   size?: `${number}x${number}`
   settleMs?: number
 }

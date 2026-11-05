@@ -399,6 +399,12 @@
     "media-volume-off": "volume-off",
     "ui-favorite-off": "heart-off",
     "ui-unlock": "lock-open",
+
+    "ede-lock": "lock",
+    "ede-suspend": "moon",
+    "ede-power": "power",
+    "ede-window": "monitor",
+    "ede-brightness": "sun",
     "ui-menu": "menu",
     "ui-print": "printer",
     "ui-star-half": "star-half",

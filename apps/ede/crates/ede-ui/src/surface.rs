@@ -12,7 +12,7 @@ pub const LAYERS: &[&str] = &["background", "bottom", "top", "overlay"];
 pub const EDGES: &[&str] = &["top", "bottom", "left", "right"];
 pub const KEYBOARD: &[&str] = &["none", "on-demand", "exclusive"];
 pub const PLACEMENTS: &[&str] = &["bottom-start", "bottom-end", "top-start", "top-end", "left-start", "right-start"];
-pub const SURFACE_KEYS: &[&str] = &["layer", "anchor", "size", "exclusiveZone", "margin", "keyboard", "popup", "functions"];
+pub const SURFACE_KEYS: &[&str] = &["layer", "anchor", "size", "exclusiveZone", "margin", "keyboard", "onDemand", "popup", "functions"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -85,8 +85,9 @@ pub struct PopupSize {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum SurfaceHeader {
-    /// A wlr-layer-shell surface.
-    Layer { layer: Layer, anchor: Vec<Edge>, size: Size, #[serde(rename = "exclusiveZone")] exclusive_zone: i32, margin: Margin, keyboard: Keyboard, functions: Vec<String> },
+    /// A wlr-layer-shell surface; `on_demand` = opened only when asked (a
+    /// hotkey, a host function), never at start.
+    Layer { layer: Layer, anchor: Vec<Edge>, size: Size, #[serde(rename = "exclusiveZone")] exclusive_zone: i32, margin: Margin, keyboard: Keyboard, #[serde(rename = "onDemand")] on_demand: bool, functions: Vec<String> },
     /// A popup of another document's surface (an `xdg_popup` under one of its components).
     Popup { popup: Popup, functions: Vec<String> },
 }
@@ -131,9 +132,9 @@ pub fn normalize_surface(input: &Value) -> Result<SurfaceHeader, Vec<Issue>> {
         }
     }
     if let Some(popup) = input.get("popup") {
-        for key in ["layer", "anchor", "exclusiveZone", "margin", "keyboard"] {
+        for key in ["layer", "anchor", "exclusiveZone", "margin", "keyboard", "onDemand"] {
             if input.contains_key(key) {
-                issues.push(Issue::new(format!("surface.{key}"), "a popup surface has no layer, anchor, exclusiveZone, margin or keyboard"));
+                issues.push(Issue::new(format!("surface.{key}"), "a popup surface has no layer, anchor, exclusiveZone, margin, keyboard or onDemand"));
                 break;
             }
         }
@@ -281,9 +282,17 @@ pub fn normalize_surface(input: &Value) -> Result<SurfaceHeader, Vec<Issue>> {
         }
     }
 
+    let mut on_demand = false;
+    if let Some(v) = input.get("onDemand") {
+        match v.as_bool() {
+            Some(b) => on_demand = b,
+            None => issues.push(Issue::new("surface.onDemand", "expected true or false")),
+        }
+    }
+
     let functions = functions_of(input, &mut issues);
     match (issues.is_empty(), layer) {
-        (true, Some(layer)) => Ok(SurfaceHeader::Layer { layer, anchor, size, exclusive_zone, margin, keyboard, functions }),
+        (true, Some(layer)) => Ok(SurfaceHeader::Layer { layer, anchor, size, exclusive_zone, margin, keyboard, on_demand, functions }),
         _ => Err(issues),
     }
 }

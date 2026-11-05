@@ -6102,6 +6102,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `power`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "power",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 2v10"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18.4 6.6a9 9 0 1 1-12.77.04"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `printer`: ImageVector by lazy {
         ImageVector.Builder(
             name = "printer",
@@ -9038,6 +9063,7 @@ public object ExpIcons {
         "play" -> `play`
         "plug" -> `plug`
         "plus" -> `plus`
+        "power" -> `power`
         "printer" -> `printer`
         "progress-1-4" -> `progress-1-4`
         "progress-1-5" -> `progress-1-5`
@@ -9155,6 +9181,11 @@ public object ExpIcons {
         "coding-stop" -> `circle-x`
         "coding-subagent" -> `bot`
         "coding-tool" -> `wrench`
+        "ede-brightness" -> `sun`
+        "ede-lock" -> `lock`
+        "ede-power" -> `power`
+        "ede-suspend" -> `moon`
+        "ede-window" -> `monitor`
         "editor-bold" -> `bold`
         "editor-clear-formatting" -> `remove-formatting`
         "editor-code" -> `code`
@@ -9492,6 +9523,16 @@ public object ExpIcons {
     public val codingSubagent: ImageVector get() = `bot`
     /** Concept `coding-tool`. */
     public val codingTool: ImageVector get() = `wrench`
+    /** Concept `ede-brightness`. */
+    public val edeBrightness: ImageVector get() = `sun`
+    /** Concept `ede-lock`. */
+    public val edeLock: ImageVector get() = `lock`
+    /** Concept `ede-power`. */
+    public val edePower: ImageVector get() = `power`
+    /** Concept `ede-suspend`. */
+    public val edeSuspend: ImageVector get() = `moon`
+    /** Concept `ede-window`. */
+    public val edeWindow: ImageVector get() = `monitor`
     /** Concept `editor-bold`. */
     public val editorBold: ImageVector get() = `bold`
     /** Concept `editor-clear-formatting`. */

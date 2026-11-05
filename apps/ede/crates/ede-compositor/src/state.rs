@@ -101,6 +101,8 @@ pub struct Ede {
     pub virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
     /// ede-protocol: the control socket, its grants and clients.
     pub ipc: crate::ipc::Ipc,
+    /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
+    pub hotkeys: crate::hotkeys::Hotkeys,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
 }
@@ -200,6 +202,7 @@ impl Ede {
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
             ipc: crate::ipc::Ipc::default(),
+            hotkeys: crate::hotkeys::Hotkeys::default(),
             config_path: None,
         }
     }

@@ -328,6 +328,7 @@ public enum AppIcons {
         "play",
         "plug",
         "plus",
+        "power",
         "printer",
         "progress-1-4",
         "progress-1-5",
@@ -450,6 +451,11 @@ public enum AppIcons {
         "coding-stop": "circle-x",
         "coding-subagent": "bot",
         "coding-tool": "wrench",
+        "ede-brightness": "sun",
+        "ede-lock": "lock",
+        "ede-power": "power",
+        "ede-suspend": "moon",
+        "ede-window": "monitor",
         "editor-bold": "bold",
         "editor-clear-formatting": "remove-formatting",
         "editor-code": "code",
@@ -792,6 +798,16 @@ public enum AppIcons {
     public static let codingSubagent: String = "bot"
     /// Concept `coding-tool`.
     public static let codingTool: String = "wrench"
+    /// Concept `ede-brightness`.
+    public static let edeBrightness: String = "sun"
+    /// Concept `ede-lock`.
+    public static let edeLock: String = "lock"
+    /// Concept `ede-power`.
+    public static let edePower: String = "power"
+    /// Concept `ede-suspend`.
+    public static let edeSuspend: String = "moon"
+    /// Concept `ede-window`.
+    public static let edeWindow: String = "monitor"
     /// Concept `editor-bold`.
     public static let editorBold: String = "bold"
     /// Concept `editor-clear-formatting`.
