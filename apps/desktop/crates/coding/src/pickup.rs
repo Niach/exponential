@@ -2206,7 +2206,19 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
 /// EXP-1374 (FEED-135): the reply a failed start posts (it reaches the
 /// parent through the bus).
 pub fn start_failure(error: &str) -> String {
-    format!("Could not start: {error}")
+    match missing_base_branch(error) {
+        Some(branch) => format!(
+            "Could not start: its base branch `{branch}` is not on origin. Push `{branch}`, then send this session a message."
+        ),
+        None => format!("Could not start: {error}"),
+    }
+}
+
+/// #EXP-1411: the branch git's raw `invalid reference: origin/<branch>` names:
+/// no base candidate was on origin, so the worktree had nothing to be cut from.
+fn missing_base_branch(error: &str) -> Option<&str> {
+    let (_, rest) = error.split_once("invalid reference: origin/")?;
+    rest.split_whitespace().next()
 }
 
 /// EXP-1374 (FEED-135): a start that failed AFTER the claim (worktree
@@ -5435,7 +5447,7 @@ mod tests {
         );
         let requests = requests.lock().unwrap();
         assert!(
-            requests[0].contains("Could not start: git worktree add: fatal: invalid reference"),
+            requests[0].contains("Could not start: its base branch `exp/session-c0` is not on origin."),
             "{}",
             requests[0]
         );
@@ -5450,6 +5462,24 @@ mod tests {
         let mut refs: Vec<&MessageRow> = pending.iter().collect();
         host.deps.live.take_owed(&mut refs, &[]);
         assert_eq!(refs.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["m3"]);
+    }
+
+    /// #EXP-1411: a base branch origin does not have reads as what to do,
+    /// never as git's raw error; any other error is passed on as it is.
+    #[test]
+    fn a_missing_base_branch_reads_as_what_to_do() {
+        let friendly = "Could not start: its base branch `exp/session-c0` is not on origin. Push `exp/session-c0`, then send this session a message.";
+        for error in [
+            "git worktree add -b exp/x from origin/exp/session-c0: fatal: invalid reference: origin/exp/session-c0",
+            "git: git worktree add: fatal: invalid reference: origin/exp/session-c0\nmore",
+        ] {
+            assert_eq!(start_failure(error), friendly);
+        }
+        assert_eq!(start_failure("git worktree add: disk full"), "Could not start: git worktree add: disk full");
+        // Nothing named after the prefix: nothing to tell.
+        let bare = "fatal: invalid reference: origin/";
+        assert_eq!(start_failure(bare), format!("Could not start: {bare}"));
+        assert_eq!(start_failure("fatal: invalid reference: main"), "Could not start: fatal: invalid reference: main");
     }
 
     /// EXP-1536 (FEED-168): the failed start's report = idle, not busy, the
