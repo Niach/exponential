@@ -7,10 +7,9 @@ use gpui::{div, px, AnyElement, App, Div, FontWeight, InteractiveElement as _, I
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::CHATS;
-use domain::needs_you::{needs_you, NeedsYouInput, NeedsYouKind, NeedsYouRow, NEEDS_YOU};
-use domain::waiting_cards::WAITING_CARDS;
+use domain::needs_you::{needs_you, NeedsYouInput, NEEDS_YOU};
 
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
 
 pub(crate) const ID: &str = "needs-you";
 pub(crate) const OWNER: &str = "FEED-191";
@@ -21,50 +20,10 @@ const WIDTH: f32 = 560.;
 const NEEDS_YOU_JSON: &str = include_str!("../../../../../../../packages/domain-contract/fixtures/needs-you.json");
 
 /// `cases[1]`: the fold of its input.
-fn specimen_rows() -> Vec<NeedsYouRow> {
+fn specimen_rows() -> Vec<domain::needs_you::NeedsYouRow> {
     let fixture: serde_json::Value = serde_json::from_str(NEEDS_YOU_JSON).expect("needs-you.json parses");
     let input: NeedsYouInput = serde_json::from_value(fixture["cases"][1]["input"].clone()).expect("cases[1] input");
     needs_you(&input)
-}
-
-fn glyph(kind: NeedsYouKind) -> ExpIcon {
-    let concept = match kind {
-        NeedsYouKind::Plan => WAITING_CARDS.icons.plan.as_str(),
-        NeedsYouKind::Question => WAITING_CARDS.icons.question.as_str(),
-        NeedsYouKind::Pr => "pr-open",
-    };
-    registry::concept_by_name(concept).unwrap_or(registry::NAV_NEEDS_YOU)
-}
-
-fn row(row: &NeedsYouRow, cx: &App) -> AnyElement {
-    let theme = cx.theme();
-    let second = if row.meta.is_empty() { row.chat.clone() } else { format!("{} · {}", row.chat, row.meta) };
-    crate::surface::flat_row()
-        .id(SharedString::from(format!("{}-{}", NEEDS_YOU.test_ids.row, row.message_id)))
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_start()
-        .gap_3()
-        .px_3()
-        .py_2()
-        .child(div().flex_shrink_0().mt(px(2.)).child(Icon::new(glyph(row.kind)).with_size(px(16.)).text_color(theme::tokens::YELLOW.to_hsla())))
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .gap_2()
-                        .items_center()
-                        .child(div().flex_1().min_w_0().truncate().text_sm().font_weight(FontWeight::MEDIUM).text_color(theme.foreground).child(SharedString::from(row.title.clone())))
-                        .child(div().flex_shrink_0().pl_2().text_xs().text_color(theme.muted_foreground).child(SharedString::from(row.age.clone()))),
-                )
-                .child(div().mt(px(2.)).truncate().text_xs().text_color(theme.muted_foreground).child(SharedString::from(second))),
-        )
-        .into_any_element()
 }
 
 /// The phones' entry: the glyph in the needs-you tone centred in the lead
@@ -129,12 +88,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
             .bg(background)
             .child(entry_row(rows.len(), cx))
-            .child(
-                v_flex()
-                    .id(SharedString::from(NEEDS_YOU.test_ids.list.clone()))
-                    .w_full()
-                    .children(rows.iter().map(|item| row(item, cx))),
-            ),
+            .child(crate::needs_you::needs_you_list(&rows, cx)),
     )
 }
 
@@ -147,7 +101,7 @@ mod tests {
     fn the_specimen_is_the_fixture_fold() {
         let rows = specimen_rows();
         assert!(!rows.is_empty());
-        assert!(rows.iter().any(|row| row.kind == NeedsYouKind::Plan));
-        assert!(rows.iter().any(|row| row.kind == NeedsYouKind::Question));
+        assert!(rows.iter().any(|row| row.kind == domain::needs_you::NeedsYouKind::Plan));
+        assert!(rows.iter().any(|row| row.kind == domain::needs_you::NeedsYouKind::Question));
     }
 }

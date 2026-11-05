@@ -62,7 +62,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             open: StripPick::Plan,
             menu: None,
             on_pick: std::rc::Rc::new(|_, _, _| {}),
-            stories: Some(false),
+            results: true,
             waiting: Vec::new(),
             on_waiting: None,
             plan: crate::thread_screen::strip_plan_of(&row),

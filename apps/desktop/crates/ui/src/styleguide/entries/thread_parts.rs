@@ -4,7 +4,7 @@
 //! contract model (`domain::session_tree::build_session_thread`): the header
 //! twice (`fixtures/session-thread.json`'s first case, then the private one
 //! with its lock): the title and the ONE tab strip (+ · Conversation · the
-//! one issue chip or the group tab · Stories with its dot; NEW-6: the
+//! one issue chip or the group tab · Results; NEW-6: the
 //! private one is a ONE-session thread, so no Conversation tab); then
 //! (#EXP-1433) the strip's two modes: ONE issue keeps its chip; anything
 //! more = ONE group tab (the count at rest; active with a session's name or
@@ -210,8 +210,8 @@ fn strip_spec(case: &Case, tabs: Vec<ThreadTab>, open: StripPick, prefix: &'stat
             linked: Vec::new(),
         }),
         on_pick: std::rc::Rc::new(|_, _, _| {}),
-        // The web specimen's: Stories pinned right, its dot on.
-        stories: Some(true),
+        // The web specimen's: Results pinned right.
+        results: true,
         // #EXP-1562: the case's WAITING cards as the strip's chips.
         waiting: crate::waiting_cards::thread_waiting_cards(&case.view.rows),
         on_waiting: Some(std::rc::Rc::new(|_, _, _| {})),

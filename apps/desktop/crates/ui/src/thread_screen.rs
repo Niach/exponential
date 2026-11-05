@@ -8,7 +8,7 @@
 //!   it) and a lock while private — no caption; its trailing slot holds the
 //!   Merge pill while the thread's PR is open, then the `…`, on EVERY tab.
 //! * The STRIP (EXP-1334, [`thread_strip`], never scrolls): `+` ·
-//!   `Conversation` pinned left (S-3: no Guide tab, stories carry what a
+//!   `Conversation` pinned left (S-3: no Guide tab, results carry what a
 //!   session shows); after them the TOP-LEVEL linked issues
 //!   (status glyph, mono identifier, title) then the dispatcher's DIRECT
 //!   children, laid out by `partition_thread_strip` (titles → identifiers
@@ -54,7 +54,7 @@ use domain::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRo
 use domain::session_results::SessionResultEntry;
 use domain::dock::DockSource;
 use domain::session_tree::{SessionThreadRow, SessionThreadView, ThreadTab, THREAD, THREADS_LIST};
-use domain::stories::STORIES;
+use domain::results_tab::RESULTS_TAB;
 
 use crate::controls::PointerContextMenuExt as _;
 use crate::controls::WebControl as _;
@@ -97,8 +97,8 @@ const CHIP_BADGE_PX: f32 = 5.;
 pub(crate) enum ThreadChildSel {
     Conversation,
     Issue(String),
-    /// stories.json STORIES TAB: the strip's last tab.
-    Stories,
+    /// results-tab.json: the strip's last tab.
+    Results,
     /// #EXP-1662 THE plan tab: the plan a row opened, else (`None`, the
     /// chip) `plan_tab_target`.
     Plan(Option<String>),
@@ -181,6 +181,64 @@ pub(crate) fn request_thread_plan(root_id: &str, message_id: &str, cx: &mut App)
 }
 
 impl gpui::Global for PendingThreadChild {}
+
+/// #FEED-191 (needs-you.json): what a Needs you row wants its chat to show (root
+/// id → the opening), read by that chat's view on its next frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ThreadOpening {
+    /// The Conversation, scrolled to the card (THE waiting chip's way).
+    Card(String),
+    /// The Results tab (it holds the PR block).
+    Results,
+}
+
+#[derive(Default)]
+struct PendingThreadOpening(HashMap<String, ThreadOpening>);
+
+impl gpui::Global for PendingThreadOpening {}
+
+/// Show the Conversation of `root_id` scrolled to the card `message_id` (the
+/// caller navigates there; on that chat already, this alone does it).
+pub(crate) fn request_thread_card(root_id: &str, message_id: &str, cx: &mut App) {
+    cx.default_global::<PendingThreadOpening>().0.insert(root_id.to_string(), ThreadOpening::Card(message_id.to_string()));
+    cx.refresh_windows();
+}
+
+/// Show the Results tab of `root_id` (the caller navigates there).
+pub(crate) fn request_thread_results(root_id: &str, cx: &mut App) {
+    cx.default_global::<PendingThreadOpening>().0.insert(root_id.to_string(), ThreadOpening::Results);
+    cx.refresh_windows();
+}
+
+/// #FEED-191 (plan-page.json): decisions taken ON the plan tab: `asked` = card →
+/// its chat's root while the answer travels, `landed` = the chats whose answer
+/// succeeded, read by that chat's view on its next frame (a decision from the
+/// Conversation never enters, it stays put).
+#[derive(Default)]
+struct PlanTabDecisions {
+    asked: HashMap<String, String>,
+    landed: HashSet<String>,
+}
+
+impl gpui::Global for PlanTabDecisions {}
+
+/// The next answer of `message_id` (posted by `session_id`) was decided on the
+/// plan tab: its chat returns to the Conversation once it succeeds.
+pub(crate) fn decide_on_plan_tab(message_id: &str, session_id: &str, cx: &mut App) {
+    let Some(root) = crate::session_data::session(session_id, cx).map(|session| session.root_id_or_self().to_string()) else {
+        return;
+    };
+    cx.default_global::<PlanTabDecisions>().asked.insert(message_id.to_string(), root);
+}
+
+/// An answer's outcome: a tab decision that succeeded lands, a refusal stays on
+/// the tab.
+fn settle_plan_tab_decision(message_id: &str, ok: bool, cx: &mut App) {
+    let decisions = cx.default_global::<PlanTabDecisions>();
+    if let Some(root) = decisions.asked.remove(message_id).filter(|_| ok) {
+        decisions.landed.insert(root);
+    }
+}
 
 /// A New issue page filed `issue_id` into the thread `root_id`: link it
 /// (`sessions.linkIssues`) and open its child the next time the thread
@@ -291,12 +349,15 @@ pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
                     crate::plan_card::drop_draft(&message_id, cx);
                     // #EXP-1464: an expanded row's card answered = it collapses.
                     settle_answered_row(&message_id, cx);
+                    settle_plan_tab_decision(&message_id, true, cx);
+                    cx.refresh_windows();
                 });
             }
             Err(err) => {
                 log::warn!("[thread] answer the question failed: {err}");
                 cx.update(|cx| {
                     cx.default_global::<AnsweringCards>().0.remove(&message_id);
+                    settle_plan_tab_decision(&message_id, false, cx);
                     cx.refresh_windows();
                     crate::action_error::failed_action_err("answer", "the question", &err, cx);
                 });
@@ -1465,6 +1526,7 @@ pub(crate) fn plan_facts<'a>(row: &'a SessionThreadRow) -> Option<(&'a str, &'a 
                 answers: answers.as_ref(),
                 feedback: feedback.as_deref(),
                 surface_data: surface_data.as_ref(),
+                on_tab: false,
             },
         )),
         _ => None,
@@ -1603,8 +1665,8 @@ pub(crate) fn suggestion_sources(rows: &[SessionThreadRow]) -> Vec<DockSource> {
 }
 
 /// N-12: the Conversation rows THE Dock holds (web `threadDockedIds`): the
-/// suggestions rows with an open item (S-3: a waiting plan / question is a
-/// story, never docked; it stays inline).
+/// suggestions rows with an open item (S-3: a waiting plan / question is
+/// never docked; it stays inline).
 pub(crate) fn docked_ids(rows: &[SessionThreadRow]) -> HashSet<String> {
     suggestion_sources(rows)
         .into_iter()
@@ -1620,7 +1682,7 @@ pub(crate) fn docked_ids(rows: &[SessionThreadRow]) -> HashSet<String> {
 /// messages, the banners, off the hosted composer view) above THE
 /// composer; returns the band and the open card's sheet. `suggestions` =
 /// the root's id when its suggested-tasks cards dock too (the thread).
-/// S-3: no plan / question source (a story now, inline in the
+/// S-3: no plan / question source (inline in the
 /// Conversation) and nothing opens itself. #EXP-1545: `queue_from` = the
 /// Live child ([`domain::dock::thread_dock_queue`]'s pick) whose Queue the
 /// `tasks` card shows, named in its caption, its sheet that child's Trace;
@@ -2389,7 +2451,7 @@ pub(crate) enum StripPick {
     Conversation,
     Issue(String),
     Session(String),
-    Stories,
+    Results,
     /// #EXP-1662: the plan tab.
     Plan,
 }
@@ -2439,7 +2501,7 @@ pub(crate) struct StripIssue {
 pub(crate) type OnStripPick = std::rc::Rc<dyn Fn(StripPick, &mut Window, &mut App)>;
 
 /// THE thread strip's inputs (the screen and the styleguide draw it):
-/// `[+] [Conversation] | the one issue chip OR the group tab | Stories`,
+/// `[+] [Conversation] | the one issue chip OR the group tab | Results`,
 /// nothing scrolls (#EXP-1433, `domain::session_tree::thread_strip_mode`).
 pub(crate) struct ThreadStrip {
     /// Element id prefix (`thread` on the screen).
@@ -2453,10 +2515,9 @@ pub(crate) struct ThreadStrip {
     /// menu (`None` = a non-member: no `+`, no menu).
     pub(crate) menu: Option<ThreadMenuTarget>,
     pub(crate) on_pick: OnStripPick,
-    /// stories.json STORIES TAB: `Some(dot)` = the Stories tab pinned right
-    /// after a divider, its green dot while a story is unseen; `None` = no
-    /// Stories tab.
-    pub(crate) stories: Option<bool>,
+    /// results-tab.json: the Results tab pinned right after a divider (no
+    /// dot); an agent's chat has none.
+    pub(crate) results: bool,
     /// #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
     /// cards (Conversation order) and what a chip's press does; empty =
     /// no chips.
@@ -2666,7 +2727,7 @@ pub(crate) fn strip_group_tab(id: SharedString, count: usize, open_label: Option
 }
 
 /// Paint THE thread strip (#EXP-1433): `+` · Conversation | the ONE issue
-/// chip (`chips`) or ONE group tab (`group`) | Stories — nothing scrolls.
+/// chip (`chips`) or ONE group tab (`group`) | Results — nothing scrolls.
 pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> AnyElement {
     let prefix = spec.prefix;
     let (issues, sessions) = strip_group_items(&spec);
@@ -2694,10 +2755,10 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
     }
     // NEW-6 (N-1): a thread with ONE session has no Conversation tab (its
     // raw work IS the body); the tab comes back with the first child.
-    // The Stories or plan tab open on a one-session thread brings the
+    // The Results or plan tab open on a one-session thread brings the
     // Conversation tab back (the way home, web draws it always).
     if spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Conversation))
-        || matches!(spec.open, StripPick::Stories | StripPick::Plan)
+        || matches!(spec.open, StripPick::Results | StripPick::Plan)
     {
         lead.push(
             strip_tab(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
@@ -2788,13 +2849,12 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
         _ => None,
     };
 
-    // STORIES TAB: pinned right after a divider (the Guide's place).
-    let stories = spec.stories.map(|dot| {
-        strip_tab(SharedString::from(STORIES.tab.test_ids.tab.clone()), spec.open == StripPick::Stories, cx)
-            .child(Icon::new(registry::THREAD_STORIES).xsmall())
-            .child(SharedString::from(STORIES.tab.copy.label.clone()))
-            .when(dot, |chip| chip.child(stories_dot(cx)))
-            .on_click(pick(StripPick::Stories))
+    // results-tab.json: pinned right after a divider (the Guide's place).
+    let results = spec.results.then(|| {
+        strip_tab(SharedString::from(RESULTS_TAB.tab.test_ids.tab.clone()), spec.open == StripPick::Results, cx)
+            .child(Icon::new(registry::THREAD_RESULTS).xsmall())
+            .child(SharedString::from(RESULTS_TAB.tab.copy.label.clone()))
+            .on_click(pick(StripPick::Results))
             .into_any_element()
     });
     h_flex()
@@ -2815,16 +2875,11 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
                 .overflow_x_hidden()
                 .children(middle),
         )
-        .when_some(stories, |row, stories| row.child(strip_divider(cx)).child(stories))
+        .when_some(results, |row, results| row.child(strip_divider(cx)).child(results))
         .into_any_element()
 }
 
-/// The Stories tab's green dot (a story unseen; the Guide's dot).
-pub(crate) fn stories_dot(cx: &App) -> AnyElement {
-    div().size(px(6.)).rounded_full().bg(cx.theme().success).into_any_element()
-}
-
-/// The strip's vertical divider before Stories.
+/// The strip's vertical divider before Results.
 pub(crate) fn strip_divider(cx: &App) -> AnyElement {
     div().w(px(1.)).h(px(16.)).mx_1().bg(cx.theme().border).into_any_element()
 }
@@ -2949,10 +3004,10 @@ pub(crate) fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>,
     hasher.finish()
 }
 
-/// The Stories tab's own state: THE review pane open, the pull request's
+/// The Results tab's own state: THE review pane open, the pull request's
 /// diff, the hovered stack member. Merges ride [`crate::pr_merge`]'s state.
 #[derive(Default)]
-struct StoriesState {
+struct ResultsState {
     review: bool,
     diff: Option<(String, Entity<crate::pr_diff::PrDiffView>)>,
     stack_hovered: Option<String>,
@@ -2989,7 +3044,7 @@ fn agent_chat_shows(child: &ThreadChildSel, holds_plan: bool) -> bool {
     let page = match child {
         ThreadChildSel::Conversation => "conversation",
         ThreadChildSel::Issue(_) => "issue",
-        ThreadChildSel::Stories => "stories",
+        ThreadChildSel::Results => "results",
         ThreadChildSel::Plan(_) => "plan",
     };
     domain::session_kind::agent_chat_page(page, holds_plan) == page
@@ -3028,7 +3083,7 @@ pub(crate) struct ThreadScreenView {
     /// EXP-1686: an agent's chat: the call covers the conversation while it
     /// runs (the agent header's telephone focuses it).
     call_panel: Entity<etalk_gpui::voice_call::CallPanel>,
-    stories: StoriesState,
+    results: ResultsState,
     child: ThreadChildSel,
     /// EXP-1346: shared, never deep-cloned per frame.
     model: Option<Rc<ThreadModel>>,
@@ -3156,7 +3211,7 @@ impl ThreadScreenView {
         let mut this = Self {
             root_id,
             call_panel: cx.new(etalk_gpui::voice_call::CallPanel::new),
-            stories: StoriesState::default(),
+            results: ResultsState::default(),
             child: ThreadChildSel::Conversation,
             model: None,
             model_gen: 0,
@@ -3194,9 +3249,10 @@ impl ThreadScreenView {
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
-        // A capture (and a debug launch) can open a thread on its Stories tab.
-        if std::env::var("EXP_DEV_THREAD_CHILD").ok().as_deref() == Some("stories") {
-            this.child = ThreadChildSel::Stories;
+        // A capture (and a debug launch) can open a thread on its Results tab
+        // (`stories` = the tab's old name).
+        if matches!(std::env::var("EXP_DEV_THREAD_CHILD").ok().as_deref(), Some("results" | "stories")) {
+            this.child = ThreadChildSel::Results;
         }
         this
     }
@@ -3314,7 +3370,7 @@ impl ThreadScreenView {
             let issue_id = issue_id.clone();
             view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
         }
-        self.stories.review = false;
+        self.results.review = false;
         self.child = child;
         cx.notify();
     }
@@ -3440,22 +3496,29 @@ impl ThreadScreenView {
         // S-3 (owner 2026-10-28): no Stop pill; the composer's stop-turn
         // is the one stop.
         let menu = guide_menu(model, cx);
+        // The rule under the strip spans the content card (web `border-b`), so
+        // it meets the plan tab's outline hairline.
         v_flex()
             .w_full()
-            .px(px(HEADER_INSET))
-            .pt_6()
-            .gap_4()
             .child(
-                h_flex()
+                v_flex()
                     .w_full()
-                    .min_w_0()
-                    .gap_2()
-                    .items_center()
-                    .child(div().flex_1().min_w_0().child(title))
-                    .children(merge)
-                    .children(menu),
+                    .px(px(HEADER_INSET))
+                    .pt_6()
+                    .pb_3()
+                    .gap_4()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_2()
+                            .items_center()
+                            .child(div().flex_1().min_w_0().child(title))
+                            .children(merge)
+                            .children(menu),
+                    )
+                    .child(self.render_strip(model, window, cx)),
             )
-            .child(self.render_strip(model, window, cx))
             .child(div().w_full().h(px(1.)).bg(cx.theme().border))
             .into_any_element()
     }
@@ -3467,7 +3530,7 @@ impl ThreadScreenView {
             (Some(focus), _) => StripPick::Session(focus.to_string()),
             (None, ThreadChildSel::Conversation) => StripPick::Conversation,
             (None, ThreadChildSel::Issue(id)) => StripPick::Issue(id.clone()),
-            (None, ThreadChildSel::Stories) => StripPick::Stories,
+            (None, ThreadChildSel::Results) => StripPick::Results,
             (None, ThreadChildSel::Plan(_)) => StripPick::Plan,
         };
         let issues: HashMap<String, StripIssue> = model
@@ -3502,7 +3565,7 @@ impl ThreadScreenView {
             other => {
                 let child = match other {
                     StripPick::Issue(id) => ThreadChildSel::Issue(id),
-                    StripPick::Stories => ThreadChildSel::Stories,
+                    StripPick::Results => ThreadChildSel::Results,
                     StripPick::Plan => ThreadChildSel::Plan(None),
                     _ => ThreadChildSel::Conversation,
                 };
@@ -3516,11 +3579,10 @@ impl ThreadScreenView {
                 });
             }
         });
-        let stories_dot = crate::story_ring::root_story_tab(&self.root_id, cx).as_ref().as_ref().is_some_and(|ring| ring.unseen);
         thread_strip(
             ThreadStrip {
                 prefix: "thread",
-                stories: (!agent_chat).then_some(stories_dot),
+                results: !agent_chat,
                 plan: self.shown_plan(model, cx).or_else(|| tab_plan(&model.view.rows).cloned()).as_ref().and_then(strip_plan_of),
                 waiting: if agent_chat { Vec::new() } else { crate::waiting_cards::thread_waiting_cards(&model.view.rows) },
                 on_waiting: (!agent_chat).then(|| {
@@ -3988,7 +4050,7 @@ impl ThreadScreenView {
             .into_any_element()
     }
 
-    // ── the Stories tab ──────────────────────────────────────────────────
+    // ── the Results tab ──────────────────────────────────────────────────
 
     /// The pull request's diff view, built (and fetched) once per PR.
     fn pull_diff(
@@ -3997,7 +4059,7 @@ impl ThreadScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Entity<crate::pr_diff::PrDiffView> {
-        if let Some((id, view)) = &self.stories.diff {
+        if let Some((id, view)) = &self.results.diff {
             if id == pull_request_id {
                 return view.clone();
             }
@@ -4006,28 +4068,28 @@ impl ThreadScreenView {
         cx.observe(&view, |_, _, cx| cx.notify()).detach();
         let id = pull_request_id.to_string();
         view.update(cx, |view, cx| view.set_pull_request(id.clone(), cx));
-        self.stories.diff = Some((id, view.clone()));
-        self.stories.review = false;
+        self.results.diff = Some((id, view.clone()));
+        self.results.review = false;
         view
     }
 
     fn open_review(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
-        self.stories.review = open;
+        self.results.review = open;
         cx.notify();
     }
 
-    /// stories.json STORIES TAB: the PR block (the Stack band + THE
-    /// StackRail, ONE Changes row opening THE review pane), then the tiles
-    /// (`story_tab`); a tile opens THE viewer on the tab's ring.
-    fn render_stories_child(&mut self, model: &ThreadModel, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+    /// results-tab.json: the PR block (the Stack band + THE StackRail, ONE
+    /// Changes row opening THE review pane), then the results INLINE; a picture
+    /// opens THE lightbox over its result's pictures.
+    fn render_results_child(&mut self, model: &ThreadModel, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let pull = model.pull().cloned();
         let diff_view = pull.as_ref().map(|pull| self.pull_diff(&pull.id, window, cx));
         let files = diff_view.as_ref().map(|view| view.read(cx).pane_files(cx)).unwrap_or_default();
         let (additions, deletions) =
             files.iter().fold((0u32, 0u32), |(a, d), file| (a + file.additions, d + file.deletions));
-        if let (true, Some(view)) = (self.stories.review && !files.is_empty(), diff_view.as_ref()) {
+        if let (true, Some(view)) = (self.results.review && !files.is_empty(), diff_view.as_ref()) {
             let this = cx.entity().downgrade();
-            let back = crate::story_tab::review_header(
+            let back = crate::results_tab::review_header(
                 files.len(),
                 additions,
                 deletions,
@@ -4047,7 +4109,7 @@ impl ThreadScreenView {
         let lead = pull.as_ref().map(|pull| {
             let this = cx.entity().downgrade();
             let changes = (!files.is_empty()).then(|| {
-                crate::story_tab::changes_row(
+                crate::results_tab::changes_row(
                     files.len(),
                     additions,
                     deletions,
@@ -4062,25 +4124,16 @@ impl ThreadScreenView {
                 .min_w_0()
                 .gap_3()
                 .children(self.stack_card(model, pull, cx).map(|card| {
-                    div().id(SharedString::from(STORIES.tab.test_ids.stack.clone())).child(card)
+                    div().id(SharedString::from(RESULTS_TAB.tab.test_ids.stack.clone())).child(card)
                 }))
                 .children(changes)
                 .into_any_element()
         });
-        let ring = crate::story_ring::root_story_tab(&self.root_id, cx);
-        let team_id = model.root.team_id.clone().unwrap_or_default();
-        let root_id = self.root_id.clone();
-        let on_open: crate::story_tab::OnOpenStory = std::rc::Rc::new(move |story, picture, window, cx| {
-            crate::story_viewer::open_tab(&team_id, &root_id, &story.id, picture, window, cx);
-        });
+        let results = crate::results_tab::results_of_root(&self.root_id, cx);
         let images = self.images.clone();
-        let tab_body = crate::story_tab::TabBody {
-            images: &images,
-            card_for: &crate::story_tab::store_story_card,
-        };
-        let body = crate::story_tab::story_tab_body(ring.as_ref().as_ref(), lead, &tab_body, Some(on_open), window, cx);
+        let body = crate::results_tab::results_tab_body(&results, lead, &images, &crate::results_tab::store_surface, window, cx);
         div()
-            .id(SharedString::from(STORIES.tab.test_ids.list.clone()))
+            .id(SharedString::from(RESULTS_TAB.tab.test_ids.list.clone()))
             .flex_1()
             .min_h_0()
             .w_full()
@@ -4119,8 +4172,8 @@ impl ThreadScreenView {
         let this = cx.entity().downgrade();
         let on_hover: crate::session_results::OnHoverStackRow = std::rc::Rc::new(move |hovered, _window, cx| {
             let _ = this.update(cx, |this, cx| {
-                if this.stories.stack_hovered != hovered {
-                    this.stories.stack_hovered = hovered;
+                if this.results.stack_hovered != hovered {
+                    this.results.stack_hovered = hovered;
                     cx.notify();
                 }
             });
@@ -4130,7 +4183,7 @@ impl ThreadScreenView {
             None,
             Some(on_pick),
             Some(on_merge),
-            self.stories.stack_hovered.clone(),
+            self.results.stack_hovered.clone(),
             Some(on_hover),
             cx,
         ))
@@ -4224,7 +4277,7 @@ impl Render for ThreadScreenView {
                 .child(crate::feedback::skeleton_rows("thread-loading", 3, 36., cx));
         };
         // EXP-1686 (chats.json AGENT CHAT): an agent's chat shows the conversation
-        // and its plan: a stale Stories (or issue) selection falls back.
+        // and its plan: a stale Results (or issue) selection falls back.
         let agent_chat = conversation_agent(&model).map(str::to_string);
         if agent_chat.is_some() && !agent_chat_shows(&self.child, agent_chat_holds_plan(self.shown_plan(&model, cx).as_ref(), &model)) {
             self.set_child(ThreadChildSel::Conversation, window, cx);
@@ -4245,6 +4298,24 @@ impl Render for ThreadScreenView {
         if let Some(message_id) = pending_plan {
             cx.global_mut::<PendingThreadPlan>().0.remove(&self.root_id);
             self.set_child(ThreadChildSel::Plan(Some(message_id)), window, cx);
+        }
+        // #FEED-191 (needs-you.json): a Needs you row asked for this chat.
+        let opening = cx.try_global::<PendingThreadOpening>().and_then(|pending| pending.0.get(&self.root_id).cloned());
+        if let Some(opening) = opening {
+            cx.global_mut::<PendingThreadOpening>().0.remove(&self.root_id);
+            match opening {
+                ThreadOpening::Card(message_id) => self.select_waiting(&message_id, window, cx),
+                ThreadOpening::Results if agent_chat.is_none() => self.select_child(ThreadChildSel::Results, window, cx),
+                ThreadOpening::Results => {}
+            }
+        }
+        // #FEED-191 (plan-page.json): a decision taken on the plan tab landed:
+        // back to the Conversation, where the agent works on.
+        if cx.try_global::<PlanTabDecisions>().is_some_and(|decisions| decisions.landed.contains(&self.root_id)) {
+            cx.global_mut::<PlanTabDecisions>().landed.remove(&self.root_id);
+            if matches!(self.child, ThreadChildSel::Plan(_)) {
+                self.set_child(ThreadChildSel::Conversation, window, cx);
+            }
         }
         // Nothing left to show on the plan tab: the Conversation.
         if matches!(self.child, ThreadChildSel::Plan(_)) && self.shown_plan(&model, cx).is_none() {
@@ -4322,7 +4393,7 @@ impl Render for ThreadScreenView {
         let child = match self.child.clone() {
             ThreadChildSel::Conversation => self.render_conversation(&model, window, cx),
             ThreadChildSel::Issue(_) => self.render_issue_child(),
-            ThreadChildSel::Stories => self.render_stories_child(&model, window, cx),
+            ThreadChildSel::Results => self.render_results_child(&model, window, cx),
             ThreadChildSel::Plan(_) => match self.shown_plan(&model, cx) {
                 Some(row) => self.render_plan_child(&row, window, cx),
                 None => div().flex_1().into_any_element(),
@@ -4342,8 +4413,6 @@ impl Render for ThreadScreenView {
                 .into_any_element(),
             None => child,
         };
-        // THE story viewer, opened from the Stories tab.
-        let viewer = crate::story_viewer::overlay(window, cx);
         v_flex()
             .track_focus(&self.focus_handle)
             .size_full()
@@ -4351,7 +4420,6 @@ impl Render for ThreadScreenView {
             .overflow_hidden()
             .child(header)
             .child(child)
-            .children(viewer)
     }
 }
 
@@ -4385,8 +4453,26 @@ mod tests {
         assert!(agent_chat_shows(&ThreadChildSel::Conversation, true));
         assert!(agent_chat_shows(&ThreadChildSel::Conversation, false));
         assert!(!agent_chat_shows(&ThreadChildSel::Plan(None), false));
-        assert!(!agent_chat_shows(&ThreadChildSel::Stories, true));
+        assert!(!agent_chat_shows(&ThreadChildSel::Results, true));
         assert!(!agent_chat_shows(&ThreadChildSel::Issue("i".into()), true));
+    }
+
+    /// plan-page.json #FEED-191: a tab decision lands only when it succeeds; a
+    /// decision from the Conversation never enters.
+    #[gpui::test]
+    fn a_decision_on_the_plan_tab_lands_only_on_success(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            cx.default_global::<PlanTabDecisions>().asked.insert("m1".into(), "r1".into());
+            cx.default_global::<PlanTabDecisions>().asked.insert("m2".into(), "r2".into());
+            settle_plan_tab_decision("m1", true, cx);
+            settle_plan_tab_decision("m2", false, cx);
+            settle_plan_tab_decision("m3", true, cx);
+            let decisions = cx.global::<PlanTabDecisions>();
+            assert!(decisions.landed.contains("r1"));
+            assert!(!decisions.landed.contains("r2"));
+            assert_eq!(decisions.landed.len(), 1);
+            assert!(decisions.asked.is_empty());
+        });
     }
 
     /// chats.json AGENT CHAT, the whole path: an agent posts a plan, a way in
@@ -4486,8 +4572,8 @@ mod tests {
         view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
         assert!(cx.debug_bounds(tab).is_none());
 
-        // A stale Stories selection never survives in an agent's chat.
-        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Stories, window, cx)));
+        // A stale Results selection never survives in an agent's chat.
+        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Results, window, cx)));
         draw(cx);
         view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
     }

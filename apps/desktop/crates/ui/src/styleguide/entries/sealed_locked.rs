@@ -40,7 +40,7 @@ fn transcript() -> Vec<(SessionThreadRow, &'static str)> {
 /// The web entry's `LOCKED_LIST_ROWS`: the fixture list's first three rows,
 /// the first and the third with a locked preview.
 fn list_rows() -> Vec<ChatRow> {
-    let (list, _, _) = super::chat_list::model();
+    let (list, _) = super::chat_list::model();
     let locked = |reason| ChatPreview { kind: ChatPreviewKind::Locked, text: PLACEHOLDER.text(reason).to_string() };
     list.rows
         .into_iter()

@@ -805,7 +805,7 @@
       },
       "notes": {
         "web": "#FEED-191: the sidebar header's Inbox icon opens a menu-surface popover; `/inbox` redirects home with the popover open.",
-        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or session opens beside the list without re-sliding it.",
+        "desktop": "#FEED-191: the rail header's Inbox icon opens a menu-surface popover under it: `EXP_DEV_TOOL=inbox` lands on Home with it open.",
         "web-mobile": "Thread 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
       }
     },
@@ -839,7 +839,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: no full-width page — My issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it.",
+        "desktop": "#FEED-191: the board's All issues · My issues pills: `EXP_DEV_TOOL=my-issues` opens the active board on My issues.",
         "web-mobile": "Inherits web: the phone board's My issues chip (All issues · My issues N · Drafts N), the list grouped by status like the board.",
         "web": "#FEED-191: the board's chips (All issues · My issues N; Drafts stays a sidebar entry on wide); an old `/inbox?tab=my-issues` link forwards to it."
       }
@@ -902,12 +902,18 @@
         "settleMs": 1000
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "needs-you"
+        }
+      },
       "notes": {
         "web": "The sidebar's Needs you entry, right after Agent, while a row exists. The DEV-ONLY `?dev=needs-you` on the Agent route draws the specimen (`cases[1]` + the phone entry row).",
         "web-mobile": "Inherits web: pushed from the Chats list's first row, the page header with the back control.",
         "ios": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshots yet.",
         "android": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshotsTest yet.",
-        "desktop": "Lands with the desktop lane (FEED-191): the styleguide twin does not exist yet."
+        "desktop": "The rail's Needs you entry, right after Agent, while a row exists: `EXP_DEV_SCREEN=needs-you`, the page in the content card. The twin = `styleguide:needs-you`."
       }
     },
     {
@@ -7913,14 +7919,14 @@
           "value": "thread:$diffThread"
         },
         "env": {
-          "EXP_DEV_THREAD_CHILD": "stories"
+          "EXP_DEV_THREAD_CHILD": "results"
         }
       },
       "notes": {
         "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it results with the board's web + iOS shots.",
         "ios": "The LIVE walk: APP-14's thread from Chats, then its last strip tab (the shot keeps its name `sg_thread-stories` until the native lane renames it).",
         "android": "See ios.",
-        "desktop": "APP-14's thread opened on its last strip tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=stories`, until the desktop lane renames it.",
+        "desktop": "APP-14's thread opened on its last strip tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=results`.",
         "web-mobile": "Inherits web: the phone pager's last page (the icon-only Results tab)."
       }
     },
@@ -7939,12 +7945,19 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:results-tab"
+        },
+        "anchorDelayMs": 1500
+      },
       "notes": {
         "web": "The DEV-ONLY `?dev=results-tab` on the Agent route: `@exp/ui` `ResultsTabSpecimen` = results-tab.json `tab.specimen`.",
         "web-mobile": "Inherits web.",
         "ios": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshots yet.",
         "android": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshotsTest yet.",
-        "desktop": "Lands with the desktop lane (FEED-191): the styleguide twin does not exist yet."
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:results-tab`: the IDE styleguide entry drawn full-window."
       }
     },
     {

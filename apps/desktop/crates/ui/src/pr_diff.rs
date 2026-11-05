@@ -6,9 +6,9 @@
 //! thing Source Control renders, so every diff reads identically.
 //!
 //! EXP-1294: keyed on a `pull_requests` row (PR state left the issue). The
-//! host is the thread's Stories tab (stories.json STORIES TAB, THE review
-//! pane): the complete diff; the host draws the `‹ Stories` back row above
-//! it ([`crate::story_tab`]).
+//! host is the thread's Results tab (results-tab.json, THE review
+//! pane): the complete diff; the host draws the `‹ Results` back row above
+//! it ([`crate::results_tab`]).
 //!
 //! Same-id re-points are no-ops — the fetch must not re-run per render; the
 //! diff is a snapshot of the PR at open time.
@@ -21,7 +21,7 @@ use gpui_component::ActiveTheme as _;
 use crate::diff::DiffView;
 use crate::queries;
 
-/// The read-only PR diff behind the Stories tab's review pane.
+/// The read-only PR diff behind the Results tab's review pane.
 pub struct PrDiffView {
     focus_handle: FocusHandle,
     diff: Entity<DiffView>,

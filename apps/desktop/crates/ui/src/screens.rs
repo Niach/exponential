@@ -42,10 +42,9 @@ use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
     active_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
-    second_sidebar_for, shapes_ready, Navigation, PendingOrigin, Screen, SecondSidebar, TabOrigin,
+    shapes_ready, Navigation, PendingOrigin, Screen, TabOrigin,
 };
-use crate::sidebar::{rail_shared_for_window, InboxTab, ListMode, ListPanel, RailShared};
-use crate::slide_swap::{self, SwapAnim};
+use crate::sidebar::{rail_shared_for_window, ListPanel, RailShared};
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
@@ -190,6 +189,9 @@ pub(crate) fn build_screen_content(
         Screen::Drafts => cx
             .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
             .into(),
+        Screen::NeedsYou => cx
+            .new(|cx| crate::needs_you::NeedsYouView::new(window, cx))
+            .into(),
         // EXP-1170: the New issue page is never undocked (one shared view
         // owns the draft's autosave).
         Screen::IssueDraft { .. } => cx.new(|_| NeverUndocked).into(),
@@ -212,7 +214,6 @@ pub(crate) fn build_screen_content(
         // EXP-851: the list screens are never undockable (only a detail is),
         // so this arm exists to keep the match total.
         Screen::BoardIssues { .. }
-        | Screen::Inbox { .. }
         | Screen::Files
         | Screen::SourceControl => cx.new(|_| NeverUndocked).into(),
     }
@@ -243,11 +244,6 @@ struct TabEntry {
     screen: Screen,
     origin: Option<TabOrigin>,
     root_id: Option<String>,
-    /// EXP-1250: the list preview slot this tab IS — set only when a list
-    /// step opened it ([`preview_slot`]), never derived from `origin`, so a
-    /// tab the user opened elsewhere and merely focused from a list is never
-    /// replaced by the next step.
-    slot: Option<PreviewSlot>,
 }
 
 impl TabEntry {
@@ -262,7 +258,6 @@ impl TabEntry {
             screen,
             origin,
             root_id,
-            slot: None,
         }
     }
 
@@ -421,52 +416,10 @@ fn swap_team_tabs(
     next
 }
 
-/// EXP-1250 — a list's ONE reusable tab (a preview slot), keyed per LIST
-/// like the web's `previewSlotKey`: both Inbox tabs (notifications, My
-/// Issues) share one. (EXP-1294: Agent › Recent and its slot are gone.)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PreviewSlot {
-    Inbox,
-}
-
-/// The slot an open lands in: only an EXPLICIT list origin is a list step.
-fn preview_slot_key(pending: Option<&PendingOrigin>) -> Option<PreviewSlot> {
-    let Some(PendingOrigin::Explicit(origin)) = pending else {
-        return None;
-    };
-    match origin.tool {
-        crate::sidebar::ToolWindow::Inbox => Some(PreviewSlot::Inbox),
-        _ => None,
-    }
-}
-
-/// EXP-1250 — the tab a list step REPLACES: the one that list's previous
-/// step opened (its explicit slot marker), instead of growing the strip by
-/// one chip per step. `None` = push a new tab (which becomes the slot). An
-/// existing tab for the SAME work is found before this and simply focused.
-/// Pure.
-fn preview_slot(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
-    let key = preview_slot_key(pending)?;
-    tabs.iter().position(|tab| tab.slot == Some(key))
-}
-
-/// EXP-1250 — a navigation lands on a tab that ALREADY holds the work. A
-/// list step (a preview origin) keeps the tab's own list and slot, mirroring
-/// the web's `nextFrom`: a tab opened from a board and focused from the Inbox
-/// stays a board tab and never becomes the Inbox slot. Any other real
-/// navigation refreshes the list (latest wins); an explicit non-list origin
-/// or a rail open promotes a slot tab to a kept one. Pure.
+/// EXP-1250 — a navigation lands on a tab that ALREADY holds the work: a real
+/// navigation refreshes the list (latest wins). Pure.
 fn focus_existing_tab(tab: &mut TabEntry, pending: Option<&PendingOrigin>, derived: Option<TabOrigin>) {
-    if preview_slot_key(pending).is_some() {
-        return;
-    }
     tab.origin = resolve_tab_origin(pending, tab.origin.as_ref(), derived);
-    if matches!(
-        pending,
-        Some(PendingOrigin::Explicit(_)) | Some(PendingOrigin::Rail)
-    ) {
-        tab.slot = None;
-    }
 }
 
 /// EXP-851: which list a tab ends up carrying. `pending` is the marker the
@@ -883,6 +836,7 @@ pub struct ScreensPanel {
     /// The Drafts page (EXP-878 — the New issue pages left with content in
     /// them; the same tab-less full-page mode).
     drafts: Entity<crate::drafts_view::DraftsView>,
+    needs_you: Entity<crate::needs_you::NeedsYouView>,
     /// EXP-1170: the New issue page — ONE shared view re-pointed per draft
     /// like the PR diff ([`Self::sync_issue_draft`]); a navigation off it
     /// pays the draft out.
@@ -915,18 +869,8 @@ pub struct ScreensPanel {
     agents: HashMap<String, Entity<crate::agent_screen::AgentScreenView>>,
     /// #EXP-1493: the plan page a tab SHOWS, keyed by `(session, message)`;
     /// dropped when its tab moves off it or closes (like a session view).
-    /// EXP-851: the board list screen's view, full width (EXP-1192: the
-    /// Inbox moved into [`Self::side_list`]).
+    /// EXP-851: the board list screen's view, full width.
     list: Entity<ListPanel>,
-    /// EXP-1192: the card's Inbox second sidebar — the list an open detail
-    /// was picked from, beside it inside the card. Pushed its kind every
-    /// render ([`ListPanel::set_side`]).
-    side_list: Entity<ListPanel>,
-    /// EXP-1192: the second sidebar's slide — [`second_sidebar_for`] of the
-    /// active screen, retargeted every render ([`Self::sync_side`]).
-    side_anim: SwapAnim<Option<SecondSidebar>>,
-    /// The settle timer of the running [`Self::side_anim`] swap.
-    _side_anim_task: Option<gpui::Task<()>>,
     /// EXP-851: the Source Control screen's commit history (it lived on the
     /// retired tool column). Its diff is [`Self::source_control`].
     history: Entity<crate::source_control::HistoryList>,
@@ -1117,14 +1061,14 @@ impl ScreensPanel {
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
+        let needs_you = cx.new(|cx| crate::needs_you::NeedsYouView::new(window, cx));
         let issue_draft =
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let threads_page = cx.new(|cx| crate::threads_view::ThreadsView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
-        let list = cx.new(|cx| ListPanel::new(ListMode::Screen, window, cx));
-        let side_list = cx.new(|cx| ListPanel::new(ListMode::Nav, window, cx));
+        let list = cx.new(|cx| ListPanel::new(window, cx));
         let history = cx.new(|cx| crate::source_control::HistoryList::new(window, cx));
 
         let mut subscriptions = Vec::new();
@@ -1206,6 +1150,7 @@ impl ScreensPanel {
             file_viewer,
             devices,
             drafts,
+            needs_you,
             issue_draft,
             chat,
             threads_page,
@@ -1216,9 +1161,6 @@ impl ScreensPanel {
             threads: HashMap::new(),
             agents: HashMap::new(),
             list,
-            side_list,
-            side_anim: SwapAnim::new(None),
-            _side_anim_task: None,
             history,
             rail,
             tabs: Vec::new(),
@@ -1238,7 +1180,6 @@ impl ScreensPanel {
         // EXP-1192: seed the slide from the CURRENT state, so a window that
         // opens straight onto the Inbox shows no entry animation (the shell
         // does the same for a window opening into Settings).
-        this.side_anim = SwapAnim::new(this.current_side(cx));
         this
     }
 
@@ -1415,17 +1356,9 @@ impl ScreensPanel {
         if !screen.is_detail() {
             return;
         }
-        // EXP-851: the breadcrumb rule — the list comes from the screen we
-        // navigated FROM (a list screen hands its own; another detail hands
-        // the one it carries), and from nothing else. An explicit marker
-        // (deep link, OS notification) still wins.
+        // Only an explicit marker names a list (#FEED-191: no list lends one).
         let previous = self.nav.read(cx).previous_screen().cloned();
-        let derived = {
-            let previous_origin = previous
-                .as_ref()
-                .and_then(|previous| self.origin_of(previous));
-            crate::navigation::derive_origin(previous.as_ref(), previous_origin, &screen)
-        };
+        let derived = None;
         // EXP-1294: a session lands on its ROOT's tab (one tab per tree), so
         // the lookup is by screen and then by tree root.
         let root = screen_root(&screen, cx);
@@ -1469,21 +1402,11 @@ impl ScreensPanel {
             }
             None if opens_no_tab => {}
             None => {
-                let mut entry = TabEntry::new(
+                self.tabs.push(TabEntry::new(
                     screen.clone(),
                     resolve_tab_origin(pending_origin.as_ref(), None, derived),
                     root.clone(),
-                );
-                entry.slot = preview_slot_key(pending_origin.as_ref());
-                match preview_slot(&self.tabs, pending_origin.as_ref()) {
-                    // EXP-1250: the list's preview slot — the step
-                    // replaces the tab the previous step opened.
-                    Some(ix) => {
-                        let replaced = std::mem::replace(&mut self.tabs[ix], entry);
-                        self.forget_tab(&replaced, cx);
-                    }
-                    None => self.tabs.push(entry),
-                }
+                ));
             }
         }
         match screen {
@@ -1545,11 +1468,11 @@ impl ScreensPanel {
                 });
             }
             Screen::BoardIssues { .. }
-            | Screen::Inbox { .. }
-            | Screen::Files
+                | Screen::Files
             | Screen::SourceControl
             | Screen::Devices
             | Screen::Drafts
+            | Screen::NeedsYou
             | Screen::IssueDraft { .. }
             | Screen::Home
             | Screen::Threads
@@ -2494,197 +2417,6 @@ impl ScreensPanel {
             .into_any_element()
     }
 
-    /// EXP-1192: the second sidebar the card shows right now — the pure
-    /// [`second_sidebar_for`] over the active screen and the list its tab
-    /// carries.
-    fn current_side(&self, cx: &App) -> Option<SecondSidebar> {
-        let screen = resolved_screen(&self.nav, cx);
-        let origin = screen
-            .as_ref()
-            .filter(|screen| screen.carries_list())
-            .and_then(|screen| self.origin_of(screen));
-        second_sidebar_for(screen.as_ref(), origin.as_ref())
-    }
-
-    /// EXP-1192: reconcile the second sidebar's slide with the active screen
-    /// at the top of every render (the shell's `sync_left_column` recipe):
-    /// retarget, and on a STARTED swap spawn the settle timer that unmounts
-    /// the outgoing child. The Inbox and a detail picked from it are the SAME
-    /// `Some(Inbox)`, so walking between them never re-slides — `retarget`
-    /// is a no-op and the list keeps its entity, rows and scroll.
-    fn sync_side(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let side = self.current_side(cx);
-        // Push the list its content first, so an incoming sidebar slides in
-        // already showing its rows. A no-op while nothing changed; never
-        // called for `None`, so an outgoing list keeps its rows through its
-        // slide out.
-        if let Some(kind @ SecondSidebar::Inbox) = side {
-            let tab = self.side_inbox_tab(cx);
-            self.side_list
-                .update(cx, |list, cx| list.set_side(kind, tab, cx));
-        }
-        if let Some(epoch) = self.side_anim.retarget(side) {
-            // EXP-1156: the edge being dragged belongs to the sidebar that
-            // is leaving — the swap's widths must not move under it.
-            self.resize_drag = None;
-            self._side_anim_task = Some(cx.spawn_in(window, async move |this, window| {
-                window
-                    .background_executor()
-                    .timer(theme::motion::STANDARD)
-                    .await;
-                _ = this.update_in(window, move |this, _window, cx| {
-                    if this.side_anim.finish(epoch) {
-                        cx.notify();
-                    }
-                });
-            }));
-        }
-    }
-
-    /// EXP-1192: the Inbox tab the Inbox sidebar opens on — the Inbox
-    /// screen's own, or the one the open detail was picked from.
-    fn side_inbox_tab(&self, cx: &App) -> Option<InboxTab> {
-        match resolved_screen(&self.nav, cx) {
-            Some(Screen::Inbox { tab }) => Some(tab),
-            Some(screen) => self.origin_of(&screen).and_then(|origin| origin.inbox_tab),
-            None => None,
-        }
-    }
-
-    /// EXP-1192: one second sidebar's content at its full `width` (the slot
-    /// clips it mid-slide; it never reflows). The sized wrapper is
-    /// load-bearing for entity children (the dock wrapper's flex-child rule).
-    fn side_child(&self, kind: SecondSidebar, width: f32) -> gpui::AnyElement {
-        let child = match kind {
-            SecondSidebar::Inbox => self.side_list.clone().into_any_element(),
-        };
-        v_flex()
-            .w(px(width))
-            .flex_shrink_0()
-            .h_full()
-            .min_h_0()
-            .child(child)
-            .into_any_element()
-    }
-
-    /// EXP-1192: the card content — `[second sidebar | active screen]`.
-    ///
-    /// At rest with a sidebar: the slot at its remembered width, a right
-    /// hairline, the drag handle on that edge, and the screen at a DEFINITE
-    /// width (`recorded - slot`, the `pinned_panel_root` fit-content guard,
-    /// EXP-492). Opening / closing (`None ⇄ Some`): the slot's width morphs
-    /// `0 ⇄ w` while the sidebar inside it slides `-w ⇄ 0` at its full width
-    /// (the shell's left-column recipe), the screen flexing beside it.
-    /// Switching between two sidebars swaps the child at once and morphs
-    /// only a width difference. No sidebar: the screen alone.
-    fn render_with_side(
-        &self,
-        main: gpui::AnyElement,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let anim = self.side_anim;
-        let extent = self.screen_list_extent();
-        let width = |side: Option<SecondSidebar>| side_slot_width(side, extent);
-        if anim.to.is_none() && !anim.swapping {
-            return main;
-        }
-        let transition = || {
-            gpui_component::animation::EffectTransition::new(theme::motion::movement(theme::motion::STANDARD))
-                .ease(theme::motion::standard())
-        };
-        let (from_w, to_w) = (width(anim.from), width(anim.to));
-        let slot = div()
-            .h_full()
-            .flex_shrink_0()
-            .relative()
-            .overflow_hidden()
-            .border_r_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
-        let slot = match (anim.swapping, anim.from, anim.to) {
-            // Opening / closing: the sidebar rides a slide inside the
-            // width-morphing clip.
-            (true, None, Some(kind)) | (true, Some(kind), None) => {
-                let full = width(Some(kind));
-                let (from_x, to_x) = if anim.to.is_some() { (-full, 0.) } else { (0., -full) };
-                let strip = div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left_0()
-                    .child(self.side_child(kind, full));
-                slot.child(
-                    transition()
-                        .slide_x(px(from_x), px(to_x))
-                        .apply(strip, slide_swap::anim_id("screens-side-slide", anim.epoch)),
-                )
-            }
-            // At rest, or one sidebar replacing another: the target at once.
-            (_, _, Some(kind)) => slot.child(self.side_child(kind, to_w)),
-            (_, _, None) => slot,
-        };
-        let slot = if anim.swapping && from_w != to_w {
-            transition()
-                .width(px(from_w), px(to_w))
-                .apply(slot, slide_swap::anim_id("screens-side-width", anim.epoch))
-                .into_any_element()
-        } else {
-            slot.w(px(to_w)).into_any_element()
-        };
-        let at_rest = !anim.swapping;
-        let main_w = main_width_beside(self.slot_width.get(), to_w).filter(|_| at_rest);
-        let main = div()
-            .h_full()
-            .min_w_0()
-            .map(|this| match main_w {
-                Some(main_w) => this.flex_shrink_0().w(px(main_w)),
-                None => this.flex_1(),
-            })
-            .child(main);
-        // The edge handle is not mounted mid-swap — the widths are animating
-        // then, and a press would start from a width about to change.
-        let handle = anim.to.filter(|_| at_rest).map(|kind| {
-            self.screen_list_handle(side_panel(kind), to_w, extent, cx)
-        });
-        h_flex()
-            .size_full()
-            .min_h_0()
-            .relative()
-            .overflow_hidden()
-            .child(slot)
-            .child(main)
-            .children(handle)
-            .children(
-                crate::resize_edge::drag_capture(self.resize_drag, cx).filter(|_| at_rest),
-            )
-            .into_any_element()
-    }
-
-    /// EXP-1192: the Inbox screen's main view — the notifications live in
-    /// the second sidebar beside it, so with none picked yet the main view
-    /// says so, in the words of the tab that list is on.
-    fn render_inbox_empty(
-        &self,
-        tab: InboxTab,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        // EXP-1274: fixtures `no-selection-notification` / `no-selection-issue`.
-        let (icon, title) = match tab {
-            InboxTab::Inbox => (
-                registry::NAV_INBOX,
-                crate::empty_state_copy::NO_SELECTION_NOTIFICATION,
-            ),
-            InboxTab::MyIssues => (registry::UI_ISSUE, crate::empty_state_copy::NO_SELECTION_ISSUE),
-        };
-        v_flex()
-            .size_full()
-            .min_w_0()
-            .px_4()
-            .items_center()
-            .justify_center()
-            .child(crate::controls::empty_state(Icon::new(icon), title, None, cx))
-            .into_any_element()
-    }
-
     /// EXP-851: the Files SCREEN — the trunk tree beside the read-only
     /// viewer. It was a tool column plus a tool-default centre; one screen
     /// now, with the tree as its own list. EXP-1156: the `files` panel — its
@@ -3350,7 +3082,6 @@ impl Render for ScreensPanel {
         let screen = resolved_screen(&self.nav, cx);
 
         self.fire_dev_dialog(window, cx);
-        self.sync_side(window, cx);
 
         let content = match &screen {
             Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),
@@ -3381,12 +3112,11 @@ impl Render for ScreensPanel {
             }
             // EXP-851: a board's list, full width.
             Some(Screen::BoardIssues { .. }) => self.list.clone().into_any_element(),
-            // EXP-1192: the notifications are the second sidebar beside this.
-            Some(Screen::Inbox { tab }) => self.render_inbox_empty(*tab, cx),
             Some(Screen::Files) => self.render_files_screen(cx),
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
+            Some(Screen::NeedsYou) => self.needs_you.clone().into_any_element(),
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
             Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
@@ -3452,7 +3182,6 @@ impl Render for ScreensPanel {
         };
         // EXP-1192: the second sidebar sits INSIDE the card, under the
         // fallback strip — the strip spans the card regardless.
-        let content = self.render_with_side(content, cx);
 
         // EXP-277: the tab strip lives in the titlebar (AppTitleBar) whenever
         // the window paints its own chrome; under Linux server-side
@@ -3493,28 +3222,6 @@ impl Render for ScreensPanel {
             content,
         )
     }
-}
-
-/// EXP-1192: the resize panel (and remembered width) of each second sidebar
-/// — the Inbox owns the `list` column.
-fn side_panel(kind: SecondSidebar) -> crate::resize_edge::SidebarPanel {
-    match kind {
-        SecondSidebar::Inbox => crate::resize_edge::SidebarPanel::List,
-    }
-}
-
-/// EXP-1192: the second-sidebar slot's width — 0 with no sidebar, else its
-/// panel's remembered width clamped against the card (`extent`).
-fn side_slot_width(side: Option<SecondSidebar>, extent: f32) -> f32 {
-    side.map_or(0., |kind| crate::resize_edge::panel_width(side_panel(kind), extent))
-}
-
-/// EXP-1192: the DEFINITE width of the screen beside a second sidebar at rest
-/// — the card's recorded width minus the slot (the `pinned_panel_root`
-/// fit-content guard, EXP-492). `None` before the first paint, when the
-/// screen flexes instead.
-fn main_width_beside(recorded: f32, slot: f32) -> Option<f32> {
-    (recorded > 1.).then(|| (recorded - slot).max(0.))
 }
 
 /// EXP-492/EXP-499: the panel root — background, the optional fallback tab
@@ -3561,8 +3268,8 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        dev_composer_menu_wanted, lead_reserve_px, main_width_beside, neighbor_in_strip,
-        parse_dev_dialog, partition_tabs, resolve_tab_origin, side_panel, side_slot_width,
+        dev_composer_menu_wanted, lead_reserve_px, neighbor_in_strip,
+        parse_dev_dialog, partition_tabs, resolve_tab_origin,
         ChipLead, DevDialog, DEV_DIALOG_SPECS,
     };
 
@@ -3578,44 +3285,6 @@ mod tests {
         assert!(!dev_composer_menu_wanted(Some("dialog-implement-issue"), false));
         assert!(!dev_composer_menu_wanted(Some("session-account"), false));
         assert!(!dev_composer_menu_wanted(None, false));
-    }
-
-    /// EXP-1192: the Inbox sidebar keeps the `list` column's remembered
-    /// width.
-    #[test]
-    fn the_inbox_sidebar_resizes_the_list_panel() {
-        use crate::navigation::SecondSidebar;
-        use crate::resize_edge::SidebarPanel;
-        assert_eq!(side_panel(SecondSidebar::Inbox), SidebarPanel::List);
-    }
-
-    /// EXP-1192: the slot is 0 wide with no sidebar, and a sidebar's width
-    /// stays inside the clamp against the CARD (half of it, never below MIN)
-    /// whatever width is remembered.
-    #[test]
-    fn the_side_slot_width_rule() {
-        use crate::navigation::SecondSidebar;
-        use theme::tokens::sidebar as tokens;
-        assert_eq!(side_slot_width(None, 1200.), 0.);
-        for kind in [SecondSidebar::Inbox] {
-            for extent in [400., 800., 1200., 3000.] {
-                let width = side_slot_width(Some(kind), extent);
-                assert!(width >= tokens::MIN_WIDTH, "{kind:?} {extent}");
-                assert!(width <= (extent / 2.).min(tokens::MAX_WIDTH).max(tokens::MIN_WIDTH));
-            }
-        }
-    }
-
-    /// EXP-1192: beside a sidebar at rest the screen gets the card's
-    /// recorded width minus the slot, as a definite width; before the first
-    /// paint it flexes.
-    #[test]
-    fn the_screen_beside_a_sidebar_gets_a_definite_width() {
-        assert_eq!(main_width_beside(1200., 352.), Some(848.));
-        assert_eq!(main_width_beside(1200., 0.), Some(1200.));
-        assert_eq!(main_width_beside(0., 352.), None);
-        // A card narrower than the slot never goes negative.
-        assert_eq!(main_width_beside(300., 352.), Some(0.));
     }
 
     /// EXP-1170: the create dialog is gone, and so is its dev spelling —
@@ -3663,8 +3332,7 @@ mod tests {
     }
 
     use super::{
-        focus_existing_tab, opens_no_tab, preview_slot, preview_slot_key,
-        swap_team_tabs, PreviewSlot, TabEntry, TablessWork,
+        opens_no_tab, swap_team_tabs, TabEntry, TablessWork,
     };
     use std::collections::HashMap;
     use crate::navigation::{PendingOrigin, Screen, TabOrigin};
@@ -3674,7 +3342,6 @@ mod tests {
         TabOrigin {
             tool,
             board_id: None,
-            inbox_tab: None,
         }
     }
 
@@ -3699,7 +3366,7 @@ mod tests {
     #[test]
     fn a_team_switch_and_back_restores_the_tabs() {
         let mut parked = HashMap::new();
-        let team_a = vec![issue_tab("a1", None), issue_tab("a2", Some(origin(ToolWindow::Inbox)))];
+        let team_a = vec![issue_tab("a1", None), issue_tab("a2", Some(origin(ToolWindow::Files)))];
         let on_b = swap_team_tabs(team_a, &mut parked, Some("A"), true, Some("B"));
         assert!(on_b.is_empty(), "B has no tabs yet");
         let on_b = vec![issue_tab("b1", None)];
@@ -3707,7 +3374,7 @@ mod tests {
         assert_eq!(tab_ids(&back_on_a), ["a1", "a2"]);
         assert_eq!(
             back_on_a[1].origin.as_ref().map(|origin| origin.tool),
-            Some(ToolWindow::Inbox),
+            Some(ToolWindow::Files),
             "a tab keeps its list across the round trip"
         );
         let again_on_b = swap_team_tabs(back_on_a, &mut parked, Some("A"), true, Some("B"));
@@ -3734,91 +3401,6 @@ mod tests {
         assert!(parked.is_empty());
     }
 
-    /// The `sync_tabs` None-arm for a list step, minus the views: replace the
-    /// list's slot tab or push a new one that becomes the slot.
-    fn open_new(tabs: &mut Vec<TabEntry>, id: &str, pending: &PendingOrigin) {
-        let origin = match pending {
-            PendingOrigin::Explicit(origin) => Some(origin.clone()),
-            _ => None,
-        };
-        let mut entry = issue_tab(id, origin);
-        entry.slot = preview_slot_key(Some(pending));
-        match preview_slot(tabs, Some(pending)) {
-            Some(ix) => tabs[ix] = entry,
-            None => tabs.push(entry),
-        }
-    }
-
-    /// The whole lookup: an existing tab for the work is focused, else a new
-    /// one opens (into a slot when the origin has one).
-    fn open(tabs: &mut Vec<TabEntry>, id: &str, pending: &PendingOrigin) {
-        match tabs.iter().position(|tab| tab.issue_id() == Some(id)) {
-            Some(ix) => focus_existing_tab(&mut tabs[ix], Some(pending), None),
-            None => open_new(tabs, id, pending),
-        }
-    }
-
-    fn inbox_tab(tab: crate::sidebar::InboxTab) -> PendingOrigin {
-        PendingOrigin::Explicit(TabOrigin {
-            tool: ToolWindow::Inbox,
-            board_id: None,
-            inbox_tab: Some(tab),
-        })
-    }
-
-    /// EXP-1250: N issues opened from the Inbox list = ONE tab (the preview
-    /// slot is replaced in place); any other open still pushes its own.
-    #[test]
-    fn n_inbox_opens_keep_one_tab() {
-        let inbox = PendingOrigin::Explicit(origin(ToolWindow::Inbox));
-        let mut tabs: Vec<TabEntry> = vec![issue_tab("pinned", None)];
-        for id in ["i1", "i2", "i3", "i4"] {
-            open(&mut tabs, id, &inbox);
-        }
-        assert_eq!(tab_ids(&tabs), ["pinned", "i4"]);
-        // A derived or rail open is not a list step: it pushes.
-        assert_eq!(preview_slot(&tabs, Some(&PendingOrigin::Derive)), None);
-        assert_eq!(preview_slot(&tabs, Some(&PendingOrigin::Rail)), None);
-        assert_eq!(preview_slot(&tabs, None), None);
-        // My Issues is the same LIST slot as the notifications.
-        open(&mut tabs, "m1", &inbox_tab(crate::sidebar::InboxTab::MyIssues));
-        assert_eq!(tab_ids(&tabs), ["pinned", "m1"]);
-        assert_eq!(tabs[1].slot, Some(PreviewSlot::Inbox));
-        open(&mut tabs, "i5", &inbox);
-        assert_eq!(tab_ids(&tabs), ["pinned", "i5"]);
-    }
-
-    /// EXP-1250 (web: "focuses an existing tab for the issue and keeps its
-    /// origin"): an Inbox pick for work a board tab already shows focuses
-    /// that tab WITHOUT making it the slot, so the next Inbox step opens its
-    /// own tab instead of closing the board one.
-    #[test]
-    fn an_inbox_pick_on_an_open_tab_keeps_its_origin_and_never_makes_it_the_slot() {
-        let inbox = PendingOrigin::Explicit(origin(ToolWindow::Inbox));
-        let board = TabOrigin {
-            tool: ToolWindow::BoardIssues,
-            board_id: Some("b".into()),
-            inbox_tab: None,
-        };
-        let mut tabs = vec![issue_tab("exp-1", Some(board.clone()))];
-        open(&mut tabs, "exp-1", &inbox);
-        assert_eq!(tabs[0].origin, Some(board));
-        assert_eq!(tabs[0].slot, None);
-        open(&mut tabs, "exp-2", &inbox);
-        assert_eq!(tab_ids(&tabs), ["exp-1", "exp-2"]);
-        // A derived Inbox origin is never the slot either: only a tab the
-        // list step itself opened is.
-        let mut derived = vec![issue_tab("d", Some(origin(ToolWindow::Inbox)))];
-        open(&mut derived, "exp-3", &inbox);
-        assert_eq!(tab_ids(&derived), ["d", "exp-3"]);
-        // An explicit non-list open of the slot's work promotes it to a kept
-        // tab: the next step pushes again.
-        open(&mut tabs, "exp-2", &PendingOrigin::Rail);
-        assert_eq!(tabs[1].slot, None);
-        open(&mut tabs, "exp-4", &inbox);
-        assert_eq!(tab_ids(&tabs), ["exp-1", "exp-2", "exp-4"]);
-    }
-
     /// EXP-851: which list a tab ends up with. A REAL navigation re-derives
     /// (latest wins), an explicit marker overrides, and a screen change that
     /// is not a navigation at all — a tab click, a go-back, the reactivation
@@ -3828,7 +3410,7 @@ mod tests {
     #[test]
     fn a_tab_keeps_its_list_unless_a_navigation_says_otherwise() {
         let reviews = origin(ToolWindow::BoardIssues);
-        let inbox = origin(ToolWindow::Inbox);
+        let inbox = origin(ToolWindow::Files);
         // Tab click / go-back: no marker, the tab keeps what it has.
         assert_eq!(
             resolve_tab_origin(None, Some(&reviews), Some(inbox.clone())),
@@ -3990,7 +3572,7 @@ mod tests {
         assert!(!opens_no_tab(Some(&PendingOrigin::Rail), None, false));
         assert!(!opens_no_tab(Some(&PendingOrigin::Derive), None, false));
         assert!(!opens_no_tab(
-            Some(&PendingOrigin::Explicit(origin(ToolWindow::Inbox))),
+            Some(&PendingOrigin::Explicit(origin(ToolWindow::Files))),
             None,
             false
         ));
