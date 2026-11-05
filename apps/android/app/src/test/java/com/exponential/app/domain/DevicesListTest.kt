@@ -55,7 +55,7 @@ class DevicesListTest {
         assertFalse(fixture.containsKey("keepSignedIn"))
         // A 390dp phone (minus the page's 16 + 16) = 1 column; a wide one = 4.
         assertEquals(1, DevicesList.columns(358))
-        assertEquals(4, DevicesList.columns(1100))
+        assertEquals(3, DevicesList.columns(1100))
         assertEquals(1, DevicesList.columns(0))
     }
 

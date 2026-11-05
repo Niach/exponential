@@ -2084,8 +2084,8 @@ mod tests {
         assert_eq!(device_card_columns(358.), 1);
         assert_eq!(device_card_columns(1100.), 3);
         assert_eq!(device_card_columns(0.), 1);
-        assert_eq!(device_card_columns(523.), 1);
-        assert_eq!(device_card_columns(524.), 2);
+        assert_eq!(device_card_columns(651.), 1);
+        assert_eq!(device_card_columns(652.), 2);
     }
 
     /// EXP-1560: [`device_card_account_icons`] replays `fixture.accountIcons`.

@@ -11,10 +11,10 @@
 //! whole list like web's specimen: the Agents section
 //! (`agentRowCases[0]`), then the Chats section with the rows above.
 
-use gpui::{prelude::FluentBuilder as _, px, App, Div, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
+use gpui::{prelude::FluentBuilder as _, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 
-use domain::chats::{chat_selection_actions, ChatList, ChatListView, ChatSelectionRow, CHATS};
+use domain::chats::{chat_sections, chat_selection_actions, ChatList, ChatSectionKey, ChatListView, ChatSelectionRow, CHATS};
 
 use crate::chat_list::{
     agent_chat_row, chat_archived_row, chat_bar_label_min_width, chat_lead_disc, chat_row,
@@ -65,6 +65,38 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     // The page's rule at the specimen's width.
     let labels = px(COLUMN_W) >= chat_bar_label_min_width(&actions.iter().map(|(action, _)| *action).collect::<Vec<_>>());
     let (_, agent_rows) = super::chat_list::model();
+    // #FEED-191: the list's sections; the Archived entry heads the last one.
+    let mut rows: Vec<AnyElement> = Vec::new();
+    for section in chat_sections(&list.rows) {
+        rows.push(chat_section_header(section.key.title(), cx));
+        if section.key == ChatSectionKey::Chats {
+            rows.push(
+                chat_selectable(
+                    SharedString::from("chat-selection-archived"),
+                    "",
+                    None,
+                    |_, _, _| {},
+                    chat_archived_row(archived, cx),
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
+        for row in &section.rows {
+            let is_selected = selected.contains(&row.session_id);
+            rows.push(
+                chat_selectable(
+                    SharedString::from(format!("chat-selection-{}", row.session_id)),
+                    &row.session_id,
+                    Some((is_selected, true)),
+                    |_, _, _| {},
+                    chat_row(row, chat_lead_disc(row.lead, None, is_selected, cx), cx),
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
+    }
     v_flex()
         .w(px(COLUMN_W))
         .py_4()
@@ -80,27 +112,8 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 .when(!agent_rows.is_empty(), |pane| {
                     pane.child(chat_section_header(&CHATS.copy.sections.agents, cx))
                         .children(agent_rows.iter().map(|row| agent_chat_row(row, cx).into_any_element()))
-                        .child(chat_section_header(&CHATS.copy.sections.chats, cx))
                 })
-                .child(chat_selectable(
-                    SharedString::from("chat-selection-archived"),
-                    "",
-                    None,
-                    |_, _, _| {},
-                    chat_archived_row(archived, cx),
-                    cx,
-                ))
-                .children(list.rows.iter().map(|row| {
-                    let is_selected = selected.contains(&row.session_id);
-                    chat_selectable(
-                        SharedString::from(format!("chat-selection-{}", row.session_id)),
-                        &row.session_id,
-                        Some((is_selected, true)),
-                        |_, _, _| {},
-                        chat_row(row, chat_lead_disc(row.lead, None, is_selected, cx), cx),
-                        cx,
-                    )
-                }))
+                .children(rows)
                 .child(crate::issue_list::bulk_bar_dock(chat_selection_bar(
                     selected.len(),
                     actions,
