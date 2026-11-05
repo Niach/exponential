@@ -103,45 +103,7 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
           backedOff++
           continue
         }
-        const state = await fetchPullState(repo, row.number, token)
-        // A live PR's base moves on GitHub (a retarget on github.com, or
-        // GitHub's restack when the PR below lands); a polling instance
-        // never gets the `edited` webhook, so the pass re-reads it. A merge
-        // carries the base it saw into applyPullRequestMerged instead, so
-        // the landed check runs on the base GitHub merged it into.
-        if (state.state === `open` && !state.merged && state.baseRef && state.baseRef !== row.base) {
-          await applyPullRequestBase({ pullRequestId: row.id, base: state.baseRef })
-        }
-        switch (decidePrPollAction(row.state, state)) {
-          case `merge`:
-            await applyPullRequestMerged({
-              pullRequestId: row.id,
-              mergedAt: new Date(),
-              base: state.baseRef,
-              actorUserId: null,
-              // EXP-617: `merged_by` off the poll response is a self-hosted
-              // instance's only attribution.
-              githubActorUserId: await resolveAppUserForGithubActor(state.mergedBy),
-            })
-            break
-          case `close`:
-            await applyPullRequestClosed({ pullRequestId: row.id })
-            break
-          case `reopen`:
-            await applyPullRequestReopened({ pullRequestId: row.id, base: state.baseRef })
-            break
-          case `none`:
-            break
-        }
-        // EXP-1608: no webhooks reach a polling instance, so no check_run
-        // either: a still-open PR whose checks are unsettled (or were read at
-        // an older head) is repaired here, inside the same budget back-off.
-        // A missing checks:read is negative-cached per installation in
-        // pr-checks, so it costs nothing after the first refusal.
-        if (state.state === `open` && !state.merged && (LIVE_PR_STATES as readonly string[]).includes(row.state)) {
-          if (githubBudgetLowForToken(token)) backedOff++
-          else await repairPullRequestChecksIfStale(row.id, state.headSha ?? null)
-        }
+        if (await reconcilePullRequestState(row, repo, token)) backedOff++
       } catch (err) {
         if (isGithubRateLimited(err)) {
           backedOff++
@@ -159,6 +121,66 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
   } finally {
     running = false
   }
+}
+
+export interface PolledPullRequest {
+  id: string
+  number: number
+  state: string
+  base: string
+}
+
+/**
+ * Re-read one tracked PR's GitHub state and apply what it implies (merge,
+ * close, reopen, a moved base; a live PR's unsettled checks). Shared by the
+ * self-hosted poller and the watchdog's live-PR reconciler (EXP-1706).
+ * → true when a low budget left the checks repair for later.
+ */
+export async function reconcilePullRequestState(
+  row: PolledPullRequest,
+  repo: string,
+  token: string | null
+): Promise<boolean> {
+  const state = await fetchPullState(repo, row.number, token)
+  // A live PR's base moves on GitHub (a retarget on github.com, or
+  // GitHub's restack when the PR below lands); a polling instance
+  // never gets the `edited` webhook, so the pass re-reads it. A merge
+  // carries the base it saw into applyPullRequestMerged instead, so
+  // the landed check runs on the base GitHub merged it into.
+  if (state.state === `open` && !state.merged && state.baseRef && state.baseRef !== row.base) {
+    await applyPullRequestBase({ pullRequestId: row.id, base: state.baseRef })
+  }
+  switch (decidePrPollAction(row.state, state)) {
+    case `merge`:
+      await applyPullRequestMerged({
+        pullRequestId: row.id,
+        mergedAt: new Date(),
+        base: state.baseRef,
+        actorUserId: null,
+        // EXP-617: `merged_by` off the poll response is a self-hosted
+        // instance's only attribution.
+        githubActorUserId: await resolveAppUserForGithubActor(state.mergedBy),
+      })
+      break
+    case `close`:
+      await applyPullRequestClosed({ pullRequestId: row.id })
+      break
+    case `reopen`:
+      await applyPullRequestReopened({ pullRequestId: row.id, base: state.baseRef })
+      break
+    case `none`:
+      break
+  }
+  // EXP-1608: no webhooks reach a polling instance, so no check_run
+  // either: a still-open PR whose checks are unsettled (or were read at
+  // an older head) is repaired here, inside the same budget back-off.
+  // A missing checks:read is negative-cached per installation in
+  // pr-checks, so it costs nothing after the first refusal.
+  if (state.state === `open` && !state.merged && (LIVE_PR_STATES as readonly string[]).includes(row.state)) {
+    if (githubBudgetLowForToken(token)) return true
+    await repairPullRequestChecksIfStale(row.id, state.headSha ?? null)
+  }
+  return false
 }
 
 // Start the outbound PR-merge poller, gated on GITHUB_POLLING (decoupled from

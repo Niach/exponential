@@ -49,3 +49,9 @@ export const ISSUE_LIFECYCLE_CASES = fixture.cases as {
   input: { event: IssueLifecycleEvent } & IssueLifecycleState
   expected: IssueLifecycleTarget | null
 }[]
+
+/** EXP-1706: the watchdog's live-PR reconciler (fixture `reconcile`). */
+export const PR_RECONCILE = {
+  staleMs: fixture.reconcile.staleMinutes * 60_000,
+  batch: fixture.reconcile.batch,
+} as const

@@ -68,6 +68,8 @@ export interface WatchdogRun {
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
   checksQueued: number
   checksSwept: number
+  /** EXP-1706: live PRs whose state the reconciler re-read. */
+  prsReconciled: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -667,6 +669,14 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
       console.error(`[watchdog] checks sweep failed`, err)
       return 0
     }),
+    // EXP-1706 (issue-lifecycle.json `reconcile`): a lost `closed` delivery
+    // never strands a merged PR (cloud too, not only GITHUB_POLLING).
+    prsReconciled: await import(`@/lib/integrations/pr-reconcile`)
+      .then((m) => m.reconcileStaleLivePullRequests(now))
+      .catch((err) => {
+        console.error(`[watchdog] PR reconcile failed`, err)
+        return 0
+      }),
   }
 }
 
