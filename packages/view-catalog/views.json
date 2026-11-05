@@ -894,18 +894,18 @@
       "blurb": "Every plan and question waiting on me and every PR ready to merge across the team (needs-you.json): one reading column, newest first; a press opens the chat on the right tab.",
       "order": 4,
       "web": {
-        "route": "/t/$teamSlug/needs-you",
+        "route": "/t/$teamSlug/agent?dev=needs-you",
         "anchor": {
-          "testId": "needs-you",
-          "timeoutMs": 30000
+          "testId": "needs-you-specimen",
+          "timeoutMs": 20000
         },
-        "settleMs": 1000
+        "settleMs": 800
       },
       "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "needs-you"
+          "value": "styleguide:needs-you"
         }
       },
       "ios": {
@@ -917,11 +917,11 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The sidebar's Needs you entry, right after Agent, while a row exists. The DEV-ONLY `?dev=needs-you` on the Agent route draws the specimen (`cases[1]` + the phone entry row).",
+        "web": "The sidebar's Needs you entry, right after Agent, while a row exists. EXP-1676: every platform shoots the SAME specimen (`cases[1]` + the entry row): the DEV-ONLY `?dev=needs-you` on the Agent route.",
         "web-mobile": "Inherits web: pushed from the Chats list's first row, the page header with the back control.",
         "ios": "The capture-only specimen (`-uiTestingStyleguide needs-you`, ThreadCardsScreen), shot sg_needs-you.",
         "android": "The capture-only specimen (ResultsNeedsYouSpecimens), shot sg_needs-you.",
-        "desktop": "The rail's Needs you entry, right after Agent, while a row exists: `EXP_DEV_SCREEN=needs-you`, the page in the content card. The twin = `styleguide:needs-you`."
+        "desktop": "The rail's Needs you entry, right after Agent, while a row exists. EXP-1676: the shot = the twin `EXP_DEV_SCREEN=styleguide:needs-you`, the phones' and web's specimen."
       }
     },
     {
