@@ -230,7 +230,9 @@ impl SurfaceView {
     }
 
     /// A full press of node `index` (pointer up inside, Enter / Space).
-    pub fn press(&mut self, index: u32, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn press(&mut self, index: u32, window: &mut Window, cx: &mut Context<Self>) {
+        // VAPP-208: a press reads what the person typed, even inside the debounce.
+        self.flush_edits(window, cx);
         if self.disabled(index) {
             return;
         }
@@ -255,8 +257,11 @@ impl SurfaceView {
 
     /// Pointer down on a pressable: the `pressed` state (pointer focus is
     /// not `:focus-visible`).
-    pub(crate) fn press_down(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn press_down(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.keyboard = false;
+        // VAPP-208: a field's edit lands before this press is judged: gpui
+        // blurs the field after this down, where the web blurs before its click.
+        self.flush_edits(window, cx);
         if let Some(prev) = self.pressed.take() {
             self.set_interaction(&prev, |s| s.pressed = false);
         }

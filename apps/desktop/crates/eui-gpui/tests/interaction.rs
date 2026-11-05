@@ -363,6 +363,30 @@ fn a_failed_submit_announces_and_focuses_the_first_invalid_field(cx: &mut TestAp
     assert_eq!(focused(&view, cx).as_deref(), Some("agree"), "focus moved to the first invalid field");
 }
 
+/// VAPP-208: a press right after typing, inside the field's debounce, runs on
+/// what was typed: the Form's check passes and its submit reaches the host.
+#[gpui::test]
+fn a_press_right_after_typing_submits_what_was_typed(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "children": [
+        {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
+            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "value": {"path": "/hours"}, "checks": [{"condition": {"call": "lt", "args": {"a": 0, "b": {"path": "/hours"}}}, "message": "More than 0"}]}},
+            {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
+        ]}
+    ]});
+    let (view, log, cx) = surface(cx, tree, false);
+    view.update(cx, |v, cx| v.set_data("/hours", Some(json!(0)), cx).unwrap());
+    draw(cx);
+    cx.update(|window, cx| view.update(cx, |v, cx| assert!(v.type_into("hours.input", "1.5", window, cx))));
+    // The edit is in; its debounce has not fired (the clock never advances here).
+    cx.update(|window, cx| view.update(cx, |v, cx| {
+        let i = v.index_of("go").unwrap();
+        v.press(i, window, cx);
+    }));
+    draw(cx);
+    assert!(log.0.borrow().actions.iter().any(|a| a.name == "ok"), "the first press submitted");
+    assert!(!log.0.borrow().actions.iter().any(|a| a.name == "bad"), "the check read what was typed");
+}
+
 #[gpui::test]
 fn picked_files_reach_the_host_and_the_upload_event(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [

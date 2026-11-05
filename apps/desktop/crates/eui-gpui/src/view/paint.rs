@@ -786,9 +786,9 @@ impl SurfaceView {
                 .when(style.cursor.is_none(), |d| d.cursor_pointer())
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
+                    cx.listener(move |this, _, window, cx| {
                         cx.stop_propagation();
-                        this.press_down(&down, cx)
+                        this.press_down(&down, window, cx)
                     }),
                 )
                 .on_mouse_up(

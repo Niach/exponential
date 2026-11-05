@@ -242,6 +242,15 @@ impl SurfaceView {
         }
     }
 
+    /// VAPP-208: send every field's outstanding edit now, without a commit
+    /// (the blur still commits).
+    pub(crate) fn flush_edits(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let due: Vec<String> = self.fields.iter().filter(|(_, f)| f.flushed < f.revision).map(|(id, _)| id.clone()).collect();
+        for id in due {
+            self.flush_field(&id, None, window, cx);
+        }
+    }
+
     /// Send the outstanding edit (and a commit/submit event) of field `id`.
     pub fn flush_field(&mut self, id: &str, commit: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(index) = self.cache.index_of(id) else { return };
