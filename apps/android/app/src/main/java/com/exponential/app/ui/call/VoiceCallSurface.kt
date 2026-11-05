@@ -124,7 +124,7 @@ private const val WAVE_XL = 200f
 private const val MARK_SIZE = 56f
 
 /** The avatar's disc. */
-private val AVATAR_SIZE = 112.dp
+private val AVATAR_SIZE = 96.dp
 
 /**
  * THE phone-call screen: [view] from [VoiceCall.callView]; [timer] = the
@@ -281,10 +281,10 @@ private fun RingingHalo(animates: Boolean) {
     }
     val tint = DesignTokens.Palette.Foreground
     Canvas(Modifier.size(WAVE_XL.dp)) {
+        // Web's two halos (176 and 136 px around the 96 px disc); the outer breathes.
         val r = AVATAR_SIZE.toPx() / 2
-        val reach = size.minDimension / 2 - r
-        drawCircle(tint.copy(alpha = 0.06f), radius = r + reach * 0.45f)
-        drawCircle(tint.copy(alpha = 0.16f * (1f - pulse)), radius = r + reach * pulse)
+        drawCircle(tint.copy(alpha = 0.04f * (if (animates) 1.5f - pulse else 1f)), radius = r + 40.dp.toPx())
+        drawCircle(tint.copy(alpha = 0.07f), radius = r + 20.dp.toPx())
     }
 }
 

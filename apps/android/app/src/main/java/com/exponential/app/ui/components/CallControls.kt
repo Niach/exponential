@@ -72,7 +72,7 @@ fun CallButton(
 ) {
     val (fill, glyph) = when (tone) {
         CallButtonTone.Neutral -> DesignTokens.Palette.Secondary to DesignTokens.Palette.Foreground
-        CallButtonTone.Toggled -> DesignTokens.Palette.Primary to DesignTokens.Palette.PrimaryForeground
+        CallButtonTone.Toggled -> DesignTokens.Palette.Foreground to DesignTokens.Palette.Background
         CallButtonTone.End -> DesignTokens.Palette.Destructive to Color.White
     }
     val interactionSource = remember { MutableInteractionSource() }
