@@ -675,9 +675,22 @@ export async function listRecordEvents(userId: string, ref: AppRef, recordId: st
 /** The state to write back: data (a restore, live again) or null (a delete). */
 type Target = { recordId: string; state: Record<string, unknown> | null }
 
+/** VAPP-227: how many more live records the targets leave than there are now
+ *  (a restore of a deleted row adds one, a delete takes one; a record's last
+ *  target decides), the number the team's quota must have room for. */
+function netRevived(targets: readonly Target[], deleted: ReadonlySet<string>): number {
+  const final = new Map(targets.map((t) => [t.recordId, t.state !== null]))
+  let net = 0
+  for (const [id, live] of final) net += (live ? 1 : 0) - (deleted.has(id) ? 0 : 1)
+  return net
+}
+
 /** VAPP-215: write each target as a NEW write (op restore, or delete), in
  *  order, in ONE transaction; each needs the record's update policy (a
- *  delete: delete). A delete of an already deleted record is a no-op. */
+ *  delete: delete). A delete of an already deleted record is a no-op.
+ *  VAPP-227: bringing rows back counts against the team's quota like a
+ *  create, so the targets are read before the role switch (the quota spans
+ *  every app of the team). */
 async function writeTargets(
   userId: string,
   app: App,
@@ -690,9 +703,15 @@ async function writeTargets(
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   return await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
+    const targets = await resolve(tx)
+    const ids = [...new Set(targets.map((t) => t.recordId))]
+    const known = ids.length > 0 ? await tx.select({ id: appRecords.id, deletedAt: appRecords.deletedAt }).from(appRecords).where(and(inArray(appRecords.id, ids), eq(appRecords.appId, app.id))) : []
+    const knownIds = new Set(known.map((r) => r.id))
+    const adding = netRevived(targets.filter((t) => knownIds.has(t.recordId)), new Set(known.filter((r) => r.deletedAt !== null).map((r) => r.id)))
+    if (adding > 0) await lockAndCheckQuota(tx, app.teamId, adding)
     return asEapps(tx, scope, async (tx) => {
       const events: EventInput[] = []
-      for (const target of await resolve(tx)) {
+      for (const target of targets) {
         const [existing] = await tx
           .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy, deletedAt: appRecords.deletedAt })
           .from(appRecords)

@@ -329,7 +329,7 @@ The server enforces the policy (the records service on every read and write, the
 - ✅ **Undo:** a Data tab write and a package action's batch toast Undo for 10 s (the existing toast action); Undo = each event's `before` as a new write (`apps.records.undo`: a create undone = a delete, a delete undone = a restore). The record form's History section (existing list rows: label, who · when) restores any earlier state as a new write (`apps.records.restore`, needs update).
 - **Deletes are soft** ✅ (`deleted_at`). The trash is purged after 30 days (✅ purge, #VAPP-159). Owners can restore from the Data tab.
 - 🆕 **Retention per kind:** `"retention": "365d"` purges old rows. Retention is not a quota tool.
-- **Quotas** ✅ per team and plan. The editor and Data tab show the count against the plan. 🆕 A soft warning at 80 %. A write over the quota fails with a toast, never silently.
+- **Quotas** ✅ per team and plan. ✅ #VAPP-227: a restore or undo that revives deleted rows counts against the quota like a create. The editor and Data tab show the count against the plan. 🆕 A soft warning at 80 %. A write over the quota fails with a toast, never silently.
 
 ### 3.6 Migrations (🆕 R8, #VAPP-233)
 
