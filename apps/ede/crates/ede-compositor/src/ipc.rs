@@ -147,13 +147,22 @@ impl Ede {
                 Ok(n) => n,
             };
             if n == 0 || !state.ipc_received(id, &buf[..n]) {
-                state.ipc.clients.retain(|c| c.id != id);
+                state.ipc_dropped(id);
                 return Ok(PostAction::Remove);
             }
             Ok(PostAction::Continue)
         });
         if inserted.is_err() {
             self.ipc.clients.retain(|c| c.id != id);
+        }
+    }
+
+    /// A connection went; the shell's last one starts the recovery clock.
+    fn ipc_dropped(&mut self, id: u64) {
+        let was_shell = self.ipc.shell_subscribed();
+        self.ipc.clients.retain(|c| c.id != id);
+        if was_shell && !self.ipc.shell_subscribed() {
+            self.shell_left();
         }
     }
 
@@ -251,6 +260,9 @@ impl Ede {
             Request::Subscribe => {
                 if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
                     c.subscribed = true;
+                }
+                if grant.session_id.as_str() == ROOT_SESSION {
+                    self.shell_arrived();
                 }
                 json(serde_json::Value::Null)
             }
@@ -472,6 +484,12 @@ pub fn window_id(window: &Window) -> WindowId {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
     window.user_data().get_or_insert(|| WindowId::new(format!("w{}", NEXT.fetch_add(1, Ordering::Relaxed))).unwrap()).clone()
+}
+
+/// The title (else the app id, else nothing) for a frame.
+pub fn window_title_of(window: &Window) -> String {
+    let (title, app_id) = window_title(window);
+    title.filter(|t| !t.is_empty()).or(app_id).unwrap_or_default()
 }
 
 fn window_title(window: &Window) -> (Option<String>, Option<String>) {

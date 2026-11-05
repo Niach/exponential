@@ -110,6 +110,12 @@ pub struct Ede {
     pub viewporter_state: smithay::wayland::viewporter::ViewporterState,
     /// Set by a backend that can change an output's mode (udev: a modeset).
     pub set_mode: Option<Box<dyn FnMut(&Output, smithay::output::Mode) -> Result<(), String>>>,
+    /// xdg-decoration: who draws a window's frame ([`crate::frames`]).
+    pub xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState,
+    /// The recovery screen's state ([`crate::recovery`]).
+    pub recovery: crate::recovery::Recovery,
+    /// The last press on a title bar, for the double-click.
+    pub title_click: Option<(Window, Instant)>,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
 }
@@ -129,6 +135,8 @@ pub struct WindowState {
     pub workspace: usize,
     /// Where it sat when it was parked (its workspace left the screen).
     pub parked_at: Option<Point<i32, Logical>>,
+    /// The compositor draws its title bar ([`crate::frames`]).
+    pub decorated: bool,
 }
 
 pub fn window_state(window: &Window) -> WindowState {
@@ -218,6 +226,9 @@ impl Ede {
             fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
             viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
             set_mode: None,
+            xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh),
+            recovery: crate::recovery::Recovery::default(),
+            title_click: None,
             config_path: None,
         }
     }
@@ -327,10 +338,13 @@ impl Ede {
             .collect();
         for w in orphans {
             // A tiled window becomes floating again at its old size.
-            let size = self.restore_size(&w).unwrap_or(w.geometry().size);
+            let mut size = self.restore_size(&w).unwrap_or(w.geometry().size);
             self.untile(&w, None);
+            let fh = self.frame_height(&w);
+            size.h += fh;
             let taken: Vec<_> = self.space.elements().filter(|o| *o != &w).filter_map(|o| self.space.element_location(o)).collect();
-            let loc = layout::place_new(size, area, &taken, 32);
+            let mut loc = layout::place_new(size, area, &taken, 32);
+            loc.y += fh;
             self.move_window(&w, loc, false);
         }
     }
@@ -449,16 +463,21 @@ impl Ede {
     pub fn place_new_window(&mut self, window: Window) {
         self.unmapped.retain(|w| w != &window);
         let pointer = self.seat.get_pointer().unwrap().current_location();
-        let loc = match self.output_at(pointer).and_then(|o| self.work_area(&o)) {
-            Some(area) => {
-                let taken: Vec<_> = self.space.elements().filter_map(|w| self.space.element_location(w)).collect();
-                layout::place_new(window.geometry().size, area, &taken, 32)
-            }
-            None => (0, 0).into(),
-        };
         let mut st = window_state(&window);
         st.workspace = self.workspaces.active;
         set_window_state(&window, st);
+        let fh = self.frame_height(&window);
+        let loc = match self.output_at(pointer).and_then(|o| self.work_area(&o)) {
+            Some(area) => {
+                let taken: Vec<_> = self.space.elements().filter_map(|w| self.space.element_location(w)).collect();
+                let mut size = window.geometry().size;
+                size.h += fh;
+                let mut at = layout::place_new(size, area, &taken, 32);
+                at.y += fh;
+                at
+            }
+            None => (0, fh).into(),
+        };
         self.move_window(&window, loc, true);
         self.send_preferred_scale(&window);
         self.window_event(ede_protocol::events::WINDOW_OPENED, &window);
@@ -526,9 +545,15 @@ impl Ede {
         }
         st.tile = Some(tile);
         set_window_state(window, st);
-        let rect = tile.rect(area);
+        let rect = self.without_frame(window, tile.rect(area));
         self.configure_window(window, Some(rect), Some(tile), false);
         self.space.map_element(window.clone(), rect.loc, true);
+    }
+
+    /// `rect` minus the title bar at its top (what the window itself gets).
+    pub fn without_frame(&self, window: &Window, rect: Rect) -> Rect {
+        let fh = self.frame_height(window);
+        Rectangle::new((rect.loc.x, rect.loc.y + fh).into(), (rect.size.w, (rect.size.h - fh).max(1)).into())
     }
 
     /// Back to the floating geometry it had before tiling; `at` overrides the
@@ -576,7 +601,7 @@ impl Ede {
                 (Some(tile), _) => {
                     let center = back.map(|b| b.loc.to_f64()).unwrap_or_default();
                     if let Some(area) = self.output_at(center).and_then(|o| self.work_area(&o)) {
-                        let rect = tile.rect(area);
+                        let rect = self.without_frame(window, tile.rect(area));
                         self.configure_window(window, Some(rect), Some(tile), false);
                         self.space.map_element(window.clone(), rect.loc, true);
                     }

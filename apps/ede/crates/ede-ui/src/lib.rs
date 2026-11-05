@@ -308,6 +308,16 @@ impl Runtime {
         self.reload_with(Some(&format!("Factory {name}")))
     }
 
+    /// Every factory document back as it ships, each a commit (#EDE-16:
+    /// the restore hotkey; the person's edits stay in the history).
+    pub fn reset_to_factory(&mut self) -> io::Result<Vec<Change>> {
+        let mut changes = Vec::new();
+        for name in self.factory_names()? {
+            changes.extend(self.restore_factory(&name)?);
+        }
+        Ok(changes)
+    }
+
     /// The git commit a document's current file sits in (`None` while it
     /// has an uncommitted edit or does not exist).
     pub fn head(&self) -> io::Result<Option<Commit>> {

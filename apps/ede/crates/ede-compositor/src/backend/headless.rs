@@ -70,17 +70,17 @@ impl Headless {
     }
 
     /// A full repaint of output `index`, as the monitor shows it.
-    pub fn capture(&mut self, state: &Ede, index: usize) -> Result<Frame, String> {
+    pub fn capture(&mut self, state: &mut Ede, index: usize) -> Result<Frame, String> {
         self.draw(state, index, false)
     }
 
     /// Output `index` as a screen capture sees it: protected windows black,
     /// a locked session all black.
-    pub fn capture_shared(&mut self, state: &Ede, index: usize) -> Result<Frame, String> {
+    pub fn capture_shared(&mut self, state: &mut Ede, index: usize) -> Result<Frame, String> {
         self.draw(state, index, true)
     }
 
-    fn draw(&mut self, state: &Ede, index: usize, shared: bool) -> Result<Frame, String> {
+    fn draw(&mut self, state: &mut Ede, index: usize, shared: bool) -> Result<Frame, String> {
         let output = self.outputs.get(index).ok_or("no such output")?.clone();
         super::draw_output(&mut self.renderer, state, &output, shared)
     }

@@ -28,7 +28,7 @@ use smithay::{
 use crate::{
     grabs::{MoveSurfaceGrab, BTN_LEFT},
     layout::Tile,
-    state::{window_state, Ede},
+    state::{set_window_state, window_state, Ede},
 };
 
 impl Ede {
@@ -106,6 +106,12 @@ impl XwmHandler for Ede {
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
     fn map_window_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+        // An X11 window without its own decorations (Motif hints) gets ours.
+        if let Some(window) = self.x11_window(&surface).or_else(|| self.unmapped.iter().find(|w| w.x11_surface() == Some(&surface)).cloned()) {
+            let mut st = window_state(&window);
+            st.decorated = surface.is_decorated() && !surface.is_override_redirect();
+            set_window_state(&window, st);
+        }
         if let Err(e) = surface.set_mapped(true) {
             tracing::warn!("X11 map: {e}");
             return;

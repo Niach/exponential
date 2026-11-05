@@ -45,6 +45,8 @@ pub enum Action {
     /// Super+Shift+1…9, Ctrl+Alt+Shift+Left/Right: the focused window along.
     MoveToWorkspace(usize),
     MoveToWorkspaceStep(i32),
+    /// Super+Shift+R: the stock shell documents back, the shell restarted (#EDE-16).
+    RestoreShell,
 }
 
 impl Ede {
@@ -121,6 +123,8 @@ impl Ede {
         }
         if state == ButtonState::Pressed && self.is_locked() {
             self.lock_pointer_focus();
+        } else if state == ButtonState::Pressed && !pointer.is_grabbed() && self.frame_press(button, serial) {
+            // A title bar or a resize band took the press (#EDE-16).
         } else if state == ButtonState::Pressed && !pointer.is_grabbed() {
             let location = pointer.current_location();
             let under = self.surface_under(location).map(|(s, _)| s);
@@ -234,6 +238,7 @@ impl Ede {
                     self.move_to_workspace(&w, next as usize, true);
                 }
             }
+            Action::RestoreShell => self.restore_shell(),
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
                 if let Some(w) = self.focused_window() {
@@ -247,6 +252,55 @@ impl Ede {
                     }
                 }
             }
+        }
+    }
+
+    /// A press on a window frame: the buttons, a drag of the title (a
+    /// double-click maximizes), a resize from the band around the window.
+    /// `true` = handled.
+    fn frame_press(&mut self, button: u32, serial: smithay::utils::Serial) -> bool {
+        let pointer = self.seat.get_pointer().unwrap();
+        let location = pointer.current_location();
+        let Some((window, hit)) = self.frame_under(location) else { return false };
+        self.focus(Some(window.clone()));
+        if button != BTN_LEFT {
+            return true;
+        }
+        match hit {
+            crate::frames::Hit::Close => self.close_window(&window),
+            crate::frames::Hit::Maximize => self.toggle_maximized(&window),
+            crate::frames::Hit::Title => {
+                let double = self.title_click.take().is_some_and(|(w, at)| w == window && at.elapsed() < std::time::Duration::from_millis(400));
+                if double {
+                    self.toggle_maximized(&window);
+                } else {
+                    self.title_click = Some((window.clone(), std::time::Instant::now()));
+                    if let Some(loc) = self.space.element_location(&window) {
+                        let start = GrabStartData { focus: None, button, location };
+                        pointer.set_grab(self, MoveSurfaceGrab::new(start, window, loc), serial, Focus::Clear);
+                    }
+                }
+            }
+            crate::frames::Hit::Edge(edges) => {
+                // The resize grab speaks xdg-shell; X11 windows resize from inside.
+                if window.toplevel().is_some() && !edges.is_empty() {
+                    if let Some(loc) = self.space.element_location(&window) {
+                        let start = GrabStartData { focus: None, button, location };
+                        let rect = smithay::utils::Rectangle::new(loc, window.geometry().size);
+                        pointer.set_grab(self, crate::grabs::ResizeSurfaceGrab::start(start, window, edges, rect), serial, Focus::Clear);
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Maximized ⇄ floating.
+    pub fn toggle_maximized(&mut self, window: &smithay::desktop::Window) {
+        if window_state(window).tile == Some(Tile::Maximized) {
+            self.untile(window, None);
+        } else {
+            self.tile(window, Tile::Maximized);
         }
     }
 
@@ -319,6 +373,7 @@ fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
         (true, false, true, true, keysyms::KEY_Left) => Some(Action::MoveToWorkspaceStep(-1)),
         (true, false, true, true, keysyms::KEY_Right) => Some(Action::MoveToWorkspaceStep(1)),
         (false, true, false, true, keysyms::KEY_E) => Some(Action::Quit),
+        (false, true, false, true, keysyms::KEY_R) => Some(Action::RestoreShell),
         (true, false, false, false, keysyms::KEY_F4) => Some(Action::Close),
         (false, true, false, false, keysyms::KEY_l) => Some(Action::Lock),
         (false, true, false, false, keysyms::KEY_Left) => Some(Action::Tile(Tile::Left)),

@@ -11,6 +11,7 @@ use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
+use wayland_protocols::xdg::decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1};
 use wayland_protocols::{
     ext::session_lock::v1::client::{ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1},
     wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
@@ -30,6 +31,9 @@ pub struct Client {
     pub lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
     pub idle_inhibit_manager: Option<zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1>,
     pub seat: Option<wl_seat::WlSeat>,
+    pub decoration_manager: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
+    /// The decoration mode the compositor configured per toplevel index.
+    pub decoration_modes: std::collections::HashMap<usize, u32>,
     /// Every global the compositor advertised.
     pub globals: Vec<String>,
     /// `locked` / `finished` on our lock object.
@@ -102,6 +106,20 @@ impl Session {
 
     pub fn roundtrip(&mut self) {
         self.queue.roundtrip(&mut self.state).expect("roundtrip");
+    }
+
+    /// Asks for a server-side frame on `t` (xdg-decoration, #EDE-16);
+    /// `None` = ask the compositor to decide.
+    pub fn decorate(&mut self, t: &Toplevel, mode: Option<zxdg_toplevel_decoration_v1::Mode>) -> zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1 {
+        let manager = self.state.decoration_manager.as_ref().expect("xdg-decoration advertised");
+        let decoration = manager.get_toplevel_decoration(&t.toplevel, &self.qh, t.index);
+        match mode {
+            Some(m) => decoration.set_mode(m),
+            None => decoration.unset_mode(),
+        }
+        t.surface.commit();
+        self.roundtrip();
+        decoration
     }
 
     pub fn toplevel(&mut self, title: &str) -> Toplevel {
@@ -254,7 +272,22 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "xdg_wm_base" => state.wm_base = Some(registry.bind(name, version.min(5), qh, ())),
                 "zwlr_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, version.min(4), qh, ())),
                 "wl_output" => state.outputs.push(registry.bind(name, version.min(4), qh, ())),
+                "zxdg_decoration_manager_v1" => state.decoration_manager = Some(registry.bind(name, 1, qh, ())),
                 _ => {}
+            }
+        }
+    }
+}
+
+impl Dispatch<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1, ()> for Client {
+    fn event(_: &mut Self, _: &zxdg_decoration_manager_v1::ZxdgDecorationManagerV1, _: zxdg_decoration_manager_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1, usize> for Client {
+    fn event(state: &mut Self, _: &zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1, event: zxdg_toplevel_decoration_v1::Event, index: &usize, _: &Connection, _: &QueueHandle<Self>) {
+        if let zxdg_toplevel_decoration_v1::Event::Configure { mode } = event {
+            if let wayland_client::WEnum::Value(m) = mode {
+                state.decoration_modes.insert(*index, m as u32);
             }
         }
     }
