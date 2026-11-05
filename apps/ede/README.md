@@ -119,12 +119,24 @@ Check on the real machine after installing: `ede-compositor doctor` shows
 session, an X11 game (Steam/Proton) on NVIDIA no longer flickers, and
 `pgrep -a Xwayland` shows `/usr/lib/ede/bin/Xwayland`.
 
+The package carries the compositor, `ede-session`, `ede-ui` and `ede-shell`
+in `/usr/bin`, the factory documents in `/usr/share/ede/ui`, and the
+session's user units (#EDE-2): once the compositor is up, `ede-session
+--ready` hands `WAYLAND_DISPLAY` to systemd and starts `ede-session.target`,
+which wants `ede-shell.service` = `ede-ui supervise -- ede-shell`, so a
+login gets the panel under the supervisor (a crashed shell restarts, a bad
+edit rolls back; `systemctl --user status ede-shell` and `journalctl --user
+-u ede-shell` show it). `--dev` packages the dev profile's binaries for a
+quick check in a VM.
+
 Log out; LightDM's session menu now has **Exponential** and **Exponential
 (safe mode)** next to Cinnamon. Safe mode starts with the stock settings
-(`--safe-mode`: the config file is not read; `EDE_SAFE_MODE=1` for the
-shell). Super+Shift+E logs out; Ctrl+Alt+F1…F12 switch VTs. Logs:
-`journalctl --user -b` and `~/.xsession-errors`. Remove with `sudo apt
-remove ede`; Cinnamon is untouched.
+(`--safe-mode`: the config file is not read; `EDE_SAFE_MODE=1` reaches the
+shell's unit, and `ede-ui` then supervises a scratch copy of the factory
+documents, leaving `~/.config/ede/ui` untouched). Super+Shift+E logs out;
+Ctrl+Alt+F1…F12 switch VTs. Logs: `journalctl --user -b` and
+`~/.xsession-errors`. Remove with `sudo apt remove ede`; Cinnamon is
+untouched.
 
 ## ede-protocol
 

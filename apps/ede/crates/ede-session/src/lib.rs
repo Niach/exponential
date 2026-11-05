@@ -193,12 +193,23 @@ mod tests {
         let safe = std::fs::read_to_string(root.join("wayland-sessions/ede-safe.desktop")).unwrap();
         assert!(safe.contains("Exec=ede-session --safe-mode\n"));
         let target = std::fs::read_to_string(root.join("systemd/ede-session.target")).unwrap();
-        for unit in ["graphical-session.target", "xdg-desktop-autostart.target", "ede-polkit-agent.service", "ede-keyring.service"] {
+        for unit in ["graphical-session.target", "xdg-desktop-autostart.target", "ede-shell.service", "ede-polkit-agent.service", "ede-keyring.service"] {
             assert!(target.contains(unit), "{unit}");
             if unit.starts_with("ede-") {
                 assert!(root.join("systemd").join(unit).exists(), "{unit} ships");
             }
         }
         assert_eq!(SESSION_ENV.iter().find(|(k, _)| *k == "XDG_CURRENT_DESKTOP").unwrap().1, "eDE");
+        // #EDE-2: the shell runs under the supervisor, and only once the
+        // compositor's display reached systemd (`ede-session --ready`).
+        let shell = std::fs::read_to_string(root.join("systemd/ede-shell.service")).unwrap();
+        assert!(shell.contains("ExecStart=/usr/bin/ede-ui supervise -- /usr/bin/ede-shell\n"));
+        assert!(shell.contains("ConditionEnvironment=WAYLAND_DISPLAY\n"));
+        assert!(EXPORTED_ENV.contains(&"WAYLAND_DISPLAY") && EXPORTED_ENV.contains(&"EDE_SAFE_MODE"));
+        let deb = std::fs::read_to_string(root.join("build-deb.sh")).unwrap();
+        for bin in ["ede-compositor", "ede-session", "ede-ui", "ede-shell"] {
+            assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
+        }
+        assert!(deb.contains("/usr/share/ede/ui/"), "the factory documents ship");
     }
 }

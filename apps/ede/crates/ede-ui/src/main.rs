@@ -23,7 +23,9 @@ const USAGE: &str = "usage: ede-ui [--dir DIR] [--factory DIR] <command>
   digest FILE              the content digest a shell reports with a frame
   dir                      print the ui directory
 DIR defaults to $EDE_UI_DIR, then $XDG_CONFIG_HOME/ede/ui (~/.config/ede/ui);
-the factory directory to $EDE_FACTORY_DIR, then /usr/share/ede/ui.";
+the factory directory to $EDE_FACTORY_DIR, then /usr/share/ede/ui.
+EDE_SAFE_MODE=1 (ede-session's safe mode) supervises a scratch copy of the
+factory documents instead of the person's directory, which stays untouched.";
 
 fn print_changes(changes: &[Change]) {
     for c in changes {
@@ -155,9 +157,21 @@ fn run(dir: PathBuf, factory: PathBuf, args: &[String]) -> Result<bool, String> 
     Ok(true)
 }
 
+/// Safe mode (#EDE-2): the stock shell from a scratch directory under
+/// `$XDG_RUNTIME_DIR` (else the temp dir), seeded from the factory copies,
+/// so a broken ~/.config/ede/ui never keeps the person out and is never
+/// rewritten behind their back.
+fn safe_mode_dir() -> PathBuf {
+    let base = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("ede").join("safe-ui");
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let mut dir = ede_ui::default_dir();
+    let safe_mode = std::env::var_os("EDE_SAFE_MODE").is_some_and(|v| !v.is_empty() && v != "0");
+    let mut dir = if safe_mode { safe_mode_dir() } else { ede_ui::default_dir() };
     let mut factory = ede_ui::default_factory_dir();
     loop {
         match (args.first().map(String::as_str), args.get(1)) {
@@ -166,6 +180,9 @@ fn main() -> ExitCode {
             _ => break,
         }
         args.drain(..2);
+    }
+    if safe_mode {
+        eprintln!("ede-ui: safe mode, the factory documents from {}", dir.display());
     }
     if matches!(args.first().map(String::as_str), Some("-h" | "--help")) {
         println!("{USAGE}");
