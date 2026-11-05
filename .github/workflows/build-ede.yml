@@ -1,4 +1,5 @@
-# The eDE .deb (#NEW-103, #NEW-120): ede-compositor + ede-session + the
+# The eDE .deb (#NEW-103, #NEW-120, #EDE-2): ede-compositor + ede-session +
+# ede-ui + ede-shell (the shell workspace, gpui) + the factory documents + the
 # Xwayland 24.1.x it bundles (noble ships 23.2.6, without explicit sync).
 # Built on ubuntu-24.04 because the .deb targets noble (Mint 22); the
 # Xwayland build is cached on its script's hash. Published on ede-v* tags
@@ -21,11 +22,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Linux system deps (udev backend)
+      - name: Linux system deps (udev backend + the shell's gpui)
         run: |
           sudo apt-get update && sudo apt-get install -y \
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
-            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1 \
+            libxcb1-dev libssl-dev libfontconfig1-dev clang
       - uses: actions/cache@v4
         id: xwayland
         with:
@@ -37,11 +39,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/ede
+          workspaces: |
+            apps/ede
+            apps/ede/shell
           key: ede-deb
       - uses: ./.github/actions/cargo-fetch
         with:
           dir: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede/shell
       - name: Build the .deb
         run: EDE_XWAYLAND=~/ede-xwayland apps/ede/packaging/build-deb.sh
       # A throwaway runner: the Depends must resolve on noble, and the
@@ -53,6 +60,11 @@ jobs:
           dpkg-deb -f "$deb" Depends
           sudo apt-get install -y "./$deb"
           /usr/lib/ede/bin/Xwayland -version 2>&1 | grep 'Xwayland Version 24\.1\.'
+          # #EDE-2: the shell ships with its factory documents and its unit.
+          test -x /usr/bin/ede-shell && test -x /usr/bin/ede-ui
+          ede-ui --dir "$(mktemp -d)/ui" check
+          grep -q ede-shell.service /usr/lib/systemd/user/ede-session.target
+          systemd-analyze --user verify /usr/lib/systemd/user/ede-shell.service
           ede-compositor doctor | tee doctor.txt || true
           grep -E '^ok +Xwayland +/usr/lib/ede/bin/Xwayland 24\.1\.' doctor.txt
       # Without the distro's xwayland this can only be the bundled one (the

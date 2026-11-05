@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 # Builds ede_<version>_<arch>.deb for Mint/Ubuntu into apps/ede/target-deb/.
-#   apps/ede/packaging/build-deb.sh [--no-xwayland]
-# Build deps: cargo, dpkg-deb, and the headers in apps/ede/README.md (udev feature).
+#   apps/ede/packaging/build-deb.sh [--no-xwayland] [--dev]
+# Build deps: cargo, dpkg-deb, and the headers in apps/ede/README.md (udev
+# feature), plus the shell workspace's (gpui: libxkbcommon, wayland, vulkan
+# loader, fontconfig, clang).
 # It bundles the Xwayland from xwayland/build.sh (#NEW-120: 24.1+, explicit
 # sync; built in ubuntu:24.04 via docker when this host has no meson), or a
 # prebuilt one from EDE_XWAYLAND=<build.sh out>. --no-xwayland depends on the
-# distro's xwayland instead (quick local builds).
+# distro's xwayland instead (quick local builds). --dev packages the dev
+# profile's binaries (a VM check in minutes; never a release).
+# Contents (#EDE-2): ede-compositor, ede-session, ede-ui and ede-shell in
+# /usr/bin, the factory documents in /usr/share/ede/ui, the session's systemd
+# units (ede-session.target starts ede-shell.service = `ede-ui supervise --
+# ede-shell`), the login screen entries.
 set -euo pipefail
 bundle_xwayland=1
-case "${1:-}" in
-  --no-xwayland) bundle_xwayland=0 ;;
-  "") ;;
-  *) echo "usage: $0 [--no-xwayland]" >&2; exit 2 ;;
-esac
+profile=release
+for arg in "$@"; do
+  case "$arg" in
+    --no-xwayland) bundle_xwayland=0 ;;
+    --dev) profile=debug ;;
+    *) echo "usage: $0 [--no-xwayland] [--dev]" >&2; exit 2 ;;
+  esac
+done
 here="$(cd "$(dirname "$0")" && pwd)"
 ede="$(dirname "$here")"
 cd "$ede"
@@ -25,16 +35,23 @@ stage="$(mktemp -d)"
 chmod 755 "$stage"
 trap 'rm -rf "$stage"' EXIT
 
-cargo build --release --locked -p ede-compositor -p ede-session --features ede-compositor/udev
+release=(--release); [ "$profile" = debug ] && release=()
+cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui --features ede-compositor/udev
+# The shell is its own workspace (gpui never enters the compositor's).
+(cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell)
 
-install -Dm755 "$target/release/ede-compositor" "$stage/usr/bin/ede-compositor"
-install -Dm755 "$target/release/ede-session" "$stage/usr/bin/ede-session"
+for bin in ede-compositor ede-session ede-ui ede-shell; do
+  install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
+done
+for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/ede/ui/$(basename "$f")"; done
 install -Dm755 "$here/ede-polkit-agent" "$stage/usr/lib/ede/ede-polkit-agent"
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
 for f in "$here"/systemd/*; do install -Dm644 "$f" "$stage/usr/lib/systemd/user/$(basename "$f")"; done
 install -Dm644 "$ede/../../LICENSE" "$stage/usr/share/doc/ede/copyright"
 
-depends="libc6, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2"
+# The compositor's, then the shell's (gpui on Wayland: Vulkan through the
+# loader + a driver, fontconfig/freetype) and ede-ui's history (git).
+depends="libc6, libseat1, libinput10, libgbm1, libudev1, libxkbcommon0, libpixman-1-0, libegl1, libgles2, libwayland-client0, libvulkan1, mesa-vulkan-drivers, libfontconfig1, libfreetype6, git"
 if [ "$bundle_xwayland" = 1 ]; then
   xwl="${EDE_XWAYLAND:-$target/ede-xwayland}"
   if [ -z "${EDE_XWAYLAND:-}" ]; then
@@ -64,7 +81,9 @@ Recommends: policykit-1-gnome | mate-polkit, gnome-keyring, swaylock
 Description: eDE, the Exponential desktop
  A Wayland desktop session: the ede-compositor (floating windows with edge
  snapping, Xwayland 24.1+ with explicit sync) started by ede-session from the login
- screen as "Exponential", with crash recovery and a safe mode.
+ screen as "Exponential", with crash recovery and a safe mode, and ede-shell, the
+ panel drawn from genUI documents (/usr/share/ede/ui, a person's copies in
+ ~/.config/ede/ui) under the ede-ui supervisor.
 CONTROL
 
 mkdir -p "$out"
