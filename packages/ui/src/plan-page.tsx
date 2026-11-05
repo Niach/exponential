@@ -24,9 +24,10 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet"
 // crates/ui plan_page, iOS ExpUI PlanPage, Android ui/plan/PlanPage): the BODY
 // of a thread's plan tab, under the thread's own header + strip, on its ground.
 // Wide (md+) = THE Outline (scroll-spy) + the document (the big title, THE
-// markdown, h2 anchors, picture groups as THE Mosaic). Phones = the document
-// (groups as THE Carousel), the outline in a sheet (☰). The questions float
-// over the document's foot: THE stepper + the decision. Every picture opens THE
+// markdown, h2 anchors, picture groups as THE Mosaic) + THE questions rail on
+// the right (#FEED-191). Phones = the document (groups as THE Carousel), the
+// outline in a sheet (☰), the questions floating over the document's foot.
+// Both = THE stepper + the decision. Every picture opens THE
 // lightbox over all of the plan's pictures.
 
 const MenuIcon = conceptIcon(`ui-menu`)
@@ -183,7 +184,8 @@ export function PlanPage({
     </div>
   )
 
-  // The document scrolls clear of the floating panel.
+  // Phones: the document scrolls clear of the floating panel (#FEED-191:
+  // wide has THE rail instead, no padding).
   const [panelHeight, setPanelHeight] = useState(0)
   const panel = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -192,7 +194,7 @@ export function PlanPage({
     const observer = new ResizeObserver(() => setPanelHeight(node.offsetHeight))
     observer.observe(node)
     return () => observer.disconnect()
-  }, [])
+  }, [mobile])
 
   return (
     <div data-testid={PLAN_PAGE_TEST_IDS.page} data-decision={row.decision ?? undefined} className={cn(`flex h-full min-h-0`, className)}>
@@ -209,7 +211,7 @@ export function PlanPage({
         <div
           ref={scroller}
           className="absolute inset-0 overflow-y-auto overscroll-contain"
-          style={{ paddingTop: topInset, paddingBottom: panelHeight + 2 * PLAN_PAGE_PANEL.gap }}
+          style={{ paddingTop: topInset, paddingBottom: mobile ? panelHeight + 2 * PLAN_PAGE_PANEL.gap : undefined }}
         >
           {document}
         </div>
@@ -226,6 +228,7 @@ export function PlanPage({
             <MenuIcon />
           </Button>
         )}
+        {mobile && (
         <div
           className="pointer-events-none absolute inset-0 flex items-end justify-center"
           style={{ padding: PLAN_PAGE_PANEL.gap, paddingTop: topInset + PLAN_PAGE_PANEL.gap }}
@@ -250,6 +253,7 @@ export function PlanPage({
             />
           </div>
         </div>
+        )}
         {mobile && (
           <Sheet open={outlineOpen} onOpenChange={setOutlineOpen}>
             <SheetContent side="bottom" showGrabber className="gap-0 p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
@@ -266,6 +270,22 @@ export function PlanPage({
           </Sheet>
         )}
       </div>
+      {!mobile && (
+        <div
+          data-slot="plan-questions-rail"
+          className="flex min-h-0 shrink-0 flex-col border-l border-border bg-sidebar"
+          style={{ width: PLAN_PAGE_LAYOUT.railWidth, padding: PLAN_PAGE_PANEL.padding }}
+        >
+          <PlanRail
+            row={row}
+            attachmentSrc={attachmentSrc}
+            busy={busy}
+            onDecide={onDecide}
+            heading
+            className="min-h-0 flex-auto"
+          />
+        </div>
+      )}
       <ImagePreviewDialog
         open={shown !== null}
         onOpenChange={(open) => (open ? undefined : setLightbox(null))}

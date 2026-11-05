@@ -58,6 +58,7 @@ import {
   PLAN_PAGE_LAYOUT,
   PLAN_PAGE_TEST_IDS,
   planRowLabel,
+  planTabGlyph,
 } from "@exp/domain-contract/plan-page"
 import {
   AskDismissButton, AskAnsweredLine, AskCard, AskDismissedCard, AskPrompt } from "./ask-card"
@@ -191,7 +192,14 @@ export function ThreadTabs({
   /** NEW-6 (N-1): absent on a single-session thread (no Conversation tab). */
   conversation?: { label: string; active: boolean; onSelect: () => void }
   /** #EXP-1662: the plan tab (plan-page.json), right after Conversation. */
-  plan?: { label: string; active: boolean; waiting: boolean; onSelect: () => void }
+  plan?: {
+    label: string
+    active: boolean
+    waiting: boolean
+    /** #FEED-191: the plan's decision (`planTabGlyph`: approved = THE check). */
+    decision?: string | null
+    onSelect: () => void
+  }
   /** #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
    *  cards, Conversation order; a pick scrolls to that card. */
   waiting?: { cards: readonly WaitingCardInput[]; onSelect: (id: string) => void; menuOpen?: boolean }
@@ -255,7 +263,7 @@ export function ThreadTabs({
           active={plan.active}
           boxClassName="min-w-0 shrink"
           boxProps={{ style: { maxWidth: PLAN_PAGE_LAYOUT.tabMaxWidth } }}
-          lead={<PlanRowIcon className="size-3.5 shrink-0" />}
+          lead={<PlanTabLead decision={plan.decision ?? null} />}
           label={
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="min-w-0 truncate">{pager ? PLAN_PAGE_COPY.title : plan.label}</span>
@@ -2004,6 +2012,19 @@ export function ThreadPlanSheet({
 
 const PlanRowIcon = conceptIcon(`coding-plan`)
 const PlanApprovedIcon = conceptIcon(`ui-check`)
+
+/** #FEED-191 (plan-page.json `planTabGlyph`): the plan chip's lead: an
+ *  approved plan = THE check in emerald (its row's), else the plan glyph. */
+function PlanTabLead({ decision }: { decision: string | null }) {
+  const glyph = planTabGlyph(decision)
+  const Lead = glyph.icon === `ui-check` ? PlanApprovedIcon : PlanRowIcon
+  return (
+    <Lead
+      data-glyph={glyph.icon}
+      className={cn(`size-3.5 shrink-0`, glyph.tone === `approved` && `text-emerald-400`)}
+    />
+  )
+}
 const PlanRowChevron = conceptIcon(`ui-chevron-right`)
 
 /** A decided plan's closing lines: the decision label + the feedback. */
@@ -2032,12 +2053,16 @@ export function PlanRail({
   attachmentSrc = defaultAttachmentSrc,
   busy,
   onDecide,
+  heading = false,
   className,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
   attachmentSrc?: (attachmentId: string) => string
   busy: boolean
   onDecide?: (input: ThreadPlanDecision) => void
+  /** #FEED-191: THE wide rail leads with the `copy.questions` heading, the
+   *  step label trailing it (phones' floating panel: the label alone). */
+  heading?: boolean
   className?: string
 }) {
   const form = usePlanForm(row, busy, onDecide)
@@ -2049,10 +2074,22 @@ export function PlanRail({
   const last = page >= count - 1
   return (
     <div data-testid="plan-rail" className={cn(`flex min-h-0 flex-col gap-3`, className)}>
-      {question && count > 1 && (
-        <span data-testid={PLAN_CARD_TEST_IDS.step} className="shrink-0 self-end text-xs text-muted-foreground">
-          {stepLabel(page + 1, count)}
-        </span>
+      {heading ? (
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{PLAN_PAGE_COPY.questions}</span>
+          {question && count > 1 && (
+            <span data-testid={PLAN_CARD_TEST_IDS.step} className="shrink-0 text-xs text-muted-foreground">
+              {stepLabel(page + 1, count)}
+            </span>
+          )}
+        </div>
+      ) : (
+        question &&
+        count > 1 && (
+          <span data-testid={PLAN_CARD_TEST_IDS.step} className="shrink-0 self-end text-xs text-muted-foreground">
+            {stepLabel(page + 1, count)}
+          </span>
+        )
       )}
       <div className="min-h-0 flex-auto overflow-y-auto overscroll-contain">
         <div data-testid={PLAN_CARD_TEST_IDS.card} data-kind="plan" data-page={page}>

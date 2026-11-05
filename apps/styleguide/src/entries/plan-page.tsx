@@ -10,13 +10,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1493`,
   title: `Plan page`,
-  blurb: `#EXP-1662 THE plan tab (fixture \`plan-page.json\` ×4; Exponential-specific, not genUI): a thread's plan is a tab of its strip; selecting it replaces only the content, on the thread's own ground, with no page header. Wide (web md+, the IDE): THE Outline (the h2 sections with their picture counts, scroll-spy, the Questions row) + the document (a big title, THE markdown in a 720 px column, h2 anchors, two or more adjacent pictures as THE Mosaic). Phones: the same document, picture groups as THE Carousel (i / n, dots, swipe), ☰ opens the outline in a sheet. The questions float over the document's foot: THE stepper, one question at a time, Back / Next, the decision on the last step; the panel hugs its content up to 40% of the body. In the Conversation a plan is ONE row, \`Plan: title\`, that opens the tab. Any picture opens THE lightbox over every picture of the plan.`,
+  blurb: `#EXP-1662 THE plan tab (fixture \`plan-page.json\` ×4; Exponential-specific, not genUI): a thread's plan is a tab of its strip; selecting it replaces only the content, on the thread's own ground, with no page header. Wide (web md+, the IDE): THE Outline (the h2 sections with their picture counts, scroll-spy, the Questions row) + the document (a big title, THE markdown in a 720 px column, h2 anchors, two or more adjacent pictures as THE Mosaic). Phones: the same document, picture groups as THE Carousel (i / n, dots, swipe), ☰ opens the outline in a sheet. #FEED-191: the questions = wide, THE rail on the right (360 px, the sidebar background, a hairline on its left, sticky full height): the Questions heading with the step label trailing, THE stepper, one question at a time, Back / Next, the decision pinned at its foot; phones, a panel floating over the document's foot, hugging its content up to 40% of the body. In the Conversation a plan is ONE row, \`Plan: title\`, that opens the tab. The strip chip shows the newest waiting plan, else the plan shown during this visit of the chat (a decided plan leaves the strip once the person leaves); an approved plan's chip leads with THE emerald check. Any picture opens THE lightbox over every picture of the plan.`,
   status: {
     web: {
       state: `ok`,
       symbol: `PlanPage`,
       file: `packages/ui/src/plan-page.tsx`,
-      note: `host: thread-screen.tsx ThreadPlanBody; panel: session-thread-view.tsx PlanRail, the deep link route redirects to the tab`,
+      note: `host: thread-screen.tsx ThreadPlanBody; rail + phone panel: session-thread-view.tsx PlanRail, the deep link route redirects to the tab`,
     },
     desktop: {
       state: `ok`,
