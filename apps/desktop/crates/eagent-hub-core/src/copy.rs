@@ -32,6 +32,7 @@ pub struct Watchdog {
     pub unclaimed_minutes: i64,
     pub nudge_minutes: i64,
     pub resume_minutes: i64,
+    pub offline_minutes: i64,
     pub stuck_minutes: i64,
     pub background_stuck_minutes: i64,
     pub online_window_seconds: i64,
@@ -134,6 +135,10 @@ pub fn stuck_text(minutes: i64) -> String {
 
 pub fn unresumed_text() -> String {
     fill(text(&["unresumed"]), &[("minutes", &rules().watchdog.resume_minutes.to_string())])
+}
+
+pub fn offline_text() -> String {
+    fill(text(&["offline"]), &[("minutes", &rules().watchdog.offline_minutes.to_string())])
 }
 
 pub fn pr_opened_text(number: &str, url: &str) -> String {

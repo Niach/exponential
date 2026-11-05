@@ -61,6 +61,7 @@ describe(`eagent spec: the server's copy`, () => {
     expect(rules.copy.claimed).toBe(BUS_COPY.session_claimed)
     expect(spec.unclaimedText()).toBe(BUS_COPY.session_unclaimed)
     expect(spec.unresumedText()).toBe(BUS_COPY.session_unresumed)
+    expect(spec.offlineText()).toBe(BUS_COPY.session_offline)
     expect(spec.stuckText(42)).toBe(BUS_COPY.session_stuck(42))
     expect(spec.prOpenedText(7, `https://x.test/7`)).toBe(BUS_COPY.pr_opened(7, `https://x.test/7`))
     for (const blocked of [

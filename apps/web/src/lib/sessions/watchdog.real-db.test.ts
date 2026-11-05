@@ -869,6 +869,47 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     expect(await row(interrupted)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
   })
 
+  it(`#EXP-1675: a cut run whose device stays away is on a person after offlineMinutes, said once; the device back and continuing clears it`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const [listed, reported] = await Promise.all([`survives`, `continues`].map((text) => w.child(rootId, text)))
+    for (const id of [listed, reported]) {
+      await w.host.claim({ sessionId: id, deviceId: w.deviceId })
+      await w.host.report({ sessionId: id, busy: true })
+    }
+    const flagged = ago(contract.sessionWatchdog.offlineMinutes * MIN - 1000)
+    await backdateDevice(w.deviceId, new Date(flagged.getTime() - (contract.device.onlineWindowSeconds + 1) * 1000))
+    await runWatchdog(flagged)
+    await runWatchdog(NOW)
+    expect(await lines(rootId, `session_interrupted`, listed)).toHaveLength(0)
+    expect(await row(listed)).toMatchObject({ blocked: { kind: `device_offline`, resume: true }, needsInput: false })
+
+    const later = new Date(NOW.getTime() + 2000)
+    const run = await runWatchdog(later)
+    expect(run.offlineLong).toBeGreaterThanOrEqual(2)
+    for (const id of [listed, reported]) {
+      expect(await row(id)).toMatchObject({ status: `idle`, needsInput: true, blocked: { kind: `device_offline` } })
+      expect(await lines(rootId, `session_interrupted`, id)).toMatchObject([{ body: BUS_COPY.session_offline, consumedAt: null }])
+    }
+
+    // The device back: the resume clock starts but nothing is said again.
+    const back = new Date(later.getTime() + 60 * MIN)
+    await db.transaction((tx) =>
+      restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner, liveSessionIds: [] }, back)
+    )
+    await runWatchdog(new Date(back.getTime() + (contract.sessionWatchdog.resumeMinutes + 1) * MIN))
+    expect(await lines(rootId, `session_interrupted`, reported)).toHaveLength(1)
+
+    // Listed by a beat, or continued and reported: the flag and Needs you clear.
+    await db.transaction((tx) =>
+      restoreDeviceSessionsInTx(tx, { deviceId: w.deviceId, userId: w.owner, liveSessionIds: [listed] }, back)
+    )
+    expect(await row(listed)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
+    await w.host.report({ sessionId: reported, status: `running`, busy: true })
+    expect(await row(reported)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
+    expect(await lines(rootId, `session_interrupted`, listed)).toHaveLength(1)
+  })
+
   it(`NEW-17: a device reporting a run's process LOST mid-turn interrupts it (never an end, never "done")`, async () => {
     const w = await world()
     const rootId = await w.root()

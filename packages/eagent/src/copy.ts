@@ -24,6 +24,7 @@ export function blockedText(blocked: Pick<Blocked, `window` | `resetsAt`>): stri
 export const unclaimedText = () => fill(copy.unclaimed, { minutes: rules.watchdog.unclaimedMinutes })
 export const stuckText = (minutes: number) => fill(copy.stuck, { minutes })
 export const unresumedText = () => fill(copy.unresumed, { minutes: rules.watchdog.resumeMinutes })
+export const offlineText = () => fill(copy.offline, { minutes: rules.watchdog.offlineMinutes })
 export const prOpenedText = (number: number, url: string) => fill(copy.prOpened, { number, url })
 export const privateText = (id: string, lead: string) => fill(copy.private, { lead, id })
 

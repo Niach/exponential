@@ -1204,6 +1204,22 @@ fn tick(ctx: &mut Ctx) -> Step<StepResult> {
         let row = row.clone();
         bus_line(ctx, &row, "session_interrupted", copy::unresumed_text(), true, None, true);
     }
+    // Offline too long: a cut run whose device never came back = on a person, said once.
+    for id in ordered(&ctx.state) {
+        let row = ctx.row(&id);
+        let Some(b) = &row.blocked else { continue };
+        if !is_working(row) || b.kind != BlockedKind::DeviceOffline || row.needs_input || b.resume != Field::Value(true) {
+            continue;
+        }
+        if !b.resume_since.is_nullish() || b.since >= now - w.offline_minutes * MIN {
+            continue;
+        }
+        let row = ctx.row_mut(&id);
+        row.needs_input = true;
+        row.updated_at = now;
+        let row = row.clone();
+        bus_line(ctx, &row, "session_interrupted", copy::offline_text(), true, None, true);
+    }
     // A usage wall whose reset passed: cleared, silently.
     for id in ordered(&ctx.state) {
         let row = ctx.row(&id);

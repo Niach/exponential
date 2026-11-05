@@ -27,7 +27,8 @@ import { postMeetingStopNote } from "@/lib/sessions/meeting-access"
 // this watchdog's once its `resetsAt` passed. EXP-1374: an INTERRUPTION
 // (`device_offline`, `restarted`) is never on a person: a mid-turn run
 // (`resume`) is continued by its device when back (its report clears it);
-// only one the device left alone `resumeMinutes` after it came back is.
+// only one the device left alone `resumeMinutes` after it came back is, or
+// (#EXP-1675) one whose device is still away `offlineMinutes` after the flag.
 // EXP-1536: a failed start (`start_failed`) is device-written like a wall
 // but never said as one; the device's next report (the relaunch) clears it.
 
@@ -43,6 +44,8 @@ export interface WatchdogRun {
   offline: number
   /** EXP-1374: interruptions their device never continued (Needs you). */
   unresumed: number
+  /** #EXP-1675: cut runs whose device stayed away (Needs you). */
+  offlineLong: number
   /** FEED-129: usage walls whose reset time passed, cleared this tick. */
   expired: number
   /** NEW-2: agent schedule firings this tick, and pruned event rows. */
@@ -279,7 +282,7 @@ export function silentMinutes(alive: number, now: Date): number {
  *  an INTERRUPTION, not on a person (`needs_input` untouched). S-3: an idle
  *  session has nothing to interrupt and is never flagged (a `running` one
  *  between turns just reads `idle`), and the flag is silent (no bus line:
- *  an interruption is invisible ×4). */
+ *  an interruption is invisible ×4) until `flagOfflineTooLong`. */
 async function flagOffline(now: Date): Promise<number> {
   const cutoff = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
   return db.transaction(async (tx) => {
@@ -354,6 +357,39 @@ async function flagUnresumed(now: Date): Promise<number> {
         .set({ needsInput: true, updatedAt: now })
         .where(eq(sessions.id, row.id))
       await busLine(tx, row, `session_interrupted`, BUS_COPY.session_unresumed, { waking: true })
+    }
+    return rows.length
+  })
+}
+
+/** #EXP-1675 (incidents.json): a mid-turn `device_offline` whose device never
+ *  came back (no `resumeSince`) `offlineMinutes` after the flag: on a person
+ *  now, said once to its parent. `needs_input` is the once: `flagUnresumed`
+ *  skips it too when the device returns, and whatever clears the flag (a beat
+ *  listing the run, its report) clears Needs you with it. */
+async function flagOfflineTooLong(now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - contract.sessionWatchdog.offlineMinutes * MIN)
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: sessions.id, parentId: sessions.parentId })
+      .from(sessions)
+      .where(
+        and(
+          inArray(sessions.status, [...LIVE]),
+          sql`${sessions.blocked} ->> 'kind' = 'device_offline'`,
+          eq(sessions.needsInput, false),
+          sql`(${sessions.blocked} ->> 'resume')::boolean IS TRUE`,
+          sql`${sessions.blocked} ->> 'resumeSince' IS NULL`,
+          sql`${sessions.blocked} ->> 'since' < ${cutoff.toISOString()}`
+        )
+      )
+      .for(`update`, { skipLocked: true })
+    for (const row of rows) {
+      await tx
+        .update(sessions)
+        .set({ needsInput: true, updatedAt: now })
+        .where(eq(sessions.id, row.id))
+      await busLine(tx, row, `session_interrupted`, BUS_COPY.session_offline, { waking: true })
     }
     return rows.length
   })
@@ -590,6 +626,7 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     stuck: await flagStuck(now),
     offline: await flagOffline(now),
     unresumed: await flagUnresumed(now),
+    offlineLong: await flagOfflineTooLong(now),
     expired: await clearExpiredWalls(now),
     // NEW-2: the same tick fires the agents' schedules (a missed tick is
     // caught up here) and sweeps the event stream.
@@ -707,7 +744,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.recordsMigrated} records migrated, ${run.checksQueued} queued CI checks flagged`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.offlineLong} offline too long, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.recordsMigrated} records migrated, ${run.checksQueued} queued CI checks flagged`,
         })
       )
       .catch((error: unknown) => {
