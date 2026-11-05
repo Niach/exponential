@@ -4416,6 +4416,14 @@ mod tests {
             theme::init(cx);
             let store = Store::open(cx, None, None);
             cx.set_global(store);
+            // The session views under a thread read the auth handles as they
+            // open; the file-only token store never touches the keychain.
+            let data_dir = std::env::temp_dir().join(format!("exp-thread-plan-test-{}", std::process::id()));
+            cx.set_global(crate::session::AuthContext {
+                auth: api::AuthStore::load_with_token_store(data_dir.clone(), api::token_store::TokenStore::file_only(data_dir.clone())),
+                client: std::sync::Arc::new(api::AuthClient::new()),
+                data_dir,
+            });
             let collections = Store::global(cx).collections().clone();
             let root: SessionRow = serde_json::from_value(serde_json::json!({
                 "id": "r1",
