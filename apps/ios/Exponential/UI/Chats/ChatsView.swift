@@ -5,17 +5,18 @@ import SwiftUI
 
 /// Thread 58cb32df (chats.json, #EXP-1373): the phone's CHATS tab — the
 /// page header (#EXP-1384 `shell.header`: the large title "Chats", the
-/// native search and INBOX circles), the team agents as BUBBLES, the filter chips All · Needs you ·
-/// Working · Unread, then ONE flat WhatsApp-like list of the ACTIVE team's
-/// chats (`Chats.chatList` over `partitionThreads`: no bands, no nesting,
-/// newest activity first). A row opens the chat; a bubble's hold its agent
-/// menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
+/// native search and INBOX circles), then #FEED-191 the Needs you entry
+/// (needs-you.json, none = no row), the Agents section and the ACTIVE team's
+/// chats grouped (`Chats.chatSections` over `Chats.chatList`: Needs you ·
+/// Working · Unread · Chats, no bands, no nesting, each newest activity first).
+/// A row opens the chat; an agent row's hold its agent menu. #EXP-1388 SELECTION + ARCHIVE: a row's long press ENTERS the
 /// multi-selection with that row (the row's touch menu is gone); while
 /// selecting nothing shifts, a selected row is a full-width tint with the
 /// check badge on its disc, a tap
 /// toggles and THE BAR (the issue list's bulk bar, in the tab bar's slot)
-/// acts on the selection (`chatSelectionActions`). The Archived entry row
-/// pushes the same list in `view: .archived` (the Archived page).
+/// acts on the selection (`chatSelectionActions`). The Archived entry row,
+/// first under the Chats header, pushes the same list in `view: .archived`
+/// (the Archived page: flat, no headers).
 struct ChatsView: View {
     /// #EXP-1388: `.archived` = the pushed Archived page.
     var view: Chats.ChatListView = .list
@@ -29,9 +30,8 @@ struct ChatsView: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
 
-    @State private var filter: Chats.ChatFilter = .all
     @State private var isOwner = false
-    /// A row's or a bubble's menu sheet, and its pick (run on dismiss).
+    /// A row's or an agent row's menu sheet, and its pick (run on dismiss).
     @State private var menu: ChatMenuTarget?
     @State private var pendingPick: (target: ChatMenuTarget, entry: ChatMenuSheet.Entry)?
     @State private var deleteTarget: String?
@@ -134,7 +134,7 @@ struct ChatsView: View {
             reads: lists.reads,
             prStates: lists.prStates,
             words: lists.words,
-            filter: filter,
+            filter: .all,
             view: view,
             now: Self.iso.string(from: now),
             utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60,
@@ -157,84 +157,44 @@ struct ChatsView: View {
             messages: lists.chatMessages,
             reads: lists.reads,
             me: deps.auth.userId,
-            filter: filter,
+            filter: .all,
             view: view,
             now: Self.iso.string(from: now),
             utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60
         )
     }
 
-    private var bubbles: [AgentBubbleItem] {
-        Chats.agentBubbles(
-            agents: teamAgents,
-            sessions: lists.sessions,
-            messages: lists.chatMessages,
-            reads: lists.reads,
-            me: deps.auth.userId
-        ).map { bubble in
-            AgentBubbleItem(
-                id: bubble.agent.agentId,
-                name: bubble.agent.name,
-                icon: BoardTypeDisplay.iconName(for: bubble.agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-                color: Color(hex: bubble.agent.color)
-                    ?? Color(hex: SessionTree.ListCopy.agentDefaultColor) ?? .white,
-                assistant: bubble.agent.assistant
-            )
-        }
+    /// #FEED-191: the displayed order: the sections', or the Archived page's flat
+    /// rows. Selection reads it too.
+    private func displayed(_ list: Chats.ChatList) -> [Chats.ChatRow] {
+        view == .archived ? list.rows : Chats.chatSections(list.rows).flatMap(\.rows)
     }
 
     @ViewBuilder
     private var content: some View {
         let list = list
-        let bubbles = view == .archived ? [] : bubbles
         let agentRows = agentRows
-        let archivedEntry = view == .list && list.archived > 0 && filter == .all
+        let archivedEntry = view == .list && list.archived > 0
+        let needsYouCount = view == .list
+            ? lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now).count
+            : 0
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                // #EXP-1461 (stories.json STORY ROW): ONLY rings, the last
-                // 24 h: a bubble without a ring is not drawn (its agent stays
-                // reachable from the pinned agent rows); nothing = no row.
-                if view == .list {
-                    ChatStoriesHost(teamId: teamState.activeTeamId) { stories in
-                        let row = Stories.storyRow(bubbles.map(\.id), stories.rings)
-                        if !row.bubbles.isEmpty || !row.rest.isEmpty {
-                            AgentBubbles(
-                                items: bubbles,
-                                rings: stories.rings,
-                                onHold: openAgentMenu,
-                                onOpenStory: stories.open
-                            ) { ring in
-                                StoryRingAvatarView(avatar: stories.avatar(ring))
-                            }
-                            .padding(.horizontal, -16)
-                            .padding(.top, 4)
-                            .padding(.bottom, 10)
-                        }
-                    }
+                // #FEED-191 (needs-you.json THE ENTRY): the first row; none = no row.
+                if needsYouCount > 0 {
+                    NeedsYouEntryRow(count: needsYouCount)
+                        .glassLongPress(enabled: false, onTap: {
+                            guard !selectionActive else { return }
+                            pushRoute(.needsYou(accountId: accountId))
+                        }, onHold: {})
                 }
-                filterChips(list.counts)
-                    .padding(.bottom, 4)
-                // S-3: the agent rows pinned on top, the section headers only
-                // while one exists.
                 if !agentRows.isEmpty {
                     ChatSectionHeader(Chats.Copy.Sections.agents)
                     ForEach(agentRows) { row in
                         agentChatRow(row)
                     }
-                    if !list.rows.isEmpty || archivedEntry {
-                        ChatSectionHeader(Chats.Copy.Sections.chats)
-                    }
                 }
-                // #EXP-1388 THE ARCHIVED ENTRY: first while archived > 0 and
-                // the filter is All.
-                if archivedEntry {
-                    ChatArchivedRow(count: list.archived)
-                        .glassLongPress(enabled: false, onTap: {
-                            guard !selectionActive else { return }
-                            pushRoute(.archivedChats(accountId: accountId))
-                        }, onHold: {})
-                }
-                if list.rows.isEmpty, agentRows.isEmpty {
+                if list.rows.isEmpty, agentRows.isEmpty, !archivedEntry {
                     Group {
                         if view == .archived {
                             EmptyState(title: Chats.Copy.Archived.empty, icon: AppIcons.uiArchive)
@@ -244,9 +204,26 @@ struct ChatsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 48)
-                } else {
+                } else if view == .archived {
                     ForEach(list.rows) { row in
                         chatRow(row)
+                    }
+                } else {
+                    let sections = Chats.chatSections(list.rows)
+                    ForEach(sections) { section in
+                        ChatSectionHeader(Chats.Copy.Sections.title(section.key))
+                        if section.key == .chats, archivedEntry {
+                            archivedRow(list.archived)
+                        }
+                        ForEach(section.rows) { row in
+                            chatRow(row)
+                        }
+                    }
+                    // The Archived entry stays first under its header, also
+                    // with no other chat in that section.
+                    if archivedEntry, !sections.contains(where: { $0.key == .chats }) {
+                        ChatSectionHeader(Chats.Copy.Sections.chats)
+                        archivedRow(list.archived)
                     }
                 }
             }
@@ -257,21 +234,13 @@ struct ChatsView: View {
         .tabBarBottomInset()
     }
 
-    private func filterChips(_ counts: [Chats.ChatFilter: Int]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Chats.filters, id: \.self) { option in
-                    GlassPill(
-                        Chats.chatFilterLabel(option, counts: counts),
-                        size: .md,
-                        mode: .select(isSelected: filter == option) { filter = option }
-                    )
-                    .accessibilityIdentifier("\(Chats.TestIds.chatFilter)-\(option.rawValue)")
-                }
-            }
-            .padding(.horizontal, 16)
-        }
-        .padding(.horizontal, -16)
+    /// #EXP-1388 THE ARCHIVED ENTRY: first under the Chats header.
+    private func archivedRow(_ count: Int) -> some View {
+        ChatArchivedRow(count: count)
+            .glassLongPress(enabled: false, onTap: {
+                guard !selectionActive else { return }
+                pushRoute(.archivedChats(accountId: accountId))
+            }, onHold: {})
     }
 
     /// The preview's leading `Question:` / `Plan:` label.
@@ -372,11 +341,12 @@ struct ChatsView: View {
         }
     }
 
-    /// `chatSelectionActions` over the selected rows (selection order).
+    /// `chatSelectionActions` over the selected rows (#FEED-191: chats.json
+    /// selection order = the displayed order).
     private var selectionItems: [Chats.ChatSelectionItem] {
-        let rows = list.rows
-        let selection: [Chats.ChatSelectionRow] = selectedIds.compactMap { id in
-            guard let row = rows.first(where: { $0.sessionId == id }) else { return nil }
+        let selection: [Chats.ChatSelectionRow] = displayed(list).compactMap { row in
+            guard selectedIds.contains(row.sessionId) else { return nil }
+            let id = row.sessionId
             return Chats.ChatSelectionRow(
                 sessionId: id,
                 rootStatus: lists.rootStatus[id] ?? "",

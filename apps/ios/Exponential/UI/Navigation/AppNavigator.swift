@@ -37,6 +37,9 @@ enum AppRoute: Hashable {
     case threads
     /// #EXP-1388: the Chats list's Archived page (the Archived entry row).
     case archivedChats(accountId: String)
+    /// #FEED-191 (needs-you.json): THE list, pushed from the Chats list's
+    /// first row.
+    case needsYou(accountId: String)
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
     /// EXP-1241: an issue's page scrolled to one comment, which briefly
@@ -149,9 +152,21 @@ extension AppRoute {
         return PlanPage.planPageFor(sessionId, rows.map { row in
             PlanPage.Message(
                 id: row.id, sessionId: row.sessionId, authorSessionId: row.authorSessionId,
-                createdAt: Stories.ms(row.createdAt) ?? 0, card: TreeMessageCard.parse(row.card)
+                createdAt: SessionTree.ms(row.createdAt) ?? 0, card: TreeMessageCard.parse(row.card)
             )
         })
+    }
+
+    /// #FEED-191 (needs-you.json): where a row opens, by `opens`: a plan = its
+    /// thread's Plan tab on that plan; a card = the Conversation scrolled to
+    /// it; results = the Results tab; chat = the agent conversation.
+    @MainActor static func openingNeedsYou(_ row: NeedsYou.Row, accountId: String, deps: AppDependencies) -> AppRoute {
+        switch row.opens {
+        case .plan: .thread(accountId: accountId, threadId: row.rootId, child: .plan(row.messageId))
+        case .card: .thread(accountId: accountId, threadId: row.rootId, child: .card(row.messageId))
+        case .results: .thread(accountId: accountId, threadId: row.rootId, child: .results)
+        case .chat: openingSession(row.rootId, accountId: accountId, deps: deps)
+        }
     }
 
     /// `opening(_:)` for a session id read from the account's store.
@@ -1083,6 +1098,9 @@ extension MainNavigator {
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .archivedChats(accountId):
             ChatsView(view: .archived)
+                .environment(\.accountId, accountId)
+        case let .needsYou(accountId):
+            NeedsYouPage()
                 .environment(\.accountId, accountId)
         case let .board(accountId, id):
             IssueListView(boardId: id)

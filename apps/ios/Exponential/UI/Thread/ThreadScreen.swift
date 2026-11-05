@@ -90,6 +90,9 @@ struct ThreadScreen: View {
     /// sheet has dismissed.
     @State private var groupOpen = false
     @State private var pendingGroupPick: ThreadStripGroupSheet.Pick?
+    /// #FEED-191 (needs-you.json): the card a way in named, focused once the
+    /// thread has loaded.
+    @State private var pendingCard: String?
     /// #EXP-1562: the waiting button's Menu sheet, its pick (run once the
     /// sheet has dismissed), the scroll it asks for and the lit card.
     @State private var waitingOpen = false
@@ -115,10 +118,6 @@ struct ThreadScreen: View {
     @State private var insetCorrection: CGFloat = 0
     // The thread PR (`guidePullRequest`)
     @State private var mergeState = WorkMergeState()
-    /// stories.json STORIES TAB: the fold's synced input (the tab's dot and
-    /// body); `storiesNow` ticks so the ages follow the clock.
-    @State private var stories = StoriesModel()
-    @State private var storiesNow = Date()
     /// EXP-1307: the thread PR awaiting the Close PR confirm.
     @State private var closePrTarget: PullRequestEntity?
     // EXP-1323: suggested tasks
@@ -170,7 +169,10 @@ struct ThreadScreen: View {
             _page = State(initialValue: .conversation)
             _pendingPage = State(initialValue: .plan(nil))
             _planPick = State(initialValue: messageId)
-        } else if initialPage != .conversation, initialPage != .stories {
+        } else if case let .card(messageId) = initialPage {
+            _page = State(initialValue: .conversation)
+            _pendingCard = State(initialValue: messageId)
+        } else if initialPage != .conversation, initialPage != .results {
             _page = State(initialValue: .conversation)
             _pendingPage = State(initialValue: initialPage)
         } else {
@@ -201,7 +203,7 @@ struct ThreadScreen: View {
     }
 
     /// EVERY page the strip reaches (the Conversation, the plan, each issue of
-    /// the tree, each session under the root, Stories): what a pill, a landing
+    /// the tree, each session under the root, Results): what a pill, a landing
     /// or a pick may open in place. An app editor's chat has the
     /// Conversation alone (its band replaces the strip); an agent's chat that
     /// and the plan it holds (chats.json AGENT CHAT). NEW-46: on a
@@ -220,12 +222,12 @@ struct ThreadScreen: View {
                 [.session(sessionId)] + nested.map { .session($0.sessionId) }
             case .add: []
             }
-        } + [.stories]
+        } + [.results]
     }
 
     /// EXP-1343 / #EXP-1433: the pager's pages = Conversation · (#EXP-1662:
     /// the plan) · (chips: the one issue | group: the item opened from the group, only while it is
-    /// the shown page) · Stories; `+` and the group tab are never pages.
+    /// the shown page) · Results; `+` and the group tab are never pages.
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard editor == nil else { return [.conversation] }
         if rows.isAgent { return agentChatPages(view) }
@@ -239,7 +241,7 @@ struct ThreadScreen: View {
             []
         }
         let plan: [ThreadPage] = shownPlan(view) == nil ? [] : [.plan(nil)]
-        return [conversation] + plan + middle + [.stories]
+        return [conversation] + plan + middle + [.results]
     }
 
     private var currentPages: [ThreadPage] {
@@ -421,14 +423,6 @@ struct ThreadScreen: View {
             }
         }
         .task(id: rows?.root.teamId) { await resolveOwner() }
-        .task(id: accountId) {
-            guard editor == nil else { return }
-            stories.bind(accountId: accountId, db: deps.db)
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                storiesNow = Date()
-            }
-        }
         // EXP-1307: close-pr.json's confirm (the app's own card, EXP-240).
         .background {
             Color.clear
@@ -499,6 +493,7 @@ struct ThreadScreen: View {
         }
         // The navigator popped back to THIS page for a filed issue: land on
         // the tab it names.
+        .onChange(of: threadLoaded, initial: true) { _, _ in focusPendingCard() }
         .onChange(of: threadLanding.request) { _, request in
             guard let request, request.threadId == rootId else { return }
             land(on: request.page)
@@ -553,7 +548,7 @@ struct ThreadScreen: View {
                 UIApplication.endEditing()
                 groupOpen = true
             },
-            storiesDot: rows.isAgent ? nil : (storyTab?.unseen ?? false),
+            showsResults: !rows.isAgent,
             waiting: rows.isAgent ? nil : waitingChips,
             onOpenWaiting: {
                 UIApplication.endEditing()
@@ -581,10 +576,16 @@ struct ThreadScreen: View {
         waitingFocus = WaitingFocus(id: id, at: Date())
     }
 
-    /// stories.json STORIES TAB: every story the root's tree ever posted
-    /// (`Stories.storyTab`); nil = the empty state.
-    private var storyTab: Stories.StoryRing? {
-        stories.tab(now: storiesNow, rootId: rows?.root.id ?? rootId)
+    private var threadLoaded: Bool { model?.view != nil }
+
+    /// #FEED-191 (needs-you.json): a Needs you row's `card`: the Conversation,
+    /// scrolled to the card, once the thread is there (the waiting pick's).
+    private func focusPendingCard() {
+        guard let id = pendingCard, model?.view != nil else { return }
+        pendingCard = nil
+        pendingPage = nil
+        if page != defaultPage { selectPage(.conversation) }
+        waitingFocus = WaitingFocus(id: id, at: Date())
     }
 
     /// #EXP-1433: the group sheet's pick opens that issue / session IN
@@ -671,15 +672,15 @@ struct ThreadScreen: View {
                 )
                 .id(plan.id)
             }
-        case .stories:
-            ThreadStoriesPage(
+        case .results:
+            ThreadResultsPage(
                 rootId: rows.root.id,
                 rows: rows,
-                ring: storyTab,
-                stories: stories,
                 canEdit: canEdit,
                 mergeState: $mergeState
             )
+        case .card:
+            EmptyView()
         }
     }
 
@@ -891,7 +892,7 @@ struct ThreadScreen: View {
                 name: names[id] ?? session.title ?? "",
                 root: session.parentId == nil,
                 ended: session.status == DomainContract.sessionStatusEnded || model.isOver,
-                activeAt: Stories.ms(session.lastTurnAt) ?? Stories.ms(session.startedAt),
+                activeAt: SessionTree.ms(session.lastTurnAt) ?? SessionTree.ms(session.startedAt),
                 open: !(model.taskQueue(now: now)?.todo.items.isEmpty ?? true)
             )
         }
@@ -1036,6 +1037,10 @@ struct ThreadScreen: View {
         answeringId = card.messageId
         let api = deps.sessionsApi
         let accountId = accountId
+        // plan-page.json (#FEED-191): a decision taken ON the Plan tab returns
+        // to the Conversation, where the agent works on; one from there stays.
+        var returnsToConversation = false
+        if case .plan = page, card.decision != nil { returnsToConversation = true }
         Task {
             do {
                 if card.dismissed {
@@ -1046,6 +1051,7 @@ struct ThreadScreen: View {
                         fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
                     )
                 }
+                if returnsToConversation, case .plan = page { selectPage(.conversation) }
             } catch {
                 toaster.error(
                     card.dismissed
@@ -1189,7 +1195,7 @@ struct ThreadScreen: View {
     /// active and what is known of its Queue without opening its stream.
     private var childProbes: [Dock.ThreadQueueProbe] {
         liveChildren.map { session in
-            let activeAt = Stories.ms(session.lastTurnAt) ?? Stories.ms(session.startedAt)
+            let activeAt = SessionTree.ms(session.lastTurnAt) ?? SessionTree.ms(session.startedAt)
             return Dock.ThreadQueueProbe(
                 sessionId: session.id, activeAt: activeAt,
                 state: childQueueState(session.id, activeAt: activeAt)
@@ -1575,6 +1581,12 @@ struct ThreadScreen: View {
 
     /// Show `target` now, or hold it until it reaches the strip.
     private func land(on request: ThreadPage) {
+        if case let .card(messageId) = request {
+            menuTarget = nil
+            pendingCard = messageId
+            focusPendingCard()
+            return
+        }
         var target = resolved(request)
         if case let .plan(messageId) = target {
             planPick = messageId

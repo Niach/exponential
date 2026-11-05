@@ -52,6 +52,9 @@ final class SessionListsModel {
     /// Each root's status (the chat menu: live vs ended) and starter.
     private(set) var rootStatus: [String: String] = [:]
     private(set) var rootStarter: [String: String] = [:]
+    /// #FEED-191: `NeedsYou.rows`' input off the same rows, by team (its ages
+    /// follow the clock, so the fold runs in the view).
+    private(set) var needsYouInputs: [String: NeedsYouInput] = [:]
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var boundAccountId: String?
@@ -100,6 +103,19 @@ final class SessionListsModel {
         }
     }
 
+    /// #FEED-191 (needs-you.json): every plan, question and ready PR waiting on
+    /// the viewer in this team, newest first.
+    func needsYou(teamId: String?, me: String?, now: Date) -> [NeedsYou.Row] {
+        guard let teamId, let input = needsYouInputs[teamId] else { return [] }
+        return NeedsYou.rows(
+            now: now.timeIntervalSince1970 * 1000,
+            me: me,
+            sessions: input.sessions,
+            messages: input.messages,
+            pullRequests: input.pullRequests
+        )
+    }
+
     /// (Re)binds to an account's pool; a no-op while already bound to it.
     func bind(accountId: String, userId: String?, db: DatabaseManager) {
         guard boundAccountId != accountId || task == nil else { return }
@@ -142,6 +158,7 @@ final class SessionListsModel {
         sessions = []
         rootStatus = [:]
         rootStarter = [:]
+        needsYouInputs = [:]
         loaded = false
     }
 
@@ -175,6 +192,7 @@ final class SessionListsModel {
         var sessions: [TreeSession]
         var rootStatus: [String: String]
         var rootStarter: [String: String]
+        var needsYouInputs: [String: NeedsYouInput]
     }
 
     private func apply(_ derived: Derived) {
@@ -193,6 +211,7 @@ final class SessionListsModel {
         sessions = derived.sessions
         rootStatus = derived.rootStatus
         rootStarter = derived.rootStarter
+        needsYouInputs = derived.needsYouInputs
         loaded = true
     }
 
@@ -332,9 +351,65 @@ final class SessionListsModel {
             rootStarter: Dictionary(
                 rows.sessions.filter { $0.parentId == nil }.map { ($0.id, $0.userId) },
                 uniquingKeysWith: { a, _ in a }
-            )
+            ),
+            needsYouInputs: needsYouInputs(rows)
         )
     }
+
+    /// #FEED-191: the fold's input per team, web `useNeedsYou`'s: a session is
+    /// named by THE session title, an agent conversation by its agent; only
+    /// the digests' waiting kinds.
+    nonisolated private static func needsYouInputs(_ rows: Rows) -> [String: NeedsYouInput] {
+        let titles = SessionTitle.titles(
+            rows.sessions, sessionIssues: rows.sessionIssues, issues: rows.issues, messages: rows.messages
+        )
+        let agentNames = Dictionary(rows.agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+        let teamOf = Dictionary(rows.sessions.map { ($0.id, $0.teamId) }, uniquingKeysWith: { a, _ in a })
+        var inputs: [String: NeedsYouInput] = [:]
+        for session in rows.sessions {
+            inputs[session.teamId, default: NeedsYouInput()].sessions.append(NeedsYou.SessionInput(
+                id: session.id,
+                rootId: session.rootId,
+                name: session.agentId.flatMap { agentNames[$0] } ?? titles[session.id] ?? session.title ?? "",
+                status: session.status,
+                agentId: session.agentId,
+                userId: session.userId,
+                busy: session.busy
+            ))
+        }
+        for message in rows.messages where ["plan", "question", "ask"].contains(message.card?.kind ?? "") {
+            guard let teamId = teamOf[message.sessionId] else { continue }
+            inputs[teamId, default: NeedsYouInput()].messages.append(NeedsYou.MessageInput(
+                id: message.id,
+                sessionId: message.sessionId,
+                authorSessionId: message.authorSessionId,
+                body: message.body,
+                createdAt: message.createdAt,
+                answeredAt: message.answeredAt,
+                card: message.card
+            ))
+        }
+        for pr in rows.pullRequests {
+            inputs[pr.teamId, default: NeedsYouInput()].pullRequests.append(NeedsYou.PullRequestInput(
+                id: pr.id,
+                rootSessionId: pr.rootSessionId,
+                number: pr.number,
+                title: pr.title ?? "",
+                state: pr.state,
+                checksState: pr.checksState,
+                basePullRequestId: pr.basePullRequestId,
+                createdAt: pr.createdAt
+            ))
+        }
+        return inputs
+    }
+}
+
+/// #FEED-191: one team's `NeedsYou.rows` input.
+struct NeedsYouInput: Equatable, Sendable {
+    var sessions: [NeedsYou.SessionInput] = []
+    var messages: [NeedsYou.MessageInput] = []
+    var pullRequests: [NeedsYou.PullRequestInput] = []
 }
 
 /// EXP-1316: a thread row's trailing device glyph (`DeviceIconDisplay`) and
