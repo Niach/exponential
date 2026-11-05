@@ -190,6 +190,8 @@ let shareExtensionSources: SourceFilesList = [
     "ExpCore/Sources/Domain/DomainContract.generated.swift",
     "ExpCore/Sources/Domain/AgentOrdering.swift",
     "ExpCore/Sources/Domain/ShareTargets.swift",
+    // SendSealing (#EXP-1683) classifies a file line.
+    "ExpCore/Sources/Domain/AttachmentFiles.swift",
     "ExpCore/Sources/Domain/ComposerAgentRow.swift",
     "ExpCore/Sources/Domain/ComposerMenu.swift",
     "ExpCore/Sources/Domain/AgentComposerPrompt.swift",
