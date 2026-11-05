@@ -19,15 +19,16 @@ describe(`ChatList`, () => {
     const onOpen = vi.fn()
     render(<ChatList rows={rows} onOpen={onOpen} />)
     const painted = screen.getAllByTestId(ids.chatRow)
-    expect(painted.map((row) => row.getAttribute(`data-session-id`))).toEqual([`b`, `a`, `c`, `d`])
+    // #FEED-191: in chatSections order (needs you, working, unread, chats).
+    expect(painted.map((row) => row.getAttribute(`data-session-id`))).toEqual([`a`, `b`, `c`, `d`])
     expect(painted.map((row) => row.querySelector(`[data-slot=chat-lead]`)?.getAttribute(`data-lead`))).toEqual([
-      `working`,
       `needs_you`,
+      `working`,
       `open`,
       `merged`,
     ])
     expect(painted[3]!.textContent).toContain(`Yesterday`)
-    expect(painted[1]!.textContent).toContain(`Question: Snapshot?`)
+    expect(painted[0]!.textContent).toContain(`Question: Snapshot?`)
     // Only the unread row wears the badge (foreground: it does not need you).
     const badges = painted.map((row) => row.querySelector(`[data-slot=chat-unread]`))
     expect(badges.map((badge) => badge?.textContent ?? null)).toEqual([null, null, `1`, null])
@@ -66,9 +67,9 @@ describe(`ChatList`, () => {
   it(`S-3: a chat's lead never draws the brand mark: the chat glyph`, () => {
     render(<ChatList rows={rows} />)
     const painted = screen.getAllByTestId(ids.chatRow)
-    // b working, a needs_you (the glyph + the amber badge), c/d PR glyphs.
-    expect(painted[1]!.querySelector(`[data-slot=chat-lead-glyph]`)).toBeTruthy()
-    expect(painted[1]!.querySelector(`[data-slot=run-mark-badge]`)).toBeTruthy()
+    // a needs_you (the glyph + the amber badge), b working, c/d PR glyphs.
+    expect(painted[0]!.querySelector(`[data-slot=chat-lead-glyph]`)).toBeTruthy()
+    expect(painted[0]!.querySelector(`[data-slot=run-mark-badge]`)).toBeTruthy()
     expect(painted.some((row) => row.querySelector(`svg mask`))).toBe(false)
   })
 
@@ -78,6 +79,9 @@ describe(`ChatList`, () => {
     const headers = screen.getAllByRole(`heading`)
     expect(headers.map((h) => h.textContent)).toEqual([
       fixture.copy.sections.agents,
+      fixture.copy.sections.needs_you,
+      fixture.copy.sections.working,
+      fixture.copy.sections.unread,
       fixture.copy.sections.chats,
     ])
     const painted = screen.getAllByTestId(CHAT_AGENT_ROW_TEST_ID)
@@ -93,9 +97,28 @@ describe(`ChatList`, () => {
     expect(onOpenAgent).toHaveBeenCalledWith(agentRows[1]!.agentId)
   })
 
-  it(`S-3: no section headers without an agent row`, () => {
-    render(<ChatList rows={rows} agentRows={[]} />)
+  it(`#FEED-191: the Archived entry leads the Chats section, whose header shows for it alone`, () => {
+    render(<ChatList rows={rows.slice(0, 1)} archived={3} />)
+    const chats = screen.getByTestId(ids.chatArchived).parentElement!
+    expect(chats.getAttribute(`data-section`)).toBe(`chats`)
+    expect(chats.firstElementChild!.textContent).toBe(fixture.copy.sections.chats)
+  })
+
+  it(`#FEED-191: the Archived page is flat: activity order, no headers`, () => {
+    render(<ChatList flat rows={rows} />)
     expect(screen.queryAllByRole(`heading`)).toHaveLength(0)
+    expect(screen.getAllByTestId(ids.chatRow).map((row) => row.getAttribute(`data-session-id`))).toEqual([
+      `b`,
+      `a`,
+      `c`,
+      `d`,
+    ])
+  })
+
+  it(`#FEED-191: the entry leads the list, above the agents`, () => {
+    render(<ChatList rows={[]} agentRows={agentRows} entry={<div data-testid="entry" />} />)
+    const list = screen.getByTestId(`chat-list`)
+    expect(list.firstElementChild!.getAttribute(`data-testid`)).toBe(`entry`)
   })
 
   it(`shows the empty state with no rows`, () => {

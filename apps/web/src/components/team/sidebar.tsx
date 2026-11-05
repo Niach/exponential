@@ -43,6 +43,9 @@ import {
   blockingLabel,
   whileBlocking,
 } from "@exp/ui"
+import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS } from "@exp/domain-contract/needs-you"
+import { InboxPopover } from "@/components/team/inbox-popover"
+import { useNeedsYou } from "@/hooks/use-needs-you"
 import { useAgents, useSessionReads, useThreadsList } from "@/hooks/use-session-tree"
 import { threadWordOf, useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
 import { useSession } from "@/hooks/use-session"
@@ -65,7 +68,6 @@ import {
 import { SidebarAgentsSection } from "@/components/team/sidebar-agents"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import {
-  InboxUnreadBadge,
   TeamLiveDot,
   ThreadsLiveBadge,
   UserAvatar,
@@ -111,7 +113,7 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
-const NavInboxIcon = conceptIcon(`nav-inbox`)
+const NavNeedsYouIcon = conceptIcon(`nav-needs-you`)
 const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavSearchIcon = conceptIcon(`nav-search`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
@@ -171,6 +173,8 @@ export function TeamSidebar({
   const openNewDraft = useOpenNewDraft(teamSlug)
   // EXP-878: the Drafts entry lists only while a draft is parked.
   const draftCount = useDraftCount(team?.id)
+  // #FEED-191 (needs-you.json): Needs you lists only while a card waits.
+  const needsYou = useNeedsYou(team?.id, session?.user?.id)
   // EXP-1293: ONE Threads list read for the sidebar — the Threads entry's
   // dot, and the Running section.
   const threadsList = useThreadsList(team?.id)
@@ -193,10 +197,8 @@ export function TeamSidebar({
 
   // EXP-456 / EXP-851: the column's occupant is a function of the URL
   // (`useSidebarOccupant`) — the MAIN menu, or the settings nav in its place
-  // (desktop `left_occupant_for`). Nothing folds to icons. #EXP-1672: the
-  // Inbox keeps the main menu (its list is the content card's second
-  // sidebar). Every entry point drives the same swap, and a direct load lands
-  // settled.
+  // (desktop `left_occupant_for`). Nothing folds to icons. Every entry point
+  // drives the same swap, and a direct load lands settled.
   const router = useRouter()
   const locationHref = useRouterState({ select: (s) => s.location.href })
   const activeAgentId = useRouterState({
@@ -246,7 +248,7 @@ export function TeamSidebar({
               parity), instead of sliding out with the main menu. */}
           <SidebarHeader className="p-2">
             {/* EXP-449: Linear-style header row — team picker plus icon-only
-                Search and New-issue actions. */}
+                Inbox (#FEED-191: a popover), Search and New-issue actions. */}
             <div className="flex items-center gap-1">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -315,6 +317,7 @@ export function TeamSidebar({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {team && <InboxPopover />}
               {team && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -377,8 +380,8 @@ export function TeamSidebar({
                   >
                     <SidebarGroup>
                       <SidebarGroupContent>
-                        {/* Nav order ×4 with the IDE rail (EXP-1293): Agent,
-                            Inbox, Threads, Devices, Drafts (while any). */}
+                        {/* Nav order (needs-you.json): Agent, Needs you (while
+                            any), Chats, Devices, Drafts (while any). */}
                         <SidebarMenu>
                           {/* EXP-818 / EXP-1293: the Agent page — HOME, the
                               composer. No live dot: Threads carries it. */}
@@ -390,15 +393,23 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
-                                <NavInboxIcon className="h-4 w-4" />
-                                <span>Inbox</span>
-                              </Link>
-                            </SidebarMenuButton>
-                            <InboxUnreadBadge />
-                          </SidebarMenuItem>
+                          {needsYou.rows.length > 0 && (
+                            <SidebarMenuItem>
+                              <SidebarMenuButton asChild density="compact">
+                                <Link
+                                  to="/t/$teamSlug/needs-you"
+                                  params={{ teamSlug }}
+                                  data-testid={NEEDS_YOU_TEST_IDS.entry}
+                                >
+                                  <NavNeedsYouIcon className="h-4 w-4" />
+                                  <span>{NEEDS_YOU_COPY.entry}</span>
+                                </Link>
+                              </SidebarMenuButton>
+                              <SidebarMenuTrailing className="pointer-events-none">
+                                <Badge count={needsYou.rows.length} data-testid="needs-you-count-badge" />
+                              </SidebarMenuTrailing>
+                            </SidebarMenuItem>
+                          )}
                           {/* EXP-1293: Threads replaced Reviews and the
                               Agent page's history — green while a thread of the
                               team runs, yellow while one needs you. */}

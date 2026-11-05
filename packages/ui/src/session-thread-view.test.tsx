@@ -490,7 +490,7 @@ describe(`ThreadTabs`, () => {
     })
   }
 
-  it(`pins + and Conversation left, the one issue chip, Stories right`, () => {
+  it(`pins + and Conversation left, the one issue chip, Results right`, () => {
     const onOpenIssue = vi.fn()
     render(
       <ThreadTabs
@@ -498,14 +498,14 @@ describe(`ThreadTabs`, () => {
         issues={[issue(`APP-5`)]}
         add={<span data-testid="add">+</span>}
         onOpenIssue={onOpenIssue}
-        stories={{ label: `Stories`, active: false, dot: false, onSelect: () => {} }}
+        results={{ label: `Results`, active: false, onSelect: () => {} }}
       />
     )
     const order = [
       screen.getByTestId(`add`),
       screen.getByTestId(`thread-tab-conversation`),
       screen.getByTestId(`thread-tab-APP-5`),
-      screen.getByRole(`tab`, { name: /Stories/ }),
+      screen.getByRole(`tab`, { name: /Results/ }),
     ]
     for (let index = 1; index < order.length; index++) {
       expect(

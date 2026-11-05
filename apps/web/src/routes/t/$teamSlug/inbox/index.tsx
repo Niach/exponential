@@ -2,28 +2,20 @@ import { useEffect } from "react"
 import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { InboxView } from "@/components/inbox/inbox-view"
-import { ListDetailEmpty } from "@/components/team/list-detail"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 import { Pill, useIsMobile } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoardsWithReady, useTeamBySlug } from "@/hooks/use-team-data"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
+import { setInboxPopoverOpen } from "@/hooks/use-inbox-popover"
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
 
-// The merged personal surface (EXP-186): ONE sidebar entry ("Inbox") with two
-// tabs — the notification stream and the cross-board My Issues list — matching
-// the mobile apps' segmented My Work screen. The active tab lives in the URL
-// (?tab=my-issues; absent = inbox) so both tabs stay shareable and survive
-// refresh.
-//
-// EXP-1246: md+ the Inbox is the LIST-DETAIL host's page — the list sits in
-// the sidebar's panel slot (`components/team/list-detail.tsx`, from the URL:
-// `sidebarOccupant`) and this page is the detail side with nothing picked
-// (desktop's "No notification selected"). A row opens the issue's own route
-// with `?from=inbox` / `?from=inbox:my-issues`, so the very same list stays
-// beside it. Phones: the inbox only (`PhoneInboxPage`, chats.json).
+// #FEED-191: `/inbox` is the PHONES' pushed page (`PhoneInboxPage`, chats.json).
+// Wide the Inbox is a popover off the sidebar header, so this route opens it and
+// redirects home. On both, an old `?tab=my-issues` / `?tab=drafts` link forwards
+// to the board's My issues (phones: its Drafts chip; wide: the Drafts page).
 type InboxSearch = {
   tab?: `my-issues` | `drafts`
 }
@@ -64,23 +56,19 @@ function InboxPage() {
   return isMobile ? <PhoneInboxPage /> : <WideInboxPage />
 }
 
-// Thread 58cb32df (chats.json `shell`): on phones the Inbox is the
-// inbox ONLY — pushed from the Chats header's inbox circle, its own back
-// header with Mark all read, no segments, the ONE active team's stream. My
-// issues and Drafts moved to the board's chips, so an old `?tab=my-issues`
-// / `?tab=drafts` link forwards to that chip.
-function PhoneInboxPage() {
+/** An old `?tab=` link: the board's chip it moved to. */
+function useForwardInboxTab(teamId: string | undefined) {
   const { teamSlug } = Route.useParams()
-  const search = Route.useSearch()
+  const { tab } = Route.useSearch()
   const navigate = useNavigate()
-  const router = useRouter()
-  const { data: session } = useSession()
-  const team = useTeamBySlug(teamSlug)
-  const { boards, boardsReady } = useTeamBoardsWithReady(team?.id)
-  const unread = useUnreadNotificationCount(team?.id)
-
+  const isMobile = useIsMobile()
+  const { boards, boardsReady } = useTeamBoardsWithReady(teamId)
   useEffect(() => {
-    if (!search.tab || !boardsReady) return
+    if (!tab || !boardsReady) return
+    if (tab === `drafts` && !isMobile) {
+      void navigate({ to: `/t/$teamSlug/drafts`, params: { teamSlug }, replace: true })
+      return
+    }
     const board = resolveBoardTarget(teamSlug, boards, undefined)
     if (!board) {
       void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug }, search: {}, replace: true })
@@ -89,10 +77,26 @@ function PhoneInboxPage() {
     void navigate({
       to: `/t/$teamSlug/boards/$boardSlug`,
       params: { teamSlug, boardSlug: board.slug },
-      search: { chip: search.tab === `drafts` ? `drafts` : `mine` },
+      search: { chip: tab === `drafts` ? `drafts` : `mine` },
       replace: true,
     })
-  }, [search.tab, boardsReady, boards, navigate, teamSlug])
+  }, [tab, boardsReady, boards, navigate, teamSlug, isMobile])
+}
+
+// Thread 58cb32df (chats.json `shell`): on phones the Inbox is the
+// inbox ONLY — pushed from the Chats header's inbox circle, its own back
+// header with Mark all read, no segments, the ONE active team's stream. My
+// issues and Drafts moved to the board's chips, so an old `?tab=my-issues`
+// / `?tab=drafts` link forwards to that chip.
+function PhoneInboxPage() {
+  const { teamSlug } = Route.useParams()
+  const navigate = useNavigate()
+  const router = useRouter()
+  const { data: session } = useSession()
+  const team = useTeamBySlug(teamSlug)
+  const unread = useUnreadNotificationCount(team?.id)
+
+  useForwardInboxTab(team?.id)
 
   if (!session?.user) return null
 
@@ -126,11 +130,17 @@ function PhoneInboxPage() {
   )
 }
 
-// md+: the list-detail host's page with nothing picked (the list sits in
-// the sidebar's panel slot, EXP-1246).
+// md+: no page: the popover opens over home.
 function WideInboxPage() {
-  const search = Route.useSearch()
-  const { data: session } = useSession()
-  if (!session?.user) return null
-  return <ListDetailEmpty tab={search.tab === `my-issues` ? `my-issues` : `inbox`} />
+  const { teamSlug } = Route.useParams()
+  const { tab } = Route.useSearch()
+  const navigate = useNavigate()
+  const team = useTeamBySlug(teamSlug)
+  useForwardInboxTab(team?.id)
+  useEffect(() => {
+    if (tab) return
+    setInboxPopoverOpen(true)
+    void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug }, replace: true })
+  }, [tab, navigate, teamSlug])
+  return null
 }

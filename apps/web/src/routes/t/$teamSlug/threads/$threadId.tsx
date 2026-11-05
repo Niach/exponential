@@ -13,7 +13,7 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 // auto-name; nobody renames it; a lock when private) + ONE tab strip that
 // never scrolls (#EXP-1433, `ThreadTabs`): "+" (THE thread menu) ·
 // Conversation | the one issue chip OR ONE group tab (every issue and
-// session in THE Menu) | Stories (a dot while a story is unseen). md+: while the Guide's PR is
+// session in THE Menu) | Results. md+: while the Guide's PR is
 // open the header's trailing slot carries Merge on EVERY tab, then the `…`
 // (Guide tab only).
 // `?tab=` names the tab on show:
@@ -36,7 +36,7 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 //                          `/sessions/$id` redirects here.
 //
 // Phones: the strip IS the pager under the header (#EXP-1433: Conversation ·
-// the one issue | the item open from the group · Stories — swipe or tap,
+// the one issue | the item open from the group · Results — swipe or tap,
 // `lib/thread-pages.ts`). No
 // right sidebar, no Show work, no captions. EXP-1347: an issue pill of one
 // of this thread's issues selects its tab (`IssueRefOutlet`).

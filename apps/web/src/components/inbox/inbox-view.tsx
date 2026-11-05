@@ -39,8 +39,8 @@ const typeIcon = Object.fromEntries(
 ) as Record<NotificationType, typeof Bell>
 
 
-// EXP-862: the sidebar arm runs at the COMPACT density — 28px rows, no
-// avatar circle (the bare glyph leads), one line, the title truncating —
+// EXP-862: the wide popover (#FEED-191) runs at the COMPACT density — 28px rows,
+// no avatar circle (the bare glyph leads), one line, the title truncating —
 // which is `ListRow density="compact"` since EXP-962. The full page keeps the
 // two-line reading row with its circle and stamp: its own layout override,
 // because a row whose second line is a stamp must hang its glyph from the TOP
@@ -111,26 +111,21 @@ const GROUP_CHUNK = 200
 // (EXP-186), whose header owns the tab switcher + "Mark all read".
 export function InboxView({
   compact = false,
-  activeIssueIdentifier = null,
-  activeSessionId = null,
   from,
   teamId,
+  onRowOpen,
 }: {
   /** Thread 58cb32df (chats.json `shell`): phones filter the stream to the
    *  ONE active team; absent = every team (md+). */
   teamId?: string
-  /** EXP-851: the SIDEBAR's list nav — the same rows in the 17rem slot, no
-   *  reading column, no empty-state illustration. */
+  /** #FEED-191: the wide popover's rows: no reading column, no scroller of its
+   *  own, no empty-state illustration. */
   compact?: boolean
-  /** The issue the open detail shows, by identifier (the highlighted row) —
-   *  the route knows the identifier, never the id. */
-  activeIssueIdentifier?: string | null
-  /** The run the open detail shows: a message row that opened it is the
-   *  highlighted row. */
-  activeSessionId?: string | null
-  /** The `?from=` token every issue row hands the detail it opens, so the
-   *  inbox stays in the sidebar beside it (`lib/detail-origin.ts`). */
+  /** The `?from=` token every row hands the detail it opens: where the
+   *  phones' Back returns (`lib/detail-origin.ts`). */
   from?: string
+  /** A row was pressed (the popover closes). */
+  onRowOpen?: () => void
 }) {
   // The notifications shape is scoped to the current user, NOT to a
   // team — the stream spans all the user's teams (matching the
@@ -305,8 +300,6 @@ export function InboxView({
       })
       return
     }
-    // EXP-1246/1250: like an issue row, the run opens beside the list in
-    // the inbox's one preview tab.
     void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: session, search })
   }
   const markGroupRead = async (g: Group) => {
@@ -328,12 +321,12 @@ export function InboxView({
     // mid-page beside a centred list (the actions.tsx pattern). The Inbox /
     // My Issues segmented control is a shrink-0 sibling ABOVE this view (the
     // route owns it), so it stays put while this list scrolls.
-    <div className="h-full overflow-y-auto">
+    <div className={compact ? undefined : `h-full overflow-y-auto`}>
       <div
         className={cn(
           `flex w-full flex-col gap-0`,
-          compact ? `p-2` : `mx-auto max-w-3xl px-4 py-4`,
-          TAB_BAR_CLEARANCE
+          !compact && `mx-auto max-w-3xl px-4 py-4`,
+          !compact && TAB_BAR_CLEARANCE
         )}
       >
         {groups.length === 0 ? (
@@ -348,11 +341,6 @@ export function InboxView({
                 <ListRow
                   key={`message:${latest.id}`}
                   interactive
-                  active={
-                    g.session != null &&
-                    activeSessionId != null &&
-                    g.session.sessionId === activeSessionId
-                  }
                   density={compact ? `compact` : `list`}
                   className={cn(
                     !compact && PAGE_READING_ROW,
@@ -361,6 +349,7 @@ export function InboxView({
                   data-testid={`inbox-row-${latest.type}`}
                   onClick={() => {
                     void markGroupRead(g)
+                    onRowOpen?.()
                     if (g.session) openSession(g.session)
                     const slug = routeTeamSlug ?? teams?.[0]?.slug
                     if (g.deviceId && slug) {
@@ -388,12 +377,15 @@ export function InboxView({
                           {g.teamName}
                         </span>
                       )}
-                      {!compact && (
-                        <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
-                          {relativeTime(latest.createdAt)}
-                        </span>
-                      )}
-                      <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
+                      <span
+                        className={cn(
+                          `ml-auto shrink-0 text-right text-xs text-muted-foreground`,
+                          !compact && `w-16`
+                        )}
+                      >
+                        {relativeTime(latest.createdAt)}
+                      </span>
+                      <span className="w-2 shrink-0" aria-hidden>
                         {g.unread > 0 && (
                           <LiveDot tone="unread" className="block" />
                         )}
@@ -425,12 +417,15 @@ export function InboxView({
                     >
                       {g.issue.title}
                     </span>
-                    {!compact && (
-                      <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
-                        {relativeTime(latest.createdAt)}
-                      </span>
-                    )}
-                    <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
+                    <span
+                      className={cn(
+                        `ml-auto shrink-0 text-right text-xs text-muted-foreground`,
+                        !compact && `w-16`
+                      )}
+                    >
+                      {relativeTime(latest.createdAt)}
+                    </span>
+                    <span className="w-2 shrink-0" aria-hidden>
                       {g.unread > 0 && (
                         <LiveDot tone="unread" className="block" />
                       )}
@@ -449,13 +444,10 @@ export function InboxView({
                 key={g.issue.id}
                 asChild
                 interactive
-                active={g.issue.identifier === activeIssueIdentifier}
                 density={compact ? `compact` : `list`}
                 className={cn(
                   !compact && PAGE_READING_ROW,
-                  g.unread === 0 &&
-                    g.issue.identifier !== activeIssueIdentifier &&
-                    `opacity-60`
+                  g.unread === 0 && `opacity-60`
                 )}
                 data-testid={`inbox-row-${g.issue.identifier}`}
               >
@@ -467,7 +459,10 @@ export function InboxView({
                     issueIdentifier: g.issue.identifier,
                   }}
                   search={from ? { from } : {}}
-                  onClick={() => void markGroupRead(g)}
+                  onClick={() => {
+                    void markGroupRead(g)
+                    onRowOpen?.()
+                  }}
                 >
                   {issueRowBody}
                 </Link>

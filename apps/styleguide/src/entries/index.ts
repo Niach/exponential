@@ -71,6 +71,8 @@ import { entry as chatMenus } from "./chat-menus.tsx"
 import { entry as storyRing } from "./story-ring.tsx"
 import { entry as storyViewer } from "./story-viewer.tsx"
 import { entry as storyTab } from "./story-tab.tsx"
+import { entry as resultsTab } from "./results-tab.tsx"
+import { entry as needsYou } from "./needs-you.tsx"
 import { entry as chatSelection } from "./chat-selection.tsx"
 import { entry as sealedLocked } from "./sealed-locked.tsx"
 import { entry as trace } from "./trace.tsx"
@@ -178,6 +180,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   storyRing,
   storyViewer,
   storyTab,
+  resultsTab,
+  needsYou,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

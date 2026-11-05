@@ -96,6 +96,8 @@ export function useMobileChromeVisible(): boolean {
   // chats.json: the Inbox is PUSHED from the Chats header's inbox circle
   // (its own back header, no segments), so it hides the bar like a detail.
   const onInbox = matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true })
+  // #FEED-191 (needs-you.json): Needs you is pushed from Chats likewise.
+  const onNeedsYou = matchRoute({ to: `/t/$teamSlug/needs-you`, fuzzy: true })
   // #EXP-1553: a DEV-ONLY specimen page (`/t/$teamSlug/agent?dev=<id>`, the
   // view catalog's captures) is a bare board like the natives' specimens,
   // which have no tab bar: the bar and its capsule step aside. The route's
@@ -111,6 +113,7 @@ export function useMobileChromeVisible(): boolean {
   // The Agent page (HOME) and the Chats list keep the standard chrome.
   return (
     !onInbox &&
+    !onNeedsYou &&
     !onDevSpecimen &&
     !onIssueDetail &&
     !onSessionDetail &&

@@ -197,7 +197,7 @@ function Strip({
         sessions={stripSessions(tabs)}
         open={open}
         add={<ThreadTabsAddButton />}
-        stories={{ label: `Stories`, active: false, dot: true, onSelect: noop }}
+        results={{ label: `Results`, active: false, onSelect: noop }}
       />
     </div>
   )

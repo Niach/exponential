@@ -46,9 +46,9 @@ import {
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
 import { ThreadGuideMerge, threadGuidePullRequest } from "@/components/thread/thread-guide"
-import { ThreadStories } from "@/components/thread/thread-stories"
-import { useStoryTab } from "@/hooks/use-stories"
-import { STORY_TAB } from "@exp/domain-contract/stories"
+import { ThreadResults } from "@/components/thread/thread-results"
+import { useResultsTab } from "@/hooks/use-results-tab"
+import { RESULTS_TAB } from "@exp/domain-contract/results-tab"
 import { useAnswerMessage, useUnqueueMessage } from "@/hooks/use-answer-message"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { ThreadHeaderMenu, useThreadMenu } from "@/components/thread/thread-menu"
@@ -91,23 +91,26 @@ import { planRowLabel, planTabTarget } from "@exp/domain-contract/plan-page"
 // EXP-1293 Threads v2 / S-3: THE thread screen (fixture session-thread.json
 // ×4): the header (title + ONE tab strip), the Conversation (THE Dock, the
 // composer, the jump button, selection), the issue / session tabs and the
-// Stories tab (stories.json STORIES TAB, pinned right).
+// Results tab (results-tab.json, pinned right).
 // The thread route (`/t/$teamSlug/threads/$threadId`) and an agent's chat
 // (`/t/$teamSlug/agents/$agentId`, chats.json CHAT MODE: `threadChatMode`
 // = bubbles, the agent's name, call button and agent menu in the header)
 // both render it; the route owns the `?tab=` search and how it navigates.
 
 export type ThreadSearch = {
-  tab?: `issue` | `session` | `stories` | `plan`
+  tab?: `issue` | `session` | `results` | `plan`
   /** #EXP-1662: the plan card a row opened (`tab=plan`; else `planTabTarget`). */
   plan?: string
   issue?: string
   /** The session open in place (`tab=session`). */
   session?: string
-  /** The Stories tab's review pane (`tab=stories`, the complete diff). */
+  /** The Results tab's review pane (`tab=results`, the complete diff). */
   section?: `all`
   /** The file in focus on the review pane. */
   file?: string
+  /** #FEED-191 (needs-you.json): the Conversation scrolls to this card, THE
+   *  waiting chip's way, once it is there. */
+  card?: string
   /** Where it was opened from (`TABLESS_ORIGIN` = a Running row: no tab). */
   from?: string
   /** S-3: the inter-session back stack (`lib/session-back.ts`); the
@@ -118,14 +121,14 @@ export type ThreadSearch = {
 /** The `?tab=` search the thread screen reads (the agent chat's too). */
 export function validateThreadSearch(search: Record<string, unknown>): ThreadSearch {
   const pick = (value: unknown) => (typeof value === `string` && value ? value : undefined)
-  // The retired `?tab=guide` lands on its successor, the Stories tab.
+  // The retired `?tab=guide` and `?tab=stories` land on their successor.
   const tab =
-    search.tab === `issue` || search.tab === `session` || search.tab === `stories` || search.tab === `plan`
+    search.tab === `issue` || search.tab === `session` || search.tab === `results` || search.tab === `plan`
       ? search.tab
-      : search.tab === `guide`
-        ? `stories`
+      : search.tab === `guide` || search.tab === `stories`
+        ? `results`
         : undefined
-  const section = tab === `stories` && search.section === `all` ? (`all` as const) : undefined
+  const section = tab === `results` && search.section === `all` ? (`all` as const) : undefined
   return {
     ...(tab ? { tab } : {}),
     ...(section ? { section } : {}),
@@ -133,6 +136,7 @@ export function validateThreadSearch(search: Record<string, unknown>): ThreadSea
     ...(tab === `issue` && pick(search.issue) ? { issue: pick(search.issue) } : {}),
     ...(tab === `plan` && pick(search.plan) ? { plan: pick(search.plan) } : {}),
     ...(tab === `session` && pick(search.session) ? { session: pick(search.session) } : {}),
+    ...(pick(search.card) ? { card: pick(search.card) } : {}),
     ...(pick(search.from) ? { from: pick(search.from) } : {}),
     ...backSearch(search.back),
   }
@@ -261,8 +265,8 @@ export function ThreadScreen({
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
-      : search.tab === `stories` && threadChatMode(root) !== `bubbles`
-        ? { kind: `stories` as const }
+      : search.tab === `results` && threadChatMode(root) !== `bubbles`
+        ? { kind: `results` as const }
         : shownPlan
           ? { kind: `plan` as const }
         : search.tab === `session` && focused && focused.id !== root.id
@@ -355,7 +359,7 @@ export function ThreadScreen({
   const singleIssue = stripMode === `chips` ? (stripIssues[0]?.issueId ?? null) : null
 
   // EXP-1343 / #EXP-1433: phones page Conversation · (the one issue | the
-  // item open from the group) · Stories (swipe AND tap); a tap slides the
+  // item open from the group) · Results (swipe AND tap); a tap slides the
   // new page in from the side it sits on.
   const agentChat = threadChatMode(root) === `bubbles`
   const pages = useMemo(
@@ -370,7 +374,7 @@ export function ThreadScreen({
   const showPage = (next: ThreadPage) => {
     if (isMobile) {
       // The pages around the move: a page opened from the group joins them.
-      const item = next === `conversation` || next === `stories` || next === `plan` ? (stripOpen ? page : null) : next
+      const item = next === `conversation` || next === `results` || next === `plan` ? (stripOpen ? page : null) : next
       primeTabEnter(agentChat ? pages : threadPages({ single: singleIssue, open: item, plan: tabPlan !== null }), page, next)
     }
     go(threadPageSearch(next))
@@ -413,6 +417,22 @@ export function ThreadScreen({
     raf = requestAnimationFrame(find)
     return () => cancelAnimationFrame(raf)
   }, [scrollTo])
+  // #FEED-191 (needs-you.json): `?card=` runs the same scroll once the card's
+  // row is here, then leaves the URL. A card (or `?plan=`) older than the loaded
+  // page pages it in.
+  const deepLink = search.card ?? (search.tab === `plan` ? search.plan : undefined)
+  const deepLinkHere = deepLink ? view.rows.some((row) => row.id === deepLink) : false
+  useEffect(() => {
+    if (!search.card || !deepLinkHere) return
+    selectWaiting(search.card)
+    const { card: _card, ...rest } = search
+    onNavigate(rest, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.card, deepLinkHere])
+  useEffect(() => {
+    if (deepLink && !deepLinkHere && messagePage.ready && messagePage.more) messagePage.loadMore()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLink, deepLinkHere, messagePage.ready, messagePage.more, messagePage.loaded])
   useEffect(() => {
     if (!highlight) return
     const timer = setTimeout(() => setHighlight(null), WAITING_CARDS_CONSTANTS.highlightMs)
@@ -431,8 +451,8 @@ export function ThreadScreen({
     canEdit: permissions.isMember,
   })
 
-  // STORIES TAB: every story of the tree (the chip's dot, the body).
-  const storyTab = useStoryTab(team.id, root.id)
+  // RESULTS TAB (results-tab.json): every result of the tree.
+  const results = useResultsTab(team.id, agentChat ? null : root.id)
   // EXP-1686 (chats.json AGENT CHAT): an agent's chat is the conversation
   // only: no strip, but for Conversation and the plan tab while it holds a plan.
   const tabs = agentChat && !agentChatTabs(tabPlan !== null).includes(`plan`) ? null : (
@@ -464,14 +484,13 @@ export function ThreadScreen({
           : undefined
       }
       waiting={agentChat ? undefined : { cards: waitingCards, onSelect: selectWaiting }}
-      stories={
+      results={
         agentChat
           ? undefined
           : {
-              label: STORY_TAB.copy.label,
-              active: tab.kind === `stories`,
-              dot: storyTab.ring?.unseen ?? false,
-              onSelect: () => showPage(`stories`),
+              label: RESULTS_TAB.copy.label,
+              active: tab.kind === `results`,
+              onSelect: () => showPage(`results`),
             }
       }
     />
@@ -489,31 +508,28 @@ export function ThreadScreen({
         onOpenXref={nav.open}
       />
     )
-  } else if (tab.kind === `stories`) {
+  } else if (tab.kind === `results`) {
     body = (
       <div
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-        data-testid="thread-stories-scroll"
+        data-testid="thread-results-scroll"
         style={topInset ? { paddingTop: topInset } : undefined}
       >
         <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 md:px-5">
-          <ThreadStories
-            stories={storyTab}
+          <ThreadResults
+            tab={results}
             teamSlug={teamSlug}
             pullRequest={guidePr}
             canMerge={permissions.isMember}
-            canReply={permissions.isMember}
             review={search.section === `all`}
             file={search.file ?? null}
             onReview={(open, file) =>
-              go({ tab: `stories`, ...(open ? { section: `all` as const } : {}), ...(open && file ? { file } : {}) })
+              go({ tab: `results`, ...(open ? { section: `all` as const } : {}), ...(open && file ? { file } : {}) })
             }
-            here={root.id}
-            back={search.back}
             onSurfaceReply={
               permissions.isMember
-                ? (story, text) =>
-                    void sendSessionMessage({ teamId: team.id, sessionId: story.sessionId, text }, SKIP_ERROR_TOAST).catch(
+                ? (result, text) =>
+                    void sendSessionMessage({ teamId: team.id, sessionId: result.sessionId, text }, SKIP_ERROR_TOAST).catch(
                       (error) => failedAction(`send`, `the message`, error)
                     )
                 : undefined
@@ -529,6 +545,9 @@ export function ThreadScreen({
         mobile={isMobile}
         canDecide={permissions.isMember}
         topInset={topInset}
+        // plan-page.json: a decision taken ON the tab returns to the
+        // Conversation, where the agent works on.
+        onDecided={() => (mainSession ? go({}) : showPage(`conversation`))}
       />
     )
   } else if (tab.kind === `issue`) {
@@ -720,7 +739,9 @@ export function ThreadScreen({
       <div className="flex h-full min-h-0 flex-col" data-testid="thread-page">
         <div className="shrink-0 border-b border-border px-6 pt-6 pb-3 md:px-10">
           <div className="flex items-center gap-3">
-            <BackStackButton onPop={nav.pop} className="-ml-2" />
+            {/* plan-page.json: on the Plan tab the Conversation tab is the ONE
+                way back. */}
+            {tab.kind !== `plan` && <BackStackButton onPop={nav.pop} className="-ml-2" />}
             <div className="min-w-0 flex-1">{title}</div>
             <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
             {headerMenu(`shrink-0 text-muted-foreground`)}
@@ -742,11 +763,13 @@ function ThreadPlanBody({
   mobile,
   canDecide,
   topInset,
+  onDecided,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
   mobile: boolean
   canDecide: boolean
   topInset: number
+  onDecided: () => void
 }) {
   const { answer, pending } = useAnswerMessage()
   return (
@@ -757,7 +780,14 @@ function ThreadPlanBody({
       mobile={mobile}
       renderText={renderThreadText}
       busy={pending.has(row.id)}
-      onDecide={canDecide ? (input) => void answer(row.id, input) : undefined}
+      onDecide={
+        canDecide
+          ? (input) =>
+              void answer(row.id, input).then((answered) => {
+                if (answered) onDecided()
+              })
+          : undefined
+      }
       topInset={topInset}
     />
   )
@@ -827,7 +857,7 @@ function ConversationBody({
   const bubbles = threadChatMode(root) === `bubbles` || isMobile
   const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
   // The Dock holds the open suggestions; S-3: a waiting plan or question is
-  // a story (stories.json), never docked, and stays inline answerable.
+  // never docked and stays inline answerable.
   const dockedIds = useMemo(
     () => (canReply ? threadDockedIds(view.rows, () => null) : new Set<string>()),
     [canReply, view.rows]

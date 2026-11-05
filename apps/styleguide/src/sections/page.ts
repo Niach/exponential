@@ -189,6 +189,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`story-ring`]: `Buttons & chips`,
   [`story-viewer`]: `Surfaces`,
   [`story-tab`]: `Surfaces`,
+  [`results-tab`]: `Surfaces`,
+  [`needs-you`]: `Lists & rows`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

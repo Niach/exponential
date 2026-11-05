@@ -28,7 +28,7 @@ import {
   type PlanOption,
 } from "@exp/domain-contract/ask-dock"
 import { dockRows, suggestionSources, type DockRow, type DockSource } from "@exp/domain-contract/dock"
-import { STORY_TAB } from "@exp/domain-contract/stories"
+import { RESULTS_TAB } from "@exp/domain-contract/results-tab"
 import {
   WAITING_CARDS_COPY,
   WAITING_CARDS_TEST_IDS,
@@ -127,7 +127,7 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //   ChannelMessageRow    an agent channel's comment-style row
 
 const ConversationIcon = conceptIcon(`action-chat`)
-const StoriesIcon = conceptIcon(`thread-stories`)
+const ResultsIcon = conceptIcon(`thread-results`)
 const AddIcon = conceptIcon(`ui-add`)
 const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
@@ -183,7 +183,7 @@ export function ThreadTabs({
   open = null,
   onOpenIssue,
   onOpenSession,
-  stories,
+  results,
   plan,
   waiting,
   variant = `bar`,
@@ -207,8 +207,8 @@ export function ThreadTabs({
   open?: ThreadStripOpen
   onOpenIssue?: (issueId: string) => void
   onOpenSession?: (sessionId: string) => void
-  /** The Stories tab, pinned right (absent = none). */
-  stories?: { label: string; active: boolean; dot: boolean; onSelect: () => void }
+  /** #FEED-191: the Results tab, pinned right (absent = none). */
+  results?: { label: string; active: boolean; onSelect: () => void }
   /** `bar` = md+ under the title; `pager` = the phones' tabs. */
   variant?: `bar` | `pager`
   /** Holds the group's Menu open (the styleguide's static paint). */
@@ -295,44 +295,22 @@ export function ThreadTabs({
           />
         ) : null}
       </div>
-      {stories && (
+      {results && (
         <>
           {!pager && divider}
           <Button
             type="button"
             variant="ghost"
             role="tab"
-            aria-selected={stories.active}
-            data-testid={STORY_TAB.testIds.tab}
-            aria-label={pager ? stories.label : undefined}
-            title={pager ? stories.label : undefined}
-            className={cn(tabClass(stories.active, pager), pager && `px-2`)}
-            onClick={stories.onSelect}
+            aria-selected={results.active}
+            data-testid={RESULTS_TAB.testIds.tab}
+            aria-label={pager ? results.label : undefined}
+            title={pager ? results.label : undefined}
+            className={cn(tabClass(results.active, pager), pager && `px-2`)}
+            onClick={results.onSelect}
           >
-            {pager ? (
-              // Phones: the icon alone, the dot on its corner.
-              <span className="relative flex shrink-0">
-                <StoriesIcon className="size-3.5 shrink-0" />
-                {stories.dot && (
-                  <span
-                    data-testid="thread-stories-dot"
-                    className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-400"
-                  >
-                    <span className="sr-only">Unseen stories</span>
-                  </span>
-                )}
-              </span>
-            ) : (
-              <>
-                <StoriesIcon className="size-3.5 shrink-0" />
-                {stories.label}
-                {stories.dot && (
-                  <span data-testid="thread-stories-dot" className="size-1.5 shrink-0 rounded-full bg-emerald-400">
-                    <span className="sr-only">Unseen stories</span>
-                  </span>
-                )}
-              </>
-            )}
+            <ResultsIcon className="size-3.5 shrink-0" />
+            {!pager && results.label}
           </Button>
         </>
       )}

@@ -2,21 +2,19 @@
 // the web port of the desktop's `navigation::derive_origin` (apps/desktop/
 // crates/ui/src/navigation.rs), same rule, same cases:
 //
-//   * Opened from a LIST screen (board, inbox, threads): that
-//     list STAYS — it rides the detail's `?from=` token and the content card
-//     shows it as its second sidebar beside the detail (#EXP-1672).
+//   * Opened from a LIST screen (board, inbox, threads): that list rides the
+//     detail's `?from=` token, and Back returns to it.
 //   * Opened CONTEXT-FREE (a pinned row, a sidebar session row, a deep link, a
-//     full-page screen like Devices/Settings): no token, and the sidebar's
-//     MAIN MENU stays put.
+//     full-page screen like Devices/Settings): no token.
 //
-// EXP-851 made the token the only input: `?from=` decides the second sidebar
-// (`secondSidebarFor`) and where Back goes. The vocabulary is the list set —
+// EXP-851 made the token the only input: `?from=` decides where Back goes. The
+// vocabulary is the list set —
 // `board:<slug>`, `inbox`, `inbox:my-issues`, `threads` (EXP-1293: the
 // Threads page, which replaced the Agent page's lists and Reviews),
 // `drafts` (EXP-1170), `running`. The retired `agent`, `agent:recent`,
 // `reviews`, `sessions` and `action:<id>` (NEW-2) tokens parse
-// to "no origin". EXP-1246: only `inbox` keeps its list BESIDE the detail
-// (`originHasListNav`); every other origin names Back only.
+// to "no origin". #FEED-191: no list stays beside a detail any more (the wide
+// Inbox is a popover); an old `?from=inbox` link just names Back on phones.
 // Pure, so every combination is a test.
 
 /** The list a detail sits beside / returns to. */
@@ -236,23 +234,8 @@ export function originListNavigation(
 }
 
 /** Who occupies the sidebar column: the main menu, or (on `/settings`) the
- *  settings nav in its place — desktop `left_occupant_for`. #EXP-1672: the
- *  Inbox keeps the main menu; its list is the content card's second sidebar
- *  (`secondSidebarFor`), desktop `second_sidebar_for` parity. */
+ *  settings nav in its place — desktop `left_occupant_for`. */
 export type SidebarOccupant = { kind: `main` } | { kind: `settings` }
-
-/** A DETAIL route below `/t/$teamSlug` — the only routes that can show a list
- * nav. Board/inbox/threads are LIST screens. */
-function isDetailRest(rest: string): boolean {
-  if (/^\/boards\/[^/]+\/issues\/[^/]+$/.test(rest)) return true
-  if (/^\/sessions\/[^/]+$/.test(rest)) return true
-  // EXP-1170: the New issue page is the issue detail in draft mode.
-  if (/^\/drafts\/[^/]+$/.test(rest)) return true
-  // EXP-1293: a thread and an agent's channel are details too.
-  if (/^\/threads\/[^/]+$/.test(rest)) return true
-  if (/^\/agents\/[^/]+$/.test(rest)) return true
-  return false
-}
 
 /**
  * EXP-851: the sidebar's occupant, from the URL alone — settings while any
@@ -265,38 +248,4 @@ export function sidebarOccupant(pathname: string): SidebarOccupant {
     return { kind: `settings` }
   }
   return { kind: `main` }
-}
-
-/**
- * #EXP-1672 (EXP-1246): the list the content card shows as its SECOND
- * sidebar, beside the active screen — desktop `second_sidebar_for`. The md+
- * Inbox page always (nothing selected; `tab` = its `?tab=`), and a detail
- * whose `?from=` keeps its list (`originHasListNav`). `null` = the screen
- * alone, full width.
- */
-export function secondSidebarFor(
-  pathname: string,
-  from: string | null | undefined,
-  options: {
-    /** The Inbox page's `?tab=` — which of its lists the sidebar shows. */
-    tab?: string | null
-  } = {}
-): DetailOrigin | null {
-  const rest = teamRest(pathname)
-  if (rest === null) return null
-  if (rest === `/inbox`) {
-    return options.tab === `my-issues`
-      ? { kind: `inbox`, tab: `my-issues` }
-      : { kind: `inbox` }
-  }
-  if (!isDetailRest(rest)) return null
-  const origin = parseOrigin(from)
-  return origin && originHasListNav(origin) ? origin : null
-}
-
-/** EXP-1246: the ONLY origin whose list stays beside the detail — the Inbox
- * (both its lists; desktop `second_sidebar_for` parity). Board, threads,
- * running and drafts origins name only where Back goes. */
-export function originHasListNav(origin: DetailOrigin): boolean {
-  return origin.kind === `inbox` && origin.tab !== `drafts`
 }
