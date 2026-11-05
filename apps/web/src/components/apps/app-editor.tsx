@@ -193,9 +193,11 @@ function VersionRows({
             )}
             {canWrite && (
               <Button
-                variant={grouped ? `secondary` : `outline`}
+                variant="outline"
                 size={grouped ? `xs` : `sm`}
-                className={grouped ? `rounded-full` : undefined}
+                // EXP-1676: the phone sheet's Publish = the natives' small pill
+                // (Pill's chrome: card fill under the card hairline).
+                className={grouped ? `rounded-full border-glass-stroke-card bg-glass-card text-foreground/70` : undefined}
                 onClick={() => onPublish(version.number)}
                 pending={publishing === version.number}
                 disabled={publishing !== null}
