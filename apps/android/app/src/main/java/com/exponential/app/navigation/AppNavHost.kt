@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -161,7 +162,12 @@ fun AppNavHost() {
     val teamSelection = applicationTeamSelection()
     val webLinkResolver = applicationWebLinkResolver()
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val navController = rememberNavController()
+    // No session yet (see below). #EXP-1694: each graph has its own controller:
+    // handing the signed-in back stack to the signed-out graph crashed Sign out
+    // ("agent-tab is not a direct child of this NavGraph").
+    val needsAuth =
+        state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
+    val navController = key(needsAuth) { rememberNavController() }
     val pendingTarget by deepLinkBus.target.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // EXP-1212: the New issue page holds navigation while its draft has
@@ -313,8 +319,6 @@ fun AppNavHost() {
     // exists but isn't logged in (just added, signed out, or a cleared/expired
     // token). Without this gate the home shell mounts and fires authed requests
     // with no Authorization header, which 401 immediately.
-    val needsAuth =
-        state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
 
     // Gate the authenticated graph on onboarding: a brand-new user (the session
     // read at login explicitly reported no onboardingCompletedAt) starts in the
