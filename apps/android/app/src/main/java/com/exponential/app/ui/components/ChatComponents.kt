@@ -45,19 +45,16 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SealedPlaceholder
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.Stories
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.stories.StoryAvatar
-import com.exponential.app.ui.stories.StoryRingButton
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 // Thread 58cb32df (fixtures/chats.json): the CHATS pieces Android draws on the
-// phone shell (the header is the shared [PageHeader]) — the agent bubbles,
-// the filter chips, the flat WhatsApp row with its 52 lead disc, THE chat
+// phone shell (the header is the shared [PageHeader]) — the section headers,
+// the flat WhatsApp row with its 52 lead disc, THE chat
 // menu sheet (long-press) + its delete confirm, and the transcript's divider
 // pill. One look ×4 (iOS ExpUI, web-mobile, the styleguide entries
 // `chat-list`, `chat-menus`, `chat-transcript`).
@@ -246,11 +243,14 @@ fun ChatSectionHeader(label: String, modifier: Modifier = Modifier) {
  * Assistant = the brand mark), its name, the conversation's preview, time
  * and unread badge. A tap opens the agent's chat.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AgentChatRowItem(
     row: Chats.AgentChatRow,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** #FEED-191: the hold opens the agent menu (the bubble's, gone). */
+    onLongClick: (() -> Unit)? = null,
     divider: Boolean = true,
 ) {
     val unread = row.unreadCount > 0
@@ -263,7 +263,7 @@ fun AgentChatRowItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .testTag("chat-agent-row")
             .padding(start = ChatRowEdge),
         verticalAlignment = Alignment.CenterVertically,
@@ -368,12 +368,12 @@ fun ChatSelectBadge(modifier: Modifier = Modifier) {
 }
 
 /**
- * #EXP-1388 THE ARCHIVED ENTRY: the list's first row while chats are
- * archived (filter All) = a chat row whose lead cell holds the PLAIN
- * ui-archive glyph (`shell.archivedGlyph`, muted, no disc, centred in the
- * `leadDisc` column), the title `copy.archived.entry` and the count in the
- * time slot (muted), no preview line; as tall as its text line. A tap opens
- * the Archived page ([onClick] null = inert, while selecting); it never moves.
+ * #EXP-1388 THE ARCHIVED ENTRY: first under the `chats` header while chats are
+ * archived = a chat row whose lead cell holds the PLAIN ui-archive glyph
+ * (`shell.archivedGlyph`, muted, no disc, centred in the `leadDisc` column), the
+ * title `copy.archived.entry` and the count in the time slot (muted), no preview
+ * line; as tall as its text line. A tap opens the Archived page ([onClick] null =
+ * inert, while selecting); it never moves.
  */
 @Composable
 fun ChatArchivedRow(
@@ -383,21 +383,48 @@ fun ChatArchivedRow(
     divider: Boolean = true,
 ) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    ChatEntryRow(
+        glyph = ExpIcons.uiArchive,
+        glyphTint = muted,
+        title = Chats.Copy.ARCHIVED_ENTRY,
+        onClick = onClick,
+        modifier = modifier,
+        testTag = Chats.TestIds.CHAT_ARCHIVED,
+        divider = divider,
+    ) {
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = muted,
+            maxLines = 1,
+            modifier = Modifier.testTag("chat-archived-count"),
+        )
+    }
+}
+
+/** A list entry's box (the Archived row, #FEED-191 the Needs you row): the PLAIN
+ *  glyph centred in the `leadDisc` column, one title line, a trailing slot. */
+@Composable
+fun ChatEntryRow(
+    glyph: ImageVector,
+    glyphTint: Color,
+    title: String,
+    onClick: (() -> Unit)?,
+    testTag: String,
+    modifier: Modifier = Modifier,
+    divider: Boolean = true,
+    trailing: @Composable () -> Unit,
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .testTag(Chats.TestIds.CHAT_ARCHIVED)
+            .testTag(testTag)
             .padding(start = ChatRowEdge),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.width(Chats.Shell.LEAD_DISC.dp), contentAlignment = Alignment.Center) {
-            Icon(
-                ExpIcons.uiArchive,
-                contentDescription = null,
-                tint = muted,
-                modifier = Modifier.size(Chats.Shell.ARCHIVED_GLYPH.dp),
-            )
+            Icon(glyph, contentDescription = null, tint = glyphTint, modifier = Modifier.size(Chats.Shell.ARCHIVED_GLYPH.dp))
         }
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -406,7 +433,7 @@ fun ChatArchivedRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    Chats.Copy.ARCHIVED_ENTRY,
+                    title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -415,13 +442,7 @@ fun ChatArchivedRow(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    count.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = muted,
-                    maxLines = 1,
-                    modifier = Modifier.testTag("chat-archived-count"),
-                )
+                trailing()
             }
             if (divider) {
                 Box(Modifier.fillMaxWidth().padding(end = ChatRowEdge).height(GlassTokens.Hairline).background(GlassTokens.StrokeCard))
@@ -541,123 +562,6 @@ fun UnreadBadge(count: Int, amber: Boolean, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Text(count.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = ink)
-    }
-}
-
-/**
- * The filter chips (`filters`) above the list: select Pills, labelled by
- * [Chats.chatFilterLabel] (a count after a non-zero one). The row scrolls
- * sideways.
- */
-@Composable
-fun ChatFilterChips(
-    selected: Chats.ChatFilter,
-    counts: Chats.ChatCounts,
-    onSelect: (Chats.ChatFilter) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Chats.FILTERS.forEach { filter ->
-            GlassPill(
-                Chats.chatFilterLabel(filter, counts),
-                onClick = { onSelect(filter) },
-                mode = PillMode.Select,
-                selected = filter == selected,
-                modifier = Modifier.testTag("${Chats.TestIds.CHAT_FILTER}-${filter.wire}"),
-            )
-        }
-    }
-}
-
-/**
- * THE STORY ROW of the Chats header (stories.json STORY ROW, #EXP-1461):
- * ONLY rings ([Stories.storyRow]). A bubble whose agent has a ring (the last
- * 24 h) wears it, in listAgents order (the agent's icon in its colour, its
- * name under it, medium while unseen; a tap opens the viewer at the ring, a
- * long-press its agent menu); a bubble without one is not drawn; the rings
- * no bubble wears follow in ring order. Nothing = no row (no height). Each
- * item is exactly `row.itemWidth` wide, `row.gap` apart, from the chips'
- * leading edge; the row scrolls sideways.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun AgentBubbles(
-    bubbles: List<Chats.AgentBubble>,
-    onLongPress: ((SessionTree.AgentRow) -> Unit)?,
-    modifier: Modifier = Modifier,
-    /** The story rings ([Stories.rings], ring order). */
-    rings: List<Stories.StoryRing> = emptyList(),
-    /** A trailing ring's avatar (a root ring's brand mark). */
-    ringAvatar: (Stories.StoryRing) -> StoryAvatar = { StoryAvatar(null, null) },
-    onOpenStory: (key: String) -> Unit = {},
-) {
-    val row = remember(bubbles, rings) { Stories.storyRow(bubbles.map { it.agent.agentId }, rings) }
-    if (row.isEmpty) return
-    val worn = remember(bubbles, row) { bubbles.filter { it.agent.agentId in row.byAgent } }
-    val haptics = LocalHapticFeedback.current
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = Stories.Row.PAD_BOTTOM.dp),
-        horizontalArrangement = Arrangement.spacedBy(Stories.Row.GAP.dp),
-    ) {
-        worn.forEach { bubble ->
-            val agent = bubble.agent
-            val story = row.byAgent.getValue(agent.agentId)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .width(Stories.Row.ITEM_WIDTH.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .combinedClickable(
-                        onClick = { onOpenStory(story.key) },
-                        onLongClick = onLongPress?.let { long ->
-                            {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                long(agent)
-                            }
-                        },
-                    )
-                    .testTag(Chats.TestIds.AGENT_BUBBLE),
-            ) {
-                // THE story ring at the bubble size; its inner muted disc
-                // carries the bubble's avatar / working mark.
-                StoryRing(stories = story.stories, size = Chats.Shell.BUBBLE.dp) {
-                    AgentBubbleDisc(
-                        icon = agent.icon,
-                        color = agent.color,
-                        assistant = agent.assistant,
-                        size = Chats.Shell.BUBBLE.dp - (Stories.Ring.WIDTH.dp + Chats.Shell.BUBBLE_RING.dp) * 2,
-                        ring = Color.Transparent,
-                        ringWidth = 0.dp,
-                        ringGap = 0.dp,
-                        glyph = 26.dp,
-                        busy = agent.busy,
-                    )
-                }
-                Spacer(Modifier.height(Stories.Row.LABEL_GAP.dp))
-                Text(
-                    agent.name,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (story.unseen) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (story.unseen) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        row.rest.forEach { ring -> StoryRingButton(ring = ring, avatar = ringAvatar(ring), onOpen = onOpenStory) }
     }
 }
 

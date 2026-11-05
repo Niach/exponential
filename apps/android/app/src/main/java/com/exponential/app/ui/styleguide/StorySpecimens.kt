@@ -132,11 +132,6 @@ private val RINGS: List<Stories.StoryRing> =
 private fun avatar(ring: Stories.StoryRing): StoryAvatar =
     ring.agentId?.let { AGENT_MARKS[it] } ?: StoryAvatar(null, null, cli = "claude")
 
-/** The specimen's rings + avatars for the `chat-list` specimen's bubbles row
- *  (ag1 / ag2 = `bubbleCases[0]`'s Triage / Designer). */
-internal val STORY_RING_SPECIMEN: List<Stories.StoryRing> get() = RINGS
-
-internal fun storySpecimenAvatar(ring: Stories.StoryRing): StoryAvatar = avatar(ring)
 
 /** `story-ring`: the rings with their titles, the same rings small, THE
  *  progress (`specimen.progress`). No state words. */

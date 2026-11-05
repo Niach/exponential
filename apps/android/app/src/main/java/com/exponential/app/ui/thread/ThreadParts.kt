@@ -47,6 +47,7 @@ import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.session.LocalAskCardTrailing
 import com.exponential.app.ui.session.DismissedCardLine
 import com.exponential.app.ui.session.centreOnItem
+import com.exponential.app.domain.ResultsTab
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.session.CardDismissButton
 import com.exponential.app.ui.session.LocalCardDismiss
@@ -110,7 +111,6 @@ import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.Stories
 import com.exponential.app.domain.WorkCardInput
 import com.exponential.app.domain.WorkCardSpec
 import com.exponential.app.domain.WorkCards
@@ -125,7 +125,6 @@ import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.LiveGreen
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.LocalIssueRefBare
 import com.exponential.app.ui.markdown.MarkdownView
@@ -165,8 +164,16 @@ internal object ThreadUiCopy {
 }
 
 /** A tab of the strip as its saveable page key. */
-/** The Stories tab's page key (`?tab=stories` on web). */
-const val STORIES_TAB_KEY = "stories"
+/** results-tab.json: the Results tab's page key (`?tab=results` on web). */
+const val RESULTS_TAB_KEY = "results"
+
+/** results-tab.json: the tab a route names; an older `stories` or `guide` link
+ *  lands on Results. */
+internal fun threadInitialTabKey(tab: String?): String = when (tab) {
+    null -> "conversation"
+    "stories", "guide" -> RESULTS_TAB_KEY
+    else -> tab
+}
 
 /** #EXP-1662 (plan-page.json): the plan tab's page key. */
 const val PLAN_TAB_KEY = "plan"
@@ -176,7 +183,7 @@ fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
     is SessionTree.ThreadTab.IssueTab -> "issue:${tab.issueId}"
     SessionTree.ThreadTab.Add -> "add"
     is SessionTree.ThreadTab.SessionTab -> "session:${tab.sessionId}"
-    SessionTree.ThreadTab.Stories -> STORIES_TAB_KEY
+    SessionTree.ThreadTab.Results -> RESULTS_TAB_KEY
     SessionTree.ThreadTab.Plan -> PLAN_TAB_KEY
 }
 
@@ -289,7 +296,7 @@ data class StripSession(
 
 /**
  * #EXP-1433 (session-thread.json STRIP): what sits between Conversation and
- * Stories. [issues] = EVERY issue of the tree (nested ones included),
+ * Results. [issues] = EVERY issue of the tree (nested ones included),
  * [sessions] = every session under the root (the main session excluded);
  * [mode] = [SessionTree.threadStripMode] over their counts.
  */
@@ -332,7 +339,7 @@ fun threadStripItems(tabs: List<SessionTree.ThreadTab>, mainSessionId: String?):
 /**
  * #EXP-1433 (session-thread.json STRIP, amends EXP-1334): the ONE strip, and
  * NOTHING scrolls — "+" (Link an issue · New issue) and Conversation pinned
- * left, Stories pinned right; between them [SessionTree.threadStripMode]: at
+ * left, Results pinned right; between them [SessionTree.threadStripMode]: at
  * most ONE issue and no session = that issue's chip (the pager: its
  * identifier; a long-press opens its menu), anything more = ONE group tab
  * (the `session-tree` glyph + the muted count; active = the glyph + the open
@@ -352,8 +359,6 @@ fun ThreadTabStrip(
     issueTitle: (String) -> String? = { null },
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)? = null,
     onOpenSession: ((sessionId: String) -> Unit)? = null,
-    /** stories.json STORIES TAB: the tab's dot (`storyTab().unseen`). */
-    storiesDot: Boolean = false,
     /** NEW-46: the single-session thread's main session (never a group row). */
     mainSessionId: String? = null,
     /** The styleguide's static paint: the group sheet held open. */
@@ -430,30 +435,17 @@ fun ThreadTabStrip(
                 )
             }
         }
-        // stories.json STORIES TAB: pinned right, after the last chip;
-        // phones ICON-ONLY (`thread-stories`), the dot on the icon's corner
-        // while a story waits or is unseen.
-        if (SessionTree.ThreadTab.Stories in tabs) {
-            val storiesSelected = selectedKey == STORIES_TAB_KEY
-            ThreadTab(storiesSelected, { onSelect(STORIES_TAB_KEY) }, null, Stories.Tab.TestIds.TAB) {
-                Box {
-                    Icon(
-                        ExpIcons.threadStories,
-                        contentDescription = Stories.Tab.Copy.LABEL,
-                        tint = if (storiesSelected) MaterialTheme.colorScheme.onSurface else Secondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    if (storiesDot) {
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = 3.dp, y = (-3).dp)
-                                .size(6.dp)
-                                .background(LiveGreen, CircleShape)
-                                .testTag("thread-stories-dot"),
-                        )
-                    }
-                }
+        // results-tab.json: pinned right, after the last chip; phones ICON-ONLY
+        // (`thread-results`), no dot.
+        if (SessionTree.ThreadTab.Results in tabs) {
+            val resultsSelected = selectedKey == RESULTS_TAB_KEY
+            ThreadTab(resultsSelected, { onSelect(RESULTS_TAB_KEY) }, null, ResultsTab.Tab.TestIds.TAB) {
+                Icon(
+                    ExpIcons.threadResults,
+                    contentDescription = ResultsTab.Tab.Copy.LABEL,
+                    tint = if (resultsSelected) MaterialTheme.colorScheme.onSurface else Secondary,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
     }
@@ -1089,7 +1081,7 @@ fun ThreadConversation(
     // #EXP-1562 (waiting-cards.json CHIPS): a waiting chip's pick stops
     // following and centres that card (its ring is the host's highlight).
     val cardScroll = com.exponential.app.ui.session.LocalCardScrollRequest.current
-    LaunchedEffect(cardScroll) {
+    LaunchedEffect(cardScroll, painted.size) {
         val request = cardScroll ?: return@LaunchedEffect
         val at = painted.indexOfFirst { it.id == request.id }
         if (at < 0) return@LaunchedEffect
@@ -1714,7 +1706,7 @@ fun threadSuggestionSources(rows: List<SessionTree.ThreadRow>): List<Dock.Source
 
 /** N-12: the Conversation rows THE Dock holds (they leave the transcript):
  *  the suggestion rows with an open item (web `threadDockedIds`). S-3: the
- *  waiting asks stay inline (stories.json). */
+ *  waiting asks stay inline. */
 fun threadDockedIds(rows: List<SessionTree.ThreadRow>): Set<String> =
     threadSuggestionSources(rows).mapTo(mutableSetOf()) { it.id }
 

@@ -563,11 +563,10 @@ object SessionTree {
             val markState: SessionState,
             val nested: List<NestedSession> = emptyList(),
         ) : ThreadTab
-        // S-3: the Guide tab is gone ×4 (stories replace it).
-        /** stories.json STORIES TAB: the strip's last tab, pinned right
-         *  (not part of session-thread.json `tabs`: [threadView] never
-         *  emits it, the host appends it after the last chip). */
-        data object Stories : ThreadTab
+        /** results-tab.json: the strip's last tab, pinned right (not part of
+         *  session-thread.json `tabs`: [threadView] never emits it, the host
+         *  appends it after the last chip). */
+        data object Results : ThreadTab
         /** #EXP-1662 (plan-page.json): the plan tab right after Conversation
          *  while the thread holds a plan ([threadView] never emits it, the
          *  host inserts it). */
@@ -1626,7 +1625,7 @@ object SessionTree {
 
     /**
      * #EXP-1433 (session-thread.json `stripModeCases`): the strip between
-     * Conversation and Stories. `chips` = at most one issue and no session
+     * Conversation and Results. `chips` = at most one issue and no session
      * (that issue keeps its chip); `group` = ONE icon tab for every issue and
      * session, [ThreadStripMode.count] of them, opening THE menu of their rows.
      */

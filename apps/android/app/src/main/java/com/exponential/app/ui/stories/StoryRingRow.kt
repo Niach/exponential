@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,63 +23,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.Stories
-import com.exponential.app.ui.components.AgentBubbles
-import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.StoryAvatarMark
 import com.exponential.app.ui.components.StoryRing
-import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.theme.TextEmphasis
 
-/**
- * S-3 STORIES (stories.json): THE [StoryViewer] the Chats list's story rings
- * open, full screen at ring [opened] (null = closed; phones only, so
- * [Stories.storyViewerSize] never applies). The rings themselves ride THE
- * story row ([AgentBubbles], [Stories.storyRow]); nothing here paints a row
- * of its own. [onOpenSession] = the header's tap (the viewer closes
- * first).
- */
-@Composable
-fun ChatStoryViewer(
-    state: StoriesState,
-    opened: String?,
-    onClose: () -> Unit,
-    onOpenSession: (Stories.Story) -> Unit,
-    viewModel: StoriesViewModel,
-) {
-    val failure by viewModel.failure.collectAsStateWithLifecycle()
-    FailedActionToast(failure, onShown = viewModel::clearFailure)
-    val openPlan = LocalOpenPlanPage.current
-    val key = opened ?: return
-    Dialog(
-        onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        StoryViewer(
-            rings = state.rings,
-            startKey = key,
-            rows = state.rows,
-            avatar = state::avatar,
-            onAnswer = viewModel::answer,
-            onSeen = viewModel::markSeen,
-            onOpenSession = { story ->
-                onClose()
-                onOpenSession(story)
-            },
-            // #EXP-1493: a plan cover's Open plan: the viewer closes, THE plan page opens.
-            onOpenPlan = { story ->
-                onClose()
-                openPlan.open(story.sessionId, story.id)
-            },
-            onClose = onClose,
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
-}
+/** A ring's avatar (stories.json AVATARS): an agent's icon in its colour,
+ *  else ([color] null, a chat's root) the chat row's bare brand mark of the
+ *  root's [cli]. */
+data class StoryAvatar(val icon: String?, val color: String?, val cli: String? = null)
 
 /** The rings side by side (the agent bubbles' metrics): the ring around its
  *  avatar, the title under it, waiting / unseen titles in full emphasis. */

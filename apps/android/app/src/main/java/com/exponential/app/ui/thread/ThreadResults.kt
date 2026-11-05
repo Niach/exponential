@@ -23,6 +23,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,24 +37,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.GuideChangeSet
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.Stories
+import com.exponential.app.domain.ResultsTab
+import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.guideFileCountLabel
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.StackRail
 import com.exponential.app.ui.components.StackRailMember
 import com.exponential.app.ui.components.detailHazeSource
@@ -63,42 +63,43 @@ import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.DiffFileListSheet
 import com.exponential.app.ui.issue.diffOpensByDefault
 import com.exponential.app.ui.issue.toDiffFile
-import com.exponential.app.ui.plan.LocalOpenPlanPage
-import com.exponential.app.ui.stories.StoriesViewModel
-import com.exponential.app.ui.stories.StoryTab
-import com.exponential.app.ui.stories.StoryTabState
-import com.exponential.app.ui.stories.StoryViewer
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.work.ChangesLoadState
 import com.exponential.app.ui.work.ChangesViewModel
+import com.exponential.app.ui.work.PictureViewer
+import com.exponential.app.ui.work.PictureViewerSet
 import com.exponential.app.ui.work.PullRequestStack
 import com.exponential.app.ui.work.StackMergeDialog
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * stories.json STORIES TAB ×Android (web `thread-stories.tsx`): the thread's
- * last page. ONE scroll: the PR block while the thread has its ONE pull
- * request ([SessionTree.guidePullRequest]) — in a linear open stack the
- * `Stack` band over THE [StackRail] (a tap opens that PR's thread, a
- * long-press merges through it), then ONE `Changes` row opening THE review
- * page (the complete diff, back row `‹ Stories`, the files sheet) — then
- * `leadGap` and THE tiles ([StoryTab]). A tile / thumbnail opens THE
- * [StoryViewer] on the tab's ring at that story (and picture).
+ * results-tab.json ×Android (web `results-tab.tsx`, iOS `ThreadResults`): the
+ * thread's last page. ONE scroll: the PR block while the thread has its ONE
+ * pull request ([SessionTree.guidePullRequest]): in a linear open stack the
+ * `Stack` band over THE [StackRail] (a tap opens that PR's thread, a long-press
+ * merges through it), then ONE `Changes` row opening THE review page (the
+ * complete diff, back row `‹ Results`, the files sheet); then `leadGap` and the
+ * results ([ResultsTabContent]). A thumbnail opens THE [PictureViewer] over that
+ * result's pictures at its index.
  */
 @Composable
-fun ThreadStoriesPage(
-    tab: StoryTabState,
-    storiesViewModel: StoriesViewModel,
+fun ThreadResultsPage(
+    rootId: String,
+    /** The tree's rows and messages: every result of the root's tree. */
+    sessions: List<SessionEntity>,
+    messages: List<SessionTree.Message>,
+    /** An inline surface's reply press (session id, text). */
+    onReply: (String, String) -> Unit,
     pullRequests: List<PullRequestEntity>,
     teamPullRequests: List<PullRequestEntity>,
     pullRequestIssues: List<PullRequestIssueEntity>,
     issues: List<IssueEntity>,
     padding: PaddingValues,
     onOpenThread: (rootSessionId: String) -> Unit,
-    onOpenSession: (Stories.Story) -> Unit,
 ) {
     val pr = SessionTree.guidePullRequest(pullRequests)
     val stackPool = remember(pullRequests, teamPullRequests) { (teamPullRequests + pullRequests).distinctBy { it.id } }
@@ -114,26 +115,24 @@ fun ThreadStoriesPage(
         files?.let { list -> GuideChangeSet(list, list.sumOf { it.additions }, list.sumOf { it.deletions }) }
     }
     var review by rememberSaveable { mutableStateOf(false) }
-    var open by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    // The ages follow the clock.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    val inputs = remember(sessions, messages) { resultsTabInputs(sessions, messages) }
+    val results = remember(inputs, rootId, now) {
+        ResultsTab.resultsTab(now, rootId, inputs.first, inputs.second)
+    }
+    val messagesById = remember(messages) { messages.associateBy { it.id } }
+    var opened by remember { mutableStateOf<PictureViewerSet?>(null) }
 
     if (review && files != null) {
-        StoriesReview(files = files, padding = padding, onBack = { review = false })
+        ResultsReview(files = files, padding = padding, onBack = { review = false })
         return
-    }
-
-    val lead: (@Composable () -> Unit)? = if (pr != null) {
-        {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                stackView?.let { view ->
-                    StoriesStackCard(view, pr, stackPool, onOpenThread)
-                }
-                if (changes != null && changes.fileCount > 0) {
-                    StoriesChangesRow(changes, onOpen = { review = true })
-                }
-            }
-        }
-    } else {
-        null
     }
 
     Column(
@@ -144,59 +143,53 @@ fun ThreadStoriesPage(
             .padding(padding)
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
     ) {
-        if (tab.loading && tab.ring == null) {
-            SkeletonRows()
-        } else {
-            StoryTab(
-                ring = tab.ring,
-                lead = lead,
-                onOpen = { story, picture -> open = story.id to picture },
-                // #EXP-1462: each story's body in place (its surface reads
-                // the card; a reply press goes to the story's session).
-                rows = tab.draw.rows,
-                onReply = storiesViewModel::reply,
-            )
-        }
+        ResultsTabContent(
+            results = results,
+            onOpenPicture = { result, index -> opened = resultPictureSet(result, index) },
+            lead = if (pr != null) {
+                {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        stackView?.let { view ->
+                            ResultsStackCard(view, pr, stackPool, onOpenThread)
+                        }
+                        if (changes != null && changes.fileCount > 0) {
+                            ResultsChangesRow(changes, onOpen = { review = true })
+                        }
+                    }
+                }
+            } else {
+                null
+            },
+            surface = { result ->
+                messagesById[result.id]?.let(SessionTree::surfaceRow)?.let { row ->
+                    SurfaceCard(
+                        row = row,
+                        animate = false,
+                        onReply = { reply -> onReply(result.sessionId, reply) },
+                        showTitle = false,
+                    )
+                }
+            },
+        )
     }
-
-    val failure by storiesViewModel.failure.collectAsStateWithLifecycle()
-    FailedActionToast(failure, onShown = storiesViewModel::clearFailure)
-    val openPlan = LocalOpenPlanPage.current
-    val ring = tab.ring
-    val target = open
-    if (ring != null && target != null) {
-        Dialog(
-            onDismissRequest = { open = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-        ) {
-            StoryViewer(
-                rings = listOf(ring),
-                startKey = ring.key,
-                startStoryId = target.first,
-                startPicture = target.second,
-                rows = tab.draw.rows,
-                avatar = tab.draw::avatar,
-                onAnswer = storiesViewModel::answer,
-                onSeen = storiesViewModel::markSeen,
-                onOpenSession = { story ->
-                    open = null
-                    onOpenSession(story)
-                },
-                // #EXP-1493: a plan cover's Open plan: the viewer closes, THE plan page opens.
-                onOpenPlan = { story ->
-                    open = null
-                    openPlan.open(story.sessionId, story.id)
-                },
-                onClose = { open = null },
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-    }
+    opened?.let { set -> PictureViewer(items = set.items, start = set.start, onClose = { opened = null }) }
 }
+
+/** The fold's input off the tree's synced rows. */
+internal fun resultsTabInputs(
+    sessions: List<SessionEntity>,
+    messages: List<SessionTree.Message>,
+): Pair<List<ResultsTab.SessionInput>, List<ResultsTab.MessageInput>> = Pair(
+    sessions.map { ResultsTab.SessionInput(it.id, it.rootId, it.title.orEmpty()) },
+    messages.mapNotNull { message ->
+        val created = WireTimestamps.parseEpochMs(message.createdAt) ?: return@mapNotNull null
+        ResultsTab.MessageInput(message.id, message.sessionId, message.authorSessionId, created, message.card)
+    },
+)
 
 /** The `Stack` band (the `pr-stack` glyph) over THE rail, top first. */
 @Composable
-private fun StoriesStackCard(
+private fun ResultsStackCard(
     view: PullRequestStack.StackView,
     pr: PullRequestEntity,
     pool: List<PullRequestEntity>,
@@ -215,14 +208,14 @@ private fun StoriesStackCard(
     }
     val throughError by (throughVm?.actionError ?: remember { MutableStateFlow<String?>(null) }).collectAsStateWithLifecycle()
     val toaster = LocalToaster.current
-    androidx.compose.runtime.LaunchedEffect(throughError) {
+    LaunchedEffect(throughError) {
         val message = throughError ?: return@LaunchedEffect
         val vm = throughVm ?: return@LaunchedEffect
         toaster.failedAction("merge", "the stack", message, retry = vm::retryMerge)
     }
-    Column(Modifier.testTag(Stories.Tab.TestIds.STACK)) {
+    Column(Modifier.testTag(ResultsTab.Tab.TestIds.STACK)) {
         SectionHeader(
-            title = Stories.Tab.Copy.STACK,
+            title = ResultsTab.Tab.Copy.STACK,
             leading = {
                 Icon(
                     ExpIcons.prStack,
@@ -256,9 +249,9 @@ private fun StoriesStackCard(
 /** THE `Changes` row: the diff glyph, the label, `n files`, `+a −d`, the
  *  chevron; a hairline under it. */
 @Composable
-private fun StoriesChangesRow(changes: GuideChangeSet, onOpen: () -> Unit) {
+private fun ResultsChangesRow(changes: GuideChangeSet, onOpen: () -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(Modifier.fillMaxWidth().testTag(Stories.Tab.TestIds.CHANGES)) {
+    Column(Modifier.fillMaxWidth().testTag(ResultsTab.Tab.TestIds.CHANGES)) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -270,7 +263,7 @@ private fun StoriesChangesRow(changes: GuideChangeSet, onOpen: () -> Unit) {
         ) {
             Icon(ExpIcons.guideChanges, contentDescription = null, modifier = Modifier.size(16.dp), tint = muted)
             Text(
-                Stories.Tab.Copy.CHANGES,
+                ResultsTab.Tab.Copy.CHANGES,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -289,11 +282,11 @@ private fun StoriesChangesRow(changes: GuideChangeSet, onOpen: () -> Unit) {
     }
 }
 
-/** THE review page: `‹ Stories │ Changes  +a −d  [files]` over one
+/** THE review page: `‹ Results │ Changes  +a −d  [files]` over one
  *  [DiffFileCard] per file; the files button opens THE files sheet. System
  *  Back returns to the tab. */
 @Composable
-private fun StoriesReview(files: List<Diff.File>, padding: PaddingValues, onBack: () -> Unit) {
+private fun ResultsReview(files: List<Diff.File>, padding: PaddingValues, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     val listState = rememberLazyListState()
@@ -301,7 +294,7 @@ private fun StoriesReview(files: List<Diff.File>, padding: PaddingValues, onBack
     var sheetOpen by remember { mutableStateOf(false) }
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     LazyColumn(
-        modifier = Modifier.fillMaxSize().detailHazeSource().testTag("thread-stories-review"),
+        modifier = Modifier.fillMaxSize().detailHazeSource().testTag("thread-results-review"),
         state = listState,
         contentPadding = PaddingValues(
             start = 16.dp,
@@ -322,16 +315,16 @@ private fun StoriesReview(files: List<Diff.File>, padding: PaddingValues, onBack
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(onClick = onBack)
                         .padding(vertical = 6.dp, horizontal = 2.dp)
-                        .testTag("thread-stories-review-back"),
+                        .testTag("thread-results-review-back"),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Icon(ExpIcons.uiChevronLeft, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
-                    Text(Stories.Tab.Copy.LABEL, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(ResultsTab.Tab.Copy.LABEL, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Box(Modifier.size(width = GlassTokens.Hairline, height = 16.dp).background(GlassTokens.StrokeCard))
                 Text(
-                    Stories.Tab.Copy.CHANGES,
+                    ResultsTab.Tab.Copy.CHANGES,
                     style = MaterialTheme.typography.bodyMedium,
                     color = muted,
                     maxLines = 1,

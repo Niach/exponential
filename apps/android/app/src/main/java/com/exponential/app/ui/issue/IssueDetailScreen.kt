@@ -750,7 +750,7 @@ fun IssueFace(
 
                 // EXP-1647: NO pull-request row on the issue page ×4 (web
                 // issue-coding-rows.tsx, EXP-1293): a PR is the thread's
-                // (its Stories tab / header Merge), never the issue's.
+                // (its Results tab / header Merge), never the issue's.
 
                 // Widget/agent submission metadata (EXP-496): expandable card,
                 // default collapsed; renders nothing without a submission row.

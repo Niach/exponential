@@ -44,7 +44,7 @@ import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuRowId
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.Stories
+import com.exponential.app.domain.ResultsTab
 import com.exponential.app.domain.SearchList
 import androidx.activity.compose.setContent
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
@@ -100,6 +100,10 @@ import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenTestId
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenScreen
 import com.exponential.app.ui.styleguide.SchedulePickerSpecimenTestId
+import com.exponential.app.ui.styleguide.NeedsYouSpecimenScreen
+import com.exponential.app.ui.styleguide.NeedsYouSpecimenTestId
+import com.exponential.app.ui.styleguide.ResultsTabSpecimenScreen
+import com.exponential.app.ui.styleguide.ResultsTabSpecimenTestId
 import com.exponential.app.ui.styleguide.StoryRingSpecimenScreen
 import com.exponential.app.ui.styleguide.PlanPageSpecimenScreen
 import com.exponential.app.ui.styleguide.PlanPageSpecimenTestId
@@ -164,7 +168,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
- *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page ·
+ *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page · sg_needs-you · sg_results-tab ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
  *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558)
@@ -277,6 +281,8 @@ class StyleguideScreenshotsTest {
             "sg_story-tab",
             // #EXP-1493: THE plan page (plan-page.json `specimen`, phone).
             "sg_plan-page",
+            // #FEED-191: THE Needs you entry + list, THE Results tab body.
+            "sg_needs-you", "sg_results-tab",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues chip). */
@@ -690,7 +696,7 @@ class StyleguideScreenshotsTest {
         }
 
         // --- APP-14's issue page (its thread opened the seed's real PR), the way into
-        // its thread's Stories tab below. EXP-1553: `sg_pr-row` is the
+        // its thread's Results tab below. EXP-1553: `sg_pr-row` is the
         // capture-only PR row specimen now (with the thread cards).
         step("thread-stories") {
             openBoardRoot()
@@ -702,20 +708,20 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
             flow.settle()
 
-            // --- sg_thread-stories (stories.json STORIES TAB): APP-14's thread
-            // (web's `$diffThreadId`) on its Stories tab, the strip's last,
-            // icon-only: the Stack band + rail, the Changes row over the real
-            // PR's GitHub diff, then the seeded stories' tiles. The Changes row
-            // is the gate (the diff is the walk's one network dependency).
+            // --- sg_thread-stories (results-tab.json; its name until the final
+            // cleanup): APP-14's thread (web's `$diffThreadId`) on its Results
+            // tab, the strip's last, icon-only: the Stack band + rail, the Changes
+            // row over the real PR's GitHub diff, then the seeded results. The
+            // Changes row is the gate (the diff is the walk's one network dependency).
             if (ScreenshotFlow.isShotWanted("sg_thread-stories")) {
                 flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
                 composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
                 composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
-                flow.waitFor(hasTestTag(Stories.Tab.TestIds.TAB), NAV_TIMEOUT)
-                composeRule.onNode(hasTestTag(Stories.Tab.TestIds.TAB)).performClick()
-                flow.waitFor(hasTestTag(Stories.Tab.TestIds.TILE), SYNC_TIMEOUT)
-                flow.waitFor(hasTestTag(Stories.Tab.TestIds.STACK), SYNC_TIMEOUT)
-                flow.waitFor(hasTestTag(Stories.Tab.TestIds.CHANGES), NETWORK_TIMEOUT)
+                flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.TAB), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag(ResultsTab.Tab.TestIds.TAB)).performClick()
+                flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.SECTION), SYNC_TIMEOUT)
+                flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.STACK), SYNC_TIMEOUT)
+                flow.waitFor(hasTestTag(ResultsTab.Tab.TestIds.CHANGES), NETWORK_TIMEOUT)
                 flow.settle(longer = true)
                 flow.screenshot("sg_thread-stories")
                 // Thread → the issue page.
@@ -1338,7 +1344,7 @@ class StyleguideScreenshotsTest {
         // --- sg_thread: the cold-start thread (APP-5): the strip, the
         // Conversation with its session cards, the agent's reply and the
         // pending question card, the reply box. #EXP-1433: the strip never
-        // scrolls — + and Conversation pinned left, Stories right, the
+        // scrolls — + and Conversation pinned left, Results right, the
         // issues + sessions between them behind ONE group tab.
         step("thread") {
             composeRule.onNode(hasTestTag("tab-threads")).performClick()
@@ -1362,7 +1368,7 @@ class StyleguideScreenshotsTest {
             // ...and back to its end (the waiting cards) for the shot.
             flow.scrollListToEnd(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
             // S-3: the seeded question stays inline (the Dock takes no asks and
-            // the Guide tab is gone; stories carry them).
+            // the Guide tab is gone; results carry them).
             flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
             flow.waitFor(hasTestTag("thread-strip-zone"), SYNC_TIMEOUT)
             flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
@@ -1976,6 +1982,13 @@ class StyleguideScreenshotsTest {
         // page, phone: the document from its top, the DockCard at the foot.
         show(PlanPageSpecimenTestId) { PlanPageSpecimenScreen() }
         flow.screenshot("sg_plan-page")
+        // --- sg_needs-you · sg_results-tab (#FEED-191, needs-you.json `cases[1]`,
+        // results-tab.json `tab.specimen`): the phone entry row + THE list, and
+        // THE tab body over the committed sample pictures, no PR block.
+        show(NeedsYouSpecimenTestId) { NeedsYouSpecimenScreen() }
+        flow.screenshot("sg_needs-you")
+        show(ResultsTabSpecimenTestId) { ResultsTabSpecimenScreen() }
+        flow.screenshot("sg_results-tab")
 
         finished = true
     }

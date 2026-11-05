@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,16 +39,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.ui.components.AgentBubbles
-import com.exponential.app.ui.stories.ChatStoryViewer
-import com.exponential.app.ui.stories.StoryAvatar
-import com.exponential.app.ui.stories.StoriesViewModel
-import com.exponential.app.domain.Stories
+import com.exponential.app.ui.chats.NeedsYouEntryRow
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.AgentWorkingMark
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.ChatDeleteConfirm
-import com.exponential.app.ui.components.ChatFilterChips
 import com.exponential.app.ui.components.ChatArchivedRow
 import com.exponential.app.ui.components.ChatMenuSheet
 import com.exponential.app.ui.components.ChatRow
@@ -83,16 +78,17 @@ import com.exponential.app.ui.theme.flatRow
 
 /**
  * Thread 58cb32df: the CHATS tab (chats.json LIST, phones). The large
- * in-content headline `copy.title` with its search + inbox circles, the
- * agent BUBBLES row, the filter chips, then ONE flat list of the active
- * team's chats ([Chats.chatList]: the roots of partitionThreads by
- * activity, no bands, no nesting). A row opens its chat. #EXP-1388: a
- * long-press ENTERS THE SELECTION with that row (taps toggle, nothing opens;
- * the bar = the issue list's bulk bar in the tab bar's slot: Mark read /
- * unread, Archive / Unarchive, Delete; S-3: no Stop); the Archived entry (first,
- * filter All) pushes the Archived page ([view] Archived: the page header
- * with back, the archived rows). A bubble opens the agent's chat; its
- * long-press the agent menu.
+ * in-content headline `copy.title` with its search + inbox circles, then
+ * #FEED-191 the Needs you entry (needs-you.json, none = no row), the Agents
+ * section and the active team's chats grouped ([Chats.chatSections] over
+ * [Chats.chatList]: Needs you · Working · Unread · Chats, no bands, no nesting,
+ * each newest activity first). A row opens its chat. #EXP-1388: a long-press
+ * ENTERS THE SELECTION with that row (taps toggle, nothing opens; the bar = the
+ * issue list's bulk bar in the tab bar's slot: Mark read / unread, Archive /
+ * Unarchive, Delete; S-3: no Stop); the Archived entry (first under the Chats
+ * header) pushes the Archived page ([view] Archived: the page header with back,
+ * the archived rows flat). An agent row opens the agent's chat; its long-press
+ * the agent menu.
  */
 @Composable
 fun ThreadsScreen(
@@ -111,20 +107,17 @@ fun ThreadsScreen(
     view: Chats.ChatListView = Chats.ChatListView.List,
     /** #EXP-1388: the Archived entry pushes the Archived page. */
     onOpenArchived: () -> Unit = {},
+    /** #FEED-191: the Needs you entry pushes THE list. */
+    onOpenNeedsYou: () -> Unit = {},
     /** #EXP-1388: the Archived page's back control. */
     onBack: () -> Unit = {},
     viewModel: ThreadsViewModel = hiltViewModel(),
-    storiesViewModel: StoriesViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(view) { viewModel.setView(view) }
-    // S-3 (stories.json STORY RING): the rings ride the bubbles row; THE
-    // viewer opens over everything at [openedRing].
-    val stories by storiesViewModel.state.collectAsStateWithLifecycle()
-    var openedRing by remember { mutableStateOf<String?>(null) }
     val list by viewModel.chatList.collectAsStateWithLifecycle()
-    val filter by viewModel.filter.collectAsStateWithLifecycle()
-    val bubbles by viewModel.bubbles.collectAsStateWithLifecycle()
     val agentRows by viewModel.agentRows.collectAsStateWithLifecycle()
+    val agents by viewModel.agents.collectAsStateWithLifecycle()
+    val needsYouRows by viewModel.needsYouRows.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     val facts by viewModel.rootFacts.collectAsStateWithLifecycle()
     val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
@@ -142,8 +135,8 @@ fun ThreadsScreen(
     var agentMenuFor by remember { mutableStateOf<SessionTree.AgentRow?>(null) }
     var deleteFor by remember { mutableStateOf<List<String>?>(null) }
 
-    // #EXP-1388: the selection, in selection order; it keeps only rows still
-    // in the list, and leaving it (empty, close, back) hands the tab bar's
+    // #EXP-1388: the selection; it keeps only rows still in the list, and
+    // leaving it (empty, close, back) hands the tab bar's
     // slot back.
     var selected by remember { mutableStateOf(emptyList<String>()) }
     val rowIds = list.rows.map { it.sessionId }
@@ -159,10 +152,10 @@ fun ThreadsScreen(
     }
     BackHandler(enabled = selecting) { selected = emptyList() }
     val actions = remember(selected, list, facts, isOwner, view) {
-        val byId = list.rows.associateBy { it.sessionId }
+        // #FEED-191 (chats.json): selection order = the displayed order.
         Chats.chatSelectionActions(
-            selected.mapNotNull { id ->
-                val row = byId[id] ?: return@mapNotNull null
+            chatDisplayedRows(list.rows, view).filter { it.sessionId in selected }.map { row ->
+                val id = row.sessionId
                 val root = facts[id]
                 Chats.ChatSelectionRow(
                     sessionId = id,
@@ -180,17 +173,21 @@ fun ThreadsScreen(
         Scaffold(containerColor = Color.Transparent) { padding ->
             ChatsContent(
                 list = list,
-                filter = filter,
-                bubbles = if (view == Chats.ChatListView.Archived) emptyList() else bubbles,
                 agentOf = { facts[it]?.agent },
-                onSelectFilter = viewModel::selectFilter,
+                needsYouCount = needsYouRows.size,
+                onOpenNeedsYou = onOpenNeedsYou,
                 onOpenChat = onOpenThread,
                 onLongPressChat = { row ->
                     // The issue list's entry: the haptic, then the one row.
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     selected = listOf(row.sessionId)
                 },
-                onLongPressAgent = { agentMenuFor = it },
+                onLongPressAgent = { row ->
+                    agents.firstOrNull { it.agentId == row.agentId }?.let { agent ->
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        agentMenuFor = agent
+                    }
+                },
                 agentRows = agentRows,
                 onOpenAgentRow = { row -> row.sessionId?.let(onOpenThread) ?: onOpenAgent(row.agentId) },
                 onOpenInbox = onOpenInbox,
@@ -200,24 +197,9 @@ fun ThreadsScreen(
                 onBack = onBack,
                 selected = selected,
                 onToggleSelect = { id -> selected = if (id in selected) selected - id else selected + id },
-                // #EXP-1461: THE story row: a ring opens the viewer at it.
-                rings = stories.rings,
-                ringAvatar = stories::avatar,
-                onOpenStory = { openedRing = it },
                 modifier = Modifier.padding(padding),
             )
         }
-        // A header tap opens the story's session (a child through its own
-        // route, the #1309 back stack).
-        ChatStoryViewer(
-            state = stories,
-            opened = openedRing,
-            onClose = { openedRing = null },
-            onOpenSession = { story ->
-                if (story.sessionId == story.rootId) onOpenThread(story.rootId) else onOpenSession(story.sessionId)
-            },
-            viewModel = storiesViewModel,
-        )
         if (selecting) {
             // THE issue list's slot (this Box sits outside the Scaffold, so it
             // adds the nav-bar inset the issue list's Scaffold applied).
@@ -269,18 +251,20 @@ fun ThreadsScreen(
     }
 }
 
+/** #FEED-191 (chats.json): the rows in the order they show: the sections',
+ *  or the Archived page's flat rows. */
+internal fun chatDisplayedRows(rows: List<Chats.ChatRow>, view: Chats.ChatListView): List<Chats.ChatRow> =
+    if (view == Chats.ChatListView.Archived) rows else Chats.chatSections(rows).flatMap { it.rows }
+
 /** The Chats tab's stateless body (the styleguide's `chat-list` and
  *  `chat-selection` draw it). */
 @Composable
 fun ChatsContent(
     list: Chats.ChatList,
-    filter: Chats.ChatFilter,
-    bubbles: List<Chats.AgentBubble>,
     agentOf: (rootId: String) -> String?,
-    onSelectFilter: (Chats.ChatFilter) -> Unit,
     onOpenChat: (rootSessionId: String) -> Unit,
     onLongPressChat: (Chats.ChatRow) -> Unit,
-    onLongPressAgent: (SessionTree.AgentRow) -> Unit,
+    onLongPressAgent: (Chats.AgentChatRow) -> Unit,
     onOpenInbox: () -> Unit,
     inboxUnread: Boolean,
     modifier: Modifier = Modifier,
@@ -291,15 +275,13 @@ fun ChatsContent(
     /** #EXP-1388: the selection (empty = not selecting). */
     selected: List<String> = emptyList(),
     onToggleSelect: (rootSessionId: String) -> Unit = {},
-    /** #EXP-1461 THE story row: the rings (a bubble wears its agent's, the
-     *  rest follow); a tap opens the viewer. */
-    rings: List<Stories.StoryRing> = emptyList(),
-    ringAvatar: (Stories.StoryRing) -> StoryAvatar = { StoryAvatar(null, null) },
-    onOpenStory: (key: String) -> Unit = {},
     /** S-3: the AGENT rows pinned on top (Assistant first); a tap opens the
      *  agent's chat. */
     agentRows: List<Chats.AgentChatRow> = emptyList(),
     onOpenAgentRow: (Chats.AgentChatRow) -> Unit = {},
+    /** #FEED-191 (needs-you.json): the entry's count; 0 = no entry. */
+    needsYouCount: Int = 0,
+    onOpenNeedsYou: () -> Unit = {},
 ) {
     // #EXP-1384: the header's search pushes the phone search; the inbox
     // circle is this list's own (the specimen drives it).
@@ -312,8 +294,21 @@ fun ChatsContent(
     val archivedPage = view == Chats.ChatListView.Archived
     val selecting = selected.isNotEmpty()
     val rows = list.rows
-    // #EXP-1388: the Archived entry leads while chats are archived (filter All).
-    val archivedEntry = !archivedPage && list.archived > 0 && filter == Chats.ChatFilter.All
+    // #EXP-1388: the Archived entry stays while chats are archived: the first
+    // row under the `chats` header (the header shows while the entry does).
+    val archivedEntry = !archivedPage && list.archived > 0
+    val sections = remember(rows, archivedPage) {
+        if (archivedPage) emptyList() else Chats.chatSections(rows)
+    }
+    val chatRowItem: @Composable (Chats.ChatRow) -> Unit = { row ->
+        ChatRow(
+            row = row,
+            agent = agentOf(row.sessionId),
+            onClick = { if (selecting) onToggleSelect(row.sessionId) else onOpenChat(row.sessionId) },
+            onLongClick = { if (selecting) onToggleSelect(row.sessionId) else onLongPressChat(row) },
+            selected = if (selecting) row.sessionId in selected else null,
+        )
+    }
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag(SessionTree.ListCopy.TEST_ID_LIST),
         contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
@@ -325,60 +320,51 @@ fun ChatsContent(
                 PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
             }
         }
-        // #EXP-1461: THE story row (rings only); nothing = no item at all.
-        if (!archivedPage && !Stories.storyRow(bubbles.map { it.agent.agentId }, rings).isEmpty) {
-            item(key = "__bubbles__") {
-                AgentBubbles(
-                    bubbles = bubbles,
-                    onLongPress = onLongPressAgent,
-                    rings = rings,
-                    ringAvatar = ringAvatar,
-                    onOpenStory = onOpenStory,
-                )
+        // #FEED-191 (needs-you.json THE ENTRY): the first row; none = no row.
+        if (!archivedPage && needsYouCount > 0) {
+            item(key = "__needs_you__") {
+                NeedsYouEntryRow(count = needsYouCount, onClick = if (selecting) null else onOpenNeedsYou)
             }
         }
-        item(key = "__filters__") {
-            ChatFilterChips(selected = filter, counts = list.counts, onSelect = onSelectFilter)
-        }
-        // S-3: the pinned AGENTS section, its headers only while an agent
-        // row exists.
-        val sections = agentRows.isNotEmpty() && !archivedPage
-        if (sections) {
+        // S-3: the pinned AGENTS section, its header only while an agent row
+        // exists.
+        if (!archivedPage && agentRows.isNotEmpty()) {
             item(key = "__section_agents__") { ChatSectionHeader(Chats.Copy.SECTION_AGENTS) }
-            itemsIndexed(agentRows, key = { _, row -> "agent_${row.agentId}" }) { index, row ->
+            items(agentRows, key = { row -> "agent_${row.agentId}" }) { row ->
                 AgentChatRowItem(
                     row = row,
                     onClick = { if (!selecting) onOpenAgentRow(row) },
-                    divider = index < agentRows.lastIndex,
-                )
-            }
-            item(key = "__section_chats__") { ChatSectionHeader(Chats.Copy.SECTION_CHATS) }
-        }
-        if (archivedEntry) {
-            item(key = "__archived__") {
-                ChatArchivedRow(
-                    count = list.archived,
-                    onClick = if (selecting) null else onOpenArchived,
-                    divider = rows.isNotEmpty(),
+                    onLongClick = { if (!selecting) onLongPressAgent(row) },
                 )
             }
         }
-        if (rows.isEmpty() && !archivedEntry) {
+        if (rows.isEmpty() && !archivedEntry && (archivedPage || agentRows.isEmpty())) {
             item(key = "__empty__") {
                 Box(Modifier.fillMaxWidth().height(320.dp)) {
                     EmptyState(if (archivedPage) EmptyStateCopy.threads.copy(id = "archived", iconConcept = "ui-archive", title = Chats.Copy.ARCHIVED_EMPTY) else EmptyStateCopy.threads)
                 }
             }
         }
-        itemsIndexed(rows, key = { _, row -> "chat_${row.sessionId}" }) { index, row ->
-            ChatRow(
-                row = row,
-                agent = agentOf(row.sessionId),
-                onClick = { if (selecting) onToggleSelect(row.sessionId) else onOpenChat(row.sessionId) },
-                onLongClick = { if (selecting) onToggleSelect(row.sessionId) else onLongPressChat(row) },
-                divider = index < rows.lastIndex,
-                selected = if (selecting) row.sessionId in selected else null,
-            )
+        if (archivedPage) {
+            items(rows, key = { row -> "chat_${row.sessionId}" }) { row -> chatRowItem(row) }
+        } else {
+            sections.forEach { section ->
+                item(key = "__section_${section.key.wire}__") { ChatSectionHeader(section.key.title) }
+                if (section.key == Chats.ChatSectionKey.Chats && archivedEntry) {
+                    item(key = "__archived__") {
+                        ChatArchivedRow(count = list.archived, onClick = if (selecting) null else onOpenArchived)
+                    }
+                }
+                items(section.rows, key = { row -> "chat_${row.sessionId}" }) { row -> chatRowItem(row) }
+            }
+            // The Archived entry stays first under its header, also with no
+            // other chat in that section.
+            if (archivedEntry && sections.none { it.key == Chats.ChatSectionKey.Chats }) {
+                item(key = "__section_chats__") { ChatSectionHeader(Chats.Copy.SECTION_CHATS) }
+                item(key = "__archived__") {
+                    ChatArchivedRow(count = list.archived, onClick = if (selecting) null else onOpenArchived)
+                }
+            }
         }
     }
 }

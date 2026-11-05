@@ -908,11 +908,19 @@
           "value": "needs-you"
         }
       },
+      "ios": {
+        "shot": "sg_needs-you",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_needs-you",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "The sidebar's Needs you entry, right after Agent, while a row exists. The DEV-ONLY `?dev=needs-you` on the Agent route draws the specimen (`cases[1]` + the phone entry row).",
         "web-mobile": "Inherits web: pushed from the Chats list's first row, the page header with the back control.",
-        "ios": "The specimen exists (`-uiTestingStyleguide needs-you`, ThreadCardsScreen); its shot joins StyleguideScreenshots together with Android's twin (the styleguide lane is name-identical).",
-        "android": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshotsTest yet.",
+        "ios": "The capture-only specimen (`-uiTestingStyleguide needs-you`, ThreadCardsScreen), shot sg_needs-you.",
+        "android": "The capture-only specimen (ResultsNeedsYouSpecimens), shot sg_needs-you.",
         "desktop": "The rail's Needs you entry, right after Agent, while a row exists: `EXP_DEV_SCREEN=needs-you`, the page in the content card. The twin = `styleguide:needs-you`."
       }
     },
@@ -7924,7 +7932,7 @@
       },
       "notes": {
         "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it results with the board's web + iOS shots.",
-        "ios": "The LIVE walk: APP-14's thread from Chats, then its last strip tab (the shot keeps its name `sg_thread-stories` until Android renames it too: the styleguide lane is name-identical).",
+        "ios": "The LIVE walk: APP-14's thread from Chats, then its last strip tab (the shot keeps its name `sg_thread-stories` until the final cleanup renames it ×2: the styleguide lane is name-identical).",
         "android": "See ios.",
         "desktop": "APP-14's thread opened on its last strip tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=results`.",
         "web-mobile": "Inherits web: the phone pager's last page (the icon-only Results tab)."
@@ -7952,11 +7960,19 @@
         },
         "anchorDelayMs": 1500
       },
+      "ios": {
+        "shot": "sg_results-tab",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_results-tab",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "The DEV-ONLY `?dev=results-tab` on the Agent route: `@exp/ui` `ResultsTabSpecimen` = results-tab.json `tab.specimen`.",
         "web-mobile": "Inherits web.",
-        "ios": "The specimen exists (`-uiTestingStyleguide results-tab`, ThreadCardsScreen); its shot joins StyleguideScreenshots together with Android's twin (the styleguide lane is name-identical).",
-        "android": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshotsTest yet.",
+        "ios": "The capture-only specimen (`-uiTestingStyleguide results-tab`, ThreadCardsScreen), shot sg_results-tab.",
+        "android": "The capture-only specimen (ResultsNeedsYouSpecimens), shot sg_results-tab.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:results-tab`: the IDE styleguide entry drawn full-window."
       }
     },
