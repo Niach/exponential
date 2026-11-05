@@ -956,7 +956,7 @@
       ]
     },
     {
-      "name": "#FEED-185: a keyed tree refuses plaintext even from its own agent; sealed text lands, a keyless tree still takes plaintext",
+      "name": "#FEED-185: a keyed tree refuses plaintext sends even from its own agent; sealed text lands, a keyless tree still takes plaintext, and an end without a summary ends",
       "given": {
         "sessions": [
           {
@@ -1067,21 +1067,6 @@
         },
         {
           "event": {
-            "kind": "session.end",
-            "at": 63000,
-            "data": {
-              "sessionId": "c1",
-              "summary": "Plain closing words."
-            }
-          },
-          "failure": {
-            "code": "invalid",
-            "message": "This chat is end-to-end encrypted: its messages must be encrypted too",
-            "retryable": false
-          }
-        },
-        {
-          "event": {
             "kind": "send.start",
             "at": 64000,
             "data": {
@@ -1140,6 +1125,150 @@
           },
           "c1": {
             "status": "ended"
+          }
+        }
+      }
+    },
+    {
+      "name": "#FEED-192: ending never needs an encrypted body: a plain summary into a keyed tree is dropped, never stored, and the end succeeds; a tree still in clear keeps it",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "sealEpoch": 1,
+            "status": "idle"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "r2"
+          },
+          {
+            "id": "c2",
+            "parentId": "r2"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "summary": "Plain closing words."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r1",
+              "authorKind": "agent",
+              "authorSessionId": "c1",
+              "body": "Ended without a summary.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c1",
+                "summary": "Ended without a summary.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c1"
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 61000,
+            "data": {
+              "sessionId": "c2",
+              "summary": "Plain closing words."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m3",
+              "to": "c2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "event",
+                "event": "session_ended",
+                "sessionId": "c2"
+              },
+              "sealed": false,
+              "waking": false
+            },
+            {
+              "kind": "post",
+              "messageId": "m4",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "c2",
+              "body": "Plain closing words.",
+              "card": {
+                "kind": "report",
+                "sessionId": "c2",
+                "summary": "Plain closing words.",
+                "final": true
+              },
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "kill",
+              "sessionId": "c2"
+            }
+          ],
+          "result": {
+            "sessionId": "c2",
+            "endedIds": [
+              "c2"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "ended"
+          },
+          "c2": {
+            "status": "ended"
+          },
+          "r2": {
+            "sealEpoch": null
           }
         }
       }

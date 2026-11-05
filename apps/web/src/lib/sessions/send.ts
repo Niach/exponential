@@ -429,6 +429,13 @@ export function writerSeals(version: string | null | undefined): boolean {
   return true
 }
 
+/** The tree has a key (`seal_epoch`). A tree started in clear has none until
+ *  a client keys it: it is sealed from then on, and only then. */
+export async function treeIsKeyed(tx: Pick<Db, `select`>, rootId: string): Promise<boolean> {
+  const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
+  return root?.sealEpoch != null
+}
+
 /** EXP-1472: a keyed tree takes no plaintext content from a writer (server
  *  lines are not writers'). Every client seals for a keyed root; a body that
  *  arrives in clear is a writer that failed open, refused before it lands.

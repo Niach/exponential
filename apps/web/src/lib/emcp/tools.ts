@@ -169,7 +169,7 @@ import {
 } from "@/lib/sessions/access"
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { markTreesReadBy } from "@/lib/sessions/reads"
-import { endSession, stopSession } from "@/lib/sessions/lifecycle"
+import { endSession, stopSession, SUMMARY_DROPPED_WARNING } from "@/lib/sessions/lifecycle"
 import { AGENT_CONVERSATION_LINK_MESSAGE, linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { escalateCard } from "@/lib/sessions/escalate"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
@@ -2696,7 +2696,7 @@ export function registerExponentialTools(
             throw new Error(`copies[].sealedReport must be an encrypted report card.`)
           }
         }
-        await endSession({
+        const ended = await endSession({
           userId: user.id,
           sessionId: target,
           summary: summary ?? null,
@@ -2707,7 +2707,12 @@ export function registerExponentialTools(
               }
             : {}),
         })
-        return ok({ ok: true, id: target })
+        return ok({
+          ok: true,
+          id: target,
+          // #FEED-192: it ended; only the words stayed out of the encrypted chat.
+          ...(ended.summaryDropped ? { warning: SUMMARY_DROPPED_WARNING } : {}),
+        })
       } catch (e) {
         return err(e)
       }

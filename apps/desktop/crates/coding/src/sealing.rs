@@ -381,6 +381,9 @@ static FALLBACK: std::sync::OnceLock<Keyring> = std::sync::OnceLock::new();
 /// launches still route their agents through the MCP gateway.
 static EXPECTED: AtomicBool = AtomicBool::new(false);
 
+/// #FEED-192: when the key holder started coming, while it is.
+static EXPECTED_SINCE: RwLock<Option<Instant>> = RwLock::new(None);
+
 /// Moves on every install / uninstall: a swapped keyring is a change even
 /// when its own counter reads the same as the one before (a keyring loaded
 /// from disk starts at 0, like the empty fallback).
@@ -438,6 +441,17 @@ pub fn service() -> Option<Arc<dyn SealService>> {
 /// install's eNet node starts, cleared when it stops or can never register.
 pub fn expect_service(expected: bool) {
     EXPECTED.store(expected, Ordering::SeqCst);
+    *write(&EXPECTED_SINCE) = expected.then(Instant::now);
+}
+
+/// #FEED-192: this process has no key holder, and none is about to arrive
+/// (one still coming after [`SERVICE_WAIT`] counts as missing: an install
+/// that cannot register keeps "coming"). What the doctor reports.
+pub fn key_holder_missing() -> bool {
+    if service().is_some() {
+        return false;
+    }
+    read(&EXPECTED_SINCE).map_or(true, |since| since.elapsed() >= SERVICE_WAIT)
 }
 
 /// A seal service is installed, or one is coming ([`expect_service`]).

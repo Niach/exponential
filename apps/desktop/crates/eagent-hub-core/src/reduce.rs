@@ -1411,18 +1411,15 @@ fn step(ctx: &mut Ctx, event: &HubEvent, data: &Value) -> Step<StepResult> {
         }
         "session.end" => {
             let top = session(&ctx.state, data_str(data, "sessionId"))?;
-            // #FEED-185: a plaintext summary into a keyed tree is refused like a send; an end without one still ends.
+            // #FEED-192: ending never needs an encrypted body: a plaintext summary into a keyed tree is dropped, never stored.
             let summary_sealed = data.get("summarySealed") == Some(&Value::Bool(true));
             let plain_summary = !js::trim(data_str(data, "summary").unwrap_or("")).is_empty() && !summary_sealed;
             let keyed = ctx.state.sessions.get(&top.root_id).is_some_and(|root| root.seal_epoch.is_some());
-            if plain_summary && is_live(&top) && keyed {
-                return refuse(ErrorCode::Invalid, text(&["plainInSealedTree"]));
-            }
             let subtree = live_subtree(&ctx.state, &top);
             let named = Named {
                 id: &top.id,
-                summary: data_str(data, "summary"),
-                summary_sealed: data.get("summarySealed") == Some(&Value::Bool(true)),
+                summary: if plain_summary && keyed { None } else { data_str(data, "summary") },
+                summary_sealed,
             };
             let ended_ids = end_rows(ctx, &subtree, Some(named));
             Ok(StepResult { ended_ids: Some(ended_ids), ..StepResult::session(&top.id) })

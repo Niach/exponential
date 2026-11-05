@@ -409,8 +409,17 @@ impl SealingTransform {
         let sealed = match self.seal_card(&root, &report) {
             Ok(sealed) => sealed,
             Err(err) => {
-                // #FEED-185: an end needs no summary: it can still end.
-                unsealed_into_or(&root, "an end report", &err, "End without a summary (or restart, then end again)")?;
+                // #FEED-192: ending never needs encryption: with no key
+                // holder, a keyed tree still ends, its summary stays here.
+                if err == SealError::NoService && sealing::tree_keyed(&root) {
+                    log::warn!("gateway: an end report for {root} dropped its summary: no key holder runs");
+                    let mut bare = args;
+                    if let Some(obj) = bare.as_object_mut() {
+                        obj.remove("summary");
+                    }
+                    return Ok(bare);
+                }
+                unsealed("an end report", &err)?;
                 return Ok(args);
             }
         };
@@ -759,13 +768,8 @@ fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
 /// clear the server would refuse it with an "update" hint the current
 /// release does not need).
 fn unsealed_into(root: &str, what: &str, err: &SealError) -> Result<(), String> {
-    unsealed_into_or(root, what, err, "")
-}
-
-/// [`unsealed_into`] with what else the agent can do (`or`, a sentence).
-fn unsealed_into_or(root: &str, what: &str, err: &SealError, or: &str) -> Result<(), String> {
     if *err == SealError::NoService && sealing::tree_keyed(root) {
-        return Err(no_holder(root, what, or));
+        return Err(no_holder(root, what, ""));
     }
     unsealed(what, err)
 }
@@ -2476,10 +2480,10 @@ mod tests {
             assert!(err.contains("key holder is not running") && err.contains("restart"), "{err}");
             assert!(!err.contains("update"), "{err}");
         }
-        // An end summary is refused the same way, naming the way out: end
-        // without one (an end with no summary goes as given).
-        let err = transform.request(SESSIONS_TOOL, json!({ "op": "end", "summary": "done" })).unwrap_err();
-        assert!(err.contains("key holder is not running") && err.contains("End without a summary"), "{err}");
+        // #FEED-192: an end still goes, its summary stays on this device
+        // (an end with no summary goes as given).
+        let ended = transform.request(SESSIONS_TOOL, json!({ "op": "end", "summary": "done" })).unwrap();
+        assert_eq!(ended, json!({ "op": "end" }));
         let bare = transform.request(SESSIONS_TOOL, json!({ "op": "end" })).unwrap();
         assert_eq!(bare, json!({ "op": "end" }));
         let other = SealingTransform::new("plain-185", "plain-185", None);

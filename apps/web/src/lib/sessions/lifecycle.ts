@@ -12,7 +12,7 @@ import { busReport, closeAskMirrorsOf, forgetWatched, type ListenerCopy } from "
 import { isSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
-import { assertNotPlainInSealedTree } from "@/lib/sessions/send"
+import { treeIsKeyed } from "@/lib/sessions/send"
 import { hostedByCondition, hostRowCondition, resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
@@ -252,6 +252,9 @@ function checkSealedReport(
  *  root ends its tree deepest first, every child reporting into its parent
  *  before it goes. `summary` = the session's closing agent message (MCP
  *  `sessions_end`). */
+/** #FEED-192: the `warning` of an end whose plaintext summary was dropped. */
+export const SUMMARY_DROPPED_WARNING = `Ended. This chat is end-to-end encrypted, so the summary sent in clear was not stored.`
+
 export async function endSession(args: {
   userId: string
   sessionId: string
@@ -261,7 +264,7 @@ export async function endSession(args: {
    *  sealed to each listening tree (`sessions.listeners`). */
   sealedReport?: Record<string, unknown> | null
   reportCopies?: ReadonlyArray<{ rootId: string; card: Record<string, unknown> }>
-}): Promise<{ txid: number; endedIds: string[] }> {
+}): Promise<{ txid: number; endedIds: string[]; summaryDropped: boolean }> {
   const sealedReport = args.sealedReport ? checkSealedReport(args.sealedReport, args.reportCopies) : null
   const session = await loadSessionForUser(args.userId, args.sessionId)
   await assertCanSteer(args.userId, session)
@@ -274,18 +277,20 @@ export async function endSession(args: {
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     // EXP-1458: a sealed tree's closing words ride the sealed report only.
-    // #FEED-185: a plaintext summary into a keyed tree is refused like a
-    // send (it would sit on the server in clear); an end without one ends.
-    if (!sealedReport && args.summary?.trim() && session.status !== `ended`) {
-      if (!isSealedBody(args.summary.trim())) await assertNotPlainInSealedTree(tx, session.rootId, session.id)
-      await postAgentMessage(tx, session, args.summary.trim())
-    }
+    // #FEED-192: ending never needs an encrypted body: a plaintext summary
+    // into a keyed tree is dropped (it must not sit on the server in clear)
+    // and the session still ends, whoever asked, from wherever.
+    const closing = args.summary?.trim()
+    const live = session.status !== `ended`
+    const summaryDropped =
+      !sealedReport && live && !!closing && !isSealedBody(closing) && (await treeIsKeyed(tx, session.rootId))
+    if (!sealedReport && live && closing && !summaryDropped) await postAgentMessage(tx, session, closing)
     const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session), {
       id: session.id,
-      summary: args.summary,
+      summary: summaryDropped ? null : args.summary,
       sealedReport,
     })
-    return { txid, endedIds }
+    return { txid, endedIds, summaryDropped }
   })
   await relayKillSessionsBestEffort(result.endedIds)
   if (result.endedIds.length > 0) yoloEdge(session.rootId)

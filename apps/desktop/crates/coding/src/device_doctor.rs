@@ -36,6 +36,8 @@ pub const KEY_DISK: &str = "disk";
 pub const KEY_WORKTREE_PREFIX: &str = "worktree-";
 /// NEW-57: the voice group's desktop audio row (see [`add_desktop_audio`]).
 pub const KEY_DESKTOP_AUDIO: &str = "desktop_audio";
+/// #FEED-192: the storage row of a key holder that is not running.
+pub const KEY_KEY_HOLDER: &str = "key_holder";
 /// NEW-55: the speech row when the voice is loaded.
 pub const READY: &str = "Ready";
 /// NEW-55: the speech row without a usable GPU (grey, no pill).
@@ -527,6 +529,30 @@ pub fn add_storage(
     }
 }
 
+/// #FEED-192: the row of a key holder that is not running (a warning, no
+/// pill, never a blocker); a running holder adds none.
+pub fn add_key_holder(doctor: &mut DeviceDoctor, running: bool) {
+    if running {
+        return;
+    }
+    let mut row = item(KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action)
+        .detail("Key holder not running · restart while signed in and online".to_string());
+    row.label = Some("Encryption keys".to_string());
+    doctor.items.push(row);
+}
+
+/// #FEED-192: present while the daemon's key holder is not running. The
+/// holder lives in the daemon's process, so `exponential doctor` reads this.
+pub fn key_holder_marker(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join("cli-key-holder-missing")
+}
+
+/// Keeps [`key_holder_marker`] in step with the daemon's holder (best effort).
+pub fn record_key_holder(data_dir: &Path, missing: bool) {
+    let marker = key_holder_marker(data_dir);
+    let _ = if missing { std::fs::write(&marker, "") } else { std::fs::remove_file(&marker) };
+}
+
 /// The fixture's `diskFree` template.
 pub fn disk_free(size: &str) -> String {
     format!("{size} free")
@@ -764,8 +790,8 @@ mod tests {
     fn case_storage(index: usize) -> Option<(u64, Vec<crate::worktree_lifecycle::KeptRow>)> {
         use crate::worktree_lifecycle::{KeptReason, KeptRow};
         match index {
-            11 => Some((214_300_000_000, Vec::new())),
-            12 => Some((
+            11 | 12 => Some((214_300_000_000, Vec::new())),
+            13 => Some((
                 6_240_000_000,
                 vec![
                     KeptRow { label: "exp-session-9497089a".into(), reason: KeptReason::Uncommitted },
@@ -843,7 +869,7 @@ mod tests {
             // NEW-78: the first case's machine, plus its microphone row.
             6..=10 => case_input(0),
             // EXP-1375: the first case's machine, plus its storage group.
-            11 | 12 => case_input(0),
+            11..=13 => case_input(0),
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -852,7 +878,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 13, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 14, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -866,6 +892,7 @@ mod tests {
             if let Some((free, kept)) = case_storage(index) {
                 add_storage(&mut doctor, Some(free), &kept);
             }
+            add_key_holder(&mut doctor, index != 12);
             assert_eq!(
                 low_disk(&doctor),
                 case["composerWarning"].as_str() == Some(KEY_DISK),
@@ -946,6 +973,15 @@ mod tests {
             assert_eq!(copy[key].as_str().unwrap(), text, "{key}");
         }
         assert_eq!(disk_free("{size}"), copy["diskFree"].as_str().unwrap());
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_key_holder(&mut doctor, true);
+        assert!(doctor.items.is_empty(), "a running holder adds no row");
+        add_key_holder(&mut doctor, false);
+        let row = &doctor.items[0];
+        assert_eq!((row.key.as_str(), row.group, row.state), (KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action));
+        assert_eq!(row.action, None);
+        assert_eq!(row.label.as_deref(), copy["keyHolderLabel"].as_str());
+        assert_eq!(row.detail.as_deref(), copy["keyHolderNotRunning"].as_str());
         assert_eq!(
             needs_version("{version}", (0, 0, 0)).replace("0.0.0", "{min}"),
             copy["needsVersion"].as_str().unwrap()
