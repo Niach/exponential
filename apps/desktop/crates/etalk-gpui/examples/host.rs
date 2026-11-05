@@ -178,5 +178,5 @@ fn main() {
     });
     let host: Box<dyn TalkHost> = Box::new(host);
     let brand = host.brand();
-    println!("{} hosts eTalk on {} (data in {})", brand.name, host.device_id(), host.data_dir().display());
+    println!("{} hosts Voice on {} (data in {})", brand.name, host.device_id(), host.data_dir().display());
 }

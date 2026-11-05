@@ -64,7 +64,7 @@ export function ExponentialUiTwin({
     <div data-slot="exponential-ui-twin" className="flex flex-col gap-6">
       {children}
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium text-muted-foreground">{`Exponential UI · ${name}`}</span>
+        <span className="text-xs font-medium text-muted-foreground">{`genUI · ${name}`}</span>
         <ExponentialUiSpecimen id={id} cases={cases} />
       </div>
     </div>

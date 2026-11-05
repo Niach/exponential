@@ -88,7 +88,7 @@ export function validatePackageScreens(pkg: Record<string, unknown>): PackageIss
     else seen.add(s.template)
     if (typeof s.title !== `string` || !s.title.trim()) issues.push({ path: `${at}/title`, message: `title is a required string` })
     else if ([...s.title].length > MAX_SCREEN_TITLE) issues.push({ path: `${at}/title`, message: `title is at most ${MAX_SCREEN_TITLE} characters` })
-    if (s.icon !== undefined && (typeof s.icon !== `string` || !ICONS.has(s.icon))) issues.push({ path: `${at}/icon`, message: `icon ${typeof s.icon === `string` ? s.icon : JSON.stringify(s.icon)} is not an Exponential UI icon` })
+    if (s.icon !== undefined && (typeof s.icon !== `string` || !ICONS.has(s.icon))) issues.push({ path: `${at}/icon`, message: `icon ${typeof s.icon === `string` ? s.icon : JSON.stringify(s.icon)} is not a genUI icon` })
     if (s.params !== undefined) {
       if (!isObject(s.params)) issues.push({ path: `${at}/params`, message: `params is an object of strings` })
       else for (const k of Object.keys(s.params).sort()) if (typeof s.params[k] !== `string`) issues.push({ path: `${at}/params/${escape(k)}`, message: `params.${k} is a string` })

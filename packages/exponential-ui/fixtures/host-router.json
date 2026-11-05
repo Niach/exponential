@@ -4296,7 +4296,7 @@
         },
         {
           "path": "/screens/0/icon",
-          "message": "icon not-an-icon is not an Exponential UI icon"
+          "message": "icon not-an-icon is not a genUI icon"
         },
         {
           "path": "/screens/1/template",

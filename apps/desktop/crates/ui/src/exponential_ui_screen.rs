@@ -417,7 +417,7 @@ impl Render for ExponentialUiKitchenSink {
                         gpui_component::h_flex()
                             .items_center()
                             .gap_1()
-                            .child("Exponential UI")
+                            .child("genUI")
                             .children(THEME_IDS.iter().map(|id| self.theme_pill(id, cx)))
                             .child(self.mode_pill(cx)),
                     )

@@ -382,9 +382,9 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Home => "Home".into(),
         Screen::Threads => domain::session_tree::THREADS_LIST.copy.title.clone().into(),
         Screen::AppRun { app } => crate::app_screen::app_tab_title(app, cx),
-        Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
+        Screen::ExponentialUiKitchenSink => "genUI".into(),
         Screen::App { app } => crate::app_screen::app_tab_title(app, cx),
-        Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
+        Screen::ExponentialUiSpecimen { .. } => "genUI".into(),
         Screen::StyleguideEntry { .. } => "Styleguide".into(),
     }
 }

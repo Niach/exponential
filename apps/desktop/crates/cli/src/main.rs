@@ -95,7 +95,7 @@ Commands:
   sessions show|log|message|stop|end <id> Inspect, tail (--follow), message, interrupt or end one
   mcp list|connect|set-secret|disconnect  Team MCP servers + your connection to each
   motion import|compile|decompile|check|render <file>
-                                          eUI Motion: convert, validate and preview animations
+                                          Motion: convert, validate and preview animations
   daemon [--foreground] [--label <name>]  Run the device daemon (runs the sessions queued here)
   daemon install|uninstall|status         Manage the systemd/launchd service
   update [--auto on|off]                  Self-update now, or switch auto-update

@@ -470,7 +470,7 @@ impl InstallNode {
     ///
     /// [`adopt`]: coding::sealing::SealService::adopt
     pub fn new_root_seal(&self, target_device: Option<&str>) -> Result<coding::sealing::NewRootSeal, String> {
-        let node = self.node().ok_or("eNet is not running")?;
+        let node = self.node().ok_or("P2P is not running")?;
         let install_id = self.install_id().ok_or("this install is not registered yet")?;
         let push = PushKeypair::derive(node.identity());
         let readers: Vec<(String, String)> = lock(&self.inner.entries)
