@@ -230,7 +230,17 @@ fn back_link(screen: Screen, title: String, cx: &App) -> AnyElement {
     }, cx)
 }
 
-/// THE back link row's look (#EXP-1388: the Archived page's `← Chats` too).
+/// #FEED-191 (chats.json THE WAY BACK): the Back of a chat or thread a session
+/// link opened: THE back link row naming the screen it left, popping the
+/// history (web `‹`).
+pub(crate) fn session_link_back(window: &Window, cx: &App) -> Option<AnyElement> {
+    let previous = crate::navigation::session_back_screen(window, cx)?;
+    let title = crate::navigation::screen_title(&previous, cx).to_string();
+    Some(back_link_row("thread-back-link", title, |window, cx| crate::navigation::go_back(window, cx), cx))
+}
+
+/// THE back link row's look (#EXP-1388: the Archived page's `← Chats` too); a
+/// name not synced yet reads `Back`, never a bare arrow.
 pub(crate) fn back_link_row(
     id: &'static str,
     title: String,
@@ -239,8 +249,10 @@ pub(crate) fn back_link_row(
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let hover = cx.theme().foreground;
+    let title = if title.is_empty() { "Back".to_string() } else { title };
     h_flex()
         .id(id)
+        .debug_selector(move || id.to_string())
         .min_w_0()
         .gap_1p5()
         .items_center()
@@ -363,13 +375,21 @@ impl SessionScreenView {
     /// EXP-1294 — the header: the back link to the thread over the
     /// session's title (the agent's mark beside it). S-3: no Stop pill (the
     /// composer's stop-turn is the one stop).
-    fn render_header(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_header(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let can_go_back = crate::navigation::window_can_go_back(window, cx);
         let theme = cx.theme();
         let now_ms = crate::session_data::now_ms();
         let card = crate::session_data::session_card_of(&self.session_id, now_ms, cx);
         let row = self.inner.read(cx).session_row().cloned();
+        // chats.json THE WAY BACK: a root not synced yet has no target to name:
+        // the history's Back stands in.
         let back = back_target(&self.session_id, cx)
-            .map(|(screen, title)| back_link(screen, title, cx));
+            .map(|(screen, title)| back_link(screen, title, cx))
+            .or_else(|| {
+                can_go_back.then(|| {
+                    back_link_row("session-back-link", String::new(), |window, cx| crate::navigation::go_back(window, cx), cx)
+                })
+            });
         let mark = row.as_ref().map(|row| {
             let state = domain::session_tree::session_state(row);
             crate::run_rows::run_mark(crate::run_rows::run_agent(row.cli.as_deref()), state, cx)
@@ -426,10 +446,10 @@ impl Focusable for SessionScreenView {
 }
 
 impl Render for SessionScreenView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // EXP-1323: the session on screen is read (its own agent replies).
         crate::session_data::mark_read_if_unread(&self.session_id, false, cx);
-        let header = self.render_header(cx);
+        let header = self.render_header(window, cx);
         // One column — the header, then the transcript, whose own footer
         // carries the composer (and the usage readout).
         v_flex()
@@ -450,7 +470,65 @@ impl Render for SessionScreenView {
 
 #[cfg(test)]
 mod tests {
-    use super::{feed_source_for, SessionFeed};
+    use super::{feed_source_for, SessionFeed, SessionScreenView};
+    use gpui::AppContext as _;
+    use sync::{ShapeRow as _, Store};
+
+    /// chats.json THE WAY BACK: a child of an agent's chat opens on this screen,
+    /// and its header always holds the way back: the chat by name, `Back` with
+    /// the agent not synced; with no root at all, the history's.
+    #[gpui::test]
+    fn a_child_of_an_agent_chat_always_has_a_back_link(cx: &mut gpui::TestAppContext) {
+        const BACK: &str = "session-back-link";
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let session = |id: &str, parent: Option<&str>, agent: Option<&str>| -> domain::rows::SessionRow {
+                serde_json::from_value(serde_json::json!({
+                    "id": id,
+                    "team_id": "t1",
+                    "root_id": "chat",
+                    "parent_id": parent,
+                    "agent_id": agent,
+                    "status": "idle",
+                    "shared": true,
+                    "created_at": "2026-11-04T09:00:00.000Z",
+                    "updated_at": "2026-11-04T09:00:00.000Z",
+                }))
+                .unwrap()
+            };
+            collections.sessions.update(cx, |collection, cx| {
+                for row in [session("chat", None, Some("ag1")), session("chat-child", Some("chat"), None)] {
+                    collection.seed(row.key(), row);
+                }
+                cx.notify();
+            });
+        });
+        let draw = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..3 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+        let (_child, vcx) = cx.add_window_view(|window, cx| SessionScreenView::new("chat-child".to_string(), window, cx));
+        draw(vcx);
+        assert!(vcx.debug_bounds(BACK).is_some(), "the way back to the chat");
+
+        let (_missing, vcx) = cx.add_window_view(|window, cx| SessionScreenView::new("unsynced".to_string(), window, cx));
+        draw(vcx);
+        assert!(vcx.debug_bounds(BACK).is_none(), "nowhere to go yet");
+        vcx.update(|window, cx| {
+            crate::navigation::nav_for_window(window, cx);
+            crate::navigation::navigate(window, cx, crate::navigation::Screen::NeedsYou);
+            crate::navigation::navigate(window, cx, crate::navigation::Screen::Session { session_id: "unsynced".into() });
+        });
+        draw(vcx);
+        assert!(vcx.debug_bounds(BACK).is_some(), "the history's Back");
+    }
 
     /// The source decision in one table: a live local engine always wins, a
     /// replay needs BOTH a transcript on this machine and an ended run, and

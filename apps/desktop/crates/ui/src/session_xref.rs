@@ -29,8 +29,7 @@ pub(crate) fn xref_id(key: &str) -> SharedString {
 /// conversation its agent page, any other session its view), pushed on the
 /// back stack.
 pub(crate) fn open_xref(session_id: &str, window: &mut Window, cx: &mut App) {
-    let screen = crate::navigation::session_screen_for(session_id, cx);
-    crate::navigation::navigate(window, cx, screen);
+    crate::navigation::open_session_link(session_id, window, cx);
 }
 
 /// The agent's mark: its avatar when `agent_id` names a synced definition

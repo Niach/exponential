@@ -231,6 +231,10 @@ pub(crate) enum PendingOrigin {
     LiveRail,
 }
 
+/// How many session links a window remembers ([`Navigation::session_back`]);
+/// web's `BACK_STACK_CAP`.
+const SESSION_LINKS_CAP: usize = 10;
+
 /// EXP-1294: the screen a `sessions` row opens as — a thread root its
 /// thread, an agent root its channel, any other session (and a row that has
 /// not synced yet) its session view, which shares its root's tab.
@@ -286,6 +290,37 @@ pub(crate) fn session_screen_with(
         }
         | SessionTarget::Session { session_id } => Screen::Session { session_id },
     }
+}
+
+/// #FEED-191: a session link (a card's or an xref's open, S-3): opens
+/// `session_id` as its screen, pushed on the history, and the screen it opens
+/// wears the Back to this one. A session of the thread on show opens in place
+/// and wears none: its strip returns.
+pub(crate) fn open_session_link(session_id: &str, window: &Window, cx: &mut App) {
+    let screen = session_screen_for(session_id, cx);
+    let here_thread = |here: &Screen, cx: &App| match here {
+        Screen::Thread { session_id } | Screen::Session { session_id } => crate::screens::in_place_root(session_id, cx),
+        _ => None,
+    };
+    if let Some(nav) = nav_for_window_readonly(window, cx) {
+        let here = nav.read(cx).screen.clone();
+        let target_thread = crate::screens::in_place_root(session_id, cx);
+        if let Some(here) = here.filter(|here| target_thread.is_none() || here_thread(here, cx) != target_thread) {
+            let to = screen.clone();
+            nav.update(cx, |nav, _| nav.note_session_link(here, to));
+        }
+    }
+    navigate(window, cx, screen);
+}
+
+/// [`Navigation::session_back`] of this window.
+pub(crate) fn session_back_screen(window: &Window, cx: &App) -> Option<Screen> {
+    nav_for_window_readonly(window, cx)?.read(cx).session_back().cloned()
+}
+
+/// [`Navigation::can_go_back`] of this window.
+pub(crate) fn window_can_go_back(window: &Window, cx: &App) -> bool {
+    nav_for_window_readonly(window, cx).is_some_and(|nav| nav.read(cx).can_go_back())
 }
 
 /// Go to `screen` the way BACK goes there: when it is already the top of the
@@ -558,6 +593,10 @@ pub struct Navigation {
     /// forward button, `cmd-]`) can re-enter it. Cleared by every REAL
     /// navigation — the browser rule.
     forward_stack: Vec<Screen>,
+    /// #FEED-191 (chats.json THE WAY BACK): the session links this window
+    /// followed (`from`, `to`): the screen a link opened wears the Back
+    /// ([`Navigation::session_back`]). The newest [`SESSION_LINKS_CAP`] kept.
+    session_links: Vec<(Screen, Screen)>,
     /// The explicitly selected board (the top-bar picker) — the primary
     /// scope for [`active_board_id`] so board-scoped surfaces stay populated
     /// on every screen (the IDE's trunk surfaces follow `repo_picks`).
@@ -603,6 +642,7 @@ impl Navigation {
             screen,
             back_stack: Vec::new(),
             forward_stack: Vec::new(),
+            session_links: Vec::new(),
             // DEV-ONLY `EXP_DEV_BOARD_ID=<board uuid>` (EXP-642): pre-select
             // the board the first render opens — `EXP_DEV_BOARD=1` is the
             // (unrelated) debug-board switch, hence the `_ID` suffix. A blank
@@ -639,6 +679,27 @@ impl Navigation {
     /// Whether [`go_back`] has anywhere to go.
     pub fn can_go_back(&self) -> bool {
         !self.back_stack.is_empty()
+    }
+
+    /// #FEED-191: remember that a session link leads `from` → `to`.
+    fn note_session_link(&mut self, from: Screen, to: Screen) {
+        self.session_links.retain(|link| link.0 != from || link.1 != to);
+        self.session_links.push((from, to));
+        if self.session_links.len() > SESSION_LINKS_CAP {
+            self.session_links.remove(0);
+        }
+    }
+
+    /// #FEED-191 (chats.json THE WAY BACK): where the Back of the screen on
+    /// show goes: the previous screen, when a session link led from it to this
+    /// one. A screen reached any other way (the rail, a tab) wears none.
+    pub(crate) fn session_back(&self) -> Option<&Screen> {
+        let previous = self.previous_screen()?;
+        let current = self.screen.as_ref()?;
+        self.session_links
+            .iter()
+            .any(|(from, to)| from == previous && to == current)
+            .then_some(previous)
     }
 
     /// Whether [`go_forward`] has anywhere to go.
@@ -2211,6 +2272,44 @@ mod tests {
         assert_eq!(open("s-thread"), Screen::Thread { session_id: "s-thread".to_string() });
         assert_eq!(open("s-child"), session("s-child"));
         assert_eq!(open("s-missing"), session("s-missing"));
+    }
+
+    /// #FEED-191 (chats.json THE WAY BACK): a link's screen wears the Back while
+    /// the screen it left is the history's previous one, through a pop and a
+    /// forward too; the same screens reached another way wear none.
+    #[test]
+    fn a_session_link_gives_its_screen_the_back() {
+        let chat = Screen::Agent { agent_id: "a1".into() };
+        let thread = Screen::Thread { session_id: "t1".into() };
+        let other = Screen::Thread { session_id: "t2".into() };
+        let mut nav = Navigation::new();
+        nav.screen = Some(chat.clone());
+        assert_eq!(nav.session_back(), None);
+        // The rail: history, but no Back.
+        nav.advance(other.clone(), PendingOrigin::Rail, None);
+        assert_eq!(nav.session_back(), None);
+        nav.step_back();
+        // The card's open.
+        nav.note_session_link(chat.clone(), thread.clone());
+        nav.advance(thread.clone(), PendingOrigin::Derive, None);
+        assert_eq!(nav.session_back(), Some(&chat));
+        // Popped: the chat has none; forward again: back on.
+        nav.step_back();
+        assert_eq!(nav.session_back(), None);
+        nav.step_forward();
+        assert_eq!(nav.session_back(), Some(&chat));
+        // A chain pops link by link.
+        nav.note_session_link(thread.clone(), other.clone());
+        nav.advance(other.clone(), PendingOrigin::Derive, None);
+        assert_eq!(nav.session_back(), Some(&thread));
+        nav.step_back();
+        assert_eq!(nav.session_back(), Some(&chat));
+        // The cap keeps the newest; a repeat refreshes, never doubles.
+        for ix in 0..SESSION_LINKS_CAP * 2 {
+            nav.note_session_link(chat.clone(), Screen::Thread { session_id: format!("x{ix}") });
+        }
+        nav.note_session_link(chat.clone(), Screen::Thread { session_id: format!("x{}", SESSION_LINKS_CAP * 2 - 1) });
+        assert_eq!(nav.session_links.len(), SESSION_LINKS_CAP);
     }
 
     /// EXP-746: a capture run (and a debug session) reaches ONE coding

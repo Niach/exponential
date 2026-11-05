@@ -384,10 +384,10 @@ pub(crate) fn unqueue_message(message_id: String, cx: &mut App) {
 /// ([`crate::navigation::session_screen_for`]): the viewer's own agent
 /// conversation root = the agent's page, a thread root = its thread, a
 /// thread's child = in its thread (its session view on the thread's tab),
-/// anything else under an agent = its own session screen.
+/// anything else under an agent = its own session screen. #FEED-191: what it
+/// opens wears the Back here ([`crate::navigation::open_session_link`]).
 pub(crate) fn open_session_card(session_id: &str, window: &mut Window, cx: &mut App) {
-    let screen = crate::navigation::session_screen_for(session_id, cx);
-    crate::navigation::navigate(window, cx, screen);
+    crate::navigation::open_session_link(session_id, window, cx);
 }
 
 // ---------------------------------------------------------------------------
@@ -3484,11 +3484,15 @@ impl ThreadScreenView {
         // EXP-1686 (chats.json AGENT CHAT): an agent's chat wears THE agent
         // header (the disc, its NAME, call, the agent menu); the strip only
         // while it holds a plan.
+        // #FEED-191 (chats.json THE WAY BACK): a session link opened this: the
+        // Back, strip or not; on the plan tab the Conversation tab is the way.
+        let on_plan = self.focus.is_none() && matches!(self.child, ThreadChildSel::Plan(_));
+        let back = (!on_plan).then(|| crate::session_screen::session_link_back(window, cx)).flatten();
         if let Some(agent_id) = conversation_agent(model) {
             let agent = crate::session_data::agent_def(agent_id, cx);
             let panel = self.call_panel.read(cx).focus_handle(cx);
             let strip = agent_chat_holds_plan(self.shown_plan(model, cx).as_ref(), model).then(|| self.render_strip(model, window, cx));
-            return crate::agent_screen::agent_header(agent.as_ref(), merge.map(IntoElement::into_any_element), strip, panel, cx);
+            return crate::agent_screen::agent_header(agent.as_ref(), merge.map(IntoElement::into_any_element), back, strip, panel, cx);
         }
         // EXP-1316: the title is derived, plain text (no rename).
         let title = title_row(&model.view.title, model.view.private, cx).id("thread-title");
@@ -3507,14 +3511,21 @@ impl ThreadScreenView {
                     .pb_3()
                     .gap_4()
                     .child(
-                        h_flex()
+                        v_flex()
                             .w_full()
                             .min_w_0()
-                            .gap_2()
-                            .items_center()
-                            .child(div().flex_1().min_w_0().child(title))
-                            .children(merge)
-                            .children(menu),
+                            .gap_1()
+                            .children(back)
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(div().flex_1().min_w_0().child(title))
+                                    .children(merge)
+                                    .children(menu),
+                            ),
                     )
                     .child(self.render_strip(model, window, cx)),
             )
@@ -4575,6 +4586,204 @@ mod tests {
         cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Results, window, cx)));
         draw(cx);
         view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
+    }
+
+    /// chats.json THE WAY BACK, the desktop's whole path: an agent's chat (no
+    /// plan, so no strip), a card opening a thread it started and one opening
+    /// its own child: each lands with a Back to the chat; the same screens
+    /// reached another way wear none, nor does a session opened in place.
+    #[gpui::test]
+    fn a_session_opened_from_an_agent_chat_has_a_way_back(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let session = |id: &str, root: &str, parent: Option<&str>, agent: Option<&str>| -> SessionRow {
+                serde_json::from_value(serde_json::json!({
+                    "id": id,
+                    "team_id": "t1",
+                    "root_id": root,
+                    "parent_id": parent,
+                    "agent_id": agent,
+                    "status": "idle",
+                    "shared": true,
+                    "created_at": "2026-11-04T09:00:00.000Z",
+                    "updated_at": "2026-11-04T09:00:00.000Z",
+                }))
+                .unwrap()
+            };
+            collections.sessions.update(cx, |collection, cx| {
+                for row in [
+                    session("chat", "chat", None, Some("ag1")),
+                    session("chat-child", "chat", Some("chat"), None),
+                    session("thread", "thread", None, None),
+                    session("thread-child", "thread", Some("thread"), None),
+                ] {
+                    collection.seed(row.key(), row);
+                }
+                cx.notify();
+            });
+            let conversation: domain::rows::ConversationRow = serde_json::from_value(serde_json::json!({
+                "id": "c1",
+                "session_id": "chat",
+                "created_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.conversations.update(cx, |collection, cx| {
+                collection.seed(conversation.key(), conversation);
+                cx.notify();
+            });
+        });
+        const BACK: &str = "thread-back-link";
+        let chat = Screen::Agent { agent_id: "ag1".into() };
+        let thread = Screen::Thread { session_id: "thread".into() };
+        let (view, cx) = cx.add_window_view(|window, cx| ThreadScreenView::new("thread".to_string(), window, cx));
+        let draw = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..3 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+        let screen_on_show = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|window, cx| crate::navigation::nav_for_window(window, cx).read(cx).screen().cloned())
+        };
+        let start = chat.clone();
+        cx.update(|window, cx| {
+            crate::navigation::nav_for_window(window, cx);
+            crate::navigation::navigate(window, cx, start);
+        });
+
+        // A child of the chat is no in-place tab: its own screen, whose header
+        // is the way back to the chat.
+        cx.update(|_, cx| {
+            assert_eq!(crate::screens::in_place_root("chat-child", cx), None);
+            assert_eq!(crate::navigation::session_screen_for("chat-child", cx), Screen::Session { session_id: "chat-child".into() });
+        });
+
+        // The rail's thread: no Back.
+        let rail = thread.clone();
+        cx.update(|window, cx| crate::navigation::navigate(window, cx, rail));
+        draw(cx);
+        assert!(cx.debug_bounds(BACK).is_none());
+        cx.update(|window, cx| crate::navigation::go_back(window, cx));
+        assert_eq!(screen_on_show(cx), Some(chat.clone()));
+
+        // The chat's card opens the thread: the Back, which returns.
+        cx.update(|window, cx| open_session_card("thread", window, cx));
+        assert_eq!(screen_on_show(cx), Some(thread.clone()));
+        draw(cx);
+        assert!(cx.debug_bounds(BACK).is_some());
+        cx.update(|window, cx| assert_eq!(crate::navigation::session_back_screen(window, cx), Some(chat.clone())));
+        cx.update(|window, cx| crate::navigation::go_back(window, cx));
+        assert_eq!(screen_on_show(cx), Some(chat.clone()));
+
+        // A session of the thread on show opens in place: its strip returns.
+        let rail = thread.clone();
+        cx.update(|window, cx| crate::navigation::navigate(window, cx, rail));
+        cx.update(|window, cx| open_session_card("thread-child", window, cx));
+        assert_eq!(screen_on_show(cx), Some(Screen::Session { session_id: "thread-child".into() }));
+        cx.update(|window, cx| assert_eq!(crate::navigation::session_back_screen(window, cx), None));
+        cx.update(|window, cx| crate::navigation::go_back(window, cx));
+
+        // The plan tab's way back is the Conversation tab.
+        cx.update(|window, cx| crate::navigation::go_back(window, cx));
+        assert_eq!(screen_on_show(cx), Some(chat.clone()));
+        cx.update(|window, cx| open_session_card("thread", window, cx));
+        cx.update(|_, cx| {
+            let collections = Store::global(cx).collections().clone();
+            let conversation: domain::rows::ConversationRow = serde_json::from_value(serde_json::json!({
+                "id": "c2",
+                "session_id": "thread",
+                "created_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.conversations.update(cx, |collection, cx| {
+                collection.seed(conversation.key(), conversation);
+                cx.notify();
+            });
+            let message: MessageRow = serde_json::from_value(serde_json::json!({
+                "id": "m1",
+                "conversation_id": "c2",
+                "author_kind": "agent",
+                "body": "",
+                "card": { "kind": "plan", "plan": "# Ship it", "decision": null },
+                "created_at": "2026-11-04T10:00:00.000Z",
+            }))
+            .unwrap();
+            collections.messages.update(cx, |collection, cx| {
+                collection.seed(message.key(), message);
+                cx.notify();
+            });
+        });
+        draw(cx);
+        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Plan(None), window, cx)));
+        draw(cx);
+        assert!(cx.debug_bounds(domain::plan_page::PLAN_PAGE.test_ids.tab.as_str()).is_some());
+        assert!(cx.debug_bounds(BACK).is_none(), "the plan tab: no Back");
+        cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Conversation, window, cx)));
+        draw(cx);
+        assert!(cx.debug_bounds(BACK).is_some());
+    }
+
+    /// chats.json THE WAY BACK: a chat with no strip, reached through a link
+    /// (a thread's `Started by` line), wears the Back in THE agent header.
+    #[gpui::test]
+    fn an_agent_chat_without_a_strip_wears_the_links_back(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "chat",
+                "team_id": "t1",
+                "root_id": "chat",
+                "agent_id": "ag1",
+                "status": "idle",
+                "shared": true,
+                "created_at": "2026-11-04T09:00:00.000Z",
+                "updated_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.sessions.update(cx, |collection, cx| {
+                collection.seed(root.key(), root);
+                cx.notify();
+            });
+            let conversation: domain::rows::ConversationRow = serde_json::from_value(serde_json::json!({
+                "id": "c1",
+                "session_id": "chat",
+                "created_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.conversations.update(cx, |collection, cx| {
+                collection.seed(conversation.key(), conversation);
+                cx.notify();
+            });
+        });
+        let (_view, cx) = cx.add_window_view(|window, cx| ThreadScreenView::new("chat".to_string(), window, cx));
+        let draw = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..3 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+        draw(cx);
+        assert!(cx.debug_bounds("thread-back-link").is_none(), "nothing to return to");
+        assert!(cx.debug_bounds(domain::plan_page::PLAN_PAGE.test_ids.tab.as_str()).is_none(), "no strip");
+        cx.update(|window, cx| {
+            crate::navigation::nav_for_window(window, cx);
+            crate::navigation::navigate(window, cx, Screen::Thread { session_id: "other".into() });
+            crate::navigation::open_session_link("chat", window, cx);
+        });
+        draw(cx);
+        assert!(cx.debug_bounds("thread-back-link").is_some(), "the Back with no strip");
     }
 
     /// #EXP-1662: the chip targets `plan_tab_target` over the thread's rows and
