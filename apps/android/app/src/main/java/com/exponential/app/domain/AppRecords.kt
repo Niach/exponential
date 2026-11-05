@@ -696,6 +696,20 @@ object AppRecords {
         return out
     }
 
+    /** VAPP-212: [outboxRows] as an overlay on a store that keeps the synced rows. */
+    data class OutboxOverlay(val upserts: List<Row>, val deletes: List<String>)
+
+    /** VAPP-212: the ids [entries] write: the only synced rows [outboxOverlay] and [outboxPrune] read. */
+    fun outboxWrittenIds(entries: List<OutboxEntry>): Set<String> = entries.flatMapTo(HashSet()) { e -> e.writes.map { it.id } }
+
+    /** VAPP-212: what [outboxRows] does to [rows], only the written rows travelling: laid over the store, it answers `rowsCases`. */
+    fun outboxOverlay(rows: List<Row>, entries: List<OutboxEntry>, me: String?): OutboxOverlay {
+        val written = outboxWrittenIds(entries)
+        val upserts = outboxRows(rows.filter { it.id in written }, entries, me)
+        val kept = upserts.mapTo(HashSet()) { it.id }
+        return OutboxOverlay(upserts, written.filter { it !in kept })
+    }
+
     /** What a replay's answer does to its entry (`outcomeCases`). */
     fun outboxOutcome(entry: OutboxEntry, result: OutboxResult): String = when (result) {
         OutboxResult.Ok -> OutboxOutcome.DONE

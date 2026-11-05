@@ -4,7 +4,9 @@ import at.exponential.ui.ffi.jsonDiff
 import at.exponential.ui.ffi.jsonEqual
 import at.exponential.ui.host.ParsedSource
 import at.exponential.ui.host.RecordRow
+import at.exponential.ui.host.RecordsOverlay
 import at.exponential.ui.host.RecordsQuery
+import at.exponential.ui.host.RecordsStore
 import at.exponential.ui.json.JsonValue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -71,6 +73,49 @@ class RecordsQueryTest {
             val value = query.value(rows(c["rows"]), c["me"]?.string, c["now"]?.string ?: "", strings(c["names"]), strings(c["computed"]), c["today"]?.string, c["refs"] ?: JsonValue.Null, c["issues"]?.obj.orEmpty(), c["transitions"] ?: JsonValue.Null, c["role"]?.string)
             same(value, c["expected"], c["name"]?.string ?: "")
         }
+    }
+
+    /** VAPP-212: the same cases through the handle: seeded, then with a row that came and went. */
+    @Test
+    fun valueCasesThroughTheStore() {
+        for (c in cases("valueCases")) {
+            val name = c["name"]?.string ?: ""
+            val json = c["query"]
+            val query = if (json != null) RecordsQuery.parseJson(json.json, c["kind"]?.string).query else RecordsQuery.parse(strings(c["params"]), c["kind"]?.string)
+            val given = rows(c["rows"])
+            val store = RecordsStore<RecordRow>()
+            val ghost = RecordRow(id = "ghost", kind = "ghost", data = JsonValue.Obj(emptyMap()), createdBy = null, createdAt = "2020-01-01T00:00:00.000Z", updatedAt = "2020-01-01T00:00:00.000Z")
+            store.sync(given + ghost, { it.id }, { it })
+            assertEquals(name, given.size + 1, store.count)
+            store.sync(given, { it.id }, { it })
+            assertEquals(name, given.size, store.count)
+            val value = query.value(store, c["me"]?.string, c["now"]?.string ?: "", strings(c["names"]), strings(c["computed"]), c["today"]?.string, c["refs"] ?: JsonValue.Null, c["issues"]?.obj.orEmpty(), c["transitions"] ?: JsonValue.Null, c["role"]?.string)
+            same(value, c["expected"], name)
+        }
+    }
+
+    /** VAPP-212: only what changed crosses, a removed row leaves, an overlay touches one query. */
+    @Test
+    fun aStorePushesDeltas() {
+        fun row(id: String, title: String) = RecordRow(id = id, kind = "note", data = JsonValue.Obj(mapOf("title" to JsonValue.Str(title))), createdBy = null, createdAt = "2026-01-01T00:00:00.000Z", updatedAt = "2026-01-01T00:00:00.000Z")
+        val query = RecordsQuery.parse(mapOf("sort" to "id", "order" to "asc"), "note")
+        val titles = { store: RecordsStore<RecordRow>, overlay: RecordsOverlay? ->
+            query.value(store, null, "2026-11-05T00:00:00.000Z", overlay = overlay)["rows"]?.array.orEmpty().map { "${it["id"]?.string}:${it["title"]?.string}" }
+        }
+        val store = RecordsStore<RecordRow>()
+        var mapped = 0
+        val sync = { rows: List<RecordRow> -> store.sync(rows, { it.id }, { mapped += 1; it }) }
+        sync(listOf(row("a", "1"), row("b", "1")))
+        assertEquals(2, mapped)
+        sync(listOf(row("a", "1"), row("b", "2")))
+        assertEquals(3, mapped)
+        assertEquals(listOf("a:1", "b:2"), titles(store, null))
+        sync(listOf(row("b", "2")))
+        assertEquals(3, mapped)
+        assertEquals(listOf("b:2"), titles(store, null))
+        assertEquals(listOf("b:3", "c:1"), titles(store, RecordsOverlay(listOf(row("b", "3"), row("c", "1")))))
+        assertEquals(emptyList<String>(), titles(store, RecordsOverlay(deletes = listOf("b"))))
+        assertEquals(listOf("b:2"), titles(store, null))
     }
 
     @Test

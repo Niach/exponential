@@ -62,6 +62,52 @@ final class RecordsQueryTests: XCTestCase {
         }
     }
 
+    /// VAPP-212: the same cases through the handle: seeded, then with a row that came and went.
+    func testValueCasesThroughTheStore() throws {
+        let f = try Fixtures.json("records-query.json")
+        for c in f["valueCases"]?.array ?? [] {
+            let name = c["name"]?.string ?? ""
+            let query = c["query"].map { RecordsQuery.parse(json: $0.json, kind: c["kind"]?.string).query } ?? RecordsQuery.parse(params: strings(c["params"]), kind: c["kind"]?.string)
+            let given = rows(c["rows"])
+            let store = RecordsStore<RecordRow>()
+            let ghost = RecordRow(id: "ghost", kind: "ghost", data: .object([:]), createdBy: nil, createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-01-01T00:00:00.000Z")
+            store.sync(given + [ghost], id: \.id, row: { $0 })
+            XCTAssertEqual(store.count, given.count + 1, name)
+            store.sync(given, id: \.id, row: { $0 })
+            XCTAssertEqual(store.count, given.count, name)
+            let value = query.value(store: store, me: c["me"]?.string, now: c["now"]?.string ?? "", today: c["today"]?.string, names: strings(c["names"]), computed: strings(c["computed"]), refs: c["refs"] ?? .null, issues: c["issues"]?.object ?? [:], transitions: c["transitions"] ?? .null, role: c["role"]?.string)
+            same(value, c["expected"], name)
+        }
+    }
+
+    /// VAPP-212: only what changed crosses, a removed row leaves, an overlay touches one query.
+    func testAStorePushesDeltas() {
+        func row(_ id: String, _ title: String) -> RecordRow {
+            RecordRow(id: id, kind: "note", data: .object(["title": .string(title)]), createdBy: nil, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z")
+        }
+        let query = RecordsQuery.parse(params: ["sort": "id", "order": "asc"], kind: "note")
+        let store = RecordsStore<RecordRow>()
+        func titles(_ overlay: RecordsOverlay? = nil) -> [String] {
+            let value = query.value(store: store, me: nil, now: "2026-11-05T00:00:00.000Z", overlay: overlay)
+            return (value["rows"]?.array ?? []).map { "\($0["id"]?.string ?? ""):\($0["title"]?.string ?? "")" }
+        }
+        var mapped = 0
+        func sync(_ rows: [RecordRow]) {
+            store.sync(rows, id: \.id, row: { mapped += 1; return $0 })
+        }
+        sync([row("a", "1"), row("b", "1")])
+        XCTAssertEqual(mapped, 2)
+        sync([row("a", "1"), row("b", "2")])
+        XCTAssertEqual(mapped, 3)
+        XCTAssertEqual(titles(), ["a:1", "b:2"])
+        sync([row("b", "2")])
+        XCTAssertEqual(mapped, 3)
+        XCTAssertEqual(titles(), ["b:2"])
+        XCTAssertEqual(titles(RecordsOverlay(upserts: [row("b", "3"), row("c", "1")])), ["b:3", "c:1"])
+        XCTAssertEqual(titles(RecordsOverlay(deletes: ["b"])), [])
+        XCTAssertEqual(titles(), ["b:2"])
+    }
+
     func testJsonCases() throws {
         let f = try Fixtures.json("records-query.json")
         let cases = f["jsonCases"]?.array ?? []

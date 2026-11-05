@@ -42,22 +42,35 @@ class RecordsQuery private constructor(
      */
     fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap(), today: String? = null, refs: JsonValue = JsonValue.Null, issues: Map<String, JsonValue> = emptyMap(), transitions: JsonValue = JsonValue.Null, role: String? = null): JsonValue {
         val rowsJson = JsonValue.Arr(rows.map { it.toJson() }).json
-        val context = JsonValue.Obj(
-            mapOf(
-                "me" to (me?.let { JsonValue.Str(it) } ?: JsonValue.Null),
-                "now" to JsonValue.Str(now),
-                "today" to (today?.let { JsonValue.Str(it) } ?: JsonValue.Null),
-                "names" to JsonValue.Obj(names.mapValues { JsonValue.Str(it.value) }),
-                "computed" to JsonValue.Obj(computed.mapValues { JsonValue.Str(it.value) }),
-                "refs" to refs,
-                "issues" to JsonValue.Obj(issues),
-                "transitions" to transitions,
-                "role" to (role?.let { JsonValue.Str(it) } ?: JsonValue.Null),
-            ),
-        ).json
+        val context = contextJson(me, now, names, computed, today, refs, issues, transitions, role)
         val out = runCatching { at.exponential.ui.ffi.recordsValueJson(rowsJson, json, context) }.getOrNull() ?: return JsonValue.Null
         return JsonValue.parse(out)
     }
+
+    /**
+     * VAPP-212: the same value over [store]; the rows stay in Rust, so only the
+     * query crosses the FFI. [overlay] = the host's unsynced writes for this
+     * one query (the store keeps its rows).
+     */
+    fun value(store: RecordsStore<*>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap(), today: String? = null, refs: JsonValue = JsonValue.Null, issues: Map<String, JsonValue> = emptyMap(), transitions: JsonValue = JsonValue.Null, role: String? = null, overlay: RecordsOverlay? = null): JsonValue {
+        val context = contextJson(me, now, names, computed, today, refs, issues, transitions, role)
+        val out = runCatching { store.handle.valueJson(json, context, overlay?.takeUnless { it.isEmpty }?.json) }.getOrNull() ?: return JsonValue.Null
+        return JsonValue.parse(out)
+    }
+
+    private fun contextJson(me: String?, now: String, names: Map<String, String>, computed: Map<String, String>, today: String?, refs: JsonValue, issues: Map<String, JsonValue>, transitions: JsonValue, role: String?): String = JsonValue.Obj(
+        mapOf(
+            "me" to (me?.let { JsonValue.Str(it) } ?: JsonValue.Null),
+            "now" to JsonValue.Str(now),
+            "today" to (today?.let { JsonValue.Str(it) } ?: JsonValue.Null),
+            "names" to JsonValue.Obj(names.mapValues { JsonValue.Str(it.value) }),
+            "computed" to JsonValue.Obj(computed.mapValues { JsonValue.Str(it.value) }),
+            "refs" to refs,
+            "issues" to JsonValue.Obj(issues),
+            "transitions" to transitions,
+            "role" to (role?.let { JsonValue.Str(it) } ?: JsonValue.Null),
+        ),
+    ).json
 
     override fun equals(other: Any?): Boolean = other is RecordsQuery && other.json == json
 
@@ -133,4 +146,49 @@ data class RecordRow(
             "updatedAt" to JsonValue.Str(updatedAt),
         ),
     )
+}
+
+/** VAPP-212: a host's unsynced writes laid over one query: [deletes] hide rows, an upsert replaces a known id in place, a new id joins the end. */
+data class RecordsOverlay(val upserts: List<RecordRow> = emptyList(), val deletes: List<String> = emptyList()) {
+    internal val isEmpty: Boolean get() = upserts.isEmpty() && deletes.isEmpty()
+
+    internal val json: String get() = recordsDeltaJson(upserts, deletes)
+}
+
+private fun recordsDeltaJson(upserts: List<RecordRow>, deletes: List<String>): String = JsonValue.Obj(
+    mapOf(
+        "upserts" to JsonValue.Arr(upserts.map { it.toJson() }),
+        "deletes" to JsonValue.Arr(deletes.map { JsonValue.Str(it) }),
+    ),
+).json
+
+/**
+ * VAPP-212: one app's rows on the Rust side, newest first (`createdAt`
+ * descending, then `id`). [sync] takes the host's synced rows as it reads them
+ * (any type with `equals`) and pushes only what changed, so [row] runs only for
+ * new and changed ones. Calling [sync] then [RecordsQuery.value] inside
+ * `synchronized(store)` keeps one binding's rows and value together when
+ * several bindings share a store.
+ */
+class RecordsStore<T> {
+    internal val handle = at.exponential.ui.ffi.RecordStore.newestFirst()
+    private var last: Map<String, T> = emptyMap()
+
+    /** How many rows the store holds. */
+    val count: Int get() = handle.count().toInt()
+
+    @Synchronized
+    fun sync(items: List<T>, id: (T) -> String, row: (T) -> RecordRow) {
+        val seen = HashMap<String, T>(items.size * 2)
+        val upserts = ArrayList<RecordRow>()
+        for (item in items) {
+            val key = id(item)
+            seen[key] = item
+            if (last[key] != item) upserts += row(item)
+        }
+        val deletes = last.keys.filter { it !in seen }
+        if (upserts.isEmpty() && deletes.isEmpty()) return
+        handle.applyJson(recordsDeltaJson(upserts, deletes))
+        last = seen
+    }
 }

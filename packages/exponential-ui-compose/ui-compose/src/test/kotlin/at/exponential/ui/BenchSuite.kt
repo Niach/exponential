@@ -1,6 +1,9 @@
 package at.exponential.ui
 
 import at.exponential.ui.host.NoHost
+import at.exponential.ui.host.RecordRow
+import at.exponential.ui.host.RecordsQuery
+import at.exponential.ui.host.RecordsStore
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.measure.TextShaper
 import at.exponential.ui.model.BenchCounters
@@ -31,7 +34,7 @@ class BenchSuite(
     private val memoryMb: () -> Double,
 ) {
     companion object {
-        val SCENARIOS = listOf("cold-start", "card-grid", "list-100k", "streaming", "theme-switch", "resize", "deep-nesting", "template-10k", "overlay", "table-1k")
+        val SCENARIOS = listOf("cold-start", "card-grid", "list-100k", "streaming", "theme-switch", "resize", "deep-nesting", "template-10k", "overlay", "table-1k", "records-25k")
 
         /** `item` templates: `{i}` = the index, `{i % N}` = the index modulo N; every field a string (src/scenarios.ts generateItems). */
         fun generateItems(spec: JsonValue): JsonValue {
@@ -84,6 +87,7 @@ class BenchSuite(
             "template-10k" -> template10k(s)
             "overlay" -> overlay(s)
             "table-1k" -> table1k(s)
+            "records-25k" -> records25k(s)
             else -> error("unknown scenario $id")
         }
     }
@@ -292,6 +296,61 @@ class BenchSuite(
             check(m.layers.isEmpty()) { "the dialog closed" }
         }
         return linkedMapOf("openMs" to median(opens), "closeMs" to median(closes))
+    }
+
+    /**
+     * VAPP-202 / VAPP-212: the phone's records query through the store (src/records.ts):
+     * the rows pushed once outside the clock, each query parsed once, `warmup`
+     * runs, then `runs` timed: the FFI call and parsing its answer.
+     */
+    private fun records25k(s: JsonValue): Map<String, Double> {
+        val spec = s["data"]!!["records"]!!
+        val steps = s["steps"]!!
+        fun int(key: String) = spec[key]!!.number!!.toInt()
+        val kind = spec["kind"]!!.string!!
+        val authors = spec["authors"]!!.array!!.map { it.string!! }
+        val start = java.time.LocalDate.parse(spec["start"]!!.string!!)
+        val createdAt = spec["createdAt"]!!.string!!
+        val rows = List(int("count")) { i ->
+            val data = LinkedHashMap<String, JsonValue>()
+            data["date"] = JsonValue.Str(start.plusDays((i % int("days")).toLong()).toString())
+            data["hours"] = JsonValue.Num((i % int("hoursModulo")) + 0.5)
+            data["project"] = JsonValue.Str("p${i % int("projects")}")
+            if (i % int("noteEvery") != 0) data["note"] = JsonValue.Str("n$i")
+            val author = authors[i % authors.size]
+            RecordRow(id = "r$i", kind = kind, data = JsonValue.Obj(data), createdBy = author, authorId = author, createdAt = createdAt, updatedAt = createdAt)
+        }
+        val store = RecordsStore<RecordRow>()
+        store.sync(rows, { it.id }, { it })
+        val me = steps["me"]!!.string
+        val now = steps["now"]!!.string!!
+        val warmup = steps["warmup"]!!.number!!.toInt()
+        val runs = steps["runs"]!!.number!!.toInt()
+        val out = LinkedHashMap<String, Double>()
+        var matched = 0.0
+        for (q in steps["queries"]!!.array!!) {
+            val id = q["id"]!!.string!!
+            val json = q["json"]
+            val query = if (json != null) {
+                RecordsQuery.parseJson(json.json, kind).query
+            } else {
+                RecordsQuery.parse(q["params"]!!.obj!!.mapValues { it.value.string!! }, kind)
+            }
+            repeat(warmup) { query.value(store, me, now) }
+            val times = ArrayList<Double>(runs)
+            var count = 0.0
+            repeat(runs) {
+                var value: JsonValue = JsonValue.Null
+                times += ms { value = query.value(store, me, now) }
+                count = value["count"]?.number ?: 0.0
+            }
+            times.sort()
+            out["${id}P50Ms"] = times[runs / 2]
+            out["${id}P95Ms"] = times[kotlin.math.floor(runs * 0.95).toInt()]
+            matched += count
+        }
+        out["matched"] = matched
+        return out
     }
 
     private fun table1k(s: JsonValue): Map<String, Double> {

@@ -61,7 +61,7 @@ describe(`scenario fixtures (VAPP-105)`, () => {
   it(`records-25k: a host scenario for the core and one web runner, its rows as the core builds them (VAPP-202)`, () => {
     const s = SCENARIOS.find((s) => s.id === `records-25k`)!
     expect(s.surface).toBeUndefined()
-    expect(s.renderers).toEqual([`core`, `react-chromium`])
+    expect(s.renderers).toEqual([`core`, `react-chromium`, `compose-jvm`, `compose-android`])
     const spec = (s.data as { records: RecordsSpec }).records
     const rows = recordRows(spec)
     expect(rows.length).toBe(25_000)

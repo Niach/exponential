@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-212: `RecordsStore` + `RecordsOverlay`: one app's rows stay in Rust, `sync` pushes only what changed, and `RecordsQuery.value(store:…)` carries no rows across the FFI.
+
 ## 0.15.4 (2026-11-05)
 
 - The open libraries are the Exponential SDK: genUI, Motion and Apps name the skills and docs (`exponential-ui` skill = `exponential-genui`; docs under /docs/sdk/); package names and tags stay. The amber warning colour is `semantic.yellow` (EXP-1695).

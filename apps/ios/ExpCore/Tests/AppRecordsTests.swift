@@ -566,6 +566,20 @@ final class AppRecordsTests: XCTestCase {
         }
     }
 
+    /// VAPP-212: the overlay laid over the rows answers the same cases.
+    func testOutboxOverlayCases() throws {
+        for item in try outboxCases("rowsCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let rows = try XCTUnwrap(item["rows"] as? [[String: Any]], name).map { recordRow($0) }
+            let overlay = AppRecords.outboxOverlay(rows, entries: try entries(item["entries"], name), me: item["me"] as? String)
+            var laid = rows.filter { !overlay.deletes.contains($0.id) }
+            for row in overlay.upserts {
+                if let i = laid.firstIndex(where: { $0.id == row.id }) { laid[i] = row } else { laid.append(row) }
+            }
+            XCTAssertEqual(CardJSON.array(laid.map { rowJSON($0) }), json(item["expected"]), name)
+        }
+    }
+
     func testOutboxOutcomeCases() throws {
         for item in try outboxCases("outcomeCases") {
             let name = try XCTUnwrap(item["name"] as? String)

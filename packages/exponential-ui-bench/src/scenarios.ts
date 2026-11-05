@@ -387,11 +387,11 @@ export const SCENARIOS: readonly ScenarioDef[] = [
   {
     id: `records-25k`,
     title: `Records query over 25,000 rows`,
-    what: `Apps §15 (VAPP-202): the local records query (eui-core host::query, its TS twin @exponential_app/eui/host/query) over 25,000 rows, the team plan's quota: five query shapes, each parsed once, 5 warm-up runs, then 60 timed; p95 = the 58th of the 60 sorted. The budget is p95 ≤ 16 ms on a MID PHONE, so a desktop CPU must hold about a third of it. No surface: only the core and one web runner (the TS twin in Chromium) run it; Swift and Compose reach the core over the FFI.`,
+    what: `Apps §15 (VAPP-202): the local records query (eui-core host::query, its TS twin @exponential_app/eui/host/query) over 25,000 rows, the team plan's quota: five query shapes, each parsed once, 5 warm-up runs, then 60 timed; p95 = the 58th of the 60 sorted. The budget is p95 ≤ 16 ms on a MID PHONE, so a desktop CPU must hold about a third of it. No surface: the core, one web runner (the TS twin in Chromium) and Compose (the query through the RecordsStore handle over the FFI, VAPP-212) run it.`,
     theme: `neutral`,
     mode: `light`,
     viewport: PHONE,
-    renderers: [`core`, `react-chromium`],
+    renderers: [`core`, `react-chromium`, `compose-jvm`, `compose-android`],
     data: { records: { count: 25_000, kind: `entry`, authors: [`u1`, `u2`, `u3`, `u4`, `u5`], start: `2026-01-01`, days: 330, projects: 7, hoursModulo: 9, noteEvery: 3, createdAt: `2026-01-01T00:00:00.000Z` } },
     steps: {
       me: `u1`,
