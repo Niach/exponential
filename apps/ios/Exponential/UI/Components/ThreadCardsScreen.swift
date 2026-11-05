@@ -709,7 +709,7 @@ private struct DockCardSpecimens: View {
             DockCard(row: question, onOpen: {})
             caption("A banner: never opens; its action word trails")
             DockCard(row: banner, action: Self.action(banner))
-            caption("The session's own state: interrupted, background tasks, queued")
+            caption("The session's own state: background tasks, queued")
             ForEach(Self.stateRows, id: \.id) { row in
                 DockCard(row: row)
             }

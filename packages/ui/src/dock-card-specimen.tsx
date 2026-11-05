@@ -57,7 +57,7 @@ const QUESTION = ROWS.find((row) => row.kind === `question`)!
 const BANNER = ROWS.find((row) => row.kind === `banner`)!
 const action = (row: { id: string }) =>
   row.id === `banner:wall` ? (
-    <Button variant="outline" size="sm" className="h-6">
+    <Button variant="outline" size="xs">
       Switch account
     </Button>
   ) : null

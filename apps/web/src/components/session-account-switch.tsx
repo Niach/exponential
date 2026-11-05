@@ -117,8 +117,8 @@ export function SessionAccountSwitchButton({ session }: { session: SwitchSession
   const button = (
     <Button
       variant="outline"
-      size="sm"
-      className="h-6 shrink-0"
+      size="xs"
+      className="shrink-0"
       disabled={blocked !== null || switching}
       pending={switching}
       title={blocked ? undefined : SWITCH_COST_NOTE}
