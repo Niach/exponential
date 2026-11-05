@@ -45,9 +45,10 @@ describe(`web attribution`, () => {
   })
 
   test(`one route file feeds every view that names it`, () => {
-    // `inbox` and `my-issues` are the same route; the tab is a query param.
-    const result = scope(`apps/web/src/routes/t/$teamSlug/inbox/index.tsx`)
-    expect(views(result, `web`).sort()).toEqual([`inbox`, `my-issues`])
+    // The board and `my-issues` are the same route; the chip is a query param.
+    const result = scope(`apps/web/src/routes/t/$teamSlug/boards/$boardSlug/index.tsx`)
+    expect(views(result, `web`)).toContain(`my-issues`)
+    expect(views(result, `web`).length).toBeGreaterThan(1)
   })
 
   test(`a shared component reaches every view that renders it`, () => {

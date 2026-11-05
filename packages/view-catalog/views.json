@@ -778,7 +778,7 @@
       "id": "inbox",
       "group": "my-work",
       "title": "Inbox",
-      "blurb": "The notification stream: assignments, mentions, comments and PR events, grouped and unread-first.",
+      "blurb": "The notification stream: assignments, mentions, comments and PR events, grouped and unread-first. Wide: a popover off the sidebar header; phones: a pushed page.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/inbox",
@@ -804,7 +804,7 @@
         }
       },
       "notes": {
-        "web": "#EXP-1672: the desktop's layout — the main menu never folds into the icon rail; the notifications are the content card's second sidebar (resizable), the selection to their right.",
+        "web": "#FEED-191: the sidebar header's Inbox icon opens a menu-surface popover; `/inbox` redirects home with the popover open.",
         "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or session opens beside the list without re-sliding it.",
         "web-mobile": "Thread 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
       }
@@ -813,17 +813,9 @@
       "id": "my-issues",
       "group": "my-work",
       "title": "My issues",
-      "blurb": "Everything assigned to me across every board in the team: the Inbox's second tab on md+, the board's My issues chip on phones.",
+      "blurb": "Everything assigned to me across every board in the team: the board's My issues chip.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/inbox?tab=my-issues",
-        "anchor": {
-          "text": "Push notification deep links",
-          "timeoutMs": 30000
-        },
-        "settleMs": 1000
-      },
-      "webMobile": {
         "route": "/t/$teamSlug/boards/$boardSlug?chip=mine",
         "anchor": {
           "text": "My issues",
@@ -831,6 +823,7 @@
         },
         "settleMs": 1000
       },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_my-issues",
         "lane": "styleguide"
@@ -847,7 +840,8 @@
       },
       "notes": {
         "desktop": "EXP-1192: no full-width page — My issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it.",
-        "web-mobile": "Thread 58cb32df (chats.json `shell.boardChips`): the phone board's My issues chip (All issues · My issues N · Drafts N), the list grouped by status like the board; an old `/inbox?tab=my-issues` link forwards to it."
+        "web-mobile": "Inherits web: the phone board's My issues chip (All issues · My issues N · Drafts N), the list grouped by status like the board.",
+        "web": "#FEED-191: the board's chips (All issues · My issues N; Drafts stays a sidebar entry on wide); an old `/inbox?tab=my-issues` link forwards to it."
       }
     },
     {
@@ -891,6 +885,29 @@
           "kind": "screen",
           "value": "drafts"
         }
+      }
+    },
+    {
+      "id": "needs-you",
+      "group": "my-work",
+      "title": "Needs you",
+      "blurb": "Every plan and question waiting on me and every PR ready to merge across the team (needs-you.json): one reading column, newest first; a press opens the chat on the right tab.",
+      "order": 4,
+      "web": {
+        "route": "/t/$teamSlug/needs-you",
+        "anchor": {
+          "testId": "needs-you",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "The sidebar's Needs you entry, right after Agent, while a row exists. The DEV-ONLY `?dev=needs-you` on the Agent route draws the specimen (`cases[1]` + the phone entry row).",
+        "web-mobile": "Inherits web: pushed from the Chats list's first row, the page header with the back control.",
+        "ios": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshots yet.",
+        "android": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshotsTest yet.",
+        "desktop": "Lands with the desktop lane (FEED-191): the styleguide twin does not exist yet."
       }
     },
     {
@@ -7065,7 +7082,7 @@
       "id": "chat-list",
       "group": "coding",
       "title": "Chat list",
-      "blurb": "The phone Chats list ×3 (chats.json): the Chats headline with search + inbox circles, the agent bubbles (amber ring = needs you, white = unread; S-3: a bubble with stories wears its story ring, the chat rings follow), the filter chips and flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
+      "blurb": "The phone Chats list ×3 (chats.json #FEED-191): the Chats headline with search + inbox circles, the Agents section, then the chats grouped under Needs you · Working · Unread · Chats, flat WhatsApp rows (lead disc, title, time, preview, word, unread badge).",
       "order": 32,
       "web": {
         "route": "/t/$teamSlug/agent?dev=chat-list",
@@ -7092,7 +7109,7 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The DEV-ONLY `?dev=chat-list` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatListSpecimen`, the phone Chats screen's real pieces (header, agent bubbles, filter chips, the flat rows) fed chats.json `listCases[0]` + `bubbleCases[0]`, 390px wide.",
+        "web": "The DEV-ONLY `?dev=chat-list` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `ChatListSpecimen`, the phone Chats screen's real pieces (header, agents, the sections) fed chats.json `listCases[0]` + `agentRowCases[0]`, 390px wide.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-list.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-list`: the IDE styleguide entry drawn full-window.",
@@ -7868,15 +7885,15 @@
       }
     },
     {
-      "id": "thread-stories",
+      "id": "thread-results",
       "group": "coding",
-      "title": "Thread · Stories",
-      "blurb": "A thread on its Stories tab (stories.json STORIES TAB, the Guide's successor): the Stack band + THE StackRail and ONE Changes row over its pull request, then every story the thread posted INLINE (#EXP-1462: a waiting draft drawn as its surface, a result with its description and web + iOS pictures, an approved plan's text), never a list of title rows.",
+      "title": "Thread · Results",
+      "blurb": "A thread on its Results tab (results-tab.json): the Stack band + THE StackRail and ONE Changes row over its pull request, then every result the thread posted INLINE: title + age, description, then a row of thumbnails or the surface card.",
       "order": 52,
       "web": {
-        "route": "/t/$teamSlug/threads/$diffThreadId?tab=stories",
+        "route": "/t/$teamSlug/threads/$diffThreadId?tab=results",
         "anchor": {
-          "testId": "thread-stories-changes",
+          "testId": "thread-results-changes",
           "timeoutMs": 60000
         },
         "settleMs": 2500
@@ -7900,11 +7917,34 @@
         }
       },
       "notes": {
-        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it a waiting draft, a 26 h old result with the board's web + iOS shots and an approved plan (both outside the ring's window: the chat list's rings never change).",
-        "ios": "The LIVE walk: APP-14's thread from Chats, then its Stories tab (the strip's last, icon-only).",
+        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it results with the board's web + iOS shots.",
+        "ios": "The LIVE walk: APP-14's thread from Chats, then its last strip tab (the shot keeps its name `sg_thread-stories` until the native lane renames it).",
         "android": "See ios.",
-        "desktop": "APP-14's thread opened on its Stories tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=stories`.",
-        "web-mobile": "Inherits web: the phone pager's last page (the icon-only Stories tab)."
+        "desktop": "APP-14's thread opened on its last strip tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=stories`, until the desktop lane renames it.",
+        "web-mobile": "Inherits web: the phone pager's last page (the icon-only Results tab)."
+      }
+    },
+    {
+      "id": "results-tab",
+      "group": "coding",
+      "title": "Results tab",
+      "blurb": "THE session screen's Results tab body ×4 (results-tab.json): one section per result, newest first: the title with its age, the description, a row of picture thumbnails with a short caption under each, or the surface card.",
+      "order": 82,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=results-tab",
+        "anchor": {
+          "testId": "results-tab-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "The DEV-ONLY `?dev=results-tab` on the Agent route: `@exp/ui` `ResultsTabSpecimen` = results-tab.json `tab.specimen`.",
+        "web-mobile": "Inherits web.",
+        "ios": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshots yet.",
+        "android": "Lands with the native lane (FEED-191): the specimen is not in StyleguideScreenshotsTest yet.",
+        "desktop": "Lands with the desktop lane (FEED-191): the styleguide twin does not exist yet."
       }
     },
     {

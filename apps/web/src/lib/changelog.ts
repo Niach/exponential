@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-05-chats-grouped-stories-gone`,
+    date: `2026-11-05`,
+    title: `Chats are grouped and stories are gone`,
+    summary: `Needs you lists every plan and question, Results keeps what agents show you, Inbox opens from an icon.`,
+    body: `- **Chats**: the list groups into Needs you, Working, Unread and Chats, with no circles or filter chips above it.
+- **Needs you**: every plan and question waiting on you and every PR ready to merge, in one list across the team.
+- **Results**: a chat's last tab keeps everything its agents showed you, and a picture opens full size.
+- **Plans**: a decision on the Plan tab returns you to the conversation, where the agent carries on.
+- **Inbox**: opens from an icon next to Search on wide screens, and My issues is a pill on the board.`,
+  },
+  {
     id: `2026-11-05-plans-stay-open`,
     date: `2026-11-05`,
     title: `Plans stay open`,
