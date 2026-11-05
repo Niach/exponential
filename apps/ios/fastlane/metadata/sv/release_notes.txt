@@ -41,3 +41,6 @@
 - Ärenden, inställningar och chattar ser likadana ut i alla appar
 - Att spara en post med datum och tid flyttar den inte längre med tidszonen
 - Ärenden som en app skapade visar "via" appen
+- En godkänd plan får en bock, och avgjorda planer lämnar flikarna
+- Behöver dig visar alla väntande kort
+- En session på en offline-enhet säger det och erbjuder Flytta

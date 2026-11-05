@@ -41,3 +41,6 @@
 - Las incidencias, los ajustes y los chats se ven igual en todas las apps
 - Guardar un registro con fecha y hora ya no lo desplaza según tu zona horaria
 - Las incidencias creadas por una app indican «vía» esa app
+- Un plan aprobado lleva una marca y los planes decididos salen de las pestañas
+- Te necesita muestra todas las tarjetas en espera
+- Una sesión en un dispositivo sin conexión lo indica y ofrece Mover

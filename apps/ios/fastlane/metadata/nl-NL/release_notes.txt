@@ -41,3 +41,6 @@
 - Issues, instellingen en chats zien er in elke app hetzelfde uit
 - Een record met datum en tijd opslaan verschuift het niet meer met je tijdzone
 - Issues die een app maakte tonen "via" die app
+- Een goedgekeurd plan krijgt een vinkje en besliste plannen verlaten de tabbladen
+- Heeft je nodig toont elke wachtende kaart
+- Een sessie op een offline apparaat zegt dat en biedt Verplaatsen

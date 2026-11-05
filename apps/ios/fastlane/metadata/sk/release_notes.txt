@@ -41,3 +41,6 @@
 - Úlohy, nastavenia a chaty vyzerajú rovnako vo všetkých aplikáciách
 - Uloženie záznamu s dátumom a časom ho už neposunie o časové pásmo
 - Úlohy vytvorené aplikáciou ukazujú „cez“ túto aplikáciu
+- Schválený plán dostane fajku a rozhodnuté plány zmiznú zo záložiek
+- Potrebuje vás ukazuje všetky čakajúce karty
+- Relácia na offline zariadení to povie a ponúkne presun

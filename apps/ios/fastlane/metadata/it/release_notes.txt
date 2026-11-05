@@ -41,3 +41,6 @@
 - Issue, impostazioni e chat hanno lo stesso aspetto su ogni app
 - Salvare un record con data e ora non lo sposta più del fuso orario
 - Le issue create da un'app indicano «via» quell'app
+- Un piano approvato riceve una spunta e i piani decisi lasciano le schede
+- Ti aspetta mostra tutte le schede in attesa
+- Una sessione su un dispositivo offline lo dice e offre Sposta

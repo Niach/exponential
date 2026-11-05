@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.2 (2026-11-06)
+
+- The icon list follows the app: `power` and the eDE icons (`ede-window`, `ede-lock`, `ede-power`, `ede-suspend`, …) are new.
+
 ## 0.16.1 (2026-11-05)
 
 - #VAPP-253: `Surface::set_layer_viewport(width, height)`: a top or bottom Drawer lays out at the window's size, a popup above it lands in it. Width <= 0 = unset (the default), today's behaviour.

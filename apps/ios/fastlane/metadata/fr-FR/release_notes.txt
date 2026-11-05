@@ -41,3 +41,6 @@
 - Les tickets, réglages et chats ont le même aspect sur toutes les apps
 - Enregistrer une fiche avec date et heure ne la décale plus selon votre fuseau
 - Les tickets créés par une app indiquent « via » cette app
+- Un plan approuvé reçoit une coche et les plans décidés quittent les onglets
+- Vous attend affiche toutes les cartes en attente
+- Une session sur un appareil hors ligne le dit et propose Déplacer

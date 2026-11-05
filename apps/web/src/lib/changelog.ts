@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-06-plans-and-offline-devices`,
+    date: `2026-11-06`,
+    title: `Plans settle, offline devices say so`,
+    summary: `An approved plan gets a check and decided plans leave the tab list, Needs you shows every waiting card, and a session on an offline device says so with a way to move it.`,
+    body: `- **Plans**: an approved plan's tab gets a check, and a plan you decided leaves the chat's tab list instead of staying open. On wide screens the plan page keeps its questions beside it.
+- **Needs you**: one flat list with every waiting plan and question, including several from the same chat.
+- **Offline devices**: a session whose device went offline reads Device offline instead of an empty Needs you, says the device is offline with a Move button to run it elsewhere, and reconnects as soon as the device is back.
+- **Desktop and Linux**: the icon set gains power and the eDE desktop icons.`,
+  },
+  {
     id: `2026-11-05-apps-automations-and-rollback`,
     date: `2026-11-05`,
     title: `Dropped runs, rollback warnings, via on issues`,

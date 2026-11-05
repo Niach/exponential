@@ -312,7 +312,7 @@ checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 
 [[package]]
 name = "api"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "dirs",
  "domain",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "anyhow",
  "api",
@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "codemode"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "domain",
  "emcp",
@@ -1699,7 +1699,7 @@ dependencies = [
 
 [[package]]
 name = "coding"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "anyhow",
  "api",
@@ -2576,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "chrono",
  "jiff",
@@ -2850,7 +2850,7 @@ dependencies = [
 
 [[package]]
 name = "engine"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -3169,7 +3169,7 @@ dependencies = [
 
 [[package]]
 name = "eui-core"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "cosmic-text",
  "indexmap 2.14.0",
@@ -3184,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "eui-gpui"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "eui-core",
  "eui-motion",
@@ -3256,7 +3256,7 @@ dependencies = [
 
 [[package]]
 name = "exp-cli"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "anyhow",
  "api",
@@ -3316,7 +3316,7 @@ dependencies = [
 
 [[package]]
 name = "exponential-ui-ffi"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "eui-core",
  "eui-motion",
@@ -10281,7 +10281,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steer"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "api",
  "coding",
@@ -10594,7 +10594,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "api",
  "domain",
@@ -10806,7 +10806,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "anyhow",
  "eagent",
@@ -10833,7 +10833,7 @@ dependencies = [
 
 [[package]]
 name = "theme"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "gpui",
  "gpui-component",
@@ -11978,7 +11978,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "anyhow",
  "api",
@@ -12258,7 +12258,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.14.131"
+version = "0.14.132"
 dependencies = [
  "anyhow",
  "dirs",
