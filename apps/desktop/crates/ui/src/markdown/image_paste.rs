@@ -399,7 +399,9 @@ impl AttachmentTransport for HttpAttachmentTransport {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
         let url = format!("{}/api/sessions/{session_id}/files", self.base_url);
-        self.post_multipart(&url, filename, content_type, bytes)
+        let uploaded = self.post_multipart(&url, filename, content_type, bytes)?;
+        domain::sealed::remember_upload(&uploaded.id, filename, content_type);
+        Ok(uploaded)
     }
 
     fn upload_team_session_file(
@@ -410,7 +412,9 @@ impl AttachmentTransport for HttpAttachmentTransport {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
         let url = format!("{}/api/teams/{team_id}/session-files", self.base_url);
-        self.post_multipart(&url, filename, content_type, bytes)
+        let uploaded = self.post_multipart(&url, filename, content_type, bytes)?;
+        domain::sealed::remember_upload(&uploaded.id, filename, content_type);
+        Ok(uploaded)
     }
 
     fn upload_draft(

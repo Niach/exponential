@@ -8,6 +8,46 @@ import os
 
 private let logger = Logger(subsystem: "at.exponential", category: "SendSealing")
 
+/// #EXP-1683 (sealed-content.json `attachmentEmbedCases`): the server never
+/// appends to a sealed body, so the writer names a send's attachments inside
+/// the text before sealing; a file is a link line, never an image embed.
+public enum SealedAttachmentLines {
+    public struct Upload: Sendable, Equatable {
+        public let filename: String
+        public let contentType: String
+
+        public init(filename: String, contentType: String) {
+            self.filename = filename
+            self.contentType = contentType
+        }
+    }
+
+    private static let uploads = OSAllocatedUnfairLock(initialState: [String: Upload]())
+
+    /// Recorded by the session upload routes (`AttachmentsApi`).
+    public static func remember(id: String, upload: Upload) {
+        uploads.withLock { $0[id] = upload }
+    }
+
+    public static func upload(id: String) -> Upload? {
+        uploads.withLock { $0[id] }
+    }
+
+    public static func withEmbeds(_ text: String, attachmentIds: [String], uploadOf: (String) -> Upload?) -> String {
+        var seen = Set<String>()
+        let lines = attachmentIds.filter { seen.insert($0).inserted && !text.contains("/api/attachments/\($0)") }.map { id in
+            let upload = uploadOf(id)
+            let name = (upload?.filename ?? "image").replacingOccurrences(of: "[", with: "").replacingOccurrences(of: "]", with: "")
+            let image = upload.map { AttachmentFiles.isInlineImage(contentType: $0.contentType) } ?? true
+            return "\(image ? "!" : "")[\(name)](/api/attachments/\(id))"
+        }
+        if lines.isEmpty { return text }
+        var trimmed = text
+        while trimmed.last?.isWhitespace == true { trimmed.removeLast() }
+        return ([trimmed] + lines).filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+}
+
 /// `sessions.send`'s input plus the sealed-content fields.
 public struct SealedSendInput: Encodable, Equatable, Sendable {
     public let input: SessionsSendInput
@@ -45,6 +85,17 @@ extension SessionsSendInput {
         case let .child(_, _, _, text): text
         case let .message(_, text, _): text
         case .switchAccount, .moveDevice: nil
+        }
+    }
+
+    /// The claimed uploads of this send.
+    public var attachmentIds: [String] {
+        switch self {
+        case let .newThread(_, _, _, _, ids, _, _, _): ids ?? []
+        case let .agent(_, _, ids, _): ids ?? []
+        case let .app(_, _, _, ids): ids ?? []
+        case let .message(_, _, ids): ids ?? []
+        case .child, .switchAccount, .moveDevice: []
         }
     }
 
@@ -157,7 +208,8 @@ public struct SendSealing: Sendable {
     private func seal(_ input: SessionsSendInput, to key: TreeSealKey?) -> SessionsSendInput {
         guard let key, let text = input.text, !text.isEmpty else { return input }
         do {
-            return input.with(text: try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: text))
+            let body = SealedAttachmentLines.withEmbeds(text, attachmentIds: input.attachmentIds, uploadOf: SealedAttachmentLines.upload)
+            return input.with(text: try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: body))
         } catch {
             logger.error("Sealing failed: \(String(describing: error), privacy: .public)")
             return input

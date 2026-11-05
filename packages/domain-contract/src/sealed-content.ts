@@ -457,3 +457,32 @@ export function openTitle(sealedTitle: string | null | undefined, keys: TreeKeys
   const opened = openBody(sealedTitle, keys)
   return opened.status === `opened` || opened.status === `plain` ? opened.text : null
 }
+
+// ── attachment lines (#EXP-1683, `attachmentEmbedCases`) ──────────────────
+
+/** A session upload this process made: what its line needs. */
+export interface AttachmentUpload {
+  filename: string
+  contentType: string
+}
+
+const INLINE_IMAGE_TYPES: readonly string[] = placeholderFixture.inlineImageTypes
+
+/** `text` with a line per attachment it does not reference yet: the server
+ *  never appends to a sealed body, so the writer does before sealing. */
+export function withAttachmentEmbeds(
+  text: string,
+  attachmentIds: readonly string[],
+  uploadOf: (id: string) => AttachmentUpload | undefined
+): string {
+  const lines = [...new Set(attachmentIds)]
+    .filter((id) => !text.includes(`/api/attachments/${id}`))
+    .map((id) => {
+      const upload = uploadOf(id)
+      const name = (upload?.filename ?? `image`).replace(/[[\]]/g, ``)
+      const image = !upload || INLINE_IMAGE_TYPES.includes(upload.contentType)
+      return `${image ? `!` : ``}[${name}](/api/attachments/${id})`
+    })
+  if (lines.length === 0) return text
+  return [text.trimEnd(), ...lines].filter(Boolean).join(`\n\n`)
+}

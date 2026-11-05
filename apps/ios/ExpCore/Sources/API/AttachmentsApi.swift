@@ -151,13 +151,15 @@ public final class AttachmentsApi: Sendable {
         filename: String,
         contentType: String
     ) async throws -> UploadedAttachment {
-        try await upload(
+        let uploaded = try await upload(
             accountId: accountId,
             path: "/api/sessions/\(sessionId)/files",
             data: data,
             filename: filename,
             contentType: contentType
         )
+        SealedAttachmentLines.remember(id: uploaded.id, upload: .init(filename: uploaded.filename, contentType: uploaded.contentType))
+        return uploaded
     }
 
     /// EXP-825: a file attached in the composer BEFORE it is sent.
@@ -173,13 +175,15 @@ public final class AttachmentsApi: Sendable {
         filename: String,
         contentType: String
     ) async throws -> UploadedAttachment {
-        try await upload(
+        let uploaded = try await upload(
             accountId: accountId,
             path: "/api/teams/\(teamId)/session-files",
             data: data,
             filename: filename,
             contentType: contentType
         )
+        SealedAttachmentLines.remember(id: uploaded.id, upload: .init(filename: uploaded.filename, contentType: uploaded.contentType))
+        return uploaded
     }
 
     /// The draft upload route. Internal so the path contract is unit-tested —
