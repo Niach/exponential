@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- RecordForm: a `date-time` field is a DatePicker + TimePicker pair in the team zone (the new expression function `dateTime(day, time?)`). RecordTable: a phone's row has its own Delete.
+
 ## 0.15.4 (2026-11-05)
 
 - The open libraries are the Exponential SDK: genUI, Motion and Apps name the skills and docs (`exponential-ui` skill = `exponential-genui`; docs under /docs/sdk/); package names and tags stay. The amber warning colour is `semantic.yellow` (EXP-1695).

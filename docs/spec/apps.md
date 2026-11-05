@@ -475,8 +475,8 @@ One language at two levels, on the Q2 core:
 | Inline cell edit in tables | ❌. Proposal: none; edit opens the record form in a Drawer. |
 | Charts (bar, stacked, line, area, pie, donut, sparkline) | ✅ `Chart`, `StatTile`, `Meter`, `Ring`, `Sparkline` |
 | Forms and validation | ✅ `Form`, `FieldGroup`, `FormActions`, `checks` (required, email, length, regex, numeric), `validateOn` |
-| Form from a kind's schema | 🆕 U2: `RecordForm {kind, id?}` as a genUI **macro** expanding to Form + inputs (date → DatePicker, enum → Select, ref member → Select over `exp:members`, string[] of issues → ChipInput). The server re-validates the kind's schema. |
-| Table from a query | 🆕 U2: `RecordTable {query, columns?}` macro. Columns come from the schema, the row press opens `RecordForm` in a Drawer. |
+| Form from a kind's schema | 🆕 U2: `RecordForm {kind, id?}` as a genUI **macro** expanding to Form + inputs (date → DatePicker, ✅ date-time → DatePicker + TimePicker in a FieldGroup, in the team zone, #VAPP-245; enum → Select, ref member → Select over `exp:members`, string[] of issues → ChipInput). The server re-validates the kind's schema. |
+| Table from a query | 🆕 U2: `RecordTable {query, columns?}` macro. Columns come from the schema, the row press opens `RecordForm` in a Drawer. ✅ #VAPP-245: Edit and Delete are icon buttons in a cell, Delete confirms in a Dialog; a phone's row carries its own Delete. |
 | Calendar / timeline (leave, on-call) | ✅ U3 (#VAPP-232): genUI `Calendar` (month/week; phones: dots + the day's agenda) and `Timeline`, catalog macros over the records calendar views (`until`, `view=week|timeline`); styleguide entries `calendar` + `timeline`. |
 | Empty, loading and error states | ✅ `EmptyState`, `Skeleton`, toasts per `feedback-states.json` |
 

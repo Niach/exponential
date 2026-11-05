@@ -3802,6 +3802,9 @@
         "select",
         "date",
         "time",
+        "datetime",
+        "day",
+        "clock",
         "chips",
         "actions"
       ],

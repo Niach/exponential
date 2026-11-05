@@ -147,7 +147,10 @@ pub fn record_form_fields(kind: &Value, path: &str) -> Vec<Value> {
         } else if format == Some("time") {
             widget = "time";
         } else if format == Some("date-time") {
-            o.entry("placeholder").or_insert(json!("YYYY-MM-DDTHH:MM"));
+            widget = "datetime";
+            o.insert("wide".into(), json!(true));
+            o.insert("date".into(), json!({"path": format!("{path}Parts/{name}/date")}));
+            o.insert("time".into(), json!({"path": format!("{path}Parts/{name}/time")}));
         } else if f.get("maxLength").and_then(Value::as_f64).is_none_or(|m| m > RECORD_LONG_TEXT) {
             widget = "textarea";
             o.insert("wide".into(), json!(true));
@@ -235,11 +238,33 @@ fn set_on(node: &mut Map<String, Value>, event: &str, action: Value) {
     on.entry(event.to_string()).or_insert(action);
 }
 
+/// A date-time field's value: its picked day + time in the team zone; no
+/// day picked = the draft's value as it is.
+fn date_time_value(f: &Value) -> Value {
+    json!({"call": "cond", "args": {"if": f.get("date"), "then": {"call": "dateTime", "args": {"date": f.get("date"), "time": f.get("time")}}, "else": f.get("value")}})
+}
+
+/// Opens the editor on a row: the draft = the row, a date-time's parts = its
+/// day and time in the team zone.
+fn edit_action(base: &str, fields: &[Value]) -> Value {
+    let mut parts = Map::new();
+    for f in fields {
+        let Some(name) = f.get("name").and_then(Value::as_str).filter(|_| f.get("widget").and_then(Value::as_str) == Some("datetime")) else { continue };
+        let value = json!({"path": name});
+        parts.insert(name.into(), json!({"date": {"call": "formatDate", "args": {"value": value, "format": "yyyy-MM-dd"}}, "time": {"call": "formatDate", "args": {"value": value, "format": "HH:mm"}}}));
+    }
+    let mut editor = json!({"open": true, "draft": {"path": ""}});
+    if !parts.is_empty() {
+        editor["draftParts"] = Value::Object(parts);
+    }
+    set(&format!("{base}/editor"), editor)
+}
+
 fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>) -> Value {
     let mut data = Map::new();
     for f in fields {
         if let (Some(name), Some(value)) = (f.get("name").and_then(Value::as_str), f.get("value")) {
-            data.insert(name.into(), value.clone());
+            data.insert(name.into(), if f.get("widget").and_then(Value::as_str) == Some("datetime") { date_time_value(f) } else { value.clone() });
         }
     }
     let mut args = Map::new();
@@ -259,7 +284,8 @@ pub fn uses_record_macros(components: &[Value]) -> bool {
 /// Every RecordForm / RecordTable of a template's flat component list,
 /// filled from `records` (the package's `records` object); other
 /// components untouched. Returns `(components, bindings)`: a RecordTable
-/// appends its phone row `<id>__row` and the binding `/recordTable/<id>/rows`.
+/// appends its phone row `<id>__row`, when editable its Delete
+/// `<id>__rowDelete`, and the binding `/recordTable/<id>/rows`.
 pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Option<&Value>, read_only: bool) -> (Vec<Value>, Vec<Value>) {
     let mut out = Vec::new();
     let mut extra = Vec::new();
@@ -317,7 +343,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
             node.insert("editorId".into(), json!({"path": format!("{draft}/id")}));
             node.insert("deleteOpen".into(), json!({"path": format!("{base}/delete/open")}));
             set_on(&mut node, "add", set(&format!("{base}/editor"), json!({"open": true, "draft": {}})));
-            set_on(&mut node, "edit", set(&format!("{base}/editor"), json!({"open": true, "draft": {"path": ""}})));
+            set_on(&mut node, "edit", edit_action(&base, &fields));
             set_on(&mut node, "delete", set(&format!("{base}/delete"), json!({"open": true, "id": {"path": "id"}})));
             set_on(&mut node, "submit", upsert_action(&kind_name, &fields, Some(&json!({"path": format!("{draft}/id")}))));
             set_on(&mut node, "cancel", set(&format!("{base}/editor/open"), json!(false)));
@@ -326,6 +352,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         } else {
             node.insert("add".into(), json!(false));
         }
+        let delete_action = node.get("on").and_then(|on| on.get("delete")).cloned();
         let query = node.get("query").and_then(Value::as_str).map(str::trim).filter(|q| !q.is_empty()).map(|q| q.strip_prefix('?').unwrap_or(q).to_string()).unwrap_or_else(|| "sort=updatedAt&order=desc".into());
         out.push(Value::Object(node));
         let shown = shown_columns(kind, columns.as_deref());
@@ -339,9 +366,14 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         }
         row.insert("meta".into(), json!({"call": "formatRelativeTime", "args": {"value": {"path": "updatedAt"}}}));
         if editable {
-            row.insert("on".into(), json!({"press": set(&format!("{base}/editor"), json!({"open": true, "draft": {"path": ""}}))}));
+            row.insert("on".into(), json!({"press": edit_action(&base, &fields)}));
+            // The row's own Delete (the table's Delete cell is hidden on phones).
+            row.insert("slots".into(), json!({"trailing": format!("{id}__rowDelete")}));
         }
         extra.push(Value::Object(row));
+        if editable {
+            extra.push(json!({"id": format!("{id}__rowDelete"), "component": "Button", "icon": "ui-delete", "variant": "ghost", "size": "icon", "accessibility": {"label": "$string.delete"}, "on": {"press": delete_action}}));
+        }
         binds.push(json!({"path": format!("{base}/rows"), "source": format!("records:{kind_name}?{query}")}));
     }
     out.extend(extra);

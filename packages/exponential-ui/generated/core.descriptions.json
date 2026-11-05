@@ -3314,6 +3314,7 @@
       "max": "The largest of values.",
       "today": "Today (YYYY-MM-DD) in the team time zone.",
       "now": "Now as an ISO instant.",
+      "dateTime": "A day (YYYY-MM-DD) at a wall-clock time (HH:MM; none = midnight) in the team time zone, as an ISO instant.",
       "dateAdd": "date (YYYY-MM-DD or ISO instant) plus n whole units (second minute hour day week month quarter year; a day keeps the local time; month ends clamp).",
       "dateDiff": "Whole units from a to b (b - a, truncated).",
       "startOf": "The first day (or instant) of date's day, week (Monday), month, quarter or year.",

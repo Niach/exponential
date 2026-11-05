@@ -487,8 +487,9 @@ macros put a kind's whole form or table on a screen as ONE node:
   string enum → Select, an enum list → a multiple Select, another list →
   ChipInput, a `member` / `issue` ref → a searchable Select over
   `exp:members` / `exp:issues`, a string without `maxLength` or longer
-  than 200 → Textarea, else Input (`date-time` with the placeholder
-  `YYYY-MM-DDTHH:MM`). Labels are the field names humanized, placeholders
+  than 200 → Textarea, `date-time` → DatePicker + TimePicker side by side
+  (in the team zone; `<path>Parts/<field>/date|time`, seed them to edit;
+  no day picked = the draft's value as it is), else Input. Labels are the field names humanized, placeholders
   the schema `description`. Checks come from the schema: required,
   `maxLength`, `minimum` / `maximum`. Short fields pair in a two-column
   FieldGroup on wide frames. The draft lives at `path` (default
@@ -498,8 +499,8 @@ macros put a kind's whole form or table on a screen as ONE node:
 - **RecordTable** `{kind, query?, columns?, add?, editable?}`: a toolbar
   (the count, Add) over the stock Table (compact, sticky header, sortable)
   with the Data tab's typed widths, a relative Updated column and an
-  Edit / Delete cell; phones show the same rows as a List of Row. Add,
-  Edit or a row press opens a RecordForm in a Drawer; Delete asks first,
+  Edit / Delete cell; phones show the same rows as a List of Row, each
+  with its own Delete. Add, Edit or a row press opens a RecordForm in a Drawer; Delete asks first,
   then `records.delete`. Rows follow `records:<kind>?<query>` (default
   newest first) at `/recordTable/<id>/rows`. States: loading (Skeleton),
   empty (`No records yet`), an undeclared kind (the unknown state),
@@ -594,6 +595,7 @@ a wrong type) gives the call no value.
 | `min(x, …)` `max(x, …)` | `values: [...]` | at least one |
 | `today()` | | the calendar day in the team zone |
 | `now()` | | the instant, `YYYY-MM-DDTHH:MM:SS.sssZ` |
+| `dateTime(d, time?)` | `date, time` | the day at a wall-clock `HH:MM` (none = midnight) in the team zone, as an instant |
 | `dateAdd(d, n, unit)` | `date, n, unit` | a whole `n`; a day unit keeps the wall clock, a month end clamps (Jan 31 + 1 month = Feb 28) |
 | `dateDiff(a, b, unit)` | `a, b, unit` | whole units from `a` to `b` (`b - a`, truncated) |
 | `startOf(d, unit)` `endOf(d, unit)` | `date, unit` | day, week (Monday), month, quarter, year |

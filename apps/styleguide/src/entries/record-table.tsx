@@ -11,7 +11,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `VAPP-217`,
   title: `Record table`,
-  blurb: `The records of one kind: Exponential UI's RecordTable macro over the stock Table (header band, row hairlines, compact, sticky header, sortable). A toolbar (the count, Add) over the Data tab's typed columns (date 104, time 64, date-time 152, number 64, boolean 56 px, text shares the rest), the relative Updated column and an Edit / Delete cell; phones show the same rows as a List of Row. Add, Edit or a row press opens the RecordForm in a Drawer; Delete asks first. Empty = "No records yet", an undeclared kind = the unknown state, loading = a Skeleton.`,
+  blurb: `The records of one kind: Exponential UI's RecordTable macro over the stock Table (header band, row hairlines, compact, sticky header, sortable). A toolbar (the count, Add) over the Data tab's typed columns (date 104, time 64, date-time 152, number 64, boolean 56 px, text shares the rest), the relative Updated column and an Edit / Delete cell; phones show the same rows as a List of Row, each with its own Delete icon button. Add, Edit or a row press opens the RecordForm in a Drawer; Delete asks first. Empty = "No records yet", an undeclared kind = the unknown state, loading = a Skeleton.`,
   status: {
     web: { state: `ok`, symbol: `RecordTable (macro)`, file: `packages/exponential-ui/catalog/macros.json`, note: `here: ExponentialUiSpecimen (packages/ui)` },
     desktop: { state: `ok`, symbol: `render`, file: `apps/desktop/crates/ui/src/styleguide/entries/record_table.rs` },
