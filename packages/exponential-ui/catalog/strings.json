@@ -63,6 +63,7 @@
     "ratingValue": "Rated {value} of {max}",
     "read": "Read",
     "recordCount": "{count} records",
+    "recordCountOne": "{count} record",
     "remove": "Remove",
     "removeItem": "Remove {name}",
     "required": "Required",

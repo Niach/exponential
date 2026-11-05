@@ -296,7 +296,7 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     node.title = kind.title ?? fieldLabel(kindName)
     node.cols = recordTableColumns(kind, columns, editable)
     node.rows = { path: `${base}/rows/rows` }
-    node.count = { call: `fill`, args: { template: `$string.recordCount`, params: { count: { call: `coalesce`, args: { values: [{ path: `${base}/rows/count` }, 0] } } } } }
+    node.count = { call: `pluralize`, args: { value: { call: `coalesce`, args: { values: [{ path: `${base}/rows/count` }, 0] } }, one: `$string.recordCountOne`, other: `$string.recordCount` } }
     node.loading = { call: `not`, args: { value: { path: `${base}/rows` } } }
     if (options.readOnly) node.add = false
     node.editable = editable

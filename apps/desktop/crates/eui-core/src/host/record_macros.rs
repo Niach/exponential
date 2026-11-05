@@ -399,7 +399,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         node.insert("title".into(), json!(title));
         node.insert("cols".into(), Value::Array(record_table_columns(kind, columns.as_deref(), editable)));
         node.insert("rows".into(), json!({"path": format!("{base}/rows/rows")}));
-        node.insert("count".into(), json!({"call": "fill", "args": {"template": "$string.recordCount", "params": {"count": {"call": "coalesce", "args": {"values": [{"path": format!("{base}/rows/count")}, 0]}}}}}));
+        node.insert("count".into(), json!({"call": "pluralize", "args": {"value": {"call": "coalesce", "args": {"values": [{"path": format!("{base}/rows/count")}, 0]}}, "one": "$string.recordCountOne", "other": "$string.recordCount"}}));
         node.insert("loading".into(), json!({"call": "not", "args": {"value": {"path": format!("{base}/rows")}}}));
         if read_only {
             node.insert("add".into(), json!(false));
