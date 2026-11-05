@@ -1,0 +1,20 @@
+[package]
+name = "ede-shell"
+description = "eDE's shell: genUI documents on disk drawn in wlr-layer-shell surfaces (gpui + eui-gpui), its own process next to ede-compositor"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+eui-core.workspace = true
+eui-gpui.workspace = true
+ede-protocol.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+gpui-component-assets.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

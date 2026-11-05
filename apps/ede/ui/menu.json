@@ -1,0 +1,17 @@
+{
+  "$comment": "eDE's factory menu (#EDE-10): opens from the panel's first button as its own popup surface (an xdg_popup child of the panel's layer surface, #EDE-5), so it can leave the panel's 40 px.",
+  "surface": {"popup": {"parent": "panel", "anchor": "menu", "placement": "bottom-start", "size": {"width": 280, "height": 200}}},
+  "root": {
+    "id": "menu",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.sm", "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "children": [
+      {"id": "menu-title", "component": "Text", "props": {"text": "Exponential", "variant": "caption"}},
+      {"id": "menu-terminal", "component": "Row", "props": {"title": "Terminal", "icon": "nav-terminal"}, "on": {"press": {"event": {"name": "launch", "context": {"command": "xterm"}}}}},
+      {"id": "menu-files", "component": "Row", "props": {"title": "Files", "icon": "ui-folder"}, "on": {"press": {"event": {"name": "launch", "context": {"command": "nemo"}}}}},
+      {"id": "menu-settings", "component": "Row", "props": {"title": "Settings", "icon": "nav-settings"}, "on": {"press": {"event": {"name": "launch", "context": {"command": "ede-settings"}}}}},
+      {"id": "menu-sep", "component": "Separator"},
+      {"id": "menu-logout", "component": "Row", "props": {"title": "Log out", "icon": "nav-sign-out"}, "on": {"press": {"event": {"name": "logout"}}}}
+    ]
+  }
+}

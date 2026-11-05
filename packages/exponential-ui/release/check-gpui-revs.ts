@@ -1,12 +1,13 @@
 // EXP-1429: the gpui revision policy, gated. One zed rev and one
-// gpui-component rev, written in five places that must agree:
+// gpui-component rev, written in six places that must agree:
 //   apps/desktop/Cargo.toml + Cargo.lock        (the workspace the painter builds in)
 //   apps/desktop/crates/app/tests/pinned_revs.rs (the cargo-side lock gate)
 //   apps/desktop/crates/eui-gpui/README.md (the consumer policy table)
 //   packages/exponential-ui/guides/gpui/Cargo.toml + Cargo.lock (the third-party guide app)
+//   apps/ede/shell/Cargo.toml + Cargo.lock       (eDE's shell workspace, #EDE-10: gpui + eui-gpui by path)
 //   apps/site/src/content/docs/docs/sdk/genui/guides/gpui.mdx (the install snippet on exponential.at)
 // plus the rust toolchain of both,
-// and both consumers carry the ztracing [patch]. Text only, no cargo: it runs
+// and every consumer carries the ztracing [patch]. Text only, no cargo: it runs
 // in the test.yml gate.
 //
 //   bun packages/exponential-ui/release/check-gpui-revs.ts
@@ -98,6 +99,8 @@ if (SHA.test(zedRev) && SHA.test(componentRev)) {
   checkLock(`apps/desktop/Cargo.lock`)
   checkManifest(`packages/exponential-ui/guides/gpui/Cargo.toml`)
   checkLock(`packages/exponential-ui/guides/gpui/Cargo.lock`)
+  checkManifest(`apps/ede/shell/Cargo.toml`)
+  checkLock(`apps/ede/shell/Cargo.lock`)
   checkMentions(`apps/desktop/crates/app/tests/pinned_revs.rs`, { zed: true, component: true })
   checkMentions(`apps/site/src/content/docs/docs/sdk/genui/guides/gpui.mdx`, { zed: true, component: true })
 }
@@ -109,7 +112,7 @@ const rust = read(README)
   ?.match(/`([0-9.]+)`/)?.[1]
 if (!rust) fail(README, `no "| rust | \`<version>\` |" row in the gpui revision table`)
 else
-  for (const path of [`apps/desktop/rust-toolchain.toml`, `packages/exponential-ui/guides/gpui/rust-toolchain.toml`]) {
+  for (const path of [`apps/desktop/rust-toolchain.toml`, `packages/exponential-ui/guides/gpui/rust-toolchain.toml`, `apps/ede/shell/rust-toolchain.toml`]) {
     const channel = read(path).match(/^channel = "([^"]+)"/m)?.[1]
     if (channel !== rust) fail(path, `toolchain ${channel} is not the pinned rust ${rust}`)
   }
