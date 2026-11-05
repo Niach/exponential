@@ -38,3 +38,5 @@
 - The same look everywhere: one chat header, and a file in an encrypted chat shows as a file line
 - App records have date and time pickers, and owners can pick the author
 - Owners set when a public link expires from Settings
+- Issues, settings and chats look the same on every app
+- Saving a date-time record no longer shifts it by your time zone

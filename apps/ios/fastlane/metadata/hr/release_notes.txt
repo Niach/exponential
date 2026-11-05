@@ -38,3 +38,5 @@
 - Isti izgled svugdje: jedno zaglavlje chata, a datoteka u šifriranom chatu prikazuje se kao redak datoteke
 - Zapisi u aplikacijama imaju odabir datuma i vremena, a vlasnici mogu odabrati autora
 - Vlasnici u Postavkama određuju kada javna poveznica istječe
+- Zadaci, postavke i chatovi izgledaju isto u svim aplikacijama
+- Spremanje zapisa s datumom i vremenom više ga ne pomiče za vremensku zonu

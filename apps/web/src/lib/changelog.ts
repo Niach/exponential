@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-05-same-look-and-fixes`,
+    date: `2026-11-05`,
+    title: `One look on every app, and fixes`,
+    summary: `Issues, settings, chats and shared pieces look the same on every app; long chats open without freezing desktop, and date-times in app records stay put.`,
+    body: `- **Same look everywhere**: issues, settings, sessions, chats, calls and apps now look the same on the web, desktop, iPhone and Android: one primary button, one yellow, inline chips on one line and the same transcript rows.
+- **Long chats**: opening a long agent chat no longer freezes the desktop app, also when it reopens that chat on launch.
+- **Dates in apps**: saving a date-time record on a phone no longer shifts it by your time zone, and desktop reads app date-times in your zone instead of UTC.
+- **Drawers**: a top or bottom drawer in an app spans the whole window on desktop, iPhone and Android, and a top drawer on Android opens from the top.
+- **Offline devices**: when a session's device goes offline mid-run and stays offline, the session reaches Needs you after 30 minutes with a notice saying so, instead of waiting silently.
+- **Android**: signing out no longer crashes the app.
+- **Guest pages**: a public page that shows an app's own screen opens instead of reading as a dead link, and a file uploaded to a session is a link instead of an empty tile.`,
+  },
+  {
     id: `2026-11-05-apps-polish`,
     date: `2026-11-05`,
     title: `Apps polish`,

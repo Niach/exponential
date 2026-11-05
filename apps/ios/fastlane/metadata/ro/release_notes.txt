@@ -38,3 +38,5 @@
 - Același aspect peste tot: un singur antet de chat, iar un fișier dintr-un chat criptat apare ca rând de fișier
 - Înregistrările din aplicații au selectoare de dată și oră, iar proprietarii pot alege autorul
 - Proprietarii setează din Setări când expiră un link public
+- Problemele, setările și chaturile arată la fel în toate aplicațiile
+- Salvarea unei înregistrări cu dată și oră nu o mai mută cu fusul orar

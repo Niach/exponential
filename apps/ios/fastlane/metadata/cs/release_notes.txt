@@ -38,3 +38,5 @@
 - Stejný vzhled všude: jedna hlavička chatu a soubor v šifrovaném chatu se zobrazí jako řádek souboru
 - Záznamy v aplikacích mají výběr data a času a vlastníci mohou zvolit autora
 - Vlastníci nastaví vypršení veřejného odkazu v Nastavení
+- Problémy, nastavení a chaty vypadají stejně ve všech aplikacích
+- Uložení záznamu s datem a časem ho už neposune o časové pásmo

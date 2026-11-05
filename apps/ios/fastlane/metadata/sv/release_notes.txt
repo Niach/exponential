@@ -38,3 +38,5 @@
 - Samma utseende överallt: ett chatthuvud, och en fil i en krypterad chatt visas som en filrad
 - Poster i appar har datum- och tidsväljare, och ägare kan välja författaren
 - Ägare anger i Inställningar när en offentlig länk upphör
+- Ärenden, inställningar och chattar ser likadana ut i alla appar
+- Att spara en post med datum och tid flyttar den inte längre med tidszonen

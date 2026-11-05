@@ -1,0 +1,4 @@
+- Issues, settings and chats look the same on every app
+- Saving a date-time record no longer shifts it by your time zone
+- Signing out no longer crashes the app
+- A top drawer in an app opens from the top

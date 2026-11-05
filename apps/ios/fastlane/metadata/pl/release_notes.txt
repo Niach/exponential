@@ -38,3 +38,5 @@
 - Ten sam wygląd wszędzie: jeden nagłówek czatu, a plik w szyfrowanym czacie wyświetla się jako wiersz pliku
 - Rekordy w aplikacjach mają wybór daty i godziny, a właściciele mogą wybrać autora
 - Właściciele ustawiają w Ustawieniach, kiedy wygasa publiczny link
+- Zadania, ustawienia i czaty wyglądają tak samo we wszystkich aplikacjach
+- Zapis rekordu z datą i godziną nie przesuwa go już o strefę czasową

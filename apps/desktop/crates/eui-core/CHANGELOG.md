@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.1 (2026-11-05)
+
 - #VAPP-253: `Surface::set_layer_viewport(width, height)`: a top or bottom Drawer lays out at the window's size, a popup above it lands in it. Width <= 0 = unset (the default), today's behaviour.
 
 ## 0.16.0 (2026-11-05)
