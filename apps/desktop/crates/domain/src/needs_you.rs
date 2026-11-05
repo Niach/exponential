@@ -235,8 +235,12 @@ fn row_of(
 fn pull_request_rows(input: &NeedsYouInput) -> Vec<NeedsYouRow> {
     let sessions: HashMap<&str, &NeedsYouSessionInput> =
         input.sessions.iter().map(|session| (session.id.as_str(), session)).collect();
-    let open: HashSet<&str> =
-        input.pull_requests.iter().filter(|pr| pr.state == "open").map(|pr| pr.id.as_str()).collect();
+    let live: HashSet<&str> = input
+        .pull_requests
+        .iter()
+        .filter(|pr| pr.state == "open" || pr.state == "draft")
+        .map(|pr| pr.id.as_str())
+        .collect();
     let working: HashSet<&str> =
         input.sessions.iter().filter(|session| session.busy).map(|session| session.root_id.as_str()).collect();
     input
@@ -250,7 +254,7 @@ fn pull_request_rows(input: &NeedsYouInput) -> Vec<NeedsYouRow> {
             if root.agent_id.is_some() && root.user_id != input.me {
                 return None;
             }
-            let stacked = pr.base_pull_request_id.as_deref().is_some_and(|base| open.contains(base));
+            let stacked = pr.base_pull_request_id.as_deref().is_some_and(|base| live.contains(base));
             if working.contains(root.id.as_str()) || stacked {
                 return None;
             }

@@ -173,13 +173,13 @@ object NeedsYou {
         pullRequests: List<PullRequestInput>,
     ): List<Row> {
         val byId = sessions.associateBy { it.id }
-        val open = pullRequests.filter { it.state == "open" }.map { it.id }.toSet()
+        val live = pullRequests.filter { it.state == "open" || it.state == "draft" }.map { it.id }.toSet()
         val working = sessions.filter { it.busy }.map { it.rootId }.toSet()
         return pullRequests.mapNotNull { pr ->
             val root = pr.rootSessionId?.let { byId[it] } ?: return@mapNotNull null
             if (pr.state != "open" || pr.checksState != "success") return@mapNotNull null
             if (root.agentId != null && root.userId != me) return@mapNotNull null
-            if (root.id in working || (pr.basePullRequestId != null && pr.basePullRequestId in open)) return@mapNotNull null
+            if (root.id in working || (pr.basePullRequestId != null && pr.basePullRequestId in live)) return@mapNotNull null
             Row(
                 messageId = pr.id,
                 sessionId = root.id,

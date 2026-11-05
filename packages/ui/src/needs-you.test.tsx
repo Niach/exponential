@@ -12,13 +12,13 @@ describe(`NeedsYouList`, () => {
     const onOpen = vi.fn()
     render(<NeedsYouList rows={rows} onOpen={onOpen} />)
     const painted = screen.getAllByTestId(NEEDS_YOU_TEST_IDS.row)
-    expect(painted[0]!.textContent).toContain(`${rows[0]!.title}${rows[0]!.age}`)
-    expect(painted[0]!.textContent).toContain(`${rows[0]!.chat} · ${rows[0]!.meta}`)
+    expect(painted[1]!.textContent).toContain(`${rows[1]!.title}${rows[1]!.age}`)
+    expect(painted[1]!.textContent).toContain(`${rows[1]!.chat} · ${rows[1]!.meta}`)
     // No meta = the chat alone.
-    expect(painted[1]!.textContent).not.toContain(` · `)
-    expect(painted.slice(0, 2).map((row) => row.getAttribute(`data-kind`))).toEqual([`pr`, `question`])
-    fireEvent.click(painted[1]!)
-    expect(onOpen).toHaveBeenCalledWith(rows[1])
+    expect(painted[0]!.textContent).not.toContain(` · `)
+    expect(painted.slice(0, 2).map((row) => row.getAttribute(`data-kind`))).toEqual([`question`, `pr`])
+    fireEvent.click(painted[0]!)
+    expect(onOpen).toHaveBeenCalledWith(rows[0])
   })
 
   it(`no row = THE EmptyState`, () => {

@@ -221,7 +221,7 @@ public enum NeedsYou {
         now: Double, me: String?, sessions: [SessionInput], pullRequests: [PullRequestInput]
     ) -> [Row] {
         let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
-        let open = Set(pullRequests.filter { $0.state == "open" }.map(\.id))
+        let live = Set(pullRequests.filter { $0.state == "open" || $0.state == "draft" }.map(\.id))
         let working = Set(sessions.filter(\.busy).map(\.rootId))
         return pullRequests.compactMap { pr in
             guard let root = pr.rootSessionId.flatMap({ sessionsById[$0] }), pr.state == "open",
@@ -229,7 +229,7 @@ public enum NeedsYou {
             else { return nil }
             if root.agentId != nil, root.userId != me { return nil }
             if working.contains(root.id) { return nil }
-            if let base = pr.basePullRequestId, open.contains(base) { return nil }
+            if let base = pr.basePullRequestId, live.contains(base) { return nil }
             return Row(
                 messageId: pr.id,
                 sessionId: root.id,

@@ -138,13 +138,13 @@ function pullRequestRows(input: {
   pullRequests: readonly NeedsYouPullRequestInput[]
 }): NeedsYouRow[] {
   const sessions = new Map(input.sessions.map((session) => [session.id, session]))
-  const open = new Set(input.pullRequests.filter((pr) => pr.state === `open`).map((pr) => pr.id))
+  const live = new Set(input.pullRequests.filter((pr) => pr.state === `open` || pr.state === `draft`).map((pr) => pr.id))
   const working = new Set(input.sessions.filter((session) => session.busy === true).map((session) => session.rootId))
   return input.pullRequests.flatMap((pr): NeedsYouRow[] => {
     const root = pr.rootSessionId ? sessions.get(pr.rootSessionId) : undefined
     if (!root || pr.state !== `open` || pr.checksState !== `success`) return []
     if (root.agentId !== null && root.userId !== input.me) return []
-    if (working.has(root.id) || (pr.basePullRequestId !== null && open.has(pr.basePullRequestId))) return []
+    if (working.has(root.id) || (pr.basePullRequestId !== null && live.has(pr.basePullRequestId))) return []
     return [
       {
         messageId: pr.id,
