@@ -164,11 +164,13 @@ fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, cx: &App) -
 
 /// EXP-1686 (chats.json AGENT CHAT): THE agent chat header, conversation or
 /// not yet: the lead disc, the agent's NAME, then `merge` (a conversation's
-/// open PR), the call button and the agent menu; `strip` only while the chat
+/// open PR), the call button and the agent menu; `back` over it when a session
+/// link opened the chat (chats.json THE WAY BACK); `strip` only while the chat
 /// holds a plan.
 pub(crate) fn agent_header(
     agent: Option<&AgentDefRow>,
     merge: Option<AnyElement>,
+    back: Option<AnyElement>,
     strip: Option<AnyElement>,
     call_panel: FocusHandle,
     cx: &App,
@@ -188,24 +190,32 @@ pub(crate) fn agent_header(
                 .pb_3()
                 .gap_4()
                 .child(
-                    h_flex()
+                    v_flex()
+                        .w_full()
                         .min_w_0()
-                        .gap_3()
-                        .items_center()
-                        .child(agent_header_disc(agent, cx))
+                        .gap_1()
+                        .children(back)
                         .child(
-                            div()
-                                .flex_1()
+                            h_flex()
+                                .w_full()
                                 .min_w_0()
-                                .truncate()
-                                .text_2xl()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(theme.foreground)
-                                .child(SharedString::from(name)),
-                        )
-                        .children(merge)
-                        .children(call)
-                        .children(menu),
+                                .gap_3()
+                                .items_center()
+                                .child(agent_header_disc(agent, cx))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_2xl()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(theme.foreground)
+                                        .child(SharedString::from(name)),
+                                )
+                                .children(merge)
+                                .children(call)
+                                .children(menu),
+                        ),
                 )
                 .children(strip),
         )
@@ -930,9 +940,10 @@ impl AgentScreenView {
     /// Thread 58cb32df (chats.json `agentMenuCases`): the agent chat
     /// header's `…` = THE agent menu (Compact conversation, New
     /// conversation, Stop while busy, Agent settings for owners).
-    fn render_header(&self, cx: &App) -> AnyElement {
+    fn render_header(&self, window: &Window, cx: &App) -> AnyElement {
         let panel = self.call_panel.read(cx).focus_handle(cx);
-        agent_header(self.agent.as_ref(), None, None, panel, cx)
+        let back = crate::session_screen::session_link_back(window, cx);
+        agent_header(self.agent.as_ref(), None, back, None, panel, cx)
     }
 }
 
@@ -1083,7 +1094,7 @@ impl Render for AgentScreenView {
             .size_full()
             .min_h_0()
             .overflow_hidden()
-            .when(!editor, |this| this.child(self.render_header(cx)))
+            .when(!editor, |this| this.child(self.render_header(window, cx)))
             .child(
                 div()
                     .id(if editor { "app-editor-chat-scroll" } else { "agent-conversation-scroll" })
