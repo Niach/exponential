@@ -342,11 +342,19 @@ struct CommentCallRow: View {
             }
         } body: {
             if let bodyText {
-                AgentMarkdownText(text: bodyText, context: context)
+                // A comment is stored GFM, no narration: only a `#IDENT` chips
+                // (issue-refs.json `bare` = agent narration only).
+                AgentMarkdownText(text: bodyText, context: commentContext)
             }
         }
         .task(id: commentId) { await observe() }
         .accessibilityIdentifier("comment-call-row")
+    }
+
+    private var commentContext: AgentMarkdownContext {
+        var context = context
+        context.issueRefs?.bareRefs = false
+        return context
     }
 
     /// The synced comment (it lands after the call settles), its author's

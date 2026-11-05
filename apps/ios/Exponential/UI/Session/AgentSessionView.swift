@@ -228,6 +228,36 @@ struct AgentSessionView: View {
         }
     }
 
+    /// S-3: who started this session and #VAPP-229 (via-app.json) the app
+    /// whose tool did, pinned over the transcript (web `InPlaceSession`'s
+    /// header, desktop's): they never scroll away.
+    @ViewBuilder
+    private var sessionLinks: some View {
+        let caption = viaAppCaption(viaAppName)
+        if origin != nil || caption != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if let origin {
+                    SessionXrefHeader(xref: origin.xref, agent: origin.mark) {
+                        pushRoute(origin.route)
+                    }
+                }
+                if let caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("session-via-app")
+                }
+            }
+            .transcriptColumn()
+            // Web's `pt-3 pb-1`.
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+        }
+    }
+
     /// The transcript and the composer band, which FLOATS over the feed
     /// (EXP-1161): the transcript scrolls beneath it, and the feed's scroll
     /// view takes the band's height as its bottom inset so the follow pin and
@@ -237,8 +267,11 @@ struct AgentSessionView: View {
         // #EXP-1623: the transcript is its own observation scope too, so a
         // feed write re-renders the transcript, never this view's chrome,
         // header and modifiers around it.
-        BodySlice {
-            feedBody(model)
+        VStack(spacing: 0) {
+            sessionLinks
+            BodySlice {
+                feedBody(model)
+            }
         }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // EXP-1358: the band is its OWN observation scope. Built
@@ -710,25 +743,6 @@ struct AgentSessionView: View {
                             // rendered as a window; "Load earlier" grows it
                             // upward (and, past the feed's own first row, asks
                             // the device for the page below it).
-                            // S-3: who started this session, atop its view.
-                            if let origin {
-                                SessionXrefHeader(xref: origin.xref, agent: origin.mark) {
-                                    pushRoute(origin.route)
-                                }
-                                .padding(.bottom, 8)
-                            }
-                            // #VAPP-229 (via-app.json): an app's tool started
-                            // it = one muted line under the origin.
-                            if let caption = viaAppCaption(viaAppName) {
-                                Text(caption)
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.bottom, 8)
-                                    .accessibilityIdentifier("session-via-app")
-                            }
                             if model.canLoadEarlier {
                                 TranscriptLoadEarlierButton { model.loadEarlier() }
                             }

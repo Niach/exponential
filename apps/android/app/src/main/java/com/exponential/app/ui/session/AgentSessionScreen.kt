@@ -1113,7 +1113,8 @@ private fun RunFaceContent(
                                 com.exponential.app.ui.components.SessionXref(
                                     link.xref,
                                     onOpen = { id -> onOpenOrigin(id, link.root) },
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                    // Web's `pt-3 pb-1`.
+                                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 12.dp, bottom = 4.dp),
                                 )
                             }
                             // #VAPP-229 (via-app.json): one muted small line
@@ -1824,6 +1825,9 @@ private fun ActivityFeed(
         // N-11: no status row; the subagent tabs stay put above the list
         // (under the header band, not beneath it); the list starts below.
         Spacer(Modifier.height(topInset))
+        // S-3: who started the session stays pinned over the transcript (web
+        // `InPlaceSession`'s header, desktop's), it never scrolls away.
+        header()
         if (visibleTabs.isNotEmpty()) {
             AgentTabStrip(
                 agents = visibleTabs,
@@ -1846,7 +1850,6 @@ private fun ActivityFeed(
                 bottom = 8.dp + bottomInset,
             ),
         ) {
-            item(key = "feed-header") { header() }
             if (focused != null) {
                 // EXP-356: the focused subagent's conversation — its
                 // delegation summary, then (EXP-773) its prose, the turns
