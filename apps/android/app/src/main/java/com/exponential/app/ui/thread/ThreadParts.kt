@@ -372,6 +372,9 @@ fun ThreadTabStrip(
     waitingSheetOpen: Boolean = false,
     /** #EXP-1662: the plan chip's needs-you dot (its plan waits). */
     planWaiting: Boolean = false,
+    /** #FEED-191: the shown plan's decision (`planTabGlyph`: approved = the
+     *  emerald check). */
+    planDecision: String? = null,
 ) {
     var sheet by remember { mutableStateOf(groupSheetOpen) }
     var waitingSheet by remember { mutableStateOf(waitingSheetOpen) }
@@ -403,7 +406,7 @@ fun ThreadTabStrip(
         }
         // #EXP-1662 (plan-page.json): the plan tab right after Conversation.
         if (SessionTree.ThreadTab.Plan in tabs) {
-            ThreadPlanTab(selected = selectedKey == PLAN_TAB_KEY, waiting = planWaiting, onClick = { onSelect(PLAN_TAB_KEY) })
+            ThreadPlanTab(selected = selectedKey == PLAN_TAB_KEY, waiting = planWaiting, decision = planDecision, onClick = { onSelect(PLAN_TAB_KEY) })
         }
         // #EXP-1562: phones = ONE icon-only chip right after Conversation
         // (the question tint, the count muted) while something waits.
@@ -483,12 +486,20 @@ fun ThreadTabStrip(
 private val StripGap = 4.dp
 
 /** #EXP-1662 (plan-page.json): THE plan tab, phones = THE strip chip box,
- *  the `coding-plan` glyph + `copy.title` + the 6 px needs-you dot. */
+ *  the lead glyph (#FEED-191 `planTabGlyph`: `coding-plan` in the chip's
+ *  colour, an approved plan = `ui-check` in emerald) + `copy.title` + the
+ *  6 px needs-you dot. */
 @Composable
-private fun ThreadPlanTab(selected: Boolean, waiting: Boolean, onClick: () -> Unit) {
+private fun ThreadPlanTab(selected: Boolean, waiting: Boolean, decision: String?, onClick: () -> Unit) {
     val tint = if (selected) MaterialTheme.colorScheme.onSurface else Secondary
+    val glyph = PlanPage.planTabGlyph(decision)
     ThreadTab(selected = selected, onClick = onClick, onLongClick = null, testTag = PlanPage.TestIds.TAB, chip = true) {
-        Icon(ExpIcons.codingPlan, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
+        Icon(
+            if (glyph.icon == "ui-check") ExpIcons.uiCheck else ExpIcons.codingPlan,
+            contentDescription = null,
+            tint = if (glyph.tone == "approved") DesignTokens.Semantic.Green else tint,
+            modifier = Modifier.size(14.dp),
+        )
         Spacer(Modifier.width(6.dp))
         Text(PlanPage.Copy.TITLE, style = MaterialTheme.typography.labelMedium, color = tint, maxLines = 1, softWrap = false)
         if (waiting) {

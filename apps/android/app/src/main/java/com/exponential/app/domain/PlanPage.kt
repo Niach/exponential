@@ -43,6 +43,8 @@ object PlanPage {
         const val TITLE_SIZE = 28f
         const val ROW_HEIGHT = 44f
         const val TAB_MAX_WIDTH = 260f
+        /** #FEED-191: the questions rail, WIDE only (phones keep the panel). */
+        const val RAIL_WIDTH = 360f
     }
 
     /** #EXP-1662: THE questions, floating over the document's foot. */
@@ -314,12 +316,26 @@ object PlanPage {
     /** A thread's plan card, as the tab reads it. */
     data class TabPlan(val id: String, val decision: String?)
 
-    /** #EXP-1662 (`tabCases`): the plan the thread's tab shows ([plans] oldest
-     *  first): the newest waiting one, else the newest approved or rejected
-     *  one, else none. */
-    fun planTabTarget(plans: List<TabPlan>): String? =
-        plans.lastOrNull { it.decision == null }?.id
-            ?: plans.lastOrNull { it.decision == "approved" || it.decision == "rejected" }?.id
+    /** #EXP-1662 / #FEED-191 (`tabCases`): the plan the thread's tab shows
+     *  ([plans] oldest first): the newest waiting one, else [kept] while it is
+     *  an approved or rejected plan of the thread (the plan the tab showed
+     *  during THIS visit of the chat; the screen clears it when the person
+     *  leaves), else none: a decided plan leaves the strip. */
+    fun planTabTarget(plans: List<TabPlan>, kept: String? = null): String? {
+        plans.lastOrNull { it.decision == null }?.let { return it.id }
+        val held = kept?.let { id -> plans.firstOrNull { it.id == id } } ?: return null
+        return if (held.decision == "approved" || held.decision == "rejected") held.id else null
+    }
+
+    /** #FEED-191: the plan tab's lead glyph. [icon] = an icon concept id,
+     *  [tone] = `text` (the chip's own text colour) or `approved` (emerald,
+     *  the plan row's approved check). */
+    data class TabGlyph(val icon: String, val tone: String)
+
+    /** #FEED-191 (`tabGlyphCases`): an approved plan = THE check in emerald
+     *  (as its row), anything else = the plan glyph. */
+    fun planTabGlyph(decision: String?): TabGlyph =
+        if (decision == "approved") TabGlyph("ui-check", "approved") else TabGlyph("coding-plan", "text")
 
     private val PLAN_PREFIX = Regex("""^plan:\s*""", RegexOption.IGNORE_CASE)
 

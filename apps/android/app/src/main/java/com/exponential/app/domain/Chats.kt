@@ -500,7 +500,8 @@ object Chats {
     }
 
     /** A digest back as the tree messages the list reads: its first /
-     *  preview / waiting messages (once each), one bodiless agent message
+     *  preview / waiting messages, then every `waits` entry (once each by
+     *  id, #FEED-191), one bodiless agent message
      *  per kept agent time (the one a kept message already stands for
      *  skipped, matched as INSTANTS), and the newest agent time as an event
      *  card. Output times are the digest's strings verbatim. */
@@ -510,8 +511,11 @@ object Chats {
         val seen = mutableSetOf<String>()
         // Kept agent messages by instant (a multiset: two may share a time).
         val counted = mutableMapOf<Long, Int>()
-        for (key in listOf("first", "preview", "waiting")) {
-            val m = digest[key] as? JsonObject ?: continue
+        // #FEED-191: then every waiting card (`waits`, absent = none).
+        val slots = listOf("first", "preview", "waiting").map { digest[it] } +
+            (digest["waits"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+        for (slot in slots) {
+            val m = slot as? JsonObject ?: continue
             val id = m.textOf("id")
             if (!seen.add(id)) continue
             val authorKind = m.textOf("authorKind")

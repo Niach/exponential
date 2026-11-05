@@ -127,6 +127,10 @@ class ThreadPagesTest {
         assertEquals("a", threadShownPlan(rows, "a", emptyMap())?.id)
         assertEquals("b", threadShownPlan(rows, "gone", emptyMap())?.id)
         assertEquals(null, threadShownPlan(listOf(plan("s", "superseded")), null, emptyMap()))
+        // #FEED-191: a decided plan leaves the strip unless this visit kept it.
+        val decided = listOf(plan("a", "approved"), plan("c", "rejected"))
+        assertEquals(null, threadShownPlan(decided, null, emptyMap()))
+        assertEquals("a", threadShownPlan(decided, null, emptyMap(), kept = "a")?.id)
         // A child session's plan is no row of the root's: found in the tree's messages.
         val child = SessionTree.Message(
             id = "child",
