@@ -31,7 +31,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use domain::chats::{chat_selection_range, chat_sections, ChatListView, ChatRow, CHATS};
 use domain::rows::{PullRequestRow, SessionRow};
 use domain::session_tree::{
-    thread_in_stack, thread_row_mark_state, thread_row_word, SessionState, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
+    thread_in_stack, thread_row_mark_state, thread_row_word_on, SessionState, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
     THREADS_LIST,
 };
 
@@ -63,8 +63,15 @@ pub(crate) fn root_pull_request<'a>(root_id: &str, pulls: &'a [PullRequestRow]) 
 /// EXP-1318: a thread row's quiet word ×4 (`threads-list.json`
 /// `wordCases`): the root's pull requests, whether they sit in an open
 /// stack (`stackCases`, over the team's pull requests) and the row's
-/// busy / needs-you.
-pub(crate) fn thread_word(root_id: &str, busy: bool, needs_you: bool, team_pulls: &[PullRequestRow]) -> Option<ThreadRowWord> {
+/// busy / needs-you; #EXP-1703: `offline` = the row's
+/// [`ThreadsListRow::offline`] (`device offline` instead of `question`).
+pub(crate) fn thread_word(
+    root_id: &str,
+    busy: bool,
+    needs_you: bool,
+    offline: bool,
+    team_pulls: &[PullRequestRow],
+) -> Option<ThreadRowWord> {
     let own: Vec<StackPr> = team_pulls
         .iter()
         .filter(|pull| pull.root_session_id.as_deref() == Some(root_id))
@@ -72,7 +79,7 @@ pub(crate) fn thread_word(root_id: &str, busy: bool, needs_you: bool, team_pulls
         .collect();
     let team: Vec<StackPr> = team_pulls.iter().map(StackPr::from_row).collect();
     let in_stack = thread_in_stack(&own, &team);
-    thread_row_word(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack)
+    thread_row_word_on(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack, offline)
 }
 
 /// The lead of a thread row ×4 (threads-list.json, EXP-1344
@@ -208,7 +215,7 @@ fn thread_list_row(
     // #EXP-1461: every row is a ROOT (its tree's state rolled up); it
     // opens the thread.
     let lead = thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx);
-    let word = thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls);
+    let word = thread_word(&row.session_id, row.busy, row.needs_you, row.offline, &snapshot.pulls);
     let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
     let trailing = thread_row_trailing(word, device, cx);
     let session_id = row.session_id.clone();
@@ -748,12 +755,12 @@ mod tests {
             pull("p3", "r2", "open", "2026-10-13T08:00:00.000Z"),
             pull("p4", "r3", "merged", "2026-10-13T08:00:00.000Z"),
         ];
-        assert_eq!(thread_word("r1", false, false, &pulls), Some(ThreadRowWord::Stack));
-        assert_eq!(thread_word("r2", false, true, &pulls), Some(ThreadRowWord::ReadyToMerge));
-        assert_eq!(thread_word("r2", true, false, &pulls), None);
-        assert_eq!(thread_word("r3", false, true, &pulls), Some(ThreadRowWord::Merged));
-        assert_eq!(thread_word("r4", false, true, &pulls), Some(ThreadRowWord::Question));
-        assert_eq!(thread_word("r4", false, false, &pulls), None);
+        assert_eq!(thread_word("r1", false, false, false, &pulls), Some(ThreadRowWord::Stack));
+        assert_eq!(thread_word("r2", false, true, false, &pulls), Some(ThreadRowWord::ReadyToMerge));
+        assert_eq!(thread_word("r2", true, false, false, &pulls), None);
+        assert_eq!(thread_word("r3", false, true, false, &pulls), Some(ThreadRowWord::Merged));
+        assert_eq!(thread_word("r4", false, true, false, &pulls), Some(ThreadRowWord::Question));
+        assert_eq!(thread_word("r4", false, false, false, &pulls), None);
         assert_eq!(ThreadRowWord::Merged.text(), None);
         assert_eq!(ThreadRowWord::ReadyToMerge.text(), Some("ready to merge"));
         assert_eq!(ThreadRowWord::Stack.text(), Some("stack"));

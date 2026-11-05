@@ -20,7 +20,9 @@
 //! S-3 (composer-menu.json): the session composer's Device pin is GONE (no
 //! options line; a running session never moves device from its composer),
 //! so the pin and its move flow have no caller until a new surface hosts
-//! them; kept (and tested) rather than rewritten later.
+//! them; kept (and tested) rather than rewritten later. #EXP-1703: the
+//! Dock's offline banner hosts the same picker behind its Move
+//! ([`session_device_move_button`]).
 #![allow(dead_code)]
 
 use std::rc::Rc;
@@ -396,6 +398,53 @@ pub(crate) fn session_device_pin(
     let trigger = crate::launch_options::inline_pin_glyph_trigger(id.clone(), glyph, cx)
         .tooltip(tooltip)
         .into_any_element();
+    let disabled = matches!(state, PinState::Disabled(_));
+    Some(move_picker(id, session, current, &rows, trigger, disabled, cx))
+}
+
+/// #EXP-1703 (web `SessionDeviceMoveButton`): the Dock's offline banner
+/// action (session-card.json `bannerActions.offline`, `Move`): THE device
+/// picker of [`session_device_pin`] (the same rows and refusals, a pick =
+/// [`request_move`]) behind an outline button labelled `label`. `None` when
+/// the viewer may not move it (an agent, not steerable, ended) or it names
+/// no device.
+pub(crate) fn session_device_move_button(
+    id: SharedString,
+    session: &domain::rows::SessionRow,
+    may_steer: bool,
+    label: &str,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    use gpui::Styled as _;
+    use gpui_component::button::{Button, ButtonVariants as _};
+    use gpui_component::{Icon, Sizable as _};
+    if pin_state(session.is_persistent(), may_steer, session.is_ended()) != PinState::Enabled {
+        return None;
+    }
+    let current = session.device_id.clone().filter(|id| !id.is_empty())?;
+    let candidates = candidates(session, cx);
+    let rows = move_rows(&candidates, Some(current.as_str()), &move_session(session, cx));
+    let trigger = Button::new(SharedString::from(format!("{id}-trigger")))
+        .outline()
+        .small()
+        .cursor_pointer()
+        .icon(Icon::new(crate::icons::registry::UI_SWAP).xsmall())
+        .label(label.to_string())
+        .into_any_element();
+    Some(move_picker(id, session, current, &rows, trigger, false, cx))
+}
+
+/// THE device picker over `rows` behind `trigger` (the pin's and the
+/// banner's): a pick other than `current` = [`request_move`].
+fn move_picker(
+    id: SharedString,
+    session: &domain::rows::SessionRow,
+    current: String,
+    rows: &[MoveRow],
+    trigger: AnyElement,
+    disabled: bool,
+    cx: &mut App,
+) -> AnyElement {
     // THE device picker's rows (
     // each machine's own glyph + its picker line), refused ones disabled
     // with their reason as the description.
@@ -410,30 +459,27 @@ pub(crate) fn session_device_pin(
             disabled: row.reason.is_some(),
         })
         .collect();
-    let disabled = matches!(state, PinState::Disabled(_));
     let session_id = session.id.clone();
     let picker_id = SharedString::from(format!("{id}-picker"));
-    Some(
-        crate::picker::deferred(move |window, cx| {
-            crate::picker::device_picker::device_picker(
-                &picker_rows,
-                Some(current.clone()),
-                trigger,
-                Rc::new(move |values: Vec<String>, _window: &mut Window, cx: &mut App| {
-                    let Some(picked) = values.into_iter().next() else {
-                        return;
-                    };
-                    if let Some(device_id) = pick_outcome(&picked, Some(current.as_str())) {
-                        request_move(session_id.clone(), device_id, cx);
-                    }
-                }),
-            )
-            .disabled(disabled)
-            .id(picker_id.clone())
-            .render(window, cx)
-        })
-        .into_any_element(),
-    )
+    crate::picker::deferred(move |window, cx| {
+        crate::picker::device_picker::device_picker(
+            &picker_rows,
+            Some(current.clone()),
+            trigger,
+            Rc::new(move |values: Vec<String>, _window: &mut Window, cx: &mut App| {
+                let Some(picked) = values.into_iter().next() else {
+                    return;
+                };
+                if let Some(device_id) = pick_outcome(&picked, Some(current.as_str())) {
+                    request_move(session_id.clone(), device_id, cx);
+                }
+            }),
+        )
+        .disabled(disabled)
+        .id(picker_id.clone())
+        .render(window, cx)
+    })
+    .into_any_element()
 }
 
 /// `sessions.send{sessionId, deviceId}`: a move request. The synced row

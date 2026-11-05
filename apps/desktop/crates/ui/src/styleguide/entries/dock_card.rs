@@ -68,7 +68,8 @@ pub(super) fn sources() -> Vec<DockSource> {
 
 /// EXP-1374: the session's own state cards (`session-card.json` `banner`,
 /// the web entry's `STATE_ROWS`): background tasks and (#EXP-1405) queued,
-/// waiting for its device. S-3: no interrupted card.
+/// waiting for its device. S-3: no interrupted card. #EXP-1703: a device
+/// that stayed away (the `bannerCases` `deviceName` `macbook`), with Move.
 pub(super) fn state_rows() -> Vec<DockRow> {
     use domain::session_tree::{SessionBannerId, SESSION_CARD};
     let banner = |id: SessionBannerId, key: &str| DockSource::Banner {
@@ -79,7 +80,25 @@ pub(super) fn state_rows() -> Vec<DockRow> {
         tone: DockTint::Muted,
         action: None,
     };
-    dock_rows(&[banner(SessionBannerId::Background, "background"), banner(SessionBannerId::Queued, "queued")])
+    let offline = DockSource::Banner {
+        id: "offline".into(),
+        icon: SESSION_CARD.banner_icons.get(SessionBannerId::Offline).into(),
+        label: SESSION_CARD.banner_labels.get(SessionBannerId::Offline).into(),
+        text: SESSION_CARD.banner.get(SessionBannerId::Offline).replace("{device}", "macbook"),
+        tone: DockTint::Warning,
+        action: Some(SESSION_CARD.banner_actions.offline.clone()),
+    };
+    dock_rows(&[banner(SessionBannerId::Background, "background"), banner(SessionBannerId::Queued, "queued"), offline])
+}
+
+/// #EXP-1703: the offline state card's Move (the session view mounts THE
+/// device-move picker behind it).
+fn move_button(key: &str) -> AnyElement {
+    Button::new(SharedString::from(format!("{key}-move")))
+        .outline()
+        .small()
+        .label(domain::session_tree::SESSION_CARD.banner_actions.offline.clone())
+        .into_any_element()
 }
 
 fn switch_button(key: &str) -> AnyElement {
@@ -135,8 +154,11 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(crate::dock::dock_card(&question, 0., None, cx))
         .child(caption("A banner: never opens; its action word trails", cx))
         .child(crate::dock::dock_card(&banner, 0., Some(switch_button("sg-dock-card-banner")), cx))
-        .child(caption("The session's own state: background tasks, queued", cx))
-        .children(state_rows().iter().map(|row| crate::dock::dock_card(row, 0., None, cx)))
+        .child(caption("The session's own state: background tasks, queued, its device offline", cx))
+        .children(state_rows().iter().map(|row| {
+            let action = (row.id == "banner:offline").then(|| move_button("sg-dock-card-state"));
+            crate::dock::dock_card(row, 0., action, cx)
+        }))
         .child(caption("Five cards piled: the front one whole, the rest peeking out above it", cx))
         .child(pile_specimen("sg-dock-card-pile", &rows, false, window, cx))
         .child(caption("The pile fanned (hover or a tap): every card, 6px apart", cx))

@@ -1753,6 +1753,8 @@ impl SteerSessionView {
             }
             cx.notify();
         }
+        // #EXP-1703: the loop also learns whether the row's host is away.
+        self.note_host_offline(cx);
         // The ROOT's Guide rides the same collection (EXP-1294).
         self.refresh_guide(cx);
         self.sync_mention_source(cx);
@@ -1829,9 +1831,26 @@ impl SteerSessionView {
     /// again, so stop waiting out the backoff that was drawn while it slept.
     fn note_device_edge(&mut self, cx: &App) {
         let offline = self.device(cx).offline;
+        self.note_host_offline(cx);
         if std::mem::replace(&mut self.device_offline, offline) && !offline {
             self.wake("device online");
         }
+    }
+
+    /// #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY, web
+    /// `noteHostOffline`): tell the loop whether the host is offline in
+    /// presence, so a live row's NO FEED redials on the device-offline
+    /// cadence instead of the starting backoff. Never for a run hosted here.
+    fn note_host_offline(&self, cx: &App) {
+        if let Some(handle) = self.source.handle() {
+            handle.note_host_offline(self.host_away(cx));
+        }
+    }
+
+    /// #EXP-1703: the host device is offline in presence (unknown = online;
+    /// never a run this process hosts) and the row is not ended.
+    fn host_away(&self, cx: &App) -> bool {
+        !self.row_ended() && !self.is_local() && self.device(cx).offline
     }
 
     /// OUR connectivity came back (the sync pipeline's Ok ⇄ Offline edge —
@@ -1860,6 +1879,8 @@ impl SteerSessionView {
             Some(dialled) => {
                 *handle = Some(dialled);
                 self.phase = ViewerPhase::Connecting;
+                // #EXP-1703: the fresh loop starts knowing the host's presence.
+                self.note_host_offline(cx);
                 cx.notify();
             }
             None => {
@@ -4851,7 +4872,8 @@ impl SteerSessionView {
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
-            // S-3: no paused body (an offline host is invisible).
+            // S-3: no paused body; #EXP-1703: the away state below.
+            let host_away = self.host_away(cx);
             let body: AnyElement = if self.phase.is_device_offline() {
                 // VAPP-171: an ended row no device fed — the machine that
                 // holds its transcript, named (×4).
@@ -4861,6 +4883,24 @@ impl SteerSessionView {
                     .text_center()
                     .child(device_offline_copy(self.device(cx).label.as_deref()))
                     .into_any_element()])
+            } else if self.phase != ViewerPhase::Live
+                && self.row.as_ref().is_some_and(|row| {
+                    steer::enet_steer::no_feed_state_on(row.is_ended(), row.busy, host_away)
+                        == steer::enet_steer::NoFeedState::Away
+                })
+            {
+                // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live
+                // row whose host is offline says so at once (the page
+                // EmptyState, no spinner), never "starting"; a cached feed
+                // shows as the transcript instead.
+                let (title, text) = steer::enet_steer::no_feed_away(self.device(cx).label.as_deref());
+                centered(vec![crate::controls::empty_state(
+                    Icon::new(registry::UI_DEVICE_OFFLINE),
+                    title,
+                    Some(SharedString::from(text)),
+                    cx,
+                )
+                .into_any_element()])
             } else if self.phase == ViewerPhase::Starting
                 && self.row.as_ref().is_some_and(|row| {
                     steer::enet_steer::no_feed_state(row.is_ended(), row.busy)
@@ -7524,14 +7564,21 @@ impl SteerSessionView {
             _ => {}
         }
         // EXP-1374 (session-card.json `banner`): a background or queued
-        // session's own card. S-3: no paused strip (an offline host is
-        // invisible) and no interrupted card.
-        if let Some(session) = self.row.as_ref().and_then(domain::session_tree::session_banner) {
+        // session's own card. S-3: no paused strip and no interrupted card;
+        // #EXP-1703: a device that stayed away names itself, with Move.
+        let device_label = self.device(cx).label;
+        if let Some(session) = self
+            .row
+            .as_ref()
+            .and_then(|row| domain::session_tree::session_banner_on(row, device_label.as_deref()))
+        {
             let id = match session.id {
                 domain::session_tree::SessionBannerId::Background => "background",
                 domain::session_tree::SessionBannerId::Queued => "queued",
+                domain::session_tree::SessionBannerId::Offline => "offline",
             };
-            out.push(banner(id, &session.icon, &session.label, session.text, DockTint::Muted, None));
+            let tone = if session.tone == "warning" { DockTint::Warning } else { DockTint::Muted };
+            out.push(banner(id, &session.icon, &session.label, session.text, tone, session.action.as_deref()));
         }
         if self.run_open() {
             if let Some(compacting) = self.feed.compacting() {
@@ -7859,6 +7906,20 @@ impl SteerSessionView {
         }
         if let Some(switch) = self.switch_account_control(cx) {
             out.push(("banner:rate-limit".to_string(), switch));
+        }
+        // #EXP-1703: the offline banner's Move = THE device-move picker
+        // (`crate::device_move`; a pick = `sessions.send {sessionId,
+        // deviceId}`, a refusal = the move-failed toast).
+        if let Some(action) = self.row.as_ref().filter(|row| domain::session_tree::session_offline(row)).and_then(|row| {
+            crate::device_move::session_device_move_button(
+                "steer-dock-move".into(),
+                row,
+                self.may_message,
+                &domain::session_tree::SESSION_CARD.banner_actions.offline,
+                cx,
+            )
+        }) {
+            out.push(("banner:offline".to_string(), action));
         }
         // NEW-53: the Speaking banner's Stop ends the voice.
         if etalk_gpui::speak_replies::speaking(cx).is_some_and(|speaking| speaking.session_id == self.session_id) {

@@ -70,19 +70,42 @@ pub fn show_connection_lost(down: Duration, failed_redials: u32) -> bool {
 pub enum NoFeedState {
     /// The ended row's device-offline copy.
     Offline,
+    /// #EXP-1703: a live row whose host device is offline in presence
+    /// ([`no_feed_away`]; no spinner).
+    Away,
     /// A turn is running: "The agent is starting…".
     Starting,
     /// Idle or waiting on a question: never "starting".
     Idle,
 }
 
-/// EXP-1487 (TS `steerNoFeedState`).
+/// EXP-1487 (TS `steerNoFeedState` with the device online).
 pub fn no_feed_state(ended: bool, busy: bool) -> NoFeedState {
-    match (ended, busy) {
-        (true, _) => NoFeedState::Offline,
-        (false, true) => NoFeedState::Starting,
-        (false, false) => NoFeedState::Idle,
+    no_feed_state_on(ended, busy, false)
+}
+
+/// EXP-1487 / #EXP-1703 (TS `steerNoFeedState`): ended first, then a host
+/// device offline in presence (`away`), then busy = starting, else idle.
+pub fn no_feed_state_on(ended: bool, busy: bool, device_offline: bool) -> NoFeedState {
+    match (ended, device_offline, busy) {
+        (true, _, _) => NoFeedState::Offline,
+        (false, true, _) => NoFeedState::Away,
+        (false, false, true) => NoFeedState::Starting,
+        (false, false, false) => NoFeedState::Idle,
     }
+}
+
+/// #EXP-1703 (`noFeedAway`): the away empty state's copy; `{device}` in the
+/// title, an unknown device = [`NO_FEED_AWAY_DEVICE`].
+pub const NO_FEED_AWAY_TITLE: &str = "{device} is offline";
+pub const NO_FEED_AWAY_TEXT: &str = "This session continues when it's back. Its transcript loads then.";
+pub const NO_FEED_AWAY_DEVICE: &str = "Its device";
+
+/// #EXP-1703 (TS `steerNoFeedAway`): `(title, text)` for `device_name`
+/// (`None` / empty = [`NO_FEED_AWAY_DEVICE`]).
+pub fn no_feed_away(device_name: Option<&str>) -> (String, &'static str) {
+    let device = device_name.filter(|name| !name.is_empty()).unwrap_or(NO_FEED_AWAY_DEVICE);
+    (NO_FEED_AWAY_TITLE.replace("{device}", device), NO_FEED_AWAY_TEXT)
 }
 
 /// EXP-1487 (`noFeedIdle`): the idle empty state's copy.
@@ -1000,15 +1023,27 @@ mod tests {
         assert_eq!(f["sendTimeoutMs"], SEND_TIMEOUT.as_millis() as u64);
         assert_eq!(f["noFeedIdle"]["title"], NO_FEED_IDLE_TITLE);
         assert_eq!(f["noFeedIdle"]["text"], NO_FEED_IDLE_TEXT);
+        assert_eq!(f["noFeedAway"]["title"], NO_FEED_AWAY_TITLE);
+        assert_eq!(f["noFeedAway"]["text"], NO_FEED_AWAY_TEXT);
+        assert_eq!(f["noFeedAway"]["device"], NO_FEED_AWAY_DEVICE);
+        assert_eq!(no_feed_away(Some("macbook")).0, "macbook is offline");
+        assert_eq!(no_feed_away(None).0, "Its device is offline");
+        assert_eq!(no_feed_away(Some("")).0, "Its device is offline");
         for case in f["noFeed"].as_array().unwrap() {
             let state = match case["state"].as_str().unwrap() {
                 "offline" => NoFeedState::Offline,
+                "away" => NoFeedState::Away,
                 "starting" => NoFeedState::Starting,
                 "idle" => NoFeedState::Idle,
                 other => panic!("unknown state {other}"),
             };
             let (ended, busy) = (case["ended"].as_bool().unwrap(), case["busy"].as_bool().unwrap());
-            assert_eq!(no_feed_state(ended, busy), state, "{}", case["name"]);
+            // #EXP-1703: `deviceOffline` absent = false.
+            let device_offline = case["deviceOffline"].as_bool().unwrap_or(false);
+            assert_eq!(no_feed_state_on(ended, busy, device_offline), state, "{}", case["name"]);
+            if !device_offline {
+                assert_eq!(no_feed_state(ended, busy), state, "{}", case["name"]);
+            }
         }
         assert_eq!(f["lostBanner"]["graceMs"], LOST_GRACE.as_millis() as u64);
         assert_eq!(f["lostBanner"]["failedRedials"], LOST_FAILED_REDIALS);

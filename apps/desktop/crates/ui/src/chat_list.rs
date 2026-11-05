@@ -30,7 +30,7 @@ const GLYPH_PX: f32 = 24.;
 fn word_glyph(word: ThreadRowWord) -> Option<crate::icons::ExpIcon> {
     match word {
         ThreadRowWord::Stack => Some(registry::PR_STACK),
-        ThreadRowWord::ReadyToMerge | ThreadRowWord::Merged | ThreadRowWord::Question => None,
+        ThreadRowWord::ReadyToMerge | ThreadRowWord::Merged | ThreadRowWord::Offline | ThreadRowWord::Question => None,
     }
 }
 

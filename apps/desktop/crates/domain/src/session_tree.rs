@@ -87,6 +87,9 @@ pub struct SessionBannerCopy {
     pub background: String,
     /// #EXP-1405: a queued row waiting for its device.
     pub queued: String,
+    /// #EXP-1703: a session whose device stayed away (`{device}` slot in the
+    /// text).
+    pub offline: String,
 }
 
 impl SessionBannerCopy {
@@ -94,8 +97,18 @@ impl SessionBannerCopy {
         match id {
             SessionBannerId::Background => &self.background,
             SessionBannerId::Queued => &self.queued,
+            SessionBannerId::Offline => &self.offline,
         }
     }
+}
+
+/// #EXP-1703: `session-card.json` `bannerActions` (the banner's trailing
+/// action word per id; only `offline` has one).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionBannerActions {
+    /// `Move` (opens the device-move picker).
+    pub offline: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -119,6 +132,10 @@ pub struct SessionCardSpec {
     pub banner_icons: SessionBannerCopy,
     /// S-3: the banner's label per id.
     pub banner_labels: SessionBannerCopy,
+    /// #EXP-1703: the banner's action word per id.
+    pub banner_actions: SessionBannerActions,
+    /// #EXP-1703: the `{device}` of an unknown device (`Its device`).
+    pub banner_device: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -267,6 +284,8 @@ pub struct ThreadRowWords {
     pub ready_to_merge: String,
     pub question: String,
     pub needs_input: String,
+    /// #EXP-1703: on a person only because its device is away.
+    pub offline: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -573,6 +592,27 @@ pub fn blocked_kind(session: &SessionRow) -> Option<&str> {
         .filter(|kind| !kind.is_empty())
 }
 
+/// EXP-1374: since when the blocked session's device could continue it
+/// (`blocked.resumeSince`; `None` = absent, null or empty: never back).
+pub fn blocked_resume_since(session: &SessionRow) -> Option<&str> {
+    session
+        .blocked
+        .as_ref()?
+        .get("resumeSince")?
+        .as_str()
+        .filter(|since| !since.is_empty())
+}
+
+/// #EXP-1703 (TS `sessionOffline`): on a person because its device stayed
+/// away (#EXP-1675): not ended, needs you, its flag is `device_offline` and
+/// its device never came back (no `resumeSince`).
+pub fn session_offline(session: &SessionRow) -> bool {
+    !session.is_ended()
+        && session.needs_input
+        && blocked_kind(session) == Some("device_offline")
+        && blocked_resume_since(session).is_none()
+}
+
 /// NEW-1: whether a blocked session sits behind a USAGE wall (`rate_limit`,
 /// or no kind at all) — the only block another account can lift (the
 /// Switch account control shows for it alone).
@@ -584,6 +624,10 @@ pub fn is_usage_wall(session: &SessionRow) -> bool {
 /// needs you because of a flag names WHY (`copy.blockedKinds[blocked.kind]`).
 pub fn session_kind_word(session: &SessionRow, state: SessionState) -> String {
     if state == SessionState::NeedsYou {
+        // #EXP-1703: `device_offline` names it only while the device is away.
+        if blocked_kind(session) == Some("device_offline") && blocked_resume_since(session).is_some() {
+            return state.word().to_string();
+        }
         if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.blocked_kinds.get(kind)) {
             return word.clone();
         }
@@ -630,9 +674,10 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
     }
 }
 
-/// EXP-1374: the Dock card of a background session and (#EXP-1405) of a
-/// queued one waiting for its device (a dock.json `banner` source without
-/// its `kind`; TS `SessionBanner`). S-3: an interruption has no card.
+/// EXP-1374: the Dock card of a background session, (#EXP-1405) of a
+/// queued one waiting for its device and (#EXP-1703) of one whose device
+/// stayed away (a dock.json `banner` source without its `kind`; TS
+/// `SessionBanner`). S-3: a plain interruption has no card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionBanner {
     pub id: SessionBannerId,
@@ -640,9 +685,10 @@ pub struct SessionBanner {
     pub icon: String,
     pub label: String,
     pub text: String,
-    /// Always `muted`.
+    /// `muted`, or `warning` for `offline` (#EXP-1703).
     pub tone: String,
-    /// Always `None` (no action).
+    /// #EXP-1703: `Move` for `offline` (opens the device-move picker), else
+    /// `None`.
     pub action: Option<String>,
 }
 
@@ -652,11 +698,34 @@ pub struct SessionBanner {
 pub enum SessionBannerId {
     Background,
     Queued,
+    /// #EXP-1703: its device stayed away ([`session_offline`]).
+    Offline,
 }
 
-/// EXP-1374 / S-3 (TS `sessionBanner`): `None` once ended or needing you;
-/// queued → `queued`; busy on background tasks → `background`; else `None`.
+/// EXP-1374 / S-3 (TS `sessionBanner` without a device name): see
+/// [`session_banner_on`].
 pub fn session_banner(session: &SessionRow) -> Option<SessionBanner> {
+    session_banner_on(session, None)
+}
+
+/// EXP-1374 / S-3 (TS `sessionBanner`): first (#EXP-1703) a session whose
+/// device stayed away → `offline` (tone `warning`, action `Move`, `{device}`
+/// = `device_name`, unknown or empty = `bannerDevice`); then `None` once
+/// ended or needing you; queued → `queued`; busy on background tasks →
+/// `background`; else `None`.
+pub fn session_banner_on(session: &SessionRow, device_name: Option<&str>) -> Option<SessionBanner> {
+    if session_offline(session) {
+        let id = SessionBannerId::Offline;
+        let device = device_name.filter(|name| !name.is_empty()).unwrap_or(SESSION_CARD.banner_device.as_str());
+        return Some(SessionBanner {
+            id,
+            icon: SESSION_CARD.banner_icons.get(id).to_string(),
+            label: SESSION_CARD.banner_labels.get(id).to_string(),
+            text: SESSION_CARD.banner.get(id).replace("{device}", device),
+            tone: "warning".to_string(),
+            action: Some(SESSION_CARD.banner_actions.offline.clone()),
+        });
+    }
     if session.is_ended() || session.needs_input {
         return None;
     }
@@ -1997,6 +2066,10 @@ pub struct ThreadsListRow {
     pub unread: bool,
     /// The tree's newest `updated_at` (the sort key), verbatim.
     pub activity_at: String,
+    /// #EXP-1703: needs you only because its device stayed away
+    /// ([`tree_offline`]); serialized only when true (absent = false).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub offline: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -2144,6 +2217,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             needs_you,
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
             activity_at: activity,
+            offline: needs_you && tree_offline(tree),
         };
         // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
         // child sessions, only the root ones'): a row is a ROOT, never a
@@ -2200,6 +2274,8 @@ pub enum ThreadRowWord {
     Stack,
     ReadyToMerge,
     Merged,
+    /// #EXP-1703: `device offline` (needs you only because its device is away).
+    Offline,
     Question,
 }
 
@@ -2210,6 +2286,7 @@ impl ThreadRowWord {
             Self::Stack => "stack",
             Self::ReadyToMerge => "readyToMerge",
             Self::Merged => "merged",
+            Self::Offline => "offline",
             Self::Question => "question",
         }
     }
@@ -2222,6 +2299,7 @@ impl ThreadRowWord {
             Self::Stack => Some(&words.stack),
             Self::ReadyToMerge => Some(&words.ready_to_merge),
             Self::Merged => None,
+            Self::Offline => Some(&words.offline),
             Self::Question => Some(&words.question),
         }
     }
@@ -2265,12 +2343,25 @@ pub fn thread_in_stack(pull_requests: &[StackPr], team_prs: &[StackPr]) -> bool 
 /// Word order: an open PR in a stack → stack; an open PR while nothing
 /// works → ready to merge (working = no word); else merged; else a
 /// question when waiting on a person; else none. `states` = the thread's
-/// PR states.
+/// PR states. (#EXP-1703: [`thread_row_word_on`] with the row's `offline`.)
 pub fn thread_row_word<'a>(
     states: impl IntoIterator<Item = &'a str>,
     busy: bool,
     needs_you: bool,
     in_stack: bool,
+) -> Option<ThreadRowWord> {
+    thread_row_word_on(states, busy, needs_you, in_stack, false)
+}
+
+/// [`thread_row_word`] with #EXP-1703's `offline` ([`tree_offline`], the
+/// row's [`ThreadsListRow::offline`]): waiting on a person only because its
+/// device is away reads `device offline` instead of `question`.
+pub fn thread_row_word_on<'a>(
+    states: impl IntoIterator<Item = &'a str>,
+    busy: bool,
+    needs_you: bool,
+    in_stack: bool,
+    offline: bool,
 ) -> Option<ThreadRowWord> {
     let states: Vec<&str> = states.into_iter().collect();
     if states.contains(&"open") {
@@ -2282,7 +2373,18 @@ pub fn thread_row_word<'a>(
     if states.contains(&"merged") {
         return Some(ThreadRowWord::Merged);
     }
-    needs_you.then_some(ThreadRowWord::Question)
+    if needs_you {
+        return Some(if offline { ThreadRowWord::Offline } else { ThreadRowWord::Question });
+    }
+    None
+}
+
+/// #EXP-1703 (TS `treeOffline`): a tree on a person ONLY because its device
+/// stayed away: some live session needs you and every one that does is
+/// [`session_offline`].
+pub fn tree_offline(tree: &[&SessionRow]) -> bool {
+    let mut waiting = tree.iter().filter(|session| !session.is_ended() && session.needs_input).peekable();
+    waiting.peek().is_some() && waiting.all(|session| session_offline(session))
 }
 
 /// The rail's Active band (`copy.rail`): every Needs you row, every Running
@@ -2614,6 +2716,21 @@ mod tests {
             assert_eq!(session_card(&session, "T", 0).kind_word, "Idle", "{kind}");
             assert!(!is_usage_wall(&session), "{kind}");
         }
+        // #EXP-1703: needing you on an away device reads Device offline; once
+        // it came back (`resumeSince`) the plain Needs you.
+        let away: SessionRow = serde_json::from_value(serde_json::json!({
+            "id": "s", "status": "idle", "needs_input": true, "blocked": {"kind": "device_offline", "resume": true}
+        }))
+        .unwrap();
+        assert!(session_offline(&away));
+        assert_eq!(session_kind_word(&away, SessionState::NeedsYou), "Device offline");
+        let back: SessionRow = serde_json::from_value(serde_json::json!({
+            "id": "s", "status": "idle", "needs_input": true,
+            "blocked": {"kind": "device_offline", "resume": true, "resumeSince": "2026-10-13T10:07:00.000Z"}
+        }))
+        .unwrap();
+        assert!(!session_offline(&back));
+        assert_eq!(session_kind_word(&back, SessionState::NeedsYou), "Needs you");
         let future = row(serde_json::json!({"kind": "future_kind"}));
         assert_eq!(session_kind_word(&future, SessionState::NeedsYou), "Needs you");
         assert_eq!(watchdog_blocked_word(&future), None);
@@ -2638,9 +2755,10 @@ mod tests {
         assert_eq!(THREADS_LIST.recent, RecentRules { hours: 24, max: 20 });
         assert_eq!(THREADS_LIST.recent_child_minutes, 120);
         assert_eq!(SESSION_CARD.copy.blocked_kinds.get("rate_limit").map(String::as_str), Some("Usage limit"));
-        // S-3: device_offline / restarted are invisible (no word).
+        // S-3: restarted is invisible (no word); #EXP-1703: device_offline
+        // names a device that stayed away.
         for kind in crate::contract::CODING_SESSION_BLOCKED_KINDS {
-            let invisible = matches!(*kind, "device_offline" | "restarted");
+            let invisible = matches!(*kind, "restarted");
             assert_eq!(SESSION_CARD.copy.blocked_kinds.contains_key(*kind), !invisible, "{kind}");
         }
     }
@@ -2687,7 +2805,9 @@ mod tests {
         for case in cases {
             let name = case["name"].as_str().unwrap();
             let session: SessionRow = row(&case["session"], "s");
-            assert_whole(session_banner(&session), &case["expected"], name);
+            // #EXP-1703: `deviceName` (absent / null = unknown).
+            let banner = session_banner_on(&session, case["deviceName"].as_str());
+            assert_whole(banner, &case["expected"], name);
         }
     }
 
@@ -2863,13 +2983,23 @@ mod tests {
                 .iter()
                 .map(|pr| pr["state"].as_str().unwrap())
                 .collect();
-            let word = thread_row_word(
+            let word = thread_row_word_on(
                 states,
                 input["busy"].as_bool().unwrap(),
                 input["needsYou"].as_bool().unwrap(),
                 input["inStack"].as_bool().unwrap(),
+                // #EXP-1703: absent = false.
+                input["offline"].as_bool().unwrap_or(false),
             );
             assert_eq!(word.map(ThreadRowWord::key), case["expected"].as_str(), "{}", case["name"]);
+        }
+        // #EXP-1703: `offlineCases` (treeOffline).
+        let offline_cases = fixture["offlineCases"].as_array().unwrap();
+        assert!(!offline_cases.is_empty());
+        for case in offline_cases {
+            let tree: Vec<SessionRow> = rows(&case["tree"]);
+            let tree: Vec<&SessionRow> = tree.iter().collect();
+            assert_eq!(tree_offline(&tree), case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
         let rail_cases = fixture["railCases"].as_array().unwrap();
         assert!(!rail_cases.is_empty());
@@ -2878,7 +3008,13 @@ mod tests {
             let groups: Vec<ThreadsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
             let words = &input["words"];
             let ids: Vec<String> = rail_threads(&groups, |row| {
-                [ThreadRowWord::Stack, ThreadRowWord::ReadyToMerge, ThreadRowWord::Merged, ThreadRowWord::Question]
+                [
+                    ThreadRowWord::Stack,
+                    ThreadRowWord::ReadyToMerge,
+                    ThreadRowWord::Merged,
+                    ThreadRowWord::Offline,
+                    ThreadRowWord::Question,
+                ]
                     .into_iter()
                     .find(|word| words[row.session_id.as_str()].as_str() == Some(word.key()))
             })
