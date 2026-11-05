@@ -2883,6 +2883,41 @@ pub fn parse_records_source_json(source: String) -> Option<String> {
     })
 }
 
+/// What a records value reads besides the rows: `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}`.
+#[derive(serde::Deserialize)]
+struct RecordsValueContext {
+    #[serde(default)]
+    me: Option<String>,
+    now: String,
+    /// The host's calendar day in the team zone (`YYYY-MM-DD`).
+    #[serde(default)]
+    today: Option<String>,
+    #[serde(default)]
+    names: std::collections::HashMap<String, String>,
+    /// VAPP-214: the queried kind's computed fields (name → CEL).
+    #[serde(default)]
+    computed: Option<std::collections::BTreeMap<String, String>>,
+    /// eApps R5 (VAPP-219): the queried kind's refs + identifier → issue summary.
+    #[serde(default)]
+    refs: Option<Value>,
+    #[serde(default)]
+    issues: Option<serde_json::Map<String, Value>>,
+    /// eApps R6 (VAPP-222): the queried kind's transitions + the viewer's team role.
+    #[serde(default)]
+    transitions: Option<Value>,
+    #[serde(default)]
+    role: Option<String>,
+}
+
+/// The query and context parsed, `eval` run, the value as JSON (`null` without a kind).
+fn records_value_text(query_json: &str, context_json: &str, eval: impl FnOnce(&h::RecordsQuery, h::RecordsContext) -> Option<Value>) -> Result<String, UiError> {
+    let query: h::RecordsQuery = parse(query_json)?;
+    let ctx: RecordsValueContext = parse(context_json)?;
+    let transitions = ctx.transitions.as_ref().and_then(|t| h::kind_transitions(Some(&serde_json::json!({ "transitions": t }))));
+    let value = eval(&query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, today: ctx.today.as_deref(), names: &ctx.names, computed: ctx.computed.as_ref(), refs: ctx.refs.as_ref().filter(|r| r.is_object()), issues: ctx.issues.as_ref(), transitions: transitions.as_ref(), role: ctx.role.as_deref() });
+    Ok(value.map_or_else(|| "null".to_string(), |v| v.to_string()))
+}
+
 /// VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
 /// the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
 /// `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's computed fields; VAPP-219: its refs and the issue summaries `expand` inlines);
@@ -2890,37 +2925,57 @@ pub fn parse_records_source_json(source: String) -> Option<String> {
 #[uniffi::export]
 pub fn records_value_json(rows_json: String, query_json: String, context_json: String) -> Result<String, UiError> {
     guarded("records_value_json", || {
-        #[derive(serde::Deserialize)]
-        struct Context {
-            #[serde(default)]
-            me: Option<String>,
-            now: String,
-            /// The host's calendar day in the team zone (`YYYY-MM-DD`).
-            #[serde(default)]
-            today: Option<String>,
-            #[serde(default)]
-            names: std::collections::HashMap<String, String>,
-            /// VAPP-214: the queried kind's computed fields (name → CEL).
-            #[serde(default)]
-            computed: Option<std::collections::BTreeMap<String, String>>,
-            /// eApps R5 (VAPP-219): the queried kind's refs + identifier → issue summary.
-            #[serde(default)]
-            refs: Option<Value>,
-            #[serde(default)]
-            issues: Option<serde_json::Map<String, Value>>,
-            /// eApps R6 (VAPP-222): the queried kind's transitions + the viewer's team role.
-            #[serde(default)]
-            transitions: Option<Value>,
-            #[serde(default)]
-            role: Option<String>,
-        }
         let rows: Vec<h::RecordRow> = parse(&rows_json)?;
-        let query: h::RecordsQuery = parse(&query_json)?;
-        let ctx: Context = parse(&context_json)?;
-        let transitions = ctx.transitions.as_ref().and_then(|t| h::kind_transitions(Some(&serde_json::json!({ "transitions": t }))));
-        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, today: ctx.today.as_deref(), names: &ctx.names, computed: ctx.computed.as_ref(), refs: ctx.refs.as_ref().filter(|r| r.is_object()), issues: ctx.issues.as_ref(), transitions: transitions.as_ref(), role: ctx.role.as_deref() });
-        Ok(value.map_or_else(|| "null".to_string(), |v| v.to_string()))
+        records_value_text(&query_json, &context_json, |query, ctx| h::records_value_owned(&rows, query, ctx))
     })
+}
+
+/// VAPP-212: one app's rows on the Rust side. A host pushes sync deltas
+/// (`apply_json`), and a query crosses the FFI without the rows (`value_json`).
+#[derive(uniffi::Object)]
+pub struct RecordStore {
+    inner: Mutex<h::MemoryRecordStore>,
+}
+
+#[uniffi::export]
+impl RecordStore {
+    /// Rows stay in first-seen order.
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { inner: Mutex::new(h::MemoryRecordStore::new()) })
+    }
+
+    /// Rows stay `createdAt` descending, then `id`: a synced table's order.
+    #[uniffi::constructor]
+    pub fn newest_first() -> Arc<Self> {
+        Arc::new(Self { inner: Mutex::new(h::MemoryRecordStore::newest_first()) })
+    }
+
+    /// `delta_json` = `{upserts: [row], deletes: [id]}`, with only the rows
+    /// that changed; deletes apply first.
+    pub fn apply_json(&self, delta_json: String) -> Result<(), UiError> {
+        guarded("RecordStore.apply_json", || {
+            let delta: h::RecordsDelta = parse(&delta_json)?;
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).apply(delta);
+            Ok(())
+        })
+    }
+
+    /// How many rows the store holds.
+    pub fn count(&self) -> u64 {
+        shield("RecordStore.count", || 0, || self.inner.lock().unwrap_or_else(|e| e.into_inner()).len() as u64)
+    }
+
+    /// THE records value over the store: `query_json` and `context_json` as
+    /// in [`records_value_json`]; `overlay_json` = the unsynced writes laid
+    /// over this one query, a delta (`MemoryRecordStore::value`).
+    pub fn value_json(&self, query_json: String, context_json: String, overlay_json: Option<String>) -> Result<String, UiError> {
+        guarded("RecordStore.value_json", || {
+            let overlay: Option<h::RecordsDelta> = overlay_json.as_deref().map(parse::<h::RecordsDelta>).transpose()?;
+            let store = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            records_value_text(&query_json, &context_json, |query, ctx| store.value(query, ctx, overlay.as_ref()))
+        })
+    }
 }
 
 /// eApps R8 (VAPP-233, `record-migrations.json` `migrateCases`): a record

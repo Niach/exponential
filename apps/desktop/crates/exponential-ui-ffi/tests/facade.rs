@@ -1301,6 +1301,77 @@ fn the_records_query_fixture_replays_through_the_free_functions() {
     assert!(records_value_json("[]".into(), "{}".into(), "{}".into()).is_err());
 }
 
+/// VAPP-212: every `valueCases` row set through the handle answers the same
+/// BYTES as the free function: seeded at once, row by row, and with a row
+/// that came and went.
+#[test]
+fn the_records_query_fixture_replays_through_the_record_store() {
+    let f = fixture("records-query.json");
+    let canon = |s: &str| serde_json::from_str::<Value>(s).unwrap();
+    for c in f["valueCases"].as_array().unwrap() {
+        let query = match c.get("query") {
+            Some(json) => canon(&parse_records_json(json.to_string(), c["kind"].as_str().map(str::to_string)).unwrap())["query"].to_string(),
+            None => parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap(),
+        };
+        let ctx = json!({"me": c["me"], "now": c["now"], "today": c.get("today"), "names": c["names"], "computed": c.get("computed"), "refs": c.get("refs"), "issues": c.get("issues"), "transitions": c.get("transitions"), "role": c.get("role")}).to_string();
+        let free = records_value_json(c["rows"].to_string(), query.clone(), ctx.clone()).unwrap();
+        assert!(eui_core::json::equal(&canon(&free), &c["expected"]), "value: {}", c["name"]);
+
+        let seeded = RecordStore::new();
+        seeded.apply_json(json!({"upserts": c["rows"]}).to_string()).unwrap();
+        assert_eq!(seeded.count(), c["rows"].as_array().unwrap().len() as u64, "count: {}", c["name"]);
+        assert_eq!(seeded.value_json(query.clone(), ctx.clone(), None).unwrap(), free, "seeded: {}", c["name"]);
+
+        let deltas = RecordStore::new();
+        let ghost = json!({"id": "ghost", "kind": "ghost", "data": {}, "createdBy": null, "createdAt": "2020-01-01T00:00:00.000Z", "updatedAt": "2020-01-01T00:00:00.000Z"});
+        deltas.apply_json(json!({"upserts": [ghost]}).to_string()).unwrap();
+        for row in c["rows"].as_array().unwrap() {
+            deltas.apply_json(json!({"upserts": [row]}).to_string()).unwrap();
+        }
+        deltas.apply_json(json!({"deletes": ["ghost"]}).to_string()).unwrap();
+        assert_eq!(deltas.value_json(query.clone(), ctx.clone(), None).unwrap(), free, "deltas: {}", c["name"]);
+        assert_eq!(deltas.value_json(query, ctx, Some(r#"{"upserts":[],"deletes":["no-such-row"]}"#.into())).unwrap(), free, "empty overlay: {}", c["name"]);
+    }
+}
+
+fn store_row(id: &str, title: &str, created_at: &str) -> Value {
+    json!({"id": id, "kind": "note", "data": {"title": title}, "createdBy": "u1", "createdAt": created_at, "updatedAt": created_at})
+}
+
+/// `id: title` of what a store answers for the kind `note`, sorted by id.
+fn store_rows(store: &RecordStore, overlay: Option<Value>) -> Vec<String> {
+    let query = parse_records_query_json(json!({"sort": "id", "order": "asc"}).to_string(), Some("note".into())).unwrap();
+    let ctx = json!({"now": "2026-11-05T00:00:00.000Z"}).to_string();
+    let out: Value = serde_json::from_str(&store.value_json(query, ctx, overlay.map(|o| o.to_string())).unwrap()).unwrap();
+    out["rows"].as_array().unwrap().iter().map(|r| format!("{}: {}", r["id"].as_str().unwrap(), r["title"].as_str().unwrap())).collect()
+}
+
+/// VAPP-212: an upsert replaces, a delete removes, deletes go first.
+#[test]
+fn a_record_store_applies_deltas() {
+    let store = RecordStore::new();
+    store.apply_json(json!({"upserts": [store_row("a", "1", "2026-01-01"), store_row("b", "1", "2026-01-02"), store_row("c", "1", "2026-01-03")]}).to_string()).unwrap();
+    assert_eq!(store_rows(&store, None), ["a: 1", "b: 1", "c: 1"]);
+    store.apply_json(json!({"upserts": [store_row("b", "2", "2026-01-02")], "deletes": ["a"]}).to_string()).unwrap();
+    assert_eq!(store_rows(&store, None), ["b: 2", "c: 1"]);
+    assert_eq!(store.count(), 2);
+    store.apply_json(json!({"upserts": [store_row("c", "3", "2026-01-03")], "deletes": ["c"]}).to_string()).unwrap();
+    assert_eq!(store_rows(&store, None), ["b: 2", "c: 3"], "the upsert wins");
+    assert!(store.apply_json("{".into()).is_err());
+    assert!(store.value_json("{}".into(), "{}".into(), None).is_err());
+}
+
+/// VAPP-212: an overlay changes one query, not the store.
+#[test]
+fn a_record_store_overlay_lays_over_one_query() {
+    let store = RecordStore::newest_first();
+    store.apply_json(json!({"upserts": [store_row("a", "1", "2026-01-03"), store_row("b", "1", "2026-01-02"), store_row("c", "1", "2026-01-01")]}).to_string()).unwrap();
+    let overlay = json!({"upserts": [store_row("b", "patched", "2026-01-02"), store_row("new", "1", "2026-01-09")], "deletes": ["a"]});
+    assert_eq!(store_rows(&store, Some(overlay)), ["b: patched", "c: 1", "new: 1"]);
+    assert_eq!(store_rows(&store, None), ["a: 1", "b: 1", "c: 1"]);
+    assert_eq!(store.count(), 3);
+}
+
 /// VAPP-191: `fixtures/expressions.json` (`eval`, `check`, `packages`)
 /// through the free functions, exactly as the Swift (`ExpressionsTests`) and
 /// Compose (`ExpressionsTest`) suites replay it; the team zone is a foreign
