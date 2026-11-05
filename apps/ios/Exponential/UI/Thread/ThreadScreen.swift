@@ -293,85 +293,39 @@ struct ThreadScreen: View {
                 .environment(\.threadPlanOutlet, planOutlet)
                 .environment(\.waitingFocus, waitingFocus)
                 // EXP-1316 (detail-chrome.json): THE detail chrome band on
-                // every tab — the nav row (‹ · title + lock · …) over the
-                // strip, content scrolling under its scrim + edge fade.
+                // every tab — #EXP-1688: THE chat header over the strip,
+                // content scrolling under its scrim + edge fade.
                 .workHeaderBand {
                     if let editor {
                         editor.band
                     } else {
+                        chatHeader(rows: rows, view: view)
                         header(rows: rows, view: view)
                     }
                 }
             } else if model?.missing == true {
-                EmptyState(.threadNotFound)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityIdentifier("thread-not-found")
+                bareBand(
+                    EmptyState(.threadNotFound)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityIdentifier("thread-not-found")
+                )
             } else {
                 // EXP-1275 (D8): a first load is skeleton rows.
-                SkeletonRows()
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                bareBand(
+                    SkeletonRows()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                )
             }
         }
+        // #EXP-1688: a chat draws THE chat header itself; only an app editor
+        // keeps the navigation bar.
+        .toolbar(editor == nil ? .hidden : .automatic, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         // The header band draws the bar's material — the nav bar's own
         // background and divider stand down (EXP-1150).
         .toolbarBackground(.hidden, for: .navigationBar)
-        // EXP-1373: back · the lead disc · title over the subtitle, outside
-        // the toolbar builder (its own chrome, iOS 26: no shared glass).
-        .ownChromeToolbarItem(placement: .principal, enabled: editor == nil) {
-            if let rows, let view = model?.view {
-                ChatHeaderTitle(
-                    title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
-                    subtitle: ChatHeaderTitle.subtitle(rows: rows),
-                    subtitleTone: ChatHeaderTitle.tone(rows: rows),
-                    isPrivate: view.isPrivate,
-                    agentIcon: rows.isAgent ? rows.agentIcon : nil,
-                    agentColor: rows.isAgent ? rows.agentColor : nil,
-                    assistant: rows.isAgent && rows.app == nil && rows.agent?.isAssistant == true,
-                    cli: rows.root.cli,
-                    prStates: rows.pullRequests.map(\.state),
-                    mark: SessionTree.threadRowMarkState(
-                        needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
-                        busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                    )
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        // S-3 (session-thread.json): the trailing actions in web's order —
-        // the thread PR's Merge pill, then (NEW-69, voice-call.json) an
-        // agent chat's telephone, then ONE `…` (EXP-1307/1316: Close PR in
-        // THE Menu's sheet) — as ONE own-chrome item: iOS 26's shared glass
-        // would fold them into a filled capsule (web-mobile draws bare
-        // glyphs), and separate items let SwiftUI reorder them.
-        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: editor == nil) {
-            HStack(spacing: 8) {
-                headerMergePill
-                if let rows, rows.root.isAgent, rows.root.appId == nil,
-                   let agentId = rows.root.agentId {
-                    AgentCallButton(
-                        agentId: agentId, agentName: rows.agentName,
-                        agentIcon: rows.agent?.isAssistant == true ? nil : BoardTypeDisplay.iconName(for: rows.agent?.icon),
-                        agentColor: rows.agent?.color
-                    )
-                    .buttonStyle(.plain)
-                    .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
-                }
-                if !chatMenuEntries.isEmpty {
-                    Button { openChatMenu() } label: {
-                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium, weight: .medium)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("More")
-                    .accessibilityIdentifier(SessionTree.ThreadCopy.guideMenuTestId)
-                }
-            }
-        }
         // An app editor's `…`: a bare glyph too (no shared glass).
         .ownChromeToolbarItem(placement: .topBarTrailing, enabled: editor?.trailing != nil) {
             editor?.trailing
@@ -518,7 +472,59 @@ struct ThreadScreen: View {
 
     // MARK: - Header
 
-    /// The band under the nav row: THE strip (the pager) on a thread; an
+    /// #EXP-1688: back · the lead disc · title over the subtitle · the
+    /// trailing actions in web's order: the thread PR's Merge pill, then
+    /// (NEW-69, voice-call.json) an agent chat's telephone, then ONE `…`
+    /// (EXP-1307/1316: Close PR in THE Menu's sheet).
+    private func chatHeader(rows: ThreadRows, view: SessionThreadView) -> some View {
+        ChatHeader {
+            ChatHeaderTitle(
+                title: rows.isAgent && !rows.agentName.isEmpty ? rows.agentName : view.title,
+                subtitle: ChatHeaderTitle.subtitle(rows: rows),
+                subtitleTone: ChatHeaderTitle.tone(rows: rows),
+                isPrivate: view.isPrivate,
+                agentIcon: rows.isAgent ? rows.agentIcon : nil,
+                agentColor: rows.isAgent ? rows.agentColor : nil,
+                assistant: rows.isAgent && rows.app == nil && rows.agent?.isAssistant == true,
+                cli: rows.root.cli,
+                prStates: rows.pullRequests.map(\.state),
+                mark: SessionTree.threadRowMarkState(
+                    needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
+                    busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                )
+            )
+        } trailing: {
+            headerMergePill
+            if rows.root.isAgent, rows.root.appId == nil, let agentId = rows.root.agentId {
+                AgentCallButton(
+                    agentId: agentId, agentName: rows.agentName,
+                    agentIcon: rows.agent?.isAssistant == true ? nil : BoardTypeDisplay.iconName(for: rows.agent?.icon),
+                    agentColor: rows.agent?.color
+                )
+                .buttonStyle(.plain)
+            }
+            if !chatMenuEntries.isEmpty {
+                ChatHeaderGhostButton(
+                    icon: AppIcons.uiMore, label: "More", identifier: SessionTree.ThreadCopy.guideMenuTestId
+                ) {
+                    openChatMenu()
+                }
+            }
+        }
+    }
+
+    /// #EXP-1688: no chat yet (first load, not found): the header's back alone,
+    /// the bar being hidden; an app editor keeps its toolbar.
+    @ViewBuilder
+    private func bareBand<Content: View>(_ content: Content) -> some View {
+        if editor == nil {
+            content.workHeaderBand { ChatHeader() }
+        } else {
+            content
+        }
+    }
+
+    /// The band under the chat header: THE strip (the pager) on a thread; an
     /// agent's chat has none but while it holds a plan (chats.json AGENT CHAT):
     /// Conversation and the plan tab.
     @ViewBuilder

@@ -262,20 +262,20 @@ fun ThreadScreen(
         if (agent != null) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(com.exponential.app.domain.Chats.Shell.ChatHeader.DISC.dp)
                     .androidxClipCircle()
                     .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted, androidx.compose.foundation.shape.CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 // S-3: the viewer's Assistant wears the brand mark.
                 if (agent.assistant) {
-                    com.exponential.app.ui.components.ExponentialMark(size = 22.dp, tint = MaterialTheme.colorScheme.onSurface)
+                    com.exponential.app.ui.components.ExponentialMark(size = com.exponential.app.domain.Chats.Shell.ChatHeader.DISC_GLYPH.dp, tint = MaterialTheme.colorScheme.onSurface)
                 } else {
-                    AgentGlyph(icon = agent.icon, color = agent.color, size = 22.dp)
+                    AgentGlyph(icon = agent.icon, color = agent.color, size = com.exponential.app.domain.Chats.Shell.ChatHeader.DISC_GLYPH.dp)
                 }
             }
         } else {
-            com.exponential.app.ui.components.ChatLeadDisc(lead = chatLead, agent = rootRow?.cli, size = 44.dp)
+            com.exponential.app.ui.components.ChatLeadDisc(lead = chatLead, agent = rootRow?.cli, size = com.exponential.app.domain.Chats.Shell.ChatHeader.DISC.dp)
         }
     }
     val headerSubtitle = if (agent != null) {
@@ -283,7 +283,14 @@ fun ThreadScreen(
     } else {
         listOfNotNull(chatStateWord(view), deviceLabel).joinToString(" · ")
     }
-    val headerSubtitleColor = if (agent == null && view?.needsYou == true) com.exponential.app.ui.issue.NeedsInputAmber else null
+    // #EXP-1688 (web `ChatHeaderTitle`): needs input = amber, working = the
+    // foreground, otherwise the muted default.
+    val headerSubtitleColor = when {
+        agent != null -> null
+        view?.needsYou == true -> com.exponential.app.ui.issue.NeedsInputAmber
+        view?.busy == true -> MaterialTheme.colorScheme.onSurface
+        else -> null
+    }
     val chatMenu: List<com.exponential.app.ui.components.ChatMenuItem> = if (agent != null) {
         com.exponential.app.ui.components.agentMenuItems(
             com.exponential.app.domain.Chats.agentMenuEntries(busy = rootRow?.busy == true, isOwner = isOwner)
@@ -1223,7 +1230,7 @@ private fun ThreadHeaderMerge(
         val message = actionError ?: return@LaunchedEffect
         toaster.failedAction("merge", "the PR", message, retry = changesVm::retryMerge)
     }
-    Spacer(Modifier.width(8.dp))
+    Spacer(Modifier.width(com.exponential.app.domain.Chats.Shell.ChatHeader.GAP.dp))
     MergePill(
         merge = ChangesMergeControl(
             label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,

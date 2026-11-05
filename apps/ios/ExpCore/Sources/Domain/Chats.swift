@@ -290,6 +290,20 @@ public enum Chats {
             public static let circle: Double = 44
         }
 
+        /// `shell.chatHeader` (#EXP-1688): every chat's header on a phone.
+        public enum ChatHeader {
+            public static let row: Double = 48
+            public static let paddingX: Double = 8
+            public static let gap: Double = 4
+            public static let button: Double = 36
+            public static let glyph: Double = 16
+            public static let disc: Double = 40
+            public static let discGlyph: Double = 20
+            public static let discGap: Double = 10
+            public static let title: Double = 15
+            public static let subtitle: Double = 12
+        }
+
         public enum BoardChip: String, CaseIterable, Sendable {
             case all, mine, drafts
 

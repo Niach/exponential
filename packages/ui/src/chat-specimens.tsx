@@ -5,18 +5,22 @@ import {
   chatSelectionActions,
   threadMenuEntries,
   type AgentChatRow,
+  type ChatLead,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
-import { CHAT_SELECTION_ICONS, ChatList, ChatsHeader } from "./chat-list"
+import { Button } from "./button"
+import { CHAT_SELECTION_ICONS, ChatLeadDisc, ChatList, ChatsHeader } from "./chat-list"
 import { Dialog } from "./dialog"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
 import { MenuPanel } from "./menu"
+import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "./mobile-detail-header"
 import { PageHeader } from "./page-header"
+import { AgentHeaderTitle, PhoneHeaderTitle } from "./phone-header-title"
 import { PhoneBoardMenuStrip } from "./phone-board-menu"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 import { PromptLayout } from "./prompt"
@@ -34,6 +38,8 @@ import { TooltipProvider } from "./tooltip"
 // captures on the Agent route; the natives' specimens draw the same.
 
 const COPY = chats.copy
+const CallIcon = conceptIcon(`voice-call`)
+const MoreIcon = conceptIcon(`ui-more`)
 const noop = (): void => {}
 
 // ── chat-list ────────────────────────────────────────────────────────────
@@ -55,6 +61,70 @@ export function ChatListSpecimen() {
     >
       <ChatsHeader inboxUnread />
       <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
+    </div>
+  )
+}
+
+// ── chat-header ──────────────────────────────────────────────────────────
+// #EXP-1688 (chats.json `shell.chatHeader`): THE chat header on a phone, the
+// app's own MobileDetailHeader + PhoneHeaderTitle: a chat waiting on you, a
+// working one on a device, an agent chat with its telephone.
+
+function ChatHeaderTrailing({ call = false }: { call?: boolean }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {call ? (
+        <Button variant="ghost" size="icon" className={HEADER_BUTTON_CLASS} aria-label="Call">
+          <CallIcon className="size-4" />
+        </Button>
+      ) : null}
+      <Button variant="ghost" size="icon" className={HEADER_BUTTON_CLASS} aria-label="More">
+        <MoreIcon className="size-4" />
+      </Button>
+    </span>
+  )
+}
+
+export function ChatHeaderSpecimen() {
+  const header = chats.shell.chatHeader
+  const titleOf = (lead: ChatLead, title: string, subtitle: ReactNode) => (
+    <PhoneHeaderTitle
+      disc={<ChatLeadDisc lead={lead} agent="claude" className="!size-10 [&>svg]:size-5! [&>[data-slot=run-mark-badge]]:right-1.5! [&>[data-slot=run-mark-badge]]:top-1.5!" />}
+      title={title}
+      subtitle={subtitle}
+    />
+  )
+  return (
+    <div
+      data-testid="chat-header-specimen"
+      className="flex w-[24.375rem] max-w-full flex-col gap-3 rounded-xl bg-background p-4 max-md:rounded-none max-md:px-0"
+    >
+      {caption(`A chat that needs you (${header.row}px, ghost buttons, always leading)`)}
+      <MobileDetailHeader
+        onBack={noop}
+        title={titleOf(
+          `needs_you`,
+          `Reduce cold start`,
+          <span className="text-yellow-400">{`needs input · Alex's MacBook`}</span>
+        )}
+        menu={<ChatHeaderTrailing />}
+      />
+      {caption(`A working chat`)}
+      <MobileDetailHeader
+        onBack={noop}
+        title={titleOf(
+          `working`,
+          `A title long enough that it truncates on one line`,
+          <span className="text-foreground">{COPY.preview.working}</span>
+        )}
+        menu={<ChatHeaderTrailing />}
+      />
+      {caption(`An agent chat (the telephone)`)}
+      <MobileDetailHeader
+        onBack={noop}
+        title={<AgentHeaderTitle name="Triage" icon="bug" color="#a855f7" />}
+        menu={<ChatHeaderTrailing call />}
+      />
     </div>
   )
 }

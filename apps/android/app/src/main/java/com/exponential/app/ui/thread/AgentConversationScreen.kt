@@ -324,7 +324,7 @@ fun AgentConversationScreen(
                     lead = {
                         androidx.compose.foundation.layout.Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(com.exponential.app.domain.Chats.Shell.ChatHeader.DISC.dp)
                                 .clip(androidx.compose.foundation.shape.CircleShape)
                                 .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted),
                             contentAlignment = Alignment.Center,
@@ -332,9 +332,9 @@ fun AgentConversationScreen(
                             // #EXP-1448: the viewer's Assistant wears the brand
                             // mark (chats.json), never its stored icon.
                             if (row?.isAssistant == true) {
-                                com.exponential.app.ui.components.ExponentialMark(size = 22.dp, tint = MaterialTheme.colorScheme.onSurface)
+                                com.exponential.app.ui.components.ExponentialMark(size = com.exponential.app.domain.Chats.Shell.ChatHeader.DISC_GLYPH.dp, tint = MaterialTheme.colorScheme.onSurface)
                             } else {
-                                AgentGlyph(icon = row?.icon, color = row?.color, size = 22.dp)
+                                AgentGlyph(icon = row?.icon, color = row?.color, size = com.exponential.app.domain.Chats.Shell.ChatHeader.DISC_GLYPH.dp)
                             }
                         }
                     },

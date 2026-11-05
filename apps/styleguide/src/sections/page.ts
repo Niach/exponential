@@ -182,6 +182,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`phone-tab-bar`]: `Surfaces`,
   [`phone-board-menu`]: `Inputs & pickers`,
   [`phone-page-header`]: `Surfaces`,
+  [`chat-header`]: `Surfaces`,
   [`chat-transcript`]: `Surfaces`,
   [`chat-menus`]: `Surfaces`,
   [`chat-selection`]: `Lists & rows`,

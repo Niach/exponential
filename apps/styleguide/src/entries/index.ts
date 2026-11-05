@@ -66,6 +66,7 @@ import { entry as chatList } from "./chat-list.tsx"
 import { entry as phoneTabBar } from "./phone-tab-bar.tsx"
 import { entry as phoneBoardMenu } from "./phone-board-menu.tsx"
 import { entry as phonePageHeader } from "./phone-page-header.tsx"
+import { entry as chatHeader } from "./chat-header.tsx"
 import { entry as chatTranscript } from "./chat-transcript.tsx"
 import { entry as chatMenus } from "./chat-menus.tsx"
 import { entry as resultsTab } from "./results-tab.tsx"
@@ -170,6 +171,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   phoneTabBar,
   phoneBoardMenu,
   phonePageHeader,
+  chatHeader,
   chatTranscript,
   chatMenus,
   chatSelection,

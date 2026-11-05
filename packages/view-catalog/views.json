@@ -7245,6 +7245,44 @@
       }
     },
     {
+      "id": "chat-header",
+      "group": "coding",
+      "title": "Chat header",
+      "blurb": "The chat header on a phone (chats.json shell.chatHeader): one leading row: ghost back, the lead disc, the title over one subtitle line; trailing an agent chat's telephone and the `…`.",
+      "order": 83,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=chat-header",
+        "anchor": {
+          "testId": "chat-header-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_chat-header",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_chat-header",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:chat-header"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=chat-header` on the Agent route: `@exp/ui` `ChatHeaderSpecimen`, three headers: needs input, working with a long title, an agent chat with its telephone.",
+        "ios": "The specimen in StyleguideScreenshots, shot sg_chat-header.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-header`: the IDE styleguide entry drawn full-window.",
+        "web-mobile": "Inherits web: the phone frame draws the same 390px specimen."
+      }
+    },
+    {
       "id": "chat-transcript",
       "group": "coding",
       "title": "Chat transcript",

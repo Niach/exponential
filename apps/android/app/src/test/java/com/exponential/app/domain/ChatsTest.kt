@@ -582,6 +582,18 @@ class ChatsTest {
         assertEquals(header.getValue("pages").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.Header.PAGES)
         assertEquals(header.getValue("buttons").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.Header.BUTTONS)
         assertEquals(header.getValue("circle").jsonPrimitive.int, Chats.Shell.Header.CIRCLE)
+        // #EXP-1688: THE chat header's geometry.
+        val chatHeader = shell.getValue("chatHeader").jsonObject
+        assertEquals(chatHeader.getValue("row").jsonPrimitive.int, Chats.Shell.ChatHeader.ROW)
+        assertEquals(chatHeader.getValue("paddingX").jsonPrimitive.int, Chats.Shell.ChatHeader.PADDING_X)
+        assertEquals(chatHeader.getValue("gap").jsonPrimitive.int, Chats.Shell.ChatHeader.GAP)
+        assertEquals(chatHeader.getValue("button").jsonPrimitive.int, Chats.Shell.ChatHeader.BUTTON)
+        assertEquals(chatHeader.getValue("glyph").jsonPrimitive.int, Chats.Shell.ChatHeader.GLYPH)
+        assertEquals(chatHeader.getValue("disc").jsonPrimitive.int, Chats.Shell.ChatHeader.DISC)
+        assertEquals(chatHeader.getValue("discGlyph").jsonPrimitive.int, Chats.Shell.ChatHeader.DISC_GLYPH)
+        assertEquals(chatHeader.getValue("discGap").jsonPrimitive.int, Chats.Shell.ChatHeader.DISC_GAP)
+        assertEquals(chatHeader.getValue("title").jsonPrimitive.int, Chats.Shell.ChatHeader.TITLE)
+        assertEquals(chatHeader.getValue("subtitle").jsonPrimitive.int, Chats.Shell.ChatHeader.SUBTITLE)
         assertEquals(shell.getValue("leadDisc").jsonPrimitive.int, Chats.Shell.LEAD_DISC)
         assertEquals(shell.getValue("selectBadge").jsonPrimitive.int, Chats.Shell.SELECT_BADGE)
         assertEquals(shell.getValue("selectBadgeRing").jsonPrimitive.int, Chats.Shell.SELECT_BADGE_RING)

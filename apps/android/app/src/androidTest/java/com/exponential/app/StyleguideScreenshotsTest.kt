@@ -91,6 +91,8 @@ import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.Skills
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenScreen
+import com.exponential.app.ui.styleguide.ChatHeaderSpecimenTestId
+import com.exponential.app.ui.styleguide.ChatHeaderSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceAttentionSpecimenScreen
 import com.exponential.app.ui.styleguide.DeviceAttentionSpecimenTestId
@@ -253,7 +255,7 @@ class StyleguideScreenshotsTest {
             "sg_team-avatar",
             // #EXP-1643: the device cards' attention badge + THE account panel.
             "sg_device-attention",
-            "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
+            "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
             "sg_chat-selection",
             // EXP-1459: the locked state for sealed content.
@@ -1913,6 +1915,8 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_device-attention")
         show(PhonePageHeaderSpecimenTestId) { PhonePageHeaderSpecimenScreen() }
         flow.screenshot("sg_phone-page-header")
+        show(ChatHeaderSpecimenTestId) { ChatHeaderSpecimenScreen() }
+        flow.screenshot("sg_chat-header")
         // --- sg_app-consent (VAPP-120, app-actions.json): the consent card an
         // app raises for an ungranted typed action, worded for the operation,
         // drawn by the real card over a stand-in surface (the painted

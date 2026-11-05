@@ -605,16 +605,15 @@ extension XCTestCase {
         row.tap()
     }
 
-    /// Pops the top view controller off the navigation stack (leading nav-bar
-    /// back button). EXP-1316: the system back button BY NAME first — a
-    /// thread's header now carries its `…` (and a principal title) on every
-    /// tab, so "the first nav-bar button" is no longer guaranteed to be Back;
-    /// the old first-match stays the fallback for a bar without one.
+    /// Pops the top view controller off the navigation stack. `BackButton` by
+    /// name first, in a navigation bar or in the content (#EXP-1688: a chat's
+    /// header and EXP-1649's Search draw theirs in the page); the old first
+    /// nav-bar button stays the fallback for a bar without one.
     @MainActor
     func goBack(_ app: XCUIApplication) {
-        let systemBack = app.navigationBars.buttons.matching(identifier: "BackButton").firstMatch
-        if systemBack.waitForExistence(timeout: Wait.nav) {
-            systemBack.tap()
+        let back = app.buttons.matching(identifier: "BackButton").firstMatch
+        if back.waitForExistence(timeout: Wait.nav) {
+            back.tap()
             return
         }
         let backButton = app.navigationBars.buttons
@@ -625,12 +624,7 @@ extension XCTestCase {
             .firstMatch
         if backButton.waitForExistence(timeout: 1) {
             backButton.tap()
-            return
         }
-        // EXP-1649: a page without a navigation bar (Search) draws its own
-        // `BackButton` in the content.
-        let contentBack = app.buttons.matching(identifier: "BackButton").firstMatch
-        if contentBack.exists { contentBack.tap() }
     }
 
     /// Give in-flight animations (and Electric row inserts) a moment to settle

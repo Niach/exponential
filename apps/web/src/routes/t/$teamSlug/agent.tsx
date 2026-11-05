@@ -21,6 +21,7 @@ import {
   NeedsYouSpecimen,
   PhoneTabBarSpecimen,
   PhoneBoardMenuSpecimen,
+  ChatHeaderSpecimen,
   PhonePageHeaderSpecimen,
   CallControlsSpecimen,
   VoiceCallPillSpecimen,
@@ -116,6 +117,7 @@ const DEV_VIEWS = [
   `phone-tab-bar`,
   `phone-board-menu`,
   `phone-page-header`,
+  `chat-header`,
   `voice-call`,
   `voice-call-overlay`,
   `call-controls`,
@@ -200,6 +202,8 @@ function AgentRoute() {
           <PhoneBoardMenuSpecimen />
         ) : dev === `phone-page-header` ? (
           <PhonePageHeaderSpecimen />
+        ) : dev === `chat-header` ? (
+          <ChatHeaderSpecimen />
         ) : dev === `mention-pill` ? (
           <MentionPillSpecimen />
         ) : dev === `schedule-picker` ? (

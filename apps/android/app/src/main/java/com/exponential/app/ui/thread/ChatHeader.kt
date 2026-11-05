@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -26,6 +27,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.PrChecks
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.ChatMenuItem
@@ -40,12 +43,40 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
+ * #EXP-1688 (chats.json `shell.chatHeader`, web `MobileDetailHeader` +
+ * `PhoneHeaderTitle`): the ghost button the chat header's back, telephone and
+ * `…` all wear: no fill, no hairline, the secondary glyph (the filled circle
+ * is the top-level page header's). The tap target stays the platform minimum.
+ */
+@Composable
+fun ChatHeaderButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    CircleIconButton(
+        icon,
+        contentDescription,
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        borderless = true,
+        size = Chats.Shell.ChatHeader.BUTTON.dp,
+        glyphSize = Chats.Shell.ChatHeader.GLYPH.dp,
+    )
+}
+
+/**
  * Thread 58cb32df (chats.json TRANSCRIPT, phones): THE chat header — back ·
- * the lead disc · the title over its subtitle (S-3: no Stop pill) · NEW-69: the
- * telephone ([call], an agent chat only, left of `…`) · the `…` menu (the
- * chat's own entries, `threadMenuEntries` / `agentMenuEntries`, then any
- * [menuGroups] after a divider). The thread's tab strip rides under it
- * ([tabs]) on the same band.
+ * the lead disc · the title over its subtitle (S-3: no Stop pill) · the
+ * thread's Merge pill ([action]) · NEW-69: the telephone ([call], an agent chat
+ * only, left of `…`) · the `…` menu (the chat's own entries,
+ * `threadMenuEntries` / `agentMenuEntries`, then any [menuGroups] after a
+ * divider). #EXP-1688: one leading row, nothing centred, ghost buttons
+ * (`shell.chatHeader`). The thread's tab strip rides under it ([tabs]) on the
+ * same band.
  */
 @Composable
 fun ChatHeader(
@@ -68,19 +99,28 @@ fun ChatHeader(
     HeaderEdgeChrome {
         Column(modifier = modifier.fillMaxWidth().statusBarsPadding().testTag("thread-header")) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(Chats.Shell.ChatHeader.ROW.dp)
+                    .padding(horizontal = Chats.Shell.ChatHeader.PADDING_X.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val gap = Chats.Shell.ChatHeader.GAP.dp
                 if (onBack != null) {
-                    CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack, size = 44.dp, glyphSize = 18.dp)
-                    Spacer(Modifier.width(10.dp))
+                    ChatHeaderButton(ExpIcons.uiBack, "Back", onClick = onBack)
+                    Spacer(Modifier.width(gap))
                 }
                 lead()
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(Chats.Shell.ChatHeader.DISC_GAP.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = Chats.Shell.ChatHeader.TITLE.sp,
+                            lineHeight = 22.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.sp,
+                        ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -89,7 +129,11 @@ fun ChatHeader(
                     if (!subtitle.isNullOrEmpty()) {
                         Text(
                             subtitle,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontSize = Chats.Shell.ChatHeader.SUBTITLE.sp,
+                                fontWeight = FontWeight.Normal,
+                                letterSpacing = 0.sp,
+                            ),
                             color = subtitleColor ?: MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -97,15 +141,15 @@ fun ChatHeader(
                         )
                     }
                 }
-                if (call != null) {
-                    Spacer(Modifier.width(8.dp))
-                    call()
-                }
                 // Draws its own leading gap (nothing while there is no action).
                 action?.invoke()
+                if (call != null) {
+                    Spacer(Modifier.width(gap))
+                    call()
+                }
                 val groups = listOf(menu).plus(menuGroups).filter { it.isNotEmpty() }
                 if (groups.isNotEmpty()) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(gap))
                     ChatHeaderMenu(groups)
                 }
             }
@@ -122,15 +166,13 @@ private fun ChatHeaderMenu(groups: List<List<ChatMenuItem>>) {
     var open by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<ChatMenuItem?>(null) }
     Box {
-        CircleIconButton(
+        ChatHeaderButton(
             ExpIcons.uiMore,
             "More",
             onClick = {
                 page = null
                 open = true
             },
-            size = 44.dp,
-            glyphSize = 18.dp,
             modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU),
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {

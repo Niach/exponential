@@ -32,8 +32,10 @@ struct AgentCallButton: View {
                 voiceApi: deps.voiceApi
             )
         } label: {
-            AppIcon(AppIcons.voiceCall, size: AppIcon.Size.medium, weight: .medium)
-                .foregroundStyle(.white.opacity(availability.enabled ? TextOpacity.secondary : TextOpacity.quaternary))
+            ChatHeaderGhostGlyph(
+                icon: AppIcons.voiceCall,
+                opacity: availability.enabled ? TextOpacity.secondary : TextOpacity.quaternary
+            )
         }
         .simultaneousGesture(LongPressGesture().onEnded { _ in
             if let reason = availability.reason { toaster.info(reason) }

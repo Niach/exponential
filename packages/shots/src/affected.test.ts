@@ -143,6 +143,7 @@ describe(`desktop attribution`, () => {
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
       `chat`,
+      `chat-header`,
       `chat-issues`,
       `chat-list`,
       `chat-menus`,

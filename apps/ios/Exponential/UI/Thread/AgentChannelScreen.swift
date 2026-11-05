@@ -32,6 +32,7 @@ struct AgentChannelScreen: View {
                     EmptyState(.threadNotFound)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .accessibilityIdentifier("agent-channel-not-found")
+                        .workHeaderBand { ChatHeader() }
                 }
             } else {
                 ZStack {
@@ -41,9 +42,12 @@ struct AgentChannelScreen: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .workHeaderBand { ChatHeader() }
                 }
             }
         }
+        // #EXP-1688: THE chat header replaces the bar, loading or not.
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             model.bind(accountId: accountId, agentId: agentId, userId: deps.auth.userId, db: deps.db)
         }
@@ -126,12 +130,11 @@ private struct AgentChannelEmpty: View {
                 teamId: agent.teamId
             )
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                // THE chat header (Android `ChatHeader`): the agent's disc
-                // (#EXP-1448: the Assistant's = the brand mark) over `Agent`.
+        .workHeaderBand {
+            // THE chat header: the agent's disc (#EXP-1448: the Assistant's =
+            // the brand mark) over `Agent`; NEW-69 (voice-call.json): the
+            // telephone (no `…` before the first message).
+            ChatHeader {
                 ChatHeaderTitle(
                     title: agent.name,
                     subtitle: Chats.agentChatSubtitle(modelLabel: agent.model.map(LaunchVocabulary.modelLabel)),
@@ -139,17 +142,13 @@ private struct AgentChannelEmpty: View {
                     agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor,
                     assistant: agent.isAssistant
                 )
+            } trailing: {
+                AgentCallButton(
+                    agentId: agent.id, agentName: agent.name,
+                    agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
+                )
+                .buttonStyle(.plain)
             }
-        }
-        // NEW-69 (voice-call.json): the telephone (no `…` before the first
-        // message), a bare glyph (web-mobile), no iOS 26 shared glass.
-        .ownChromeToolbarItem(placement: .topBarTrailing) {
-            AgentCallButton(
-                agentId: agent.id, agentName: agent.name,
-                agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
-            )
-            .buttonStyle(.plain)
-            .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-channel-page")

@@ -226,6 +226,23 @@ object Chats {
             const val CIRCLE = 44
         }
 
+        /** #EXP-1688 `shell.chatHeader`: THE chat header's geometry: the row,
+         *  its edge padding and gap, the GHOST buttons (back, telephone, `…`)
+         *  and their glyph, the lead disc and its glyph, the disc's gap to the
+         *  title block, the title and subtitle type (dp / sp). */
+        object ChatHeader {
+            const val ROW = 48
+            const val PADDING_X = 8
+            const val GAP = 4
+            const val BUTTON = 36
+            const val GLYPH = 16
+            const val DISC = 40
+            const val DISC_GLYPH = 20
+            const val DISC_GAP = 10
+            const val TITLE = 15
+            const val SUBTITLE = 12
+        }
+
         val BOARD_CHIPS: List<String> = listOf("all", "mine", "drafts")
         const val LEAD_DISC = 52
 

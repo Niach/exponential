@@ -161,6 +161,8 @@ fun PlanPageContent(
                 PlanPage.Copy.OUTLINE,
                 onClick = { outlineOpen = true },
                 borderless = true,
+                // Web: the ghost icon-sm button's 16 glyph (never a circle).
+                glyphSize = 16.dp,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = topInset + 8.dp, end = 8.dp)

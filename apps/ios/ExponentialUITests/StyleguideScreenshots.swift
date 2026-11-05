@@ -28,7 +28,7 @@ import XCTest
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
-///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
+///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header · sg_chat-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
 ///   sg_plan-page · sg_team-avatar ·
@@ -1123,7 +1123,7 @@ final class StyleguideScreenshots: XCTestCase {
         openThreadCards(app, "plan-card")
         snapshot("sg_plan-card", settle: 2)
         // ── sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu ·
-        // sg_phone-page-header · sg_chat-transcript ·
+        // sg_phone-page-header · sg_chat-header · sg_chat-transcript ·
         // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
@@ -1171,7 +1171,7 @@ final class StyleguideScreenshots: XCTestCase {
     /// The styleguide entries photographed as capture-only specimens
     /// (`-uiTestingStyleguide <entry>`, signed out): no account, no seed.
     static let specimenEntries = [
-        "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
+        "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness", "session-xref",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
@@ -1205,6 +1205,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "phone-tab-bar": snapshot("sg_phone-tab-bar", settle: 2)
             case "phone-board-menu": snapshot("sg_phone-board-menu", settle: 2)
             case "phone-page-header": snapshot("sg_phone-page-header", settle: 2)
+            case "chat-header": snapshot("sg_chat-header", settle: 2)
             case "chat-transcript": snapshot("sg_chat-transcript", settle: 2)
             case "chat-menus": snapshot("sg_chat-menus", settle: 2)
             case "chat-selection": snapshot("sg_chat-selection", settle: 2)
@@ -1728,14 +1729,16 @@ final class StyleguideScreenshots: XCTestCase {
         }
         // EXP-1558: the Conversation at its newest rows, as every other
         // client photographs it: the pending question and the child's plan
-        // card in view (S-3: inline, not in the Dock). The jump-to-bottom
-        // button re-pins a list that opened scrolled up.
+        // row in view (#EXP-1662: a plan is ONE row here, its buttons live on
+        // the Plan tab). The jump-to-bottom button re-pins a list that opened
+        // scrolled up.
         let jump = anyElement(app, identified: "jump-to-bottom")
         if jump.waitForExistence(timeout: 2), jump.isHittable { jump.tap() }
-        let planDecide = app.buttons["No, keep planning"].firstMatch
-        expect(planDecide, within: Wait.sync, "The cold-start thread drew no plan card — reseed with `bun run seed:screenshots`")
-        scrollUntilVisible(app, planDecide, attempts: 4)
-        XCTAssertTrue(planDecide.isHittable, "The cold-start thread's plan card never scrolled into view")
+        expect(
+            anyElement(app, containing: "Plan: lazy-load"),
+            within: Wait.sync,
+            "The cold-start thread drew no plan row — reseed with `bun run seed:screenshots`"
+        )
         expect(
             anyElement(app, containing: "Cold start is at 740"),
             within: Wait.nav,
