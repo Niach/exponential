@@ -40,3 +40,4 @@
 - Les propriétaires fixent l'expiration d'un lien public dans les Réglages
 - Les tickets, réglages et chats ont le même aspect sur toutes les apps
 - Enregistrer une fiche avec date et heure ne la décale plus selon votre fuseau
+- Les tickets créés par une app indiquent « via » cette app

@@ -40,3 +40,4 @@
 - Właściciele ustawiają w Ustawieniach, kiedy wygasa publiczny link
 - Zadania, ustawienia i czaty wyglądają tak samo we wszystkich aplikacjach
 - Zapis rekordu z datą i godziną nie przesuwa go już o strefę czasową
+- Zadania utworzone przez aplikację pokazują „przez” tę aplikację

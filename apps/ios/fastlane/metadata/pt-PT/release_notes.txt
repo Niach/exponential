@@ -40,3 +40,4 @@
 - Os proprietários definem nas Definições quando expira uma ligação pública
 - Os issues, as definições e os chats têm o mesmo aspeto em todas as apps
 - Guardar um registo com data e hora já não o desloca pelo teu fuso horário
+- Os issues criados por uma app indicam "via" essa app

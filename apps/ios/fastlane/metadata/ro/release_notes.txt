@@ -40,3 +40,4 @@
 - Proprietarii setează din Setări când expiră un link public
 - Problemele, setările și chaturile arată la fel în toate aplicațiile
 - Salvarea unei înregistrări cu dată și oră nu o mai mută cu fusul orar
+- Problemele create de o aplicație arată „prin” acea aplicație

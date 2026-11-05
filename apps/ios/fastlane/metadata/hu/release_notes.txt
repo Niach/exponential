@@ -40,3 +40,4 @@
 - A tulajdonosok a Beállításokban adják meg, mikor jár le egy nyilvános hivatkozás
 - A feladatok, beállítások és csevegések minden appban ugyanúgy néznek ki
 - Egy dátumot és időt tartalmazó rekord mentése már nem tolja el az időzónával
+- Az app által létrehozott feladatoknál látszik, melyik app „által” készültek

@@ -40,3 +40,4 @@
 - Omistajat asettavat julkisen linkin vanhenemisen asetuksista
 - Tehtävät, asetukset ja keskustelut näyttävät samalta kaikissa sovelluksissa
 - Päivämäärän ja ajan sisältävän tietueen tallennus ei enää siirrä sitä aikavyöhykkeen verran
+- Sovelluksen luomat tehtävät näyttävät "via" sovelluksen
