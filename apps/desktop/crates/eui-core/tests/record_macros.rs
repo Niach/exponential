@@ -35,6 +35,6 @@ fn record_macros_fixture() {
     let pkg = &f["install"][0]["package"];
     let messages = template_messages(pkg, "main", "s", None).unwrap();
     let ids: Vec<&str> = messages[1]["updateComponents"]["components"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["root", "m", "m__row"]);
+    assert_eq!(ids, ["root", "m", "m__row", "m__rowDelete"]);
     assert!(messages.iter().any(|m| m["bindDataModel"]["source"] == json!("records:deal?sort=updatedAt&order=desc")));
 }

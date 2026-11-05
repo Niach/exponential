@@ -19,11 +19,14 @@ type Binding = { path: string }
 export interface RecordFormField {
   name: string
   label: string
-  widget: `text` | `textarea` | `number` | `switch` | `select` | `date` | `time` | `chips`
+  widget: `text` | `textarea` | `number` | `switch` | `select` | `date` | `time` | `datetime` | `chips`
   required: boolean
   /** Spans both FieldGroup columns on wide frames. */
   wide: boolean
   value: Binding
+  /** `datetime`: the pickers' draft parts (`<path>Parts/<name>/date|time`). */
+  date?: Binding
+  time?: Binding
   placeholder?: string
   options?: { label: string; value: string }[]
   source?: string
@@ -95,7 +98,10 @@ export function recordFormFields(kind: RecordKind, path: string): RecordFormFiel
     } else if (f.enum) Object.assign(out, { widget: `select`, options: f.enum.map((v) => ({ label: v, value: v })) })
     else if (f.format === `date`) out.widget = `date`
     else if (f.format === `time`) out.widget = `time`
-    else if (f.format === `date-time`) out.placeholder ??= `YYYY-MM-DDTHH:MM`
+    else if (f.format === `date-time`) {
+      const parts = `${path}Parts/${name}`
+      Object.assign(out, { widget: `datetime`, wide: true, date: { path: `${parts}/date` }, time: { path: `${parts}/time` } })
+    }
     else if (f.maxLength === undefined || f.maxLength > RECORD_LONG_TEXT) Object.assign(out, { widget: `textarea`, wide: true })
     const checks: { condition: unknown; message: string }[] = []
     if (out.required && out.widget !== `switch`) checks.push({ condition: { call: `required`, args: { value } }, message: `$string.required` })
@@ -146,11 +152,27 @@ const setOn = (node: Json, event: string, action: unknown) => {
   if (on[event] === undefined) on[event] = action
 }
 
+/** A date-time field's value: its picked day + time in the team zone; no
+ *  day picked = the draft's value as it is. */
+const dateTimeValue = (f: RecordFormField) => ({ call: `cond`, args: { if: f.date, then: { call: `dateTime`, args: { date: f.date, time: f.time } }, else: f.value } })
+
+/** Opens the editor on a row: the draft = the row, a date-time's parts = its
+ *  day and time in the team zone. */
+function editAction(base: string, fields: RecordFormField[]): Json {
+  const parts: Json = {}
+  for (const f of fields) {
+    if (f.widget !== `datetime`) continue
+    const value = { path: f.name }
+    parts[f.name] = { date: { call: `formatDate`, args: { value, format: `yyyy-MM-dd` } }, time: { call: `formatDate`, args: { value, format: `HH:mm` } } }
+  }
+  return set(`${base}/editor`, { open: true, draft: { path: `` }, ...(Object.keys(parts).length ? { draftParts: parts } : {}) })
+}
+
 /** The form's write: `records.upsert {kind, id?, data}`, data = one
  *  binding per field. */
 function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown): Json {
   const data: Json = {}
-  for (const f of fields) data[f.name] = f.value
+  for (const f of fields) data[f.name] = f.widget === `datetime` ? dateTimeValue(f) : f.value
   const args: Json = { kind }
   if (recordId !== undefined) args.id = recordId
   args.data = data
@@ -161,7 +183,7 @@ function upsertAction(kind: string, fields: RecordFormField[], recordId: unknown
  *  filled from `records`; other components untouched. Pure. A kind the
  *  package does not declare fills `missing: true` (the macro's unknown
  *  state). A RecordTable also gets a phone row component `<id>__row`
- *  (appended) and the rows binding `/recordTable/<id>/rows`. */
+ *  and, when editable, its Delete `<id>__rowDelete` (appended) and the rows binding `/recordTable/<id>/rows`. */
 export function fillRecordMacros(components: readonly Json[], bindings: readonly { path: string; source: string }[] = [], records: Record<string, RecordKind> | undefined, options: RecordMacroOptions = {}): FilledTemplate {
   const out: Json[] = []
   const extra: Json[] = []
@@ -210,7 +232,7 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
       node.editorId = { path: `${draft}/id` }
       node.deleteOpen = { path: `${base}/delete/open` }
       setOn(node, `add`, set(`${base}/editor`, { open: true, draft: {} }))
-      setOn(node, `edit`, set(`${base}/editor`, { open: true, draft: { path: `` } }))
+      setOn(node, `edit`, editAction(base, fields))
       setOn(node, `delete`, set(`${base}/delete`, { open: true, id: { path: `id` } }))
       setOn(node, `submit`, upsertAction(kindName, fields, { path: `${draft}/id` }))
       setOn(node, `cancel`, set(`${base}/editor/open`, false))
@@ -224,8 +246,13 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     const row: Json = { id: `${id}__row`, component: `Row`, title: { call: `coalesce`, args: { values: [{ call: `text`, args: { value: { path: shown[0] ?? `id` } } }, `—`] } } }
     if (shown[1]) row.subtitle = { call: `coalesce`, args: { values: [{ call: `text`, args: { value: { path: shown[1] } } }, ``] } }
     row.meta = { call: `formatRelativeTime`, args: { value: { path: `updatedAt` } } }
-    if (editable) row.on = { press: set(`${base}/editor`, { open: true, draft: { path: `` } }) }
+    if (editable) {
+      row.on = { press: editAction(base, fields) }
+      // The row's own Delete (the table's Delete cell is hidden on phones).
+      row.slots = { trailing: `${id}__rowDelete` }
+    }
     extra.push(row)
+    if (editable) extra.push({ id: `${id}__rowDelete`, component: `Button`, icon: `ui-delete`, variant: `ghost`, size: `icon`, accessibility: { label: `$string.delete` }, on: { press: (node.on as Json).delete } })
     const query = typeof node.query === `string` && node.query.trim() ? node.query.trim().replace(/^\?/, ``) : `sort=updatedAt&order=desc`
     binds.push({ path: `${base}/rows`, source: `records:${kindName}?${query}` })
   }

@@ -6438,6 +6438,40 @@
                     }
                   },
                   {
+                    "part": "datetime",
+                    "component": "FieldGroup",
+                    "$if": {
+                      "$eq": [
+                        "{field.widget}",
+                        "datetime"
+                      ]
+                    },
+                    "props": {
+                      "columns": 2
+                    },
+                    "children": [
+                      {
+                        "part": "day",
+                        "component": "DatePicker",
+                        "props": {
+                          "label": "{field.label}",
+                          "name": "{field.name}",
+                          "value": "{field.date}",
+                          "placeholder": "{field.placeholder}"
+                        }
+                      },
+                      {
+                        "part": "clock",
+                        "component": "TimePicker",
+                        "props": {
+                          "label": "$string.time",
+                          "name": "{field.name}Time",
+                          "value": "{field.time}"
+                        }
+                      }
+                    ]
+                  },
+                  {
                     "part": "chips",
                     "component": "ChipInput",
                     "$if": {

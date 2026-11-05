@@ -327,6 +327,17 @@ function dateDiff(args: unknown[], env: Zone): number {
   return num(Math.trunc(months / (unit === `month` ? 1 : unit === `quarter` ? 3 : 12)))
 }
 
+/** VAPP-245: a day and a wall-clock time (`HH:MM`, none = midnight) in the
+ *  team zone as an instant: the Record form's date-time pair. */
+function dateTime(args: unknown[], env: Zone): string {
+  const t = temporal(`dateTime`, args[0])
+  if (!t.date) fail(`dateTime needs a day`)
+  const clock = args[1] === undefined || args[1] === null ? `00:00` : text(`dateTime`, args[1])
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(clock)
+  if (!m) fail(`not a time: ${clock}`)
+  return formatTimestamp(fromLocal(env, (t as { day: number }).day * DAY_MS + (Number(m![1]) * 60 + Number(m![2])) * 60_000))
+}
+
 function startEnd(fn: `startOf` | `endOf`, args: unknown[], env: Zone): string {
   const t = temporal(fn, args[0])
   const unit = unitOf(fn, args[1], CALENDAR_UNITS)
@@ -467,6 +478,7 @@ export const EXPRESSION_FUNCTIONS: Readonly<Record<string, FunctionDef>> = {
   max: { params: [`number`], variadic: true, args: [`values`], run: (vs) => num(Math.max(...vs.map((v) => number(`max`, v)))), returns: always(`number`) },
   today: { params: [], args: [], run: (_, env) => dayText(Math.floor(toLocal(env, env.now) / DAY_MS)), returns: always(`date`) },
   now: { params: [], args: [], run: (_, env) => formatTimestamp(env.now), returns: always(`timestamp`) },
+  dateTime: { params: [`temporal`, `any`], min: 1, args: [`date`, `time`], run: dateTime, returns: always(`timestamp`) },
   dateAdd: { params: [`temporal`, `number`, `string`], args: [`date`, `n`, `unit`], run: dateAdd, returns: sameTemporal },
   dateDiff: { params: [`temporal`, `temporal`, `string`], args: [`a`, `b`, `unit`], run: dateDiff, returns: always(`number`) },
   startOf: { params: [`temporal`, `string`], args: [`date`, `unit`], run: (a, env) => startEnd(`startOf`, a, env), returns: sameTemporal },

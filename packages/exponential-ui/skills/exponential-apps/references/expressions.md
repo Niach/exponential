@@ -44,6 +44,7 @@ a wrong type) gives the call no value.
 | `min(x, …)` `max(x, …)` | `values: [...]` | at least one |
 | `today()` | | the calendar day in the team zone |
 | `now()` | | the instant, `YYYY-MM-DDTHH:MM:SS.sssZ` |
+| `dateTime(d, time?)` | `date, time` | the day at a wall-clock `HH:MM` (none = midnight) in the team zone, as an instant |
 | `dateAdd(d, n, unit)` | `date, n, unit` | a whole `n`; a day unit keeps the wall clock, a month end clamps (Jan 31 + 1 month = Feb 28) |
 | `dateDiff(a, b, unit)` | `a, b, unit` | whole units from `a` to `b` (`b - a`, truncated) |
 | `startOf(d, unit)` `endOf(d, unit)` | `date, unit` | day, week (Monday), month, quarter, year |

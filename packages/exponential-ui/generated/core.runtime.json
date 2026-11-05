@@ -728,6 +728,7 @@
       "max",
       "today",
       "now",
+      "dateTime",
       "dateAdd",
       "dateDiff",
       "startOf",
@@ -939,6 +940,13 @@
       },
       "now": {
         "args": {},
+        "returns": "string"
+      },
+      "dateTime": {
+        "args": {
+          "date": "string",
+          "time": "string"
+        },
         "returns": "string"
       },
       "dateAdd": {

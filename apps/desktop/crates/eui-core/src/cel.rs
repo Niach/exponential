@@ -368,6 +368,28 @@ fn text<'a>(f: &str, v: &'a Value) -> R<&'a str> {
     }
 }
 
+/// VAPP-245: a day and a wall-clock time (`HH:MM`, none = midnight) in the
+/// team zone as an instant: the Record form's date-time pair.
+fn date_time(args: &[Value], env: &Env) -> R<Value> {
+    let Temporal::Date(day) = temporal("dateTime", &args[0])? else {
+        return Err("dateTime needs a day".into());
+    };
+    let clock = match args.get(1) {
+        None | Some(Value::Null) => "00:00",
+        Some(v) => text("dateTime", v)?,
+    };
+    let bytes = clock.as_bytes();
+    let digits = |i: usize| bytes[i].is_ascii_digit();
+    if bytes.len() != 5 || bytes[2] != b':' || !digits(0) || !digits(1) || !digits(3) || !digits(4) {
+        return Err(format!("not a time: {clock}"));
+    }
+    let (h, m) = ((bytes[0] - b'0') as i64 * 10 + (bytes[1] - b'0') as i64, (bytes[3] - b'0') as i64 * 10 + (bytes[4] - b'0') as i64);
+    if h > 23 || m > 59 {
+        return Err(format!("not a time: {clock}"));
+    }
+    Ok(Value::String(format_timestamp(from_local(env, day as f64 * DAY_MS + ((h * 60 + m) * 60_000) as f64))?))
+}
+
 fn date_add(args: &[Value], env: &Env) -> R<Value> {
     let t = temporal("dateAdd", &args[0])?;
     let n = whole_number("dateAdd", &args[1])?;
@@ -619,11 +641,11 @@ use Param::{Any as A, List as L, Number as N, Sized as Z, Temporal as T, Text as
 
 /// THE function table (spec §4.2), positional for CEL, named (`args`) for
 /// the A2UI form. Generic only: no working days, no holidays.
-pub const FUNCTION_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "size", "orElse", "string", "trim", "lower", "upper", "split", "join", "sumOf", "avgOf", "minOf", "maxOf", "countOf", "sortBy", "groupOf"];
+pub const FUNCTION_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateTime", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "size", "orElse", "string", "trim", "lower", "upper", "split", "join", "sumOf", "avgOf", "minOf", "maxOf", "countOf", "sortBy", "groupOf"];
 
 /// The A2UI form's names in the bind table (`size` = the existing `len`;
 /// `expr` = the string form, `{expr, vars}`).
-pub const CALL_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "orElse", "expr"];
+pub const CALL_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateTime", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "orElse", "expr"];
 
 /// VAPP-206: reachable from CEL only (`{call: expr}`): the bind table and the
 /// catalog keep their names.
@@ -637,6 +659,7 @@ fn def(name: &str) -> Option<Def> {
         "floor" | "ceil" | "abs" => d(&[N], &["value"]),
         "min" | "max" => Def { params: &[N], min: 1, variadic: true, args: &["values"] },
         "today" | "now" => d(&[], &[]),
+        "dateTime" => Def { params: &[T, A], min: 1, variadic: false, args: &["date", "time"] },
         "dateAdd" => d(&[T, N, S], &["date", "n", "unit"]),
         "dateDiff" => d(&[T, T, S], &["a", "b", "unit"]),
         "startOf" | "endOf" => d(&[T, S], &["date", "unit"]),
@@ -701,6 +724,7 @@ fn run(name: &str, args: &[Value], env: &Env) -> R<Value> {
         }
         "today" => Ok(Value::String(day_text(floor_day(to_local(env, env.now)))?)),
         "now" => Ok(Value::String(format_timestamp(env.now)?)),
+        "dateTime" => date_time(args, env),
         "dateAdd" => date_add(args, env),
         "dateDiff" => date_diff(args, env),
         "startOf" | "endOf" => start_end(name, args, env),
@@ -1976,7 +2000,7 @@ impl Checker<'_> {
                 }
             }
             "today" => ty("date"),
-            "now" => ty("timestamp"),
+            "now" | "dateTime" => ty("timestamp"),
             "formatDuration" | "string" | "trim" | "lower" | "upper" | "join" => ty("string"),
             "split" => Value::Array(vec![ty("string")]),
             "avgOf" | "minOf" | "maxOf" => optional_type(ty("number")),

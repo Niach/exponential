@@ -816,6 +816,7 @@
       "max",
       "today",
       "now",
+      "dateTime",
       "dateAdd",
       "dateDiff",
       "startOf",
@@ -1057,6 +1058,14 @@
       "now": {
         "description": "Now as an ISO instant.",
         "args": {},
+        "returns": "string"
+      },
+      "dateTime": {
+        "description": "A day (YYYY-MM-DD) at a wall-clock time (HH:MM; none = midnight) in the team time zone, as an ISO instant.",
+        "args": {
+          "date": "string",
+          "time": "string"
+        },
         "returns": "string"
       },
       "dateAdd": {
