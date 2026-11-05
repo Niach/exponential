@@ -4,7 +4,6 @@ import titleFixture from "../fixtures/session-title.json" with { type: "json" }
 import { sessionTitle } from "./session-title"
 import { agentChatPage, agentChatTabs, partitionThreads, type TreeMessage } from "./session-tree"
 import {
-  agentBubbles,
   agentChatRows,
   agentInstructionsChanged,
   agentMenuEntries,
@@ -34,7 +33,6 @@ describe(`chats.json`, () => {
   for (const c of fixture.previewCases) test(`preview: ${c.name}`, () => expect(chatPreview(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.timeCases) test(`time: ${c.name}`, () => expect(chatTimeLabel(c.at, c.now, c.utcOffsetMinutes)).toBe(c.expected))
   for (const c of fixture.listCases) test(`list: ${c.name}`, () => expect(chatList(c.input as never)).toEqual(c.expected as never))
-  for (const c of fixture.bubbleCases) test(`bubbles: ${c.name}`, () => expect(agentBubbles(c.input as never)).toEqual(c.expected as never))
   for (const c of fixture.agentChat.tabCases) test(`agent chat tabs: ${c.name}`, () => expect(agentChatTabs(c.holdsPlan)).toEqual(c.expected))
   for (const c of fixture.agentChat.pageCases) test(`agent chat page: ${c.name}`, () => expect(agentChatPage(c.selected, c.holdsPlan)).toBe(c.expected))
   for (const c of fixture.agentRowCases) test(`agent rows: ${c.name}`, () => expect(agentChatRows(c.input as never)).toEqual(c.expected as never))
@@ -87,11 +85,6 @@ describe(`conversation digest`, () => {
       const input = c.input as unknown as Parameters<typeof agentChatRows>[0]
       expect(agentChatRows({ ...input, messages: viaDigest(input.messages) })).toEqual(c.expected as never)
     })
-  for (const c of fixture.bubbleCases)
-    test(`bubbles: ${c.name}`, () => {
-      const input = c.input as unknown as Parameters<typeof agentBubbles>[0]
-      expect(agentBubbles({ ...input, messages: viaDigest(input.messages) })).toEqual(c.expected as never)
-    })
   for (const c of titleFixture.cases)
     test(`title: ${c.name}`, () => {
       const input = c.input as unknown as { session: never; links: never; issues: never; messages: TreeMessage[] }
@@ -138,8 +131,8 @@ describe(`conversation digest`, () => {
       const tree = sessions.map((id) => ({ id, rootId: id, parentId: null, teamId: `t`, kind: `thread`, status: `idle`, busy: false, needsInput: false, title: null, userId: `u`, createdAt: `2026-10-01T00:00:00.000Z`, updatedAt: `2026-10-01T00:00:00.000Z` }))
       const groups = (ms: TreeMessage[]) => partitionThreads({ sessions: tree as never, sessionIssues: [], issues: [], messages: ms, teamId: `t`, reads })
       expect(groups(digested)).toEqual(groups(messages))
-      expect(chatList({ groups: groups(messages), messages: digested, reads, filter: `all`, now: `2026-10-02T00:00:00.000Z`, utcOffsetMinutes: 0 })).toEqual(
-        chatList({ groups: groups(messages), messages, reads, filter: `all`, now: `2026-10-02T00:00:00.000Z`, utcOffsetMinutes: 0 })
+      expect(chatList({ groups: groups(messages), messages: digested, reads, now: `2026-10-02T00:00:00.000Z`, utcOffsetMinutes: 0 })).toEqual(
+        chatList({ groups: groups(messages), messages, reads, now: `2026-10-02T00:00:00.000Z`, utcOffsetMinutes: 0 })
       )
     }
   })

@@ -1522,7 +1522,7 @@ export function partitionTabs(
 }
 
 /** #EXP-1433 (session-thread.json `stripModeCases`): the strip between
- *  Conversation and Stories. `chips` = at most one issue and no session (that
+ *  Conversation and Results. `chips` = at most one issue and no session (that
  *  issue keeps its chip); `group` = ONE icon tab for every issue and session,
  *  `count` of them, opening THE Menu of their rows. */
 export interface ThreadStripMode {
