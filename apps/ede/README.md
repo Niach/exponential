@@ -15,27 +15,37 @@ libraries, never the other way round.
 ## The shell (`shell/`, a second workspace)
 
 `apps/ede/shell` is its own Cargo workspace (#EDE-10): `ede-shell` draws the
-shell from genUI documents with gpui + eui-gpui at the SDK's pins (the
-painter README's "gpui revisions", gated by `check-gpui-revs.ts`), Wayland
-backend only. The compositor workspace never links gpui, and the shell is a
-separate process, so a shell crash never takes the session down. Factory
-documents live in `apps/ede/ui/*.json`: `panel.json` is a top layer-shell
-surface (`WindowKind::LayerShell`, 40 px exclusive zone), `menu.json` the
-panel's popup surface (an `xdg_popup` of the layer surface, so it can leave
-the panel; eui-gpui paints its own overlays inside their window).
+shell from the genUI documents `ede-ui` serves (below) with gpui + eui-gpui
+at the SDK's pins (the painter README's "gpui revisions", gated by
+`check-gpui-revs.ts`), Wayland backend only. The compositor workspace never
+links gpui, and the shell is a separate process under the supervisor, so a
+shell crash never takes the session down. Every document with a layer
+`surface` header is a layer-shell surface (`WindowKind::LayerShell`); a
+popup document opens from its anchor component in its parent as an
+`xdg_popup` of that surface (so a menu can leave the panel; eui-gpui paints
+its own overlays inside their window). A change on disk redraws the surface
+and the shell prints the document's frame line, which the supervisor reads.
+Data every document may bind: `/time` (local), `/windows` (the open
+windows over ede-protocol); actions: `focus {window}`, `launch {command}`.
+Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
+fonts are embedded). Factory documents live in `apps/ede/ui/*.json`:
+`panel.json` (top, 40 px exclusive zone, the launcher button, the taskbar,
+the clock) and `menu.json` (the panel's popup).
 
 ```bash
-cd apps/ede/shell && cargo build -p ede-shell
-# nested or headless: the compositor starts it as a client
-cargo run -p ede-compositor -- --no-xwayland -- ../../target/debug/ede-shell
-cargo run -p ede-compositor -- --headless 1280x720 --no-xwayland -- ede-shell --popup --exit-after 8000
-WAYLAND_DISPLAY=wayland-1 cargo run -p ede-ctl -- capture --png /tmp/panel.png --expect-drawn
+apps/ede/scripts/ede-dev.sh                   # nested in the desktop around it: compositor + supervisor + shell
+apps/ede/scripts/ede-dev.sh --headless 1280x720
+WAYLAND_DISPLAY=wayland-1 target/debug/ede-ctl capture --png /tmp/panel.png --expect-drawn
+WAYLAND_DISPLAY=wayland-1 target/debug/ede-ctl pointer 40 20 --click   # the menu
 ```
 
-`ede-shell --windowed` opens a normal window instead (macOS, any desktop);
-`--popup` opens the menu right away and `--exit-after <ms>` quits, for the
-headless check. The #EDE-5 spike proved this in the `ubuntu-wayland` VM:
-headless (pixman + lavapipe) and nested (llvmpipe), the same picture.
+The M0 demo (#EDE-1), in the `ubuntu-wayland` VM: edit the scratch
+directory's `panel.json` and the panel redraws within the watcher's
+debounce; break it and `ede-ui check` says why while the last good version
+stays on screen; `git -C <dir> log` shows `Edit panel.json` commits after
+the factory ones. `ede-shell --windowed` opens normal windows instead
+(macOS, any desktop); `--popup` opens every popup document right away and
+`--exit-after <ms>` quits, for the headless check.
 
 ## Run it nested (Cinnamon/X11)
 
