@@ -897,6 +897,25 @@ impl AppScreenView {
         .detach();
     }
 
+    /// #VAPP-256 (apps.json `rollbackCases`): a rollback past a migrated
+    /// version asks first; every other publish goes through at once.
+    fn request_publish(&mut self, number: i64, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let published = self.app.as_ref().map(|app| app.versions().published).unwrap_or(0);
+        let rows: Vec<(i64, Option<&str>)> =
+            self.versions.iter().map(|v| (v.number.unwrap_or(0), v.migration_state.as_deref())).collect();
+        if !domain::apps::rollback_warns(published, number, &rows) {
+            self.publish(number, cx);
+            return;
+        }
+        let this = cx.entity().downgrade();
+        let spec = crate::native_dialog::AlertSpec::from_prompt(APPS.copy.publish.clone(), &crate::apps_view::rollback_prompt(number))
+            .on_ok(move |_, cx| {
+                let _ = this.update(cx, |this, cx| this.publish(number, cx));
+                true
+            });
+        crate::native_dialog::open_alert(window, cx, spec);
+    }
+
     fn render_header(&self, app: &AppEntry, cx: &mut gpui::Context<Self>) -> AnyElement {
         let show_publish = self.can_write(cx) && domain::apps::can_publish(app.versions());
         let head = app.head_version;
@@ -1155,7 +1174,7 @@ impl AppScreenView {
                             .label(APPS.copy.publish.clone())
                             .loading(self.publishing == Some(number))
                             .disabled(self.publishing.is_some())
-                            .on_click(cx.listener(move |this, _, _, cx| this.publish(number, cx))),
+                            .on_click(cx.listener(move |this, _, window, cx| this.request_publish(number, window, cx))),
                     )
                 })
                 .when(can_write && number != head, |row| {
@@ -1445,7 +1464,7 @@ impl AppScreenView {
                                         .label(copy.publish.clone())
                                         .loading(self.publishing == Some(number))
                                         .disabled(self.publishing.is_some())
-                                        .on_click(cx.listener(move |this, _, _, cx| this.publish(number, cx))),
+                                        .on_click(cx.listener(move |this, _, window, cx| this.request_publish(number, window, cx))),
                                 )
                             })
                             .into_any_element()

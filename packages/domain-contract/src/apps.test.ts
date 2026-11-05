@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
 import { accountCaption, accountRow, automationDropped, automationSponsor, upstreamPicker, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
 import { screenParamsFromQuery, screenPath, screenShell, surfaceState } from "./apps"
+import { rollbackBody, rollbackTitle, rollbackWarns } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -12,6 +13,13 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.migrationCases.cases)(`migration (R8) $name`, (c) => {
     expect(versionMigration(c.row as VersionMigration)).toBe(c.expected)
+  })
+  test.each(fixture.rollbackCases.cases)(`rollback warning (#VAPP-256) $name`, (c) => {
+    expect(rollbackWarns(c.published, c.target, c.rows)).toBe(c.warns)
+  })
+  test(`the rollback prompt names the target`, () => {
+    expect(rollbackTitle(2)).toBe(`Roll back to v2?`)
+    expect(rollbackBody(2)).toBe(`Rollback doesn't reverse migrated data. Records stay in the newer shape, and v2 can refuse edits to them.`)
   })
   test.each(fixture.publishCases.cases)(`publish (V1) $name`, (c) => {
     expect(shownVersion(c.app, c.editing, c.viewing)).toBe(c.shown)

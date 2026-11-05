@@ -37,6 +37,15 @@ public enum Apps {
         /// eApps R8 (#VAPP-233, `migrationCases`): a version row's record sweep.
         public static let migrating = "Migrating records"
         public static let migratingOf = "Migrating records {done} of {total}"
+        /// #VAPP-256 (`rollbackCases`).
+        public static let rollbackTitle = "Roll back to v{n}?"
+        public static let rollbackBody = "Rollback doesn't reverse migrated data. Records stay in the newer shape, and v{n} can refuse edits to them."
+        public static func rollbackTitle(_ n: Int) -> String {
+            rollbackTitle.replacingOccurrences(of: "{n}", with: String(n))
+        }
+        public static func rollbackBody(_ n: Int) -> String {
+            rollbackBody.replacingOccurrences(of: "{n}", with: String(n))
+        }
         public static let migrationFailed = "Records not migrated: {error}"
         public static let empty = "No apps yet"
         public static let chatEmpty = "Describe the app you want. The editor session builds it and the preview follows."
@@ -508,6 +517,12 @@ public enum Apps {
         default:
             return nil
         }
+    }
+
+    /// #VAPP-256 (fixture `rollbackCases`): whether publishing `target` rolls
+    /// back past a version whose sweep ran, so the Publish asks first.
+    public static func rollbackWarns(published: Int, target: Int, rows: [(number: Int, migrationState: String?)]) -> Bool {
+        target < published && rows.contains { $0.number > target && $0.migrationState != nil }
     }
 
     public static func versionRow(_ app: Versions, number: Int) -> VersionRowKind {

@@ -71,6 +71,11 @@ struct AppEditorScreen: View {
     @State private var menuOpen = false
     /// The menu's (or a sheet's) pick, run once its sheet has dismissed.
     @State private var pendingMenu: AppMenuSheet.Action?
+    /// #VAPP-256: the rollback the prompt asks about, and one waiting for the
+    /// Versions sheet to go (one presentation at a time).
+    @State private var rollbackOpen = false
+    @State private var rollbackTarget = 0
+    @State private var pendingRollback: Int?
     /// VAPP-177: the menu's Versions / Settings sheet.
     @State private var editorSheet: EditorSheet?
     /// VAPP-121: the Export sheet.
@@ -208,7 +213,7 @@ struct AppEditorScreen: View {
                             canWrite: model.canWrite,
                             onPreview: { number in previewVersion(number) },
                             onPublish: { number in
-                                if let app = model.app { publish(app, number: number) }
+                                if let app = model.app { requestPublish(app, number: number, fromSheet: true) }
                             }
                         )
                     case .settings:
@@ -235,6 +240,23 @@ struct AppEditorScreen: View {
                             pushRoute(.app(accountId: accountId, appId: imported))
                         }
                     }
+                }
+        }
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $rollbackOpen) {
+                    GlassAlert(
+                        title: Apps.Copy.rollbackTitle(rollbackTarget),
+                        message: Apps.Copy.rollbackBody(rollbackTarget),
+                        actions: [
+                            GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
+                            GlassAlertAction(Apps.Copy.publish, role: .primary, isDefault: false, id: "app-rollback-confirm") {
+                                if let app = model.app { publish(app, number: rollbackTarget) }
+                            },
+                        ]
+                    )
                 }
         }
         .background {
@@ -329,6 +351,12 @@ struct AppEditorScreen: View {
     /// A menu (or Settings sheet) pick, once its sheet is gone: one
     /// presentation at a time.
     private func runPendingMenu() {
+        if let number = pendingRollback {
+            pendingRollback = nil
+            rollbackTarget = number
+            rollbackOpen = true
+            return
+        }
         guard let action = pendingMenu else { return }
         pendingMenu = nil
         switch action {
@@ -454,7 +482,7 @@ struct AppEditorScreen: View {
                             .foregroundStyle(.white)
                         Spacer(minLength: 8)
                         if canWrite, viewing != app.publishedVersion {
-                            GlassPill(Apps.Copy.publish, mode: .action { publish(app, number: viewing) }, primary: true, enabled: publishing == nil)
+                            GlassPill(Apps.Copy.publish, mode: .action { requestPublish(app, number: viewing) }, primary: true, enabled: publishing == nil)
                                 .accessibilityIdentifier("app-editor-viewing-publish")
                         }
                         if canWrite, viewing != app.headVersion {
@@ -519,6 +547,23 @@ struct AppEditorScreen: View {
                     description: error.trpcUserMessage
                 )
             }
+        }
+    }
+
+    /// #VAPP-256 (fixture `rollbackCases`): a rollback past a migrated version
+    /// asks first; every other publish goes through at once.
+    private func requestPublish(_ app: AppListEntry, number: Int, fromSheet: Bool = false) {
+        let rows = model.versions.map { (number: $0.number, migrationState: $0.migrationState) }
+        guard Apps.rollbackWarns(published: app.publishedVersion, target: number, rows: rows) else {
+            publish(app, number: number)
+            return
+        }
+        if fromSheet {
+            pendingRollback = number
+            editorSheet = nil
+        } else {
+            rollbackTarget = number
+            rollbackOpen = true
         }
     }
 

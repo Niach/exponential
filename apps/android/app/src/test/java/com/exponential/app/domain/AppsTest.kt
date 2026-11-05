@@ -41,6 +41,26 @@ class AppsTest {
         }
     }
 
+    // #VAPP-256: rollbackWarns replays `rollbackCases`.
+    @Test
+    fun `rollbackCases replay`() {
+        val cases = fixture["rollbackCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val rows = case["rows"]!!.jsonArray.map { it.jsonObject }.map { row ->
+                row["number"]!!.jsonPrimitive.int to row["migrationState"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            }
+            assertEquals(
+                case["name"]!!.jsonPrimitive.content,
+                case["warns"]!!.jsonPrimitive.boolean,
+                Apps.rollbackWarns(case["published"]!!.jsonPrimitive.int, case["target"]!!.jsonPrimitive.int, rows),
+            )
+        }
+        val copy = fixture["copy"]!!.jsonObject
+        assertEquals(copy["rollbackTitle"]!!.jsonPrimitive.content, Apps.Copy.ROLLBACK_TITLE)
+        assertEquals(copy["rollbackBody"]!!.jsonPrimitive.content, Apps.Copy.ROLLBACK_BODY)
+    }
+
     // eApps R8 (#VAPP-233): versionMigration replays `migrationCases`.
     @Test
     fun `migrationCases replay`() {

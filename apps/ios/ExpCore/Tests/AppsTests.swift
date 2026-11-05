@@ -43,6 +43,7 @@ final class AppsTests: XCTestCase {
             "publish": Apps.Copy.publish, "published": Apps.Copy.published,
             "publishedToast": Apps.Copy.publishedToast, "publishNothing": Apps.Copy.publishNothing,
             "migrating": Apps.Copy.migrating, "migratingOf": Apps.Copy.migratingOf, "migrationFailed": Apps.Copy.migrationFailed,
+            "rollbackTitle": Apps.Copy.rollbackTitle, "rollbackBody": Apps.Copy.rollbackBody,
             "empty": Apps.Copy.empty,
             "chatEmpty": Apps.Copy.chatEmpty, "previewEmpty": Apps.Copy.previewEmpty,
             "versionsEmpty": Apps.Copy.versionsEmpty, "draftPlaceholder": Apps.Copy.draftPlaceholder,
@@ -175,6 +176,22 @@ final class AppsTests: XCTestCase {
             let head = try XCTUnwrap(item["headVersion"] as? Int)
             XCTAssertEqual(Apps.versionLabel(head), item["label"] as? String)
         }
+    }
+
+    // #VAPP-256: `rollbackWarns` replays `rollbackCases`.
+    func testRollbackCases() throws {
+        let block = try XCTUnwrap(try fixture()["rollbackCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let rows = try XCTUnwrap(item["rows"] as? [[String: Any]]).map { (number: $0["number"] as? Int ?? 0, migrationState: $0["migrationState"] as? String) }
+            XCTAssertEqual(
+                Apps.rollbackWarns(published: try XCTUnwrap(item["published"] as? Int), target: try XCTUnwrap(item["target"] as? Int), rows: rows),
+                item["warns"] as? Bool,
+                item["name"] as? String ?? ""
+            )
+        }
+        XCTAssertEqual(Apps.Copy.rollbackTitle(2), "Roll back to v2?")
     }
 
     // eApps R8 (#VAPP-233): `versionMigration` replays `migrationCases`.

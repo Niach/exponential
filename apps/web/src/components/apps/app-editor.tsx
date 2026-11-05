@@ -19,6 +19,9 @@ import {
   versionRow,
   type AppEditorSheet,
   type AppEditorTab,
+  rollbackBody,
+  rollbackTitle,
+  rollbackWarns,
   versionMigration,
 } from "@exp/domain-contract/apps"
 import {
@@ -405,6 +408,14 @@ export function AppEditor({
     }
   }
 
+  // #VAPP-256 (apps.json `rollbackCases`): a rollback past a migrated version
+  // asks first; every other publish goes through at once.
+  const [rollbackTarget, setRollbackTarget] = useState<number | null>(null)
+  const requestPublish = (number: number) => {
+    if (rollbackWarns(app.publishedVersion, number, versions)) setRollbackTarget(number)
+    else void publish(number)
+  }
+
   const restore = async (number: number | null) => {
     if (number === null || restoring !== null) return
     setRestoring(number)
@@ -641,7 +652,7 @@ export function AppEditor({
         >
           <span className="flex-1 font-medium">{APPS_COPY.viewing.replace(`{n}`, String(viewing))}</span>
           {canWrite && viewing !== app.publishedVersion && (
-            <Button size="sm" onClick={() => void publish(viewing)} pending={publishing === viewing} disabled={publishing !== null}>
+            <Button size="sm" onClick={() => requestPublish(viewing)} pending={publishing === viewing} disabled={publishing !== null}>
               {APPS_COPY.publish}
             </Button>
           )}
@@ -672,7 +683,7 @@ export function AppEditor({
         publishing={publishing}
         canWrite={canWrite}
         onPreview={previewVersion}
-        onPublish={(number) => void publish(number)}
+        onPublish={requestPublish}
         grouped={isMobile}
       />
     </div>
@@ -708,6 +719,27 @@ export function AppEditor({
       actions={[
         { label: `Cancel`, role: `cancel` },
         { label: APPS_COPY.delete, role: `destructive`, busy: deleting, onSelect: confirmDelete, testId: `app-delete-confirm` },
+      ]}
+    />
+  )
+
+  const rollbackPrompt = rollbackTarget !== null && (
+    <Prompt
+      open
+      onOpenChange={(next) => !next && setRollbackTarget(null)}
+      title={rollbackTitle(rollbackTarget)}
+      body={rollbackBody(rollbackTarget)}
+      actions={[
+        { label: `Cancel`, role: `cancel`, autoFocus: true },
+        {
+          label: APPS_COPY.publish,
+          role: `primary`,
+          testId: `app-rollback-confirm`,
+          onSelect: () => {
+            setRollbackTarget(null)
+            void publish(rollbackTarget)
+          },
+        },
       ]}
     />
   )
@@ -825,6 +857,7 @@ export function AppEditor({
         </Sheet>
         {exportDialog}
         {deletePrompt}
+        {rollbackPrompt}
       </div>
     )
   }
@@ -859,6 +892,7 @@ export function AppEditor({
       </div>
       {exportDialog}
       {deletePrompt}
+      {rollbackPrompt}
     </div>
   )
 }

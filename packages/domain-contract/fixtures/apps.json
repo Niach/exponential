@@ -99,6 +99,8 @@
     "migrating": "Migrating records",
     "migratingOf": "Migrating records {done} of {total}",
     "migrationFailed": "Records not migrated: {error}",
+    "rollbackTitle": "Roll back to v{n}?",
+    "rollbackBody": "Rollback doesn't reverse migrated data. Records stay in the newer shape, and v{n} can refuse edits to them.",
     "webhooks": {
       "title": "Webhooks",
       "ready": "Ready",
@@ -1059,6 +1061,19 @@
       { "name": "a pause wins over the name", "paused": "sponsorReadOnly", "sponsorName": "Mia", "expected": "Its sponsor has read-only access" },
       { "name": "a member delegated", "paused": "sponsorNotAllowed", "sponsorName": null, "expected": "Only an owner can make it run as someone else" },
       { "name": "nothing known", "paused": null, "sponsorName": null, "expected": null }
+    ]
+  },
+  "rollbackCases": {
+    "$comment": "#VAPP-256 (decided 2026-11-05: warn; no data moves) ×4. A publish sweeps records forward only and migrations have no inverse, so after a rollback records keep the newer shape, and an edit of one is refused while it holds a field the older schema does not declare (`validateRecord`). rollbackWarns(published, target, rows) = target < published and some version ABOVE the target has a non-null `migrationState` (its sweep ran, even if it failed or was superseded, and a version since rolled back from counts too, so a second rollback still warns). `rows` = the synced app_versions `{number, migrationState}`. When it holds, a Publish on a Versions row or on the viewing banner opens the existing confirm prompt: `copy.rollbackTitle` / `copy.rollbackBody` ({n} = the target), actions Cancel + `copy.publish` (role primary, testId `app-rollback-confirm`), Return cancels; on phones it opens over (iOS: after) the Versions sheet. Every other publish goes through at once, as before. The header's and the menu's Publish name the head, never a rollback.",
+    "cases": [
+      { "name": "a migrated version rolled back", "published": 3, "target": 2, "rows": [{ "number": 3, "migrationState": "done" }, { "number": 2, "migrationState": null }, { "number": 1, "migrationState": null }], "warns": true },
+      { "name": "no version migrated", "published": 3, "target": 2, "rows": [{ "number": 3, "migrationState": null }, { "number": 2, "migrationState": null }], "warns": false },
+      { "name": "the migration is the target's own", "published": 3, "target": 2, "rows": [{ "number": 3, "migrationState": null }, { "number": 2, "migrationState": "done" }], "warns": false },
+      { "name": "publishing forward", "published": 2, "target": 3, "rows": [{ "number": 3, "migrationState": "done" }, { "number": 2, "migrationState": null }], "warns": false },
+      { "name": "a failed sweep moved some records", "published": 3, "target": 1, "rows": [{ "number": 3, "migrationState": "failed" }, { "number": 2, "migrationState": null }, { "number": 1, "migrationState": null }], "warns": true },
+      { "name": "a superseded sweep moved some records", "published": 3, "target": 2, "rows": [{ "number": 3, "migrationState": "superseded" }, { "number": 2, "migrationState": null }], "warns": true },
+      { "name": "a second rollback, past the migrated version", "published": 2, "target": 1, "rows": [{ "number": 3, "migrationState": "done" }, { "number": 2, "migrationState": null }, { "number": 1, "migrationState": null }], "warns": true },
+      { "name": "nothing published", "published": 0, "target": 1, "rows": [{ "number": 2, "migrationState": "done" }, { "number": 1, "migrationState": null }], "warns": false }
     ]
   },
   "migrationCases": {

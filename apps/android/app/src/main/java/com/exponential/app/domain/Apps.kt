@@ -36,6 +36,9 @@ object Apps {
         const val MIGRATING = "Migrating records"
         const val MIGRATING_OF = "Migrating records {done} of {total}"
         const val MIGRATION_FAILED = "Records not migrated: {error}"
+        // #VAPP-256 (`rollbackCases`).
+        const val ROLLBACK_TITLE = "Roll back to v{n}?"
+        const val ROLLBACK_BODY = "Rollback doesn't reverse migrated data. Records stay in the newer shape, and v{n} can refuse edits to them."
         const val EMPTY = "No apps yet"
         const val CHAT_EMPTY = "Describe the app you want. The editor session builds it and the preview follows."
         const val PREVIEW_EMPTY = "No version yet"
@@ -295,6 +298,15 @@ object Apps {
         "failed" -> Copy.MIGRATION_FAILED.replace("{error}", error ?: "")
         else -> null
     }
+
+    /** #VAPP-256 (fixture `rollbackCases`): whether publishing [target] rolls
+     *  back past a version whose sweep ran, so the Publish asks first.
+     *  [rows] = (number, migrationState). */
+    fun rollbackWarns(published: Int, target: Int, rows: List<Pair<Int, String?>>): Boolean =
+        target < published && rows.any { (number, state) -> number > target && state != null }
+
+    fun rollbackTitle(n: Int): String = Copy.ROLLBACK_TITLE.replace("{n}", n.toString())
+    fun rollbackBody(n: Int): String = Copy.ROLLBACK_BODY.replace("{n}", n.toString())
 
     fun versionRow(app: Versions, number: Int): VersionRowKind = when (number) {
         app.publishedVersion -> VersionRowKind.PUBLISHED

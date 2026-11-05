@@ -69,6 +69,9 @@ pub struct AppsCopy {
     pub migrating_of: String,
     /// `Records not migrated: {error}`.
     pub migration_failed: String,
+    /// #VAPP-256 (`rollbackCases`): `Roll back to v{n}?`.
+    pub rollback_title: String,
+    pub rollback_body: String,
     pub empty: String,
     pub chat_empty: String,
     pub preview_empty: String,
@@ -698,6 +701,20 @@ pub fn version_migration(state: Option<&str>, total: i64, done: i64, error: Opti
         Some("failed") => Some(APPS.copy.migration_failed.replace("{error}", error.unwrap_or(""))),
         _ => None,
     }
+}
+
+/// #VAPP-256 (fixture `rollbackCases`): whether publishing `target` rolls back
+/// past a version whose sweep ran; `rows` = `(number, migrationState)`.
+pub fn rollback_warns(published: i64, target: i64, rows: &[(i64, Option<&str>)]) -> bool {
+    target < published && rows.iter().any(|(number, state)| *number > target && state.is_some())
+}
+
+pub fn rollback_title(n: i64) -> String {
+    APPS.copy.rollback_title.replace("{n}", &n.to_string())
+}
+
+pub fn rollback_body(n: i64) -> String {
+    APPS.copy.rollback_body.replace("{n}", &n.to_string())
 }
 
 pub fn version_row(app: AppVersions, number: i64) -> VersionRowKind {
@@ -1457,6 +1474,19 @@ mod tests {
             let got = version_migration(r["migrationState"].as_str(), r["migrationTotal"].as_i64().unwrap(), r["migrationDone"].as_i64().unwrap(), r["migrationError"].as_str());
             assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
         }
+    }
+
+    #[test]
+    fn rollback_cases_replay() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        for case in fixture["rollbackCases"]["cases"].as_array().unwrap() {
+            let rows: Vec<(i64, Option<&str>)> =
+                case["rows"].as_array().unwrap().iter().map(|r| (r["number"].as_i64().unwrap(), r["migrationState"].as_str())).collect();
+            let got = rollback_warns(case["published"].as_i64().unwrap(), case["target"].as_i64().unwrap(), &rows);
+            assert_eq!(got, case["warns"].as_bool().unwrap(), "{}", case["name"]);
+        }
+        assert_eq!(rollback_title(2), "Roll back to v2?");
+        assert!(rollback_body(2).contains("v2 can refuse"));
     }
 
     #[test]
