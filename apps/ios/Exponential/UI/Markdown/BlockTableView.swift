@@ -20,9 +20,13 @@ struct BlockTableView: View {
     let table: TableBlock
     var isReadOnly = false
     var onIssueRefTap: ((String) -> Void)?
+    /// The scroller's own width: a table narrower than it fills it (web
+    /// `table { width: 100% }`, EXP-1676), a wider one scrolls.
+    @State private var viewport: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
+            TableFillLayout(viewport: viewport) {
             Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
                 GridRow {
                     ForEach(Array(table.header.enumerated()), id: \.element.id) { column, cell in
@@ -43,13 +47,14 @@ struct BlockTableView: View {
             // came out three lines tall. Pin the grid to its ideal height.
             .fixedSize(horizontal: false, vertical: true)
             .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color(MarkdownStyle.tableBorder), lineWidth: 1)
+                // Square ×4 (web `border-collapse`, Android's grid).
+                Rectangle().strokeBorder(Color(MarkdownStyle.tableBorder), lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
             .padding(.vertical, 4)
             .padding(.horizontal, 1)
         }
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { viewport = max(0, $0 - 2) }
         // The grid owns the horizontal overflow; the enclosing column must not
         // be widened by a wide table.
         .scrollBounceBehavior(.basedOnSize)
@@ -64,7 +69,7 @@ struct BlockTableView: View {
         BlockTextEditor(
             model: model,
             blockId: cell.id,
-            content: cell.content,
+            content: isHeader ? Self.headerContent(cell.content) : cell.content,
             revision: model.revision(for: cell.id),
             isFocused: model.focusedBlockId == cell.id,
             placeholder: nil,
@@ -80,7 +85,12 @@ struct BlockTableView: View {
             onIssueRefTap: onIssueRefTap
         )
         .frame(
-            minWidth: MarkdownStyle.tableCellMinWidth,
+            // A column never wraps below its content while the table fills
+            // (CSS `table-layout: auto`); a long cell still wraps at the cap.
+            minWidth: min(
+                max(MarkdownStyle.tableCellMinWidth, ceil(cell.content.size().width) + 20),
+                MarkdownStyle.tableCellMaxWidth
+            ),
             maxWidth: MarkdownStyle.tableCellMaxWidth,
             alignment: .topLeading
         )
@@ -92,11 +102,44 @@ struct BlockTableView: View {
         }
     }
 
+    /// Web's `th` weight, display only (`MarkdownStyle.tableHeaderStroke`).
+    private static func headerContent(_ content: NSAttributedString) -> NSAttributedString {
+        let bold = NSMutableAttributedString(attributedString: content)
+        bold.addAttribute(
+            .strokeWidth,
+            value: MarkdownStyle.tableHeaderStroke,
+            range: NSRange(location: 0, length: bold.length)
+        )
+        return bold
+    }
+
     private static func alignment(_ alignment: TableAlignment) -> NSTextAlignment {
         switch alignment {
         case .none, .left: return .natural
         case .center: return .center
         case .right: return .right
         }
+    }
+}
+
+/// EXP-1676: proposes the grid the wider of its ideal width and the viewport,
+/// inside the horizontal scroller (whose nil proposal alone hugs the content).
+private struct TableFillLayout: Layout {
+    let viewport: CGFloat
+
+    private func width(_ subview: LayoutSubview) -> CGFloat {
+        max(subview.sizeThatFits(.unspecified).width, viewport)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let grid = subviews.first else { return .zero }
+        let width = width(grid)
+        let size = grid.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return CGSize(width: width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let grid = subviews.first else { return }
+        grid.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }

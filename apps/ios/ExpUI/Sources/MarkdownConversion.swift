@@ -317,9 +317,9 @@ public enum MarkdownConversion {
         context.styleStack = [StyleFrame(
             font: MarkdownStyle.resolvedBodyFont(overrides.bodySize),
             foregroundColor: MarkdownStyle.textColor,
-            extraAttributes: overrides.resolvedLineSpacing.map {
-                [.paragraphStyle: MarkdownStyle.paragraphStyle(lineSpacing: $0)]
-            } ?? [:]
+            extraAttributes: [
+                .paragraphStyle: MarkdownStyle.paragraphStyle(lineSpacing: overrides.resolvedLineSpacing)
+            ]
         )]
         renderNodeToBlocks(doc, collector: collector, context: &context)
         return collector.finalize()
@@ -631,6 +631,8 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
             .map { PlatformColor($0) } ?? MarkdownStyle.codeBackground
         if let foreground = context.overrides.inlineCodeForeground {
             attrs[.foregroundColor] = PlatformColor(foreground)
+            // EXP-1676: the tinted span is boxed ×4 (MarkdownLayoutManager).
+            attrs[.markdownInlineCodeBoxed] = true
         }
         attrs[.markdownInlineCode] = true
         collector.currentText.append(NSAttributedString(string: literal, attributes: attrs))
@@ -645,6 +647,7 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         // (a stripe per line). MarkdownLayoutManager draws the whole fence as
         // ONE rounded box off `.markdownCodeBlock` instead (EXP-246).
         attrs[.markdownCodeBlock] = true
+        attrs[.paragraphStyle] = MarkdownStyle.codeBlockParagraphStyle(lineSpacing: context.overrides.resolvedLineSpacing)
         if let lang, !lang.isEmpty { attrs[.markdownCodeBlockLang] = lang }
         var text = literal.hasSuffix("\n") ? String(literal.dropLast()) : literal
         // A fence containing only blank lines would otherwise append an EMPTY run
@@ -728,7 +731,8 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
             context.listStack[context.listStack.count - 1] = last
         }
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = context.overrides.resolvedLineSpacing ?? 4
+        paragraphStyle.lineSpacing = context.overrides.resolvedLineSpacing ?? MarkdownStyle.editorLeading
+        paragraphStyle.paragraphSpacing = MarkdownStyle.paragraphGap
         let indent: CGFloat = CGFloat(depth) * 20 + 24
         paragraphStyle.headIndent = indent
         paragraphStyle.firstLineHeadIndent = CGFloat(depth) * 20

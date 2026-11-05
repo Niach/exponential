@@ -38,9 +38,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.emoji.EmojiRecord
 import com.exponential.app.ui.emoji.EmojiTokenMatch
 import com.exponential.app.ui.emoji.matchEmojiToken
@@ -88,6 +90,8 @@ fun BlockTextField(
      * tapped into a long cell.
      */
     singleLine: Boolean = false,
+    /** A table's header cell: web's `th` weight (a display style, never a mark). */
+    header: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val revision = model.revision(row.id)
@@ -378,6 +382,7 @@ fun BlockTextField(
         // don't pick up the platform's extra first/last-line font padding and a
         // multi-line code fence packs as tightly as the read renderer's.
         textStyle = MdStyle.body.copy(
+            fontWeight = if (header) FontWeight.SemiBold else null,
             lineHeightStyle = LineHeightStyle(
                 alignment = LineHeightStyle.Alignment.Center,
                 trim = LineHeightStyle.Trim.None,
@@ -477,7 +482,8 @@ fun BlockTextField(
                 false
             },
         decorationBox = { inner ->
-            Box(modifier = Modifier.fillMaxWidth().padding(vertical = MdStyle.textInsetV)) {
+            // A cell's own padding is the row's whole inset (web `th, td`).
+            Box(modifier = Modifier.fillMaxWidth().padding(vertical = if (singleLine) 0.dp else MdStyle.textInsetV)) {
                 if (placeholder != null && row.text.isEmpty()) {
                     Text(placeholder, style = LocalTextStyle.current.copy(color = MdStyle.Placeholder))
                 }

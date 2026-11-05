@@ -214,6 +214,11 @@ struct CommentThreadView: View {
         return [created] + rest
     }
 
+    private var activityTitle: String {
+        let count = visibleEvents(foldedEvents).count + threads.count
+        return count > 0 ? "Activity (\(count))" : "Activity"
+    }
+
     var body: some View {
         let rows = collapseTimeline(timeline, expandedRuns: expandedRuns)
         VStack(alignment: .leading, spacing: 8) {
@@ -225,7 +230,8 @@ struct CommentThreadView: View {
                 .padding(.horizontal, -hostPadding)
                 .padding(.bottom, 4)
             HStack {
-                Text("Activity")
+                // EXP-1676: web's `Activity (N)`: the drawn events + every comment.
+                Text(activityTitle)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .accessibilityIdentifier("comment-thread-header")
