@@ -78,7 +78,7 @@ describe(`host-policy.json`, () => {
     })
   // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.),
   // round 2's two formatters, round 4's filter and VAPP-122's bind.
-  test(`the 54 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(54))
+  test(`the 55 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(55))
 })
 
 describe(`host-router.json`, () => {
