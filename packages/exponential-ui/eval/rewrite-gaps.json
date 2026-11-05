@@ -1,10 +1,25 @@
 {
   "$comment": "VAPP-108: the rewrite gap list. Every app screen of packages/view-catalog/views.json (the exponential-ui-catalog group excepted: those ARE the catalog) classified by what the core catalog needs before the screen could be written as an Exponential UI surface: `expressible` = today's catalog + the app extension (IconDisc, LiveDot) draw it; `macro` = one or more missing layout macros (named) would make it one surface without Box + style; `extension` = an app-specific component the app extension must add (a painter per platform, never the core catalog); `native` = a new core NATIVE (a renderer-level control: an editor, a terminal, a diff, a tree with drag) the catalog does not have. `with` names what is missing. gaps.test.ts keeps this list in lockstep with views.json. VAPP-126: `landed` = the candidate macros now in the catalog (Page, Toolbar, FieldGroup, FormActions, SplitView, StatTile); the 13 screens that waited only on them are `expressible`, settings-team-agent `native` (its markdown editor is what is left).",
-  "classes": ["expressible", "macro", "extension", "native"],
+  "classes": [
+    "expressible",
+    "macro",
+    "extension",
+    "native"
+  ],
   "renderers": {
     "$comment": "Which gaps concern which web renderer now that there are three (FEED-128: @exponential_app/eui-solid; FEED-130: @exponential_app/eui-element, the <exponential-surface> element on the Solid painter). A `macro` expands in the shared reducer before any renderer sees it: no renderer work. An `extension` component is painted by the app extension, which exists for React only (defineReactExtension): a Solid twin (defineSolidExtension) is needed before an extension-class screen runs on Solid, and the element inherits it (defineElementExtension wraps the same painter). A `native` is a renderer-level control every renderer must paint: Solid included, so each native candidate is one more Solid painter, which the element then gets for free.",
-    "solid": { "classes": ["extension", "native"], "candidates": ["Tree"] },
-    "element": { "inherits": "solid" }
+    "solid": {
+      "classes": [
+        "extension",
+        "native"
+      ],
+      "candidates": [
+        "Tree"
+      ]
+    },
+    "element": {
+      "inherits": "solid"
+    }
   },
   "candidates": {
     "EmptyState.inline": "a one-line empty state INSIDE a Section (the `list` size already covers it; a Section `empty` prop would place it)",
@@ -19,142 +34,700 @@
     "StatTile": "a value with a label and a trend sparkline (the dashboard tile)"
   },
   "screens": [
-    { "id": "sign-in", "class": "expressible", "with": "Card + Button list (the OIDC providers) + Input + Link; the passkey call is a host function" },
-    { "id": "onboarding", "class": "expressible", "with": "ChoiceTiles over Card" },
-    { "id": "onboarding-create-team", "class": "expressible", "with": "Form + Input + Button" },
-    { "id": "onboarding-join", "class": "expressible", "with": "Form + Input (the invite link) + Button" },
-    { "id": "onboarding-invite", "class": "expressible", "with": "Card + CodeBlock (the link) + Button; the copy is a host function" },
-    { "id": "onboarding-devices", "class": "expressible", "with": "Section + Row + CodeBlock (the install one-liner) + Button" },
-    { "id": "invite-accept", "class": "expressible", "with": "Card + Avatar + Button" },
-    { "id": "board", "class": "expressible", "with": "Toolbar (search, filters, New issue); the status groups are Section + Row; bulk selection = Row selection + a Toolbar selection bar" },
-    { "id": "issue-detail", "class": "native", "with": "a markdown EDITOR with mentions, issue refs and image paste (Textarea is plain text); the property tray is Chip + Select; the activity is Row + Markdown" },
-    { "id": "issue-comments", "class": "native", "with": "the same editor for the composer; threaded comments are Row + Markdown" },
-    { "id": "issue-create", "class": "native", "with": "the markdown editor; title + property Chips + FileUpload otherwise" },
-    { "id": "search", "class": "expressible", "with": "SearchList over Section + Row" },
-    { "id": "board-empty", "class": "expressible", "with": "EmptyState + the getting-started block (Section + Meter + Row)" },
-    { "id": "board-bulk-edit", "class": "expressible", "with": "Toolbar as the floating selection bar (Chip count + Select ×3 + Button)" },
-    { "id": "issue-properties", "class": "expressible", "with": "Drawer + Group + Row (chevron selector) + Select / DatePicker" },
-    { "id": "search-list", "class": "expressible", "with": "SearchList (the catalog's own); the caret anchoring is the host's" },
-    { "id": "inbox", "class": "expressible", "with": "List sectionBy + Section + Row + LiveDot (app extension)" },
-    { "id": "my-issues", "class": "expressible", "with": "Tabs + List + Row" },
-    { "id": "drafts", "class": "expressible", "with": "List + Row (title, meta) + EmptyState" },
-    { "id": "agents", "class": "extension", "with": "the per-login usage rows (three Meters with reset captions in one line) are an app component; Section + Row + IconDisc + LiveDot for the device rows" },
-    { "id": "actions-mobile", "class": "expressible", "with": "Section + Row with a trailing Button" },
-    { "id": "chat", "class": "extension", "with": "the launcher composer (issue chips, device + agent pickers, the + and / menus) is an app component over Composer; the greeting is Text" },
-    { "id": "agent-home", "class": "extension", "with": "the same launcher composer" },
-    { "id": "chat-issues", "class": "extension", "with": "the launcher composer with Chips" },
-    { "id": "steering", "class": "native", "with": "the session feed: Trace + Markdown + the ask dock cards, but a streaming transcript with tool-call cards needs a feed NATIVE (windowed, sticky-bottom, live)" },
-    { "id": "thread", "class": "native", "with": "the conversation feed (the same feed native); Tabs + Chip for the strip; the session card is Row surface card" },
-    { "id": "thread-replies", "class": "expressible", "with": "Stack horizontal of Chips (pressable) with a dismiss Button" },
-    { "id": "chat-from-issue", "class": "extension", "with": "the launcher composer" },
-    { "id": "mention-pill", "class": "extension", "with": "Text whose markdown runs carry an inline Badge (the round pill variant) for a resolved @member, in a chat bubble Box; needs inline chips inside Text" },
-    { "id": "machine-settings", "class": "expressible", "with": "Page (title, back) + Group + Row + Switch + Select; FormActions for Update / Remove" },
-    { "id": "add-server", "class": "expressible", "with": "Card ×2 + CodeBlock + Button" },
-    { "id": "review-diff", "class": "native", "with": "a DIFF viewer (hunks, syntax, expand context) and the file tree (Tree); CodeBlock is not a diff" },
-    { "id": "action-page", "class": "native", "with": "the markdown editor for the prompt body; Page + Group + Row + Select otherwise" },
-    { "id": "support-reporter", "class": "native", "with": "the markdown editor for the reply box (plain Textarea would do for a reporter); Markdown + Image + Row otherwise" },
-    { "id": "share-targets", "class": "expressible", "with": "Page + Section + Row (agent bubble lead, right chevron) + an Image preview line" },
-    { "id": "composer-add-file", "class": "expressible", "with": "Menu of three Rows over the composer: Camera, Photos, File" },
-    { "id": "share-composer", "class": "expressible", "with": "Stack + the agent row + Textarea + Image tiles + Button" },
-    { "id": "team-mark", "class": "expressible", "with": "Avatar over an Image + Row with a Button" },
-    { "id": "settings-general", "class": "expressible", "with": "Page + Group + Input + FormActions" },
-    { "id": "settings-members", "class": "expressible", "with": "Page + Section + Row (Avatar lead, role Select trailing) + ChipInput; FormActions for Send invites" },
-    { "id": "settings-labels", "class": "expressible", "with": "Section + Row with a Chip (dot colour) + Button; the colour picker is a Select of swatches" },
-    { "id": "settings-statuses", "class": "expressible", "with": "Section ×6 + Row + Select; FieldGroup for the automation targets" },
-    { "id": "settings-storage", "class": "expressible", "with": "Table (name, size, referenced, date, slot action) + Button" },
-    { "id": "settings-boards", "class": "expressible", "with": "Page + FieldGroup (icon, colour, name in one row) + Group + Select + FormActions" },
-    { "id": "settings-repositories", "class": "expressible", "with": "Section + Row + Button; the GitHub connect is a host function" },
-    { "id": "settings-widget", "class": "extension", "with": "the live whole-panel widget preview is an app component; Form + Input + ChipInput + Select + Switch for the rest" },
-    { "id": "settings-account", "class": "expressible", "with": "Page + Group + Row (sign-in methods with trailing Buttons) + Select; FormActions" },
-    { "id": "settings-notifications", "class": "expressible", "with": "Page + Group + Row with two Switches trailing (a Toolbar-like control row) + TimePicker; FormActions" },
-    { "id": "settings-assistant", "class": "expressible", "with": "S-3: Page + a header Row (the brand mark IconDisc, the name) + Groups of picker Rows (Select trailing: Runs on, Check in) and Switch Rows (the Voice block) + a TextField Row for the instructions; saves on change" },
-    { "id": "settings-assistant-meeting", "class": "expressible", "with": "NEW-57: the same Page scrolled to its Meeting mode Group: Switch Rows (Meeting mode, Desktop audio) + a picker Row (Stop after, Select trailing)" },
-    { "id": "settings-api-keys", "class": "expressible", "with": "Page + Section + Row (sessions with Log out) + Table (keys) + Dialog + FieldGroup (name, scope) + AlertDialog" },
-    { "id": "settings-team", "class": "expressible", "with": "Group + Row chevron" },
-    { "id": "settings-root", "class": "expressible", "with": "Section (per server) + Row chevron" },
-    { "id": "settings-widget-editor", "class": "extension", "with": "Tabs + Form, but the Appearance tab's live widget preview is an app component" },
-    { "id": "settings-agents", "class": "expressible", "with": "Section tinted + Row + Section (events) + Row" },
-    { "id": "settings-tools", "class": "expressible", "with": "Page + Group + Input + Select; FormActions" },
-    { "id": "settings-worktrees", "class": "expressible", "with": "Section + Row + Button (Prune) + AlertDialog" },
-    { "id": "settings-boards-archived", "class": "expressible", "with": "Section + Row + Button; the pending-deletion Card" },
-    { "id": "settings-mcp", "class": "expressible", "with": "Section + Row (Chip Default, trailing Button + Menu) + Dialog + Form; Tabs (Mine | Everyone) + Select for the access levels" },
-    { "id": "settings-mcp-activity", "class": "expressible", "with": "List of Row (mono Text lead, caption, trailing Badge status)" },
-    { "id": "settings-issues", "class": "expressible", "with": "Page + Group + Segmented (estimate scale) + FieldGroup (the PR targets) + FormActions" },
-    { "id": "settings-import", "class": "expressible", "with": "Stepper + Card + Table (the mapping) + Progress + Button" },
-    { "id": "settings-team-agent", "class": "native", "with": "Page + FieldGroup (icon, colour, name) + Group + Select + Row (schedule sentence) + Textarea + FormActions; the instructions want the markdown editor (native) to match the app (the macros have landed; the editor is what is left)" },
-    { "id": "settings-prompts", "class": "expressible", "with": "Section + Row + Button" },
-    { "id": "settings-prompt", "class": "native", "with": "the markdown editor for the body; FieldGroup for icon + name" },
-    { "id": "settings-skills", "class": "expressible", "with": "Section + Row (Chip Default, trailing Button + Menu) + Button" },
-    { "id": "settings-skill", "class": "native", "with": "the markdown editor for the SKILL.md body; FieldGroup for name + description + Switch" },
-    { "id": "files", "class": "native", "with": "Tree (the file tree with keyboard + drag) beside a read-only CodeBlock; Resizable splits them" },
-    { "id": "source-control", "class": "native", "with": "the diff viewer; the commit graph is an app extension; Row for the file list" },
-    { "id": "terminal", "class": "native", "with": "a TERMINAL (pty, cursor, selection); CodeBlock ansi is output only" },
-    { "id": "getting-started", "class": "expressible", "with": "Section (title, Meter in the leading slot, Docs Link trailing) + Collapsible + Row" },
-    { "id": "apps", "class": "expressible", "with": "Section (New app as its action) + Row per app (glyph, name, the version Chip, the … Menu); the built-in row the same with its Built-in Chip" },
-    { "id": "app", "class": "native", "with": "the editor session's conversation feed native; the preview is a nested Exponential UI surface, the versions Drawer is Row + Chip, the phones' switch Segmented" },
-    { "id": "app-run", "class": "native", "with": "the app running full screen: a nested Exponential UI surface (the published package) in the host's screens shell (sidebar rows or the phone tab bar); phones add the detail header with a … Menu" },
-    { "id": "app-settings", "class": "expressible", "with": "the editor's Settings tab: FieldGroup (icon, colour, name in one row) + Textarea + the Tools group of Row + Switch + Export Button + the destructive Row" },
-    { "id": "app-versions", "class": "expressible", "with": "the editor's Versions tab: one grouped List of Row (the v{n} Chip, the note, who · when) with Current Chip or Preview + Restore Buttons" },
-    { "id": "app-data", "class": "expressible", "with": "the editor's Data tab: a toolbar (the kind Select, Add record Button) over a Table of records with a … Menu per row (Edit, Delete); phones one Row per record" },
-    { "id": "app-preview-phone", "class": "native", "with": "the Preview tab's toolbar (Segmented Desktop | Phone, the template Select) over a nested Exponential UI surface in a 390 px frame; the frame is the host's" },
-    { "id": "app-draft", "class": "native", "with": "the app editor on a draft (no version yet): the same native editor as app, its Chat tab with the empty preview" },
-    { "id": "app-consent", "class": "expressible", "with": "Dialog: the operation's words as its title, the body Text, a CodeBlock of the arguments, Deny + Allow Buttons (the destructive Allow variant)" },
-    { "id": "app-export", "class": "expressible", "with": "Dialog: the title Text, one Row with a Switch (Include records), the Export Button; the file hand-off is the host's" },
-    { "id": "app-import", "class": "expressible", "with": "Dialog: a multi-line TextField (monospace), a Choose file Button, a List of destructive Text rows (path: message), the Import Button" },
-    { "id": "app-record-table", "class": "native", "with": "a running app: a nested Exponential UI surface whose RecordTable macro lists the kind (the screens shell around it)" },
-    { "id": "app-record-form", "class": "native", "with": "a running app: the nested surface with the RecordForm macro in its Drawer" },
-    { "id": "app-calendar", "class": "native", "with": "a running app: the nested surface with the Calendar macro" },
-    { "id": "app-timeline", "class": "native", "with": "a running app: the nested surface with the Timeline macro" },
-    { "id": "app-connect", "class": "native", "with": "a running app: Alert (warning, Connect as its action) above the nested surface" },
-    { "id": "app-publish", "class": "native", "with": "the app editor on a head ahead of the published version: the same native editor as app, with the Publish Button" },
-    { "id": "app-version-preview", "class": "native", "with": "the app editor viewing an old version: an Alert band (Publish, Restore, Current) over the nested surface, read-only" },
-    { "id": "app-versions-sweep", "class": "expressible", "with": "the Versions tab: the same List of Row with the sweep line in the row's caption Text" },
-    { "id": "app-record-history", "class": "expressible", "with": "the Data tab's Edit Dialog: Form fields + a Section of Row (who · when, Restore)" },
-    { "id": "app-record-undo", "class": "expressible", "with": "the Data tab Table + a Toast with an Undo action" },
-    { "id": "app-csv-import", "class": "expressible", "with": "Dialog: a multi-line TextField, Choose file Button, a Select per field, a List of Row with destructive Text issues, Import Button" },
-    { "id": "app-settings-links", "class": "expressible", "with": "the Settings tab: grouped Rows with a Switch (Public links) and a Button (Accounts)" },
-    { "id": "app-settings-automations", "class": "expressible", "with": "the Settings tab: grouped Rows with Switch + Chip (MCP tools), Chip (Automations), Buttons (Webhooks)" },
-    { "id": "app-guest", "class": "expressible", "with": "Page + the RecordForm macro on a public page" },
-    { "id": "device-attention", "class": "expressible", "with": "Row with an attention Badge + a Popover of account Rows" },
-    { "id": "session-row", "class": "expressible", "with": "Row (two densities) + depth + a trailing Icon; the session mark is IconDisc (app extension)" },
-    { "id": "session-xref", "class": "expressible", "with": "S-3: one compact Row (a muted Text kind label, Avatar (sm) or the session IconDisc, the name, a trailing chevron Icon); a tap pushes that session" },
-    { "id": "story-ring", "class": "extension", "with": "S-3: an Avatar inside a segmented ring, one arc per story tinted by state (waiting / unseen / seen): a StoryRing painter in the app extension" },
-    { "id": "story-viewer", "class": "expressible", "with": "S-3: a Dialog (full screen on phones) of a Row of Progress segments, a header Row (Avatar, name, kind · age Text, close Button), the draft as a nested surface and a footer Row of choice Buttons" },
-    { "id": "story-tab", "class": "expressible", "with": "List of Card tiles: a title Row (Text title, a muted kind · outcome · age Text), then a horizontal Stack of Image thumbnails each with a short caption Text" },
-    { "id": "thread-stories", "class": "expressible", "with": "the Stack band + StackRail (Section tree) and one Changes Row over the pull request, then the story-tab tiles (Card + Image thumbnails + one line of Text each)" },
-    { "id": "pr-row", "class": "expressible", "with": "Row + Ring lead + depth (tree guides); the stack rail is Section tree" },
-    { "id": "pr-checks", "class": "expressible", "with": "Button pill (Spinner / Icon lead) for the Merge state + a Menu submenu of Rows (status Icon, name, duration) whose press is openUrl; merging on red confirms through Dialog" },
-    { "id": "composer-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button" },
-    { "id": "composer-skills-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button, multi-pick rows" },
-    { "id": "composer-dialog-menu", "class": "expressible", "with": "the same Menu with submenus inside a Dialog; that a desktop dialog's menu needs a window of its own is the host's (the gpui renderer), not the catalog's" },
-    { "id": "composer-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
-    { "id": "session-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
-    { "id": "work-card", "class": "expressible", "with": "Card over a Row (icon, name, kind, elapsed) + Meter + Collapsible phases + Trace" },
-    { "id": "script-card", "class": "expressible", "with": "Collapsible + Trace + TraceItem + CodeBlock" },
-    { "id": "sealed-locked", "class": "expressible", "with": "Badge (the glass pill) + Icon (lock) + Text (italic muted preview)" },
-    { "id": "comment-call-card", "class": "expressible", "with": "Card (padded false) + Row (Avatar lead, meta) + Markdown lines 3 + Link" },
-    { "id": "trace", "class": "expressible", "with": "Trace + TraceItem + CodeBlock (the catalog's own)" },
-    { "id": "ask-dock", "class": "expressible", "with": "Card + Markdown + Radio / ChoiceTiles + Button; the stacked compact cards are Row surface card" },
-    { "id": "dock-card", "class": "expressible", "with": "DockCard (the catalog's own: the row over a bottom Drawer with its footer slot); the pile is Box + the stack geometry" },
-    { "id": "plan-card", "class": "expressible", "with": "Card + Markdown + Image + ChoiceTiles + Radio + Button; the Preview frame is a Box" },
-    { "id": "plan-page", "class": "expressible", "with": "SplitView + Outline + Section + Markdown + Mosaic + Carousel (counter, thumbnails) + Button" },
-    { "id": "code-block", "class": "expressible", "with": "CodeBlock (the catalog's own)" },
-    { "id": "feedback-states", "class": "expressible", "with": "Spinner + Button loading + Skeleton + Toast; the mark's stroke sweep is IconDisc (app extension)" },
-    { "id": "threads", "class": "expressible", "with": "Section ×3 + Row (identifier, title, meta word, trailing device Icon) + LiveDot" },
-    { "id": "chat-list", "class": "expressible", "with": "Box header (Heading + two icon Buttons) + a horizontal Row of Avatar bubbles with a ring + Segmented toggles for the chips + Row (Avatar lead, title, meta time, preview subtitle, trailing Badge)" },
-    { "id": "chat-menus", "class": "expressible", "with": "Menu as a context menu (the phone look is a bottom Drawer of the same rows) + Dialog for the delete confirm" },
-    { "id": "chat-selection", "class": "expressible", "with": "the board-bulk-edit pattern on chat rows: Checkbox as the leading selection column + Toolbar as the floating bulk bar (Chip count + Buttons: Mark read, Archive, Stop, Delete)" },
-    { "id": "device-readiness", "class": "expressible", "with": "Section per group (muted trailing tag) of Rows: state Icon, label, the detail as Text, one trailing Chip action (an import Chip before it, confirmed by a Dialog); computer_use a Switch row with its permission Rows indented under it" },
-    { "id": "voice-call", "class": "expressible", "with": "S-3: Stack (centred) of Avatar (xl, an activity Ring around it, VoiceWave while speaking), Heading for the name, Text for the status or the timer, Text for the caption + a Group of round icon Buttons (size icon-lg: mute, speaker on phones, the destructive end); full screen on phones" },
-    { "id": "voice-call-overlay", "class": "expressible", "with": "S-3: Row (fixed 320×56, glass) of a drag-handle Icon, Avatar (sm), a Stack of the name over the timer, VoiceWave (sm) and two round icon Buttons (mute, destructive end)" },
-    { "id": "call-pill", "class": "expressible", "with": "EXP-1681: Row (fixed 320×56, glass capsule) of a drag-handle Icon, Avatar (sm), a Stack of the name over the timer, VoiceWave (sm) and two round icon Buttons (mute, destructive end); a phone floats it over the app" },
-    { "id": "call-controls", "class": "expressible", "with": "S-3: Group of round icon Buttons (size icon-lg; neutral, pressed, destructive; a Label under the ringing Cancel)" },
-    { "id": "chat-transcript", "class": "expressible", "with": "Box bubbles (Markdown, a meta time) + Chip for the divider pills; the inline preview IS a nested surface, its enter motion the renderer's" },
-    { "id": "phone-tab-bar", "class": "expressible", "with": "Segmented in its full-width bar variant (icon over label, Avatar for Team, a trailing caret icon on the Board tab) beside a two-Button Group capsule" },
-    { "id": "phone-board-menu", "class": "expressible", "with": "Menu (check items with a leading icon) in a full-width bottom panel" },
-    { "id": "phone-page-header", "class": "expressible", "with": "AppBar with a large title and two icon Buttons in its trailing slot" },
-    { "id": "schedule-picker", "class": "expressible", "with": "Section of Rows with trailing Select values (Repeat, Every, Minute, Time, Days, Time zone) + a searchable Select" },
-    { "id": "session", "class": "native", "with": "the session feed native; AppBar + Button Stop + Composer otherwise" },
-    { "id": "agent-channel", "class": "native", "with": "the conversation feed native; Row + Markdown + Composer otherwise" }
+    {
+      "id": "sign-in",
+      "class": "expressible",
+      "with": "Card + Button list (the OIDC providers) + Input + Link; the passkey call is a host function"
+    },
+    {
+      "id": "onboarding",
+      "class": "expressible",
+      "with": "ChoiceTiles over Card"
+    },
+    {
+      "id": "onboarding-create-team",
+      "class": "expressible",
+      "with": "Form + Input + Button"
+    },
+    {
+      "id": "onboarding-join",
+      "class": "expressible",
+      "with": "Form + Input (the invite link) + Button"
+    },
+    {
+      "id": "onboarding-invite",
+      "class": "expressible",
+      "with": "Card + CodeBlock (the link) + Button; the copy is a host function"
+    },
+    {
+      "id": "onboarding-devices",
+      "class": "expressible",
+      "with": "Section + Row + CodeBlock (the install one-liner) + Button"
+    },
+    {
+      "id": "invite-accept",
+      "class": "expressible",
+      "with": "Card + Avatar + Button"
+    },
+    {
+      "id": "board",
+      "class": "expressible",
+      "with": "Toolbar (search, filters, New issue); the status groups are Section + Row; bulk selection = Row selection + a Toolbar selection bar"
+    },
+    {
+      "id": "issue-detail",
+      "class": "native",
+      "with": "a markdown EDITOR with mentions, issue refs and image paste (Textarea is plain text); the property tray is Chip + Select; the activity is Row + Markdown"
+    },
+    {
+      "id": "issue-comments",
+      "class": "native",
+      "with": "the same editor for the composer; threaded comments are Row + Markdown"
+    },
+    {
+      "id": "issue-create",
+      "class": "native",
+      "with": "the markdown editor; title + property Chips + FileUpload otherwise"
+    },
+    {
+      "id": "search",
+      "class": "expressible",
+      "with": "SearchList over Section + Row"
+    },
+    {
+      "id": "board-empty",
+      "class": "expressible",
+      "with": "EmptyState + the getting-started block (Section + Meter + Row)"
+    },
+    {
+      "id": "board-bulk-edit",
+      "class": "expressible",
+      "with": "Toolbar as the floating selection bar (Chip count + Select ×3 + Button)"
+    },
+    {
+      "id": "issue-properties",
+      "class": "expressible",
+      "with": "Drawer + Group + Row (chevron selector) + Select / DatePicker"
+    },
+    {
+      "id": "search-list",
+      "class": "expressible",
+      "with": "SearchList (the catalog's own); the caret anchoring is the host's"
+    },
+    {
+      "id": "inbox",
+      "class": "expressible",
+      "with": "List sectionBy + Section + Row + LiveDot (app extension)"
+    },
+    {
+      "id": "my-issues",
+      "class": "expressible",
+      "with": "Tabs + List + Row"
+    },
+    {
+      "id": "drafts",
+      "class": "expressible",
+      "with": "List + Row (title, meta) + EmptyState"
+    },
+    {
+      "id": "agents",
+      "class": "extension",
+      "with": "the per-login usage rows (three Meters with reset captions in one line) are an app component; Section + Row + IconDisc + LiveDot for the device rows"
+    },
+    {
+      "id": "actions-mobile",
+      "class": "expressible",
+      "with": "Section + Row with a trailing Button"
+    },
+    {
+      "id": "chat",
+      "class": "extension",
+      "with": "the launcher composer (issue chips, device + agent pickers, the + and / menus) is an app component over Composer; the greeting is Text"
+    },
+    {
+      "id": "agent-home",
+      "class": "extension",
+      "with": "the same launcher composer"
+    },
+    {
+      "id": "chat-issues",
+      "class": "extension",
+      "with": "the launcher composer with Chips"
+    },
+    {
+      "id": "steering",
+      "class": "native",
+      "with": "the session feed: Trace + Markdown + the ask dock cards, but a streaming transcript with tool-call cards needs a feed NATIVE (windowed, sticky-bottom, live)"
+    },
+    {
+      "id": "thread",
+      "class": "native",
+      "with": "the conversation feed (the same feed native); Tabs + Chip for the strip; the session card is Row surface card"
+    },
+    {
+      "id": "thread-replies",
+      "class": "expressible",
+      "with": "Stack horizontal of Chips (pressable) with a dismiss Button"
+    },
+    {
+      "id": "chat-from-issue",
+      "class": "extension",
+      "with": "the launcher composer"
+    },
+    {
+      "id": "mention-pill",
+      "class": "extension",
+      "with": "Text whose markdown runs carry an inline Badge (the round pill variant) for a resolved @member, in a chat bubble Box; needs inline chips inside Text"
+    },
+    {
+      "id": "machine-settings",
+      "class": "expressible",
+      "with": "Page (title, back) + Group + Row + Switch + Select; FormActions for Update / Remove"
+    },
+    {
+      "id": "add-server",
+      "class": "expressible",
+      "with": "Card ×2 + CodeBlock + Button"
+    },
+    {
+      "id": "review-diff",
+      "class": "native",
+      "with": "a DIFF viewer (hunks, syntax, expand context) and the file tree (Tree); CodeBlock is not a diff"
+    },
+    {
+      "id": "action-page",
+      "class": "native",
+      "with": "the markdown editor for the prompt body; Page + Group + Row + Select otherwise"
+    },
+    {
+      "id": "support-reporter",
+      "class": "native",
+      "with": "the markdown editor for the reply box (plain Textarea would do for a reporter); Markdown + Image + Row otherwise"
+    },
+    {
+      "id": "share-targets",
+      "class": "expressible",
+      "with": "Page + Section + Row (agent bubble lead, right chevron) + an Image preview line"
+    },
+    {
+      "id": "composer-add-file",
+      "class": "expressible",
+      "with": "Menu of three Rows over the composer: Camera, Photos, File"
+    },
+    {
+      "id": "share-composer",
+      "class": "expressible",
+      "with": "Stack + the agent row + Textarea + Image tiles + Button"
+    },
+    {
+      "id": "team-mark",
+      "class": "expressible",
+      "with": "Avatar over an Image + Row with a Button"
+    },
+    {
+      "id": "settings-general",
+      "class": "expressible",
+      "with": "Page + Group + Input + FormActions"
+    },
+    {
+      "id": "settings-members",
+      "class": "expressible",
+      "with": "Page + Section + Row (Avatar lead, role Select trailing) + ChipInput; FormActions for Send invites"
+    },
+    {
+      "id": "settings-labels",
+      "class": "expressible",
+      "with": "Section + Row with a Chip (dot colour) + Button; the colour picker is a Select of swatches"
+    },
+    {
+      "id": "settings-statuses",
+      "class": "expressible",
+      "with": "Section ×6 + Row + Select; FieldGroup for the automation targets"
+    },
+    {
+      "id": "settings-storage",
+      "class": "expressible",
+      "with": "Table (name, size, referenced, date, slot action) + Button"
+    },
+    {
+      "id": "settings-boards",
+      "class": "expressible",
+      "with": "Page + FieldGroup (icon, colour, name in one row) + Group + Select + FormActions"
+    },
+    {
+      "id": "settings-repositories",
+      "class": "expressible",
+      "with": "Section + Row + Button; the GitHub connect is a host function"
+    },
+    {
+      "id": "settings-widget",
+      "class": "extension",
+      "with": "the live whole-panel widget preview is an app component; Form + Input + ChipInput + Select + Switch for the rest"
+    },
+    {
+      "id": "settings-account",
+      "class": "expressible",
+      "with": "Page + Group + Row (sign-in methods with trailing Buttons) + Select; FormActions"
+    },
+    {
+      "id": "settings-notifications",
+      "class": "expressible",
+      "with": "Page + Group + Row with two Switches trailing (a Toolbar-like control row) + TimePicker; FormActions"
+    },
+    {
+      "id": "settings-assistant",
+      "class": "expressible",
+      "with": "S-3: Page + a header Row (the brand mark IconDisc, the name) + Groups of picker Rows (Select trailing: Runs on, Check in) and Switch Rows (the Voice block) + a TextField Row for the instructions; saves on change"
+    },
+    {
+      "id": "settings-assistant-meeting",
+      "class": "expressible",
+      "with": "NEW-57: the same Page scrolled to its Meeting mode Group: Switch Rows (Meeting mode, Desktop audio) + a picker Row (Stop after, Select trailing)"
+    },
+    {
+      "id": "settings-api-keys",
+      "class": "expressible",
+      "with": "Page + Section + Row (sessions with Log out) + Table (keys) + Dialog + FieldGroup (name, scope) + AlertDialog"
+    },
+    {
+      "id": "settings-team",
+      "class": "expressible",
+      "with": "Group + Row chevron"
+    },
+    {
+      "id": "settings-root",
+      "class": "expressible",
+      "with": "Section (per server) + Row chevron"
+    },
+    {
+      "id": "settings-widget-editor",
+      "class": "extension",
+      "with": "Tabs + Form, but the Appearance tab's live widget preview is an app component"
+    },
+    {
+      "id": "settings-agents",
+      "class": "expressible",
+      "with": "Section tinted + Row + Section (events) + Row"
+    },
+    {
+      "id": "settings-tools",
+      "class": "expressible",
+      "with": "Page + Group + Input + Select; FormActions"
+    },
+    {
+      "id": "settings-worktrees",
+      "class": "expressible",
+      "with": "Section + Row + Button (Prune) + AlertDialog"
+    },
+    {
+      "id": "settings-boards-archived",
+      "class": "expressible",
+      "with": "Section + Row + Button; the pending-deletion Card"
+    },
+    {
+      "id": "settings-mcp",
+      "class": "expressible",
+      "with": "Section + Row (Chip Default, trailing Button + Menu) + Dialog + Form; Tabs (Mine | Everyone) + Select for the access levels"
+    },
+    {
+      "id": "settings-mcp-activity",
+      "class": "expressible",
+      "with": "List of Row (mono Text lead, caption, trailing Badge status)"
+    },
+    {
+      "id": "settings-issues",
+      "class": "expressible",
+      "with": "Page + Group + Segmented (estimate scale) + FieldGroup (the PR targets) + FormActions"
+    },
+    {
+      "id": "settings-import",
+      "class": "expressible",
+      "with": "Stepper + Card + Table (the mapping) + Progress + Button"
+    },
+    {
+      "id": "settings-team-agent",
+      "class": "native",
+      "with": "Page + FieldGroup (icon, colour, name) + Group + Select + Row (schedule sentence) + Textarea + FormActions; the instructions want the markdown editor (native) to match the app (the macros have landed; the editor is what is left)"
+    },
+    {
+      "id": "settings-prompts",
+      "class": "expressible",
+      "with": "Section + Row + Button"
+    },
+    {
+      "id": "settings-prompt",
+      "class": "native",
+      "with": "the markdown editor for the body; FieldGroup for icon + name"
+    },
+    {
+      "id": "settings-skills",
+      "class": "expressible",
+      "with": "Section + Row (Chip Default, trailing Button + Menu) + Button"
+    },
+    {
+      "id": "settings-skill",
+      "class": "native",
+      "with": "the markdown editor for the SKILL.md body; FieldGroup for name + description + Switch"
+    },
+    {
+      "id": "files",
+      "class": "native",
+      "with": "Tree (the file tree with keyboard + drag) beside a read-only CodeBlock; Resizable splits them"
+    },
+    {
+      "id": "source-control",
+      "class": "native",
+      "with": "the diff viewer; the commit graph is an app extension; Row for the file list"
+    },
+    {
+      "id": "terminal",
+      "class": "native",
+      "with": "a TERMINAL (pty, cursor, selection); CodeBlock ansi is output only"
+    },
+    {
+      "id": "getting-started",
+      "class": "expressible",
+      "with": "Section (title, Meter in the leading slot, Docs Link trailing) + Collapsible + Row"
+    },
+    {
+      "id": "apps",
+      "class": "expressible",
+      "with": "Section (New app as its action) + Row per app (glyph, name, the version Chip, the … Menu); the built-in row the same with its Built-in Chip"
+    },
+    {
+      "id": "app",
+      "class": "native",
+      "with": "the editor session's conversation feed native; the preview is a nested Exponential UI surface, the versions Drawer is Row + Chip, the phones' switch Segmented"
+    },
+    {
+      "id": "app-run",
+      "class": "native",
+      "with": "the app running full screen: a nested Exponential UI surface (the published package) in the host's screens shell (sidebar rows or the phone tab bar); phones add the detail header with a … Menu"
+    },
+    {
+      "id": "app-settings",
+      "class": "expressible",
+      "with": "the editor's Settings tab: FieldGroup (icon, colour, name in one row) + Textarea + the Tools group of Row + Switch + Export Button + the destructive Row"
+    },
+    {
+      "id": "app-versions",
+      "class": "expressible",
+      "with": "the editor's Versions tab: one grouped List of Row (the v{n} Chip, the note, who · when) with Current Chip or Preview + Restore Buttons"
+    },
+    {
+      "id": "app-data",
+      "class": "expressible",
+      "with": "the editor's Data tab: a toolbar (the kind Select, Add record Button) over a Table of records with a … Menu per row (Edit, Delete); phones one Row per record"
+    },
+    {
+      "id": "app-preview-phone",
+      "class": "native",
+      "with": "the Preview tab's toolbar (Segmented Desktop | Phone, the template Select) over a nested Exponential UI surface in a 390 px frame; the frame is the host's"
+    },
+    {
+      "id": "app-draft",
+      "class": "native",
+      "with": "the app editor on a draft (no version yet): the same native editor as app, its Chat tab with the empty preview"
+    },
+    {
+      "id": "app-consent",
+      "class": "expressible",
+      "with": "Dialog: the operation's words as its title, the body Text, a CodeBlock of the arguments, Deny + Allow Buttons (the destructive Allow variant)"
+    },
+    {
+      "id": "app-export",
+      "class": "expressible",
+      "with": "Dialog: the title Text, one Row with a Switch (Include records), the Export Button; the file hand-off is the host's"
+    },
+    {
+      "id": "app-import",
+      "class": "expressible",
+      "with": "Dialog: a multi-line TextField (monospace), a Choose file Button, a List of destructive Text rows (path: message), the Import Button"
+    },
+    {
+      "id": "app-record-table",
+      "class": "native",
+      "with": "a running app: a nested Exponential UI surface whose RecordTable macro lists the kind (the screens shell around it)"
+    },
+    {
+      "id": "app-record-form",
+      "class": "native",
+      "with": "a running app: the nested surface with the RecordForm macro in its Drawer"
+    },
+    {
+      "id": "app-calendar",
+      "class": "native",
+      "with": "a running app: the nested surface with the Calendar macro"
+    },
+    {
+      "id": "app-timeline",
+      "class": "native",
+      "with": "a running app: the nested surface with the Timeline macro"
+    },
+    {
+      "id": "app-connect",
+      "class": "native",
+      "with": "a running app: Alert (warning, Connect as its action) above the nested surface"
+    },
+    {
+      "id": "app-publish",
+      "class": "native",
+      "with": "the app editor on a head ahead of the published version: the same native editor as app, with the Publish Button"
+    },
+    {
+      "id": "app-version-preview",
+      "class": "native",
+      "with": "the app editor viewing an old version: an Alert band (Publish, Restore, Current) over the nested surface, read-only"
+    },
+    {
+      "id": "app-versions-sweep",
+      "class": "expressible",
+      "with": "the Versions tab: the same List of Row with the sweep line in the row's caption Text"
+    },
+    {
+      "id": "app-record-history",
+      "class": "expressible",
+      "with": "the Data tab's Edit Dialog: Form fields + a Section of Row (who · when, Restore)"
+    },
+    {
+      "id": "app-record-undo",
+      "class": "expressible",
+      "with": "the Data tab Table + a Toast with an Undo action"
+    },
+    {
+      "id": "app-csv-import",
+      "class": "expressible",
+      "with": "Dialog: a multi-line TextField, Choose file Button, a Select per field, a List of Row with destructive Text issues, Import Button"
+    },
+    {
+      "id": "app-settings-links",
+      "class": "expressible",
+      "with": "the Settings tab: grouped Rows with a Switch (Public links) and a Button (Accounts)"
+    },
+    {
+      "id": "app-settings-automations",
+      "class": "expressible",
+      "with": "the Settings tab: grouped Rows with Switch + Chip (MCP tools), Chip (Automations), Buttons (Webhooks)"
+    },
+    {
+      "id": "app-guest",
+      "class": "expressible",
+      "with": "Page + the RecordForm macro on a public page"
+    },
+    {
+      "id": "device-attention",
+      "class": "expressible",
+      "with": "Row with an attention Badge + a Popover of account Rows"
+    },
+    {
+      "id": "session-row",
+      "class": "expressible",
+      "with": "Row (two densities) + depth + a trailing Icon; the session mark is IconDisc (app extension)"
+    },
+    {
+      "id": "session-xref",
+      "class": "expressible",
+      "with": "S-3: one compact Row (a muted Text kind label, Avatar (sm) or the session IconDisc, the name, a trailing chevron Icon); a tap pushes that session"
+    },
+    {
+      "id": "story-ring",
+      "class": "extension",
+      "with": "S-3: an Avatar inside a segmented ring, one arc per story tinted by state (waiting / unseen / seen): a StoryRing painter in the app extension"
+    },
+    {
+      "id": "story-viewer",
+      "class": "expressible",
+      "with": "S-3: a Dialog (full screen on phones) of a Row of Progress segments, a header Row (Avatar, name, kind · age Text, close Button), the draft as a nested surface and a footer Row of choice Buttons"
+    },
+    {
+      "id": "story-tab",
+      "class": "expressible",
+      "with": "List of Card tiles: a title Row (Text title, a muted kind · outcome · age Text), then a horizontal Stack of Image thumbnails each with a short caption Text"
+    },
+    {
+      "id": "thread-results",
+      "class": "expressible",
+      "with": "the Stack band + StackRail (Section tree) and one Changes Row over the pull request, then the results sections (Text title + Image thumbnails + one line of Text each)"
+    },
+    {
+      "id": "results-tab",
+      "class": "expressible",
+      "with": "the results sections alone (Text title + Image thumbnails + one line of Text each)"
+    },
+    {
+      "id": "needs-you",
+      "class": "expressible",
+      "with": "List + Row (leading Icon, title, meta time, subtitle), the inbox row"
+    },
+    {
+      "id": "pr-row",
+      "class": "expressible",
+      "with": "Row + Ring lead + depth (tree guides); the stack rail is Section tree"
+    },
+    {
+      "id": "pr-checks",
+      "class": "expressible",
+      "with": "Button pill (Spinner / Icon lead) for the Merge state + a Menu submenu of Rows (status Icon, name, duration) whose press is openUrl; merging on red confirms through Dialog"
+    },
+    {
+      "id": "composer-menu",
+      "class": "expressible",
+      "with": "Menu with submenus (searchable) over a Button"
+    },
+    {
+      "id": "composer-skills-menu",
+      "class": "expressible",
+      "with": "Menu with submenus (searchable) over a Button, multi-pick rows"
+    },
+    {
+      "id": "composer-dialog-menu",
+      "class": "expressible",
+      "with": "the same Menu with submenus inside a Dialog; that a desktop dialog's menu needs a window of its own is the host's (the gpui renderer), not the catalog's"
+    },
+    {
+      "id": "composer-slash-menu",
+      "class": "expressible",
+      "with": "SearchList in a Popover"
+    },
+    {
+      "id": "session-slash-menu",
+      "class": "expressible",
+      "with": "SearchList in a Popover"
+    },
+    {
+      "id": "work-card",
+      "class": "expressible",
+      "with": "Card over a Row (icon, name, kind, elapsed) + Meter + Collapsible phases + Trace"
+    },
+    {
+      "id": "script-card",
+      "class": "expressible",
+      "with": "Collapsible + Trace + TraceItem + CodeBlock"
+    },
+    {
+      "id": "sealed-locked",
+      "class": "expressible",
+      "with": "Badge (the glass pill) + Icon (lock) + Text (italic muted preview)"
+    },
+    {
+      "id": "comment-call-card",
+      "class": "expressible",
+      "with": "Card (padded false) + Row (Avatar lead, meta) + Markdown lines 3 + Link"
+    },
+    {
+      "id": "trace",
+      "class": "expressible",
+      "with": "Trace + TraceItem + CodeBlock (the catalog's own)"
+    },
+    {
+      "id": "ask-dock",
+      "class": "expressible",
+      "with": "Card + Markdown + Radio / ChoiceTiles + Button; the stacked compact cards are Row surface card"
+    },
+    {
+      "id": "dock-card",
+      "class": "expressible",
+      "with": "DockCard (the catalog's own: the row over a bottom Drawer with its footer slot); the pile is Box + the stack geometry"
+    },
+    {
+      "id": "plan-card",
+      "class": "expressible",
+      "with": "Card + Markdown + Image + ChoiceTiles + Radio + Button; the Preview frame is a Box"
+    },
+    {
+      "id": "plan-page",
+      "class": "expressible",
+      "with": "SplitView + Outline + Section + Markdown + Mosaic + Carousel (counter, thumbnails) + Button"
+    },
+    {
+      "id": "code-block",
+      "class": "expressible",
+      "with": "CodeBlock (the catalog's own)"
+    },
+    {
+      "id": "feedback-states",
+      "class": "expressible",
+      "with": "Spinner + Button loading + Skeleton + Toast; the mark's stroke sweep is IconDisc (app extension)"
+    },
+    {
+      "id": "threads",
+      "class": "expressible",
+      "with": "Section ×3 + Row (identifier, title, meta word, trailing device Icon) + LiveDot"
+    },
+    {
+      "id": "chat-list",
+      "class": "expressible",
+      "with": "Box header (Heading + two icon Buttons) + List sectionBy + Row (Avatar lead, title, meta time, preview subtitle, trailing Badge)"
+    },
+    {
+      "id": "chat-menus",
+      "class": "expressible",
+      "with": "Menu as a context menu (the phone look is a bottom Drawer of the same rows) + Dialog for the delete confirm"
+    },
+    {
+      "id": "chat-selection",
+      "class": "expressible",
+      "with": "the board-bulk-edit pattern on chat rows: Checkbox as the leading selection column + Toolbar as the floating bulk bar (Chip count + Buttons: Mark read, Archive, Stop, Delete)"
+    },
+    {
+      "id": "device-readiness",
+      "class": "expressible",
+      "with": "Section per group (muted trailing tag) of Rows: state Icon, label, the detail as Text, one trailing Chip action (an import Chip before it, confirmed by a Dialog); computer_use a Switch row with its permission Rows indented under it"
+    },
+    {
+      "id": "voice-call",
+      "class": "expressible",
+      "with": "S-3: Stack (centred) of Avatar (xl, an activity Ring around it, VoiceWave while speaking), Heading for the name, Text for the status or the timer, Text for the caption + a Group of round icon Buttons (size icon-lg: mute, speaker on phones, the destructive end); full screen on phones"
+    },
+    {
+      "id": "voice-call-overlay",
+      "class": "expressible",
+      "with": "S-3: Row (fixed 320×56, glass) of a drag-handle Icon, Avatar (sm), a Stack of the name over the timer, VoiceWave (sm) and two round icon Buttons (mute, destructive end)"
+    },
+    {
+      "id": "call-pill",
+      "class": "expressible",
+      "with": "EXP-1681: Row (fixed 320×56, glass capsule) of a drag-handle Icon, Avatar (sm), a Stack of the name over the timer, VoiceWave (sm) and two round icon Buttons (mute, destructive end); a phone floats it over the app"
+    },
+    {
+      "id": "call-controls",
+      "class": "expressible",
+      "with": "S-3: Group of round icon Buttons (size icon-lg; neutral, pressed, destructive; a Label under the ringing Cancel)"
+    },
+    {
+      "id": "chat-transcript",
+      "class": "expressible",
+      "with": "Box bubbles (Markdown, a meta time) + Chip for the divider pills; the inline preview IS a nested surface, its enter motion the renderer's"
+    },
+    {
+      "id": "phone-tab-bar",
+      "class": "expressible",
+      "with": "Segmented in its full-width bar variant (icon over label, Avatar for Team, a trailing caret icon on the Board tab) beside a two-Button Group capsule"
+    },
+    {
+      "id": "phone-board-menu",
+      "class": "expressible",
+      "with": "Menu (check items with a leading icon) in a full-width bottom panel"
+    },
+    {
+      "id": "phone-page-header",
+      "class": "expressible",
+      "with": "AppBar with a large title and two icon Buttons in its trailing slot"
+    },
+    {
+      "id": "schedule-picker",
+      "class": "expressible",
+      "with": "Section of Rows with trailing Select values (Repeat, Every, Minute, Time, Days, Time zone) + a searchable Select"
+    },
+    {
+      "id": "session",
+      "class": "native",
+      "with": "the session feed native; AppBar + Button Stop + Composer otherwise"
+    },
+    {
+      "id": "agent-channel",
+      "class": "native",
+      "with": "the conversation feed native; Row + Markdown + Composer otherwise"
+    }
   ]
 }
