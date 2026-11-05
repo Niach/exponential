@@ -216,7 +216,8 @@ final class SteerEnetTests: XCTestCase {
             let busy = try XCTUnwrap(c["busy"] as? Bool, name)
             XCTAssertNotNil(c["needsInput"] as? Bool, name)
             let state = try XCTUnwrap(SteerNoFeed.State(rawValue: c["state"] as? String ?? ""), name)
-            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy), state, name)
+            let deviceOffline = (c["deviceOffline"] as? Bool) ?? false
+            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy, deviceOffline: deviceOffline), state, name)
         }
     }
 
@@ -224,6 +225,18 @@ final class SteerEnetTests: XCTestCase {
         let copy = try XCTUnwrap(try fixture()["noFeedIdle"] as? [String: Any])
         XCTAssertEqual(copy["title"] as? String, SteerNoFeed.idleTitle)
         XCTAssertEqual(copy["text"] as? String, SteerNoFeed.idleText)
+    }
+
+    // #EXP-1703: the empty state of a live row whose device is offline.
+    func testNoFeedAwayCopyMatchesTheFixture() throws {
+        let copy = try XCTUnwrap(try fixture()["noFeedAway"] as? [String: Any])
+        XCTAssertEqual(copy["title"] as? String, SteerNoFeed.awayTitle)
+        XCTAssertEqual(copy["text"] as? String, SteerNoFeed.awayText)
+        XCTAssertEqual(copy["device"] as? String, SteerNoFeed.awayDevice)
+        XCTAssertEqual(SteerNoFeed.away(deviceName: "macbook").title, "macbook is offline")
+        XCTAssertEqual(SteerNoFeed.away(deviceName: nil).title, "Its device is offline")
+        XCTAssertEqual(SteerNoFeed.away(deviceName: "").title, "Its device is offline")
+        XCTAssertEqual(SteerNoFeed.away(deviceName: nil).text, SteerNoFeed.awayText)
     }
 
     // VAPP-169 OFFLINE REDIAL: the device-offline `ended` redials on

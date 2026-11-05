@@ -1997,7 +1997,14 @@ final class AgentSessionModel {
         case .starting:
             endDetail = Self.startingDetail
             phase = .starting
-            scheduleStartingRetry()
+            // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row
+            // on an offline host redials on the device-offline cadence (and
+            // at once on the presence flip online), not the starting backoff.
+            if hostDeviceOffline {
+                scheduleAwayRedial()
+            } else {
+                scheduleStartingRetry()
+            }
         case .endedDeviceOffline:
             retryTask = nil
             if session == nil {
@@ -2043,6 +2050,20 @@ final class AgentSessionModel {
             guard let self, !self.stopped, !Task.isCancelled else { return }
             self.retryTask = nil
             self.offlineRedial(.staleTimer)
+        }
+    }
+
+    /// #EXP-1703: a live row on an away host redials every `staleMs`, the
+    /// device-offline cadence (web `scheduleAwayRedial`).
+    private func scheduleAwayRedial() {
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(SteerEnet.staleMs))
+            guard let self, !self.stopped, !Task.isCancelled else { return }
+            self.retryTask = nil
+            guard !self.dialInFlight, SteerOfflineRedial.decide(phase: .offline, trigger: .staleTimer) else { return }
+            self.resetDialState()
+            await self.dial()
         }
     }
 

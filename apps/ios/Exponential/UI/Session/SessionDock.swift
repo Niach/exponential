@@ -10,7 +10,8 @@ import SwiftUI
 /// sheets (dock.json `banner`: the host's words). EXP-1374: a background or
 /// queued session leads with its own card (`SessionTree.sessionBanner`,
 /// session-card.json `banner`). S-3: no paused strip, no interrupted card
-/// (an offline host is invisible). The session view and a thread's
+/// (an offline host is invisible); #EXP-1703: a session on a person because
+/// its device stayed away gets the `offline` card with Move. The session view and a thread's
 /// Conversation share it.
 @MainActor
 enum SessionDock {
@@ -40,8 +41,9 @@ enum SessionDock {
         let row = model.session ?? session
         let tree = TreeSession(sessionRow: row)
         // EXP-1374 (session-card.json `banner`): a background or queued
-        // session's own card.
-        if let banner = SessionTree.sessionBanner(tree) {
+        // session's own card; #EXP-1703: a device that stayed away names
+        // itself (the synced devices row's label), with Move.
+        if let banner = SessionTree.sessionBanner(tree, deviceName: model.hostDevice.label) {
             out.append(.banner(
                 id: banner.id, icon: banner.icon, label: banner.label, text: banner.text,
                 tone: Dock.Tint(rawValue: banner.tone) ?? .muted, action: banner.action

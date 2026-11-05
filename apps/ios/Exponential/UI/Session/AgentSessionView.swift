@@ -135,6 +135,8 @@ struct AgentSessionView: View {
     @State private var showUsageSheet = false
     /// EXP-849: the usage wall's account picker.
     @State private var showAccountSwitch = false
+    /// #EXP-1703: the offline banner's Move picker is open.
+    @State private var showDeviceMove = false
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
@@ -581,6 +583,19 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
+        } else if !model.hasFeed, model.phase != .live,
+                  SteerNoFeed.state(
+                      ended: model.sessionEnded, busy: (model.session ?? session).busy,
+                      deviceOffline: model.hostDevice.offline
+                  ) == .away {
+            // #EXP-1703 (steer-enet.json A DEVICE THAT IS AWAY): a live row
+            // whose host is offline says so at once, never "starting"; a
+            // cached feed shows as the transcript instead.
+            let away = SteerNoFeed.away(deviceName: model.hostDevice.label)
+            centeredState {
+                EmptyState(title: away.title, description: away.text, icon: AppIcons.uiDeviceOffline)
+            }
+            .accessibilityIdentifier("transcript-device-away")
         } else if !model.hasFeed, model.phase == .starting,
                   SteerNoFeed.state(
                       ended: model.sessionEnded, busy: (model.session ?? session).busy
@@ -1348,6 +1363,7 @@ struct AgentSessionView: View {
         switch row.id {
         case "banner:closed": SessionDock.reconnect(model)
         case "banner:blocked" where row.action != nil: AnyView(accountSwitchControl(model))
+        case "banner:offline" where row.action != nil: deviceMoveControl(model, label: row.action ?? "")
         default: nil
         }
     }
@@ -1565,6 +1581,38 @@ struct AgentSessionView: View {
                 )
             )
         }
+    }
+
+    // MARK: - Device move (#EXP-1703)
+
+    /// #EXP-1703: the offline banner's "Move" (session-card.json
+    /// `bannerActions`): THE device picker behind a pill, the rows and
+    /// refusals of `SessionDeviceMove` (the composer's Device pin), a pick =
+    /// `sessions.send({sessionId, deviceId})`; a failure is the move toast
+    /// (`moveError`). Hidden when the viewer may not move it (web
+    /// `SessionDeviceMoveButton`).
+    private func deviceMoveControl(_ model: AgentSessionModel, label: String) -> AnyView? {
+        guard let pin = model.devicePin, pin.blockedReason == nil else { return nil }
+        return AnyView(
+            GlassPill(
+                label,
+                icon: AppIcons.uiSwap,
+                mode: .action { showDeviceMove = true },
+                enabled: !pin.sending
+            )
+            .accessibilityIdentifier("session-device-move")
+            .background(
+                DevicePicker(
+                    devices: pin.rows,
+                    value: pin.currentDeviceId,
+                    onChange: pin.onPick,
+                    title: SessionDeviceMove.pickerTitle,
+                    open: $showDeviceMove,
+                    hideTrigger: true,
+                    trigger: { EmptyView() }
+                )
+            )
+        )
     }
 
     // MARK: - Bottom bar (steering input)

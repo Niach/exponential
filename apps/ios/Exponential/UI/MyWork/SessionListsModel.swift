@@ -299,7 +299,9 @@ final class SessionListsModel {
                 busy: row.busy,
                 needsYou: row.needsYou,
                 prs: prs,
-                teamPrs: prsByTeam[row.teamId] ?? []
+                teamPrs: prsByTeam[row.teamId] ?? [],
+                // #EXP-1703: on a person only because its device stayed away.
+                offline: row.offline
             )
             // NEW-41: the lead's PR glyph follows the root's PRs, not the word.
             prStates[row.sessionId] = prs.map(\.state)
