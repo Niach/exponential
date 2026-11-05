@@ -403,7 +403,7 @@
       ["card-row.icon","Icon","Row/icon","card-row",null],
       ["card-row.body","Box","Row/body","card-row",null],
       ["card-row.body.title","Text","Row/title","card-row.body","MacBook Pro"],
-      ["card-row.body.subtitle","Text","Row/subtitle","card-row.body","Online · 2 runs"],
+      ["card-row.body.subtitle","Text","Row/subtitle","card-row.body","Online · 2 sessions"],
       ["card-row.meta","Text","Row/meta","card-row","now"],
       ["chip-board","Box","Chip/root","chips-demo",null],
       ["chip-board.icon","Icon","Chip/icon","chip-board",null],

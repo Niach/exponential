@@ -7045,7 +7045,7 @@
                     "id": "card-row.body.subtitle",
                     "component": "Text",
                     "props": {
-                      "text": "Online · 2 runs",
+                      "text": "Online · 2 sessions",
                       "variant": "muted",
                       "lines": 1,
                       "hostLinks": true

@@ -23,6 +23,8 @@ name: record-compose-fixtures
 # Timeline (their component images `Calendar.png` + `Timeline.png`).
 # VAPP-250 (2026-11-04): re-recorded for the phone Timeline (one scroller, a
 # pinned label column), `tableColumnMin` 96 and the dashboard's Timeline.
+# EXP-1670 (2026-11-05): re-recorded for the kitchen sink's subtitle
+# `Online · 2 sessions` (the product never says run).
 
 on:
   workflow_dispatch: {}

@@ -6,6 +6,7 @@ name: record-swift-fixtures
 # it (`EXPONENTIAL_UI_RECORD=1 swift test --filter SnapshotTests`) and uploads
 # the `swift-fixtures` artifact to commit by hand: the twin of
 # record-compose-fixtures.yml (`workflow_dispatch`, or a push editing this file).
+# EXP-1670 (2026-11-05): re-recorded for the kitchen sink's new subtitle.
 
 on:
   workflow_dispatch: {}
