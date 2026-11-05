@@ -48,6 +48,8 @@ fun LongPressIssueRow(
     // EXP-1554: the row's RESOLVED status (My Issues passes its group's), so
     // the row glyph is the same started clock its group header draws.
     resolvedStatus: ResolvedIssueStatus? = null,
+    /** #VAPP-231: the app it came through (`via <app>` on the title's line). */
+    viaAppName: String? = null,
 ) {
     var showActions by remember { mutableStateOf(false) }
 
@@ -58,6 +60,7 @@ fun LongPressIssueRow(
         blocks = blocks,
         onBlocksClick = onBlocksClick,
         resolvedStatus = resolvedStatus,
+        viaAppName = viaAppName,
         onClick = onClick,
         onLongClick = if (canMutate) ({ showActions = true }) else null,
     )

@@ -18,6 +18,8 @@ final class MyIssuesViewModel {
     /// the reader still counts as a blocker, so this pool is wider than the
     /// list itself.
     var relationIssues: [IssueEntity] = []
+    /// #VAPP-231: the synced apps' names by id (a row's `via <app>` tail).
+    var appNames: [String: String] = [:]
     /// P14: every synced `issue_statuses` row (all teams) — each issue
     /// resolves against its own team's rows.
     var statusRows: [IssueStatusEntity] = []
@@ -46,6 +48,7 @@ final class MyIssuesViewModel {
     private var relationTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var labelTask: Task<Void, Never>?
+    private var appTask: Task<Void, Never>?
     private var issueLabelTask: Task<Void, Never>?
     /// EXP-1275 (D8): the issues shape's "up-to-date seen" flag
     /// (`IssueListViewModel.issuesSynced`) — an empty list before it is the
@@ -148,6 +151,18 @@ final class MyIssuesViewModel {
         }
 
         // The rows' label dots (the board list's own reads).
+        appTask?.cancel()
+        let appObservation = ValueObservation.tracking { db in
+            try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db)
+        }
+        appTask = Task { [weak self] in
+            do {
+                for try await apps in appObservation.values(in: pool) {
+                    self?.appNames = Dictionary(apps.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+                }
+            } catch {}
+        }
+
         let labelObservation = ValueObservation.tracking { db in
             try LabelEntity.fetchAll(db)
         }
@@ -183,6 +198,8 @@ final class MyIssuesViewModel {
         statusTask = nil
         labelTask?.cancel()
         labelTask = nil
+        appTask?.cancel()
+        appTask = nil
         issueLabelTask?.cancel()
         issueLabelTask = nil
     }

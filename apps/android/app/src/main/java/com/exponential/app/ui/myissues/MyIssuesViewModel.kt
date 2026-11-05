@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 
 // "My Issues" (masterplan §5a): a fixed, built-in cross-board view of
 // everything assigned to the signed-in user on the active account, grouped by
@@ -106,6 +107,12 @@ class MyIssuesViewModel @Inject constructor(
     val allIssues: StateFlow<List<IssueEntity>> =
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #VAPP-231: the synced apps' names by id (a row's `via <app>` tail). */
+    val appNames: StateFlow<Map<String, String>> =
+        dbFlow.scopedQuery(emptyList()) { it.appDao().observeAll() }
+            .map { apps -> apps.associate { it.id to it.name } }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val relations: StateFlow<List<IssueRelationEntity>> =
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }

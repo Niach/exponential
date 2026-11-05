@@ -53,6 +53,7 @@ fun MyIssuesListContent(
     viewModel: MyIssuesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val appNames by viewModel.appNames.collectAsStateWithLifecycle()
     var collapsed by remember { mutableStateOf(emptySet<String>()) }
     // EXP-980: the row whose blocks badge opened the mini-graph (null = none).
     var graphIssueId by remember { mutableStateOf<String?>(null) }
@@ -113,6 +114,7 @@ fun MyIssuesListContent(
                                 blocks = entry.blocks,
                                 onBlocksClick = { graphIssueId = entry.issue.id },
                                 resolvedStatus = group.status,
+                                viaAppName = entry.issue.viaAppId?.let { appNames[it] },
                                 onMarkDone = {
                                     viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
                                 },

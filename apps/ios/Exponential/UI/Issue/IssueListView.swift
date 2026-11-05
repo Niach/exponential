@@ -449,7 +449,7 @@ struct IssueListView: View {
                 // instead of ceding a `Spacer()`'s default minimum plus a
                 // stack gap to dead space — titles were ellipsizing three
                 // words early with a visible gap to their right.
-                Text(issue.title)
+                issueTitleText(issue.title, viaApp: issue.viaAppId.flatMap { vm.appNames[$0] })
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -995,4 +995,13 @@ private struct BoardPageHeader: ViewModifier {
             content
         }
     }
+}
+
+/// #VAPP-231 (via-app.json): an issue row's title, an app's issue with its
+/// muted ` · via <app>` tail in the SAME text, so a narrow row cuts the
+/// caption first and never squeezes the title for it.
+func issueTitleText(_ title: String, viaApp: String?) -> Text {
+    var tail = AttributedString(withViaApp("", viaApp))
+    tail.swiftUI.foregroundColor = Color.white.opacity(TextOpacity.tertiary)
+    return Text(AttributedString(title) + tail)
 }
