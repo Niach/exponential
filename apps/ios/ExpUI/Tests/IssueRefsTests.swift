@@ -274,7 +274,7 @@ final class IssueRefsBareModeTests: XCTestCase {
             titleResolver: { _ in "Fix login flow" },
             bare: true
         )
-        XCTAssertEqual(out.string, "filed EXP-1 Fix login flow today")
+        XCTAssertEqual(out.string, "filed EXP-1\u{00A0}Fix\u{00A0}login\u{00A0}flow today")
         let start = (out.string as NSString).range(of: "EXP-1").location
         XCTAssertNotEqual(
             out.attribute(.foregroundColor, at: start, effectiveRange: nil) as? PlatformColor,
