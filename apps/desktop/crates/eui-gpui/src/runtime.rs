@@ -973,9 +973,11 @@ impl ExponentialHost {
                 }
             });
             for c in calls {
+                let name = c.name.clone();
                 let outcome = run_function(this.clone(), c, cx).await;
-                if outcome.error.is_some() {
-                    return FunctionOutcome { decision: FunctionDecision::Allow, result: Some(committed), error: outcome.error };
+                let error = outcome.error.or_else(|| (outcome.decision != FunctionDecision::Allow).then(|| format!("{name} was not allowed")));
+                if error.is_some() {
+                    return FunctionOutcome { decision: FunctionDecision::Allow, result: Some(committed), error };
                 }
             }
             FunctionOutcome { decision: FunctionDecision::Allow, result: Some(committed), error: None }
@@ -1059,6 +1061,18 @@ fn effective_urls(policy: &HostPolicy) -> UrlPolicy {
 }
 
 async fn run_function(this: WeakEntity<ExponentialHost>, call: FunctionCallInfo, cx: &mut gpui::AsyncApp) -> FunctionOutcome {
+    // VAPP-205: an action's `call` step reaches the built-ins a press does.
+    if call.name == "openUrl" || call.name == "bind" {
+        let ran = this.update(cx, |host, cx| {
+            if call.name == "bind" {
+                host.bind(&call.surface_id, &call.args, cx)
+            } else {
+                let url = call.args.get("url").and_then(Value::as_str).unwrap_or("").to_string();
+                host.open_url(&url, cx)
+            }
+        });
+        return FunctionOutcome::of(if ran.unwrap_or(false) { FunctionDecision::Allow } else { FunctionDecision::Deny });
+    }
     if call.name == NAVIGATE_FUNCTION {
         return this.update(cx, |host, cx| host.navigate(&call, cx)).unwrap_or(FunctionOutcome::of(FunctionDecision::Deny));
     }

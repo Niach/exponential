@@ -12,6 +12,7 @@ import at.exponential.ui.host.FunctionOutcome
 import at.exponential.ui.host.FunctionPolicy
 import at.exponential.ui.host.HostOptions
 import at.exponential.ui.host.HostPolicy
+import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.json.JsonValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -202,6 +203,38 @@ class ActionsTest {
         assertSame(before, s.rows)
         assertEquals(0, s.batches)
         assertEquals(JsonValue.Num(7.5), s.formHours)
+    }
+
+    /** VAPP-205: `hostCalls`: a `call` step reaches the same built-ins a press does. */
+    @Test
+    fun anActionStepRunsBindAndOpenUrl() = runBlocking {
+        val f = fixture()["hostCalls"]!!
+        val pkg = f["package"]!!
+        for (c in f["cases"]?.array.orEmpty()) {
+            val name = c["name"]?.string.orEmpty()
+            val opened = ArrayList<String>()
+            var bound: String? = null
+            val host = ExponentialHost(
+                HostOptions(
+                    sources = mapOf(
+                        "records" to SourceResolver { source, emit ->
+                            bound = source.params["day"]
+                            emit(JsonValue.Arr(listOf(JsonValue.Str("bound"))))
+                            ({ })
+                        },
+                    ),
+                    packages = listOf(pkg.json),
+                    policy = HostPolicy(openUrl = { opened.add(it) }),
+                ),
+                CoroutineScope(Dispatchers.Unconfined),
+            )
+            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""))
+            val out = host.callFunction(FunctionCallInfo("s", "b", "actions.${c["action"]!!.string}", c["args"]?.obj.orEmpty()))
+            assertEquals(name, c["error"]?.string, out.error)
+            assertEquals(name, c["opened"]?.array.orEmpty().mapNotNull { it.string }, opened)
+            assertEquals(name, c["bound"]?.get("day")?.string, bound)
+            if (c["bound"] != null) assertEquals(name, """["bound"]""", host.surface("s")?.data?.get("rows")?.json)
+        }
     }
 
     private companion object {
