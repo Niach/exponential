@@ -17,6 +17,7 @@ import type { PackageIssue, AppPackage } from "./package"
 import { combineDecisions, decideFunction, decideUrl, mediaRequest, packagePolicy } from "./policy"
 import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlPolicy } from "./policy"
 import { HostRouter } from "./router"
+import { hostParams, withHostParams } from "./host-params"
 import { parseSource, sourceWithParams } from "./sources"
 import { A2UI_VERSION } from "../catalog"
 import { RECORDS_BATCH_FUNCTION, actionCallName, runAction } from "./actions"
@@ -357,7 +358,8 @@ export class ExponentialHost {
   /** One server message (a transport calls this; tests and in-memory hosts
    *  may call it directly). */
   receive(message: unknown): HostOp[] {
-    const ops = this.router.route(message)
+    // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
+    const ops = this.router.route(withHostParams(message, hostParams(this.options.now?.(), this.options.zone)))
     for (const op of ops) this.perform(op)
     return ops
   }

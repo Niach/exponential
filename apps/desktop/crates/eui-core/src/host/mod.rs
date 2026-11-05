@@ -25,6 +25,7 @@ pub mod record_migrations;
 pub mod record_policy;
 pub mod record_transitions;
 pub mod record_store;
+pub mod host_params;
 pub mod records;
 pub mod router;
 pub mod screens;
@@ -63,6 +64,7 @@ pub use record_policy::{
     readable_rows, record_allowed, record_author_of, record_policy, record_policy_copy, record_refusal, validate_record_policy, RecordOp, RecordPolicy, RecordViewer, APP_ACCESS_LEVELS, DEFAULT_RECORD_POLICY, RECORD_POLICY_LEVELS, RECORD_POLICY_OPS,
 };
 pub use record_store::RECORDS_FUNCTIONS;
+pub use host_params::{fill_host_params, host_params, with_host_params};
 pub use records::{is_record_kind, record_attachment_fields, record_attachment_id, record_attachment_ids, validate_record, validate_record_refs, validate_record_schema, RECORD_FIELD_TYPES, RECORD_FORMATS, RECORD_RESERVED_KEYS};
 pub use signature::{canonical_json, package_file_signed_bytes, AUTHOR_KEY_PREFIX, AUTHOR_NAME_MAX, PACKAGE_FILE_SIGNATURE_ALG, PACKAGE_FILE_SIGNATURE_CONTEXT};
 pub use sources::{parse_source, source_with_params, ParsedSource};

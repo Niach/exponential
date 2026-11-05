@@ -297,6 +297,14 @@ access `read` | `write`). An owners-only card reads it in `visible`; the kind's
 
 **Named queries:** `queries: {<name>: <JSON query>}` (names
 `^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).
+**Host params** (VAPP-206): a binding source and a query read `${today}`,
+`${now}` and `${month}`, filled by the host in the team zone when the screen
+opens and at each `bind`, so `records:entry?date=${today}` has rows at once. In
+a named query a binding's own param of the same name wins. `mine` may be a
+template (`"mine": "${mine}"`; `true` or `1` = mine). A sort key's third item
+places a missing value whatever the order: `["due", "asc", "last"]` (unset = it
+compares as empty text, first ascending, last descending).
+
 A template binding `records:<kind>?query=<name>&<params>` follows it: the router replaces it
 with `?q=<canonical JSON>` (`expandQuerySource`), every `${param}` in the
 query's strings filled from the binding's other params (unset = empty), so a

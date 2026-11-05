@@ -247,7 +247,9 @@ class ExponentialHost(
     }
 
     /** One server message (JSON text); the ops performed. */
-    fun receive(json: String): List<JsonValue> = perform(JsonValue.parse(router.route(json)).array ?: emptyList())
+    fun receive(json: String): List<JsonValue> =
+        // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
+        perform(JsonValue.parse(router.route(HostParams.adding(json, options.now?.invoke(), options.zone))).array ?: emptyList())
 
     /** One server message; the ops performed. On the host's thread. */
     fun receive(message: JsonValue): List<JsonValue> = receive(message.json)

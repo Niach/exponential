@@ -620,7 +620,9 @@ impl ExponentialHost {
     /// One server message (a transport delivers here; tests and local hosts
     /// may call it directly). Returns the ops performed.
     pub fn receive(&mut self, message: &Value, cx: &mut Context<Self>) -> Vec<Value> {
-        let ops = self.router.route(message);
+        // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
+        let params = eui_core::host::host_params(self.now.as_ref().map(|f| f()), self.zone.as_deref());
+        let ops = self.router.route(&eui_core::host::with_host_params(message, &params));
         for op in &ops {
             self.perform(op, cx);
         }

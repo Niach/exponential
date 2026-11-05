@@ -210,7 +210,10 @@ public final class ExponentialHost {
     /// One server message (JSON text); returns the ops performed.
     @discardableResult
     public func receive(_ messageJSON: String) -> [JSONValue] {
-        let ops = JSONValue.parse(router.route(messageJson: messageJSON)).array ?? []
+        // VAPP-206: `${today}`, `${now}`, `${month}` at this bind, in the team zone.
+        let nowMs = options.now.map { $0().timeIntervalSince1970 * 1000 }
+        let routed = HostParams.adding(to: messageJSON, nowMs: nowMs, zone: options.zone)
+        let ops = JSONValue.parse(router.route(messageJson: routed)).array ?? []
         for op in ops { perform(op) }
         return ops
     }
