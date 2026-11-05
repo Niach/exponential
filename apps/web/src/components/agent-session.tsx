@@ -53,7 +53,6 @@ import {
   ThreadConversation,
   TranscriptDivider,
   useLiveArrivals,
-  ChatBubble,
   ASK_CARD_COPY,
   conceptIcon,
   EditedFilesCard,
@@ -666,19 +665,8 @@ export function AgentSessionView({
     const item = row.item
     switch (item.kind) {
       case `narration`:
-        // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the agent's
-        // text as THE chat bubble (left, bg-card, its time bottom-right).
-        return wrap(
-          isMobile ? (
-            <ChatBubble>
-              <div className={TRANSCRIPT_BODY_TEXT}>
-                <FeedText text={item.text} ariaLabel="Agent message" hardBreaks />
-              </div>
-            </ChatBubble>
-          ) : (
-            <NarrationBubble text={item.text} />
-          )
-        )
+        // EXP-1676: the run view's row on every form factor.
+        return wrap(<NarrationBubble text={item.text} />)
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(

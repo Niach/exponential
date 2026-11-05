@@ -989,15 +989,8 @@ struct AgentSessionView: View {
         case let .single(item):
             switch item {
             case let .narration(_, text, _, _):
-                // EXP-1373 (chats.json TRANSCRIPT): phones paint the agent's
-                // text on the left in a card-fill bubble.
-                AgentChatBubble(time: nil) {
-                    AgentMarkdownText(
-                        text: text,
-                        context: markdownContext,
-                        options: [.autolinkBareURLs, .hardLineBreaks]
-                    )
-                }
+                // EXP-1676: the run view's row on every form factor.
+                NarrationBubble(text: text, context: markdownContext)
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
@@ -2023,9 +2016,9 @@ struct UserMessageBubble: View {
     /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
     /// at the END of the caption line (`sessions.unqueue`); nil = no X.
     var onRemove: (() -> Void)? = nil
-    /// The free leading gap (a chat's bubbles: `ChatBubbleMetrics
-    /// .personLeadingGap`, max 80% of the column).
-    var leadingGap: CGFloat = 32
+    /// The free leading gap: a transcript's max 70% of the column; a chat's
+    /// bubbles pass `ChatBubbleMetrics.personLeadingGap`, max 80%.
+    var leadingGap: CGFloat = ChatBubbleMetrics.transcriptLeadingGap
     /// EXP-1553 (chats.json TRANSCRIPT ×4): a chat's bubble — the caption
     /// (`HH:mm`, ` · queued`, the X) sits INSIDE the bubble bottom-right,
     /// the 18pt chat radius; false = the caption under the bubble.

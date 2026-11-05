@@ -853,8 +853,8 @@ function ConversationBody({
   const xrefAgent = useXrefAgent()
   // S-3 (session-thread.json `chatModeCases`, chats.json CHAT MODE): an
   // agent conversation paints chat bubbles on every form factor; a thread
-  // keeps its transcript (phones: the bubbles of thread 58cb32df).
-  const bubbles = threadChatMode(root) === `bubbles` || isMobile
+  // keeps its transcript, on every form factor too (EXP-1676).
+  const bubbles = threadChatMode(root) === `bubbles`
   const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
   // The Dock holds the open suggestions; S-3: a waiting plan or question is
   // never docked and stays inline answerable.

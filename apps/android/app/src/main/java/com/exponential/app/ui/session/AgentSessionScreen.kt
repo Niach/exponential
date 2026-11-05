@@ -1984,7 +1984,7 @@ private fun ActivityFeed(
                                 when {
                                     divider != null -> TranscriptDivider(divider, item.at?.let(::feedClock))
                                     command != null -> CommandRow(command, item.text)
-                                    else -> UserMessageBubble(item.text, at = item.at)
+                                    else -> UserMessageBubble(item.text)
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
@@ -2302,52 +2302,24 @@ private fun NarrationBubble(
 ) {
     // MarkdownView renders nothing for blank input.
     if (text.isBlank()) return
-    if (nested) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                ExpIcons.codingAssistant,
-                contentDescription = null,
-                modifier = Modifier.size(13.dp).padding(top = 1.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
-        }
-        return
-    }
-    // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the agent's text
-    // on the left on THE card surface (max 94%, top-leading corner 6dp).
+    // EXP-1676: the run view's row on every form factor (web `NarrationBubble`).
     // EXP-440: GFM; EXP-430 bare URLs stay tappable.
-    // EXP-1521: the 94% cap as a layout modifier; BoxWithConstraints made
-    // every agent bubble a subcomposition just to read its width.
-    Box(modifier = Modifier.fillMaxWidth()) {
-        val shape = RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .maxWidthFraction(0.94f)
-                .clip(shape)
-                .background(GlassTokens.OpaqueCardFill, shape)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .testTag("session-agent-bubble"),
-        ) {
-            MarkdownView(text, softBreaksAsNewlines = true)
-        }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier)
+            .testTag("session-agent-narration"),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            ExpIcons.codingAssistant,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp).padding(top = 1.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        MarkdownView(text, softBreaksAsNewlines = true, modifier = Modifier.weight(1f))
     }
-}
-
-/** The incoming max width capped at [fraction] of itself (a `widthIn(max = maxWidth × f)`
- *  without the BoxWithConstraints subcomposition). */
-private fun Modifier.maxWidthFraction(fraction: Float): Modifier = layout { measurable, constraints ->
-    val cap = (constraints.maxWidth * fraction).toInt()
-    val placeable = measurable.measure(
-        constraints.copy(minWidth = minOf(constraints.minWidth, cap), maxWidth = cap),
-    )
-    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
 }
 
 private val FEED_CLOCK_FORMAT: java.time.format.DateTimeFormatter =
@@ -2960,7 +2932,7 @@ private fun Modifier.foldedTo(clampHeight: Dp): Modifier =
 // are the point of the message, and a long prose clamp must never be what
 // hides them.
 @Composable
-private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? = null) {
+private fun UserMessageBubble(text: String, nested: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
@@ -2976,16 +2948,16 @@ private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? =
             .then(if (nested) Modifier.padding(vertical = 5.dp) else Modifier),
         horizontalArrangement = Arrangement.End,
     ) {
-        // Thread 58cb32df (chats.json TRANSCRIPT): the person's bubble sits
-        // right, max 80% of the column, its time bottom-right.
-        Spacer(Modifier.fillMaxWidth(0.2f))
-        val bubbleShape = RoundedCornerShape(18.dp)
+        // EXP-1676: the transcript's person bubble ×4 (web `UserMessageBubble`
+        // variant transcript): right, max 70% of the column, no time.
+        Spacer(Modifier.fillMaxWidth(0.3f))
+        val bubbleShape = RoundedCornerShape(12.dp)
         Column(
             modifier = Modifier
                 .clip(bubbleShape)
-                .background(GlassTokens.OpaqueCardFill, bubbleShape)
+                .background(GlassTokens.RowFillActive, bubbleShape)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, bubbleShape)
-                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Column(
                 modifier = if (folds && !expanded) Modifier.foldedTo(FOLD_HEIGHT) else Modifier,
@@ -3014,14 +2986,6 @@ private fun UserMessageBubble(text: String, nested: Boolean = false, at: Long? =
             }
             if (hasFiles) {
                 SteerFileRows(parsed.files)
-            }
-            if (at != null) {
-                Text(
-                    feedClock(at),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-                )
             }
         }
     }
