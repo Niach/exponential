@@ -30,6 +30,9 @@ cd "$ede"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 arch="$(dpkg --print-architecture)"
 target="${CARGO_TARGET_DIR:-$ede/target}"
+# The shell is a second workspace with its own target directory (unless a
+# shared CARGO_TARGET_DIR says otherwise).
+shell_target="${CARGO_TARGET_DIR:-$ede/shell/target}"
 out="$ede/target-deb"
 stage="$(mktemp -d)"
 chmod 755 "$stage"
@@ -40,9 +43,10 @@ cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui 
 # The shell is its own workspace (gpui never enters the compositor's).
 (cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell)
 
-for bin in ede-compositor ede-session ede-ui ede-shell; do
+for bin in ede-compositor ede-session ede-ui; do
   install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
 done
+install -Dm755 "$shell_target/$profile/ede-shell" "$stage/usr/bin/ede-shell"
 for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/ede/ui/$(basename "$f")"; done
 install -Dm755 "$here/ede-polkit-agent" "$stage/usr/lib/ede/ede-polkit-agent"
 for f in "$here"/wayland-sessions/*.desktop; do install -Dm644 "$f" "$stage/usr/share/wayland-sessions/$(basename "$f")"; done
