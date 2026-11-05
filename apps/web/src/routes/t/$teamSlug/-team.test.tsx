@@ -3,7 +3,7 @@
 // injected `@apps` / `@new-app` lists; Devices follows Skills. Lives under a
 // `-` prefix so the route generator ignores it.
 import { describe, expect, it, vi } from "vitest"
-import { settingsNavVisible } from "@exp/domain-contract/settings-nav"
+import { SETTINGS_NAV_PHONE_ROWS, SETTINGS_NAV_ROWS, settingsNavVisible } from "@exp/domain-contract/settings-nav"
 
 vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -24,6 +24,13 @@ describe(`Team page rows (settings-nav.json)`, () => {
     expect(ids.filter((id) => id.includes(`app`))).toEqual([])
     expect(ids.indexOf(`devices`)).toBe(ids.indexOf(`skills`) + 1)
     expect(ids.some((id) => id.includes(`@`))).toBe(false)
+  })
+
+  it.each([true, false])(`draws the phones' rows first, the web-only rows after them (owner %s)`, (isOwner) => {
+    const expected = SETTINGS_NAV_PHONE_ROWS.filter((id) =>
+      settingsNavVisible(SETTINGS_NAV_ROWS.find((row) => row.id === id)!, { isOwner, isCloud: false })
+    )
+    expect(idsFor(isOwner).slice(0, expected.length)).toEqual(expected)
   })
 
   it(`opens Devices`, () => {
