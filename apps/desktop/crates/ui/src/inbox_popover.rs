@@ -74,10 +74,9 @@ fn mark_read(unread_ids: &[String], cx: &mut App) {
 fn type_icon(kind: Option<&str>) -> Icon {
     match kind {
         Some(domain::contract::NOTIFICATION_TYPE_ISSUE_ASSIGNED) => Icon::from(ExpIcon::UserPlus),
-        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_COMMENT) | Some(domain::contract::NOTIFICATION_TYPE_ISSUE_MENTION) => {
-            Icon::from(ExpIcon::MessageSquare)
-        }
-        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED) => Icon::from(ExpIcon::CircleDot),
+        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_COMMENT) => Icon::from(ExpIcon::MessageSquare),
+        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_MENTION) => Icon::new(registry::NOTIFICATION_ISSUE_MENTION),
+        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED) => Icon::new(registry::NOTIFICATION_ISSUE_STATUS_CHANGED),
         Some(domain::contract::NOTIFICATION_TYPE_PR_OPENED) => Icon::from(ExpIcon::GitPullRequest),
         Some(domain::contract::NOTIFICATION_TYPE_PR_MERGED) => Icon::from(ExpIcon::GitMerge),
         // SLOP-4: a widget reporter answered on an issue.

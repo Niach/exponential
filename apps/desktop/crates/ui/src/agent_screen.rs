@@ -177,32 +177,38 @@ pub(crate) fn agent_header(
     let name = agent.map(agent_def_name).unwrap_or_default();
     let call = agent.map(|agent| agent_header_call(&agent.id, &name, call_panel, cx));
     let menu = agent.and_then(|agent| agent_header_menu(&agent.id, cx));
+    // The rule spans the content card (web `border-b`), like the thread's.
     v_flex()
         .w_full()
-        .px(px(HEADER_INSET))
-        .pt_6()
-        .gap_4()
         .child(
-            h_flex()
-                .min_w_0()
-                .gap_3()
-                .items_center()
-                .child(agent_header_disc(agent, cx))
+            v_flex()
+                .w_full()
+                .px(px(HEADER_INSET))
+                .pt_6()
+                .pb_3()
+                .gap_4()
                 .child(
-                    div()
-                        .flex_1()
+                    h_flex()
                         .min_w_0()
-                        .truncate()
-                        .text_2xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.foreground)
-                        .child(SharedString::from(name)),
+                        .gap_3()
+                        .items_center()
+                        .child(agent_header_disc(agent, cx))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_2xl()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme.foreground)
+                                .child(SharedString::from(name)),
+                        )
+                        .children(merge)
+                        .children(call)
+                        .children(menu),
                 )
-                .children(merge)
-                .children(call)
-                .children(menu),
+                .children(strip),
         )
-        .children(strip)
         .child(div().w_full().h(px(1.)).bg(theme.border))
         .into_any_element()
 }

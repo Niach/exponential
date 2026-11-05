@@ -3496,22 +3496,29 @@ impl ThreadScreenView {
         // S-3 (owner 2026-10-28): no Stop pill; the composer's stop-turn
         // is the one stop.
         let menu = guide_menu(model, cx);
+        // The rule under the strip spans the content card (web `border-b`), so
+        // it meets the plan tab's outline hairline.
         v_flex()
             .w_full()
-            .px(px(HEADER_INSET))
-            .pt_6()
-            .gap_4()
             .child(
-                h_flex()
+                v_flex()
                     .w_full()
-                    .min_w_0()
-                    .gap_2()
-                    .items_center()
-                    .child(div().flex_1().min_w_0().child(title))
-                    .children(merge)
-                    .children(menu),
+                    .px(px(HEADER_INSET))
+                    .pt_6()
+                    .pb_3()
+                    .gap_4()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_2()
+                            .items_center()
+                            .child(div().flex_1().min_w_0().child(title))
+                            .children(merge)
+                            .children(menu),
+                    )
+                    .child(self.render_strip(model, window, cx)),
             )
-            .child(self.render_strip(model, window, cx))
             .child(div().w_full().h(px(1.)).bg(cx.theme().border))
             .into_any_element()
     }
