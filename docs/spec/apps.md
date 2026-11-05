@@ -595,7 +595,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 | `app_access` + per-tool switch | ✅ | #VAPP-183 |
 | Revocation cascades | ✅ | #VAPP-184 |
 | Settings › MCP merged ×4 | ✅ | #VAPP-185 |
-| "via <app>" | 🟡 comments only | #VAPP-186 |
+| "via <app>" | ✅ comments, issues, sessions, records, own-UI writes; issue list rows open | #VAPP-186, #VAPP-229, #VAPP-231 |
 | Broker `records` = full query | ✅ | Q4 #VAPP-216: `run.records` list + `records_list` `query` run the Q1 evaluator (`@exponential_app/eui/host/query`) over the caller's readable rows (read policy + RLS first, ≤ 25,000 rows read); `records-query.json` replays through the broker |
 | http upstreams | ✅ | |
 | Per-app upstream mapping | ✅ | #VAPP-254, below |
@@ -652,7 +652,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 
 - ✅ `mcp_calls` (90 days, args hashed, never stored).
 - ✅ `app_record_events` (§3.5, #VAPP-215).
-- ✅ (#VAPP-229, fixture `via-app.json`) `via_app_id` on comments (#VAPP-186), issues, sessions and `app_records`, so every write an app causes reads "via <app>" ×4. Only the server sets it, from the apps broker's own context: an exposed tool's `run.records` create, and the issues and sessions its `run.action` creates (later: automations, A1). An app's own UI writes as the viewer and carries none, because a client cannot claim an app. It shows on the issue detail's creation row (`created the issue · 2h · via Timesheet`), as one muted line in the session view's header, and in the Data tab's By cell (`Ana · via Timesheet`). A deleted app shows nothing. ✅ ×4: phones have no By cell (their Data rows carry no byline), so records show it on web and desktop only.
+- ✅ (#VAPP-229, fixture `via-app.json`) `via_app_id` on comments (#VAPP-186), issues, sessions and `app_records`, so every write an app causes reads "via <app>" ×4. Only the server sets it, from the apps broker's own context: an exposed tool's `run.records` create, and the issues and sessions its `run.action` creates (later: automations, A1). ✅ (#VAPP-231, fixture `claim`) An app's own UI writes as the viewer and claims its app: the host sends `viaApp: {appId, version}` (the synced `publishedVersion` at send time, on `apps.records.upsert` / `.batch`, and as the header `X-Exp-Via-App: {appId}@{version}` on an MCP call). The server stamps it only when the version is published, the caller is a member with app access, and the published package declares the function (`records.upsert` for record writes; the `exponential.<noun>.<op>` or `harness.mcp` for an MCP call). A forged claim adds at most a caption, never access, and a refused one costs the write nothing. Previews claim too: a function only a draft declares reads no caption. The Data tab and the CSV import are not the app's UI and send none. It shows on the issue detail's creation row (`created the issue · 2h · via Timesheet`), as one muted line in the session view's header, and in the Data tab's By cell (`Ana · via Timesheet`). A deleted app shows nothing. ✅ ×4: phones have no By cell (their Data rows carry no byline), so records show it on web and desktop only.
 
 ### 9.4 Public links (P1, decided: Phase 7, §18 item 5)
 

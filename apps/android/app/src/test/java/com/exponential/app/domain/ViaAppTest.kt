@@ -40,6 +40,23 @@ class ViaAppTest {
     }
 
     @Test
+    fun `claimCases replay`() {
+        val claim = fixture().getValue("claim").jsonObject
+        assertEquals(ViaApp.HEADER, claim.getValue("header").jsonPrimitive.content)
+        val cases = claim.getValue("claimCases").jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (case in cases.map { it.jsonObject }) {
+            val name = case.getValue("name").jsonPrimitive.content
+            val version = case.getValue("publishedVersion").let { if (it is JsonNull) null else it.jsonPrimitive.content.toInt() }
+            val actual = viaAppClaim(case.stringOrNull("appId"), version)
+            assertEquals(name, case.stringOrNull("header"), actual?.headerValue)
+            val expected = case.getValue("claim").let { if (it is JsonNull) null else it.jsonObject }
+            assertEquals(name, expected?.getValue("appId")?.jsonPrimitive?.content, actual?.appId)
+            assertEquals(name, expected?.getValue("version")?.jsonPrimitive?.content?.toInt(), actual?.version)
+        }
+    }
+
+    @Test
     fun `appendCases replay`() {
         val cases = fixture().getValue("appendCases").jsonArray
         assertTrue(cases.isNotEmpty())

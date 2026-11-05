@@ -86,6 +86,9 @@ import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppHostValues
 import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.TeamZone
+import com.exponential.app.domain.ViaApp
+import com.exponential.app.domain.ViaAppClaim
+import com.exponential.app.domain.viaAppClaim
 import com.exponential.app.domain.AppSources
 import com.exponential.app.domain.AppUpstream
 import com.exponential.app.domain.AppLink
@@ -591,6 +594,11 @@ fun rememberAppHost(
         // (the web/desktop settings page may change them while the host lives).
         val hostingApp: Flow<AppEntity?> =
             if (appId == null || !grants) flowOf(null) else db.scopedQuery(null) { it.appDao().observeById(appId) }
+        // VAPP-231 (via-app.json `claim`): what this host's MCP calls claim, read
+        // off the synced row at send time; the server checks it.
+        val ownApp: Flow<AppEntity?> =
+            if (appId == null) flowOf(null) else db.scopedQuery(null) { it.appDao().observeById(appId) }
+        suspend fun hostClaim(): ViaAppClaim? = viaAppClaim(appId, ownApp.first()?.publishedVersion)
         val teamApps: Flow<List<AppEntity>> =
             if (teamId == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { it.appDao().observeByTeam(teamId) }
         fun recordsOf(app: String?): Flow<List<AppRecordEntity>> =
@@ -772,7 +780,7 @@ fun rememberAppHost(
             if (args["tone"]?.string == "error") toaster.error(text) else toaster.info(text)
         }
         val mcp: HostFunction = { args, _ ->
-            callMcp(deps.httpClient(), origin, token, args["tool"]?.string.orEmpty(), args["arguments"])
+            callMcp(deps.httpClient(), origin, token, args["tool"]?.string.orEmpty(), args["arguments"], hostClaim())
         }
         // VAPP-122: the app's own rows (no consent card); a refusal (the
         // kind's schema, the caps, the plan quota) is a failed action.
@@ -848,7 +856,7 @@ fun rememberAppHost(
         val targets = AppActions.TOOLS + AppActions.ALIASES.mapValues { (_, name) -> AppActions.TOOLS.getValue(name) }
         val actions: Map<String, HostFunction> = targets.mapValues { (_, target) ->
             val fn: HostFunction = { args, _ ->
-                callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(AppActions.arguments(target, args)))
+                callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(AppActions.arguments(target, args)), hostClaim())
             }
             fn
         }
@@ -1019,7 +1027,7 @@ private var mcpRequestId = 0
  * `result` (a JSON body or the SSE message carrying our id); throws on an
  * HTTP failure, a JSON-RPC `error` or no answer.
  */
-private suspend fun callMcp(client: HttpClient, origin: String?, token: String?, tool: String, arguments: JsonValue?): Any? {
+private suspend fun callMcp(client: HttpClient, origin: String?, token: String?, tool: String, arguments: JsonValue?, viaApp: ViaAppClaim? = null): Any? {
     requireNotNull(origin) { "MCP: no instance" }
     val id = ++mcpRequestId
     val body = JsonValue.Obj(
@@ -1034,6 +1042,7 @@ private suspend fun callMcp(client: HttpClient, origin: String?, token: String?,
         contentType(ContentType.Application.Json)
         header("Accept", "application/json, text/event-stream")
         if (token != null) header("Authorization", "Bearer $token")
+        if (viaApp != null) header(ViaApp.HEADER, viaApp.headerValue)
         setBody(body)
     }
     if (!response.status.isSuccess()) error("MCP ${response.status.value}")

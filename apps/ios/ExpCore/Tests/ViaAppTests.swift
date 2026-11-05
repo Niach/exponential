@@ -9,6 +9,24 @@ final class ViaAppTests: XCTestCase {
         let copy: Copy
         let captionCases: [CaptionCase]
         let appendCases: [AppendCase]
+        let claim: ClaimSection
+    }
+
+    private struct ClaimSection: Decodable {
+        let header: String
+        let claimCases: [ClaimCase]
+    }
+
+    private struct ClaimCase: Decodable {
+        struct Expected: Decodable {
+            let appId: String
+            let version: Int
+        }
+        let name: String
+        let appId: String?
+        let publishedVersion: Int?
+        let claim: Expected?
+        let header: String?
     }
 
     private struct Copy: Decodable {
@@ -51,6 +69,18 @@ final class ViaAppTests: XCTestCase {
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
             XCTAssertEqual(viaAppCaption(c.viaAppName), c.text, c.name)
+        }
+    }
+
+    func testClaimCases() throws {
+        let section = try fixture().claim
+        XCTAssertEqual(section.header, ViaApp.header)
+        XCTAssertFalse(section.claimCases.isEmpty)
+        for c in section.claimCases {
+            let claim = viaAppClaim(c.appId, publishedVersion: c.publishedVersion)
+            XCTAssertEqual(claim?.appId, c.claim?.appId, c.name)
+            XCTAssertEqual(claim?.version, c.claim?.version, c.name)
+            XCTAssertEqual(claim?.headerValue, c.header, c.name)
         }
     }
 

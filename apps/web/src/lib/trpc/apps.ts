@@ -24,6 +24,8 @@ import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRec
 import { RECORD_POLICY_COPY, migrationRefusal, packageMigrations } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_CSV_IMPORT, importAuthor } from "@exp/domain-contract/app-records"
+import { VIA_APP_RECORDS_FUNCTION, type ViaAppClaim } from "@exp/domain-contract/via-app"
+import { verifiedViaApp } from "@/lib/apps/via-app-claim"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
@@ -65,6 +67,17 @@ function writeVia(ctx: Pick<Context, `viaMcp` | `viaAppId`>, via: `editor` | `ap
   if (ctx.viaAppId) return `app`
   if (ctx.viaMcp) return `mcp`
   return via ?? `app`
+}
+
+/** VAPP-231 (via-app.json `claim`): the host's claim that the write comes
+ *  from this app's own UI; checked here, it only adds a caption. */
+const viaAppClaimSchema = z.object({ appId: uuid, version: z.number().int() }).optional()
+/** The app a record write reads "via": the broker's stamp, else a claim that
+ *  names the app written to and holds. */
+async function recordsViaApp(ctx: Pick<Context, `viaAppId` | `db`> & { session: { user: { id: string } } }, input: { id?: string; viaApp?: ViaAppClaim }): Promise<string | undefined> {
+  if (ctx.viaAppId) return ctx.viaAppId
+  if (!input.viaApp || input.viaApp.appId !== input.id) return undefined
+  return (await verifiedViaApp(ctx.session.user.id, input.viaApp, [{ fn: VIA_APP_RECORDS_FUNCTION }], ctx.db)) ?? undefined
 }
 
 /** One app by id or by (team, slug). */
@@ -707,10 +720,13 @@ export const appsRouter = router({
         appRefSchema.and(
           // VAPP-235 (O1): an outbox replay brings its client write id
           // (`writeId`, the dedupe key) and a create its client id (`newId`).
-          z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), newId: uuid.optional(), writeId: uuid.optional(), author: z.string().min(1).max(64).optional(), via: clientVia })
+          z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), newId: uuid.optional(), writeId: uuid.optional(), author: z.string().min(1).max(64).optional(), via: clientVia, viaApp: viaAppClaimSchema })
         )
       )
-      .mutation(({ ctx, input }) => upsertRecord(ctx.session.user.id, input, { ...input, via: writeVia(ctx, input.via), ...(ctx.viaAppId ? { viaAppId: ctx.viaAppId } : {}) }, ctx.db)),
+      .mutation(async ({ ctx, input }) => {
+        const viaAppId = await recordsViaApp(ctx, input)
+        return upsertRecord(ctx.session.user.id, input, { ...input, via: writeVia(ctx, input.via), ...(viaAppId ? { viaAppId } : {}) }, ctx.db)
+      }),
 
     delete: authedProcedure
       .input(appRefSchema.and(z.object({ recordId: uuid, writeId: uuid.optional(), via: clientVia })))
@@ -754,11 +770,12 @@ export const appsRouter = router({
              *  `csvImport.maxRows` writes); else a package action's batch. */
             writeId: uuid.optional(),
             via: z.enum([`action`, `import`]).optional(),
+            viaApp: viaAppClaimSchema,
           })
         )
         .refine((input) => input.via === `import` || input.writes.length <= ACTION_LIMITS.steps, { message: `At most ${ACTION_LIMITS.steps} writes per action`, path: [`writes`] })
       )
-      .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db, input.writeId, input.via ?? `action`)),
+      .mutation(async ({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db, input.writeId, input.via ?? `action`, await recordsViaApp(ctx, input))),
   }),
 
   /** #VAPP-236 (eApps A2): the `handoff` action (`exponential.apps.handoff`):

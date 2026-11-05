@@ -950,6 +950,7 @@ impl RecordFormView {
             via: Some("editor".to_string()),
             new_id: None,
             write_id: None,
+            via_app: None,
         };
         let app_id = self.app_id.clone();
         self.busy = true;

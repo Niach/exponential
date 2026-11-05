@@ -10,6 +10,29 @@ public enum ViaApp {
     public static let captionTemplate = "via {app}"
     /// Fixture `copy.separator`.
     public static let separator = " · "
+    /// VAPP-231, fixture `claim.header`: the MCP header a claim rides on.
+    public static let header = "X-Exp-Via-App"
+}
+
+/// VAPP-231 (fixture `claim`): a host's claim that a write comes from its app
+/// (`viaApp` on a records write); the server checks it, it only adds the caption.
+public struct ViaAppClaim: Encodable, Equatable, Sendable {
+    public let appId: String
+    public let version: Int
+
+    public init(appId: String, version: Int) {
+        self.appId = appId
+        self.version = version
+    }
+
+    /// The MCP header's value, `{appId}@{version}`.
+    public var headerValue: String { "\(appId)@\(version)" }
+}
+
+/// The claim of a host over `appId`; nil without an app or a published version.
+public func viaAppClaim(_ appId: String?, publishedVersion: Int?) -> ViaAppClaim? {
+    guard let appId, !appId.isEmpty, let publishedVersion, publishedVersion > 0 else { return nil }
+    return ViaAppClaim(appId: appId, version: publishedVersion)
 }
 
 /// "via {app}", or nil without a (resolved, non-empty) app name.

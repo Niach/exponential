@@ -529,7 +529,8 @@ export async function commitRecordBatch(
   writes: readonly RecordBatchWrite[],
   executor: Executor = defaultDb,
   writeId?: string,
-  via: Extract<RecordWriteVia, `action` | `import`> = `action`
+  via: Extract<RecordWriteVia, `action` | `import`> = `action`,
+  viaAppId?: string
 ): Promise<{ txid: number; ids: string[]; eventIds: string[] }> {
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
@@ -608,7 +609,7 @@ export async function commitRecordBatch(
           const author = w.author ?? userId
           const [row] = await tx
             .insert(appRecords)
-            .values({ ...(w.newId ? { id: w.newId } : {}), appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: author, updatedBy: userId, schemaVersion: app.publishedVersion })
+            .values({ ...(w.newId ? { id: w.newId } : {}), appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: author, updatedBy: userId, viaAppId: viaAppId ?? null, schemaVersion: app.publishedVersion })
             .onConflictDoNothing({ target: appRecords.id })
             .returning({ id: appRecords.id })
           if (!row) throw idTaken()

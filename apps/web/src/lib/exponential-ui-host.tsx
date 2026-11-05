@@ -53,6 +53,7 @@ import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-con
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APP_FILES, APPS_COPY, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl } from "@exp/domain-contract/apps"
 import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
+import { VIA_APP_HEADER, viaAppClaim, viaAppHeaderValue, type ViaAppClaim } from "@exp/domain-contract/via-app"
 import { kindTransitions, migrateRecord, packageMigrations, readableRows, type AppAccessLevel, type RecordMigration } from "@exponential_app/eui/host"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -471,12 +472,12 @@ let mcpRequestId = 0
  *  Resolves the answer's `result`; rejects on HTTP failure, a JSON-RPC
  *  `error`, or no answer with the request's id (an SSE body is read until
  *  the message whose `id` is ours, like the server's MCP client). */
-export async function callMcp(tool: string, args: Record<string, unknown>): Promise<unknown> {
+export async function callMcp(tool: string, args: Record<string, unknown>, viaApp?: ViaAppClaim | null): Promise<unknown> {
   const id = ++mcpRequestId
   const res = await fetch(`/api/mcp`, {
     method: `POST`,
     credentials: `include`,
-    headers: { "content-type": `application/json`, accept: `application/json, text/event-stream` },
+    headers: { "content-type": `application/json`, accept: `application/json, text/event-stream`, ...(viaApp ? { [VIA_APP_HEADER]: viaAppHeaderValue(viaApp) } : {}) },
     body: JSON.stringify({ jsonrpc: `2.0`, id, method: `tools/call`, params: { name: tool, arguments: args } }),
   })
   if (!res.ok) {
@@ -656,12 +657,19 @@ export function createAppHost(options: AppHostOptions): AppHost {
     if (!scope.appId) throw new Error(`No app to keep records for`)
     return { id: scope.appId }
   }
+  // VAPP-231 (via-app.json `claim`): what this host's writes claim, read at
+  // send time; the server checks it, it only adds the "via <app>" caption.
+  const claim = () => viaAppClaim(scope.appId, appCollection.toArray.find((a) => a.id === scope.appId)?.publishedVersion)
+  const claimed = () => {
+    const viaApp = claim()
+    return viaApp ? { viaApp } : {}
+  }
   // VAPP-122: the app's own rows: no consent card; a refusal (the kind's
   // schema, the caps, the plan quota) is a failed action = a toast.
   const recordsUpsert: HostFunction = async ({ kind, data, id }) => {
     try {
       const result = await trpc.apps.records.upsert.mutate(
-        { ...appRef(), kind: String(kind ?? ``), data: (data && typeof data === `object` ? data : {}) as Record<string, unknown>, recordId: typeof id === `string` ? id : undefined },
+        { ...appRef(), kind: String(kind ?? ``), data: (data && typeof data === `object` ? data : {}) as Record<string, unknown>, recordId: typeof id === `string` ? id : undefined, ...claimed() },
         SKIP_ERROR_TOAST
       )
       await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
@@ -683,7 +691,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
   // VAPP-194: a package action's writes as ONE transaction (the server
   // checks them again); a refusal lands nothing and is the action's failure.
   const recordsBatch: HostFunction = async ({ writes }) => {
-    const result = await trpc.apps.records.batch.mutate({ ...appRef(), writes: (Array.isArray(writes) ? writes : []) as never }, SKIP_ERROR_TOAST)
+    const result = await trpc.apps.records.batch.mutate({ ...appRef(), writes: (Array.isArray(writes) ? writes : []) as never, ...claimed() }, SKIP_ERROR_TOAST)
     await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     // VAPP-215: a package action's writes toast Undo for 10 s (app-records.json `history`).
     if (scope.appId) toastRecordUndo(scope.appId, `batch`, result.eventIds, `app`)
@@ -716,14 +724,14 @@ export function createAppHost(options: AppHostOptions): AppHost {
         if (tone === `error`) toast.error(text)
         else toast(text)
       },
-      "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>),
+      "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>, claim()),
       // VAPP-120: every MCP operation as a typed function (fixtures/app-actions.json):
       // the same tools/call as the viewer, `op` + the args. EXP-1657: the
       // aliases too, so a package published before the split keeps working.
       ...Object.fromEntries(
         [...APP_ACTIONS, ...Object.keys(APP_ACTION_ALIASES)].map((name) => {
           const target = parseActionName(name)!
-          return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args)]
+          return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args, claim())]
         })
       ),
       // VAPP-161: the package format's record writes.

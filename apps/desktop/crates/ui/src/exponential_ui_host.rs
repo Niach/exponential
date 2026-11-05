@@ -75,6 +75,7 @@ use gpui_component::IconNamed as _;
 use serde_json::{json, Value};
 
 use domain::app_records::{OutboxCall, OutboxEntry, OutboxOutcome, OutboxResult, OutboxRow, OutboxState};
+use domain::via_app::ViaAppClaim;
 
 use crate::toast::Toast;
 
@@ -915,20 +916,31 @@ fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
 /// result whole. EXP-1492: through the emcp client (`api::mcp_tools`); a
 /// JSON-RPC error rejects with its message and code, like the web's
 /// `McpCallError`.
-fn mcp_call(tool: String, arguments: Value, cx: &mut App) -> Task<Result<Value, String>> {
+fn mcp_call(tool: String, arguments: Value, via_app: Option<ViaAppClaim>, cx: &mut App) -> Task<Result<Value, String>> {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         return Task::ready(Err("not signed in".to_string()));
     };
     cx.background_spawn(async move {
-        api::mcp_tools::call_tool_result(&trpc, &tool, &arguments).map_err(|e| format!("MCP {e}"))
+        api::mcp_tools::call_tool_result_via(&trpc, &tool, &arguments, via_app.as_ref()).map_err(|e| format!("MCP {e}"))
     })
 }
 
-fn mcp_fn() -> HostFunction {
-    Rc::new(|args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
+/// VAPP-231 (via-app.json `claim`): what a write of `app_id`'s host claims,
+/// read off the synced row at send time; the server checks it.
+fn host_claim(app_id: Option<&str>, cx: &App) -> Option<ViaAppClaim> {
+    let app_id = app_id?;
+    let store = sync::Store::try_global(cx)?;
+    let apps = store.collections().apps.read(cx);
+    let published = apps.get(app_id)?.published_version;
+    domain::via_app::via_app_claim(Some(app_id), published)
+}
+
+fn mcp_fn(app_id: Option<String>) -> HostFunction {
+    Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
         let tool = arg_str(&args, "tool");
         let arguments = args.get("arguments").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
-        mcp_call(tool, arguments, cx)
+        let via_app = host_claim(app_id.as_deref(), cx);
+        mcp_call(tool, arguments, via_app, cx)
     })
 }
 
@@ -953,9 +965,10 @@ pub(crate) fn action_arguments(op: Option<&str>, args: &Value) -> Value {
 }
 
 /// VAPP-120: `exponential.<noun>.<op>` → a `tools/call` of its tool.
-fn action_fn(target: domain::app_actions::ActionTarget) -> HostFunction {
+fn action_fn(target: domain::app_actions::ActionTarget, app_id: Option<String>) -> HostFunction {
     Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
-        mcp_call(target.tool.clone(), action_arguments(target.op.as_deref(), &args), cx)
+        let via_app = host_claim(app_id.as_deref(), cx);
+        mcp_call(target.tool.clone(), action_arguments(target.op.as_deref(), &args), via_app, cx)
     })
 }
 
@@ -1628,7 +1641,7 @@ fn records_enqueue(call: OutboxCall, args: Value, scope: Option<HostScope>, cx: 
 }
 
 /// One entry's replay (`outboxRequest`), as the entry's app.
-fn replay_entry(trpc: &api::TrpcClient, entry: &OutboxEntry) -> Result<Replayed, api::ApiError> {
+fn replay_entry(trpc: &api::TrpcClient, entry: &OutboxEntry, via_app: Option<&ViaAppClaim>) -> Result<Replayed, api::ApiError> {
     let (call, input) = domain::app_records::outbox_request(entry);
     let text = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
     let write_id = Some(entry.write_id.as_str());
@@ -1644,6 +1657,7 @@ fn replay_entry(trpc: &api::TrpcClient, entry: &OutboxEntry) -> Result<Replayed,
                 via: None,
                 new_id: text("newId"),
                 write_id: text("writeId"),
+                via_app: via_app.cloned(),
             },
         )
         .map(Replayed::Upsert),
@@ -1653,7 +1667,7 @@ fn replay_entry(trpc: &api::TrpcClient, entry: &OutboxEntry) -> Result<Replayed,
         }
         OutboxCall::Batch => {
             let writes = input.get("writes").and_then(Value::as_array).cloned().unwrap_or_default();
-            api::apps::records_batch(trpc, &entry.app_id, &writes, write_id).map(Replayed::Batch)
+            api::apps::records_batch(trpc, &entry.app_id, &writes, write_id, via_app).map(Replayed::Batch)
         }
     }
 }
@@ -1677,8 +1691,9 @@ fn flush_outbox(account_id: String, cx: &mut App) {
         let next = cx.update(|cx| {
             let entry = outbox.read(cx).accounts.get(&account_id).and_then(|es| es.iter().find(|e| e.is_pending()).cloned());
             let trpc = account_trpc(&account_id, cx);
+            let via_app = entry.as_ref().and_then(|e| host_claim(Some(e.app_id.as_str()), cx));
             match (entry, trpc) {
-                (Some(entry), Some(trpc)) => Some((entry, trpc)),
+                (Some(entry), Some(trpc)) => Some((entry, trpc, via_app)),
                 (entry, _) => {
                     // Nothing pending, or signed out: stop (the entry stays).
                     outbox.update(cx, |o, _| {
@@ -1691,9 +1706,9 @@ fn flush_outbox(account_id: String, cx: &mut App) {
                 }
             }
         });
-        let Some((entry, trpc)) = next else { return };
+        let Some((entry, trpc, via_app)) = next else { return };
         let sent = entry.clone();
-        let replayed = cx.background_executor().spawn(async move { replay_entry(&trpc, &sent) }).await;
+        let replayed = cx.background_executor().spawn(async move { replay_entry(&trpc, &sent, via_app.as_ref()) }).await;
         let go_on = cx.update(|cx| settle_entry(&account_id, &entry, replayed, cx));
         if !go_on {
             cx.update(|cx| outbox.update(cx, |o, _| o.flushing.remove(&account_id)));
@@ -1858,7 +1873,8 @@ impl IdeHost {
         let uploads = app_uploads(scope.as_ref());
         let mut functions: HashMap<String, HostFunction> = HashMap::new();
         functions.insert("harness.toast".into(), toast_fn());
-        functions.insert("harness.mcp".into(), mcp_fn());
+        let claim_app = scope.as_ref().map(|s| s.app_id.clone());
+        functions.insert("harness.mcp".into(), mcp_fn(claim_app.clone()));
         functions.insert("records.upsert".into(), records_upsert_fn(scope.clone()));
         functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
         functions.insert("records.batch".into(), records_batch_fn(scope.clone()));
@@ -1867,7 +1883,7 @@ impl IdeHost {
         let aliases = domain::app_actions::APP_ACTION_ALIASES.keys();
         for name in domain::app_actions::APP_ACTIONS.iter().chain(aliases) {
             if let Some(target) = domain::app_actions::parse_action_name(name) {
-                functions.insert(name.clone(), action_fn(target));
+                functions.insert(name.clone(), action_fn(target, claim_app.clone()));
             }
         }
         // VAPP-198: under Run as only the toast runs.

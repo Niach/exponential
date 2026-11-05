@@ -40,7 +40,7 @@ export function parseActionName(name: string): ActionTarget | null {
 }
 
 /** VAPP-107's pattern rule: an exact name or a `prefix*`. */
-function matches(pattern: string, name: string): boolean {
+export function functionPatternMatches(pattern: string, name: string): boolean {
   return pattern.endsWith(`*`) ? name.startsWith(pattern.slice(0, -1)) : pattern === name
 }
 
@@ -48,7 +48,7 @@ function matches(pattern: string, name: string): boolean {
  *  the aliases too: an alias declares its NEW name), in the fixture's order;
  *  anything that is not an offered action is dropped. */
 export function declaredActions(functions: readonly string[]): string[] {
-  const named = (name: string) => functions.some((pattern) => matches(pattern, name))
+  const named = (name: string) => functions.some((pattern) => functionPatternMatches(pattern, name))
   const viaAlias = new Set(Object.keys(ALIASES).filter(named).map((old) => ALIASES[old]!))
   return APP_ACTIONS.filter((name) => named(name) || viaAlias.has(name))
 }

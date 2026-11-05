@@ -205,6 +205,41 @@ describe(`VAPP-158: owner-only actions`, () => {
   })
 })
 
+describe(`the via-app claim (VAPP-231, via-app.json claim)`, () => {
+  const call = (host: ReturnType<typeof createAppHost>) => host.callFunction({ surfaceId: `s`, componentId: `c`, name: `exponential.issues.get`, args: { id: `APP-5` } })
+  const claimHeaders = () => {
+    const sent: (string | null)[] = []
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { id: number }
+        sent.push(new Headers(init.headers).get(`X-Exp-Via-App`))
+        return new Response(JSON.stringify({ jsonrpc: `2.0`, id: body.id, result: { content: [] } }), { status: 200, headers: { "content-type": `application/json` } })
+      })
+    )
+    return sent
+  }
+  const options = { consent: { ask: async () => true } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, appId: `a1`, grantedTools: () => [`exponential.issues.get`] }
+
+  it(`an MCP call of a published app's host carries the header`, async () => {
+    mocks.apps = [{ id: `a1`, publishedVersion: 3 }]
+    const sent = claimHeaders()
+    await call(createAppHost(options))
+    expect(sent).toEqual([`a1@3`])
+    mocks.apps = []
+    vi.unstubAllGlobals()
+  })
+
+  it(`a never-published app claims nothing`, async () => {
+    mocks.apps = [{ id: `a1`, publishedVersion: 0 }]
+    const sent = claimHeaders()
+    await call(createAppHost(options))
+    expect(sent).toEqual([null])
+    mocks.apps = []
+    vi.unstubAllGlobals()
+  })
+})
+
 describe(`callMcp`, () => {
   it(`rejects a JSON-RPC error with its message and code`, async () => {
     vi.stubGlobal(`fetch`, answering((id) => new Response(JSON.stringify({ jsonrpc: `2.0`, id, error: { code: -32602, message: `Unknown tool: nope` } }), { status: 200, headers: { "content-type": `application/json` } })))
