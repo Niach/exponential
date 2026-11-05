@@ -2619,6 +2619,11 @@ struct QuestionCard: View {
                 cardContent
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Web `AskCard`: no heading = the × sits beside the prompt, on the
+            // glyph's line, never on a line of its own.
+            if !hasHeading, let headerTrailing {
+                headerTrailing
+            }
         }
         .padding(12)
         // A bordered card, not a group container: the ask is one free-content
@@ -2627,9 +2632,12 @@ struct QuestionCard: View {
         .onAppear(perform: preselectEditingAnswer)
     }
 
-    private var hasHeader: Bool {
-        headerText != nil || stepLabel != nil || caption?.isEmpty == false || headerTrailing != nil
+    private var hasHeading: Bool {
+        headerText != nil || stepLabel != nil || caption?.isEmpty == false
     }
+
+    /// The label line: its words, with the trailing control beside them.
+    private var hasHeader: Bool { hasHeading }
 
     /// Everything under the heading: answered steps, the body, then the
     /// options 8pt below it (web `mt-2`).
