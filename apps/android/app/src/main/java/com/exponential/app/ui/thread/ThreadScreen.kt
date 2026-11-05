@@ -180,6 +180,11 @@ fun ThreadScreen(
     // #EXP-1662 (plan-page.json): the plan a row or a way in opened (else
     // `planTabTarget`), any plan of the tree, kept while the tab is shown.
     var pinnedPlan by rememberSaveable { mutableStateOf(viewModel.initialPlan) }
+    // #FEED-191 (plan-page.json `planTabTarget`'s `kept`): the plan the tab
+    // showed during THIS visit of the chat, kept until the person leaves the
+    // chat (saveable, so rotation keeps it; leaving pops the entry and a
+    // decided plan has no chip on the way back); tab switches keep it.
+    var keptPlan by rememberSaveable { mutableStateOf<String?>(null) }
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
@@ -199,9 +204,12 @@ fun ThreadScreen(
     }
     val messagesById = remember(messages) { messages.associateBy { it.id } }
     val issueTitles = remember(syncedIssues) { syncedIssues.associate { it.id to it.title } }
-    val shownPlan = remember(view?.rows, pinnedPlan, messagesById) {
-        threadShownPlan(view?.rows.orEmpty(), pinnedPlan, messagesById)
+    val shownPlan = remember(view?.rows, pinnedPlan, messagesById, keptPlan) {
+        threadShownPlan(view?.rows.orEmpty(), pinnedPlan, messagesById, keptPlan)
     }
+    // `kept` follows the tab's target whenever it is non-null (a pressed row
+    // pins its plan, so it lands here too).
+    LaunchedEffect(shownPlan?.id) { shownPlan?.id?.let { keptPlan = it } }
     // A plan of this tree opens the tab in place (a session page's row);
     // anything else takes the host's way in.
     val outerOpenPlan = LocalOpenPlanPage.current
@@ -917,6 +925,7 @@ fun ThreadContent(
                             waiting = waitingChips,
                             onPickWaiting = pickWaiting,
                             planWaiting = plan?.row?.decision == null && hasPlan,
+                            planDecision = plan?.row?.decision,
                         )
                     }
                 } else {
@@ -1095,19 +1104,22 @@ internal fun threadTabsWithPlan(tabs: List<SessionTree.ThreadTab>, hasPlan: Bool
 /**
  * #EXP-1662 (plan-page.json): the plan the tab shows: the plan a row or a way
  * in opened ([pinned], the root's rows or any message of the tree), else
- * `planTabTarget` over the Conversation's plan rows; null = no tab.
+ * `planTabTarget` over the Conversation's plan rows with this visit's [kept]
+ * (#FEED-191: a decided plan leaves the strip once the person left); null =
+ * no tab.
  */
 internal fun threadShownPlan(
     rows: List<SessionTree.ThreadRow>,
     pinned: String?,
     messages: Map<String, SessionTree.Message>,
+    kept: String? = null,
 ): SessionTree.ThreadRow.Plan? {
     val plans = rows.filterIsInstance<SessionTree.ThreadRow.Plan>()
     pinned?.let { id ->
         val row = plans.firstOrNull { it.id == id } ?: messages[id]?.let(SessionTree::askRow) as? SessionTree.ThreadRow.Plan
         if (row != null) return row
     }
-    val target = PlanPage.planTabTarget(plans.map { PlanPage.TabPlan(it.id, it.decision) })
+    val target = PlanPage.planTabTarget(plans.map { PlanPage.TabPlan(it.id, it.decision) }, kept)
     return plans.firstOrNull { it.id == target }
 }
 

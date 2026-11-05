@@ -86,7 +86,7 @@ class PlanPageTest {
         val layout = fixture.getValue("layout").jsonObject
         assertEquals(num(layout["outlineWidth"]), PlanPage.Layout.OUTLINE_WIDTH)
         assertEquals(num(layout["columnMaxWidth"]), PlanPage.Layout.COLUMN_MAX_WIDTH)
-        assertEquals(setOf("outlineWidth", "columnMaxWidth", "columnPadding", "blockGap", "outlineRowHeight", "outlineActiveBar", "titleSize", "rowHeight", "tabMaxWidth"), layout.keys)
+        assertEquals(setOf("outlineWidth", "columnMaxWidth", "columnPadding", "blockGap", "outlineRowHeight", "outlineActiveBar", "titleSize", "rowHeight", "tabMaxWidth", "railWidth"), layout.keys)
         assertEquals(num(layout.getValue("columnPadding").jsonObject["wide"]), PlanPage.Layout.COLUMN_PADDING_WIDE)
         assertEquals(num(layout.getValue("columnPadding").jsonObject["phone"]), PlanPage.Layout.COLUMN_PADDING_PHONE)
         assertEquals(num(layout["blockGap"]), PlanPage.Layout.BLOCK_GAP)
@@ -95,6 +95,7 @@ class PlanPageTest {
         assertEquals(num(layout["titleSize"]), PlanPage.Layout.TITLE_SIZE)
         assertEquals(num(layout["rowHeight"]), PlanPage.Layout.ROW_HEIGHT)
         assertEquals(num(layout["tabMaxWidth"]), PlanPage.Layout.TAB_MAX_WIDTH)
+        assertEquals(num(layout["railWidth"]), PlanPage.Layout.RAIL_WIDTH)
         val panel = fixture.getValue("panel").jsonObject
         assertEquals(num(panel["maxWidth"]), PlanPage.Panel.MAX_WIDTH)
         assertEquals(num(panel["gap"]), PlanPage.Panel.GAP)
@@ -206,7 +207,17 @@ class PlanPageTest {
             val plans = case.getValue("plans").jsonArray.map { it.jsonObject }.map {
                 PlanPage.TabPlan(it.str("id")!!, it.str("decision"))
             }
-            assertEquals(case.str("name"), case.str("expect"), PlanPage.planTabTarget(plans))
+            assertEquals(case.str("name"), case.str("expect"), PlanPage.planTabTarget(plans, case.str("kept")))
+        }
+    }
+
+    @Test
+    fun `replays every tab glyph case`() {
+        for (case in cases("tabGlyphCases")) {
+            val expected = case.getValue("expected").jsonObject
+            val glyph = PlanPage.planTabGlyph(case.str("decision"))
+            assertEquals(case.str("decision"), expected.str("icon"), glyph.icon)
+            assertEquals(case.str("decision"), expected.str("tone"), glyph.tone)
         }
     }
 

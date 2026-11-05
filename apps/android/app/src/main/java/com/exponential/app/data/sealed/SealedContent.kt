@@ -5,6 +5,7 @@ import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.SessionEntity
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -163,6 +164,25 @@ object SealedContent {
             opened.locked?.let { out["locked"] = JsonPrimitive(it) }
             if (out != message) {
                 next[slot] = JsonObject(out)
+                changed = true
+            }
+        }
+        // #FEED-191: every waiting card (`waits`) opens the same way.
+        (root["waits"] as? JsonArray)?.let { waits ->
+            val opened = waits.map { element ->
+                val message = element as? JsonObject ?: return@map element
+                val body = (message["body"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
+                val card = message["card"] as? JsonObject
+                if (!isSealedBody(body) && !isSealedCard(card)) return@map element
+                val result = openMessage(rootId, body, card?.toString(), keys)
+                val out = message.toMutableMap()
+                out["body"] = JsonPrimitive(result.body)
+                result.cardJson?.let { json -> runCatching { Json.parseToJsonElement(json) }.getOrNull()?.let { out["card"] = it } }
+                result.locked?.let { out["locked"] = JsonPrimitive(it) }
+                JsonObject(out)
+            }
+            if (opened != waits.toList()) {
+                next["waits"] = JsonArray(opened)
                 changed = true
             }
         }
