@@ -796,7 +796,10 @@ extension XCTestCase {
         let aboveSheet = max(anchor.frame.minY - 40, 60) / screenHeight
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: aboveSheet)).tap()
         for _ in 0..<3 {
-            if !anchor.exists { return }
+            // EXP-1676: wait out the sheet's own slide: resolving the anchor
+            // while it leaves failed the whole walk ("Failed to get matching
+            // snapshot"), and with it every shot after it.
+            if anchor.waitForNonExistence(timeout: 1.5) { return }
             let grip = anchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
             let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
             grip.press(forDuration: 0.05, thenDragTo: bottom)

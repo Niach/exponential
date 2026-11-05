@@ -43,7 +43,7 @@ struct ThreadCardsScreen: View {
             // A whole phone screen (its own nav bar and bottom bar);
             // #EXP-1388 `chat-selection` = the same list selecting two rows
             // over THE BAR.
-            ChatListSpecimens(selection: kind == "chat-selection" ? ["a", "c"] : nil)
+            ChatListSpecimens(selection: kind == "chat-selection" ? ["b", "c"] : nil)
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("thread-cards-screen")

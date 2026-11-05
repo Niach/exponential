@@ -75,7 +75,7 @@ struct ChatListSpecimens: View {
     /// The specimen's archived count (the Archived entry's trailing slot).
     private static let archived = 2
 
-    /// The selected rows as the bar reads them: `a` live (needs you),
+    /// The selected rows as the bar reads them: `b` live (working),
     /// `c` ended with one unread, both the viewer's.
     private static func selectionRow(_ id: String) -> Chats.ChatSelectionRow {
         let row = rows.first { $0.id == id }
