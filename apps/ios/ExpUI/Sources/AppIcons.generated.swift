@@ -195,6 +195,8 @@ public enum AppIcons {
         "circle-check",
         "circle-dashed",
         "circle-dot",
+        "circle-pause",
+        "circle-play",
         "circle-question-mark",
         "circle-slash",
         "circle-stop",
@@ -240,6 +242,7 @@ public enum AppIcons {
         "gem",
         "gift",
         "git-branch",
+        "git-compare-arrows",
         "git-merge",
         "git-pull-request",
         "github",
@@ -537,9 +540,12 @@ public enum AppIcons {
         "notification-session-blocked": "hourglass",
         "pr-batch": "boxes",
         "pr-closed": "circle-x",
+        "pr-conflict": "git-compare-arrows",
         "pr-draft": "circle-dot",
+        "pr-hold": "circle-pause",
         "pr-merged": "git-merge",
         "pr-open": "git-pull-request",
+        "pr-resume": "circle-play",
         "pr-stack": "layers",
         "priority-high": "signal-high",
         "priority-low": "signal-low",
@@ -970,12 +976,18 @@ public enum AppIcons {
     public static let prBatch: String = "boxes"
     /// Concept `pr-closed`.
     public static let prClosed: String = "circle-x"
+    /// Concept `pr-conflict`.
+    public static let prConflict: String = "git-compare-arrows"
     /// Concept `pr-draft`.
     public static let prDraft: String = "circle-dot"
+    /// Concept `pr-hold`.
+    public static let prHold: String = "circle-pause"
     /// Concept `pr-merged`.
     public static let prMerged: String = "git-merge"
     /// Concept `pr-open`.
     public static let prOpen: String = "git-pull-request"
+    /// Concept `pr-resume`.
+    public static let prResume: String = "circle-play"
     /// Concept `pr-stack`.
     public static let prStack: String = "layers"
     /// Concept `priority-high`.

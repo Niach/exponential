@@ -45,6 +45,8 @@ interface Contract {
   prChecksState: Section
   prCheckStatus: Section
   prCheckConclusion: Section
+  prMergeState: Section
+  teamMergeMode: Section
   prChecks: { failingConclusions: string[]; queuedFlagMinutes: number }
   sessionKind: Section
   sessionStatus: Section
@@ -521,6 +523,8 @@ ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("prChecksStateValues", contract.prChecksState.values)}
 ${swiftStringArray("prCheckStatusValues", contract.prCheckStatus.values)}
 ${swiftStringArray("prCheckConclusionValues", contract.prCheckConclusion.values)}
+${swiftStringArray("prMergeStateValues", contract.prMergeState.values)}
+${swiftStringArray("teamMergeModeValues", contract.teamMergeMode.values)}
 ${swiftStringArray("prChecksFailingConclusions", contract.prChecks.failingConclusions)}
 ${swiftStringArray("sessionKindValues", contract.sessionKind.values)}
 ${swiftStringArray("sessionStatusValues", contract.sessionStatus.values)}
@@ -655,6 +659,8 @@ ${swiftNamedValues("prState", contract.prState.values)}
 ${swiftNamedValues("prChecksState", contract.prChecksState.values)}
 ${swiftNamedValues("prCheckStatus", contract.prCheckStatus.values)}
 ${swiftNamedValues("prCheckConclusion", contract.prCheckConclusion.values)}
+${swiftNamedValues("prMergeState", contract.prMergeState.values)}
+${swiftNamedValues("teamMergeMode", contract.teamMergeMode.values)}
 ${swiftNamedValues("sessionKind", contract.sessionKind.values)}
 ${swiftNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -698,6 +704,8 @@ ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("prChecksStateValues", contract.prChecksState.values)}
 ${kotlinStringArray("prCheckStatusValues", contract.prCheckStatus.values)}
 ${kotlinStringArray("prCheckConclusionValues", contract.prCheckConclusion.values)}
+${kotlinStringArray("prMergeStateValues", contract.prMergeState.values)}
+${kotlinStringArray("teamMergeModeValues", contract.teamMergeMode.values)}
 ${kotlinStringArray("prChecksFailingConclusions", contract.prChecks.failingConclusions)}
 ${kotlinStringArray("sessionKindValues", contract.sessionKind.values)}
 ${kotlinStringArray("sessionStatusValues", contract.sessionStatus.values)}
@@ -832,6 +840,8 @@ ${kotlinNamedValues("prState", contract.prState.values)}
 ${kotlinNamedValues("prChecksState", contract.prChecksState.values)}
 ${kotlinNamedValues("prCheckStatus", contract.prCheckStatus.values)}
 ${kotlinNamedValues("prCheckConclusion", contract.prCheckConclusion.values)}
+${kotlinNamedValues("prMergeState", contract.prMergeState.values)}
+${kotlinNamedValues("teamMergeMode", contract.teamMergeMode.values)}
 ${kotlinNamedValues("sessionKind", contract.sessionKind.values)}
 ${kotlinNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -877,6 +887,8 @@ ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("prChecksStateValues", contract.prChecksState.values)}
 ${rustStrSlice("prCheckStatusValues", contract.prCheckStatus.values)}
 ${rustStrSlice("prCheckConclusionValues", contract.prCheckConclusion.values)}
+${rustStrSlice("prMergeStateValues", contract.prMergeState.values)}
+${rustStrSlice("teamMergeModeValues", contract.teamMergeMode.values)}
 ${rustStrSlice("prChecksFailingConclusions", contract.prChecks.failingConclusions)}
 ${rustStrSlice("sessionKindValues", contract.sessionKind.values)}
 ${rustStrSlice("sessionStatusValues", contract.sessionStatus.values)}
@@ -1016,6 +1028,8 @@ ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("prChecksState", contract.prChecksState.values)}
 ${rustNamedValues("prCheckStatus", contract.prCheckStatus.values)}
 ${rustNamedValues("prCheckConclusion", contract.prCheckConclusion.values)}
+${rustNamedValues("prMergeState", contract.prMergeState.values)}
+${rustNamedValues("teamMergeMode", contract.teamMergeMode.values)}
 ${rustNamedValues("sessionKind", contract.sessionKind.values)}
 ${rustNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}

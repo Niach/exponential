@@ -201,6 +201,9 @@
     "ci-passed": "circle-check",
     "ci-failed": "circle-x",
     "ci-skipped": "circle-slash",
+    "pr-conflict": "git-compare-arrows",
+    "pr-hold": "circle-pause",
+    "pr-resume": "circle-play",
 
     "sc-push": "upload",
 

@@ -1,0 +1,2626 @@
+{
+  "$comment": "EXP-1707 (epic #EXP-1704, Danny 2026-11-06): THE MERGE TRAIN, server-side, replaces yolo mode (session-thread.json EXP-1413) and the person's Merge pill. TS reference src/merge-train.ts; the server worker (#EXP-1709) and the pipeline (#EXP-1708) apply it; the clients (#EXP-1710, one PR per platform) replay `statusPill`, `menu`, `stuckRow` ×4 (natives replay this file by path like every fixture: registering it breaks no leg). MODE: `teams.merge_mode` (contract teamMergeMode) replaces `teams.yolo_mode`: `auto` = DEFAULT for every team, self-hosted included; `approval` = a ready PR waits for a person's Needs approval, then queues. Settings: the yolo switch becomes ONE select row `copy.settings` (Automatic | After approval), owners only. STATE: `pull_requests.merge_state` (contract prMergeState) + `merge_attempts` (train bounces) + `merge_hold` (the hold reason, null = none) + the 24 h clock (`queuedSince`, first entry to queued) + `mergeNow`. draft | checks | queued | testing | merged | conflict | failing | held. READINESS (`readiness`, `mergeWait`, first blocker wins): draft → `draft`; its OWN head checks red (prChecksState failure) → `failing`; running → `checks`; the OPENER or any descendant of it not idle (queued, running/busy: today yolo waits for the whole thread, the train only for the opener's subtree) → `session`; `approval` mode and nobody pressed Needs approval → `approval`; else READY (checks green or none). `preTrainState`: ready = queued; draft = draft; failing = failing; any other wait = checks. Every lifecycle edge (turn end, session end, pr open/update, a checks change, a push) re-evaluates readiness; the watchdog tick too. STATE MACHINE (`steps`, `mergeStep(pr, event)` → {pr, post}; merged is final): readiness moves only draft/checks/queued/conflict/failing (testing, held never; a Merge now PR is queued unless it is a draft); `push` (a new head) = checks again (a testing unit is pulled from its run: the worker recomposes the batch without it), held stays held; `train_start` queued → testing; `train_landed` testing → merged (post merged); `train_requeued` testing → queued (an innocent unit of a red batch, a cancelled run); `train_conflict` / `train_failing` testing → conflict / failing and attempts + 1 (a BOUNCE: the PR goes back to its agent, post conflict / failing); the bounce that reaches `limits.bounces` (3) lands in held (holdReason bounces, post held, never conflict/failing); `tick` = held (timeout, post held) once `limits.hours` (24) passed since queuedSince in checks/queued/conflict/failing (testing finishes first; a Merge now is exempt); `hold` (a person, any state but draft/held/merged) = held (person, post held; a testing unit is pulled from its run); `resume` (= Needs you Retry) held → checks with attempts 0, the clock and the hold cleared; `merge_now` (owners) = queued at the FRONT, alone, UNTESTED: the train composes it on the base (resolvers run; any other conflict bounces as usual) and fast-forwards without CI; it clears a hold, keeps attempts. A pre-train red (own checks) is `failing` without a bounce and without pr_merge: the pr_checks wake (pr-checks.json) already told the agent. LANDING: fast-forward the base (master) to the EXACT tested train commit (expected old sha; base moved = recompose); the App sits on the base ruleset's bypass list. Each landed PR is closed on GitHub with a comment naming the commit (GitHub shows Closed) and is `merged` in Exponential: the worker applies pr_merged itself (issue-lifecycle.json: a landing IS pr_merged). Self-hosted without CI: no checks = lands untested, still serialized and resolved. Merging needs no device; a FIX does: a conflict/failing PR whose opener's device is offline waits, and after `limits.offlineHours` (2) shows in Needs you. UNITS + BATCHES (`batches`, `composeBatch`): a UNIT = a lone PR or a whole stack (bottom first), eligible only when EVERY member is ready, readyAt = its latest member's; queue = Merge now units first, then readyAt, ties by the lowest PR number; a batch = whole units in queue order while ≤ `limits.batchMax` (8) PRs; a unit never splits (an oversized stack rides alone); the first unit that does not fit ends the batch (no skipping ahead); a Merge now unit rides alone. Stacks land as one unit, bottom first. Queue position (the pill's `Queued · 2nd`) = the unit's 1-based place in this queue, every member of a stack sharing it. BISECT (`bisect`, `trainRun` over a red oracle: a run is red when it holds a culprit, or while `flaky` runs remain): a red batch is re-run ONCE (`limits.reruns`); red again = bisect by units (left = the first ceil(n/2) units), each half tested on the base as it is then (a landed left half moved it): a green half lands; a red half of one unit = that unit failing (no re-run); a red half of more units bisects again. A batch of one unit red twice = failing. The innocent units of a red batch stay `testing` through the bisect and land with their half. RESOLVER POLICY (`resolver`, `resolveConflicts`): the engine is GENERIC; the repo declares its generated paths in `.exponential/merge-train.json` {`generated`: [{name, paths (repo globs: ** any segments, * within one), strategy, command?}]}. Strategies: `prepend-union` (both sides' prepended entries, newer unit's first: changelogs), `renumber` (the later unit's migration takes the next number, then `command` regenerates the snapshot), `regenerate` (take the base side, run `command`, never compile: bindings, lockfiles, licence inventories), `json-union` (object/array union, the later unit wins a key), `take-later` (binary: the later unit's file). Every conflicted path matched (first rule wins) = resolved, one step per rule in policy order; ANY unmatched path = `conflict` naming only the unmatched files (the unit bounces). A conflict in a SOURCE (contract.json, icons.json) is unmatched: only generated outputs resolve. `repoPolicy` = this repo's file. pr_merge (`texts`, `routing`): ONE waking message type, kind = merged | conflict | failing | held (session-thread.json copy.events `pr_merge`); the PR's line goes to its OPENER while live, else the thread's ROOT (an ended root keeps it for display only, pre-consumed, never woken). merged and a held by the limits (bounces/timeout; never a person's Hold) ALSO reach the root starter's Assistant conversation (agent-settings.json role assistant: 'the main agent that manages every ... pull request they have'), as ONE line per landed batch per Assistant (`assistantBatch`: `Merged #A, #B into master (issues: EXP-1, …)`, its PRs in landing order, issues deduplicated, five then +N; no Assistant = no line, never created for this), and never twice when that conversation already is the PR's target. Agents never poll: after `pr open` they end their turn. NEEDS YOU (`stuckRow`): a PR held by the limits, or conflict/failing with the opener's device offline 2 h+, is ONE needs-you.json row kind `pr` (opens `results`): title `Auto-merge stuck on #N`, meta = the reason (`3 bounces`, `24 hours`, `Device offline`), its actions as THE Button sm row: Retry (= resume), Merge now (owners: the `mergeNowPrompt` alert card), Close PR (close-pr.json). A person's Hold is never a row. In `auto` mode the EXP-1699 ready-to-merge PR rows go away (no PR waits for a person); in `approval` mode they stay and their tap is Needs approval (needs-you.json prCases gain `mergeMode` with #EXP-1710). STATUS PILL (`statusPill`, replaces pr-checks.json MERGE PILL `mergePill`): THE header pill (session-thread.json guidePullRequest; phones: the bottom Merge capsule shows the same) = THE Pill md, mode action, NOT primary, a STATUS: its tap opens the existing Checks submenu (pr-checks.json CHECKS LIST; no rows = mode readonly, tap null). Glyph by icons.json concept, `spinner` = THE Spinner, tone red tints the glyph only. draft `Draft` pr-draft; checks `Checks running` spinner (or `Session working` spinner while only the opener's subtree is busy); queued `Queued · 2nd` ci-queued (ordinal: 1st 2nd 3rd 4th 11th 12th 13th 21st); testing `Testing with 3` spinner (3 = the OTHER PRs of its batch; alone = `Testing`); merged `Merged` pr-merged; conflict `Conflict` pr-conflict red; failing `Checks failing` ci-failed red; held `On hold` pr-hold (a person's) | `Auto-merge stuck` pr-hold red (the limits). THE ONLY ACTION: `approval` mode, ready but not approved = `Needs approval`, PRIMARY, pr-merged, tap approve = the plain or stack confirm (prompts.json merge-issue-pr / merge-run-pr / the stack confirm, as the Merge pill asked), and Merge queues it (never merges directly). The person's merge is otherwise gone from the pill. MENU (`menu`, `mergeMenuEntries`, amends session-thread.json guideMenuEntries): `checks` (any viewer, the PR has rows), `merge-now` (OWNERS; a live PR not draft, merged or conflict; THE shared alert card `mergeNowPrompt`, Merge destructive, Cancel focused; a stack member lands its whole stack), `hold` | `resume` (members; a live PR not draft or merged; `resume` while held: label `Resume auto-merge`, = Retry), `close-pr` (members, live PR); in that order, icons ui-more submenu rows: checks summary glyph, pr-merged, pr-hold | pr-resume, pr-closed. Merged = checks only. `mergeNowPrompt` joins prompts.json as `merge-now-pr` in ONE PR together with the iOS and Android constants (their tests compare the id set).",
+  "limits": {
+    "batchMax": 8,
+    "reruns": 1,
+    "bounces": 3,
+    "hours": 24,
+    "offlineHours": 2
+  },
+  "copy": {
+    "pill": {
+      "draft": "Draft",
+      "checksRunning": "Checks running",
+      "sessionWorking": "Session working",
+      "queued": "Queued",
+      "queuedAt": "Queued · {position}",
+      "testing": "Testing",
+      "testingWith": "Testing with {count}",
+      "merged": "Merged",
+      "conflict": "Conflict",
+      "failing": "Checks failing",
+      "onHold": "On hold",
+      "stuck": "Auto-merge stuck",
+      "needsApproval": "Needs approval"
+    },
+    "menu": {
+      "mergeNow": "Merge now",
+      "hold": "Hold auto-merge",
+      "resume": "Resume auto-merge"
+    },
+    "needsYou": {
+      "title": "Auto-merge stuck on #{number}",
+      "bounces": "{count} bounces",
+      "timeout": "24 hours",
+      "offline": "Device offline",
+      "retry": "Retry",
+      "mergeNow": "Merge now",
+      "close": "Close PR"
+    },
+    "settings": {
+      "label": "Merge",
+      "auto": "Automatic",
+      "approval": "After approval"
+    },
+    "events": {
+      "merged": "Merged PR {pr}",
+      "conflict": "Conflict on PR {pr}",
+      "failing": "Checks failing on PR {pr}",
+      "held": "Auto-merge stopped on PR {pr}"
+    }
+  },
+  "testIds": {
+    "statusPill": "pr-merge-status",
+    "mergeNow": "pr-merge-now",
+    "hold": "pr-merge-hold",
+    "resume": "pr-merge-resume",
+    "stuckRow": "needs-you-merge-stuck",
+    "settingsRow": "settings-merge-mode"
+  },
+  "mergeNowPrompt": {
+    "id": "merge-now-pr",
+    "title": "Merge PR #{number} now?",
+    "titleStack": "Merge the stack now?",
+    "body": "It skips the merge train's tests.",
+    "variants": "titleStack when the PR sits in an open stack (it lands the whole stack, bottom first).",
+    "params": [
+      {
+        "name": "number",
+        "meaning": "the GitHub pull request number"
+      }
+    ],
+    "actions": [
+      {
+        "id": "cancel",
+        "label": "Cancel",
+        "role": "cancel"
+      },
+      {
+        "id": "merge",
+        "label": "Merge",
+        "role": "destructive"
+      }
+    ],
+    "focus": "cancel"
+  },
+  "readiness": [
+    {
+      "name": "a draft waits as a draft",
+      "input": {
+        "draft": true,
+        "checksState": "success",
+        "subtreeIdle": true,
+        "mode": "auto",
+        "approved": false
+      },
+      "expected": "draft"
+    },
+    {
+      "name": "draft wins over red checks",
+      "input": {
+        "draft": true,
+        "checksState": "failure",
+        "subtreeIdle": true,
+        "mode": "auto",
+        "approved": false
+      },
+      "expected": "draft"
+    },
+    {
+      "name": "own checks red",
+      "input": {
+        "draft": false,
+        "checksState": "failure",
+        "subtreeIdle": true,
+        "mode": "auto",
+        "approved": false
+      },
+      "expected": "failing"
+    },
+    {
+      "name": "own checks running",
+      "input": {
+        "draft": false,
+        "checksState": "pending",
+        "subtreeIdle": false,
+        "mode": "auto",
+        "approved": false
+      },
+      "expected": "checks"
+    },
+    {
+      "name": "green but the opener's subtree still works",
+      "input": {
+        "draft": false,
+        "checksState": "success",
+        "subtreeIdle": false,
+        "mode": "auto",
+        "approved": false
+      },
+      "expected": "session"
+    },
+    {
+      "name": "green, idle, auto = ready",
+      "input": {
+        "draft": false,
+        "checksState": "success",
+        "subtreeIdle": true,
+        "mode": "auto",
+        "approved": false
+      },
+      "expected": null
+    },
+    {
+      "name": "no checks at all = ready",
+      "input": {
+        "draft": false,
+        "checksState": "none",
+        "subtreeIdle": true,
+        "mode": "auto",
+        "approved": false
+      },
+      "expected": null
+    },
+    {
+      "name": "approval mode waits for a person",
+      "input": {
+        "draft": false,
+        "checksState": "success",
+        "subtreeIdle": true,
+        "mode": "approval",
+        "approved": false
+      },
+      "expected": "approval"
+    },
+    {
+      "name": "approval mode, approved = ready",
+      "input": {
+        "draft": false,
+        "checksState": "success",
+        "subtreeIdle": true,
+        "mode": "approval",
+        "approved": true
+      },
+      "expected": null
+    }
+  ],
+  "steps": [
+    {
+      "name": "ready: checks → queued starts the 24 h clock",
+      "pr": {
+        "state": "checks",
+        "attempts": 0,
+        "queuedSince": null,
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "readiness",
+        "wait": null,
+        "at": "2027-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "queued",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "re-queued keeps the first clock",
+      "pr": {
+        "state": "conflict",
+        "attempts": 1,
+        "queuedSince": "2027-01-15T01:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "readiness",
+        "wait": null,
+        "at": "2027-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "queued",
+          "attempts": 1,
+          "queuedSince": "2027-01-15T01:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "readiness never touches testing",
+      "pr": {
+        "state": "testing",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "readiness",
+        "wait": "session",
+        "at": "2027-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "testing",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "readiness never releases held",
+      "pr": {
+        "state": "held",
+        "attempts": 3,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": "bounces",
+        "mergeNow": false
+      },
+      "event": {
+        "type": "readiness",
+        "wait": null,
+        "at": "2027-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "held",
+          "attempts": 3,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": "bounces",
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "own checks red before the train: failing, no bounce, no post",
+      "pr": {
+        "state": "checks",
+        "attempts": 0,
+        "queuedSince": null,
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "readiness",
+        "wait": "failing",
+        "at": "2027-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "failing",
+          "attempts": 0,
+          "queuedSince": null,
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "back to draft",
+      "pr": {
+        "state": "queued",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "readiness",
+        "wait": "draft",
+        "at": "2027-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "draft",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "queued → testing",
+      "pr": {
+        "state": "queued",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "train_start"
+      },
+      "expected": {
+        "pr": {
+          "state": "testing",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "green train: merged",
+      "pr": {
+        "state": "testing",
+        "attempts": 1,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "train_landed"
+      },
+      "expected": {
+        "pr": {
+          "state": "merged",
+          "attempts": 1,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": "merged"
+      }
+    },
+    {
+      "name": "innocent unit of a red batch re-queues",
+      "pr": {
+        "state": "testing",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "train_requeued"
+      },
+      "expected": {
+        "pr": {
+          "state": "queued",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "first conflict bounces to the agent",
+      "pr": {
+        "state": "testing",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "train_conflict"
+      },
+      "expected": {
+        "pr": {
+          "state": "conflict",
+          "attempts": 1,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": "conflict"
+      }
+    },
+    {
+      "name": "second failing bounces",
+      "pr": {
+        "state": "testing",
+        "attempts": 1,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "train_failing"
+      },
+      "expected": {
+        "pr": {
+          "state": "failing",
+          "attempts": 2,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": "failing"
+      }
+    },
+    {
+      "name": "third bounce = held, not conflict",
+      "pr": {
+        "state": "testing",
+        "attempts": 2,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "train_conflict"
+      },
+      "expected": {
+        "pr": {
+          "state": "held",
+          "attempts": 3,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": "bounces",
+          "mergeNow": false
+        },
+        "post": "held"
+      }
+    },
+    {
+      "name": "a push brings conflict back to checks",
+      "pr": {
+        "state": "conflict",
+        "attempts": 1,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "push"
+      },
+      "expected": {
+        "pr": {
+          "state": "checks",
+          "attempts": 1,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "a push pulls a testing unit out",
+      "pr": {
+        "state": "testing",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "push"
+      },
+      "expected": {
+        "pr": {
+          "state": "checks",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "a push never releases held",
+      "pr": {
+        "state": "held",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": "person",
+        "mergeNow": false
+      },
+      "event": {
+        "type": "push"
+      },
+      "expected": {
+        "pr": {
+          "state": "held",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": "person",
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "23 h queued: nothing",
+      "pr": {
+        "state": "queued",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "tick",
+        "now": "2027-01-16T07:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "queued",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "24 h without landing: held (timeout)",
+      "pr": {
+        "state": "failing",
+        "attempts": 1,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "tick",
+        "now": "2027-01-16T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "held",
+          "attempts": 1,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": "timeout",
+          "mergeNow": false
+        },
+        "post": "held"
+      }
+    },
+    {
+      "name": "the clock waits for a run in flight",
+      "pr": {
+        "state": "testing",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "tick",
+        "now": "2027-01-17T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "testing",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "never queued = no clock",
+      "pr": {
+        "state": "checks",
+        "attempts": 0,
+        "queuedSince": null,
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "tick",
+        "now": "2027-01-17T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "checks",
+          "attempts": 0,
+          "queuedSince": null,
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "a person holds a queued PR",
+      "pr": {
+        "state": "queued",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "hold"
+      },
+      "expected": {
+        "pr": {
+          "state": "held",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": "person",
+          "mergeNow": false
+        },
+        "post": "held"
+      }
+    },
+    {
+      "name": "hold never applies to a draft",
+      "pr": {
+        "state": "draft",
+        "attempts": 0,
+        "queuedSince": null,
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "hold"
+      },
+      "expected": {
+        "pr": {
+          "state": "draft",
+          "attempts": 0,
+          "queuedSince": null,
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "resume (Retry) resets bounces and the clock",
+      "pr": {
+        "state": "held",
+        "attempts": 3,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": "bounces",
+        "mergeNow": false
+      },
+      "event": {
+        "type": "resume"
+      },
+      "expected": {
+        "pr": {
+          "state": "checks",
+          "attempts": 0,
+          "queuedSince": null,
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "Merge now on a held PR: front of the queue",
+      "pr": {
+        "state": "held",
+        "attempts": 3,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": "bounces",
+        "mergeNow": false
+      },
+      "event": {
+        "type": "merge_now"
+      },
+      "expected": {
+        "pr": {
+          "state": "queued",
+          "attempts": 3,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": true
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "a Merge now PR is queued whatever it waits for",
+      "pr": {
+        "state": "checks",
+        "attempts": 0,
+        "queuedSince": null,
+        "holdReason": null,
+        "mergeNow": true
+      },
+      "event": {
+        "type": "readiness",
+        "wait": "session",
+        "at": "2027-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "queued",
+          "attempts": 0,
+          "queuedSince": null,
+          "holdReason": null,
+          "mergeNow": true
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "a Merge now PR has no 24 h clock",
+      "pr": {
+        "state": "queued",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": true
+      },
+      "event": {
+        "type": "tick",
+        "now": "2027-01-17T08:00:00.000Z"
+      },
+      "expected": {
+        "pr": {
+          "state": "queued",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": true
+        },
+        "post": null
+      }
+    },
+    {
+      "name": "merged is final",
+      "pr": {
+        "state": "merged",
+        "attempts": 0,
+        "queuedSince": "2027-01-15T08:00:00.000Z",
+        "holdReason": null,
+        "mergeNow": false
+      },
+      "event": {
+        "type": "hold"
+      },
+      "expected": {
+        "pr": {
+          "state": "merged",
+          "attempts": 0,
+          "queuedSince": "2027-01-15T08:00:00.000Z",
+          "holdReason": null,
+          "mergeNow": false
+        },
+        "post": null
+      }
+    }
+  ],
+  "batches": [
+    {
+      "name": "queue order by readyAt, ties by number",
+      "units": [
+        {
+          "members": [
+            {
+              "number": 14,
+              "ready": true,
+              "readyAt": "2027-01-15T09:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 12,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 11,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "expected": [
+        [
+          11
+        ],
+        [
+          12
+        ],
+        [
+          14
+        ]
+      ]
+    },
+    {
+      "name": "a stack is one unit, bottom first, ready only when every member is",
+      "units": [
+        {
+          "members": [
+            {
+              "number": 20,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 21,
+              "ready": false,
+              "readyAt": null
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 30,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 31,
+              "ready": true,
+              "readyAt": "2027-01-15T07:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 5,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "expected": [
+        [
+          5
+        ],
+        [
+          30,
+          31
+        ]
+      ]
+    },
+    {
+      "name": "at most 8 PRs; the first unit that does not fit ends the batch",
+      "units": [
+        {
+          "members": [
+            {
+              "number": 1,
+              "ready": true,
+              "readyAt": "2027-01-15T01:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 2,
+              "ready": true,
+              "readyAt": "2027-01-15T02:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 3,
+              "ready": true,
+              "readyAt": "2027-01-15T03:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 4,
+              "ready": true,
+              "readyAt": "2027-01-15T04:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 5,
+              "ready": true,
+              "readyAt": "2027-01-15T05:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 6,
+              "ready": true,
+              "readyAt": "2027-01-15T06:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 7,
+              "ready": true,
+              "readyAt": "2027-01-15T07:00:00.000Z"
+            },
+            {
+              "number": 8,
+              "ready": true,
+              "readyAt": "2027-01-15T07:00:00.000Z"
+            },
+            {
+              "number": 9,
+              "ready": true,
+              "readyAt": "2027-01-15T07:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 10,
+              "ready": true,
+              "readyAt": "2027-01-15T09:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "expected": [
+        [
+          1
+        ],
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          4
+        ],
+        [
+          5
+        ],
+        [
+          6
+        ]
+      ]
+    },
+    {
+      "name": "an oversized stack rides alone",
+      "units": [
+        {
+          "members": [
+            {
+              "number": 40,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 41,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 42,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 43,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 44,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 45,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 46,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 47,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 48,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            },
+            {
+              "number": 49,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 2,
+              "ready": true,
+              "readyAt": "2027-01-15T09:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "expected": [
+        [
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49
+        ]
+      ]
+    },
+    {
+      "name": "Merge now rides first and alone",
+      "units": [
+        {
+          "members": [
+            {
+              "number": 1,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "members": [
+            {
+              "number": 9,
+              "ready": true,
+              "readyAt": "2027-01-15T10:00:00.000Z"
+            }
+          ],
+          "mergeNow": true
+        },
+        {
+          "members": [
+            {
+              "number": 2,
+              "ready": true,
+              "readyAt": "2027-01-15T08:00:00.000Z"
+            }
+          ]
+        }
+      ],
+      "expected": [
+        [
+          9
+        ]
+      ]
+    },
+    {
+      "name": "nothing ready",
+      "units": [
+        {
+          "members": [
+            {
+              "number": 1,
+              "ready": false,
+              "readyAt": null
+            }
+          ]
+        }
+      ],
+      "expected": []
+    }
+  ],
+  "bisect": [
+    {
+      "name": "green batch lands at once",
+      "input": {
+        "batch": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "culprits": []
+      },
+      "expected": {
+        "runs": [
+          [
+            1,
+            2,
+            3
+          ]
+        ],
+        "landed": [
+          1,
+          2,
+          3
+        ],
+        "failing": []
+      }
+    },
+    {
+      "name": "a flake: red once, green on the re-run",
+      "input": {
+        "batch": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "culprits": [],
+        "flaky": 1
+      },
+      "expected": {
+        "runs": [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1,
+            2,
+            3
+          ]
+        ],
+        "landed": [
+          1,
+          2,
+          3
+        ],
+        "failing": []
+      }
+    },
+    {
+      "name": "one culprit among four",
+      "input": {
+        "batch": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ]
+        ],
+        "culprits": [
+          3
+        ]
+      },
+      "expected": {
+        "runs": [
+          [
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ]
+        ],
+        "landed": [
+          1,
+          2,
+          4
+        ],
+        "failing": [
+          3
+        ]
+      }
+    },
+    {
+      "name": "the culprit is in the left half",
+      "input": {
+        "batch": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "culprits": [
+          1
+        ]
+      },
+      "expected": {
+        "runs": [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ]
+        ],
+        "landed": [
+          2,
+          3
+        ],
+        "failing": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "two culprits",
+      "input": {
+        "batch": [
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ]
+        ],
+        "culprits": [
+          1,
+          4
+        ]
+      },
+      "expected": {
+        "runs": [
+          [
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ]
+        ],
+        "landed": [
+          2,
+          3
+        ],
+        "failing": [
+          1,
+          4
+        ]
+      }
+    },
+    {
+      "name": "a stack unit fails as one",
+      "input": {
+        "batch": [
+          [
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "culprits": [
+          3
+        ]
+      },
+      "expected": {
+        "runs": [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "landed": [
+          1
+        ],
+        "failing": [
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "name": "a lone unit red twice is failing",
+      "input": {
+        "batch": [
+          [
+            7
+          ]
+        ],
+        "culprits": [
+          7
+        ]
+      },
+      "expected": {
+        "runs": [
+          [
+            7
+          ],
+          [
+            7
+          ]
+        ],
+        "landed": [],
+        "failing": [
+          7
+        ]
+      }
+    }
+  ],
+  "repoPolicy": {
+    "generated": [
+      {
+        "name": "changelog",
+        "paths": [
+          "apps/web/src/lib/changelog.ts",
+          "apps/desktop/crates/ui/src/changelog.rs"
+        ],
+        "strategy": "prepend-union"
+      },
+      {
+        "name": "migrations",
+        "paths": [
+          "apps/web/src/db/out/*.sql",
+          "apps/web/src/db/out/meta/**"
+        ],
+        "strategy": "renumber",
+        "command": "bun run migrate:generate"
+      },
+      {
+        "name": "contract bindings",
+        "paths": [
+          "**/DomainContract.generated.*",
+          "**/contract.generated.rs",
+          "**/SettingsNav.generated.*"
+        ],
+        "strategy": "regenerate",
+        "command": "bun run --filter @exp/domain-contract generate"
+      },
+      {
+        "name": "icon bindings",
+        "paths": [
+          "packages/icons/src/generated.ts",
+          "**/icons.generated.*",
+          "**/AppIcons.generated.swift",
+          "**/ExpIcons.generated.kt",
+          "apps/desktop/assets/icons/**",
+          "apps/ios/Exponential/Assets.xcassets/lucide-*/**"
+        ],
+        "strategy": "regenerate",
+        "command": "bun run --filter @exp/icons generate"
+      },
+      {
+        "name": "lockfiles",
+        "paths": [
+          "bun.lock",
+          "**/Cargo.lock"
+        ],
+        "strategy": "regenerate",
+        "command": "bun install --lockfile-only && cargo update --workspace --offline --manifest-path apps/desktop/Cargo.toml"
+      },
+      {
+        "name": "shots index",
+        "paths": [
+          "shots/index.json"
+        ],
+        "strategy": "json-union"
+      },
+      {
+        "name": "shots",
+        "paths": [
+          "shots/**/*.webp"
+        ],
+        "strategy": "take-later"
+      },
+      {
+        "name": "licence inventory",
+        "paths": [
+          "packages/licenses/inventory/**",
+          "**/NOTICES.txt",
+          "**/ThirdPartyNotices.*"
+        ],
+        "strategy": "regenerate",
+        "command": "bun run notices"
+      }
+    ]
+  },
+  "resolver": [
+    {
+      "name": "changelog + bindings resolve",
+      "paths": [
+        "apps/web/src/lib/changelog.ts",
+        "apps/ios/ExpCore/Sources/Domain/DomainContract.generated.swift",
+        "apps/desktop/crates/ui/src/changelog.rs",
+        "apps/desktop/crates/domain/src/contract.generated.rs"
+      ],
+      "expected": {
+        "ok": true,
+        "steps": [
+          {
+            "name": "changelog",
+            "strategy": "prepend-union",
+            "paths": [
+              "apps/web/src/lib/changelog.ts",
+              "apps/desktop/crates/ui/src/changelog.rs"
+            ],
+            "command": null
+          },
+          {
+            "name": "contract bindings",
+            "strategy": "regenerate",
+            "paths": [
+              "apps/ios/ExpCore/Sources/Domain/DomainContract.generated.swift",
+              "apps/desktop/crates/domain/src/contract.generated.rs"
+            ],
+            "command": "bun run --filter @exp/domain-contract generate"
+          }
+        ]
+      }
+    },
+    {
+      "name": "migrations renumber",
+      "paths": [
+        "apps/web/src/db/out/0042_brave_owl.sql",
+        "apps/web/src/db/out/meta/_journal.json"
+      ],
+      "expected": {
+        "ok": true,
+        "steps": [
+          {
+            "name": "migrations",
+            "strategy": "renumber",
+            "paths": [
+              "apps/web/src/db/out/0042_brave_owl.sql",
+              "apps/web/src/db/out/meta/_journal.json"
+            ],
+            "command": "bun run migrate:generate"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lockfiles + shots + licences",
+      "paths": [
+        "apps/desktop/Cargo.lock",
+        "shots/index.json",
+        "shots/plan-card/web.webp",
+        "apps/web/public/NOTICES.txt",
+        "bun.lock"
+      ],
+      "expected": {
+        "ok": true,
+        "steps": [
+          {
+            "name": "lockfiles",
+            "strategy": "regenerate",
+            "paths": [
+              "apps/desktop/Cargo.lock",
+              "bun.lock"
+            ],
+            "command": "bun install --lockfile-only && cargo update --workspace --offline --manifest-path apps/desktop/Cargo.toml"
+          },
+          {
+            "name": "shots index",
+            "strategy": "json-union",
+            "paths": [
+              "shots/index.json"
+            ],
+            "command": null
+          },
+          {
+            "name": "shots",
+            "strategy": "take-later",
+            "paths": [
+              "shots/plan-card/web.webp"
+            ],
+            "command": null
+          },
+          {
+            "name": "licence inventory",
+            "strategy": "regenerate",
+            "paths": [
+              "apps/web/public/NOTICES.txt"
+            ],
+            "command": "bun run notices"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a source conflict bounces, naming only the unmatched files",
+      "paths": [
+        "packages/domain-contract/contract.json",
+        "apps/android/app/src/main/java/com/exponential/app/domain/DomainContract.generated.kt",
+        "apps/web/src/lib/sessions/send.ts"
+      ],
+      "expected": {
+        "ok": false,
+        "files": [
+          "packages/domain-contract/contract.json",
+          "apps/web/src/lib/sessions/send.ts"
+        ]
+      }
+    },
+    {
+      "name": "no conflict = nothing to do",
+      "paths": [],
+      "expected": {
+        "ok": true,
+        "steps": []
+      }
+    }
+  ],
+  "texts": [
+    {
+      "kind": "merged",
+      "input": {
+        "numbers": [
+          12
+        ],
+        "base": "master"
+      },
+      "expected": "Merged #12 into master."
+    },
+    {
+      "kind": "merged",
+      "input": {
+        "numbers": [
+          12,
+          13,
+          15
+        ],
+        "base": "master",
+        "issues": [
+          "EXP-1",
+          "EXP-2",
+          "EXP-1"
+        ]
+      },
+      "expected": "Merged #12, #13, #15 into master (issues: EXP-1, EXP-2)."
+    },
+    {
+      "kind": "merged",
+      "input": {
+        "numbers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "base": "master",
+        "issues": [
+          "A-1",
+          "A-2",
+          "A-3",
+          "A-4",
+          "A-5",
+          "A-6",
+          "A-7"
+        ]
+      },
+      "expected": "Merged #1, #2, #3, #4, #5, #6 into master (issues: A-1, A-2, A-3, A-4, A-5 +2)."
+    },
+    {
+      "kind": "conflict",
+      "input": {
+        "number": 12,
+        "base": "master",
+        "files": [
+          "apps/web/src/lib/sessions/send.ts",
+          "packages/domain-contract/contract.json"
+        ],
+        "attempts": 1
+      },
+      "expected": "Auto-merge of #12 hit a conflict with master in apps/web/src/lib/sessions/send.ts, packages/domain-contract/contract.json. Rebase onto master, resolve and push: it re-queues by itself (bounce 1 of 3)."
+    },
+    {
+      "kind": "failing",
+      "input": {
+        "number": 12,
+        "failing": [
+          {
+            "name": "gate",
+            "detailsUrl": "https://github.com/o/r/actions/runs/1"
+          },
+          {
+            "name": "e2e"
+          }
+        ],
+        "attempts": 2
+      },
+      "expected": "Auto-merge of #12 failed in the merge train: gate (https://github.com/o/r/actions/runs/1), e2e. Fix and push: it re-queues by itself (bounce 2 of 3)."
+    },
+    {
+      "kind": "held",
+      "input": {
+        "number": 12,
+        "reason": "bounces"
+      },
+      "expected": "Auto-merge of #12 stopped after 3 bounces. It waits for a person (Needs you); do not retry."
+    },
+    {
+      "kind": "held",
+      "input": {
+        "number": 12,
+        "reason": "timeout"
+      },
+      "expected": "Auto-merge of #12 stopped: not merged within 24 hours. It waits for a person (Needs you); do not retry."
+    },
+    {
+      "kind": "held",
+      "input": {
+        "number": 12,
+        "reason": "person"
+      },
+      "expected": "A person put #12 on hold. It does not merge until they resume it."
+    },
+    {
+      "kind": "stuck",
+      "input": {
+        "number": 12,
+        "reason": "bounces"
+      },
+      "expected": "Auto-merge stuck on #12 (3 bounces)."
+    },
+    {
+      "kind": "stuck",
+      "input": {
+        "number": 12,
+        "reason": "timeout"
+      },
+      "expected": "Auto-merge stuck on #12 (24 hours)."
+    }
+  ],
+  "routing": [
+    {
+      "name": "conflict goes to the live opener only",
+      "input": {
+        "outcome": "conflict",
+        "holdReason": null,
+        "opener": {
+          "id": "o1",
+          "live": true
+        },
+        "root": {
+          "id": "r1",
+          "ended": false
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "o1",
+          "line": "pr",
+          "wakes": true
+        }
+      ]
+    },
+    {
+      "name": "failing falls back to the root once the opener ended",
+      "input": {
+        "outcome": "failing",
+        "holdReason": null,
+        "opener": {
+          "id": "o1",
+          "live": false
+        },
+        "root": {
+          "id": "r1",
+          "ended": false
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "r1",
+          "line": "pr",
+          "wakes": true
+        }
+      ]
+    },
+    {
+      "name": "an ended root keeps the line unwoken",
+      "input": {
+        "outcome": "conflict",
+        "holdReason": null,
+        "opener": {
+          "id": "o1",
+          "live": false
+        },
+        "root": {
+          "id": "r1",
+          "ended": true
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "r1",
+          "line": "pr",
+          "wakes": false
+        }
+      ]
+    },
+    {
+      "name": "merged: the opener and the starter's Assistant",
+      "input": {
+        "outcome": "merged",
+        "holdReason": null,
+        "opener": {
+          "id": "o1",
+          "live": true
+        },
+        "root": {
+          "id": "r1",
+          "ended": false
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "o1",
+          "line": "pr",
+          "wakes": true
+        },
+        {
+          "sessionId": "a1",
+          "line": "assistant",
+          "wakes": true
+        }
+      ]
+    },
+    {
+      "name": "merged into an ended thread still tells the Assistant",
+      "input": {
+        "outcome": "merged",
+        "holdReason": null,
+        "opener": {
+          "id": "o1",
+          "live": false
+        },
+        "root": {
+          "id": "r1",
+          "ended": true
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "r1",
+          "line": "pr",
+          "wakes": false
+        },
+        {
+          "sessionId": "a1",
+          "line": "assistant",
+          "wakes": true
+        }
+      ]
+    },
+    {
+      "name": "no Assistant = no second line",
+      "input": {
+        "outcome": "merged",
+        "holdReason": null,
+        "opener": {
+          "id": "o1",
+          "live": true
+        },
+        "root": {
+          "id": "r1",
+          "ended": false
+        },
+        "assistant": null
+      },
+      "expected": [
+        {
+          "sessionId": "o1",
+          "line": "pr",
+          "wakes": true
+        }
+      ]
+    },
+    {
+      "name": "the Assistant opened it: one line",
+      "input": {
+        "outcome": "merged",
+        "holdReason": null,
+        "opener": {
+          "id": "a1",
+          "live": true
+        },
+        "root": {
+          "id": "a1",
+          "ended": false
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "a1",
+          "line": "pr",
+          "wakes": true
+        }
+      ]
+    },
+    {
+      "name": "stuck (bounces) reaches the Assistant",
+      "input": {
+        "outcome": "held",
+        "holdReason": "bounces",
+        "opener": {
+          "id": "o1",
+          "live": true
+        },
+        "root": {
+          "id": "r1",
+          "ended": false
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "o1",
+          "line": "pr",
+          "wakes": true
+        },
+        {
+          "sessionId": "a1",
+          "line": "assistant",
+          "wakes": true
+        }
+      ]
+    },
+    {
+      "name": "a person's Hold never reaches the Assistant",
+      "input": {
+        "outcome": "held",
+        "holdReason": "person",
+        "opener": {
+          "id": "o1",
+          "live": true
+        },
+        "root": {
+          "id": "r1",
+          "ended": false
+        },
+        "assistant": "a1"
+      },
+      "expected": [
+        {
+          "sessionId": "o1",
+          "line": "pr",
+          "wakes": true
+        }
+      ]
+    }
+  ],
+  "assistantBatch": [
+    {
+      "name": "one line per Assistant per batch",
+      "base": "master",
+      "landed": [
+        {
+          "number": 12,
+          "assistant": "a1",
+          "issues": [
+            "EXP-1"
+          ]
+        },
+        {
+          "number": 13,
+          "assistant": "a2",
+          "issues": []
+        },
+        {
+          "number": 14,
+          "assistant": "a1",
+          "issues": [
+            "EXP-2",
+            "EXP-1"
+          ]
+        },
+        {
+          "number": 15,
+          "assistant": null,
+          "issues": [
+            "EXP-9"
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "sessionId": "a1",
+          "text": "Merged #12, #14 into master (issues: EXP-1, EXP-2)."
+        },
+        {
+          "sessionId": "a2",
+          "text": "Merged #13 into master."
+        }
+      ]
+    }
+  ],
+  "stuckRow": [
+    {
+      "name": "held after 3 bounces, owner",
+      "input": {
+        "number": 12,
+        "state": "held",
+        "holdReason": "bounces",
+        "deviceOfflineSince": null,
+        "now": "2027-01-15T10:00:00.000Z",
+        "owner": true
+      },
+      "expected": {
+        "title": "Auto-merge stuck on #12",
+        "meta": "3 bounces",
+        "actions": [
+          "retry",
+          "merge-now",
+          "close-pr"
+        ]
+      }
+    },
+    {
+      "name": "held after 24 h, member: no Merge now",
+      "input": {
+        "number": 12,
+        "state": "held",
+        "holdReason": "timeout",
+        "deviceOfflineSince": null,
+        "now": "2027-01-15T10:00:00.000Z",
+        "owner": false
+      },
+      "expected": {
+        "title": "Auto-merge stuck on #12",
+        "meta": "24 hours",
+        "actions": [
+          "retry",
+          "close-pr"
+        ]
+      }
+    },
+    {
+      "name": "a person's Hold is no row",
+      "input": {
+        "number": 12,
+        "state": "held",
+        "holdReason": "person",
+        "deviceOfflineSince": null,
+        "now": "2027-01-15T10:00:00.000Z",
+        "owner": true
+      },
+      "expected": null
+    },
+    {
+      "name": "conflict, device offline 2 h",
+      "input": {
+        "number": 12,
+        "state": "conflict",
+        "holdReason": null,
+        "deviceOfflineSince": "2027-01-15T08:00:00.000Z",
+        "now": "2027-01-15T10:00:00.000Z",
+        "owner": true
+      },
+      "expected": {
+        "title": "Auto-merge stuck on #12",
+        "meta": "Device offline",
+        "actions": [
+          "retry",
+          "merge-now",
+          "close-pr"
+        ]
+      }
+    },
+    {
+      "name": "failing, device offline 1 h: waits",
+      "input": {
+        "number": 12,
+        "state": "failing",
+        "holdReason": null,
+        "deviceOfflineSince": "2027-01-15T09:00:00.000Z",
+        "now": "2027-01-15T10:00:00.000Z",
+        "owner": true
+      },
+      "expected": null
+    },
+    {
+      "name": "conflict, device online: the agent fixes it",
+      "input": {
+        "number": 12,
+        "state": "conflict",
+        "holdReason": null,
+        "deviceOfflineSince": null,
+        "now": "2027-01-15T10:00:00.000Z",
+        "owner": true
+      },
+      "expected": null
+    },
+    {
+      "name": "queued is never stuck",
+      "input": {
+        "number": 12,
+        "state": "queued",
+        "holdReason": null,
+        "deviceOfflineSince": null,
+        "now": "2027-01-15T10:00:00.000Z",
+        "owner": true
+      },
+      "expected": null
+    }
+  ],
+  "statusPill": [
+    {
+      "name": "draft",
+      "input": {
+        "state": "draft",
+        "wait": "draft",
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Draft",
+        "glyph": "pr-draft",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "checks running",
+      "input": {
+        "state": "checks",
+        "wait": "checks",
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Checks running",
+        "glyph": "spinner",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "the opener's subtree still works",
+      "input": {
+        "state": "checks",
+        "wait": "session",
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Session working",
+        "glyph": "spinner",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "queued 2nd",
+      "input": {
+        "state": "queued",
+        "wait": null,
+        "position": 2,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Queued · 2nd",
+        "glyph": "ci-queued",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "queued 1st",
+      "input": {
+        "state": "queued",
+        "wait": null,
+        "position": 1,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Queued · 1st",
+        "glyph": "ci-queued",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "queued 11th",
+      "input": {
+        "state": "queued",
+        "wait": null,
+        "position": 11,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Queued · 11th",
+        "glyph": "ci-queued",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "queued 23rd",
+      "input": {
+        "state": "queued",
+        "wait": null,
+        "position": 23,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Queued · 23rd",
+        "glyph": "ci-queued",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "testing with 3",
+      "input": {
+        "state": "testing",
+        "wait": null,
+        "position": null,
+        "batchSize": 4,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Testing with 3",
+        "glyph": "spinner",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "testing alone",
+      "input": {
+        "state": "testing",
+        "wait": null,
+        "position": null,
+        "batchSize": 1,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Testing",
+        "glyph": "spinner",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "merged",
+      "input": {
+        "state": "merged",
+        "wait": null,
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Merged",
+        "glyph": "pr-merged",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "conflict",
+      "input": {
+        "state": "conflict",
+        "wait": null,
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Conflict",
+        "glyph": "pr-conflict",
+        "tone": "red",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "checks failing",
+      "input": {
+        "state": "failing",
+        "wait": "failing",
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Checks failing",
+        "glyph": "ci-failed",
+        "tone": "red",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "on hold (a person)",
+      "input": {
+        "state": "held",
+        "wait": null,
+        "position": null,
+        "batchSize": null,
+        "holdReason": "person",
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "On hold",
+        "glyph": "pr-hold",
+        "tone": "muted",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "stuck (the limits)",
+      "input": {
+        "state": "held",
+        "wait": null,
+        "position": null,
+        "batchSize": null,
+        "holdReason": "bounces",
+        "stack": false,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Auto-merge stuck",
+        "glyph": "pr-hold",
+        "tone": "red",
+        "primary": false,
+        "tap": "checks"
+      }
+    },
+    {
+      "name": "no check rows = readonly",
+      "input": {
+        "state": "queued",
+        "wait": null,
+        "position": 3,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 0
+      },
+      "expected": {
+        "label": "Queued · 3rd",
+        "glyph": "ci-queued",
+        "tone": "muted",
+        "primary": false,
+        "tap": null
+      }
+    },
+    {
+      "name": "approval mode: Needs approval, the only action",
+      "input": {
+        "state": "checks",
+        "wait": "approval",
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": false,
+        "checks": 0
+      },
+      "expected": {
+        "label": "Needs approval",
+        "glyph": "pr-merged",
+        "tone": "muted",
+        "primary": true,
+        "tap": "approve",
+        "confirm": "merge"
+      }
+    },
+    {
+      "name": "approval mode on a stack member",
+      "input": {
+        "state": "checks",
+        "wait": "approval",
+        "position": null,
+        "batchSize": null,
+        "holdReason": null,
+        "stack": true,
+        "checks": 3
+      },
+      "expected": {
+        "label": "Needs approval",
+        "glyph": "pr-merged",
+        "tone": "muted",
+        "primary": true,
+        "tap": "approve",
+        "confirm": "stack"
+      }
+    }
+  ],
+  "menu": [
+    {
+      "name": "no PR = no menu",
+      "input": {
+        "state": null,
+        "member": true,
+        "owner": false,
+        "checks": 2,
+        "mergeState": null
+      },
+      "expected": []
+    },
+    {
+      "name": "owner, queued: checks, Merge now, Hold, Close",
+      "input": {
+        "state": "open",
+        "member": true,
+        "owner": true,
+        "checks": 2,
+        "mergeState": "queued"
+      },
+      "expected": [
+        "checks",
+        "merge-now",
+        "hold",
+        "close-pr"
+      ]
+    },
+    {
+      "name": "member, queued: no Merge now",
+      "input": {
+        "state": "open",
+        "member": true,
+        "owner": false,
+        "checks": 2,
+        "mergeState": "queued"
+      },
+      "expected": [
+        "checks",
+        "hold",
+        "close-pr"
+      ]
+    },
+    {
+      "name": "viewer: checks only",
+      "input": {
+        "state": "open",
+        "member": false,
+        "owner": false,
+        "checks": 2,
+        "mergeState": "queued"
+      },
+      "expected": [
+        "checks"
+      ]
+    },
+    {
+      "name": "held: Resume",
+      "input": {
+        "state": "open",
+        "member": true,
+        "owner": true,
+        "checks": 2,
+        "mergeState": "held"
+      },
+      "expected": [
+        "checks",
+        "merge-now",
+        "resume",
+        "close-pr"
+      ]
+    },
+    {
+      "name": "conflict: no Merge now (it cannot land)",
+      "input": {
+        "state": "open",
+        "member": true,
+        "owner": true,
+        "checks": 0,
+        "mergeState": "conflict"
+      },
+      "expected": [
+        "hold",
+        "close-pr"
+      ]
+    },
+    {
+      "name": "draft: no Merge now, no Hold",
+      "input": {
+        "state": "draft",
+        "member": true,
+        "owner": true,
+        "checks": 2,
+        "mergeState": "draft"
+      },
+      "expected": [
+        "checks",
+        "close-pr"
+      ]
+    },
+    {
+      "name": "merged: checks only",
+      "input": {
+        "state": "merged",
+        "member": true,
+        "owner": true,
+        "checks": 2,
+        "mergeState": "merged"
+      },
+      "expected": [
+        "checks"
+      ]
+    },
+    {
+      "name": "closed: checks only",
+      "input": {
+        "state": "closed",
+        "member": true,
+        "owner": true,
+        "checks": 2,
+        "mergeState": "checks"
+      },
+      "expected": [
+        "checks"
+      ]
+    }
+  ]
+}
