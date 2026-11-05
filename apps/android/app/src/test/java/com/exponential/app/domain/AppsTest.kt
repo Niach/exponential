@@ -103,6 +103,7 @@ class AppsTest {
             "event" to Apps.AutomationsCopy.EVENT, "webhook" to Apps.AutomationsCopy.WEBHOOK, "paused" to Apps.AutomationsCopy.PAUSED,
             "failed" to Apps.AutomationsCopy.FAILED, "ok" to Apps.AutomationsCopy.OK, "never" to Apps.AutomationsCopy.NEVER,
             "runsAs" to Apps.AutomationsCopy.RUNS_AS,
+            "dropped" to Apps.AutomationsCopy.DROPPED, "droppedOne" to Apps.AutomationsCopy.DROPPED_ONE,
         )
         assertEquals(copy.keys - "pausedReasons", expectedCopy.keys)
         assertEquals(
@@ -150,6 +151,17 @@ class AppsTest {
                 opt(case, "expected"),
                 Apps.automationSponsor(opt(case, "paused"), opt(case, "sponsorName")),
             )
+        }
+    }
+
+    // #VAPP-255: automationDropped replays `automationDroppedCases`.
+    @Test
+    fun `automationDroppedCases replay`() {
+        val cases = fixture["automationDroppedCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val expected = case["expected"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            assertEquals(case["name"]!!.jsonPrimitive.content, expected, Apps.automationDropped(case["n"]!!.jsonPrimitive.int))
         }
     }
 

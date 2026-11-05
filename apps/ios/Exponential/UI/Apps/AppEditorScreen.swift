@@ -1164,7 +1164,8 @@ struct AppSettingsSheet: View {
         let row = Apps.automationRow(automation.row)
         // #VAPP-243: who it runs as, or why it is paused.
         let sponsor = Apps.automationSponsor(paused: automation.paused, sponsorName: automation.sponsorName)
-        let line = sponsor.map { "\(row.trigger) · \($0)" } ?? row.trigger
+        // #VAPP-255: then the runs the rate cap dropped.
+        let line = [row.trigger, sponsor, Apps.automationDropped(automation.droppedRuns)].compactMap { $0 }.joined(separator: " · ")
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(automation.name)

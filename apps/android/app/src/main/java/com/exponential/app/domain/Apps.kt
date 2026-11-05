@@ -92,6 +92,9 @@ object Apps {
         const val NEVER = "Not run yet"
         /** #VAPP-243: who a run acts as, or why it is paused. */
         const val RUNS_AS = "Runs as {name}"
+        /** #VAPP-255: the runs the rate cap dropped. */
+        const val DROPPED = "{n} runs dropped in 24 h"
+        const val DROPPED_ONE = "1 run dropped in 24 h"
         val PAUSED_REASONS: Map<String, String> = mapOf(
             "sponsorGone" to "Its sponsor is no longer on the team",
             "sponsorReadOnly" to "Its sponsor has read-only access",
@@ -361,6 +364,14 @@ object Apps {
     fun automationSponsor(paused: String?, sponsorName: String?): String? {
         if (!paused.isNullOrEmpty()) return AutomationsCopy.PAUSED_REASONS[paused] ?: AutomationsCopy.PAUSED
         return sponsorName?.takeIf { it.isNotEmpty() }?.let { AutomationsCopy.RUNS_AS.replace("{name}", it) }
+    }
+
+    /** #VAPP-255 (`automationDroppedCases`): the runs the rate cap dropped in
+     *  the last 24 h; null = nothing to say. */
+    fun automationDropped(n: Int): String? = when {
+        n <= 0 -> null
+        n == 1 -> AutomationsCopy.DROPPED_ONE
+        else -> AutomationsCopy.DROPPED.replace("{n}", n.toString())
     }
 
     // #VAPP-238 (fixture `webhookRowCases`): one row of the Settings tab's

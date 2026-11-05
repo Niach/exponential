@@ -88,6 +88,8 @@
       "ok": "OK",
       "never": "Not run yet",
       "runsAs": "Runs as {name}",
+      "dropped": "{n} runs dropped in 24 h",
+      "droppedOne": "1 run dropped in 24 h",
       "pausedReasons": {
         "sponsorGone": "Its sponsor is no longer on the team",
         "sponsorReadOnly": "Its sponsor has read-only access",
@@ -1038,6 +1040,15 @@
           "label": "OK"
         }
       }
+    ]
+  },
+  "automationDroppedCases": {
+    "$comment": "#VAPP-255 (decided 2026-11-05: keep the drop, make it visible) ×4: past @exp/emcp automations.json `limits.runsPerMinute` a run is not started and not retried, and its audit row (error `rateLimited`) is the only trace. tRPC `appAccess.appTools` `automations[].droppedRuns` = those rows of the automation in the last 24 h (0 when an older server sends none). An Automations row's second line = trigger, then sponsor (`automationSponsorCases`), then, when `automationDropped(n)` is not null, ` · ` + it, in the same muted caption: no new component, at most two lines. The status pill keeps saying what the LAST run did.",
+    "cases": [
+      { "name": "none dropped", "n": 0, "expected": null },
+      { "name": "a negative count", "n": -1, "expected": null },
+      { "name": "one", "n": 1, "expected": "1 run dropped in 24 h" },
+      { "name": "many", "n": 133, "expected": "133 runs dropped in 24 h" }
     ]
   },
   "automationSponsorCases": {

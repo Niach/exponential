@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { accountCaption, accountRow, automationSponsor, upstreamPicker, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
+import { accountCaption, accountRow, automationDropped, automationSponsor, upstreamPicker, policyCaption, type PolicyLevel, type PolicyOp, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
 import { screenParamsFromQuery, screenPath, screenShell, surfaceState } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
@@ -35,6 +35,9 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.automationSponsorCases.cases)(`automationSponsor (#VAPP-243) $name`, (c) => {
     expect(automationSponsor(c.paused, c.sponsorName)).toBe(c.expected)
+  })
+  test.each(fixture.automationDroppedCases.cases)(`automationDropped (#VAPP-255) $name`, (c) => {
+    expect(automationDropped(c.n)).toBe(c.expected)
   })
   test.each(fixture.webhookRowCases.cases)(`webhookRow (#VAPP-238) $name`, (c) => {
     expect(webhookRow(c.row, c.isOwner)).toEqual(c.expected as never)

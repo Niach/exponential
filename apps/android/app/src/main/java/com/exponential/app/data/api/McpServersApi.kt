@@ -161,6 +161,8 @@ data class AppAutomationDto(
     val lastStatus: String? = null,
     val lastError: String? = null,
     val lastFailureAt: String? = null,
+    /** #VAPP-255: runs the rate cap dropped in the last 24 h; 0 from an older server. */
+    val droppedRuns: Int = 0,
 ) {
     fun toRowInput(): com.exponential.app.domain.Apps.AutomationRowInput? {
         val obj = on as? JsonObject ?: return null

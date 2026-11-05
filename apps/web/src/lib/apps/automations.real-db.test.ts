@@ -144,6 +144,15 @@ describe.skipIf(!ready.ok)(`app automations (real db)`, () => {
     expect(listed.find((r) => r.name === `log_request`)).toMatchObject({ paused: `sponsorReadOnly`, lastStatus: `denied`, lastError: `sponsorReadOnly` })
   })
 
+  it(`Settings counts the runs the cap dropped in the last 24 h (#VAPP-255)`, async () => {
+    const w = await world()
+    const dropped = (createdAt: Date) => ({ teamId: w.teamId, userId: w.owner, clientId: `automation:log_request`, appId: w.appId, tool: `records.upsert:log`, status: `denied` as const, error: `rateLimited`, latencyMs: 0, argsHash: `x`, createdAt })
+    await db.insert(mcpCalls).values([dropped(new Date()), dropped(new Date()), dropped(new Date(Date.now() - 25 * 3_600_000))])
+    const listed = await automationRows({ id: w.appId, teamId: w.teamId, package: PACKAGE as never, publishedBy: w.owner })
+    expect(listed.find((r) => r.name === `log_request`)?.droppedRuns).toBe(2)
+    expect(listed.find((r) => r.name === `morning`)?.droppedRuns).toBe(0)
+  })
+
   it(`a schedule runs once per due minute`, async () => {
     const w = await world()
     await db.update(apps).set({ automationState: { morning: { checkedAt: `2026-11-03T07:59:30.000Z` } } }).where(eq(apps.id, w.appId))

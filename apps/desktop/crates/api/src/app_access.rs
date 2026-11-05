@@ -99,6 +99,9 @@ pub struct AppAutomation {
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_failure_at: Option<String>,
+    /// #VAPP-255: runs the rate cap dropped in the last 24 h; 0 from an older server.
+    #[serde(default)]
+    pub dropped_runs: i64,
 }
 
 impl AppAutomation {
@@ -464,6 +467,8 @@ mod tests {
         .unwrap();
         assert_eq!(out.automations.len(), 2);
         assert_eq!(out.automations[0].last_status.as_deref(), Some("ok"));
+        // #VAPP-255: an older server sends no count.
+        assert_eq!(out.automations[0].dropped_runs, 0);
         assert!(matches!(out.automations[0].trigger(), Some(domain::apps::AutomationOn::Schedule(_))));
         assert_eq!(out.automations[1].trigger(), None);
         assert_eq!(out.automations[1].paused.as_deref(), Some("sponsorGone"));

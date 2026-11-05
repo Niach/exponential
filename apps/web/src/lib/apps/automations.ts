@@ -304,6 +304,8 @@ export interface AutomationRow {
   lastStatus: CallStatus | null
   lastError: string | null
   lastFailureAt: string | null
+  /** #VAPP-255: runs the rate cap dropped in the last 24 h (`rateLimited` audit rows). */
+  droppedRuns: number
 }
 
 /** Settings › Automations: every automation of the published package with
@@ -318,6 +320,7 @@ export async function automationRows(app: Pick<App, `id` | `teamId` | `package` 
       lastFailureAt: sql<Date | null>`max(${mcpCalls.createdAt}) FILTER (WHERE ${mcpCalls.status} <> 'ok')`,
       lastStatus: sql<string>`(array_agg(${mcpCalls.status} ORDER BY ${mcpCalls.createdAt} DESC))[1]`,
       lastError: sql<string | null>`(array_agg(${mcpCalls.error} ORDER BY ${mcpCalls.createdAt} DESC))[1]`,
+      droppedRuns: sql<number>`(count(*) FILTER (WHERE ${mcpCalls.error} = 'rateLimited' AND ${mcpCalls.createdAt} > now() - interval '24 hours'))::int`,
     })
     .from(mcpCalls)
     .where(and(eq(mcpCalls.appId, app.id), like(mcpCalls.clientId, `automation:%`)))
@@ -340,6 +343,7 @@ export async function automationRows(app: Pick<App, `id` | `teamId` | `package` 
       lastStatus: (row?.lastStatus as CallStatus | undefined) ?? null,
       lastError: row?.lastError ?? null,
       lastFailureAt: iso(row?.lastFailureAt),
+      droppedRuns: row?.droppedRuns ?? 0,
     })
   }
   return out
