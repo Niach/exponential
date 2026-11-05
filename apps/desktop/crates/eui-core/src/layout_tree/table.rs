@@ -37,7 +37,7 @@ pub fn compare_cells(a: Option<&Value>, b: Option<&Value>, column_type: &str, de
     let ord = match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64().partial_cmp(&y.as_f64()).unwrap_or(Ordering::Equal),
         _ if matches!(column_type, "number" | "currency" | "percent") => num(a).partial_cmp(&num(b)).unwrap_or(Ordering::Equal),
-        _ if matches!(column_type, "date" | "relativeTime") => match (date_time(a), date_time(b)) {
+        _ if matches!(column_type, "date" | "dateTime" | "relativeTime") => match (date_time(a), date_time(b)) {
             (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(Ordering::Equal),
             // `NaN - x` is NaN: the reference's comparator calls it a tie.
             _ => Ordering::Equal,
@@ -191,7 +191,8 @@ fn fold_accent(c: char) -> char {
 /// is empty; `number` / `currency` / `percent` coerce like `num` (a
 /// numeric string counts, anything else is 0); `number` takes
 /// `column.decimals`, `currency` `column.currency` (ISO 4217, default
-/// USD), `percent` a ratio; `date` (the medium preset) and `relativeTime`
+/// USD), `percent` a ratio; `date` (the medium preset), `dateTime` (+ the
+/// short time) and `relativeTime`
 /// (against `now`) are empty when unreadable; `boolean` = a tick;
 /// everything else shows as [`crate::format::display_string`].
 pub fn cell_text(kind: &str, v: Option<&Value>, column: &Value, formatter: &dyn crate::format::Formatter, now: f64) -> String {
@@ -211,6 +212,7 @@ pub fn cell_text(kind: &str, v: Option<&Value>, column: &Value, formatter: &dyn 
         },
         "percent" => formatter.percent(num(v), decimals),
         "date" => format_date_value(formatter, v, &DateOptions::default()),
+        "dateTime" => format_date_value(formatter, v, &DateOptions { time: true, ..DateOptions::default() }),
         "relativeTime" => format_relative_value(formatter, v, now),
         "boolean" => {
             if crate::expr::truthy(v) && v != &Value::Bool(false) {
@@ -430,6 +432,8 @@ mod tests {
         assert_eq!(cell_text("percent", Some(&json!(0.256)), &json!({"decimals": 1}), en, 0.0), "25.6%");
         assert_eq!(cell_text("boolean", Some(&json!(true)), &col, en, 0.0), "✓");
         assert_eq!(cell_text("date", Some(&json!("2026-10-07")), &col, en, 0.0), "Oct 7, 2026");
+        assert_eq!(cell_text("dateTime", Some(&json!("2026-11-12T03:30:00.000Z")), &col, en, 0.0), "Nov 12, 2026, 3:30 AM");
+        assert_eq!(cell_text("dateTime", Some(&json!("next week")), &col, en, 0.0), "");
         assert_eq!(cell_text("relativeTime", Some(&json!(0)), &col, en, 86_400_000.0), "yesterday");
         assert_eq!(cell_text("text", Some(&json!(412)), &col, en, 0.0), "412");
         // The reference's coercions: USD by default, numeric strings count,

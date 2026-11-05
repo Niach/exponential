@@ -216,6 +216,8 @@ export function TableNative(props: NativeProps): JSX.Element {
         return text(Number.isFinite(n) ? ctx.formatter.percent(n, { decimals }) : ``)
       case `date`:
         return text(missing ? `` : ctx.formatter.date(v))
+      case `dateTime`:
+        return text(missing ? `` : ctx.formatter.date(v, { time: true }))
       case `relativeTime`:
         return text(missing ? `` : ctx.formatter.relativeTime(v, ctx.now()))
       case `boolean`:

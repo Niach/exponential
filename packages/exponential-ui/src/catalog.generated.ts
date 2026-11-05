@@ -54,7 +54,7 @@ export const ENUMS = {
   menuOpenOn: ["press","contextmenu"],
   live: ["off","polite","assertive"],
   selectable: ["none","single","multiple"],
-  cellType: ["text","number","date","boolean","badge","slot","currency","percent","relativeTime"],
+  cellType: ["text","number","date","boolean","badge","slot","currency","percent","relativeTime","dateTime"],
   sortDirection: ["asc","desc"],
   imageLoading: ["lazy","eager"],
   scrollDirection: ["vertical","horizontal","both"],

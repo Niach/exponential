@@ -229,7 +229,7 @@ export function catalogPrompt(options: PromptOptions = {}): string {
   const offered = Object.entries(coreCatalog.components).filter(([, def]) => isOffered(def) && (!options.lite || def.lite))
   const listed = offered.filter(([name]) => !only || only.has(name))
   if (has(`components`)) {
-    lines.push(`Components (props marked * are required, ~ accept a binding, ^ are responsive; =x is the default, else an enum defaults to its first value and a boolean to false${only ? `; ask for any other component by name` : ``}):`)
+    lines.push(`Components (props marked * are required, ~ accept a binding, ^ are responsive; =x is the default, else an enum defaults to its first, a boolean to false${only ? `; ask for any other component by name` : ``}):`)
     if (!options.terse) lines.push(`Common props (no description below): ${Object.entries(COMMON_PROPS).map(([k, v]) => (v ? `${k} (${v})` : k)).join(`, `)}.`)
     for (const [name, def] of listed) lines.push(componentBlock(name, def, view.enums, options.terse ?? false))
   }

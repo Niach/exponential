@@ -24,6 +24,8 @@ fn column_width(field: &Map<String, Value>) -> Option<i64> {
 }
 
 pub const RECORD_UPDATED_WIDTH: i64 = 136;
+/// A date-time cell's formatted `Nov 12, 2026, 3:30 AM` (the Data tab's raw editor keeps 152).
+pub const RECORD_DATE_TIME_WIDTH: i64 = 188;
 pub const RECORD_MENU_WIDTH: i64 = 80;
 /// A string longer than this (its `maxLength`) is a Textarea.
 pub const RECORD_LONG_TEXT: f64 = 200.0;
@@ -222,9 +224,15 @@ pub fn record_table_columns(kind: &Value, columns: Option<&[String]>, editable: 
                 col.insert("type".into(), json!("boolean"));
             } else if f.get("format").and_then(Value::as_str) == Some("date") {
                 col.insert("type".into(), json!("date"));
+            } else if f.get("format").and_then(Value::as_str) == Some("date-time") {
+                col.insert("type".into(), json!("dateTime"));
             }
-            match column_width(&f) {
-                Some(w) => col.insert("width".into(), json!(w)),
+            let width = if f.get("format").and_then(Value::as_str) == Some("date-time") { Some(RECORD_DATE_TIME_WIDTH) } else { column_width(&f) };
+            match width {
+                // A fixed column never truncates its own header: the label at
+                // the header's 8 px a letter, its 8 + 8 padding and the 16 + 4
+                // sort arrow.
+                Some(w) => col.insert("width".into(), json!(w.max(field_label(&key).chars().count() as i64 * 8 + 36))),
                 None => col.insert("truncate".into(), json!(true)),
             };
             Value::Object(col)
