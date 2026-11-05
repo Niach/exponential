@@ -471,11 +471,8 @@ export class ExponentialHost {
   /** An action `functionCall` to a host function: gate, consent, run. A
    *  built-in other than openUrl and bind has no effect as an action. */
   async callFunction(call: FunctionCallInfo): Promise<FunctionOutcome> {
-    if (call.name === `openUrl`) {
-      const url = typeof call.args.url === `string` ? call.args.url : ``
-      return { decision: this.openUrl(url) ? `allow` : `deny` }
-    }
-    if (call.name === `bind`) return { decision: this.bind(call.surfaceId, call.args) ? `allow` : `deny` }
+    const builtIn = this.runBuiltIn(call)
+    if (builtIn) return builtIn
     if (call.name === NAVIGATE_FUNCTION) return this.navigate(call)
     const action = actionCallName(call.name)
     if (action !== null) return this.runPackageAction(call, action)
@@ -513,7 +510,20 @@ export class ExponentialHost {
     return { decision: `allow` }
   }
 
+  /** VAPP-205: `openUrl` and `bind`, for a press and an action's `call`
+   *  step alike. Null for any other name. */
+  private runBuiltIn(call: FunctionCallInfo): FunctionOutcome | null {
+    if (call.name === `openUrl`) {
+      const url = typeof call.args.url === `string` ? call.args.url : ``
+      return { decision: this.openUrl(url) ? `allow` : `deny` }
+    }
+    if (call.name === `bind`) return { decision: this.bind(call.surfaceId, call.args) ? `allow` : `deny` }
+    return null
+  }
+
   private async run(call: FunctionCallInfo): Promise<FunctionOutcome> {
+    const builtIn = this.runBuiltIn(call)
+    if (builtIn) return builtIn
     if (call.name === NAVIGATE_FUNCTION) return this.navigate(call)
     const fn = Object.prototype.hasOwnProperty.call(this.functions, call.name) ? this.functions[call.name] : undefined
     if (!fn) return { decision: `allow` }
@@ -568,7 +578,8 @@ export class ExponentialHost {
     }
     for (const c of calls) {
       const outcome = await this.run(c)
-      if (outcome.error !== undefined) return { decision: `allow`, result: committed, error: outcome.error }
+      const error = outcome.error ?? (outcome.decision === `allow` ? undefined : `${c.name} was not allowed`)
+      if (error !== undefined) return { decision: `allow`, result: committed, error }
     }
     return { decision: `allow`, result: committed }
   }

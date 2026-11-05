@@ -564,6 +564,51 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     assert_eq!(codes.iter().filter(|c| *c == "ACTION_FAILED").count(), 3);
 }
 
+/// VAPP-205: `fixtures/actions.json` `hostCalls`: a `call` step reaches the
+/// same built-ins a press does.
+#[gpui::test]
+fn an_action_step_runs_bind_and_open_url(cx: &mut TestAppContext) {
+    init(cx);
+    let f = fixture("actions.json");
+    let pkg = f["hostCalls"]["package"].clone();
+    for c in f["hostCalls"]["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+        let o = opened.clone();
+        let bound = Arc::new(Mutex::new(None::<String>));
+        let b = bound.clone();
+        let resolver: SourceResolver = Box::new(move |source, emit| {
+            *b.lock().unwrap() = source.params.get("day").cloned();
+            emit(json!(["bound"]));
+            Box::new(|| {})
+        });
+        let t = MemoryTransport::new();
+        let host = host_with(
+            cx,
+            HostOptions {
+                transport: Some(Box::new(t.clone())),
+                packages: vec![pkg.clone()],
+                sources: HashMap::from([("records".to_string(), resolver)]),
+                policy: HostPolicy { open_url: Some(Rc::new(move |url: &str, _: &mut App| o.borrow_mut().push(url.to_string()))), ..Default::default() },
+                ..Default::default()
+            },
+        );
+        host.update(cx, |h, cx| h.connect(cx));
+        t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}})]);
+        cx.run_until_parked();
+        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: c["args"].clone() };
+        let task = host.update(cx, |h, cx| h.call_function(call, cx));
+        let out = outcome(task, cx);
+        assert_eq!(out.error.as_deref(), c["error"].as_str(), "{name}: error");
+        let want: Vec<String> = c["opened"].as_array().unwrap().iter().map(|u| u.as_str().unwrap().to_string()).collect();
+        assert_eq!(*opened.borrow(), want, "{name}: opened");
+        assert_eq!(bound.lock().unwrap().as_deref(), c["bound"]["day"].as_str(), "{name}: bound");
+        if c.get("bound").is_some() {
+            assert_eq!(data(&host, "s", cx)["rows"], json!(["bound"]), "{name}: rows");
+        }
+    }
+}
+
 #[gpui::test]
 fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
     // VAPP-218 (U1): `app.navigate` is always allowed, checked against the

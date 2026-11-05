@@ -113,4 +113,28 @@ describe(`a package action on a host`, () => {
     expect(out.error).toBe(`harness.toast was not allowed`)
     expect(s.rows()).toBe(before)
   })
+
+  // VAPP-205: a `call` step reaches the same built-ins a press does.
+  for (const c of fixture.hostCalls.cases as unknown as { name: string; action: string; args: Record<string, unknown>; bound?: Record<string, string>; opened: string[]; error?: string }[])
+    test(`hostCalls: ${c.name}`, async () => {
+      const pkg = fixture.hostCalls.package as unknown as AppPackage
+      const opened: string[] = []
+      let bound: Record<string, string> | undefined
+      const h = new ExponentialHost({
+        packages: [pkg],
+        sources: {
+          records: (source, emit) => {
+            bound = source.params
+            emit([`bound`])
+          },
+        },
+        policy: { openUrl: (url) => void opened.push(url) },
+      })
+      h.receive({ version: `v0.9`, applyTemplate: { surfaceId: `s`, packageId: pkg.id, templateId: `main` } })
+      const out = await h.callFunction({ surfaceId: `s`, componentId: `b`, name: `actions.${c.action}`, args: c.args })
+      expect(out.error).toBe(c.error as never)
+      expect(opened).toEqual(c.opened)
+      expect(bound).toEqual(c.bound)
+      if (c.bound) expect((h.surface(`s`)!.data as { rows: unknown }).rows).toEqual([`bound`])
+    })
 })

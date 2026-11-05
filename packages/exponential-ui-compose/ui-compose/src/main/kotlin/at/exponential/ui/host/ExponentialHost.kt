@@ -384,11 +384,7 @@ class ExponentialHost(
 
     /** An action `functionCall` to a host function: gate, consent, run; `actions.<name>` = the surface's package action (VAPP-194). A built-in other than `openUrl` and `bind` has no effect as an action. */
     suspend fun callFunction(call: FunctionCallInfo): FunctionOutcome {
-        if (call.name == "openUrl") {
-            val url = call.args["url"]?.string ?: ""
-            return FunctionOutcome(if (openUrl(url)) FunctionDecision.Allow else FunctionDecision.Deny)
-        }
-        if (call.name == "bind") return FunctionOutcome(if (bind(call.surfaceId, call.args)) FunctionDecision.Allow else FunctionDecision.Deny)
+        runBuiltIn(call)?.let { return it }
         if (call.name == Screens.NAVIGATE_FUNCTION) return navigate(call)
         Actions.actionName(call.name)?.let { return runPackageAction(call, it) }
         val verdict = gate(call)
@@ -433,7 +429,18 @@ class ExponentialHost(
         return FunctionOutcome(FunctionDecision.Allow)
     }
 
+    /** VAPP-205: `openUrl` and `bind`, for a press and an action's `call` step alike. Null for any other name. */
+    private fun runBuiltIn(call: FunctionCallInfo): FunctionOutcome? {
+        if (call.name == "openUrl") {
+            val url = call.args["url"]?.string ?: ""
+            return FunctionOutcome(if (openUrl(url)) FunctionDecision.Allow else FunctionDecision.Deny)
+        }
+        if (call.name == "bind") return FunctionOutcome(if (bind(call.surfaceId, call.args)) FunctionDecision.Allow else FunctionDecision.Deny)
+        return null
+    }
+
     private suspend fun run(call: FunctionCallInfo): FunctionOutcome {
+        runBuiltIn(call)?.let { return it }
         if (call.name == Screens.NAVIGATE_FUNCTION) return navigate(call)
         val fn = functions[call.name] ?: return FunctionOutcome(FunctionDecision.Allow)
         return try {
@@ -486,7 +493,8 @@ class ExponentialHost(
         for (s in plan.sets) model.setData(s.path, s.value)
         for (c in calls) {
             val outcome = run(c)
-            if (outcome.error != null) return FunctionOutcome(FunctionDecision.Allow, result = committed, error = outcome.error)
+            val error = outcome.error ?: if (outcome.decision == FunctionDecision.Allow) null else "${c.name} was not allowed"
+            if (error != null) return FunctionOutcome(FunctionDecision.Allow, result = committed, error = error)
         }
         return FunctionOutcome(FunctionDecision.Allow, result = committed)
     }

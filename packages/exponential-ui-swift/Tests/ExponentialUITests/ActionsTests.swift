@@ -207,4 +207,34 @@ final class ActionsTests: XCTestCase {
         XCTAssertEqual(s.batches, 0)
         XCTAssertEqual(s.formHours, .number(7.5))
     }
+
+    /// VAPP-205: `hostCalls`: a `call` step reaches the same built-ins a press does.
+    func testAnActionStepRunsBindAndOpenUrl() async throws {
+        let f = try XCTUnwrap(try Fixtures.json("actions.json")["hostCalls"])
+        let pkg = f["package"] ?? .null
+        for c in f["cases"]?.array ?? [] {
+            let name = c["name"]?.string ?? ""
+            var opened: [String] = []
+            var bound: [String: String]?
+            let host = ExponentialHost(HostOptions(
+                sources: ["records": { source, emit in
+                    bound = source.params
+                    emit(.array([.string("bound")]))
+                    return nil
+                }],
+                packages: [pkg.json],
+                policy: HostPolicy(openUrl: { opened.append($0.absoluteString) })
+            ))
+            host.receive(JSONValue.object([
+                "version": .string("v0.9"),
+                "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
+            ]))
+            let args = c["args"]?.object ?? [:]
+            let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "b", name: "actions.\(c["action"]?.string ?? "")", args: args))
+            XCTAssertEqual(out.error, c["error"]?.string, name)
+            XCTAssertEqual(opened, (c["opened"]?.array ?? []).compactMap(\.string), name)
+            XCTAssertEqual(bound?["day"], c["bound"]?["day"]?.string, name)
+            if c["bound"] != nil { XCTAssertEqual(host.surface("s")?.data["rows"], .array([.string("bound")]), name) }
+        }
+    }
 }

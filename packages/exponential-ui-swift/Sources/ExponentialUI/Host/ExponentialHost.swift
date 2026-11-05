@@ -335,12 +335,7 @@ public final class ExponentialHost {
     /// consent hook and the registry.
     @discardableResult
     public func callFunction(_ call: FunctionCallInfo) async -> FunctionOutcome {
-        if call.name == "openUrl" {
-            return FunctionOutcome(decision: openURL(call.args["url"]?.string ?? "") ? .allow : .deny)
-        }
-        if call.name == "bind" {
-            return FunctionOutcome(decision: bind(surfaceId: call.surfaceId, args: call.args) ? .allow : .deny)
-        }
+        if let builtIn = runBuiltIn(call) { return builtIn }
         if call.name == Screens.navigateFunction { return navigate(call) }
         if let action = Actions.actionName(call: call.name) { return await runPackageAction(call, action: action) }
         let verdict = await gate(call)
@@ -369,7 +364,20 @@ public final class ExponentialHost {
         return FunctionOutcome(decision: .allow)
     }
 
+    /// VAPP-205: `openUrl` and `bind`, for a press and an action's `call`
+    /// step alike. Nil for any other name.
+    private func runBuiltIn(_ call: FunctionCallInfo) -> FunctionOutcome? {
+        if call.name == "openUrl" {
+            return FunctionOutcome(decision: openURL(call.args["url"]?.string ?? "") ? .allow : .deny)
+        }
+        if call.name == "bind" {
+            return FunctionOutcome(decision: bind(surfaceId: call.surfaceId, args: call.args) ? .allow : .deny)
+        }
+        return nil
+    }
+
     private func run(_ call: FunctionCallInfo) async -> FunctionOutcome {
+        if let builtIn = runBuiltIn(call) { return builtIn }
         if call.name == Screens.navigateFunction { return navigate(call) }
         guard let fn = functions[call.name] else { return FunctionOutcome(decision: .allow) }
         do {
@@ -421,7 +429,9 @@ public final class ExponentialHost {
         for s in plan.sets { model.setData(path: s.path, value: s.value) }
         for c in calls {
             let outcome = await run(c)
-            if let error = outcome.error { return FunctionOutcome(decision: .allow, result: committed, error: error) }
+            if let error = outcome.error ?? (outcome.decision == .allow ? nil : "\(c.name) was not allowed") {
+                return FunctionOutcome(decision: .allow, result: committed, error: error)
+            }
         }
         return FunctionOutcome(decision: .allow, result: committed)
     }
