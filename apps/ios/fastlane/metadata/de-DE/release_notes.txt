@@ -36,3 +36,5 @@
 - Die Chatliste ist gruppiert, ohne Kreise und Filter-Chips
 - Team-Inhaber wählen, welcher MCP-Server jede Verbindung einer App bedient
 - Überall gleicher Look: ein Chat-Kopf, und eine Datei in einem verschlüsselten Chat erscheint als Dateizeile
+- Einträge in Apps haben Datums- und Zeitauswahl, und Inhaber können den Autor wählen
+- Inhaber legen in den Einstellungen fest, wann ein öffentlicher Link abläuft

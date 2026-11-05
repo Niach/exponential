@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.0 (2026-11-05)
+
 - VAPP-212: `host::MemoryRecordStore` + `RecordsDelta`: one app's rows, sync deltas, the records value with an optional per-query overlay.
 
 ## 0.15.4 (2026-11-05)

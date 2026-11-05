@@ -36,3 +36,5 @@
 - Lista czatów jest pogrupowana, bez kółek i filtrów
 - Właściciele zespołu wybierają, który serwer MCP obsługuje każde połączenie aplikacji
 - Ten sam wygląd wszędzie: jeden nagłówek czatu, a plik w szyfrowanym czacie wyświetla się jako wiersz pliku
+- Rekordy w aplikacjach mają wybór daty i godziny, a właściciele mogą wybrać autora
+- Właściciele ustawiają w Ustawieniach, kiedy wygasa publiczny link

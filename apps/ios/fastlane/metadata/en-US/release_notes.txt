@@ -36,3 +36,5 @@
 - The chat list is grouped, with no circles or filter chips
 - Team owners pick which team MCP server fills each of an app's connections
 - The same look everywhere: one chat header, and a file in an encrypted chat shows as a file line
+- App records have date and time pickers, and owners can pick the author
+- Owners set when a public link expires from Settings

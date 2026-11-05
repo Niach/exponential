@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-05-apps-polish",
+    date: "2026-11-05",
+    title: "Apps polish",
+    summary: "Records get date-time pickers and an Author field for owners, owners set public link expiry, app writes say which app made them, and app actions behave the same on every device.",
+    body: r#"- **Records**: a date-time field is a date and a time picker in the team's time zone, a team owner can pick a record's author, and a save the server refuses says why under the form instead of closing it. On a phone, a table row has its own Delete.
+- **Owners only**: the time tracker's Team settings card shows only to team owners, and apps can read whether you are an owner.
+- **Public links**: an owner sets when a public link expires from Settings, and a public view link can show an app's own screen.
+- **Via the app**: changes made through an app's screens read "via" that app in the history, on every device.
+- **Every device**: an app's actions that set values or open links run on every app, and on desktop a button press saves the field you were still typing in first.
+- **Quota**: restoring a deleted record counts against the team's record limit, like creating one.
+- **Known limit**: CLI daemons still on 0.14.79 cannot Continue a run, so a restarted run reaches Needs you 5 minutes later and its parent session is not woken. Update the CLI to fix it."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_211: ChangelogEntry = ChangelogEntry {
     id: "2026-11-05-exponential-sdk",
     date: "2026-11-05",
     title: "The open libraries are now the Exponential SDK",

@@ -36,3 +36,5 @@
 - Chatlisten er grupperet, uden cirkler og filterchips
 - Teamejere vælger, hvilken MCP-server der dækker hver af en apps forbindelser
 - Samme udseende overalt: én chat-overskrift, og en fil i en krypteret chat vises som en fillinje
+- Poster i apps har dato- og tidsvælgere, og ejere kan vælge forfatteren
+- Ejere sætter udløb for et offentligt link i Indstillinger
