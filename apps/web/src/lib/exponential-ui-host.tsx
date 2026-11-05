@@ -890,11 +890,11 @@ export function HostBanner({ host }: { host: ExponentialHost }) {
       <>
         {connect.map((banner) => (
           // The amber notice of ×4 (the offline banner's tone, icon + one ghost action).
-          <div key={banner.server} role="status" className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-sm text-amber-600 dark:text-amber-300" data-testid="exponential-ui-upstream-connect">
+          <div key={banner.server} role="status" className="flex items-center gap-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-1.5 text-sm text-yellow-400 dark:text-yellow-400" data-testid="exponential-ui-upstream-connect">
             <WarningIcon className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1">{banner.text}</span>
             {slug && banner.connect ? (
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-amber-600 hover:bg-amber-500/15 dark:text-amber-300" onClick={() => window.location.assign(`/t/${slug}/settings/mcp`)}>
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-yellow-400 hover:bg-yellow-400/15 dark:text-yellow-400" onClick={() => window.location.assign(`/t/${slug}/settings/mcp`)}>
                 {UPSTREAM_CONNECT}
               </Button>
             ) : null}
@@ -905,7 +905,7 @@ export function HostBanner({ host }: { host: ExponentialHost }) {
   }
   if (unsupportedCatalog)
     return (
-      <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-300" data-testid="exponential-ui-catalog-update">
+      <p className="rounded-md border border-yellow-400/40 bg-yellow-400/10 px-3 py-2 text-sm text-yellow-400 dark:text-yellow-400" data-testid="exponential-ui-catalog-update">
         This surface needs a newer Exponential. Update the app to show it.
       </p>
     )

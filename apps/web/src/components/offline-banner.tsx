@@ -19,7 +19,7 @@ export function OfflineBanner() {
   return (
     <div
       role="status"
-      className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-400"
+      className="flex items-center gap-2 border-b border-yellow-400/30 bg-yellow-400/10 px-4 py-1.5 text-xs text-yellow-400"
     >
       <OfflineIcon className="size-3.5 shrink-0" />
       {/* Byte-identical to the iOS, Android and desktop banners — kept as a
@@ -30,7 +30,7 @@ export function OfflineBanner() {
       <Button
         variant="ghost"
         size="sm"
-        className="h-6 px-2 text-amber-400 hover:bg-amber-500/15 hover:text-amber-300"
+        className="h-6 px-2 text-yellow-400 hover:bg-yellow-400/15 hover:text-yellow-400"
         disabled={retrying}
         onClick={retry}
       >

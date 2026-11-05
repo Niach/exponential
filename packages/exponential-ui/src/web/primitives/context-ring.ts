@@ -39,7 +39,7 @@ export type RingTone = `normal` | `warning` | `danger`
 
 export const RING_TONE_CLASS: Record<RingTone, string> = {
   normal: `text-muted-foreground`,
-  warning: `text-amber-500`,
+  warning: `text-yellow-400`,
   danger: `text-destructive`,
 }
 

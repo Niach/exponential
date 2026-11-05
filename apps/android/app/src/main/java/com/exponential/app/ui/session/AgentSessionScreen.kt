@@ -406,7 +406,7 @@ import kotlinx.coroutines.launch
 // Identical UX to the iOS RunFace (glass design system).
 
 private val LiveGreen = Color(0xFF34D399)
-private val ConnectingYellow = Color(0xFFFBBF24)
+private val ConnectingYellow = DesignTokens.Semantic.Yellow
 
 /** EXP-1051: how long the Usage sheet's transient notice (a refused account
  *  switch) stays up — long enough to read one sentence, short enough that it

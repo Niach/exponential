@@ -19,7 +19,7 @@ export type RunStatusRowTone = `muted` | `amber` | `emerald` | `sky`
 
 export const RUN_STATUS_ROW_TONE_CLASS: Record<RunStatusRowTone, string> = {
   muted: `text-muted-foreground`,
-  amber: `text-amber-400`,
+  amber: `text-yellow-400`,
   emerald: `text-emerald-400`,
   sky: `text-sky-400`,
 }

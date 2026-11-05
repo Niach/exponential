@@ -29,8 +29,8 @@ extension Dock.Tint {
 public enum DockMetrics {
     /// The cards' and the composer's gap in the band (web `gap-1.5`).
     public static let bandGap: CGFloat = 6
-    /// Web `amber-400`: a warning banner's tint.
-    public static let warning = Color(red: 0.984, green: 0.749, blue: 0.141)
+    /// A warning banner's tint: `semantic.yellow` (#EXP-1695).
+    public static let warning = DesignTokens.Semantic.yellow
     /// The band's side gutter (the transcript's).
     public static let gutter: CGFloat = 16
     /// A card's padding (web `p-3`).

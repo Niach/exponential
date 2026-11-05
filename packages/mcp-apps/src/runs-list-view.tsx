@@ -173,7 +173,7 @@ function SessionRow({
           </div>
         )}
         {blocked && (
-          <div className="truncate pl-5 text-xs font-medium text-amber-400">{blocked}</div>
+          <div className="truncate pl-5 text-xs font-medium text-yellow-400">{blocked}</div>
         )}
         {byline && (
           <div className="truncate pl-5 text-xs text-muted-foreground">{byline}</div>

@@ -71,7 +71,7 @@ export const TOAST_CLASSES = {
     success: `text-green-500`,
     error: `text-red-500`,
     info: `text-blue-500`,
-    warning: `text-yellow-500`,
+    warning: `text-yellow-400`,
   } satisfies Record<ToastKind, string>,
 } as const
 

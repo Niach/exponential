@@ -19,7 +19,7 @@ export type SessionRowTone = `muted` | `amber` | `emerald` | `sky`
 
 const TONE_CLASS: Record<SessionRowTone, string> = {
   muted: `text-muted-foreground`,
-  amber: `text-amber-400`,
+  amber: `text-yellow-400`,
   emerald: `text-emerald-400`,
   sky: `text-sky-400`,
 }

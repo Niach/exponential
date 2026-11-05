@@ -9,7 +9,7 @@ describe(`the session dot`, () => {
     expect(SESSION_DOT_CLASS).toEqual({
       running: `bg-emerald-500`,
       review: `bg-emerald-500`,
-      needs_input: `bg-amber-500`,
+      needs_input: `bg-yellow-400`,
       done: `bg-sky-500`,
       muted: `bg-muted-foreground/40`,
     })

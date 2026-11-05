@@ -298,7 +298,7 @@ function TeamTabPage() {
               {row.slug === teamSlug ? (
                 <CheckIcon className="size-5 shrink-0" />
               ) : unreadTeams.has(row.id) ? (
-                <span aria-label="Unread" className="size-2.5 shrink-0 rounded-full bg-amber-400" />
+                <span aria-label="Unread" className="size-2.5 shrink-0 rounded-full bg-yellow-400" />
               ) : null}
             </button>
           ))}

@@ -37,12 +37,11 @@ describe(`UsageWindows`, () => {
     expect(container.textContent).toContain(`as of 2h ago`)
   })
 
-  it(`#EXP-1691: the warning meter wears semantic.yellow at every density, the rest the Meter's own`, () => {
+  it(`#EXP-1695: the warning meter wears semantic.yellow at every density, the rest the Meter's own`, () => {
     for (const density of [`full`, `mini`, `hover`] as const) {
       const { container } = render(<UsageWindows windows={WINDOWS} density={density} />)
       const meters = container.querySelectorAll(`[data-slot=meter]`)
       expect(meters[1]!.className).toContain(`bg-yellow-400`)
-      expect(meters[1]!.className).not.toContain(`bg-amber-500`)
       expect(meters[2]!.className).toContain(`bg-destructive`)
     }
   })

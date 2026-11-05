@@ -47,7 +47,7 @@ export const DOCK_CARD_CLASSES = {
     plan: `text-primary`,
     question: `text-yellow-400`,
     muted: `text-muted-foreground`,
-    warning: `text-amber-400`,
+    warning: `text-yellow-400`,
   } satisfies Record<DockCardTint, string>,
 } as const
 

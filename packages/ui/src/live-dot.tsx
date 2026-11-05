@@ -18,7 +18,7 @@ import { cn } from "./cn"
  *  painting exactly what the desktop and the natives paint. */
 export const LIVE_DOT_TONE = {
   live: { core: `bg-emerald-500`, halo: `bg-emerald-400` },
-  attention: { core: `bg-amber-500`, halo: `bg-amber-400` },
+  attention: { core: `bg-yellow-400`, halo: `bg-yellow-400` },
   done: { core: `bg-sky-500`, halo: `bg-sky-400` },
   unread: { core: `bg-primary`, halo: `bg-primary` },
   idle: { core: `bg-muted-foreground/40`, halo: `bg-muted-foreground` },

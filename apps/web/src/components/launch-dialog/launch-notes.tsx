@@ -54,7 +54,7 @@ export function LaunchNotes({ model }: { model: LaunchComposerModel }) {
       {/* EXP-836: a play button named a machine this composer cannot start
           on — say which and why, instead of quietly using the default. */}
       {model.deviceRequestNote && (
-        <span className="text-amber-500">{model.deviceRequestNote}</span>
+        <span className="text-yellow-400">{model.deviceRequestNote}</span>
       )}
       {/* EXP-1196: the picked device's failing doctor row (Git, else the
           agent's own) with its one action, instead of a sentence. */}

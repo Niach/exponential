@@ -97,11 +97,8 @@ internal fun dockTint(tint: Dock.Tint): Color = when (tint) {
     Dock.Tint.Plan -> MaterialTheme.colorScheme.primary
     Dock.Tint.Question -> DesignTokens.Semantic.Yellow
     Dock.Tint.Muted -> MaterialTheme.colorScheme.onSurfaceVariant
-    // Web `text-amber-400`.
-    Dock.Tint.Warning -> DockWarning
+    Dock.Tint.Warning -> DesignTokens.Semantic.Yellow
 }
-
-private val DockWarning = Color(0xFFFBBF24)
 
 /** A card's concept icon (dock.json `icons` + the hosts' banner concepts). */
 internal fun dockIcon(concept: String): ImageVector = when (concept) {

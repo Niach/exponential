@@ -166,7 +166,7 @@ function DeviceItem({
               </span>
             )}
             {health && (
-              <span className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500">
+              <span className="shrink-0 rounded-sm border border-yellow-400/40 px-1 text-[10px] font-medium text-yellow-400">
                 {health}
               </span>
             )}
@@ -248,7 +248,7 @@ function LoginRow({
           )}
         </span>
         {health && (
-          <span className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500">
+          <span className="shrink-0 rounded-sm border border-yellow-400/40 px-1 text-[10px] font-medium text-yellow-400">
             {health}
           </span>
         )}

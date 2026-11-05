@@ -566,7 +566,7 @@ function GithubStatusLine({
         data-testid="github-connection"
         data-state="expired"
       >
-        <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-yellow-400" />
         <span className="min-w-0 flex-1">{GH_RECONNECT_NEEDED}</span>
         <Pill mode="action" primary onClick={onConnect}>
           <RefreshCw />

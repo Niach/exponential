@@ -95,7 +95,7 @@ describe(`SessionRow`, () => {
     expect(row.className).toContain(`h-[${geometry.big}px]`)
     const caption = row.querySelector(`[data-slot="session-row-caption"]`)!
     expect(caption.textContent).toBe(`Needs input · mint · 5 min`)
-    expect(caption.className).toContain(`text-amber-400`)
+    expect(caption.className).toContain(`text-yellow-400`)
   })
 
   it(`wears the mark state and opens on click`, () => {

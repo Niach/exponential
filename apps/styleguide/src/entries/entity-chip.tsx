@@ -56,7 +56,7 @@ export const entry: StyleguideEntry = {
       <Captioned caption="an issue: its status glyph, identifier and title">
         <EntityRefChipView
           entityRef={{ kind: `issue`, id: `i-1`, identifier: `EXP-42`, title: `Fix the flicker` }}
-          icon={<StatusGlyph icon="progress-2-4" colorClass="text-amber-500 !h-[0.875em] !w-[0.875em]" />}
+          icon={<StatusGlyph icon="progress-2-4" colorClass="text-yellow-400 !h-[0.875em] !w-[0.875em]" />}
           onClick={noop}
         />
       </Captioned>
