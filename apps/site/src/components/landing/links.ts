@@ -13,9 +13,12 @@ export const LINKS = {
   },
   github: { repo: REPO, releases: `${REPO}/releases`, license: `${REPO}/blob/master/LICENSE` },
   downloads: {
-    macos: `${REPO}/releases/latest/download/Exponential-production.dmg`,
-    windows: `${REPO}/releases/latest/download/Exponential-production-x86_64-windows.exe`,
-    linux: `${REPO}/releases/latest/download/Exponential-production-x86_64.AppImage`,
+    /* EXP-1693: the newest desktop-v* release that HAS the asset (apps/web
+       /api/download/desktop/$os), never `releases/latest/download`, which
+       404s whenever the newest release lacks one. */
+    macos: `${APP}/api/download/desktop/macos`,
+    windows: `${APP}/api/download/desktop/windows`,
+    linux: `${APP}/api/download/desktop/linux`,
     ios: `https://apps.apple.com/app/exponential-vibecode-together/id6788189402`,
     android: `https://play.google.com/store/apps/details?id=at.exponential`,
   },

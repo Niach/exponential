@@ -7,13 +7,21 @@ const RELEASES = `https://github.com/Niach/exponential/releases`
 
 export const DESKTOP_RELEASES_URL = `${RELEASES}/latest`
 
-const DOWNLOAD_BASE = `${RELEASES}/latest/download`
-
-export const DESKTOP_ASSET_URLS = {
-  macos: `${DOWNLOAD_BASE}/Exponential-production.dmg`,
-  windows: `${DOWNLOAD_BASE}/Exponential-production-x86_64-windows.exe`,
-  linux: `${DOWNLOAD_BASE}/Exponential-production-x86_64.AppImage`,
+export const DESKTOP_ASSET_NAMES = {
+  macos: `Exponential-production.dmg`,
+  windows: `Exponential-production-x86_64-windows.exe`,
+  linux: `Exponential-production-x86_64.AppImage`,
 } as const
+
+export type DesktopOs = keyof typeof DESKTOP_ASSET_NAMES
+
+// EXP-1693: the buttons go through the redirect endpoint, which picks the
+// newest desktop-v* release that HAS the asset.
+export const DESKTOP_ASSET_URLS = {
+  macos: `/api/download/desktop/macos`,
+  windows: `/api/download/desktop/windows`,
+  linux: `/api/download/desktop/linux`,
+} as const satisfies Record<DesktopOs, string>
 
 /**
  * The best download target for a user agent: the platform's release asset on

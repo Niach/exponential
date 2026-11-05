@@ -1781,16 +1781,15 @@ fn account_icon(
 pub(crate) const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/releases/latest";
 
 /// The desktop card's primary download (web `desktopDownloadHref`): THIS
-/// OS's release asset (the names `updater::expected_asset_name` matches),
-/// the releases page on anything else.
+/// OS's asset through the redirect endpoint (EXP-1693: the newest desktop-v*
+/// release that has it), the releases page on anything else.
 pub(crate) fn desktop_download_url() -> String {
-    let asset = match std::env::consts::OS {
-        "macos" => "Exponential-production.dmg",
-        "windows" => "Exponential-production-x86_64-windows.exe",
-        "linux" => "Exponential-production-x86_64.AppImage",
-        _ => return DESKTOP_RELEASES_URL.to_string(),
-    };
-    format!("{DESKTOP_RELEASES_URL}/download/{asset}")
+    match std::env::consts::OS {
+        os @ ("macos" | "windows" | "linux") => {
+            format!("https://app.exponential.at/api/download/desktop/{os}")
+        }
+        _ => DESKTOP_RELEASES_URL.to_string(),
+    }
 }
 
 /// The instance the install one-liner points the daemon at.
