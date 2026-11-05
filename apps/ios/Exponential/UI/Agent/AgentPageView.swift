@@ -101,9 +101,11 @@ struct AgentPageView: View {
                                 }
                                 .overlay(alignment: .top) {
                                     if !composer.draftEditor.showsAutocompleteMenu, slashMenuVisible(composer) {
-                                        slashMenu(composer)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .alignmentGuide(.top) { $0[.bottom] + 4 }
+                                        Color.clear.frame(height: 0).overlay(alignment: .bottom) {
+                                            slashMenu(composer)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .padding(.bottom, 4)
+                                        }
                                     }
                                 }
                             }

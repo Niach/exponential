@@ -74,7 +74,9 @@ public struct GlassSubmitLabel<Icon: View>: View {
         .padding(.vertical, compact ? 8 : 14)
         .background(DesignTokens.Palette.primary)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
-        // EXP-1676: disabled = web's `disabled:opacity-50`, the whole button.
+        // EXP-1676: disabled = web's `disabled:opacity-50`, the whole button:
+        // one group, so the label never fades twice over the fill.
+        .compositingGroup()
         .opacity(enabled ? 1 : GlassPillTokens.disabledPrimaryOpacity)
     }
 }

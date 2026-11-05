@@ -92,8 +92,10 @@ extension View {
             }
     }
 
-    /// The bottom strip behind a floating bottom bar: from the screen's bottom
-    /// edge up to `edgeBottom` above the bar's top, fading upwards. A
+    /// The bottom strip behind a floating bottom bar: the ground from the
+    /// screen's bottom edge up to the bar's top (the transcript never shows
+    /// between its cards, web's stops above them), then fading out over
+    /// `edgeBottom` above it. A
     /// BACKGROUND of the bar, so it never covers a slot (or an expanded
     /// composer card) and never shifts one. It reaches down through the
     /// container safe area (the home indicator); over a keyboard whatever it
@@ -102,10 +104,14 @@ extension View {
     /// none, and its draft must survive the swap).
     public func floatingBarEdge(_ visible: Bool = true, ground: Bool = false) -> some View {
         background(alignment: .bottom) {
-            EdgeFade(edge: .bottom, ground: ground)
-                .padding(.top, -DetailChrome.edgeBottom)
-                .ignoresSafeArea(.container, edges: .bottom)
-                .opacity(visible ? 1 : 0)
+            VStack(spacing: 0) {
+                EdgeFade(edge: .bottom, ground: ground)
+                    .frame(height: DetailChrome.edgeBottom)
+                EdgeScrim(color: GlassTokens.backgroundBottom, ground: ground)
+            }
+            .padding(.top, -DetailChrome.edgeBottom)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .opacity(visible ? 1 : 0)
         }
     }
 }

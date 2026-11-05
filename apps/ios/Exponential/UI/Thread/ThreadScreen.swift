@@ -1845,15 +1845,17 @@ struct ThreadComposer: View {
                 // replies), and takes no room; nothing moves.
                 .overlay(alignment: .top) {
                     if open, slashMenuVisible(draft) {
-                        SlashCommandMenu(
-                            candidates: slashMatches(draft),
-                            highlighted: slashHighlight
-                        ) { candidate in
-                            applySlashCandidate(candidate, draft)
+                        Color.clear.frame(height: 0).overlay(alignment: .bottom) {
+                            SlashCommandMenu(
+                                candidates: slashMatches(draft),
+                                highlighted: slashHighlight
+                            ) { candidate in
+                                applySlashCandidate(candidate, draft)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 4)
                         }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 16)
-                        .alignmentGuide(.top) { $0[.bottom] + 4 }
                     }
                 }
                 .animation(motion.standard, value: open)

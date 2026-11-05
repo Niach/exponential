@@ -135,22 +135,22 @@ public struct PendingLabel<Icon: View>: View {
     }
 
     public var body: some View {
-        // The idle face sizes the slot; the pending face overlays it, so the
-        // width is the idle width at minimum.
-        idle
-            .opacity(shown ? 0 : 1)
-            .overlay {
-                if shown {
-                    HStack(spacing: 8) {
-                        InlineSpinner(size: CGFloat(FeedbackStates.Pending.spinner), color: spinnerColor)
-                        Text(pendingWord ?? label)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                    .accessibilityIdentifier(FeedbackStates.TestId.pending)
+        // The idle face holds the slot, so the width is the idle width at
+        // minimum `minWidth`: a longer word grows it, its padding stays).
+        ZStack {
+            idle
+                .opacity(shown ? 0 : 1)
+            if shown {
+                HStack(spacing: 8) {
+                    InlineSpinner(size: CGFloat(FeedbackStates.Pending.spinner), color: spinnerColor)
+                    Text(pendingWord ?? label)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
+                .accessibilityIdentifier(FeedbackStates.TestId.pending)
             }
-            .pendingDelay(pending, shown: $shown)
+        }
+        .pendingDelay(pending, shown: $shown)
     }
 
     private var idle: some View {
