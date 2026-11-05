@@ -159,6 +159,8 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EntityTarget {
     Screen(Screen),
+    /// #FEED-191: THE Inbox popover.
+    Inbox,
     Session(String),
     Action(String),
 }
@@ -189,9 +191,7 @@ pub(crate) fn target_for(kind: &str, id: &str, facts: &EntityRowFacts) -> Option
         "agent" => EntityTarget::Screen(Screen::Settings),
         "device" => EntityTarget::Screen(Screen::Devices),
         "label" | "status" | "member" | "invite" | "team" => EntityTarget::Screen(Screen::Settings),
-        "notification" => {
-            EntityTarget::Screen(Screen::Inbox { tab: crate::sidebar::InboxTab::Inbox })
-        }
+        "notification" => EntityTarget::Inbox,
         "comment" | "attachment" => EntityTarget::Screen(Screen::IssueDetail {
             issue_id: facts.issue_id.clone()?,
         }),
@@ -212,6 +212,7 @@ pub(crate) fn entity_target(kind: &str, id: &str, cx: &App) -> Option<EntityTarg
 pub(crate) fn open_target(target: EntityTarget, window: &mut Window, cx: &mut App) {
     match target {
         EntityTarget::Screen(screen) => navigate(window, cx, screen),
+        EntityTarget::Inbox => crate::inbox_popover::open(window, cx),
         EntityTarget::Session(session_id) => {
             let screen = crate::navigation::session_screen_for(&session_id, cx);
             navigate(window, cx, screen)
@@ -852,7 +853,7 @@ mod tests {
         }
         assert_eq!(
             target_for("notification", "n-1", &synced()),
-            Some(EntityTarget::Screen(Screen::Inbox { tab: crate::sidebar::InboxTab::Inbox }))
+            Some(EntityTarget::Inbox)
         );
     }
 

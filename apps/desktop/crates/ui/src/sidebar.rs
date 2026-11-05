@@ -10,7 +10,7 @@
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
 //!   ([`render_left_column_header`], rendered FIXED by the `Shell` since
 //!   EXP-863). Middle (scrolling): the tool-window
-//!   selectors — **Agent / Inbox / Threads / Devices / Actions / Drafts**
+//!   selectors — **Agent / Needs you / Chats / Devices / Drafts**
 //!   (EXP-1192: Agent first, the landing page; EXP-1294: Threads replaced
 //!   Reviews), Pinned, the team's **Agents** (EXP-1294), its boards, the
 //!   **Running** section (my live threads, hidden while empty), then
@@ -24,24 +24,21 @@
 //!   and the settings gear on its right. The account dropdown is the web's
 //!   exactly: What's new, About, Sign out (team switching lives in the
 //!   header).
-//! - [`ListPanel`] — the team's LIST surfaces. EXP-851/EXP-1192: it renders
-//!   EITHER as the full-width board list ([`ListMode::Screen`], what a board
-//!   row navigates to) or as a SECOND SIDEBAR inside the content card
-//!   ([`ListMode::Nav`]): the Inbox (always up on the Inbox screen and beside
-//!   every detail opened from it, its Inbox | My Issues strip on top). The
-//!   rail itself never folds or leaves.
+//! - [`ListPanel`] — the full-width board list (what a board row navigates to).
+//!   #FEED-191: no second sidebar any more; the Inbox is the header's popover
+//!   ([`crate::inbox_popover`]), My issues a pill on the board. The rail itself
+//!   never folds or leaves.
 //!
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
 
 use crate::controls::PointerContextMenuExt as _;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::rc::Rc;
+use std::collections::{BTreeMap, HashMap};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, ClickEvent, Entity,
-    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Pixels, Render,
-    ScrollHandle, ScrollStrategy, SharedString, Size, StatefulInteractiveElement as _, Styled,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
+    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
+    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window, WindowId,
 };
 use gpui_component::{
@@ -49,13 +46,10 @@ use gpui_component::{
     h_flex,
     menu::PopupMenuItem,
     spinner::Spinner,
-    v_flex, v_virtual_list, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
-    VirtualListScrollHandle,
+    v_flex, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
 };
 use sync::Store;
 
-use domain::rows::Issue;
-use domain::statuses::ResolvedStatus;
 
 
 // EXP-282: `OpenSettings` is gone from this file — the rail gear navigates
@@ -66,33 +60,22 @@ use crate::coding_flow;
 use crate::controls::WebControl as _;
 use crate::trunk_sync::TrunkSync;
 use crate::icons::{self, registry, ExpIcon};
-use crate::issue_list::{
-    build_row_context_menu, control_cell, render_bulk_bar, row_id, selection_range,
-    status_dropdown, BulkSelectionHost, IssueQuery,
-};
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen,
-    Navigation, Screen, SecondSidebar, TabOrigin,
+    Navigation, Screen,
 };
 use crate::issue_header::parse_hex_color;
-use crate::queries;
 
 /// EXP-851: which LIST a detail was opened from — the kind half of
-/// [`crate::navigation::TabOrigin`] (EXP-1192: only the Inbox still lends a
-/// second sidebar).
+/// [`crate::navigation::TabOrigin`].
 ///
 /// It used to name the rail's active TOOL WINDOW (a docked column beside the
 /// centre). There is no tool column anymore: every one of these is a
-/// full-width SCREEN ([`Screen::BoardIssues`], [`Screen::Inbox`],
-/// [`Screen::Files`], [`Screen::SourceControl`]), and the enum survives only as the
+/// full-width SCREEN ([`Screen::BoardIssues`], [`Screen::Files`],
+/// [`Screen::SourceControl`]), and the enum survives only as the
 /// origin vocabulary — `origin_screen` maps each back to its screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolWindow {
-    /// The merged personal tool window (EXP-186): an Inbox tab (notification
-    /// groups; rows open the issue detail) + a My Issues tab (issues assigned
-    /// to me across the team) — ONE rail entry, mirroring mobile's segmented
-    /// My Work screen. The active tab is [`RailShared::inbox_tab`].
-    Inbox,
     /// The active board's issue list (mini list) — the default tool.
     /// Selected via the rail's Projects board icons (no icon of its own).
     BoardIssues,
@@ -109,9 +92,6 @@ impl ToolWindow {
     /// `None` there yields the dev sentinel, resolved at render time.
     pub(crate) fn origin_screen(self, board: Option<String>) -> Screen {
         match self {
-            ToolWindow::Inbox => Screen::Inbox {
-                tab: InboxTab::Inbox,
-            },
             ToolWindow::BoardIssues => Screen::BoardIssues {
                 board_id: board.unwrap_or_default(),
             },
@@ -119,17 +99,6 @@ impl ToolWindow {
             ToolWindow::SourceControl => Screen::SourceControl,
         }
     }
-}
-
-/// The Inbox screen's active tab (EXP-186). EXP-851: it rides
-/// [`Screen::Inbox`] and the tab origin, so a go-back and a tab restore land
-/// on the tab the user was on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum InboxTab {
-    /// The notification stream.
-    Inbox,
-    /// The My Issues board (assignee == me across the team).
-    MyIssues,
 }
 
 /// Per-window state both rail and tool-window panel read: which tool window
@@ -378,95 +347,6 @@ pub(crate) fn rail_shared_for_window(
     shared
 }
 
-/// Read-only lookup of what a window is LOOKING AT, in the tool vocabulary
-/// (EXP-638: the OS-notification redundancy check runs from an App-level task
-/// with no `&mut Window` in hand). EXP-851: derived from the active SCREEN —
-/// the list screens map onto themselves, a detail onto the list it names, and
-/// everything else onto the board default. `None` for windows without a
-/// navigation — dialogs, undocked terminals, the login surface.
-pub(crate) fn rail_tool_for_window_id(
-    window_id: WindowId,
-    cx: &App,
-) -> Option<(ToolWindow, InboxTab)> {
-    let nav = crate::navigation::nav_for_window_id(window_id, cx)?;
-    let screen = nav.read(cx).screen().cloned();
-    Some(focused_list(screen.as_ref()))
-}
-
-/// EXP-851: [`rail_tool_for_window_id`]'s pure rule — which LIST a screen
-/// reads as. A list screen is itself; everything else falls back to the
-/// board list, which is the redundancy check's "shows no notification
-/// stream" answer.
-pub(crate) fn focused_list(screen: Option<&Screen>) -> (ToolWindow, InboxTab) {
-    match screen {
-        Some(Screen::Inbox { tab }) => (ToolWindow::Inbox, *tab),
-        Some(Screen::Files) => (ToolWindow::Files, InboxTab::Inbox),
-        Some(Screen::SourceControl) => (ToolWindow::SourceControl, InboxTab::Inbox),
-        _ => (ToolWindow::BoardIssues, InboxTab::Inbox),
-    }
-}
-
-/// EXP-862 — the LIST a [`ListPanel`] row pins on the detail it opens.
-///
-/// The bug it fixes: every row used to navigate plainly and let the breadcrumb
-/// rule ([`crate::navigation::derive_origin`]) work it out from the screen
-/// that was up. Beside a detail opened from the RAIL that rule derives
-/// NOTHING — a rail-opened detail carries no list — so clicking a row in the
-/// second sidebar would have slid it away mid-click.
-///
-/// * [`ListMode::Screen`]: the full-width list screen's own origin — EXP-1192:
-///   none for a board (its issues open with nothing beside them).
-/// * [`ListMode::Nav`]: the second sidebar stays put — the detail that
-///   replaces the open one is pinned to the very list it was picked from.
-///
-/// Pure, so both modes are a unit test.
-pub(crate) fn row_origin_for(
-    mode: ListMode,
-    nav_origin: Option<&crate::navigation::TabOrigin>,
-    screen: Option<&Screen>,
-) -> Option<crate::navigation::TabOrigin> {
-    match mode {
-        ListMode::Screen => screen.and_then(Screen::list_origin),
-        ListMode::Nav => nav_origin.cloned(),
-    }
-}
-
-/// EXP-1192: what one [`ListPanel::set_side`] push changes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SidePush {
-    /// The same kind and the same tab as the last push — nothing.
-    Same,
-    /// The same kind, a CHANGED pushed tab — the list takes it.
-    NewTab,
-    /// Another kind — the list resets.
-    NewKind,
-}
-
-/// EXP-1192: [`ListPanel::set_side`]'s pure rule over the last push
-/// (`side`, `last_tab`) and this one. A `None` tab never counts as a change
-/// (only the Inbox kind carries one). `screen_list_tab` is the tab the LIST
-/// shows while the Inbox SCREEN is up (`None` beside a detail): there the
-/// tab is the screen's, so a push that disagrees with the list always wins —
-/// a local flip made beside a detail must not outlive the walk back to the
-/// Inbox screen, whose tab equals the last push.
-fn side_push(
-    side: Option<SecondSidebar>,
-    last_tab: Option<InboxTab>,
-    kind: SecondSidebar,
-    tab: Option<InboxTab>,
-    screen_list_tab: Option<InboxTab>,
-) -> SidePush {
-    if side != Some(kind) {
-        SidePush::NewKind
-    } else if tab.is_some()
-        && (tab != last_tab || screen_list_tab.is_some_and(|shown| Some(shown) != tab))
-    {
-        SidePush::NewTab
-    } else {
-        SidePush::Same
-    }
-}
-
 /// Drop a closed window's entry (called from the `Shell` release hook,
 /// mirroring `navigation::remove_window`).
 pub fn remove_window(window_id: WindowId, cx: &mut App) {
@@ -492,10 +372,14 @@ pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow)
     navigate(window, cx, tool.origin_screen(board));
 }
 
-/// Open the Inbox screen ON a specific tab (the `OpenInbox` / `OpenMyIssues`
-/// actions and the OS-notification routes).
-pub(crate) fn open_inbox_tab(window: &mut Window, cx: &mut App, tab: InboxTab) {
-    navigate(window, cx, Screen::Inbox { tab });
+/// #FEED-191: the active board on its My issues pill (the `OpenMyIssues`
+/// action).
+pub(crate) fn open_my_issues(window: &mut Window, cx: &mut App) {
+    let nav = nav_for_window(window, cx);
+    let board_id = active_board_id(&nav, cx).unwrap_or_default();
+    let board = rail_shared_for_window(window, cx).read(cx).board_active.clone();
+    board.update(cx, |board, cx| board.show_my_issues(cx));
+    navigate(window, cx, Screen::BoardIssues { board_id });
 }
 
 /// EXP-851: keep the window's active BOARD in step with what it shows — the
@@ -554,24 +438,6 @@ const APP_ROW_GROUP: &str = "rail-app-row";
 /// EXP-863: the Pinned rows' hover group — reveals the trailing Unpin button
 /// (the board rows' gear recipe).
 const PIN_ROW_GROUP: &str = "rail-pin-row";
-/// EXP-863: the side list's issue rows' hover group — reveals the leading
-/// bulk-select checkbox (the big list's `issue-row` group).
-const NAV_ROW_GROUP: &str = "list-nav-issue-row";
-
-/// EXP-915: the side list's My Issues rows' heights — the group band and the
-/// `rail_row_lead` row — plus the 2px the old `gap_0p5` column put between
-/// them, folded into each virtual-list item so the fixed sizes stay exact.
-const NAV_HEADER_HEIGHT: f32 = 24.;
-const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
-const NAV_ROW_GAP: f32 = 2.;
-/// EXP-980: the side list row's own left padding (`flat_row_compact`'s
-/// `px_2`) — the base the sub-issue indent is measured off.
-const NAV_ROW_PAD: f32 = 8.;
-/// EXP-998: the gutters start under the STATUS glyph — past the 16px select
-/// cell and its 4px gap, plus the 5 that put a 14px gutter's centre (7) under
-/// a 24px cell's glyph (12).
-const NAV_GUIDE_INSET: f32 = 16. + 4. + 5.;
-
 /// EXP-923: the space between the Running section's rule, label and rows —
 /// the rail's own `gap_1`. EXP-1248: the rows themselves stack flush.
 const RUNNING_ROW_GAP: f32 = 0.25 * theme::FONT_SIZE_PX;
@@ -587,49 +453,6 @@ const SECTION_GAP: f32 = 8.;
 /// The web sidebar reserves the same (`whats-new.tsx`
 /// `WHATS_NEW_CLEARANCE_CLASS`).
 const WHATS_NEW_CLEARANCE: f32 = 80.;
-
-/// One flattened side-list virtual-list row (EXP-915) — the big list's
-/// `ListRow` at the column's density: the issue rides behind the memoized
-/// query's `Rc`, so rebuilding the vector per frame clones handles, never
-/// payloads.
-enum NavRow {
-    Header {
-        status: Box<ResolvedStatus>,
-        count: usize,
-        collapsed: bool,
-    },
-    Issue {
-        /// The issue's ordinal across the WHOLE list, folded groups included
-        /// — the row's element id, so folding a group never renumbers the
-        /// rows below it into each other's element state.
-        index: usize,
-        issue: Rc<Issue>,
-        /// EXP-980: the sub-issue connector (the big list's `ListRow::Issue`
-        /// carries the same), off the group's visible depth sequence.
-        guides: domain::tree_guides::Guides,
-        /// EXP-998: the row's slice of the blocks rail — its node, labelled
-        /// by the query's `blocks` numbers.
-        rail: domain::issue_rail::RailRow,
-    },
-}
-
-impl NavRow {
-    /// The virtual-list item height: the row plus its trailing gap.
-    fn height(&self) -> Pixels {
-        px(match self {
-            NavRow::Header { .. } => NAV_HEADER_HEIGHT + NAV_ROW_GAP,
-            NavRow::Issue { .. } => NAV_ISSUE_ROW_HEIGHT + NAV_ROW_GAP,
-        })
-    }
-}
-
-/// The side list's issue query memo key (EXP-915): the scope plus every
-/// collection input ([`queries::BoardDataKey`]).
-#[derive(PartialEq, Eq)]
-struct NavBoardKey {
-    query: IssueQuery,
-    base: queries::BoardDataKey,
-}
 
 /// EXP-282: one row of the rail — icon + label, left-aligned, glass
 /// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
@@ -1131,42 +954,6 @@ impl RailView {
         cx: &App,
     ) -> gpui::Stateful<gpui::Div> {
         rail_row_lead(id, lead, label, active, badge, cx)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn rail_tool_icon(
-        &self,
-        id: &'static str,
-        icon: Icon,
-        tool: ToolWindow,
-        label: &'static str,
-        tooltip: Option<SharedString>,
-        badge: Option<RailBadge>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        // EXP-851: a list is a SCREEN — the entry highlights while that
-        // screen is up, exactly like every other rail row. EXP-1192: the
-        // Inbox on EITHER tab (My Issues lives in its sidebar); a detail
-        // opened beside it is not the Inbox screen and lights nothing.
-        let screen = tool.origin_screen(None);
-        let active = match (&screen, resolved_screen(&self.nav, cx)) {
-            // A board list highlights through its BOARD row, never here.
-            (Screen::BoardIssues { .. }, _) => false,
-            (Screen::Inbox { .. }, Some(Screen::Inbox { .. })) => true,
-            (screen, Some(current)) => *screen == current,
-            _ => false,
-        };
-        let lead = icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element();
-        self.entry(id, lead, label, active, badge, cx)
-            .when_some(tooltip, |row, text| {
-                row.tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
-                })
-            })
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                activate_tool(window, cx, tool);
-            }))
-            .into_any_element()
     }
 
     /// A rail entry that navigates STRAIGHT to a tab-less full-page screen
@@ -1923,6 +1710,8 @@ pub(crate) fn render_left_column_header(
         .gap_1()
         .items_center()
         .child(div().flex_1().min_w_0().child(switcher))
+        // #FEED-191: the Inbox, a popover anchored under its icon.
+        .child(crate::inbox_popover::InboxButton::new(nav.clone()))
         .child(
             // EXP-771: an icon-only ACTION button is a CIRCLE on every
             // client (an icon PICKER trigger or a swatch cell stays a
@@ -2080,10 +1869,6 @@ impl Render for RailView {
         }
 
         let team_yolo = yolo_mode(&self.nav, cx);
-        // Inbox badge (EXP-699): any unread renderable notification — the
-        // primary-tinted dot the mobile tab bars show.
-        let inbox_badge = queries::inbox_unread(cx)
-            .then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()));
         // EXP-878: the Drafts pile — a root entry with its muted count
         // (EXP-963) while any draft is parked (or the pile is on screen).
         // EXP-1170: the draft open on the New issue page is not "parked" —
@@ -2395,7 +2180,7 @@ impl Render for RailView {
             .text_color(cx.theme().sidebar_foreground)
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (EXP-1294):
-            // [Agent, Inbox, Threads, Devices, Actions, Drafts?] / Pinned
+            // [Agent, Needs you?, Chats, Devices, Drafts?] / Pinned
             // (EXP-778) / Agents + "+" / Boards + "+" / Running (EXP-923).
             // Terminal, Files and Source Control are the footer's Computer
             // menu.
@@ -2415,15 +2200,6 @@ impl Render for RailView {
                     .child(self.rail_home_entry(cx))
                     // #FEED-191: Needs you (while any), right after Agent.
                     .children(needs_you_entry)
-                    .child(self.rail_tool_icon(
-                        "rail-inbox",
-                        Icon::new(registry::NAV_INBOX),
-                        ToolWindow::Inbox,
-                        "Inbox",
-                        None,
-                        inbox_badge,
-                        cx,
-                    ))
                     // EXP-1294: Threads, the team's sessions list.
                     .child(self.rail_threads_entry(cx))
                     // EXP-686: Devices, the machine list.
@@ -2517,225 +2293,19 @@ impl Render for RailView {
 // ListPanel — the board list, or a second sidebar inside the content card
 // ---------------------------------------------------------------------------
 
-/// EXP-851: WHERE a [`ListPanel`] renders, which is the only thing that
-/// differs between its two instances per window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ListMode {
-    /// The main view — the full board list (`Screen::BoardIssues`) with its
-    /// filter bar. EXP-1192: the Inbox has no full-width body any more; its
-    /// list IS the second sidebar.
-    Screen,
-    /// EXP-1192: the SECOND SIDEBAR inside the content card, pushed its kind
-    /// by the host ([`ListPanel::set_side`]) — the Inbox (strip + rows).
-    Nav,
-}
-
-/// EXP-851: the team's list surfaces in one view — the full-width board list
-/// ([`ListMode::Screen`]) or a second sidebar ([`ListMode::Nav`]). One type,
-/// so the issue queries and the inbox grouping exist once.
+/// EXP-851: the full-width board list.
 pub struct ListPanel {
-    mode: ListMode,
     nav: Entity<Navigation>,
-    /// [`ListMode::Nav`] only: the Inbox tab the LIST shows. On the Inbox
-    /// screen it follows the screen's tab (pushed through [`Self::set_side`]);
-    /// beside a detail there is no screen to carry it, and flipping it must
-    /// not navigate.
-    nav_inbox_tab: InboxTab,
-    /// [`ListMode::Nav`] only (EXP-1192): the second sidebar this panel
-    /// shows, PUSHED by its host ([`Self::set_side`]) rather than read off
-    /// the window — so an outgoing sidebar keeps its rows through its slide.
-    side: Option<SecondSidebar>,
-    /// The Inbox tab the host pushed LAST ([`Self::set_side`]) — only a
-    /// CHANGE of it moves [`Self::nav_inbox_tab`], so a local flip beside a
-    /// detail survives the host's per-render push.
-    side_tab: Option<InboxTab>,
-    /// The Board Issues tool window — the full board (filter bar with
-    /// All/Active/Backlog tabs + New Issue + the grouped virtualized list
-    /// with inline status/priority menus), scoped to the active board.
-    /// Lives in [`RailShared`] (EXP-48 — the detail switcher reads it too).
+    /// The Board Issues tool window — the full board (the All issues · My
+    /// issues pills + the grouped virtualized list with inline status/priority
+    /// menus), scoped to the active board. Lives in [`RailShared`] (EXP-48 —
+    /// the detail switcher reads it too).
     board_active: Entity<BoardView>,
-    /// [`ListMode::Nav`] only (EXP-862): the status groups folded away in the
-    /// issue lists, by `group_key` — the big list's own `collapsed` set. Per
-    /// panel, never persisted.
-    nav_collapsed: HashSet<String>,
-    /// [`ListMode::Nav`] only (EXP-863): the issue rows' bulk selection — the
-    /// big list's `selected` + `select_anchor`, with the same click grammar
-    /// (Cmd/Ctrl toggles, Shift extends, the hover checkbox toggles). Cleared
-    /// when the side list's kind changes; pruned each render to rows that
-    /// still exist.
-    nav_selected: HashSet<String>,
-    nav_select_anchor: Option<String>,
-    /// One bulk mutation in flight at a time (the bar's buttons disable).
-    nav_bulk_busy: bool,
-    /// The issue ids the CURRENT render listed, in list order — every row
-    /// (`nav_issue_ids`, the bulk bar's universe: a folded group's rows stay
-    /// selected) and the unfolded ones (`nav_visible_ids`, the Shift-range
-    /// universe). Empty while the column shows a list without issue rows.
-    nav_issue_ids: Vec<String>,
-    nav_visible_ids: Vec<String>,
-    /// EXP-915: the side list's memoized My Issues query — the big
-    /// list's REV-39 cache. gpui re-renders this panel on every window
-    /// refresh (each scroll tick, each hover flip, every Electric batch);
-    /// before this the column re-ran the full clone+sort+group pipeline AND
-    /// rebuilt every row element per frame, which is what made scrolling a
-    /// long board's column stutter.
-    nav_data: queries::Memo<NavBoardKey, queries::BoardData>,
-    /// EXP-915: the scope team's resolved status vocabulary, re-derived only
-    /// when the team or the `issue_statuses` shape changes.
-    nav_statuses: queries::Memo<(Option<String>, u64), Vec<ResolvedStatus>>,
-    /// EXP-915: the flattened rows of the CURRENT render, read by the virtual
-    /// list's range closure afterwards (the big list's `rows`).
-    nav_rows: Rc<Vec<NavRow>>,
-    /// EXP-998: the side list's My Issues blocks rail column width (0 =
-    /// none). EXP-1057: dots only; each dot owns its hover card.
-    nav_rail_width: f32,
-    /// Per-render snapshots the row builders read instead of re-resolving
-    /// navigation once per row: the vocabulary, the open detail's issue and
-    /// the origin a row pins.
-    nav_row_statuses: Rc<Vec<ResolvedStatus>>,
-    nav_active_issue_id: Option<String>,
-    nav_row_origin: Option<TabOrigin>,
-    /// The My Issues virtual-list scroll — reset to the top when the side
-    /// list's kind (or the Inbox tab) changes.
-    nav_list_scroll: VirtualListScrollHandle,
-    /// EXP-915: the inbox grouping's memoized query.
-    inbox_data: queries::Memo<queries::InboxDataKey, queries::InboxData>,
     _subscriptions: Vec<Subscription>,
 }
 
-impl BulkSelectionHost for ListPanel {
-    fn set_bulk_busy(&mut self, busy: bool) {
-        self.nav_bulk_busy = busy;
-    }
-
-    fn clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
-        self.nav_clear_selection(cx);
-    }
-}
-
-
-/// Fire-and-forget `notifications.markRead` over a group's unread rows (the
-/// web `markGroupRead`) — the Electric echo clears the dots.
-fn mark_group_read(unread_ids: &[String], cx: &mut App) {
-    if unread_ids.is_empty() {
-        return;
-    }
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return;
-    };
-    let ids = unread_ids.to_vec();
-    cx.background_executor()
-        .spawn(async move {
-            for id in ids {
-                if let Err(err) = api::notifications::notifications_mark_read(&trpc, &id) {
-                    log::warn!("[ui] notifications.markRead({id}) failed: {err}");
-                }
-            }
-        })
-        .detach();
-}
-
-/// Latest-notification kind → the inbox row's leading type-badge glyph (the
-/// meaning table shared across all clients).
-fn notification_type_icon(kind: Option<&str>) -> Icon {
-    match kind {
-        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_ASSIGNED) => Icon::from(ExpIcon::UserPlus),
-        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_COMMENT)
-        | Some(domain::contract::NOTIFICATION_TYPE_ISSUE_MENTION) => {
-            Icon::from(ExpIcon::MessageSquare)
-        }
-        Some(domain::contract::NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED) => {
-            Icon::from(ExpIcon::CircleDot)
-        }
-        Some(domain::contract::NOTIFICATION_TYPE_PR_OPENED) => Icon::from(ExpIcon::GitPullRequest),
-        Some(domain::contract::NOTIFICATION_TYPE_PR_MERGED) => Icon::from(ExpIcon::GitMerge),
-        // SLOP-4: a widget reporter answered on an issue — the registry's
-        // reply glyph (`notification-reporter-reply` ×4).
-        Some(domain::contract::NOTIFICATION_TYPE_REPORTER_REPLY) => {
-            Icon::new(registry::NOTIFICATION_REPORTER_REPLY)
-        }
-        // EXP-801: an agent's message — the registry's bot glyph.
-        Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE) => {
-            Icon::new(registry::NOTIFICATION_AGENT_MESSAGE)
-        }
-        // EXP-980: a run that hit a rate limit — the registry's waiting glyph.
-        Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED) => {
-            Icon::new(registry::NOTIFICATION_SESSION_BLOCKED)
-        }
-        // #EXP-1534: one of the viewer's devices lost an agent login.
-        Some(domain::contract::NOTIFICATION_TYPE_AGENT_SIGNED_OUT) => {
-            Icon::new(registry::NOTIFICATION_AGENT_SIGNED_OUT)
-        }
-        _ => Icon::new(registry::NAV_NOTIFICATIONS),
-    }
-}
-
 impl ListPanel {
-    /// EXP-1192: point the [`ListMode::Nav`] panel at a second sidebar —
-    /// called by its host every render, with the Inbox screen's tab (or the
-    /// open detail's `origin.inbox_tab`) for the Inbox kind. The same kind
-    /// and the same tab as the LAST push = a no-op, no notify. A pushed tab
-    /// that CHANGED becomes the list's tab (the Inbox screen flipped, or a
-    /// detail picked from the other tab opened); an unchanged one leaves a
-    /// local flip beside a detail alone — but ON the Inbox screen the pushed
-    /// tab is the screen's and the list always shows it. A new kind resets
-    /// the list.
-    pub(crate) fn set_side(
-        &mut self,
-        kind: SecondSidebar,
-        inbox_tab: Option<InboxTab>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let screen_list_tab = matches!(resolved_screen(&self.nav, cx), Some(Screen::Inbox { .. }))
-            .then_some(self.nav_inbox_tab);
-        match side_push(self.side, self.side_tab, kind, inbox_tab, screen_list_tab) {
-            SidePush::Same => return,
-            SidePush::NewKind => {}
-            SidePush::NewTab => {
-                self.side_tab = inbox_tab;
-                if let Some(tab) = inbox_tab.filter(|tab| *tab != self.nav_inbox_tab) {
-                    self.nav_inbox_tab = tab;
-                    self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
-                    cx.notify();
-                }
-                return;
-            }
-        }
-        self.side = Some(kind);
-        self.side_tab = inbox_tab;
-        if let Some(tab) = inbox_tab {
-            self.nav_inbox_tab = tab;
-        }
-        // EXP-863: the selection is per list, like the big list's
-        // (`set_query` clears it on a scope change).
-        self.nav_selected.clear();
-        self.nav_select_anchor = None;
-        // EXP-915: a new list starts at its top (the issue lists share one
-        // virtual-list scroll) …
-        self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
-        // … and the outgoing list's memoized rows go with it: the slots are
-        // keyed, so keeping them only pinned an `Rc` of a query nothing will
-        // ask for again.
-        self.nav_data.clear();
-        self.nav_statuses.clear();
-        self.inbox_data.clear();
-        cx.notify();
-    }
-
-    /// EXP-1192: the list [`Self::side`] names, as the origin its rows pin on
-    /// the detail they open.
-    fn side_origin(&self) -> Option<crate::navigation::TabOrigin> {
-        let (tool, inbox_tab) = match self.side? {
-            SecondSidebar::Inbox => (ToolWindow::Inbox, Some(self.nav_inbox_tab)),
-        };
-        Some(crate::navigation::TabOrigin {
-            tool,
-            board_id: None,
-            inbox_tab,
-        })
-    }
-
-    pub fn new(mode: ListMode, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let shared = rail_shared_for_window(window, cx);
         let git_bar = shared.read(cx).git_bar.clone();
@@ -2754,443 +2324,23 @@ impl ListPanel {
             // memoize on `issue_statuses.revision()` — without this observer a
             // renamed/added status only landed on the next unrelated repaint.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
-            cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
             // Sync state rides the shared trunk-sync engine.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
             // Active-row highlight follows navigation.
             cx.observe(&nav, |_, _, cx| cx.notify()),
         ];
 
-        Self {
-            mode,
-            nav,
-            nav_inbox_tab: InboxTab::Inbox,
-            side: None,
-            side_tab: None,
-            board_active,
-            nav_collapsed: HashSet::new(),
-            nav_selected: HashSet::new(),
-            nav_select_anchor: None,
-            nav_bulk_busy: false,
-            nav_issue_ids: Vec::new(),
-            nav_visible_ids: Vec::new(),
-            nav_data: queries::Memo::default(),
-            nav_statuses: queries::Memo::default(),
-            nav_rows: Rc::new(Vec::new()),
-            nav_rail_width: 0.,
-            nav_row_statuses: Rc::new(Vec::new()),
-            nav_active_issue_id: None,
-            nav_row_origin: None,
-            nav_list_scroll: VirtualListScrollHandle::new(),
-            inbox_data: queries::Memo::default(),
-            _subscriptions: subscriptions,
-        }
+        Self { nav, board_active, _subscriptions: subscriptions }
     }
 
-    // -- shared chrome -------------------------------------------------------
-
-    /// EXP-282: the icon-tab strip that REPLACED the icon+title header on the
-    /// tabbed Inbox tool window. EXP-525: chips sit LEFT
-    /// (web parity — the inbox pills are left-aligned rows there);
-    /// trailing controls ride the strip's right edge absolutely. Same height
-    /// as [`Self::tool_header`] so the lists below don't shift between tools.
-    /// EXP-818: the strip is the SEGMENTED capsule the start-coding dialog's
-    /// Issues | Actions | Chat wears (`controls::segmented`) — the tabs fill
-    /// it equally — with the strip's trailing control (Filter, Mark all read)
-    /// inline on its right, never floating over the capsule.
-    fn tool_tab_strip(
-        &self,
-        tabs: Vec<gpui::AnyElement>,
-        trailing: Option<gpui::AnyElement>,
-        cx: &App,
-    ) -> gpui::Div {
-        h_flex()
-            .flex_shrink_0()
-            .w_full()
-            .px_2()
-            .py_1p5()
-            .gap_1p5()
-            .items_center()
-            .child(
-                crate::controls::segmented(cx)
-                    .flex_1()
-                    .min_w_0()
-                    .h(px(32.))
-                    .children(tabs),
-            )
-            .children(trailing)
-    }
-
-    /// One segment of [`Self::tool_tab_strip`] — EXP-818: a
-    /// `controls::segmented_item`, the same segment every tab strip wears.
-    fn tool_tab(
-        &self,
-        id: &'static str,
-        icon: Icon,
-        label: &'static str,
-        selected: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
-        crate::controls::segmented_item(selected, cx)
-            .id(id)
-            .child(icon.with_size(px(14.)))
-            .child(label)
-    }
-
-    /// EXP-1259 D8: a side list's first load = skeleton rows in the
-    /// compact row geometry.
-    fn list_skeleton(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        v_flex()
-            .py_1()
-            .child(crate::feedback::skeleton_rows(
-                "side-list-skeleton",
-                crate::feedback::SKELETON_ROWS,
-                eui_gpui::controls::FLAT_ROW_COMPACT_H,
-                cx,
-            ))
-            .into_any_element()
-    }
-
-    /// EXP-1274: a side list's empty body = the shared LIST empty state.
-    fn list_note(
-        &self,
-        icon: Icon,
-        message: impl Into<SharedString>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        crate::controls::empty_state_list(icon, message, cx).into_any_element()
-    }
-
-    /// EXP-862: the origin THIS panel's rows pin ([`row_origin_for`]). In
-    /// `Nav` mode that is the second sidebar the host pushed
-    /// ([`Self::side_origin`], with the list's CURRENT Inbox tab).
-    fn row_origin(&self, cx: &App) -> Option<crate::navigation::TabOrigin> {
-        let screen = resolved_screen(&self.nav, cx);
-        row_origin_for(self.mode, self.side_origin().as_ref(), screen.as_ref())
-    }
-
-    /// EXP-862: open `screen` FROM this list — explicitly, so the second
-    /// sidebar keeps showing the rows the click came from. Every row of every
-    /// mode goes through here.
-    fn open_from_list(&self, screen: Screen, window: &Window, cx: &mut App) {
-        match self.row_origin(cx) {
-            Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
-            None => navigate(window, cx, screen),
-        }
-    }
-
-    // -- issue tool windows ---------------------------------------------------
-
-    /// The Inbox second sidebar (EXP-186/EXP-1192): the merged personal
-    /// surface — an Inbox tab (notification stream) + a My Issues tab (issues
-    /// assigned to me across the team), switched by the segmented strip on
-    /// top (Mark all read on its right), mirroring mobile's My Work screen.
-    /// No back row: the Inbox IS this list, the main pane beside it shows
-    /// what a row opened.
-    fn render_inbox_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let tab = self.nav_inbox_tab;
-        // EXP-282: centered icon tabs instead of the icon+title header.
-        let inbox_tab = self
-            .tool_tab(
-                "inbox-tab-inbox",
-                Icon::new(registry::NAV_INBOX),
-                "Inbox",
-                tab == InboxTab::Inbox,
-                cx,
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.set_inbox_tab(InboxTab::Inbox, window, cx);
-            }))
-            .into_any_element();
-        let mine_tab = self
-            .tool_tab(
-                "inbox-tab-my-issues",
-                Icon::new(registry::UI_ASSIGNEE),
-                "My issues",
-                tab == InboxTab::MyIssues,
-                cx,
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.set_inbox_tab(InboxTab::MyIssues, window, cx);
-            }))
-            .into_any_element();
-        if tab == InboxTab::MyIssues {
-            let header = self.tool_tab_strip(vec![inbox_tab, mine_tab], None, cx);
-            let body = self.render_my_issues_nav(cx);
-            return v_flex()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .child(header)
-                .child(body)
-                .into_any_element();
-        }
-
-        // EXP-915: the grouping runs only when a collection it reads moved —
-        // it used to clone every notification on every repaint.
-        let data = {
-            let app: &App = cx;
-            self.inbox_data
-                .get_or_insert_with(queries::inbox_data_key(app), || queries::inbox(app))
-        };
-        // "Mark all read" is the strip's trailing control (EXP-862: a
-        // borderless 32px GHOST icon button — a quiet refresh-class glyph, not
-        // a primary action), only while there is something to mark.
-        let mark_all_read = (data.total_unread > 0).then(|| {
-            crate::controls::ghost_icon_button(
-                "inbox-mark-all-read",
-                Icon::from(registry::NOTIFICATION_MARK_READ),
-                cx,
-            )
-            .tooltip("Mark all read")
-            .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
-                if let Some(trpc) = queries::trpc_client(cx) {
-                    cx.background_executor()
-                        .spawn(async move {
-                            if let Err(err) =
-                                api::notifications::notifications_mark_all_read(&trpc)
-                            {
-                                log::warn!("[ui] notifications.markAllRead failed: {err}");
-                            }
-                        })
-                        .detach();
-                }
-            }))
-            .into_any_element()
-        });
-        let header = self.tool_tab_strip(vec![inbox_tab, mine_tab], mark_all_read, cx);
-
-        // Single Linear-style activity stream: one row per issue group, the
-        // LATEST notification's type icon + sentence.
-        let body: gpui::AnyElement = if !data.is_ready {
-            self.list_skeleton(cx)
-        } else if data.groups.is_empty() {
-            self.list_note(Icon::new(registry::NAV_INBOX), crate::empty_state_copy::INBOX, cx)
-        } else {
-            let rows: Vec<gpui::AnyElement> = data
-                .groups
-                .iter()
-                .map(|entry| match entry {
-                    queries::InboxEntry::Issue(group) => self.inbox_issue_row(group, cx),
-                    queries::InboxEntry::Message(entry) => self.inbox_message_row(entry, cx),
-                    queries::InboxEntry::Session(entry) => self.inbox_session_row(entry, cx),
-                })
-                .collect();
-            crate::scroll_pane::SidebarScrollArea::new(
-                "mini-inbox-scroll",
-                v_flex().p_1().gap_0p5().children(rows),
-            )
-            .into_any_element()
-        };
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(header)
-            .child(body)
-            .into_any_element()
-    }
-
-    /// One issue-group inbox row: the latest notification's type icon +
-    /// sentence; click marks the group read and opens the issue detail.
-    fn inbox_issue_row(
-        &self,
-        group: &queries::InboxGroup,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let unread = group.unread > 0;
-        let selected = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::IssueDetail { issue_id }) if issue_id == group.issue.id
-        );
-        let issue_id = group.issue.id.clone();
-        let unread_ids: Vec<String> = group
-            .items
-            .iter()
-            .filter(|n| n.read_at.is_none())
-            .map(|n| n.id.clone())
-            .collect();
-        // Items are newest first — `first()` IS the latest.
-        let latest = group.items.first();
-        let type_icon = notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
-        // ONE line ×2 (web md+ compact row, EXP-862): the bare type glyph
-        // (the latest item's kind) · identifier · title (medium while
-        // unread) · the unread dot; a read row dims.
-        let mut slots = crate::issue_relations::IssueRowSlots::new(SharedString::from(
-            group.issue.title.clone(),
-        ));
-        slots.lead = Some(inbox_glyph(type_icon, cx));
-        slots.identifier = Some(SharedString::from(group.issue.identifier.clone()));
-        slots.title_medium = unread;
-        slots.trailing = vec![inbox_unread_dot(unread, cx)];
-        crate::issue_relations::issue_row_shell(
-            SharedString::from(format!("mini-inbox-{}", group.issue.id)),
-            slots,
-            crate::issue_relations::IssueRowDensity::Compact,
-            selected,
-            cx,
-        )
-        .when(!unread && !selected, |row| row.opacity(INBOX_READ_OPACITY))
-        .on_click(cx.listener(move |this, _, window, cx| {
-            // Web `markGroupRead`: clear the group's unreads
-            // (the Electric echo removes the dot), then open.
-            mark_group_read(&unread_ids, cx);
-            let screen = Screen::IssueDetail {
-                issue_id: issue_id.clone(),
-            };
-            this.open_from_list(screen, window, cx);
-        }))
-        .into_any_element()
-    }
-
-    /// One agent message row (EXP-801): the bot glyph and the sentence
-    /// ("Ada's agent: Build finished"), the team name when synced. Click
-    /// marks the row read and, #EXP-1456 (inbox-route.json), opens the
-    /// session it names (an Assistant's decision lands on the agent's page,
-    /// its dock holding the question or plan; a mention its thread/session);
-    /// a broadcast without a session only marks read.
-    /// ONE line (web's compact sidebar row): no body, no stamp.
-    fn inbox_message_row(
-        &self,
-        entry: &queries::MessageInboxEntry,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let unread = entry.unread() > 0;
-        let unread_ids: Vec<String> = if unread {
-            vec![entry.item.id.clone()]
-        } else {
-            Vec::new()
-        };
-        // #EXP-1662 (plan-page.json WAYS IN): a session waiting on its own
-        // plan opens its thread's plan tab.
-        let session_id = entry.session_id();
-        let target = session_id
-            .as_deref()
-            .map(|id| crate::plan_page::screen_for_session(id, cx));
-        let selected = target.as_ref().is_some_and(|screen| {
-            resolved_screen(&self.nav, cx).as_ref() == Some(screen)
-        });
-        let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
-        let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
-        let type_icon =
-            notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE));
-        inbox_line_row(
-            SharedString::from(format!("mini-inbox-message-{}", entry.item.id)),
-            type_icon,
-            sentence,
-            team_name,
-            unread,
-            selected,
-            cx,
-        )
-        .on_click(cx.listener(move |this, _, window, cx| {
-            mark_group_read(&unread_ids, cx);
-            if let Some(screen) = target.clone() {
-                if let Some(id) = &session_id {
-                    crate::plan_page::prime_session(id, cx);
-                }
-                this.open_from_list(screen, window, cx);
-            }
-        }))
-        .into_any_element()
-    }
-
-    /// One blocked-session row (EXP-980): the waiting glyph and the title
-    /// ("EXP-12 hit a rate limit"), the team name when synced. Click marks it
-    /// read and opens the session — a pruned one (`session_id` NULL) only
-    /// marks read. ONE line, like every compact inbox row. #EXP-1534: a
-    /// team-less `agent_signed_out` row is this row with its own glyph; its
-    /// click opens the device's settings on the Devices page.
-    fn inbox_session_row(
-        &self,
-        entry: &queries::SessionInboxEntry,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let unread = entry.unread() > 0;
-        let unread_ids: Vec<String> = if unread {
-            vec![entry.item.id.clone()]
-        } else {
-            Vec::new()
-        };
-        // #EXP-1456: the screen the session opens as (inbox-route.json);
-        // #EXP-1534: a signed-out login opens its device's settings.
-        let device_id = match entry.target() {
-            domain::inbox_route::InboxRowTarget::Device { device_id } => Some(device_id),
-            _ => None,
-        };
-        let session_id = entry.session_id();
-        let target = session_id
-            .as_deref()
-            .map(|id| crate::plan_page::screen_for_session(id, cx));
-        // EXP-1192: the run this row opened reads selected beside it, like
-        // an issue row beside its detail.
-        let selected = target.as_ref().is_some_and(|screen| {
-            resolved_screen(&self.nav, cx).as_ref() == Some(screen)
-        });
-        let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
-        let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
-        let type_icon = notification_type_icon(entry.item.kind.as_deref());
-        inbox_line_row(
-            SharedString::from(format!("mini-inbox-session-{}", entry.item.id)),
-            type_icon,
-            sentence,
-            team_name,
-            unread,
-            selected,
-            cx,
-        )
-        .on_click(cx.listener(move |this, _, window, cx| {
-            // Web `markGroupRead`, then open the session itself, pinned to
-            // this list so the Inbox stays beside it (EXP-1192). EXP-1250:
-            // a cross-team row opens WITHOUT switching the window's team
-            // (a switch would swap the whole strip away mid-step). A
-            // pruned session leads nowhere.
-            mark_group_read(&unread_ids, cx);
-            if let Some(device_id) = device_id.clone() {
-                this.open_from_list(Screen::Devices, window, cx);
-                crate::device_settings::open(window, cx, device_id);
-                return;
-            }
-            let Some(screen) = target.clone() else {
-                return;
-            };
-            if let Some(id) = &session_id {
-                crate::plan_page::prime_session(id, cx);
-            }
-            this.open_from_list(screen, window, cx);
-        }))
-        .into_any_element()
-    }
-
-    /// Switch the Inbox tab (EXP-186). On the Inbox SCREEN the tab is the
-    /// screen's — `set_screen`, not a navigation, so a flip never stacks
-    /// history (the host pushes the new tab back through [`Self::set_side`]).
-    /// Beside a detail it is local state and the open detail stays put.
-    fn set_inbox_tab(&mut self, tab: InboxTab, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.nav_inbox_tab != tab {
-            self.nav_inbox_tab = tab;
-            self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
-            cx.notify();
-        }
-        if matches!(resolved_screen(&self.nav, cx), Some(Screen::Inbox { .. })) {
-            crate::navigation::set_screen(window, cx, Some(Screen::Inbox { tab }));
-        }
-    }
-
-    /// The full-width board list ([`ListMode::Screen`]): the board view — filter bar
-    /// (All/Active/Backlog tabs, filter popover, New Issue) + the grouped
+    /// The full-width board list: the board view — the pills + the grouped
     /// virtualized list with inline status/priority menus.
     fn render_board_issues_tool(
         &mut self,
         board_id: Option<String>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let query = match board_id {
-            Some(board_id) => IssueQuery::Board { board_id },
-            None => IssueQuery::None,
-        };
-        self.board_active.update(cx, |board, cx| board.set_query(query, cx));
+        self.board_active.update(cx, |board, cx| board.set_board(board_id, cx));
         div()
             .flex_1()
             .min_h_0()
@@ -3198,516 +2348,19 @@ impl ListPanel {
             .child(self.board_active.clone())
             .into_any_element()
     }
-
-    // -- side list bulk selection (EXP-863) -----------------------------------
-
-    /// Toggle one row (checkbox / Cmd/Ctrl-click) and re-anchor on it.
-    fn nav_toggle_selected(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        if !self.nav_selected.remove(&issue_id) {
-            self.nav_selected.insert(issue_id.clone());
-        }
-        self.nav_select_anchor = Some(issue_id);
-        cx.notify();
-    }
-
-    /// Shift-click: ADD the contiguous visible slice between the anchor and
-    /// the target — the anchor stays put for further extensions (the big
-    /// list's rule). Without a usable anchor it degrades to a plain toggle.
-    fn nav_extend_selection_to(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        let Some((from, to)) = selection_range(
-            &self.nav_visible_ids,
-            self.nav_select_anchor.as_deref(),
-            &issue_id,
-        ) else {
-            return self.nav_toggle_selected(issue_id, cx);
-        };
-        for id in &self.nav_visible_ids[from..=to] {
-            self.nav_selected.insert(id.clone());
-        }
-        cx.notify();
-    }
-
-    fn nav_clear_selection(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.nav_selected.is_empty() && self.nav_select_anchor.is_none() {
-            return;
-        }
-        self.nav_selected.clear();
-        self.nav_select_anchor = None;
-        cx.notify();
-    }
-
-    /// The bulk bar over the side list's selection, or `None` while nothing
-    /// is selected (or the list shows no issue rows / no team is in
-    /// scope). The ids come off the CURRENT render's rows, in list order and
-    /// pruned to rows that still exist — the big list's `bulk_bar` rule.
-    fn nav_bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        if self.nav_selected.is_empty() || self.nav_issue_ids.is_empty() {
-            return None;
-        }
-        let ids: Vec<String> = self
-            .nav_issue_ids
-            .iter()
-            .filter(|id| self.nav_selected.contains(id.as_str()))
-            .cloned()
-            .collect();
-        if ids.is_empty() {
-            return None;
-        }
-        let team_id = active_team_id(&self.nav, cx)?;
-        // Icon-only and allowed to fold: the side list is a narrow column.
-        Some(render_bulk_bar(team_id, ids, self.nav_bulk_busy, false, true, cx))
-    }
-
-    /// EXP-863: the scope team's resolved status vocabulary, ONCE per render
-    /// — every row's inline status menu and context menu read this snapshot
-    /// (the big list's `team_statuses`). EXP-915: memoized on the team and
-    /// the `issue_statuses` revision.
-    fn nav_team_statuses(&mut self, cx: &App) -> Rc<Vec<ResolvedStatus>> {
-        let team_id = active_team_id(&self.nav, cx);
-        let revision = Store::global(cx)
-            .collections()
-            .issue_statuses
-            .read(cx)
-            .revision();
-        let key = (team_id.clone(), revision);
-        self.nav_statuses.get_or_insert_with(key, || {
-            team_id
-                .as_deref()
-                .map(|team_id| queries::team_status_options(cx, team_id))
-                .unwrap_or_else(domain::statuses::default_resolved_statuses)
-        })
-    }
-
-    // -- second sidebar bodies (EXP-851/EXP-1192) -----------------------------
-
-    /// The Inbox side list's My Issues body: plain rows — status glyph,
-    /// identifier, title, the open detail highlighted — over the team-wide
-    /// assignee query.
-    fn render_my_issues_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let (Some(team_id), Some(account)) =
-            (active_team_id(&self.nav, cx), queries::active_account(cx))
-        else {
-            return self.list_note(
-                Icon::new(registry::NAV_MY_ISSUES),
-                crate::empty_state_copy::MY_ISSUES,
-                cx,
-            );
-        };
-        self.render_nav_issue_list(
-            IssueQuery::MyIssues {
-                team_id,
-                user_id: account.user_id,
-            },
-            ("list-nav-mine-scroll", "list-nav-mine-rows"),
-            (registry::NAV_MY_ISSUES, crate::empty_state_copy::MY_ISSUES),
-            cx,
-        )
-    }
-
-    /// EXP-915: the side list's virtualized issue body — the
-    /// memoized board query ([`Self::nav_data`], keyed by scope + every
-    /// collection input), flattened into [`NavRow`]s and drawn by a
-    /// `v_virtual_list` (the big list's element), so a scroll tick lays out
-    /// the visible rows only. It used to run the query and build EVERY row
-    /// per frame.
-    fn render_nav_issue_list(
-        &mut self,
-        query: IssueQuery,
-        (scroll_id, rows_id): (&'static str, &'static str),
-        (empty_icon, empty_copy): (ExpIcon, &'static str),
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let data = {
-            let app: &App = cx;
-            let key = NavBoardKey {
-                query: query.clone(),
-                base: queries::board_data_key(app),
-            };
-            self.nav_data
-                .get_or_insert_with(key, || query.board_data(app))
-        };
-        if !data.is_ready {
-            return self.list_skeleton(cx);
-        }
-        self.nav_prepare_rows(&data, cx);
-        if self.nav_rows.is_empty() {
-            return self.list_note(Icon::new(empty_icon), empty_copy, cx);
-        }
-        let sizes: Rc<Vec<Size<Pixels>>> = Rc::new(
-            self.nav_rows
-                .iter()
-                .map(|row| size(px(0.), row.height()))
-                .collect(),
-        );
-        div()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(
-                v_flex()
-                    .id(scroll_id)
-                    .relative()
-                    .size_full()
-                    .child(
-                        v_virtual_list(
-                            cx.entity().clone(),
-                            rows_id,
-                            sizes,
-                            |this, visible_range, window, cx| {
-                                visible_range
-                                    .map(|ix| this.nav_render_row(ix, window, cx))
-                                    .collect()
-                            },
-                        )
-                        .track_scroll(&self.nav_list_scroll),
-                    )
-                    .child(crate::scroll_pane::sidebar_scrollbar_layer(
-                        (gpui::ElementId::from(scroll_id), "scrollbar"),
-                        &self.nav_list_scroll,
-                    )),
-            )
-            .into_any_element()
-    }
-
-    /// One virtual-list item of the side list's issue rows (EXP-915): the row
-    /// at `ix` in the column's `px_2` gutter, with its trailing gap.
-    fn nav_render_row(
-        &mut self,
-        ix: usize,
-        _window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let rows = self.nav_rows.clone();
-        let Some(row) = rows.get(ix) else {
-            return div().into_any_element();
-        };
-        let inner = match row {
-            NavRow::Header {
-                status,
-                count,
-                collapsed,
-            } => self.nav_group_header(status, *count, *collapsed, cx),
-            NavRow::Issue {
-                index,
-                issue,
-                guides,
-                rail,
-            } => {
-                let statuses = self.nav_row_statuses.clone();
-                let any_selected = !self.nav_selected.is_empty();
-                let guides = guides.clone();
-                self.nav_issue_row(*index, issue, &statuses, any_selected, &guides, rail, cx)
-            }
-        };
-        div()
-            .h(row.height())
-            .w_full()
-            .min_w_0()
-            .px_2()
-            .pb(px(NAV_ROW_GAP))
-            .child(inner)
-            .into_any_element()
-    }
-
-    /// EXP-862: the side list's issue rows, grouped by STATUS exactly like the
-    /// full-width list — a group band (glyph, name, count over the status'
-    /// own tint) that folds its rows away when clicked.
-    fn nav_prepare_rows(&mut self, data: &queries::BoardData, cx: &mut gpui::Context<Self>) {
-        let groups = &data.groups;
-        let counts = &data.block_counts;
-        // EXP-863: the selection's universe for this render — every listed
-        // id (the bulk bar's, folded groups included) and the unfolded ones
-        // (the Shift-range's); a selected id whose row left the data set
-        // (deleted elsewhere, moved board) drops out, the big list's prune.
-        self.nav_issue_ids = groups
-            .iter()
-            .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
-            .collect();
-        self.nav_visible_ids = groups
-            .iter()
-            .filter(|group| !self.nav_collapsed.contains(&group.status.group_key))
-            .flat_map(|group| group.issues.iter().map(|issue| issue.id.clone()))
-            .collect();
-        if !self.nav_selected.is_empty() {
-            let present: HashSet<&str> = self.nav_issue_ids.iter().map(String::as_str).collect();
-            self.nav_selected.retain(|id| present.contains(id.as_str()));
-        }
-        // EXP-915: the per-render snapshots the row builders read.
-        self.nav_row_statuses = self.nav_team_statuses(cx);
-        self.nav_active_issue_id = match resolved_screen(&self.nav, cx) {
-            Some(Screen::IssueDetail { issue_id }) => Some(issue_id),
-            _ => None,
-        };
-        self.nav_row_origin = self.row_origin(cx);
-
-        let mut rows: Vec<NavRow> = Vec::new();
-        // The row ids number the ISSUES, so folding a group never renumbers
-        // the rows below it into each other's element state.
-        let mut index = 0usize;
-        for group in groups {
-            // Empty groups are already hidden by the query (web parity).
-            if group.issues.is_empty() {
-                continue;
-            }
-            let collapsed = self.nav_collapsed.contains(&group.status.group_key);
-            rows.push(NavRow::Header {
-                status: Box::new(group.status.clone()),
-                count: group.issues.len(),
-                collapsed,
-            });
-            if collapsed {
-                index += group.issues.len();
-                continue;
-            }
-            // EXP-980: the connector off this group's own depth sequence.
-            let guides = domain::tree_guides::guides_for(&group.depths);
-            for (position, issue) in group.issues.iter().enumerate() {
-                rows.push(NavRow::Issue {
-                    index,
-                    issue: issue.clone(),
-                    guides: guides.get(position).cloned().unwrap_or_default(),
-                    rail: domain::issue_rail::RailRow::default(),
-                });
-                index += 1;
-            }
-        }
-        // EXP-998: the blocks rail over the visible entries (the big list's
-        // `render` does the same).
-        let entries: Vec<domain::issue_rail::RailEntry<'_>> = rows
-            .iter()
-            .map(|row| match row {
-                NavRow::Header { .. } => domain::issue_rail::RailEntry::Gap,
-                NavRow::Issue { issue, .. } => domain::issue_rail::RailEntry::Row(issue.id.as_str()),
-            })
-            .collect();
-        let rail = domain::issue_rail::issue_rail(&entries, counts);
-        self.nav_rail_width = rail.width();
-        for (row, slice) in rows.iter_mut().zip(rail.entries) {
-            if let NavRow::Issue { rail, .. } = row {
-                *rail = slice;
-            }
-        }
-        self.nav_rows = Rc::new(rows);
-    }
-
-    /// One side-list status band — the big list's group header
-    /// (`issue_list::render_group_header`) at the narrow column's density: a
-    /// bare chevron, the status glyph, its name and the count, over a wash in
-    /// the status' own hue. The WHOLE band folds the group (EXP-862 ×4 — the
-    /// chevron is a disclosure marker, not a separate target).
-    fn nav_group_header(
-        &self,
-        status: &domain::statuses::ResolvedStatus,
-        count: usize,
-        collapsed: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let group_key = status.group_key.clone();
-        crate::issue_list::issue_group_band(
-            SharedString::from(format!("list-nav-group-{group_key}")),
-            status,
-            count,
-            collapsed,
-            crate::issue_list::BandDensity::Compact,
-            cx,
-        )
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            if !this.nav_collapsed.remove(&group_key) {
-                this.nav_collapsed.insert(group_key.clone());
-            }
-            cx.notify();
-        }))
-        .into_any_element()
-    }
-
-    /// One side-list issue row (spec C: status glyph, identifier, title; the
-    /// open detail highlighted). A plain click opens that detail pinned to
-    /// this list ([`Self::open_from_list`]), so the sidebar stays beside it.
-    ///
-    /// EXP-863: the big list's row grammar at the column's density — a
-    /// hover-revealed bulk-select checkbox (pinned visible while ANY row is
-    /// selected), the status glyph as the INLINE status menu
-    /// (`issue_list::status_dropdown` in its click-swallowing cell, so
-    /// picking a status never navigates), Cmd/Ctrl-click toggles, Shift-click
-    /// extends, and the right-click menu is the main list's
-    /// (`build_row_context_menu`).
-    #[allow(clippy::too_many_arguments)]
-    fn nav_issue_row(
-        &self,
-        index: usize,
-        issue: &Rc<Issue>,
-        statuses: &Rc<Vec<ResolvedStatus>>,
-        any_selected: bool,
-        guides: &domain::tree_guides::Guides,
-        rail: &domain::issue_rail::RailRow,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let screen = Screen::IssueDetail {
-            issue_id: issue.id.clone(),
-        };
-        // EXP-915: off the render's snapshot, not a per-row navigation read.
-        let active = self.nav_active_issue_id.as_deref() == Some(issue.id.as_str());
-        let selected = self.nav_selected.contains(&issue.id);
-        let toggle_id = issue.id.clone();
-        let lead = h_flex()
-            .flex_shrink_0()
-            .gap_1()
-            .items_center()
-            .child(
-                control_cell(row_id("nav-select-cell", &issue.id))
-                    .w_4()
-                    .when(!any_selected, |cell| {
-                        cell.invisible().group_hover(NAV_ROW_GROUP, |style| style.visible())
-                    })
-                    .child(
-                        crate::controls::checkbox(
-                            row_id("nav-select", &issue.id),
-                            selected.into(),
-                            false,
-                            cx,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.nav_toggle_selected(toggle_id.clone(), cx);
-                        })),
-                    ),
-            )
-            .child(
-                control_cell(row_id("nav-status-cell", &issue.id))
-                    .w_6()
-                    .child(status_dropdown(issue, statuses, cx)),
-            )
-            .into_any_element();
-        let title = issue.title.trim();
-        let title = if title.is_empty() {
-            SharedString::from("Untitled")
-        } else {
-            SharedString::from(title.to_string())
-        };
-        let click_id = issue.id.clone();
-        let menu_issue = issue.clone();
-        let menu_statuses = statuses.clone();
-        let menu_origin = self.nav_row_origin.clone();
-        // A bulk-selected row wears the same active fill as the open one —
-        // both mean "this row is where you are" (EXP-426). Wave D: THE issue
-        // row shell at the column's compact density.
-        let mut slots = crate::issue_relations::IssueRowSlots::new(title);
-        slots.lead = Some(lead);
-        slots.identifier = Some(SharedString::from(issue.identifier.clone()));
-        crate::issue_relations::issue_row_shell(
-            ("list-nav-issue", index),
-            slots,
-            crate::issue_relations::IssueRowDensity::Compact,
-            active || selected,
-            cx,
-        )
-        // EXP-980: the sub-issue indent + EXP-965's elbow, at the narrow
-        // column's 8px gutter (the rail's running rows' geometry).
-        .relative()
-        .pl(px(NAV_ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
-        .children(crate::tree_guides::guide_layer(
-            guides,
-            NAV_ROW_PAD + NAV_GUIDE_INSET,
-            NAV_ROW_GAP,
-        ))
-        // EXP-998: the blocks rail (the pill's successor) — the reserved
-        // column and the node; EXP-1057: hovering the dot opens the graph.
-        .when(self.nav_rail_width > 0., |row| {
-            row.child(div().flex_shrink_0().w(px(self.nav_rail_width)))
-        })
-        .children(crate::issue_rail::rail_node(
-            format!("nav-rail-node-{}", issue.id),
-            &issue.id,
-            rail,
-            NAV_ROW_PAD,
-            cx,
-        ))
-        .group(NAV_ROW_GROUP)
-        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-            let modifiers = event.modifiers();
-            if modifiers.secondary() {
-                this.nav_toggle_selected(click_id.clone(), cx);
-                return;
-            }
-            if modifiers.shift {
-                this.nav_extend_selection_to(click_id.clone(), cx);
-                return;
-            }
-            this.open_from_list(screen.clone(), window, cx);
-        }))
-        .pointer_context_menu(move |menu, window, cx| {
-            build_row_context_menu(
-                menu,
-                &menu_issue,
-                &menu_statuses,
-                menu_origin.clone(),
-                window,
-                cx,
-            )
-        })
-        .into_any_element()
-    }
-
 }
 
 impl Render for ListPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let screen = resolved_screen(&self.nav, cx);
-        let body = match self.mode {
-            ListMode::Screen => match screen {
-                Some(Screen::BoardIssues { board_id }) => {
-                    let board_id = (!board_id.is_empty())
-                        .then_some(board_id)
-                        .or_else(|| active_board_id(&self.nav, cx));
-                    self.render_board_issues_tool(board_id, cx)
-                }
-                // EXP-1192: the panel is only mounted for the board list
-                // (the Inbox's list is the second sidebar).
-                _ => div().into_any_element(),
-            },
-            ListMode::Nav => {
-                // EXP-863: the issue bodies refill these; any other list
-                // leaves them empty, which hides the bulk bar.
-                self.nav_issue_ids.clear();
-                self.nav_visible_ids.clear();
-                // EXP-1192: the host draws the column's hairline and resize
-                // edge; the list starts at its own top under its tab strip.
-                let body = match self.side {
-                    Some(SecondSidebar::Inbox) => Some(self.render_inbox_tool(cx)),
-                    None => None,
-                };
-                match body {
-                    Some(body) => {
-                        // EXP-863: the bulk bar FLOATS over the bottom of the
-                        // rows while a selection exists (EXP-289's no-jump
-                        // rule — the rows never move for it).
-                        let bulk_bar = self.nav_bulk_bar(cx);
-                        v_flex()
-                            .flex_1()
-                            .min_h_0()
-                            .min_w_0()
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .min_w_0()
-                                    .relative()
-                                    .child(body)
-                                    .children(bulk_bar.map(|bar| {
-                                        h_flex()
-                                            .absolute()
-                                            .bottom_2()
-                                            .left_0()
-                                            .right_0()
-                                            .justify_center()
-                                            .px_2()
-                                            .child(bar)
-                                    })),
-                            )
-                            .into_any_element()
-                    }
-                    None => div().into_any_element(),
-                }
+        let body = match resolved_screen(&self.nav, cx) {
+            Some(Screen::BoardIssues { board_id }) => {
+                let board_id = (!board_id.is_empty())
+                    .then_some(board_id)
+                    .or_else(|| active_board_id(&self.nav, cx));
+                self.render_board_issues_tool(board_id, cx)
             }
+            // The panel is only mounted for the board list.
+            _ => div().into_any_element(),
         };
         v_flex()
             .size_full()
@@ -3719,83 +2372,10 @@ impl Render for ListPanel {
     }
 }
 
-
-/// A read inbox row's dim (web `opacity-60`).
-const INBOX_READ_OPACITY: f32 = 0.6;
-
-/// The compact inbox row's lead: the bare type glyph, no disc (web
-/// `RowGlyph compact`).
-fn inbox_glyph(icon: Icon, cx: &App) -> gpui::AnyElement {
-    h_flex()
-        .size_4()
-        .flex_shrink_0()
-        .items_center()
-        .justify_center()
-        .child(icon.xsmall().text_color(cx.theme().muted_foreground))
-        .into_any_element()
-}
-
-/// The trailing unread dot slot (kept while read, so titles line up).
-fn inbox_unread_dot(unread: bool, cx: &App) -> gpui::AnyElement {
-    div()
-        .ml_auto()
-        .size_2()
-        .flex_shrink_0()
-        .rounded_full()
-        .when(unread, |this| this.bg(cx.theme().primary))
-        .into_any_element()
-}
-
-/// One issue-less compact inbox row (agent message, blocked run): glyph ·
-/// sentence (medium while unread) · team name · unread dot, ONE line.
-fn inbox_line_row(
-    id: SharedString,
-    icon: Icon,
-    sentence: SharedString,
-    team_name: Option<SharedString>,
-    unread: bool,
-    selected: bool,
-    cx: &App,
-) -> gpui::Stateful<gpui::Div> {
-    let theme = cx.theme();
-    crate::surface::flat_row_compact()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .flex_shrink_0()
-        .items_center()
-        .cursor_pointer()
-        .when(selected, |row| row.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-        .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-        .when(!unread && !selected, |row| row.opacity(INBOX_READ_OPACITY))
-        .child(inbox_glyph(icon, cx))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
-                .child(sentence),
-        )
-        .when_some(team_name, |row, name| {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(name),
-            )
-        })
-        .child(inbox_unread_dot(unread, cx))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        focused_list, row_origin_for, running_row_state, side_push, threads_badge, yolo_rail,
-        InboxTab, ListMode, SidePush, ToolWindow, YoloRail,
-    };
-    use crate::navigation::{Screen, SecondSidebar, TabOrigin};
+    use super::{running_row_state, threads_badge, yolo_rail, ToolWindow, YoloRail};
+    use crate::navigation::Screen;
 
     /// EXP-1105: yolo mode hides Files / Source Control, but a git failure
     /// (trunk attention or a sync error) brings Source Control back. Off =
@@ -3868,138 +2448,11 @@ mod tests {
                 board_id: String::new()
             }
         );
-        assert_eq!(
-            ToolWindow::Inbox.origin_screen(None),
-            Screen::Inbox {
-                tab: InboxTab::Inbox
-            }
-        );
         assert_eq!(ToolWindow::Files.origin_screen(None), Screen::Files);
         assert_eq!(
             ToolWindow::SourceControl.origin_screen(None),
             Screen::SourceControl
         );
-    }
-
-    /// EXP-1192: the host pushes the second sidebar every render. Only a new
-    /// kind resets the list; only a CHANGED pushed tab moves the Inbox tab
-    /// (so a local flip beside a detail survives the next unchanged push).
-    #[test]
-    fn a_side_push_changes_only_what_moved() {
-        use InboxTab::{Inbox, MyIssues};
-        use SecondSidebar::Inbox as InboxSide;
-        // First push: reset.
-        assert_eq!(side_push(None, None, InboxSide, Some(Inbox), None), SidePush::NewKind);
-        // The same push again: nothing (no notify).
-        assert_eq!(
-            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox), None),
-            SidePush::Same
-        );
-        // The Inbox screen flipped tabs (or a detail from the other tab
-        // opened): the list follows.
-        assert_eq!(
-            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(MyIssues), None),
-            SidePush::NewTab
-        );
-        // On the Inbox SCREEN the pushed tab is the screen's: a list left on
-        // the other tab by a local flip beside a detail follows it, even
-        // though the push itself did not change …
-        assert_eq!(
-            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox), Some(MyIssues)),
-            SidePush::NewTab
-        );
-        // … and an agreeing list is still a no-op.
-        assert_eq!(
-            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox), Some(Inbox)),
-            SidePush::Same
-        );
-        // A missing tab never counts as a change.
-        assert_eq!(
-            side_push(Some(InboxSide), Some(MyIssues), InboxSide, None, None),
-            SidePush::Same
-        );
-    }
-
-    /// EXP-862: which list a row click pins on the detail it opens. The bug
-    /// this rule fixes is the `Nav` line: beside a RAIL-opened detail the
-    /// breadcrumb rule derives nothing, so a click in the second sidebar
-    /// would slide it away mid-click.
-    #[test]
-    fn a_row_pins_its_own_list() {
-        let inbox = TabOrigin {
-            tool: ToolWindow::Inbox,
-            board_id: None,
-            inbox_tab: Some(InboxTab::MyIssues),
-        };
-        let issue = Screen::IssueDetail {
-            issue_id: "i1".into(),
-        };
-        // The second sidebar: whatever it is rendering comes along (with
-        // its current tab), and the screen that is up is irrelevant (here: a
-        // rail-opened detail).
-        assert_eq!(
-            row_origin_for(ListMode::Nav, Some(&inbox), Some(&issue)),
-            Some(inbox.clone())
-        );
-        assert_eq!(row_origin_for(ListMode::Nav, None, Some(&issue)), None);
-        // The full-width board list pins nothing — EXP-1192: its issues
-        // open with nothing beside them.
-        assert_eq!(
-            row_origin_for(
-                ListMode::Screen,
-                None,
-                Some(&Screen::BoardIssues {
-                    board_id: "b1".into()
-                })
-            ),
-            None
-        );
-        // EXP-1294: nor does the Threads page — its rows open full width.
-        assert_eq!(row_origin_for(ListMode::Screen, None, Some(&Screen::Threads)), None);
-        // VAPP-242: nor an app's run view.
-        assert_eq!(row_origin_for(ListMode::Screen, None, Some(&Screen::AppRun { app: "a".into() })), None);
-        // A screen that is no list pins nothing (the panel is only mounted
-        // for the board list, so this is the defensive arm).
-        assert_eq!(row_origin_for(ListMode::Screen, None, Some(&issue)), None);
-        assert_eq!(row_origin_for(ListMode::Screen, None, None), None);
-    }
-
-    /// EXP-851: what a window READS as, for the OS-notification redundancy
-    /// check — the list screens are themselves, and everything else (a
-    /// session included) falls back to the board list (which is "not the
-    /// notification stream").
-    #[test]
-    fn the_focused_list_follows_the_screen() {
-        assert_eq!(
-            focused_list(Some(&Screen::Inbox {
-                tab: InboxTab::MyIssues
-            })),
-            (ToolWindow::Inbox, InboxTab::MyIssues)
-        );
-        // EXP-923: a session is no list — the redundancy check falls back to
-        // the board list.
-        assert_eq!(
-            focused_list(Some(&Screen::Session {
-                session_id: "s1".into()
-            }))
-            .0,
-            ToolWindow::BoardIssues
-        );
-        assert_eq!(focused_list(Some(&Screen::Files)).0, ToolWindow::Files);
-        assert_eq!(focused_list(Some(&Screen::Threads)).0, ToolWindow::BoardIssues);
-        // An issue detail, Settings, nothing at all: never the inbox stream.
-        for screen in [
-            None,
-            Some(Screen::Settings),
-            Some(Screen::IssueDetail {
-                issue_id: "i1".into(),
-            }),
-        ] {
-            assert_eq!(
-                focused_list(screen.as_ref()),
-                (ToolWindow::BoardIssues, InboxTab::Inbox)
-            );
-        }
     }
 
 }

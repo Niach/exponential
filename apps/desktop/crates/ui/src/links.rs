@@ -25,6 +25,7 @@ use crate::settings::SettingsSection;
 /// Where an in-app link lands.
 enum Landing {
     Screen(Screen),
+    Inbox,
     Issue { issue_id: String, board_id: String },
     Board { board_id: String },
     Plan { session_id: String, message_id: String },
@@ -330,9 +331,8 @@ fn resolve(link: &AppLink, team_id: Option<&str>, cx: &App) -> Target {
         }
         // The team's agent page is HOME (EXP-1294).
         AppLink::AgentHome { .. } => found(Screen::Home),
-        AppLink::Inbox { .. } => found(Screen::Inbox {
-            tab: crate::sidebar::InboxTab::Inbox,
-        }),
+        // #FEED-191: the Inbox is the header's popover.
+        AppLink::Inbox { .. } => Target::Found(Landing::Inbox),
         AppLink::Devices { .. } => found(Screen::Devices),
         AppLink::Settings { section, .. } if section.is_empty() => Target::Found(Landing::Settings(None)),
         // `settings-nav.json` `visible: owner`: not an owner reads as missing.
@@ -404,6 +404,7 @@ fn land_held(switch_to: Option<String>, landing: Landing, window: &mut Window, c
 fn land(landing: Landing, window: &mut Window, cx: &mut App) {
     match landing {
         Landing::Screen(screen) => navigation::navigate(window, cx, screen),
+        Landing::Inbox => crate::inbox_popover::open(window, cx),
         Landing::Issue { issue_id, board_id } => {
             navigation::open_issue_scoped(window, cx, issue_id, board_id, None);
         }

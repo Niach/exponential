@@ -68,7 +68,6 @@ use sync::{Collection, Store};
 
 use crate::coding_flow::CodingHub;
 use crate::navigation::{self, Screen};
-use crate::sidebar::{self, InboxTab, ToolWindow};
 use crate::{queries, window_hooks};
 
 /// How long a burst is allowed to accumulate before ONE toast goes out. The
@@ -265,8 +264,8 @@ fn compose(rows: &[Notification]) -> Option<Toast> {
 #[derive(Debug)]
 struct FocusedSurface {
     screen: Option<Screen>,
-    tool: ToolWindow,
-    inbox_tab: InboxTab,
+    /// #FEED-191: the Inbox popover is up (the notification stream is on screen).
+    inbox_open: bool,
 }
 
 /// Whether raising `row` would only repeat what the user is looking at.
@@ -277,10 +276,7 @@ fn is_redundant(row: &Notification, focus: &FocusedSurface) -> bool {
             return true;
         }
     }
-    if focus.tool == ToolWindow::Inbox && focus.inbox_tab == InboxTab::Inbox {
-        return true;
-    }
-    false
+    focus.inbox_open
 }
 
 /// The server's `notificationTypeAllowed`: missing = allowed; only an
@@ -528,7 +524,6 @@ fn focused_surface(cx: &mut App) -> Option<FocusedSurface> {
     let window = cx.active_window()?;
     let window_id = window.window_id();
     let nav = navigation::nav_for_window_id(window_id, cx)?;
-    let (tool, inbox_tab) = sidebar::rail_tool_for_window_id(window_id, cx)?;
     let active = window
         .update(cx, |_, window, _| window.is_window_active())
         .unwrap_or(false);
@@ -537,8 +532,7 @@ fn focused_surface(cx: &mut App) -> Option<FocusedSurface> {
     }
     Some(FocusedSurface {
         screen: navigation::resolved_screen(&nav, cx),
-        tool,
-        inbox_tab,
+        inbox_open: nav.read(cx).inbox_open,
     })
 }
 
@@ -608,10 +602,10 @@ fn land(route: Route, window: &mut Window, cx: &mut App) {
 fn land_now(route: Route, window: &mut Window, cx: &mut App) {
     match route {
         Route::Issue { issue_id } => land_issue(issue_id, window, cx),
-        Route::Inbox => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
+        Route::Inbox => crate::inbox_popover::open(window, cx),
         Route::Settings { section } => {
             navigation::navigate(window, cx, Screen::Settings);
-            sidebar::select_settings_section(window, cx, section);
+            crate::sidebar::select_settings_section(window, cx, section);
         }
         // #EXP-1534: the inbox row's own landing — the Devices page, the
         // device's settings dialog on top.
@@ -619,15 +613,11 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
             navigation::navigate(window, cx, Screen::Devices);
             crate::device_settings::open(window, cx, device_id);
         }
-        // EXP-1294: beside the Inbox, like an issue the toast opens.
         // #EXP-1662: a session waiting on its own plan = its thread's plan tab.
         Route::Session { session_id } => {
             let screen = crate::plan_page::screen_for_session(&session_id, cx);
             crate::plan_page::prime_session(&session_id, cx);
-            match inbox_origin() {
-                Some(origin) => navigation::navigate_from(window, cx, screen, origin),
-                None => navigation::navigate(window, cx, screen),
-            }
+            navigation::navigate(window, cx, screen);
         }
     }
 }
@@ -648,25 +638,16 @@ fn land_issue(issue_id: String, window: &mut Window, cx: &mut App) {
     };
     let Some((board_id, team_id)) = target else {
         // Not synced (yet) — the Inbox row will resolve it later.
-        sidebar::open_inbox_tab(window, cx, InboxTab::Inbox);
+        crate::inbox_popover::open(window, cx);
         return;
     };
     let nav = navigation::nav_for_window(window, cx);
     let same_team = team_id.is_some() && navigation::active_team_id(&nav, cx) == team_id;
     if same_team {
-        navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
+        navigation::open_issue_scoped(window, cx, issue_id, board_id, None);
     } else {
-        crate::issue_list::open_issue_from_list(window, cx, issue_id, inbox_origin());
+        crate::issue_list::open_issue_from_list(window, cx, issue_id, None);
     }
-}
-
-/// EXP-1192: a notification opens its issue beside the Inbox — the second
-/// sidebar it came from, wherever the window was.
-fn inbox_origin() -> Option<navigation::TabOrigin> {
-    navigation::Screen::Inbox {
-        tab: InboxTab::Inbox,
-    }
-    .list_origin()
 }
 
 /// EXP-856 §4 — the duplicate-agent toast: a session-level alert that does
@@ -790,12 +771,8 @@ mod tests {
         assert_eq!(route_for(&signed_out_row("b", None)), Route::Inbox);
     }
 
-    fn focus(tool: ToolWindow, inbox_tab: InboxTab, screen: Option<Screen>) -> FocusedSurface {
-        FocusedSurface {
-            screen,
-            tool,
-            inbox_tab,
-        }
+    fn focus(inbox_open: bool, screen: Option<Screen>) -> FocusedSurface {
+        FocusedSurface { screen, inbox_open }
     }
 
     /// #EXP-1456 (inbox-route.json): an issue-less agent message (an
@@ -966,30 +943,22 @@ mod tests {
     fn redundancy_rules_match_what_the_focused_window_shows() {
         let comment = row("a", "2026-08-27T09:00:00+00:00");
         let showing_it = focus(
-            ToolWindow::BoardIssues,
-            InboxTab::MyIssues,
+            false,
             Some(Screen::IssueDetail {
                 issue_id: "issue-a".to_string(),
             }),
         );
         assert!(is_redundant(&comment, &showing_it));
         let showing_other = focus(
-            ToolWindow::BoardIssues,
-            InboxTab::MyIssues,
+            false,
             Some(Screen::IssueDetail {
                 issue_id: "issue-z".to_string(),
             }),
         );
         assert!(!is_redundant(&comment, &showing_other));
-        // The Inbox tab up = everything is redundant; its My Issues tab is not.
-        assert!(is_redundant(
-            &comment,
-            &focus(ToolWindow::Inbox, InboxTab::Inbox, None)
-        ));
-        assert!(!is_redundant(
-            &comment,
-            &focus(ToolWindow::Inbox, InboxTab::MyIssues, None)
-        ));
+        // The Inbox popover up = everything is redundant.
+        assert!(is_redundant(&comment, &focus(true, None)));
+        assert!(!is_redundant(&comment, &focus(false, None)));
         // SLOP-4: a reporter's reply is redundant exactly where a comment is
         // — with ITS issue up, never on another one.
         assert!(!is_redundant(&reporter_row("r"), &showing_other));

@@ -209,21 +209,6 @@ impl IssueQuery {
         }
     }
 
-    /// EXP-870: the LIST a row picked from this view opens beside — named
-    /// explicitly, so the detail never depends on what history happens to
-    /// hold. EXP-1192: a board lends none (its issues open full width); My
-    /// Issues pins the Inbox sidebar on its My Issues tab.
-    pub(crate) fn list_origin(&self) -> Option<crate::navigation::TabOrigin> {
-        use crate::sidebar::{InboxTab, ToolWindow};
-        match self {
-            IssueQuery::None | IssueQuery::Board { .. } => None,
-            IssueQuery::MyIssues { .. } => Some(crate::navigation::TabOrigin {
-                tool: ToolWindow::Inbox,
-                board_id: None,
-                inbox_tab: Some(InboxTab::MyIssues),
-            }),
-        }
-    }
 }
 
 /// EXP-870: open an issue from a list — beside `origin` when the list names
@@ -628,7 +613,7 @@ impl IssueListView {
         // frame.
         let menu_issue = issue.clone();
         let menu_statuses = self.team_statuses.clone();
-        let origin = self.query.list_origin();
+        let origin = None;
         let menu_origin = origin.clone();
         let is_selected = self.selected.contains(&issue.id);
         // The open detail's row keeps the same active fill as a bulk-selected

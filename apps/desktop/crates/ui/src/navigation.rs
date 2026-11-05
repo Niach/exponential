@@ -40,8 +40,7 @@ use crate::actions::{
 /// `Screen` value identifies one openable tab (issues and files can be open
 /// several at a time; Source Control / Settings are singletons).
 /// `None` on [`Navigation::screen`] means "no tab active" — the center shows
-/// its empty state. Issue LISTS are not screens: they live in the sidebar
-/// tool windows (the rail's Inbox / My Issues / All Issues).
+/// its empty state.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
     /// EXP-851: one BOARD's issue list, full width — the filter bar plus the
@@ -50,10 +49,6 @@ pub enum Screen {
     /// window's active board"; the render resolves it through
     /// [`board_for_screen`].
     BoardIssues { board_id: String },
-    /// EXP-851: the personal list, full width — the Inbox notification stream
-    /// and the My Issues board behind ONE segmented strip (EXP-186's two tabs,
-    /// carried on the screen so a tab restore and go-back keep the tab).
-    Inbox { tab: crate::sidebar::InboxTab },
     /// EXP-851: the trunk file tree beside the read-only viewer — one screen
     /// now that the tool column is gone.
     Files,
@@ -195,34 +190,6 @@ impl Screen {
         )
     }
 
-    /// EXP-851: whether this screen can carry the LIST it was opened from —
-    /// an issue alone. EXP-1246: only the Inbox lends one
-    /// ([`Self::list_origin`]); what it buys is the second sidebar in the
-    /// content card ([`second_sidebar_for`]). A thread, a session of it and
-    /// an agent's channel show full width whatever opened them (web parity:
-    /// the Inbox's list-detail holds issues only); Home and the New issue
-    /// page carry nothing; a terminal never did (EXP-791/870).
-    pub(crate) fn carries_list(&self) -> bool {
-        matches!(self, Screen::IssueDetail { .. })
-    }
-
-    /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
-    /// detail opened from it inherits. EXP-1246: the Inbox alone — the one
-    /// list SCREEN that stays beside its detail as a second sidebar. Threads
-    /// opens its rows full width (Back returns to it through history), a
-    /// board its issues, and everything else — Settings, Devices,
-    /// Home, Files, any detail — is context-free.
-    pub(crate) fn list_origin(&self) -> Option<TabOrigin> {
-        use crate::sidebar::ToolWindow;
-        match self {
-            Screen::Inbox { tab } => Some(TabOrigin {
-                tool: ToolWindow::Inbox,
-                board_id: None,
-                inbox_tab: Some(*tab),
-            }),
-            _ => None,
-        }
-    }
 }
 
 /// EXP-288: which sidebar entry a detail tab was opened from — clicking the
@@ -234,11 +201,6 @@ pub(crate) struct TabOrigin {
     /// The origin board when `tool == BoardIssues` (boards share one tool
     /// window; the board id disambiguates which list to restore).
     pub board_id: Option<String>,
-    /// The Inbox tool window's active tab when `tool == Inbox` (EXP-426 —
-    /// distinguishes "came from My Issues" from "came from a notification";
-    /// the detail's prev/next switcher follows this, and tab activation
-    /// restores it).
-    pub inbox_tab: Option<crate::sidebar::InboxTab>,
 }
 
 impl TabOrigin {
@@ -251,8 +213,8 @@ impl TabOrigin {
 }
 
 /// The pending origin marker a navigation leaves for the screens panel:
-/// `Derive` = run the EXP-851 breadcrumb rule ([`derive_origin`]) at consume
-/// time, which is right for every in-app click path; `Explicit` = the caller
+/// `Derive` = no named list, which is right for every in-app click path;
+/// `Explicit` = the caller
 /// knows the list itself (a deep link, an OS notification, the create
 /// dialog — nothing on screen names it).
 pub(crate) enum PendingOrigin {
@@ -267,67 +229,6 @@ pub(crate) enum PendingOrigin {
     /// sidebar for as long as it runs, so a chip for it would be a second
     /// copy of the same row that the run's end then leaves behind.
     LiveRail,
-}
-
-/// EXP-851: the ONE rule for which LIST a freshly opened detail carries —
-/// the "breadcrumb" rule, one layer only:
-///
-/// * Opened from a LIST SCREEN (EXP-1246: the Inbox): that list
-///   comes along, so the detail sits beside the rows it was picked from.
-/// * Opened from another detail that already CARRIES a list (an inbox issue
-///   → its coding run): the list is inherited, one layer at a time.
-/// * Opened from anywhere ELSE — a board, the rail, Home, a
-///   context-free page, Settings, a deep link at boot: NO list.
-///
-/// `previous` is the screen navigated away from, `previous_origin` the list
-/// IT carried (only meaningful while `previous` is a detail). Pure, so every
-/// combination is a unit test.
-pub(crate) fn derive_origin(
-    previous: Option<&Screen>,
-    previous_origin: Option<TabOrigin>,
-    target: &Screen,
-) -> Option<TabOrigin> {
-    if !target.carries_list() {
-        return None;
-    }
-    let previous = previous?;
-    // A screen that CARRIES a list hands that one on; only when it carries
-    // none does its OWN list apply.
-    let origin = match previous_origin.filter(|_| previous.carries_list()) {
-        Some(origin) => Some(origin),
-        None => previous.list_origin(),
-    };
-    origin.filter(|origin| !origin.is_list_of(target))
-}
-
-/// EXP-1192/EXP-1246: the deliberate SECOND sidebar, drawn inside the
-/// content card beside the active screen (the root sidebar never folds).
-/// List-detail: the list stays, a pick opens to its right. EXP-1294: the
-/// Inbox is the only one left (Agent › Recent went with the run lists).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SecondSidebar {
-    /// The notification stream (+ My Issues) — always up on the Inbox, and
-    /// beside an issue opened from it (never a thread or a session: those
-    /// show full width, like the web).
-    Inbox,
-}
-
-/// EXP-1192: which [`SecondSidebar`] the card shows for `screen`, given the
-/// list it carries (`origin`). Pure, so the whole table is a unit test.
-/// Boards, Settings, terminals and every full page show none.
-pub(crate) fn second_sidebar_for(
-    screen: Option<&Screen>,
-    origin: Option<&TabOrigin>,
-) -> Option<SecondSidebar> {
-    use crate::sidebar::ToolWindow;
-    match screen? {
-        Screen::Inbox { .. } => Some(SecondSidebar::Inbox),
-        screen if screen.carries_list() => match origin?.tool {
-            ToolWindow::Inbox => Some(SecondSidebar::Inbox),
-            _ => None,
-        },
-        _ => None,
-    }
 }
 
 /// EXP-1294: the screen a `sessions` row opens as — a thread root its
@@ -436,10 +337,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .get(board_id)
             .map(|board| gpui::SharedString::from(board.name.clone()))
             .unwrap_or_else(|| "Board".into()),
-        Screen::Inbox { tab } => match tab {
-            crate::sidebar::InboxTab::Inbox => "Inbox".into(),
-            crate::sidebar::InboxTab::MyIssues => "My issues".into(),
-        },
         Screen::Files => "Files".into(),
         Screen::SourceControl => "Source Control".into(),
         Screen::Devices => "Devices".into(),
@@ -650,6 +547,8 @@ pub(crate) fn holds_leave(armed: bool, current: Option<&Screen>, target: Option<
 /// Per-window navigation state. Mutate through [`navigate`] /
 /// [`switch_team`] / [`go_back`] so observers fire consistently.
 pub struct Navigation {
+    /// #FEED-191: the rail header's Inbox popover is up.
+    pub(crate) inbox_open: bool,
     /// Selected team; `None` = "first synced team" (resolved at
     /// query time — a fresh install has no selection until sync lands).
     pub team_id: Option<String>,
@@ -693,10 +592,9 @@ impl Navigation {
             .as_deref()
             .and_then(parse_dev_screen)
             .or_else(legacy_tool_screen);
-        // DEV-ONLY (EXP-851): `EXP_DEV_TOOL` beside a detail `EXP_DEV_SCREEN`
-        // is the capture run asking for that list in the LEFT column.
-        let pending_origin = dev_tab_origin(screen.as_ref()).map(PendingOrigin::Explicit);
+        let pending_origin = None;
         Self {
+            inbox_open: dev_inbox_open(),
             // DEV-ONLY (§11.4 headless verification, same family as
             // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a team and/or
             // pre-route the first screen so gate screenshots can reach
@@ -884,11 +782,11 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "board-issues" | "board" | "issues" => Some(Screen::BoardIssues {
             board_id: String::new(),
         }),
-        "inbox" => Some(Screen::Inbox {
-            tab: crate::sidebar::InboxTab::Inbox,
-        }),
-        "inbox-my-issues" | "my-issues" => Some(Screen::Inbox {
-            tab: crate::sidebar::InboxTab::MyIssues,
+        // #FEED-191: the Inbox is a popover over Home ([`dev_inbox_open`]); My
+        // issues a pill on the active board ([`crate::board`]).
+        "inbox" => Some(Screen::Home),
+        "inbox-my-issues" | "my-issues" => Some(Screen::BoardIssues {
+            board_id: String::new(),
         }),
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
@@ -953,15 +851,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
 ///
 /// Pure over the spec so the whole table is a unit test.
 pub(crate) fn dev_tool_screen(spec: &str) -> Option<Screen> {
-    use crate::sidebar::InboxTab;
     match spec.trim() {
-        "inbox" => Some(Screen::Inbox {
-            tab: InboxTab::Inbox,
-        }),
-        "my-issues" => Some(Screen::Inbox {
-            tab: InboxTab::MyIssues,
-        }),
-        "board" | "board-issues" | "issues" => Some(Screen::BoardIssues {
+        // #FEED-191: the Inbox popover over Home ([`dev_inbox_open`]).
+        "inbox" => Some(Screen::Home),
+        "board" | "board-issues" | "issues" | "my-issues" => Some(Screen::BoardIssues {
             board_id: String::new(),
         }),
         "files" => Some(Screen::Files),
@@ -972,42 +865,16 @@ pub(crate) fn dev_tool_screen(spec: &str) -> Option<Screen> {
     }
 }
 
+/// DEV-ONLY (#FEED-191): a capture opens the Inbox popover on launch:
+/// `EXP_DEV_TOOL=inbox`, `EXP_DEV_SCREEN=inbox` or `EXP_DEV_INBOX_OPEN=1`.
+fn dev_inbox_open() -> bool {
+    let named = |var: &str| std::env::var(var).ok().as_deref().map(str::trim) == Some("inbox");
+    named("EXP_DEV_TOOL") || named("EXP_DEV_SCREEN") || std::env::var("EXP_DEV_INBOX_OPEN").is_ok()
+}
+
 /// The `EXP_DEV_TOOL` screen of the running process (see [`dev_tool_screen`]).
 fn legacy_tool_screen() -> Option<Screen> {
     dev_tool_screen(std::env::var("EXP_DEV_TOOL").ok().as_deref()?)
-}
-
-/// DEV-ONLY (EXP-851): the LIST a capture run wants beside a detail screen.
-/// `EXP_DEV_TOOL` names a list and `EXP_DEV_SCREEN` a detail (`issue:…`,
-/// `session:…`), so it seeds the first navigation's explicit origin — the
-/// second sidebar (EXP-1192: `inbox`/`my-issues`; a board lends none).
-/// `None` whenever either half is missing or the screen carries no list.
-fn dev_tab_origin(screen: Option<&Screen>) -> Option<TabOrigin> {
-    if !screen?.carries_list() {
-        return None;
-    }
-    let mut origin = legacy_tool_screen()?.list_origin()?;
-    // `EXP_DEV_INBOX_TAB` still wins over the `my-issues` spelling.
-    if origin.tool == crate::sidebar::ToolWindow::Inbox {
-        if let Some(tab) = std::env::var("EXP_DEV_INBOX_TAB")
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .and_then(parse_dev_inbox_tab)
-        {
-            origin.inbox_tab = Some(tab);
-        }
-    }
-    Some(origin)
-}
-
-/// DEV-ONLY `EXP_DEV_INBOX_TAB` values: `inbox` | `my-issues`.
-fn parse_dev_inbox_tab(spec: &str) -> Option<crate::sidebar::InboxTab> {
-    match spec {
-        "inbox" => Some(crate::sidebar::InboxTab::Inbox),
-        "my-issues" => Some(crate::sidebar::InboxTab::MyIssues),
-        _ => None,
-    }
 }
 
 /// Window-keyed registry of navigation entities.
@@ -1882,20 +1749,10 @@ pub fn init(cx: &mut App) {
     // EXP-851: My Issues / Inbox are the two tabs of the ONE Inbox SCREEN
     // (EXP-186's tabs, carried on the screen since the tool column went).
     cx.on_action(|_: &OpenMyIssues, cx| {
-        navigate_active(
-            cx,
-            Screen::Inbox {
-                tab: crate::sidebar::InboxTab::MyIssues,
-            },
-        );
+        on_active_window(cx, crate::sidebar::open_my_issues);
     });
     cx.on_action(|_: &OpenInbox, cx| {
-        navigate_active(
-            cx,
-            Screen::Inbox {
-                tab: crate::sidebar::InboxTab::Inbox,
-            },
-        );
+        on_active_window(cx, crate::inbox_popover::open);
     });
     cx.on_action(|_: &OpenSettings, cx| navigate_active(cx, Screen::Settings));
     // EXP-1170: "New issue" (the §3.6 unit action) opens the New issue PAGE
@@ -2277,7 +2134,6 @@ mod tests {
     /// the same screen, so the committed view catalog keeps resolving.
     #[test]
     fn the_list_screens_have_dev_values_under_both_spellings() {
-        use crate::sidebar::InboxTab;
         let board = Screen::BoardIssues {
             board_id: String::new(),
         };
@@ -2285,24 +2141,11 @@ mod tests {
             assert_eq!(parse_dev_screen(spec), Some(board.clone()), "{spec}");
             assert_eq!(dev_tool_screen(spec), Some(board.clone()), "{spec}");
         }
-        assert_eq!(
-            parse_dev_screen("inbox"),
-            Some(Screen::Inbox {
-                tab: InboxTab::Inbox
-            })
-        );
-        assert_eq!(
-            parse_dev_screen("inbox-my-issues"),
-            Some(Screen::Inbox {
-                tab: InboxTab::MyIssues
-            })
-        );
-        assert_eq!(
-            dev_tool_screen("my-issues"),
-            Some(Screen::Inbox {
-                tab: InboxTab::MyIssues
-            })
-        );
+        // #FEED-191: the Inbox = a popover over Home, My issues = a pill.
+        assert_eq!(parse_dev_screen("inbox"), Some(Screen::Home));
+        assert_eq!(dev_tool_screen("inbox"), Some(Screen::Home));
+        assert_eq!(parse_dev_screen("inbox-my-issues"), Some(board.clone()));
+        assert_eq!(dev_tool_screen("my-issues"), Some(board.clone()));
         // SLOP-4: the Support screens are gone with the helpdesk.
         assert_eq!(parse_dev_screen("support"), None);
         assert_eq!(parse_dev_screen("support:t1"), None);
@@ -2320,27 +2163,15 @@ mod tests {
         assert_eq!(dev_tool_screen("nonsense"), None);
     }
 
-    /// EXP-851: `EXP_DEV_TOOL` beside a DETAIL screen means "that list as the
-    /// card's second sidebar" — the pair a capture run uses for those views.
-    #[test]
-    fn dev_inbox_tab_parses_both_values() {
-        use crate::sidebar::InboxTab;
-        assert_eq!(parse_dev_inbox_tab("inbox"), Some(InboxTab::Inbox));
-        assert_eq!(parse_dev_inbox_tab("my-issues"), Some(InboxTab::MyIssues));
-        assert_eq!(parse_dev_inbox_tab("My-Issues"), None);
-    }
-
     /// EXP-1294: the Threads page is a full page that lends NO list — the
     /// thread it opens shows full width, Back returns through history.
     /// Neither a tab nor undockable (an ISSUE is both).
     #[test]
     fn threads_lends_no_list() {
-        assert_eq!(Screen::Threads.list_origin(), None);
         assert!(!Screen::Threads.is_detail());
         assert!(!Screen::Threads.undockable());
         // VAPP-242: so is an app's run view.
         let run = Screen::AppRun { app: "a".into() };
-        assert_eq!(run.list_origin(), None);
         assert!(!run.is_detail());
         assert!(!run.undockable());
         assert!(!Screen::Home.is_detail());
@@ -2415,7 +2246,6 @@ mod tests {
         assert_eq!(parse_dev_screen("thread:5d7a"), Some(thread.clone()));
         assert_eq!(parse_dev_screen("thread"), None);
         assert!(thread.is_detail());
-        assert!(!thread.carries_list());
         assert!(!thread.undockable());
         let agent = Screen::Agent {
             agent_id: "a1".into(),
@@ -2423,7 +2253,6 @@ mod tests {
         assert_eq!(parse_dev_screen("agent:a1"), Some(agent.clone()));
         assert_eq!(parse_dev_screen("agent"), None);
         assert!(agent.is_detail());
-        assert!(!agent.carries_list());
         assert!(!agent.undockable());
     }
 
@@ -2438,61 +2267,6 @@ mod tests {
         };
         assert!(session.is_detail());
         assert!(!session.undockable());
-        assert!(session.list_origin().is_none());
-    }
-
-    /// EXP-1246: the screen that is a LIST — the Inbox, the one that stays
-    /// beside its detail. Reviews, a board and every other screen (and every
-    /// detail) is context-free.
-    #[test]
-    fn only_the_inbox_is_a_list() {
-        use crate::sidebar::{InboxTab, ToolWindow};
-        assert_eq!(
-            Screen::Inbox {
-                tab: InboxTab::MyIssues
-            }
-            .list_origin(),
-            Some(TabOrigin {
-                tool: ToolWindow::Inbox,
-                board_id: None,
-                inbox_tab: Some(InboxTab::MyIssues),
-            })
-        );
-        assert_eq!(Screen::Threads.list_origin(), None);
-        for screen in [
-            Screen::BoardIssues {
-                board_id: "b1".into(),
-            },
-            // The dev sentinel (`EXP_DEV_TOOL=board`) lends nothing either.
-            Screen::BoardIssues {
-                board_id: String::new(),
-            },
-            Screen::Settings,
-            Screen::Devices,
-            Screen::Drafts,
-            Screen::Home,
-            Screen::Threads,
-            Screen::AppRun { app: "a".into() },
-            Screen::Files,
-            Screen::SourceControl,
-            Screen::ExponentialUiKitchenSink,
-            Screen::App { app: "a".into() },
-            Screen::IssueDetail {
-                issue_id: "i1".into(),
-            },
-            Screen::Session {
-                session_id: "s1".into(),
-            },
-            Screen::Thread {
-                session_id: "t1".into(),
-            },
-            Screen::Agent {
-                agent_id: "a1".into(),
-            },
-            draft_screen("d1", "b1"),
-        ] {
-            assert!(screen.list_origin().is_none(), "{screen:?}");
-        }
     }
 
     fn draft_screen(draft_id: &str, board_id: &str) -> Screen {
@@ -2609,65 +2383,6 @@ mod tests {
         assert!(!holds_leave(true, None, Some(&issue)));
     }
 
-    /// EXP-1192: only an issue carries a list — a thread, a session, the
-    /// New issue page, Home, an agent's channel and a terminal never do.
-    #[test]
-    fn only_an_issue_carries_a_list() {
-        assert!(Screen::IssueDetail {
-            issue_id: "i1".into()
-        }
-        .carries_list());
-        assert!(!Screen::Session {
-            session_id: "s1".into()
-        }
-        .carries_list());
-        let draft = draft_screen("d1", "b1");
-        assert!(!draft.carries_list());
-        assert!(!draft.is_detail());
-        assert!(!draft.undockable());
-        assert!(!draft.is_dock_tab());
-        assert!(!Screen::Home.carries_list());
-        assert!(!Screen::Agent {
-            agent_id: "a1".into()
-        }
-        .carries_list());
-        // (A terminal is out too, but `TabId` has no test constructor.)
-    }
-
-    /// EXP-1170: the issue that REPLACES a filed draft derives from the back
-    /// stack's top — the Inbox it was opened from still comes along; a board
-    /// lends nothing (EXP-1192), and the draft page itself carries nothing.
-    #[test]
-    fn derive_origin_rows_for_the_draft_page() {
-        let inbox_screen = Screen::Inbox {
-            tab: crate::sidebar::InboxTab::Inbox,
-        };
-        let inbox = inbox_screen.list_origin().unwrap();
-        let draft = draft_screen("d1", "b1");
-        let board_screen = Screen::BoardIssues {
-            board_id: "b1".into(),
-        };
-        assert_eq!(derive_origin(Some(&board_screen), None, &draft), None);
-        assert_eq!(derive_origin(Some(&Screen::Drafts), None, &draft), None);
-        let issue = Screen::IssueDetail {
-            issue_id: "i1".into(),
-        };
-        let mut nav = Navigation::new();
-        nav.screen = None;
-        nav.back_stack.clear();
-        nav.forward_stack.clear();
-        nav.advance(inbox_screen.clone(), PendingOrigin::Derive, None);
-        nav.advance(draft.clone(), PendingOrigin::Derive, None);
-        nav.replace(issue.clone(), PendingOrigin::Derive);
-        assert_eq!(
-            derive_origin(nav.previous_screen(), None, &issue),
-            Some(inbox)
-        );
-        nav.replace(board_screen.clone(), PendingOrigin::Derive);
-        nav.advance(issue.clone(), PendingOrigin::Derive, None);
-        assert_eq!(derive_origin(nav.previous_screen(), None, &issue), None);
-    }
-
     /// EXP-1170: the board chip retargets every entry of THAT draft (screen
     /// and both stacks), and nothing else.
     #[test]
@@ -2719,144 +2434,6 @@ mod tests {
         assert_eq!(nav.back_stack, vec![board]);
     }
 
-    /// EXP-851: the breadcrumb rule, one row per navigation the product can
-    /// make. A detail keeps the list it was opened FROM (EXP-1192: the
-    /// Inbox), inherits one from another detail, and gets NOTHING anywhere
-    /// else.
-    #[test]
-    fn derive_origin_carries_a_list_one_layer_and_never_invents_one() {
-        use crate::sidebar::InboxTab;
-        let issue = Screen::IssueDetail {
-            issue_id: "i1".into(),
-        };
-        let session = Screen::Session {
-            session_id: "s1".into(),
-        };
-        let board_screen = Screen::BoardIssues {
-            board_id: "b1".into(),
-        };
-        let inbox_screen = Screen::Inbox {
-            tab: InboxTab::Inbox,
-        };
-        let inbox = inbox_screen.list_origin().unwrap();
-
-        // EXP-1192: a board list → an issue: full width, no list.
-        assert_eq!(derive_origin(Some(&board_screen), None, &issue), None);
-        // The Inbox → an issue: the Inbox, with the tab it was on …
-        assert_eq!(
-            derive_origin(Some(&inbox_screen), None, &issue),
-            Some(inbox.clone())
-        );
-        // … → its coding run: a session shows full width, nothing is
-        // handed on.
-        assert_eq!(
-            derive_origin(Some(&issue), Some(inbox.clone()), &session),
-            None
-        );
-        // EXP-1294: the Threads page → a thread: full width, no list.
-        let thread = Screen::Thread {
-            session_id: "t1".into(),
-        };
-        assert_eq!(derive_origin(Some(&Screen::Threads), None, &thread), None);
-        // The Inbox → a thread (a notification, or the composer sent from
-        // there): full width, and its sessions inherit nothing.
-        assert_eq!(derive_origin(Some(&inbox_screen), None, &thread), None);
-        assert_eq!(
-            derive_origin(Some(&thread), Some(inbox.clone()), &session),
-            None
-        );
-        // A detail with no list of its own hands on nothing.
-        assert_eq!(derive_origin(Some(&issue), None, &session), None);
-        // EXP-1192: anything via Home carries nothing — the page
-        // carries no list, so it neither keeps one nor hands one on.
-        assert_eq!(derive_origin(Some(&Screen::Home), None, &session), None);
-        assert_eq!(
-            derive_origin(Some(&issue), Some(inbox.clone()), &Screen::Home),
-            None
-        );
-        assert_eq!(
-            derive_origin(Some(&Screen::Home), Some(inbox.clone()), &session),
-            None
-        );
-        assert_eq!(
-            derive_origin(Some(&session), Some(inbox.clone()), &Screen::Home),
-            None
-        );
-        // … and so does anything via the New issue page.
-        let draft = draft_screen("d1", "b1");
-        assert_eq!(derive_origin(Some(&issue), Some(inbox.clone()), &draft), None);
-        assert_eq!(derive_origin(Some(&draft), Some(inbox.clone()), &issue), None);
-        // A context-free screen (the rail's pages, Settings, Files) derives
-        // NO list.
-        for previous in [
-            Screen::Devices,
-            Screen::Drafts,
-            Screen::Settings,
-            Screen::Files,
-            Screen::SourceControl,
-            Screen::Threads,
-            Screen::Agent { agent_id: "a1".into() },
-            Screen::ExponentialUiKitchenSink,
-            Screen::App { app: "a".into() },
-        ] {
-            assert_eq!(derive_origin(Some(&previous), None, &issue), None, "{previous:?}");
-            assert_eq!(derive_origin(Some(&previous), None, &session), None);
-        }
-        // A deep link at boot (nothing before) has no list either.
-        assert_eq!(derive_origin(None, None, &issue), None);
-        // A plain LIST screen never carries a list of its own.
-        assert_eq!(derive_origin(Some(&board_screen), None, &inbox_screen), None);
-        assert_eq!(derive_origin(Some(&inbox_screen), None, &Screen::Threads), None);
-    }
-
-    /// EXP-1192/EXP-1246: the second-sidebar table — the Inbox screen and
-    /// every detail carrying the Inbox show the Inbox, and everything else
-    /// (a board-opened detail, Home, Settings, a terminal) none.
-    #[test]
-    fn second_sidebar_for_table() {
-        use crate::sidebar::InboxTab;
-        let issue = Screen::IssueDetail {
-            issue_id: "i1".into(),
-        };
-        let session = Screen::Session {
-            session_id: "s1".into(),
-        };
-        let thread = Screen::Thread {
-            session_id: "t1".into(),
-        };
-        let inbox = Screen::Inbox {
-            tab: InboxTab::MyIssues,
-        }
-        .list_origin();
-        let inbox_screen = Screen::Inbox {
-            tab: InboxTab::Inbox,
-        };
-        let rows: [(Option<&Screen>, Option<&TabOrigin>, Option<SecondSidebar>); 11] = [
-            (Some(&inbox_screen), None, Some(SecondSidebar::Inbox)),
-            (Some(&issue), inbox.as_ref(), Some(SecondSidebar::Inbox)),
-            // A thread or a session never carries the Inbox beside it.
-            (Some(&session), inbox.as_ref(), None),
-            (Some(&thread), inbox.as_ref(), None),
-            // A board-opened (or rail-opened) detail: none.
-            (Some(&issue), None, None),
-            (Some(&session), None, None),
-            (Some(&Screen::Home), None, None),
-            (Some(&Screen::Settings), None, None),
-            (Some(&Screen::Settings), inbox.as_ref(), None),
-            // (A terminal falls through the same arm as Settings; `TabId`
-            // has no test constructor.)
-            (Some(&Screen::Threads), None, None),
-            (None, None, None),
-        ];
-        for (screen, origin, expected) in rows {
-            assert_eq!(
-                second_sidebar_for(screen, origin),
-                expected,
-                "{screen:?} {origin:?}"
-            );
-        }
-    }
-
     /// EXP-1192: the window lands on Home; that default enters history like
     /// any screen, so Back from the first navigation returns to it — and it
     /// lends no list.
@@ -2873,7 +2450,6 @@ mod tests {
         nav.advance(issue.clone(), PendingOrigin::Derive, default_screen(true));
         assert_eq!(nav.previous_screen(), Some(&Screen::Home));
         assert_eq!(nav.screen(), Some(&issue));
-        assert_eq!(derive_origin(nav.previous_screen(), None, &issue), None);
         // Re-entering the default itself never stacks it twice.
         let mut nav = Navigation::new();
         nav.screen = None;

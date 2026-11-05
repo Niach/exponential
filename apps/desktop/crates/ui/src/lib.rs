@@ -169,6 +169,8 @@ mod story_tab;
 mod results_tab;
 // #FEED-191: the Needs you page + its rail entry's rows.
 mod needs_you;
+// #FEED-191: the rail header's Inbox popover.
+mod inbox_popover;
 mod pr_diff;
 mod pr_graph;
 mod pr_merge;

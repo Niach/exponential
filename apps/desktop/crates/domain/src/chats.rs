@@ -170,6 +170,8 @@ pub struct ChatsCopy {
     pub stop_turn: ChatsStopTurnCopy,
     pub dividers: ChatsDividerCopy,
     pub superseded: String,
+    /// `shell.boardChips`' labels (the board's pills).
+    pub board_chips: ChatBoardChipsCopy,
     pub inbox: String,
     pub time: ChatsTimeCopy,
     pub load_earlier: String,
@@ -190,6 +192,14 @@ pub struct ChatsSectionsCopy {
     pub working: String,
     pub unread: String,
     pub chats: String,
+}
+
+/// `copy.boardChips`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChatBoardChipsCopy {
+    pub all: String,
+    pub mine: String,
+    pub drafts: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
