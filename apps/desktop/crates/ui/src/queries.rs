@@ -1215,6 +1215,13 @@ pub(crate) fn own_device_id(cx: &mut App) -> String {
     id
 }
 
+/// A test's device id: the real one reads `AuthContext`, which a test without
+/// a signed-in app has not set.
+#[cfg(test)]
+pub(crate) fn set_own_device_id_for_test(id: &str, cx: &mut App) {
+    cx.set_global(OwnDeviceIdGlobal(id.to_string()));
+}
+
 /// How long a FAILED `steer.config` fetch stays un-rearmed. The error path
 /// notifies, every observer's handler reads the cache again, and an ungated
 /// re-arm turns that into one fetch per notify while the network is down.
