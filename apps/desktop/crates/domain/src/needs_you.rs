@@ -166,7 +166,8 @@ fn row_of(
     let field = |key: &str| card.get(key).and_then(Value::as_str);
     let kind = field("kind");
     if matches!(kind, Some("plan" | "question")) {
-        if card_state(card, answered_at) != Some(CardState::Waiting) {
+        // A digest's card is cut (no `decision`): `answeredAt` settles it.
+        if answered_at.is_some() || card_state(card, answered_at) != Some(CardState::Waiting) {
             return None;
         }
         let plan = kind == Some("plan");

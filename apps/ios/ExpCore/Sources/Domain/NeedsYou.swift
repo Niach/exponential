@@ -165,7 +165,8 @@ public enum NeedsYou {
         else { return nil }
         let age = ResultsTab.age(ms(message.createdAt), now: now)
         if card.kind == "plan" || card.kind == "question" {
-            guard WaitingCards.cardState(card, answeredAt: message.answeredAt) == .waiting else { return nil }
+            // A digest's card is cut (no `decision`): `answeredAt` settles it.
+            guard message.answeredAt == nil, WaitingCards.cardState(card, answeredAt: message.answeredAt) == .waiting else { return nil }
             let plan = card.kind == "plan"
             let question = AskDock.title(card.question ?? "")
             return Row(

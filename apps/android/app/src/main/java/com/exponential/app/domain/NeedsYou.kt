@@ -114,7 +114,8 @@ object NeedsYou {
         val age = ResultsTab.age(ms(message.createdAt), now)
         val kind = card.str("kind")
         if (kind == "plan" || kind == "question") {
-            if (WaitingCards.cardState(card, message.answeredAt) != WaitingCards.CardState.Waiting) return null
+            // A digest's card is cut (no `decision`): `answeredAt` settles it.
+            if (message.answeredAt != null || WaitingCards.cardState(card, message.answeredAt) != WaitingCards.CardState.Waiting) return null
             val plan = kind == "plan"
             return Row(
                 messageId = message.id,
