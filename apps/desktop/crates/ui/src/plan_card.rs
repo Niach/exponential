@@ -1,7 +1,7 @@
 //! EXP-1280 — THE rich plan / question card's interactive half ×4
 //! (`packages/domain-contract/fixtures/plan-card.json`; web
 //! `packages/ui/src/session-thread-view.tsx` + `ask-card.tsx`). The thread's
-//! cards (`crate::thread_screen::question_card`), THE plan tab's floating panel, THE ask dock
+//! cards (`crate::thread_screen::question_card`), THE plan tab's questions rail, THE ask dock
 //! and the session view's TOOL-posted card all paint through here:
 //!
 //! - the inline Exponential UI surface (`surface` {root, data}) through the
@@ -971,7 +971,7 @@ fn open_full_glyph(session_id: &str, message_id: &str, cx: &App) -> AnyElement {
     .into_any_element()
 }
 
-/// What THE floating questions panel draws, split so its footer pins.
+/// What THE questions rail draws, split so its footer pins.
 pub(crate) struct PlanParts {
     /// "Question n of m" while stepping through two or more.
     pub step: Option<SharedString>,
@@ -1046,18 +1046,43 @@ pub(crate) fn plan_parts(facts: &PlanFacts, answer: bool, images: &Entity<ImageC
     }
 }
 
-/// #EXP-1662: THE floating questions panel's content (plan-page.json `panel`;
+/// #EXP-1662 / #FEED-191: THE questions rail's content (plan-page.json, the wide RAIL;
 /// web `PlanRail`): the step label top right, the body hugging its content and
 /// scrolling inside past the panel's cap, the footer pinned; `None` = nothing
 /// to draw (a reader who may not decide a plan without questions).
-pub(crate) fn plan_rail(facts: &PlanFacts, answer: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> Option<AnyElement> {
+pub(crate) fn plan_rail(
+    facts: &PlanFacts,
+    answer: bool,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> Option<AnyElement> {
     let message_id = facts.message_id;
     let parts = plan_parts(facts, answer, images, window, cx);
     if parts.body.is_none() && parts.footer.is_none() {
         return None;
     }
-    let muted = cx.theme().muted_foreground;
+    let (muted, foreground) = (cx.theme().muted_foreground, cx.theme().foreground);
     let ids = model::test_ids();
+    let step = parts.step.map(|step| {
+        div()
+            .id(SharedString::from(format!("{}-rail-{message_id}", ids.step)))
+            .ml_auto()
+            .text_xs()
+            .text_color(muted)
+            .child(step)
+    });
+    // #FEED-191 (plan-page.json, the wide RAIL): the `copy.questions` heading
+    // with the step label trailing.
+    let heading = (!facts.questions.is_empty()).then(|| {
+        div()
+            .text_sm()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(foreground)
+            .child(SharedString::from(domain::plan_page::PLAN_PAGE.copy.questions.clone()))
+    });
+    let top = (heading.is_some() || step.is_some())
+        .then(|| h_flex().flex_shrink_0().w_full().items_center().gap_2().children(heading).children(step));
     Some(
         v_flex()
             .id(SharedString::from(domain::plan_page::PLAN_PAGE.test_ids.rail.clone()))
@@ -1067,17 +1092,7 @@ pub(crate) fn plan_rail(facts: &PlanFacts, answer: bool, images: &Entity<ImageCa
             .min_w_0()
             .min_h_0()
             .gap_3()
-            .when_some(parts.step, |rail, step| {
-                rail.child(
-                    h_flex().flex_shrink_0().w_full().justify_end().child(
-                        div()
-                            .id(SharedString::from(format!("{}-rail-{message_id}", ids.step)))
-                            .text_xs()
-                            .text_color(muted)
-                            .child(step),
-                    ),
-                )
-            })
+            .children(top)
             .when_some(parts.body, |rail, body| {
                 rail.child(
                     div()

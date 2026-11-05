@@ -1325,6 +1325,10 @@ pub struct ConversationDigest {
     pub preview: Option<DigestMessage>,
     #[serde(default)]
     pub waiting: Option<DigestMessage>,
+    /// #FEED-191: EVERY waiting question / plan / ask (Needs you lists each),
+    /// newest first, at most 20; absent on an older digest (= empty).
+    #[serde(default)]
+    pub waits: Vec<DigestMessage>,
     #[serde(default)]
     pub agent_at: Option<String>,
     #[serde(default)]
@@ -1361,7 +1365,8 @@ pub fn digest_messages(session_id: &str, digest: Option<&ConversationDigest>) ->
     let mut seen: Vec<&str> = Vec::new();
     // Kept agent messages by instant (a multiset: two may share a time).
     let mut counted: HashMap<i64, usize> = HashMap::new();
-    for message in [&digest.first, &digest.preview, &digest.waiting].into_iter().flatten() {
+    let kept = [&digest.first, &digest.preview, &digest.waiting].into_iter().flatten().chain(digest.waits.iter());
+    for message in kept {
         if seen.contains(&message.id.as_str()) {
             continue;
         }

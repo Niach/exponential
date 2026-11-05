@@ -1348,6 +1348,10 @@ impl ScreensPanel {
                 rail.clear_sc_selection(cx);
             });
         }
+        // #FEED-191 (plan-page.json `kept`): every chat the pane no longer
+        // shows was LEFT: its decided plan leaves the strip on the next visit.
+        let here = resolved_screen(&self.nav, cx).and_then(|screen| screen_root(&screen, cx));
+        self.leave_other_chats(here.as_deref(), cx);
         let Some(screen) = resolved_screen(&self.nav, cx) else {
             return;
         };
@@ -1760,6 +1764,20 @@ impl ScreensPanel {
             set_screen(window, cx, None);
         }
         cx.notify();
+    }
+
+    /// #FEED-191: clears the per-visit plan (`kept`) of every thread view
+    /// (an agent's included) that is not the chat at `here`.
+    fn leave_other_chats(&mut self, here: Option<&str>, cx: &mut gpui::Context<Self>) {
+        let mut left: Vec<Entity<crate::thread_screen::ThreadScreenView>> =
+            self.threads.iter().filter(|(root, _)| Some(root.as_str()) != here).map(|(_, view)| view.clone()).collect();
+        left.extend(self.agents.values().filter_map(|agent| {
+            let (root, view) = agent.read(cx).thread_view()?;
+            (Some(root.as_str()) != here).then(|| view.clone())
+        }));
+        for view in left {
+            view.update(cx, |view, _| view.leave());
+        }
     }
 
     /// EXP-769: how many tabs the TOP strip holds.

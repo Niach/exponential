@@ -216,7 +216,7 @@ fn strip_spec(case: &Case, tabs: Vec<ThreadTab>, open: StripPick, prefix: &'stat
         waiting: crate::waiting_cards::thread_waiting_cards(&case.view.rows),
         on_waiting: Some(std::rc::Rc::new(|_, _, _| {})),
         // #EXP-1662: the case's plan as the strip's chip.
-        plan: crate::thread_screen::tab_plan(&case.view.rows).and_then(crate::thread_screen::strip_plan_of),
+        plan: crate::thread_screen::tab_plan(&case.view.rows, None).and_then(crate::thread_screen::strip_plan_of),
     }
 }
 

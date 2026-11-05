@@ -2463,21 +2463,40 @@ pub(crate) struct StripPlan {
     pub(crate) label: String,
     /// Its plan waits: the needs-you dot.
     pub(crate) waiting: bool,
+    /// #FEED-191 (`plan_tab_glyph`): approved = THE check in emerald.
+    pub(crate) glyph: domain::plan_page::PlanTabGlyph,
+}
+
+/// #FEED-191 (`plan_tab_glyph`): the plan chip's lead glyph: approved = THE
+/// check in the plan row's emerald, else the plan glyph in the chip's colour.
+fn plan_tab_icon(glyph: domain::plan_page::PlanTabGlyph, cx: &App) -> Icon {
+    let icon = Icon::new(if glyph.icon == "ui-check" { registry::UI_CHECK } else { registry::CODING_PLAN })
+        .xsmall()
+        .flex_shrink_0();
+    if glyph.tone == "approved" {
+        icon.text_color(cx.theme().success)
+    } else {
+        icon
+    }
 }
 
 /// #EXP-1662: a plan row as the strip's chip (a non-plan row = `None`).
 pub(crate) fn strip_plan_of(row: &SessionThreadRow) -> Option<StripPlan> {
     match row {
         SessionThreadRow::Plan { plan, decision, .. } => {
-            Some(StripPlan { label: domain::plan_page::plan_row_label(plan), waiting: decision.is_none() })
+            Some(StripPlan {
+                label: domain::plan_page::plan_row_label(plan),
+                waiting: decision.is_none(),
+                glyph: domain::plan_page::plan_tab_glyph(decision.as_deref()),
+            })
         }
         _ => None,
     }
 }
 
-/// #EXP-1662: the plan the thread's tab targets (`plan_tab_target` over its
-/// plan rows, oldest first).
-pub(crate) fn tab_plan(rows: &[SessionThreadRow]) -> Option<&SessionThreadRow> {
+/// #EXP-1662 / #FEED-191: the plan the thread's tab targets (`plan_tab_target`
+/// over its plan rows, oldest first, and the plan `kept` this visit).
+pub(crate) fn tab_plan<'a>(rows: &'a [SessionThreadRow], kept: Option<&str>) -> Option<&'a SessionThreadRow> {
     let plans: Vec<(&str, Option<&str>)> = rows
         .iter()
         .filter_map(|row| match row {
@@ -2485,7 +2504,7 @@ pub(crate) fn tab_plan(rows: &[SessionThreadRow]) -> Option<&SessionThreadRow> {
             _ => None,
         })
         .collect();
-    let target = domain::plan_page::plan_tab_target(&plans)?;
+    let target = domain::plan_page::plan_tab_target(&plans, kept)?;
     rows.iter().find(|row| row.id() == target)
 }
 
@@ -2773,7 +2792,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
         let mut chip = strip_chip(SharedString::from(domain::plan_page::PLAN_PAGE.test_ids.tab.clone()), spec.open == StripPick::Plan, cx)
             .debug_selector(|| domain::plan_page::PLAN_PAGE.test_ids.tab.clone())
             .max_w(px(domain::plan_page::PLAN_PAGE.layout.tab_max_width))
-            .child(Icon::new(registry::CODING_PLAN).xsmall().flex_shrink_0())
+            .child(plan_tab_icon(plan.glyph, cx))
             .child(div().min_w_0().truncate().child(SharedString::from(plan.label)))
             .when(plan.waiting, |chip| {
                 chip.child(div().flex_shrink_0().size(px(6.)).rounded_full().bg(theme::tokens::YELLOW.to_hsla()))
@@ -3035,8 +3054,8 @@ fn conversation_agent(model: &ThreadModel) -> Option<&str> {
 }
 
 /// chats.json AGENT CHAT: the chat holds a plan: the one on show, else its tab's.
-fn agent_chat_holds_plan(shown: Option<&SessionThreadRow>, model: &ThreadModel) -> bool {
-    shown.is_some() || tab_plan(&model.view.rows).is_some()
+fn agent_chat_holds_plan(shown: Option<&SessionThreadRow>, model: &ThreadModel, kept: Option<&str>) -> bool {
+    shown.is_some() || tab_plan(&model.view.rows, kept).is_some()
 }
 
 /// chats.json AGENT CHAT (`agent_chat_page`): whether an agent's chat keeps `child`.
@@ -3149,6 +3168,9 @@ pub(crate) struct ThreadScreenView {
     /// new plan opens from its top).
     plan_state: crate::plan_page::PlanPageState,
     plan_painted: Option<String>,
+    /// #FEED-191 (plan-page.json `kept`): the plan the tab showed during this
+    /// visit of the chat; cleared when the person leaves it ([`Self::leave`]).
+    plan_kept: Option<String>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -3245,6 +3267,7 @@ impl ThreadScreenView {
             reveal: None,
             plan_state: Default::default(),
             plan_painted: None,
+            plan_kept: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
         };
@@ -3491,7 +3514,7 @@ impl ThreadScreenView {
         if let Some(agent_id) = conversation_agent(model) {
             let agent = crate::session_data::agent_def(agent_id, cx);
             let panel = self.call_panel.read(cx).focus_handle(cx);
-            let strip = agent_chat_holds_plan(self.shown_plan(model, cx).as_ref(), model).then(|| self.render_strip(model, window, cx));
+            let strip = agent_chat_holds_plan(self.shown_plan(model, cx).as_ref(), model, self.plan_kept.as_deref()).then(|| self.render_strip(model, window, cx));
             return crate::agent_screen::agent_header(agent.as_ref(), merge.map(IntoElement::into_any_element), back, strip, panel, cx);
         }
         // EXP-1316: the title is derived, plain text (no rename).
@@ -3593,7 +3616,11 @@ impl ThreadScreenView {
             ThreadStrip {
                 prefix: "thread",
                 results: !agent_chat,
-                plan: self.shown_plan(model, cx).or_else(|| tab_plan(&model.view.rows).cloned()).as_ref().and_then(strip_plan_of),
+                plan: self
+                    .shown_plan(model, cx)
+                    .or_else(|| tab_plan(&model.view.rows, self.plan_kept.as_deref()).cloned())
+                    .as_ref()
+                    .and_then(strip_plan_of),
                 waiting: if agent_chat { Vec::new() } else { crate::waiting_cards::thread_waiting_cards(&model.view.rows) },
                 on_waiting: (!agent_chat).then(|| {
                     let this = cx.entity().downgrade();
@@ -4212,7 +4239,24 @@ impl ThreadScreenView {
                 domain::session_tree::ask_card_row(&message).filter(|row| matches!(row, SessionThreadRow::Plan { .. }))
             })
         });
-        opened.or_else(|| tab_plan(&model.view.rows).cloned())
+        opened.or_else(|| tab_plan(&model.view.rows, self.plan_kept.as_deref()).cloned())
+    }
+
+    /// #FEED-191 (plan-page.json `kept`): the plan the tab showed during THIS
+    /// visit: a plan a row opened, else the tab's target whenever it has one.
+    fn hold_plan(&mut self, model: &ThreadModel) {
+        if let ThreadChildSel::Plan(Some(opened)) = &self.child {
+            self.plan_kept = Some(opened.clone());
+        }
+        if let Some(target) = tab_plan(&model.view.rows, self.plan_kept.as_deref()) {
+            self.plan_kept = Some(target.id().to_string());
+        }
+    }
+
+    /// #FEED-191: the person left this chat (the pane shows another one, or
+    /// none): a decided plan leaves the strip on the next visit.
+    pub(crate) fn leave(&mut self) {
+        self.plan_kept = None;
     }
 
     /// #EXP-1662: THE plan tab's body: only the content swaps, on the thread's
@@ -4289,7 +4333,9 @@ impl Render for ThreadScreenView {
         // EXP-1686 (chats.json AGENT CHAT): an agent's chat shows the conversation
         // and its plan: a stale Results (or issue) selection falls back.
         let agent_chat = conversation_agent(&model).map(str::to_string);
-        if agent_chat.is_some() && !agent_chat_shows(&self.child, agent_chat_holds_plan(self.shown_plan(&model, cx).as_ref(), &model)) {
+        if agent_chat.is_some()
+            && !agent_chat_shows(&self.child, agent_chat_holds_plan(self.shown_plan(&model, cx).as_ref(), &model, self.plan_kept.as_deref()))
+        {
             self.set_child(ThreadChildSel::Conversation, window, cx);
         }
         self.call_panel.update(cx, |panel, cx| panel.set_agent(agent_chat.clone(), cx));
@@ -4327,6 +4373,8 @@ impl Render for ThreadScreenView {
                 self.set_child(ThreadChildSel::Conversation, window, cx);
             }
         }
+        // #FEED-191: the plan this visit keeps on the strip.
+        self.hold_plan(&model);
         // Nothing left to show on the plan tab: the Conversation.
         if matches!(self.child, ThreadChildSel::Plan(_)) && self.shown_plan(&model, cx).is_none() {
             self.set_child(ThreadChildSel::Conversation, window, cx);
@@ -4791,12 +4839,19 @@ mod tests {
     #[test]
     fn the_plan_chip_follows_the_tab_target() {
         let rows = [plan_row_of("old", Some("approved")), plan_row_of("new", None), plan_row_of("done", Some("rejected"))];
-        let target = tab_plan(&rows).unwrap();
+        let target = tab_plan(&rows, None).unwrap();
         assert_eq!(target.id(), "new");
         let chip = strip_plan_of(target).unwrap();
         assert_eq!(chip.label, "Plan: new");
         assert!(chip.waiting);
-        assert!(tab_plan(&[plan_row_of("gone", Some("superseded"))]).is_none());
+        assert_eq!(chip.glyph.icon, "coding-plan");
+        assert!(tab_plan(&[plan_row_of("gone", Some("superseded"))], Some("gone")).is_none());
+        // #FEED-191: a decided plan leaves the strip unless this visit keeps it,
+        // and an approved one leads with the check.
+        let decided = [plan_row_of("old", Some("approved"))];
+        assert!(tab_plan(&decided, None).is_none());
+        let kept = strip_plan_of(tab_plan(&decided, Some("old")).unwrap()).unwrap();
+        assert_eq!((kept.glyph.icon, kept.glyph.tone, kept.waiting), ("ui-check", "approved", false));
     }
 
     #[test]
