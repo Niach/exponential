@@ -83,6 +83,19 @@ final class SealedContentFixtureTests: XCTestCase {
         XCTAssertEqual(crypto.openBody(sealed, keys: keys).text, text)
     }
 
+    /// #EXP-1683: a file in a sealed chat is a link line, never an image.
+    func testAttachmentEmbedCases() throws {
+        let f = try Self.fixture()
+        XCTAssertEqual(Set(try XCTUnwrap(f["inlineImageTypes"] as? [String])), AttachmentFiles.inlineImageContentTypes)
+        for case let c as [String: Any] in try XCTUnwrap(f["attachmentEmbedCases"] as? [Any]) {
+            let uploads = try XCTUnwrap(c["uploads"] as? [String: [String: String]])
+            let got = SealedAttachmentLines.withEmbeds(try XCTUnwrap(c["text"] as? String), attachmentIds: try XCTUnwrap(c["ids"] as? [String])) { id in
+                uploads[id].map { SealedAttachmentLines.Upload(filename: $0["filename"] ?? "", contentType: $0["contentType"] ?? "") }
+            }
+            XCTAssertEqual(got, c["expected"] as? String, c["name"] as? String ?? "?")
+        }
+    }
+
     func testBodyCases() throws {
         let crypto = try crypto()
         let f = try Self.fixture()

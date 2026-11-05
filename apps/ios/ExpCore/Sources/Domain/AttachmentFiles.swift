@@ -102,14 +102,6 @@ public enum AttachmentFiles {
         asFile || isFile(contentType: contentType)
     }
 
-    public static func isFile(_ row: AttachmentEntity) -> Bool {
-        isFile(contentType: row.contentType, asFile: row.asFile)
-    }
-
-    public static func isFile(_ row: DraftAttachmentDto) -> Bool {
-        isFile(contentType: row.contentType, asFile: row.asFile)
-    }
-
     // MARK: - NEW-83: the issue's Files list (issue-files.json)
 
     /// NEW-83 — the rows the issue's Files list shows, in the caller's order
@@ -122,19 +114,9 @@ public enum AttachmentFiles {
     /// leaves Files and renders in place. `texts` = the description plus every
     /// comment body (nil/empty ignored). Fixture-locked ×4 by
     /// `domain-contract/fixtures/issue-files.json` (web `issueFileRows`).
-    public static func issueFileRows(_ rows: [AttachmentEntity], texts: [String?]) -> [AttachmentEntity] {
-        issueFileRows(
-            rows,
-            texts: texts,
-            id: \.id,
-            contentType: \.contentType,
-            asFile: \.asFile,
-            commentId: \.commentId
-        )
-    }
-
-    /// The pure core of `issueFileRows`, generic over the row shape so the
-    /// fixture replay drives it with plain values.
+    ///
+    /// Generic over the row shape so the fixture replay drives it with plain
+    /// values (the synced rows' overload: AttachmentFiles+Entities.swift).
     public static func issueFileRows<Row>(
         _ rows: [Row],
         texts: [String?],

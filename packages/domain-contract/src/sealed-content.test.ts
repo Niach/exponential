@@ -25,6 +25,8 @@ import {
   wrapTreeKey,
   wrapTreeKeyWith,
   WRAPPED_TREE_KEY_BYTES,
+  withAttachmentEmbeds,
+  type AttachmentUpload,
 } from "./sealed-content"
 
 const hex = (text: string) => new Uint8Array(Buffer.from(text, `hex`))
@@ -95,6 +97,13 @@ describe(`body envelope`, () => {
     const parsed = parseBodyEnvelope(b.envelope)
     expect(parsed.kind).toBe(`sealed`)
   })
+  for (const c of fixture.attachmentEmbedCases) {
+    test(`attachment lines: ${c.name}`, () => {
+      const uploads = c.uploads as Record<string, AttachmentUpload>
+      expect(withAttachmentEmbeds(c.text, c.ids, (id) => uploads[id])).toBe(c.expected)
+    })
+  }
+
   for (const c of fixture.bodyCases) {
     test(c.name, () => {
       expect(openBody(c.body, keys)).toEqual({ status: c.status as never, epoch: c.epoch, text: c.text as never })

@@ -1,3 +1,5 @@
+import { rememberSessionUpload } from "@/lib/enet/seal-send"
+
 export interface UploadedIssueAttachment {
   asFile?: boolean
   contentType: string
@@ -41,6 +43,13 @@ async function postIssueUpload(
   return result
 }
 
+/** #EXP-1683: what a sealed send's attachment line needs (the server only
+ *  writes lines into a plaintext body). */
+function rememberUpload(uploaded: UploadedIssueAttachment) {
+  rememberSessionUpload(uploaded.id, { filename: uploaded.filename, contentType: uploaded.contentType })
+  return uploaded
+}
+
 /**
  * Steer attachment upload (EXP-702): EVERY steered image or file goes to the
  * session's own server-only store — issue runs included, so steering
@@ -49,11 +58,7 @@ async function postIssueUpload(
  * only from the session's owner.
  */
 export async function uploadSessionImageFile(sessionId: string, file: File) {
-  return postIssueUpload(
-    `/api/sessions/${sessionId}/files`,
-    file,
-    `Failed to upload file`
-  )
+  return rememberUpload(await postIssueUpload(`/api/sessions/${sessionId}/files`, file, `Failed to upload file`))
 }
 
 /**
@@ -62,11 +67,7 @@ export async function uploadSessionImageFile(sessionId: string, file: File) {
  * to the session row it creates (or the orphan sweep reclaims it).
  */
 export async function uploadTeamSessionImageFile(teamId: string, file: File) {
-  return postIssueUpload(
-    `/api/teams/${teamId}/session-files`,
-    file,
-    `Failed to upload file`
-  )
+  return rememberUpload(await postIssueUpload(`/api/teams/${teamId}/session-files`, file, `Failed to upload file`))
 }
 
 export interface AttachmentUploadOptions {

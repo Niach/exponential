@@ -5,6 +5,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -22,6 +25,36 @@ class SealedWriteTest {
     @Test
     fun issueRefsAreTheHashIdentifiersUppercasedOnce() {
         assertEquals(listOf("EXP-12", "APP-3"), SealedWrite.issueRefs("fix #EXP-12 and #app-3, see #exp-12; not foo#EXP-9 or EXP-4"))
+    }
+
+    /** #EXP-1683: a file in a sealed chat is a link line, never an image. */
+    @Test
+    fun attachmentLinesReplayTheFixture() {
+        val fixture = kotlinx.serialization.json.Json.parseToJsonElement(
+            java.io.File(System.getProperty("exponential.enet.sealedFixture")!!).readText(),
+        ).jsonObject
+        assertEquals(
+            com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES,
+            fixture.getValue("inlineImageTypes").jsonArray.map { it.jsonPrimitive.content }.toSet(),
+        )
+        fixture.getValue("attachmentEmbedCases").jsonArray.forEach { element ->
+            val case = element.jsonObject
+            val uploads = case.getValue("uploads").jsonObject.mapValues { (_, upload) ->
+                SealedWrite.Upload(
+                    upload.jsonObject.getValue("filename").jsonPrimitive.content,
+                    upload.jsonObject.getValue("contentType").jsonPrimitive.content,
+                )
+            }
+            assertEquals(
+                case.getValue("name").jsonPrimitive.content,
+                case.getValue("expected").jsonPrimitive.content,
+                SealedWrite.withAttachmentEmbeds(
+                    case.getValue("text").jsonPrimitive.content,
+                    case.getValue("ids").jsonArray.map { it.jsonPrimitive.content },
+                    uploads::get,
+                ),
+            )
+        }
     }
 
     @Test

@@ -3,9 +3,60 @@
 //! `sync::sealed` opens rows at ingest and stamps this state; the renderers
 //! branch on it (the locked row).
 
-use std::sync::LazyLock;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
+
+/// #EXP-1683: a session upload this process made: what its line needs.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentUpload {
+    pub filename: String,
+    pub content_type: String,
+}
+
+static UPLOADS: LazyLock<Mutex<HashMap<String, AttachmentUpload>>> = LazyLock::new(Default::default);
+
+/// Recorded by the session upload routes for [`with_attachment_embeds`].
+pub fn remember_upload(id: &str, filename: &str, content_type: &str) {
+    UPLOADS
+        .lock()
+        .unwrap()
+        .insert(id.to_string(), AttachmentUpload { filename: filename.to_string(), content_type: content_type.to_string() });
+}
+
+pub fn recorded_upload(id: &str) -> Option<AttachmentUpload> {
+    UPLOADS.lock().unwrap().get(id).cloned()
+}
+
+/// `text` with a line per attachment it does not reference yet
+/// (`sealed-content.json` `attachmentEmbedCases`): the server never appends
+/// to a sealed body, so the writer does before sealing.
+pub fn with_attachment_embeds(
+    text: &str,
+    attachment_ids: &[String],
+    upload_of: impl Fn(&str) -> Option<AttachmentUpload>,
+) -> String {
+    const INLINE_IMAGE_TYPES: [&str; 5] = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"];
+    let mut seen = Vec::new();
+    let mut parts = vec![text.trim_end().to_string()];
+    for id in attachment_ids {
+        if seen.contains(&id) || text.contains(&format!("/api/attachments/{id}")) {
+            continue;
+        }
+        seen.push(id);
+        let upload = upload_of(id);
+        let name = upload.as_ref().map_or("image", |upload| upload.filename.as_str()).replace(['[', ']'], "");
+        let image = upload.as_ref().is_none_or(|upload| INLINE_IMAGE_TYPES.contains(&upload.content_type.as_str()));
+        parts.push(format!("{}[{name}](/api/attachments/{id})", if image { "!" } else { "" }));
+    }
+    if seen.is_empty() {
+        return text.to_string();
+    }
+    parts.retain(|part| !part.is_empty());
+    parts.join("\n\n")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -207,6 +258,27 @@ mod tests {
         assert_eq!(SealState::from_status("noKey"), Some(SealState::Locked));
         for status in ["unsupported", "malformed", "refused"] {
             assert_eq!(SealState::from_status(status), Some(SealState::Unreadable));
+        }
+    }
+}
+
+#[cfg(test)]
+mod attachment_embed_tests {
+    use super::*;
+
+    #[test]
+    fn attachment_lines_replay_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/sealed-content.json"
+        ))
+        .unwrap();
+        let types: Vec<&str> = fixture["inlineImageTypes"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
+        assert_eq!(types, ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"]);
+        for case in fixture["attachmentEmbedCases"].as_array().unwrap() {
+            let uploads: HashMap<String, AttachmentUpload> = serde_json::from_value(case["uploads"].clone()).unwrap();
+            let ids: Vec<String> = serde_json::from_value(case["ids"].clone()).unwrap();
+            let got = with_attachment_embeds(case["text"].as_str().unwrap(), &ids, |id| uploads.get(id).cloned());
+            assert_eq!(got, case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 }

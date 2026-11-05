@@ -9,14 +9,15 @@
 //     stores in the same transaction;
 //   - `name` → `sealedName` (writes `sessions.sealed_title`);
 //   - `@email` mentions → clear `mentionUserIds` (the server can no longer
-//     read the body); attachments stay the clear `attachmentIds`;
+//     read the body); attachments stay the clear `attachmentIds`, their
+//     lines go INSIDE the text (#EXP-1683, `withAttachmentEmbeds`);
 //   - an answer to a SEALED card = `sealedCard` (the full card with the
 //     answer in it, re-sealed) beside the clear `decision` / `fresh`.
 // Without a key holder (this browser has no eNet install yet) nothing is
 // sealed: plaintext stays legal.
 
 import type { SessionsSendInput } from "@exp/db-schema/domain"
-import { sealBody, sealCard } from "@exp/domain-contract/sealed-content"
+import { sealBody, sealCard, withAttachmentEmbeds, type AttachmentUpload } from "@exp/domain-contract/sealed-content"
 import { extractIssueRefs } from "@/lib/issue-refs"
 import { extractMentionEmails } from "@/lib/mention-refs"
 import { answeredCard, type CardAnswerInput } from "@/lib/sessions/card-answer"
@@ -68,6 +69,13 @@ export type SealedSend = {
   input: SealedSendInput
   /** Call with the send's result: keeps a tree key the send created. */
   after: (result: { sessionId: string }) => Promise<void>
+}
+
+const uploads = new Map<string, AttachmentUpload>()
+
+/** #EXP-1683: a session upload this tab made, for its sealed attachment line. */
+export function rememberSessionUpload(id: string, upload: AttachmentUpload): void {
+  uploads.set(id, upload)
 }
 
 const noop = async (_result: { sessionId: string }) => {}
@@ -175,7 +183,9 @@ export async function sealSendInput(input: SessionsSendInput, deps: SealDeps): P
   const { name, ...rest } = input
   const sealed: SealedSendInput = {
     ...rest,
-    ...(hasText ? { text: sealBody(key.publicKey, key.epoch, input.text!) } : {}),
+    ...(hasText
+      ? { text: sealBody(key.publicKey, key.epoch, withAttachmentEmbeds(input.text!, input.attachmentIds ?? [], (id) => uploads.get(id))) }
+      : {}),
     ...(name ? { sealedName: sealBody(key.publicKey, key.epoch, name) } : {}),
     ...clearMeta,
     ...(seal ? { seal } : {}),

@@ -204,10 +204,15 @@ fn existing_conversation(input: &SendInput, sessions: &[&SessionRow], cx: &App) 
 /// to adopt once the server names the root. Any failure leaves the content
 /// plaintext.
 fn seal_send(writer: &dyn Writer, input: &mut SendInput, plan: &SendPlan) -> Option<NewRootSeal> {
+    // #EXP-1683: the server never appends to a sealed body: the attachment
+    // lines go inside it.
+    let text = input.text.as_deref().map(|text| {
+        domain::sealed::with_attachment_embeds(text, input.attachment_ids.as_deref().unwrap_or_default(), domain::sealed::recorded_upload)
+    });
     match &plan.target {
         SealTarget::None => None,
         SealTarget::Root(root_id) => {
-            let sealed_text = match input.text.as_deref() {
+            let sealed_text = match text.as_deref() {
                 Some(text) => match writer.seal_body(root_id, text) {
                     Ok(sealed) => Some(sealed),
                     Err(err) => {
@@ -239,7 +244,7 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, plan: &SendPlan) -> Opt
             };
             let public = enet_core::sealed::public_key_from_b64(&seal.public_key).ok()?;
             let body = |text: &str| enet_core::sealed::seal_body(&public, seal.epoch, text).ok();
-            let sealed_text = match input.text.as_deref() {
+            let sealed_text = match text.as_deref() {
                 Some(text) => Some(body(text)?),
                 None => None,
             };
