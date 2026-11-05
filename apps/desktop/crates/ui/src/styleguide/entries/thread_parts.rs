@@ -215,9 +215,19 @@ fn strip_spec(case: &Case, tabs: Vec<ThreadTab>, open: StripPick, prefix: &'stat
         // #EXP-1562: the case's WAITING cards as the strip's chips.
         waiting: crate::waiting_cards::thread_waiting_cards(&case.view.rows),
         on_waiting: Some(std::rc::Rc::new(|_, _, _| {})),
-        // #EXP-1662: the case's plan as the strip's chip.
-        plan: crate::thread_screen::tab_plan(&case.view.rows, None).and_then(crate::thread_screen::strip_plan_of),
+        // #EXP-1662: the case's plan as the strip's chip. #FEED-191: the visit
+        // KEEPS its approved plan, so the chip shows THE check.
+        plan: crate::thread_screen::tab_plan(&case.view.rows, approved_plan(&case.view.rows))
+            .and_then(crate::thread_screen::strip_plan_of),
     }
+}
+
+/// #FEED-191: the case's newest approved plan (the specimen's `kept`).
+fn approved_plan(rows: &[SessionThreadRow]) -> Option<&str> {
+    rows.iter().rev().find_map(|row| match row {
+        SessionThreadRow::Plan { id, decision: Some(decision), .. } if decision == "approved" => Some(id.as_str()),
+        _ => None,
+    })
 }
 
 /// THE strip the thread screen draws ([`thread_strip`]) over `tabs`, `open`
