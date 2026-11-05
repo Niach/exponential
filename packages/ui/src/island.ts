@@ -19,6 +19,17 @@
 // shows an empty trigger; islands never carry their own ground — the HOST
 // page paints it (`bg-app-gradient` is the body's fixed `::before` pair, and a
 // fixed layer inside a shadow tree is wrong).
+//
+// Two things a shadow tree does not do on its own:
+// - VAPP-244: the sheets IN the tree count before the adopted one, so an eUI
+//   surface's `@layer xui-*` would order BEFORE Tailwind's and preflight's
+//   `padding: 0` would win. Each root opens with Tailwind's layer order
+//   ({@link ISLAND_LAYER_ORDER}), which puts the xui layers after it, as in
+//   the app, where styles.css loads first.
+// - #EXP-1696: `@property` only registers at document level. Tailwind's rings
+//   and shadows rest on those initial values (an unregistered `--tw-ring-shadow`
+//   makes the whole `box-shadow` invalid), so the client script registers them
+//   on the host document.
 
 import { compile, optimize } from "@tailwindcss/node"
 import { Scanner } from "@tailwindcss/oxide"
@@ -32,6 +43,9 @@ export const ISLAND_ROOT_CLASS = `dark font-sans text-foreground antialiased`
 
 /** The id of the inert `<template>` carrying the compiled CSS. */
 export const ISLAND_CSS_TEMPLATE_ID = `ui-css`
+
+/** Tailwind's layer order, first in every shadow root (VAPP-244). */
+export const ISLAND_LAYER_ORDER = `@layer theme,base,components,utilities;`
 
 /**
  * Compile the package stylesheet for a host page. `base` is the CALLER's
@@ -92,6 +106,7 @@ export function renderIsland(element: ReactElement): string {
   return (
     `<div data-ui-island>` +
     `<template shadowrootmode="open">` +
+    `<style>${ISLAND_LAYER_ORDER}</style>` +
     `<div class="${ISLAND_ROOT_CLASS}">${renderToStaticMarkup(element)}</div>` +
     `</template>` +
     `</div>`
@@ -116,6 +131,13 @@ export const ISLAND_CLIENT_SCRIPT = `(() => {
   const carrier = document.getElementById(${JSON.stringify(ISLAND_CSS_TEMPLATE_ID)});
   const style = carrier && carrier.content.querySelector("style");
   const css = style ? style.textContent : "";
+  const properties = css.match(/@property[^{]+\\{[^}]*\\}/g);
+  if (properties) {
+    const registered = document.createElement("style");
+    registered.setAttribute("data-ui-properties", "");
+    registered.textContent = properties.join("");
+    document.head.append(registered);
+  }
   let sheet = null;
   try {
     sheet = new CSSStyleSheet();

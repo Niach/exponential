@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url"
 
 import {
   ISLAND_CLIENT_SCRIPT,
+  ISLAND_LAYER_ORDER,
   ISLAND_CSS_TEMPLATE_ID,
   ISLAND_ROOT_CLASS,
   compileUiCss,
@@ -38,7 +39,7 @@ describe(`renderIsland`, () => {
       )
     )
     expect(html.startsWith(`<div data-ui-island>`)).toBe(true)
-    expect(html).toContain(`<template shadowrootmode="open">`)
+    expect(html).toContain(`<template shadowrootmode="open"><style>${ISLAND_LAYER_ORDER}</style>`)
     expect(html).toContain(`<div class="${ISLAND_ROOT_CLASS}">`)
     expect(html.endsWith(`</div></template></div>`)).toBe(true)
     // The component really rendered inside the wrapper.
