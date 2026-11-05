@@ -210,8 +210,8 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
     expect(inserts[2]!.table).toBe(skills)
     expect((inserts[2]!.values as unknown as { name: string; builtin: boolean }[]).map((v) => [v.name, v.builtin])).toEqual([
       [`exponential-apps`, true],
+      [`exponential-genui`, true],
       [`exponential-motion`, true],
-      [`exponential-ui`, true],
     ])
     expect(inserts[2]!.inTx).toBe(true)
     expect(inserts[3]!.table).toBe(conversionEvents)

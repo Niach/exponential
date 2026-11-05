@@ -1,6 +1,6 @@
 # Tools, exposes and extensions
 
-> Generated from packages/exponential-ui/docs/package-format.md (Tools, Exposes, Extensions) (eUI 0.15.3) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Tools, Exposes, Extensions) (genUI 0.15.3) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Tools
 
@@ -129,14 +129,14 @@ call's input; the first key must be a declared input property). A string
 that is exactly one template keeps the value's type; inside text the value
 is printed. Destructive is never exposed: a name holding delete, merge, close,
 end, remove or trash is refused, and a `read` binding whose run writes is
-refused. At most 32 tools. `exposeIssues` returns every issue with its eMCP
+refused. At most 32 tools. `exposeIssues` returns every issue with its MCP Proxy
 error code; the host adds its own rules on top (Exponential: only grantable,
 non-destructive actions; upstreams the team has).
 
 ## Extensions
 
 `extensions: [{id, version, components?}]` declares the custom component
-catalogs (eUI extensions, VAPP-85: `defineExtension`) a package needs beyond
+catalogs (genUI extensions, VAPP-85: `defineExtension`) a package needs beyond
 its `catalogId`. `id` = the extension catalog's id, `version` = the minimum
 `MAJOR.MINOR.PATCH` it needs (caret: the host's version has the same major and
 is not lower), `components` = the names the package uses from it. A host

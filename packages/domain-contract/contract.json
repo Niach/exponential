@@ -430,7 +430,7 @@
     "uploadScheme": "upload:"
   },
   "apps": {
-    "$comment": "VAPP-110 Exponential apps: the caps of an app row and its package (behaviour = fixtures/apps.json). A package is the Exponential UI SDK's package format validated against the core + the app extension catalog; `packageMaxBytes` caps its JSON, `templateMaxComponents` the flat components of ONE template. VAPP-122 records: a kind name follows `kindPattern`, a manifest declares at most `recordKindsMax` kinds, one record's `data` JSON is capped at `recordMaxBytes` (the count per team = plan-limits `appRecords`). A slug is lowercase letters, digits and dashes (`slugPattern`), unique per team, the handle in URLs and MCP calls.",
+    "$comment": "VAPP-110 Exponential apps: the caps of an app row and its package (behaviour = fixtures/apps.json). A package is the genUI module's package format validated against the core + the app extension catalog; `packageMaxBytes` caps its JSON, `templateMaxComponents` the flat components of ONE template. VAPP-122 records: a kind name follows `kindPattern`, a manifest declares at most `recordKindsMax` kinds, one record's `data` JSON is capped at `recordMaxBytes` (the count per team = plan-limits `appRecords`). A slug is lowercase letters, digits and dashes (`slugPattern`), unique per team, the handle in URLs and MCP calls.",
     "slugPattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
     "slugMax": 64,
     "nameMax": 64,
@@ -889,7 +889,7 @@
       {
         "name": "show",
         "title": "Show a card",
-        "blurb": "Posts or updates the session's one card: an Exponential UI surface, a question or a plan a person answers in the card.",
+        "blurb": "Posts or updates the session's one card: a genUI surface, a question or a plan a person answers in the card.",
         "progressive": "Showing a card",
         "done": "Showed a card",
         "progressiveMany": "Showing {n} cards",
@@ -1582,7 +1582,7 @@
       {
         "name": "apps_catalog",
         "title": "Read app catalog",
-        "blurb": "Reads the Exponential UI catalog an app package may use.",
+        "blurb": "Reads the genUI catalog an app package may use.",
         "progressive": "Reading app catalog",
         "done": "Read app catalog",
         "progressiveMany": "Reading app catalog {n} times",

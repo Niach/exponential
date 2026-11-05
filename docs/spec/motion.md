@@ -1,12 +1,12 @@
-# eUI Motion: spec
+# Motion: spec
 
-> Status: **shipped** (EXP-1584: M0 #1622, M1 #1623, M2 #1624, M3 #1638, M4 #1648; eUI 0.4.0). Design approved 2026-11-01 (Danny; the comment on #EXP-1584).
-> Code: `apps/desktop/crates/eui-motion` (the engine), `eui-motion-wasm`, `exponential-ui-ffi` (`MotionPlayer`), the `Motion` painters in every eUI renderer.
+> Status: **shipped** (EXP-1584: M0 #1622, M1 #1623, M2 #1624, M3 #1638, M4 #1648; genUI 0.4.0). Design approved 2026-11-01 (Danny; the comment on #EXP-1584).
+> Code: `apps/desktop/crates/eui-motion` (the engine), `eui-motion-wasm`, `exponential-ui-ffi` (`MotionPlayer`), the `Motion` painters in every genUI renderer.
 > Fixtures (`packages/exponential-ui/fixtures/`): `motion-frames.json`, `motion-validate.json`, `motion-playback.json`, `motion-state.json`; corpus `conformance/motion/`.
 
 ## 0. In one paragraph
 
-`Motion` is the eUI component for vector animation. **Lottie JSON is the
+`Motion` is the genUI component for vector animation. **Lottie JSON is the
 stored and rendered format.** Models and people write a readable **dialect**
 that compiles 1:1 to Lottie and converts back without loss. One Rust engine,
 `eui-motion`, samples any frame into a flat **display list**; all six
@@ -154,9 +154,9 @@ playback states (segment or marker, loop, speed, mode, autoplay, final),
 transitions with guards (numeric, string, boolean, event) on `inputs`,
 interactions (click, pointer down/up/enter/exit, complete, loop complete,
 optionally per layer) running actions (fire, set, increment, decrement,
-toggle, reset), entry/exit actions. eUI maps them:
+toggle, reset), entry/exit actions. genUI maps them:
 
-| eUI | state machine |
+| genUI | state machine |
 |---|---|
 | `stateMachine` prop, or a `.lottie` src's first machine | the machine |
 | `inputs` (literal or bound to the data model) | input writes |

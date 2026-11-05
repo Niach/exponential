@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
 import { BUILTIN_SKILLS } from "@exp/domain-contract/skills"
 import {
   BUILTIN_SKILL_SOURCES,
@@ -10,7 +10,7 @@ import type { Tx } from "@/lib/sessions/tx"
 
 // #VAPP-213: the BUILT-IN skills (fixtures/skills.json `builtin`): a
 // generated set shipped with the server (packages/exponential-ui/skills,
-// versioned with eUI) held as an ordinary `skills` row with builtin = true
+// versioned with genUI) held as an ordinary `skills` row with builtin = true
 // in EVERY team, so picks, agents, the shape and resolveForLaunch need
 // nothing new. Rows are seeded on team create and reconciled on every boot
 // (name, description, body); a team's own skill already holding a built-in
@@ -56,6 +56,11 @@ export const isBuiltinName = (name: string) => BY_NAME.has(name)
 /** The names an app editor session always runs with, in delivery order. */
 export const EDITOR_DELIVERY: readonly string[] = BUILTIN_SKILLS.editorDelivery
 
+/** A renamed built-in (old name → new): its rows keep their ids, so sessions'
+ *  and agents' picks follow it. A team whose own skill holds the new name
+ *  keeps that skill, and its old built-in row retires with the rest. */
+const RENAMED: Readonly<Record<string, string>> = { "exponential-ui": `exponential-genui` }
+
 type Db = Tx | (typeof import("@/db/connection"))[`db`]
 
 /** Insert the built-ins a team lacks (a name it already uses is skipped). */
@@ -84,6 +89,19 @@ export async function reconcileBuiltinSkills(teamIds?: readonly string[]): Promi
   await db.transaction(async (tx) => {
     const scope = teamIds ? [inArray(skills.teamId, [...teamIds])] : []
     const ids = teamIds ? [...teamIds] : (await tx.select({ id: teams.id }).from(teams)).map((row) => row.id)
+    for (const [from, to] of Object.entries(RENAMED)) {
+      await tx
+        .update(skills)
+        .set({ name: to, updatedAt: new Date() })
+        .where(
+          and(
+            ...scope,
+            eq(skills.builtin, true),
+            eq(skills.name, from),
+            notInArray(skills.teamId, tx.select({ teamId: skills.teamId }).from(skills).where(eq(skills.name, to)))
+          )
+        )
+    }
     await seedBuiltinSkills(tx, ids)
     for (const skill of BUILTINS) {
       await tx

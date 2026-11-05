@@ -2,7 +2,7 @@ import Foundation
 
 /// VAPP-110: Exponential APPS ×4 (`packages/domain-contract/fixtures/apps.json`,
 /// TS reference `src/apps.ts`; desktop `domain::apps`, Android
-/// `domain/Apps.kt`). An app = a team-scoped declarative Exponential UI
+/// `domain/Apps.kt`). An app = a team-scoped declarative genUI
 /// package rendered through the client's app host. The render rules live in
 /// the fixture's `$comment`; `AppsTests` replays `slugifyCases`,
 /// `versionLabelCases`, `sortAppsCases`, `publishCases`, `automationRowCases` and `webhookRowCases` and pins the constants below to
@@ -814,7 +814,7 @@ public enum Apps {
         ] + (isDraft(headVersion: headVersion) ? [
             "It is a new DRAFT with a placeholder name: on your FIRST exponential_apps {op: \"upsert\"} also pass name, icon, color and description that fit what the person asks for. The slug follows the new name; use the slug the upsert returns from then on.",
         ] : []) + [
-            "An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: \"get\", slug: \"\(slug)\"}; learn the components, bindings, host functions and records with exponential_apps {op: \"catalog\"}; save every change as a new draft version with exponential_apps {op: \"upsert\", slug: \"\(slug)\", package, note} (members keep running the published version); publish with exponential_apps {op: \"publish\", slug: \"\(slug)\"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: \"records_upsert\" | \"records_list\", slug: \"\(slug)\", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format. The person sees the live preview beside this chat, so keep replies to one or two lines and save drafts early.",
+            "An app is a declarative genUI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: \"get\", slug: \"\(slug)\"}; learn the components, bindings, host functions and records with exponential_apps {op: \"catalog\"}; save every change as a new draft version with exponential_apps {op: \"upsert\", slug: \"\(slug)\", package, note} (members keep running the published version); publish with exponential_apps {op: \"publish\", slug: \"\(slug)\"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: \"records_upsert\" | \"records_list\", slug: \"\(slug)\", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format. The person sees the live preview beside this chat, so keep replies to one or two lines and save drafts early.",
         ]
         return lines.joined(separator: "\n")
     }

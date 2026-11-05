@@ -13,21 +13,21 @@ import s0f8 from "./exponential-apps/references/package.md?raw"
 import s0f9 from "./exponential-apps/references/records.md?raw"
 import s0f10 from "./exponential-apps/references/tests.md?raw"
 import s0f11 from "./exponential-apps/references/tools-and-exposes.md?raw"
-import s1 from "./exponential-motion/SKILL.md?raw"
-import s1f0 from "./exponential-motion/examples/equalizer.json?raw"
-import s1f1 from "./exponential-motion/examples/error-x.json?raw"
-import s1f2 from "./exponential-motion/examples/heartbeat.json?raw"
-import s1f3 from "./exponential-motion/examples/progress-ring.json?raw"
-import s1f4 from "./exponential-motion/examples/pulse-dot.json?raw"
-import s1f5 from "./exponential-motion/examples/sun.json?raw"
-import s1f6 from "./exponential-motion/examples/typing-dots.json?raw"
-import s1f7 from "./exponential-motion/examples/wifi.json?raw"
-import s1f8 from "./exponential-motion/references/lottie.md?raw"
-import s1f9 from "./exponential-motion/references/spec.md?raw"
-import s2 from "./exponential-ui/SKILL.md?raw"
-import s2f0 from "./exponential-ui/references/functions.md?raw"
-import s2f1 from "./exponential-ui/references/style.md?raw"
-import s2f2 from "./exponential-ui/references/themes.md?raw"
+import s1 from "./exponential-genui/SKILL.md?raw"
+import s1f0 from "./exponential-genui/references/functions.md?raw"
+import s1f1 from "./exponential-genui/references/style.md?raw"
+import s1f2 from "./exponential-genui/references/themes.md?raw"
+import s2 from "./exponential-motion/SKILL.md?raw"
+import s2f0 from "./exponential-motion/examples/equalizer.json?raw"
+import s2f1 from "./exponential-motion/examples/error-x.json?raw"
+import s2f2 from "./exponential-motion/examples/heartbeat.json?raw"
+import s2f3 from "./exponential-motion/examples/progress-ring.json?raw"
+import s2f4 from "./exponential-motion/examples/pulse-dot.json?raw"
+import s2f5 from "./exponential-motion/examples/sun.json?raw"
+import s2f6 from "./exponential-motion/examples/typing-dots.json?raw"
+import s2f7 from "./exponential-motion/examples/wifi.json?raw"
+import s2f8 from "./exponential-motion/references/lottie.md?raw"
+import s2f9 from "./exponential-motion/references/spec.md?raw"
 
 export interface BuiltinSkillFile {
   path: string
@@ -47,7 +47,7 @@ export const BUILTIN_SKILLS_VERSION = "0.15.3"
 export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
   {
     name: "exponential-apps",
-    description: "Build or change an Exponential app (eApps): the package format (formatVersion 4), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.",
+    description: "Build or change an Exponential app (Apps): the package format (formatVersion 4), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.",
     skillMd: s0,
     files: [
       { path: "examples/crm.app.json", content: s0f0 },
@@ -65,30 +65,30 @@ export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
     ],
   },
   {
-    name: "exponential-motion",
-    description: "Animate with eUI Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.",
+    name: "exponential-genui",
+    description: "Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props.",
     skillMd: s1,
     files: [
-      { path: "examples/equalizer.json", content: s1f0 },
-      { path: "examples/error-x.json", content: s1f1 },
-      { path: "examples/heartbeat.json", content: s1f2 },
-      { path: "examples/progress-ring.json", content: s1f3 },
-      { path: "examples/pulse-dot.json", content: s1f4 },
-      { path: "examples/sun.json", content: s1f5 },
-      { path: "examples/typing-dots.json", content: s1f6 },
-      { path: "examples/wifi.json", content: s1f7 },
-      { path: "references/lottie.md", content: s1f8 },
-      { path: "references/spec.md", content: s1f9 },
+      { path: "references/functions.md", content: s1f0 },
+      { path: "references/style.md", content: s1f1 },
+      { path: "references/themes.md", content: s1f2 },
     ],
   },
   {
-    name: "exponential-ui",
-    description: "Write Exponential UI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any eUI surface; exponential_apps {op: \"catalog\"} lists the components and their props.",
+    name: "exponential-motion",
+    description: "Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.",
     skillMd: s2,
     files: [
-      { path: "references/functions.md", content: s2f0 },
-      { path: "references/style.md", content: s2f1 },
-      { path: "references/themes.md", content: s2f2 },
+      { path: "examples/equalizer.json", content: s2f0 },
+      { path: "examples/error-x.json", content: s2f1 },
+      { path: "examples/heartbeat.json", content: s2f2 },
+      { path: "examples/progress-ring.json", content: s2f3 },
+      { path: "examples/pulse-dot.json", content: s2f4 },
+      { path: "examples/sun.json", content: s2f5 },
+      { path: "examples/typing-dots.json", content: s2f6 },
+      { path: "examples/wifi.json", content: s2f7 },
+      { path: "references/lottie.md", content: s2f8 },
+      { path: "references/spec.md", content: s2f9 },
     ],
   },
 ]

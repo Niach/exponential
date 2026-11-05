@@ -262,7 +262,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   {
     name: `apps`,
     group: `apps`,
-    blurb: `Exponential apps (a team's declarative Exponential UI packages, rendered in every client): list, get (the head or a version's package), upsert (= a new DRAFT version; creates the app on a new slug), publish (members and the app's tools run the published version), delete, catalog (the components, bindings, functions and records a package may use), records_list / records_upsert / records_delete (an app's own data), records_history / records_restore (a record's 90-day history), handoff (run an app's agent hand-off).`,
+    blurb: `Exponential apps (a team's declarative genUI packages, rendered in every client): list, get (the head or a version's package), upsert (= a new DRAFT version; creates the app on a new slug), publish (members and the app's tools run the published version), delete, catalog (the components, bindings, functions and records a package may use), records_list / records_upsert / records_delete (an app's own data), records_history / records_restore (a record's 90-day history), handoff (run an app's agent hand-off).`,
     ops: {
       list: `apps_list`,
       get: `apps_get`,

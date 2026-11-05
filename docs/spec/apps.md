@@ -1,11 +1,11 @@
-# Exponential apps (eApps): spec
+# Apps: spec
 
-> Status: **approved 2026-11-01** (Danny; decisions in §18). **General availability: §20 (Milestone G, released 2026-11-03).** Batch-1 readiness: §20.1. Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + eMCP), `packages/emcp`, eUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
-> Legend: ✅ exists · 🟡 partial · ❌ missing · 🆕 proposed here (no issue yet). The mocks are drawn with eUI (React harness, exponential theme, dark).
+> Status: **approved 2026-11-01** (Danny; decisions in §18). **General availability: §20 (Milestone G, released 2026-11-03).** Batch-1 readiness: §20.1. Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + MCP Proxy), `packages/emcp`, genUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
+> Legend: ✅ exists · 🟡 partial · ❌ missing · 🆕 proposed here (no issue yet). The mocks are drawn with genUI (React harness, exponential theme, dark).
 
 ## 0. In one paragraph
 
-An Exponential app is **data, never code**: a declarative package (manifest, eUI templates, bindings, record kinds, a function allowlist, `exposes`, `upstreams`) stored per team, versioned in the DB, and painted by the same eUI renderers on web, desktop, iOS and Android, as well as Spezl and eDE. Three executors run an app, and none of them runs app code:
+An Exponential app is **data, never code**: a declarative package (manifest, genUI templates, bindings, record kinds, a function allowlist, `exposes`, `upstreams`) stored per team, versioned in the DB, and painted by the same genUI renderers on web, desktop, iOS and Android, as well as Spezl and eDE. Three executors run an app, and none of them runs app code:
 
 1. the **client host**, while someone is looking at the app;
 2. the **server broker**, for MCP calls (and, proposed here, the clock, events and webhooks);
@@ -22,7 +22,7 @@ The rest of this spec turns that rule into the missing pieces:
 - an offline outbox;
 - the `eapps` crate for Spezl and eDE.
 
-![Hours, one illustrative app built on the platform: a simple time tracker (eUI mock, web)](apps/time-tracker.webp)
+![Hours, one illustrative app built on the platform: a simple time tracker (genUI mock, web)](apps/time-tracker.webp)
 
 ---
 
@@ -77,7 +77,7 @@ Needs:
 - C22 a webhook (Stripe `invoice.payment_failed` → a record + a ping);
 - C19 agent hand-off.
 
-![Admin console: Stripe, GitHub and Home Assistant upstreams, each member on their own account (eUI mock, web)](apps/admin-console.webp)
+![Admin console: Stripe, GitHub and Home Assistant upstreams, each member on their own account (genUI mock, web)](apps/admin-console.webp)
 
 ### 1.4 Dashboards over Exponential data
 
@@ -103,7 +103,7 @@ Needs:
 - on-behalf rules (C2);
 - descriptions frozen per version ✅.
 
-![One consent for every app: Off / Read only / Full per app, upstreams connected inline (eUI mock of the shipped page)](apps/mcp-consent.webp)
+![One consent for every app: Off / Read only / Full per app, upstreams connected inline (genUI mock of the shipped page)](apps/mcp-consent.webp)
 
 ### 1.6 Apps that trigger agents, scheduled and automated apps
 
@@ -126,10 +126,10 @@ Nothing here may become a workflow engine: "standalone automations" and "workflo
 ### 1.7 Apps elsewhere: Spezl offline, eDE widgets, phones
 
 - **Spezl:** the same package and the same records query, a local sqlite store, a loopback-only MCP (#YO-32), no server.
-- **eDE:** an app as a desktop widget (a "today's hours" tile, the on-call badge) and as a window. The desktop itself is eUI on disk (NEW-107).
+- **eDE:** an app as a desktop widget (a "today's hours" tile, the on-call badge) and as a window. The desktop itself is genUI on disk (NEW-107).
 - **Phones:** every app at 390 px, with a form factor that changes navigation (bottom bar instead of sidebar). Logging hours from the phone while offline in the train.
 
-![Hours on a phone: the same package, phone navigation (eUI mock, web-mobile)](apps/time-tracker-phone.webp)
+![Hours on a phone: the same package, phone navigation (genUI mock, web-mobile)](apps/time-tracker-phone.webp)
 
 Needs: C24 offline outbox, C25 the `eapps` crate, C26 widget templates + slots (#VAPP-64), C27 form-factor conditions.
 
@@ -165,7 +165,7 @@ Needs: C2, C13.
 | C6 | Running sums and totals before a date | ✅ | #VAPP-190 |
 | C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ✅ CEL subset, type-checked | #VAPP-191 |
 | C8 | Several screens per app with navigation and deep links | ✅ U1 (#VAPP-218) | U1 |
-| C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in eUI | 🆕 U2 |
+| C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in genUI | 🆕 U2 |
 | C10 | Field state machine (allowed transitions) | ✅ R6 (#VAPP-222) | R6 |
 | C11 | Computed fields on a kind | ❌ | 🆕 Q3 |
 | C12 | CSV/xlsx export of a kind or the current query | ❌ **out of scope** (decided 2026-11-01): records leave through `.app.json` and MCP | — |
@@ -182,7 +182,7 @@ Needs: C2, C13.
 | C22 | Inbound webhooks | ✅ A3 server (#VAPP-237) + Settings ×4 (#VAPP-238) | ✅ |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
 | C24 | Offline outbox for record writes | ✅ desktop, iOS, Android (#VAPP-235) | ✅ O1 |
-| C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
+| C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in genUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | ✅ `@media (form-factor: …)` (U1), `@media` sizes, `Sidebar.collapseBelow` | U1 |
 | C28 | Template gallery | ✅ #VAPP-234: `samples/apps/*.app.json`, signed by the pinned Exponential key; "Start from a template" in the import dialog and a draft's starters (`fixtures/app-templates.json`) | Leave, On-call |
@@ -193,7 +193,7 @@ Needs: C2, C13.
 
 ## 2. Package model and versioning
 
-### 2.1 The package (✅, eUI 0.3.0 `packages/exponential-ui/src/host/package.ts`)
+### 2.1 The package (✅, genUI 0.3.0 `packages/exponential-ui/src/host/package.ts`)
 
 ```jsonc
 {
@@ -292,7 +292,7 @@ A per-member view groups by `author`, not `created_by`. That way a backfill an o
   - `"member"` stores a user id.
   - Refs are validated on write (the target exists in the same app or team; else BAD_REQUEST naming the field) and resolved by queries (`expand`). Cross-app refs are not allowed. Install checks the field is a declared string field and the kind exists. Deleting a target never cascades: the ref dangles and reads null when expanded.
 - **transitions** (✅ R6, #VAPP-222): `{"field": "status", "initial"?: ["requested"], "from": {"requested": ["approved", "rejected"]}, "who": {"requested->approved": "role:approver", "paid": "owners"}}`, enforced on the server (the records service: an undeclared edge = BAD_REQUEST naming it, a mover the edge's `who` excludes = FORBIDDEN; creates start in an initial state; restores follow it unless an owner restores). `who` names an edge or a target; levels `member` (default), `author`, `owners`, `role:<field>` (the member a `member` ref names before the write, or an owner). The checker validates the field is an enum and every state exists. Rows of the kind carry `transitions` (the viewer's legal next states) so a template offers only those; `record-transitions.json`, TS + Rust, replayed ×4.
-- **files** ✅ (R7, #VAPP-221): `{"type": "string", "format": "attachment"}` holds one file, a list of strings with `"items": {"type": "string", "format": "attachment"}` several. The value is `/api/attachments/<id>` (relative, lowercase uuid; eUI `validateRecord` ×2 twins, `host-router.json` `acme.files`).
+- **files** ✅ (R7, #VAPP-221): `{"type": "string", "format": "attachment"}` holds one file, a list of strings with `"items": {"type": "string", "format": "attachment"}` several. The value is `/api/attachments/<id>` (relative, lowercase uuid; genUI `validateRecord` ×2 twins, `host-router.json` `acme.files`).
   - **Upload:** a `FileUpload` whose `files` is bound; the app host posts each picked file to `POST /api/apps/{appId}/files` (write access to the app; the attachments pipeline: caps, the team's storage budget) and writes the returned `url` into the entry of the same name at the bound path. An action stores the urls in the record.
   - **The row** is the app's (`attachments.app_id`, no other owner, never synced). The bytes route serves it to team members whose access to the app is not `none`; the app hosts' media rule (`appMediaAllowed`) loads it in `Image`.
   - **On write** the records service checks that every referenced file is a row of the record's own app and team (`attachments must be files uploaded to this app`), before the `eapps` role.
@@ -304,7 +304,7 @@ A per-member view groups by `author`, not `created_by`. That way a backfill an o
 Layers, all intersected:
 
 1. **Team membership** ✅. Only members, unless a public link applies (§9.4).
-2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). An app's own writing controls paint disabled at read (#VAPP-200, the eUI `readOnly` host option ×7 renderers).
+2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). An app's own writing controls paint disabled at read (#VAPP-200, the genUI `readOnly` host option ×7 renderers).
 3. **Per-kind policy** ✅ (R3, #VAPP-199, `packages/exponential-ui/fixtures/record-policy.json`, TS `host/record-policy.ts` + Rust `host::record_policy`, iOS/Android hand ports replaying the fixture):
 
 ```jsonc
@@ -316,7 +316,7 @@ Layers, all intersected:
 }
 ```
 
-The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as eApps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
+The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as Apps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
 
 The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. ✅ R6 (#VAPP-222): `role:<field>` levels live on a kind's `transitions.who` (the member a `member` ref names), not on `policy`.
 
@@ -412,7 +412,7 @@ To add, both as functions (`{"call": "mul", …}`) and as the compact string for
 
 The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <= == && || !`, calls). It is parsed once at package validation, has no loops and no user functions, and must terminate. The function form stays the A2UI wire form, and the string form compiles to it.
 
-- ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the zone the host passes (`HostZone`): ✅ #VAPP-201 `teams.time_zone` (Settings › General, owners; fixture `team-zone.json` ×4), else the device's zone. Hardened by the CEL differential fuzz (`fixtures/cel-fuzz.json`, TS vs Rust, in CI): it found and fixed `dateAdd` overflowing on a huge `n` in both twins. The Arrays and Text rows stay open.
+- ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the genUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the zone the host passes (`HostZone`): ✅ #VAPP-201 `teams.time_zone` (Settings › General, owners; fixture `team-zone.json` ×4), else the device's zone. Hardened by the CEL differential fuzz (`fixtures/cel-fuzz.json`, TS vs Rust, in CI): it found and fixed `dateAdd` overflowing on a huge `n` in both twins. The Arrays and Text rows stay open.
 
 **Missing values are explicit (✅ E2, #VAPP-195):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding. Built (E2): `T?` is spelled `{"?": T}`; an unguarded use names its path (`entries.rows[0].hours may be missing: guard it with has(), a null check or orElse()`); `has()`, `!= null` / `== null` (through `&&`, `||`, `!`) and `orElse` narrow; `default` is required on every package `expr` binding and every bind-time call falls back to its `default` (TS `dynamic.ts`, Rust `data.rs`: all six renderers); fixture `expressions.json`, replayed ×4.
 
@@ -449,20 +449,20 @@ One language at two levels, on the Q2 core:
 
 ### 5.1 Screens and navigation (✅ U1, #VAPP-218)
 
-- `screens` lists the templates a person can open (at least 1 and at most 5 in the navigation, keyed by the template; `title`, an eUI `icon`, default `params`). The host draws the shell from it with Exponential's EXISTING navigation: the sidebar row pattern on wide frames (desktop, web ≥ md, the preview's Desktop frame) and the phone bottom tab bar on phones (and the preview's Phone frame). No new component.
+- `screens` lists the templates a person can open (at least 1 and at most 5 in the navigation, keyed by the template; `title`, a genUI `icon`, default `params`). The host draws the shell from it with Exponential's EXISTING navigation: the sidebar row pattern on wide frames (desktop, web ≥ md, the preview's Desktop frame) and the phone bottom tab bar on phones (and the preview's Phone frame). No new component.
 - **The app draws no chrome of its own** for this, so every app navigates the same way.
 - The host function `app.navigate {screen, params?}` (a press, or an action's `call` step after its writes; always allowed) and the route `/t/$team/apps/$slug/$screen?…` give deep links that work ×4 (natives: the same path as an app link).
 - `params` become `/params/*` in the template data, and a binding source's `${params.month}` is filled (percent-encoded) when the screen opens.
 - Install refuses an unknown template, a duplicate, a sixth screen, a bad icon, a non-string param and a literal navigate target that is no screen.
 - ✅ #EXP-1674: `nav: false` = a detail screen outside the sidebar and tab bar (the limit of 5 counts only navigation screens, since it exists for the phone bar; a package with only `nav: false` screens is refused; a request with no screen opens the first in the navigation). `exposed: {description, params?: {<key>: {required?, description?}}}` = the public contract: a stable name and checked params.
-- ✅ #EXP-1674: `~/x` in `Link.href`, `Row.href`, `Button.href` and `openUrl` expands against the host's `linkBase` (eUI `decideUrl`; Exponential's run views and chat cards: `/t/<team>`; a host without one paints it as text; `~//` and a `.` or `..` segment, percent-encoded too, are denied).
+- ✅ #EXP-1674: `~/x` in `Link.href`, `Row.href`, `Button.href` and `openUrl` expands against the host's `linkBase` (genUI `decideUrl`; Exponential's run views and chat cards: `/t/<team>`; a host without one paints it as text; `~//` and a `.` or `..` segment, percent-encoded too, are denied).
 - ✅ #EXP-1674: a link from another app at `~/apps/<slug>/<screen>?k=v` passes `crossAppTarget` (`fixtures/host-router.json` `crossApp`, the host's check): the target screen must be `exposed` and its required params present and non-empty, only declared params arrive; otherwise the toast `app-link.json` `copy.noAccess`, the same for a missing or unpublished app. It PUSHES so back returns to the first app; `app.navigate` stays for the app's own screens and keeps replacing. A person's URL or an agent's chat link keeps opening any declared screen. `exponential_apps get` lists `linkableScreens` (navigation + exposed screens, params, a ready `~/` link).
 - ✅ Built as `src/host/screens.ts` (`validatePackageScreens`, `resolveScreen`, `navigateTarget`, `fillScreenParams`) + Rust `eui_core::host::screens` (FFI `resolve_screen_json`, `navigate_target_json`; SDKs `Screens`, `HostOptions.navigate` ×4), fixture `fixtures/host-router.json` (`screens`, `navigate`, `acme.badscreens`), the host contract `catalog/host.json` `package.screens`. The editor preview paints the screens in its frame (apps.json `screensCases`); with screens it replaces the template picker.
 
 ### 5.2 Templates and components
 
 - An app may use only catalog components (91 ✅, `core.catalog.json`) plus Exponential's extension (IssueRow, SessionRow, StatusGlyph…, ✅).
-- **No new component enters an app** unless it is first in the styleguide and, if it is low-level, in eUI. That is the team rule; app authors (agents) can't invent widgets.
+- **No new component enters an app** unless it is first in the styleguide and, if it is low-level, in genUI. That is the team rule; app authors (agents) can't invent widgets.
 
 | Need | Status |
 |---|---|
@@ -470,9 +470,9 @@ One language at two levels, on the Q2 core:
 | Inline cell edit in tables | ❌. Proposal: none; edit opens the record form in a Drawer. |
 | Charts (bar, stacked, line, area, pie, donut, sparkline) | ✅ `Chart`, `StatTile`, `Meter`, `Ring`, `Sparkline` |
 | Forms and validation | ✅ `Form`, `FieldGroup`, `FormActions`, `checks` (required, email, length, regex, numeric), `validateOn` |
-| Form from a kind's schema | 🆕 U2: `RecordForm {kind, id?}` as an eUI **macro** expanding to Form + inputs (date → DatePicker, enum → Select, ref member → Select over `exp:members`, string[] of issues → ChipInput). The server re-validates the kind's schema. |
+| Form from a kind's schema | 🆕 U2: `RecordForm {kind, id?}` as a genUI **macro** expanding to Form + inputs (date → DatePicker, enum → Select, ref member → Select over `exp:members`, string[] of issues → ChipInput). The server re-validates the kind's schema. |
 | Table from a query | 🆕 U2: `RecordTable {query, columns?}` macro. Columns come from the schema, the row press opens `RecordForm` in a Drawer. |
-| Calendar / timeline (leave, on-call) | ✅ U3 (#VAPP-232): eUI `Calendar` (month/week; phones: dots + the day's agenda) and `Timeline`, catalog macros over the records calendar views (`until`, `view=week|timeline`); styleguide entries `calendar` + `timeline`. |
+| Calendar / timeline (leave, on-call) | ✅ U3 (#VAPP-232): genUI `Calendar` (month/week; phones: dots + the day's agenda) and `Timeline`, catalog macros over the records calendar views (`until`, `view=week|timeline`); styleguide entries `calendar` + `timeline`. |
 | Empty, loading and error states | ✅ `EmptyState`, `Skeleton`, toasts per `feedback-states.json` |
 
 ### 5.3 Responsive
@@ -589,7 +589,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 | Contract (exposes, access, audit, vault, upstream) | ✅ | `packages/emcp` (#EXP-1490) |
 | Server half: one gate (token → member → grant → access → audit) | ✅ | `apps/web/src/lib/emcp` (#EXP-1491) |
 | Rust crate (loopback server, client, OAuth, vault trait, contract replay) | ✅ (rules only, no executor) | `apps/desktop/crates/emcp` (#EXP-1492) |
-| `exposes` in the SDK | ✅ | eUI 0.3.0 (#VAPP-180) |
+| `exposes` in the SDK | ✅ | genUI 0.3.0 (#VAPP-180) |
 | `/api/mcp/apps` broker, `<app>__<tool>`, `_meta` provenance, `list_changed` | ✅ | `apps-broker.ts` (#VAPP-181) |
 | Consent (team, apps, Read only / Full, inline Connect) | ✅ | #VAPP-182 |
 | `app_access` + per-tool switch | ✅ | #VAPP-183 |
@@ -600,13 +600,13 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 | http upstreams | ✅ | |
 | Per-app upstream mapping | ✅ | #VAPP-254, below |
 | stdio / LAN upstreams | ✅ M2 (#VAPP-239) | `@exp/emcp` upstream.json `device` (its `$comment` is the spec), `lib/emcp/upstream/device-call.ts`, the relay's `POST /devices/:userId/:deviceId/upstream`, `steer::upstream_call` + `emcp::device_call` on the device (below) |
-| eMCP local hub + codemode | in review | #EXP-1507 |
+| MCP Proxy local hub + codemode | in review | #EXP-1507 |
 | Spezl loopback broker | ❌ | #YO-32 |
 
 **Device-routed upstreams** (✅ M2, #VAPP-239): a team server row may name a device (`mcp_servers.device_id`: a desktop app or CLI daemon of a team OWNER, set with `mcpServers.setDevice`, only to a device of their own; a removed device clears it). It then runs THERE for app calls: a `stdio` command, or an `http` URL only that device's network reaches (plain `http://` is allowed on loopback and LAN hosts: private IPv4, `.local`, `.lan`, `.home.arpa`, `.internal`).
 
 - **Who:** only the device owner's own calls (exposes runs, M1 read bindings) and automations they sponsor route to it; anyone else's are refused `deviceNotOwned` (audited `denied`), so nobody spends a teammate's machine. A stdio server naming no device stays `upstreamFailed`.
-- **The path:** the broker writes one `mcp_device_calls` row (tool, args, the veto, a fresh X25519 reply key; 30 s, claimable once, no secret in it) and asks the steer relay to send `upstream_call {callId}` down the device's control socket (the same socket kill, interrupt and compact use). The device claims the call over its own authenticated API (`mcpServers.claimDeviceCall`: its own call on that device, else NOT_FOUND), which resolves the member's credential at claim time; it runs exactly that tool through the `emcp` client (http, or the command spawned over stdio), checking the tool's live annotations against the veto first, and answers `upstream_answer {callId, sealed}`, sealed to the reply key with eNet's sealed box (enet-core `push_seal`). The relay sees only the id and ciphertext and cannot forge an answer: the reply key never crosses it.
+- **The path:** the broker writes one `mcp_device_calls` row (tool, args, the veto, a fresh X25519 reply key; 30 s, claimable once, no secret in it) and asks the steer relay to send `upstream_call {callId}` down the device's control socket (the same socket kill, interrupt and compact use). The device claims the call over its own authenticated API (`mcpServers.claimDeviceCall`: its own call on that device, else NOT_FOUND), which resolves the member's credential at claim time; it runs exactly that tool through the `emcp` client (http, or the command spawned over stdio), checking the tool's live annotations against the veto first, and answers `upstream_answer {callId, sealed}`, sealed to the reply key with P2P's sealed box (enet-core `push_seal`). The relay sees only the id and ciphertext and cannot forge an answer: the reply key never crosses it.
 - **Offline:** the relay's `device_offline` = `upstreamFailed` "<server> runs on <device>, offline"; a read keeps the binding's default and the host shows that banner (no action) beside the "Connect <server>" ones; a device that never answers (25 s) = "<server>: <device> did not answer".
 - **Grants, audit, cache:** exactly as for http upstreams; the answer's `_meta` adds `at.exponential/device` = the device's label.
 
@@ -619,7 +619,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 - **Export/import:** the mapping belongs to the install. A file holds the declared names only; an import starts from the exact-name default plus the owner's picks in that dialog. A member's import keeps the default; the app shows "Not set up" until an owner maps it.
 - **Audit:** each change is one `mcp_calls` row as the owner, `tool = upstream:<upstream>=<server>` (`auto` once cleared), Settings › MCP › Activity. Connections stay per server: a mapping changes no member's credential.
 
-**The eMCP hub** (ExponentialOS v5): on a device, one loopback hub combines its servers (ePilot, eDE tools, Spezl apps) behind grants and audit. eApps plug into it as one more `ToolProvider`, using the same `<app>__<tool>` names and the same `exposes` rules, replayed from `packages/emcp` fixtures in Rust.
+**The MCP Proxy hub** (ExponentialOS v5): on a device, one loopback hub combines its servers (Computer Use, eDE tools, Spezl apps) behind grants and audit. Apps plug into it as one more `ToolProvider`, using the same `<app>__<tool>` names and the same `exposes` rules, replayed from `packages/emcp` fixtures in Rust.
 
 **Spezl loopback** (#YO-32, decided):
 
@@ -646,7 +646,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 
 - `app_access` none/read/write per member (✅).
 - ✅ (#VAPP-199) It is enforced in tRPC, the shapes (none = the app, its versions and its records never sync, so it is hidden from the Apps list ×4) and the clients' Data tab.
-- ✅ (#VAPP-200) At `read` an app's own writing controls paint disabled ×4: eUI's `readOnly` surface setting (a node calling `records.*` or `actions.*`, a writing Form and its fields, a field without an action of its own; a `bind`/`set` view control stays live; fixture `read-only.json`, conformance suite `read-only`). The editor preview passes it from `appAccess.mine`, or from the Run as member's level.
+- ✅ (#VAPP-200) At `read` an app's own writing controls paint disabled ×4: genUI's `readOnly` surface setting (a node calling `records.*` or `actions.*`, a writing Form and its fields, a field without an action of its own; a `bind`/`set` view control stays live; fixture `read-only.json`, conformance suite `read-only`). The editor preview passes it from `appAccess.mine`, or from the Run as member's level.
 
 ### 9.3 Audit and attribution
 
@@ -781,7 +781,7 @@ Added here:
 - Every query is scoped by `(team_id, app_id)`, and shapes are member-only ✅.
 - **RLS backstop** ✅ (#VAPP-193). The records service runs each operation in a transaction: the checks and every other table first (membership, `app_access`, the app row, plan and quota), then `SET LOCAL ROLE eapps`, `eapps.team` and `eapps.apps` (the hosting app plus any read targets), and `statement_timeout = 2s`. The role has `SELECT, INSERT, UPDATE` on `app_records` and nothing else (deletes are soft). A policy (`USING` + `WITH CHECK`) limits it to `team_id = eapps.team AND app_id = ANY(eapps.apps)`. A wrong query then sees no other team's or app's rows, cannot read any other table, cannot write outside its scope, and stops after 2 s. The structured query becomes a parameterised query over a fixed column list, so app text never becomes SQL. The insert trigger that reads `apps` is `SECURITY DEFINER` with a pinned `search_path`. The main role owns the table and bypasses RLS: the watchdog purge, the quota count, cascades and Electric (replication and snapshots) are unchanged, and the shape proxy stays their guard. The role and policy live in the idempotent custom SQL applied at boot, so self-host gets them too. The connection's role needs `CREATEROLE` (or superuser) once to create `eapps`.
 - 🆕 The `author` policy filters rows in the shape itself.
-- Spezl keeps records in a per-app eNet records space.
+- Spezl keeps records in a per-app P2P records space.
 
 ### 12.3 Secrets
 
@@ -813,7 +813,7 @@ Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/expone
 | Web | Records on demand per app (`subsets`) | Online (tRPC) | ✅ / offline ❌ (banner) |
 | Desktop | Full shape | Outbox (O1) | ✅ |
 | iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | ✅ |
-| Spezl | Local sqlite + eNet records space | Local first | #YO-32 |
+| Spezl | Local sqlite + P2P records space | Local first | #YO-32 |
 | eDE | Through the `eapps` crate (Exponential or Spezl store) | Same | 🆕 S4 |
 
 **✅ O1, the outbox** (#VAPP-235, fixture `app-records.json` `outbox`, TS reference `@exp/domain-contract/app-records` `outbox*`). On desktop and the natives, every record write an app makes (`records.upsert`, `records.delete`, `records.batch`) is applied locally at once and queued:
@@ -838,7 +838,7 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 | Record | 16 KB | ✅ |
 | Records per team | 1,000 / 25,000 / unlimited | ✅ |
 | Rows per binding result | 500 (cursor for more) | ✅ (no cursor) |
-| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the eUI bench | 🟡 #VAPP-202: measured 2026-11-03 at 1–16 ms p95 on a desktop CPU (eui-core release, `examples/records_query_25k.rs`), so a phone missed it on grouped/sorted queries. Now each row's sort keys are read once (numbers kept, texts ranked), field values are borrowed instead of stringified, filter bounds parse once per query, and group keys are computed once per row (eui-core and the TS twin; Swift and Compose call eui-core over the FFI). Results are byte-identical and `records-query.json` is green ×4. Gated in the eUI bench as `records-25k` (core + web, the `matched` count gates; core timings are budgeted at 5 ms p95 = the phone line ÷ 3). The CI bench numbers and a mid-Android run are still owed |
+| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the genUI bench | 🟡 #VAPP-202: measured 2026-11-03 at 1–16 ms p95 on a desktop CPU (eui-core release, `examples/records_query_25k.rs`), so a phone missed it on grouped/sorted queries. Now each row's sort keys are read once (numbers kept, texts ranked), field values are borrowed instead of stringified, filter bounds parse once per query, and group keys are computed once per row (eui-core and the TS twin; Swift and Compose call eui-core over the FFI). Results are byte-identical and `records-query.json` is green ×4. Gated in the genUI bench as `records-25k` (core + web, the `matched` count gates; core timings are budgeted at 5 ms p95 = the phone line ÷ 3). The CI bench numbers and a mid-Android run are still owed |
 | Server query (web on-demand, broker) | ≤ 200 ms p95, `statement_timeout` 2 s | ✅ measured: 15–27 ms p95 over 25k rows (records service on Postgres 17); the 2 s timeout is the RLS scope's |
 | Exposed tools per app | 32 | ✅ |
 | Upstream read cache | 60 s per (member, tool, args) | 🆕 |
@@ -850,17 +850,17 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 
 **Spezl** (#YO-1, #YO-4 shared format ✅, #YO-32):
 
-1. The records query and the persistent `RecordStore` trait **inside eUI**, not in Exponential's `domain-contract` (S1). Spezl's eUI 0.2.0 lacks `month/by/sum/user` and only has `MemoryRecordStore`.
-2. The **`eapps` crate** (S2, #EXP-1420): `AppHost` (package validation, bindings, policy), the query evaluator (eui-core), a `RecordStore` trait with sqlite and eNet implementations, the `exposes` executor on `emcp` (records/action/upstream), the migration runner.
+1. The records query and the persistent `RecordStore` trait **inside genUI**, not in Exponential's `domain-contract` (S1). Spezl's genUI 0.2.0 lacks `month/by/sum/user` and only has `MemoryRecordStore`.
+2. The **`eapps` crate** (S2, #EXP-1420): `AppHost` (package validation, bindings, policy), the query evaluator (eui-core), a `RecordStore` trait with sqlite and P2P implementations, the `exposes` executor on `emcp` (records/action/upstream), the migration runner.
 3. A keychain `Vault` and loopback serving (#YO-32).
 4. `exponential.*` actions become an **`exponential` upstream** (`ExponentialConnector`) when the person connects an Exponential account. Without one, the action is unavailable.
-5. Multi-user app state (#YO-27, parked) maps to eNet spaces later. Without it, Spezl apps are personal: the kind policy collapses to "me".
+5. Multi-user app state (#YO-27, parked) maps to P2P spaces later. Without it, Spezl apps are personal: the kind policy collapses to "me".
 
 **eDE** (NEW-10):
 
-1. Apps run through the same crate in eDE's shell process. eUI on disk (NEW-107) loads `~/.config/ede/apps/*.app.json` with the same validator.
+1. Apps run through the same crate in eDE's shell process. genUI on disk (NEW-107) loads `~/.config/ede/apps/*.app.json` with the same validator.
 2. Widget templates (C26): `screens[].widget: {template, size: "s" | "m" | "l"}` are painted in the eDE panel and desktop. The same entry gives iOS/Android home-screen widgets later. It depends on the slots model (#VAPP-64).
-3. The eMCP local hub (#EXP-1507) lists the apps' tools to on-device agents, using the same `exposes`.
+3. The MCP Proxy local hub (#EXP-1507) lists the apps' tools to on-device agents, using the same `exposes`.
 
 ---
 
@@ -878,7 +878,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 **Phase 2: The query** (unblocks reports and dashboards)
 
-- **S1 ★** ✅ #VAPP-189 Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
+- **S1 ★** ✅ #VAPP-189 Move the records query out of `domain-contract` into genUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
 - **Q1 ★** ✅ #VAPP-190 The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or`. Fixture `records-query.json` ×4 (TS, Rust, Swift, Kotlin). `search` and a cursor stay open. (C5, C6)
 - **Q2 ★** ✅ #VAPP-191 Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
 - **Q3** ✅ #VAPP-214 Computed fields: `records.<kind>.computed`, evaluated on read ×4 + the server, queryable, typed at install. (C11)
@@ -889,7 +889,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 3: Multi-screen apps** (unblocks CRM, hiring, approvals)
 
 - ✅ **U1** (#VAPP-218) `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
-- **U2** ✅ #VAPP-217 `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
+- **U2** ✅ #VAPP-217 `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, genUI catalog, prompt budget trimmed to fit. (C9)
 - **R5** Refs + `expand` (✅ #VAPP-219). **R6** Transitions (✅ #VAPP-222). **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
 - **V1** ✅ #VAPP-210 / #VAPP-211 Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)
 - **R8** ✅ #VAPP-233 Declarative migrations + the sweep. (§3.6)
@@ -905,16 +905,16 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **A2** ✅ #VAPP-236 `run.agent` + the `handoff` action: an automation, an exposed tool or a press hands judgement to a team agent through `sessions.send` (the brief = the frozen prompt + a fenced data block + the record ref), `via <app>`, 10 hand-offs a minute per app, the agent loop guard; `exposes.json` `agent` + `automations.json` (TS + Rust), `exponential.apps.handoff`. (C19)
 - **A3** #VAPP-237 Inbound webhooks with vault-sealed secrets: ✅ the contract (`automations.json` `webhook`: signature, window, replay), `POST /api/apps/hooks/<appId>/<name>`, the sealed per-hook secret, the nonce cache, the rate cap and audit; ✅ the Settings mint/rotate rows ×4 (#VAPP-238). (C22)
 - ✅ **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17, #VAPP-230)
-- ✅ **M2** Device-routed (stdio/LAN) upstreams, routed down the device's control socket with the answer sealed by eNet's sealed box. (C17b, #VAPP-239)
+- ✅ **M2** Device-routed (stdio/LAN) upstreams, routed down the device's control socket with the answer sealed by P2P's sealed box. (C17b, #VAPP-239)
 - **M3** ✅ #VAPP-229 `via_app_id` on issues, sessions and records ×4. (§9.3)
 
 **Phase 6: Everywhere**
 
 - ✅ **O1** Offline outbox for record writes (desktop, iOS, Android). (C24, #VAPP-235)
 - **S2 ★** `eapps` crate + release (`eapps-v*`). (C25)
-- **S3** Spezl runs eApps: #YO-32 on S2 (keychain vault, loopback, `exponential` upstream).
+- **S3** Spezl runs Apps: #YO-32 on S2 (keychain vault, loopback, `exponential` upstream).
 - **S4** eDE widgets + apps on the crate. Depends on #VAPP-64 and NEW-107. (C26)
-- ✅ **U3** `Calendar` / `Timeline` (C29, #VAPP-232, design approved by Danny 2026-11-03): eUI macros (no new primitive, no new token) over the records query's calendar views: the month view's `weeks` (lanes, "+N more"), the selected day's `agenda`, `view=week`, `view=timeline` (columns, bands, rows, now); bars in the full chart colour (`tone=<field>`); phones get the compact month with dots and the agenda, and a Timeline whose columns keep a minimum width in one horizontal scroller with the label column pinned (#VAPP-250). The macro rule `$template` builds data-template items. Sample: the leave planner (`samples/apps/leave-planner.app.json`).
+- ✅ **U3** `Calendar` / `Timeline` (C29, #VAPP-232, design approved by Danny 2026-11-03): genUI macros (no new primitive, no new token) over the records query's calendar views: the month view's `weeks` (lanes, "+N more"), the selected day's `agenda`, `view=week`, `view=timeline` (columns, bands, rows, now); bars in the full chart colour (`tone=<field>`); phones get the compact month with dots and the agenda, and a Timeline whose columns keep a minimum width in one horizontal scroller with the label column pinned (#VAPP-250). The macro rule `$template` builds data-template items. Sample: the leave planner (`samples/apps/leave-planner.app.json`).
 
 **Phase 7: Sharing**
 
@@ -952,11 +952,11 @@ R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 1. **No sandbox, no server-side app code.** An app stays data; nothing in a package runs on the server. Code still lives behind an upstream MCP server (§18.7).
 2. **Expressions are a CEL subset** (§4.2), as TS + Rust twins replaying one fixture, instead of a grammar of our own. Expressions are type-checked against the kind schemas at package validation and run under fixed cost caps. There is no solver or SMT verification: the per-kind policies (R3) stay a fixed enum. If policies ever become free expressions, use Cedar rather than CEL.
 3. **A Postgres RLS backstop scoped to team + app** under one records service (§3.4 layer 5, §12.2). Ownership and policy stay in the service, not in RLS. The structured query becomes a parameterised query, so app text never becomes SQL.
-4. **eApps keeps no backwards compatibility** (until there are real apps): no compat shims, aliases or old-format fallbacks. A package names `formatVersion` and a host reads only its own; records have one spelling (`records:<kind>`, `records.*`; Exponential's `exp:records?kind=` and `harness.records.*` are gone); breaking checker changes (E2) refuse old packages on upsert, naming the path, and the editor agent fixes them.
+4. **Apps keeps no backwards compatibility** (until there are real apps): no compat shims, aliases or old-format fallbacks. A package names `formatVersion` and a host reads only its own; records have one spelling (`records:<kind>`, `records.*`; Exponential's `exp:records?kind=` and `harness.records.*` are gone); breaking checker changes (E2) refuse old packages on upsert, naming the path, and the editor agent fixes them.
 
 ## 20. General availability (Milestone G, released 2026-11-03)
 
-**eApps is production-ready (GA)** on web, desktop, iOS and Android. Milestone G closed the five gaps the batch-1 verdict below named. Releases: web `5325cdb` (migrations 0238–0240), eUI 0.8.0, desktop/CLI 0.14.112, Android 0.14.100, iOS 0.14.94 (TestFlight). Follow-ups: eUI 0.9.0, desktop/CLI 0.14.113 and web 0.20.29 add Q3 computed fields and Q4 tools on the full query.
+**Apps is production-ready (GA)** on web, desktop, iOS and Android. Milestone G closed the five gaps the batch-1 verdict below named. Releases: web `5325cdb` (migrations 0238–0240), genUI 0.8.0, desktop/CLI 0.14.112, Android 0.14.100, iOS 0.14.94 (TestFlight). Follow-ups: genUI 0.9.0, desktop/CLI 0.14.113 and web 0.20.29 add Q3 computed fields and Q4 tools on the full query.
 
 What a team can rely on:
 
@@ -964,12 +964,12 @@ What a team can rely on:
 - install refuses broken surfaces and values that may be missing (#VAPP-203, #VAPP-204);
 - one team time zone (#VAPP-201);
 - read-only access is enforced and shown (#VAPP-199, #VAPP-200);
-- the local query is optimised and gated in the eUI bench (#VAPP-202; the CI and mid-phone numbers are still owed);
+- the local query is optimised and gated in the genUI bench (#VAPP-202; the CI and mid-phone numbers are still owed);
 - built-in skills teach agents the format (#VAPP-213).
 
 Rich apps continue in §17 order: R4 history, then U1 screens and the rest.
 
-**Dogfood G (2026-11-03, staging, the "eApps Dogfood" team: an owner and a member).** The time tracker sample (`samples/apps/time-tracker.app.json` 1.1.0) now uses every Milestone G feature: computed `minutes` + `week` and a `weeks` query grouped on them (a "This month by week" table), and two `exposes` tools (`week_summary` runs the `weeks` query, `log_hours` writes). Its package tests pass at install (17). Verified over MCP and on web:
+**Dogfood G (2026-11-03, staging, the "Apps Dogfood" team: an owner and a member).** The time tracker sample (`samples/apps/time-tracker.app.json` 1.1.0) now uses every Milestone G feature: computed `minutes` + `week` and a `weeks` query grouped on them (a "This month by week" table), and two `exposes` tools (`week_summary` runs the `weeks` query, `log_hours` writes). Its package tests pass at install (17). Verified over MCP and on web:
 
 - **V1:** an upsert lands as a draft (`published` stays). The member's editor shows the published version, and `/api/mcp/apps` lists and runs the published package's tools (none before the first publish). Publish moves them, and `publish {version: 2}` rolls back: the tool's title and the query's sort follow at once.
 - **Q3 + Q4:** `time-tracker__week_summary` returns `groups` keyed by the computed `week`, with the computed `minutes` summed, per member (read policy `author`). `log_hours` writes as the caller.
@@ -977,7 +977,7 @@ Rich apps continue in §17 order: R4 history, then U1 screens and the rest.
 - **Install checks:** 18 broken variants of the time tracker (unknown component, missing prop, dangling child, computed shadowing/chaining/typos/types, typos in a row template, unknown queries in bindings and tests, destructive exposes) are refused at the right path. Two gaps were fixed: a query on a field its kind lacks (or a sum of a text) and an exposes run naming no query (#VAPP-223, PR #1793).
 - **Team zone:** with the team on `Pacific/Kiritimati`, `today()` read the team's day, but the records month view's `today` and its default month read UTC's on every host and in the broker (the Log hours dialog opened on yesterday). Fixed: the records context takes the host's `today` (#VAPP-224, PR #1794; `records-query.json`, ×4 + the server).
 
-**Rich apps dogfood (2026-11-04, staging, the "eApps Dogfood" team: an owner and a member, over MCP, tRPC and HTTP, no browser).** Most of it ran on web 0.20.37, the rest on `76e297b`: migrations, the schedule, the hand-off, CSV, Calendar/Timeline, tools and public links ran after that deploy, on format 4.
+**Rich apps dogfood (2026-11-04, staging, the "Apps Dogfood" team: an owner and a member, over MCP, tRPC and HTTP, no browser).** Most of it ran on web 0.20.37, the rest on `76e297b`: migrations, the schedule, the hand-off, CSV, Calendar/Timeline, tools and public links ran after that deploy, on format 4.
 
 - **Worked:**
   - **Templates:** all four gallery templates import.
@@ -1010,7 +1010,7 @@ Rich apps continue in §17 order: R4 history, then U1 screens and the rest.
 
 ### 20.1 Readiness (batch 1, 2026-11-03)
 
-Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI (#1719), R3 per-kind policies + `app_access` everywhere (#VAPP-199), "Run as" (#VAPP-198), authors in `.app.json` exports (#VAPP-192), the eApps real-DB suites run against Postgres 17 (all green), the §15 limits measured, and three real apps dogfooded on staging (time tracker, CRM, standup; `samples/apps/`, #VAPP-209). The dogfood found and fixed a desktop crash on every package action and a web/desktop disagreement on missing fields.
+Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI (#1719), R3 per-kind policies + `app_access` everywhere (#VAPP-199), "Run as" (#VAPP-198), authors in `.app.json` exports (#VAPP-192), the Apps real-DB suites run against Postgres 17 (all green), the §15 limits measured, and three real apps dogfooded on staging (time tracker, CRM, standup; `samples/apps/`, #VAPP-209). The dogfood found and fixed a desktop crash on every package action and a web/desktop disagreement on missing fields.
 
 **Verdict: ready for real team apps on web and desktop, for teams that build with the editor and accept that an edit is live at once.** Records, policies, queries, actions and tests are trustworthy and enforced by the server. It is **not yet general-availability**. Before calling it that:
 
@@ -1018,7 +1018,7 @@ Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI 
 2. ✅ **#VAPP-203**: install reduces every template as the renderer will (unknown components, missing/mistyped props, child ids naming nothing), issues at `/templates/<id>/components/<i>…` (TS + Rust twins, `host-router.json` `acme.badcomponents`). It found two real bugs: the built-in Devices template bound non-bindable `IconDisc`/`LiveDot` props (now bindable) and a desktop test package's `chevron: "always"`.
 3. ✅ **#VAPP-204**: the checker no longer trusts values that may be missing. A records value's `sum`/`month`/`groups`/`totals`/`before` follow the binding's query (left out = `T?`), every list index is `T?` and reads null past the end at run time, a map's field is `dyn?`, a row template's relative paths are typed by the list's records rows (a typo like `hourz` fails install at the var's path), `has(x)` hints `x != null`, and a press's `actions.<name>` args and a `bind`'s literal source are checked at install (TS + Rust twins; `expressions.json`, `actions.json`). The three sample apps still install unchanged.
 4. ✅ **#VAPP-201**: the team time zone (`teams.time_zone`, Settings › General ×4; hosts read dates in it, else the device's zone; `team-zone.json` replays the tz databases ×4).
-5. ✅ **#VAPP-200**: an app's own writing controls paint disabled at access `read` (eUI `readOnly` ×7 renderers + the hosts ×4).
+5. ✅ **#VAPP-200**: an app's own writing controls paint disabled at access `read` (genUI `readOnly` ×7 renderers + the hosts ×4).
 
-Later, not blocking: **U1 screens** (✅ #VAPP-218: `screens` + `app.navigate`, the preview's sidebar / phone bar ×4, deep links `/t/<team>/apps/<app>/<screen>` and the natives' app links, `@media (form-factor: …)`), **O1 offline** (✅ #VAPP-235: the natives queue record writes), **#VAPP-202** (the local query over 25k rows on phones: optimised and in the eUI bench as `records-25k`; CI and mid-Android numbers owed), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
+Later, not blocking: **U1 screens** (✅ #VAPP-218: `screens` + `app.navigate`, the preview's sidebar / phone bar ×4, deep links `/t/<team>/apps/<app>/<screen>` and the natives' app links, `@media (form-factor: …)`), **O1 offline** (✅ #VAPP-235: the natives queue record writes), **#VAPP-202** (the local query over 25k rows on phones: optimised and in the genUI bench as `records-25k`; CI and mid-Android numbers owed), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
 

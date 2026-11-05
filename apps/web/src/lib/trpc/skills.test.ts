@@ -318,7 +318,7 @@ describe(`built-in skills`, () => {
   })
 
   it(`a built-in's name is taken: create and rename onto it are CONFLICT`, async () => {
-    expect(await codeOf(caller.create({ ...valid, name: `exponential-ui` }))).toBe(`CONFLICT`)
+    expect(await codeOf(caller.create({ ...valid, name: `exponential-genui` }))).toBe(`CONFLICT`)
     expect(inserts).toHaveLength(0)
     selectResults.push([row()])
     expect(await codeOf(caller.update({ id: SKILL_ID, name: `exponential-motion` }))).toBe(`CONFLICT`)
@@ -346,17 +346,17 @@ describe(`built-in skills`, () => {
     // the team's built-in rows (sessionSkillIds), then the picked rows
     selectResults.push([
       { id: MOTION_ID, name: `exponential-motion` },
-      { id: UI_ID, name: `exponential-ui` },
+      { id: UI_ID, name: `exponential-genui` },
       { id: BUILTIN_ID, name: `exponential-apps` },
     ])
     selectResults.push([
       { id: SKILL_ID, name: `review-checklist`, description: `d`, body: `# Review`, builtin: false },
       { id: BUILTIN_ID, name: `exponential-apps`, description: `old`, body: `stale`, builtin: true },
-      { id: UI_ID, name: `exponential-ui`, description: `old`, body: `stale`, builtin: true },
+      { id: UI_ID, name: `exponential-genui`, description: `old`, body: `stale`, builtin: true },
       { id: MOTION_ID, name: `exponential-motion`, description: `old`, body: `stale`, builtin: true },
     ])
     const out = await launcher.resolveForLaunch({})
-    expect(out.skills.map((s) => s.name)).toEqual([`review-checklist`, `exponential-ui`, `exponential-apps`, `exponential-motion`])
+    expect(out.skills.map((s) => s.name)).toEqual([`review-checklist`, `exponential-genui`, `exponential-apps`, `exponential-motion`])
     const shipped = out.skills.find((s) => s.name === `exponential-apps`)!
     expect(shipped.body).toBe(apps.body)
     expect(shipped.description).toBe(apps.description)
