@@ -837,6 +837,9 @@ pub(crate) struct PlanFacts<'a> {
     pub feedback: Option<&'a str>,
     /// The surface's data model as the person answered it.
     pub surface_data: Option<&'a Value>,
+    /// #FEED-191 (plan-page.json): shown ON the plan tab: a decision taken here
+    /// returns its chat to the Conversation once the answer lands.
+    pub on_tab: bool,
 }
 
 /// Builds what a plan card's form needs (the free-text fields, the
@@ -1181,7 +1184,11 @@ fn plan_footer(facts: &PlanFacts, page: usize, story: bool, window: &Window, cx:
     let surface = facts.surface.cloned();
     let decide = {
         let (id, questions, surface) = (message_id.to_string(), questions.clone(), surface.clone());
+        let on_tab = facts.on_tab.then(|| facts.session_id.to_string());
         Rc::new(move |decision: &str, fresh: bool, cx: &mut App| {
+            if let Some(session_id) = &on_tab {
+                crate::thread_screen::decide_on_plan_tab(&id, session_id, cx);
+            }
             send_plan(&id, decision, fresh, &questions, surface.as_ref(), cx);
         })
     };

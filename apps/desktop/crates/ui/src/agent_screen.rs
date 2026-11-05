@@ -998,7 +998,7 @@ impl Render for AgentScreenView {
         let rows_snapshot = self.rows.clone();
         let (band, sheet, docked) = match composer_view.filter(|composer| composer.read(cx).may_message()) {
             Some(composer) => {
-                // S-3: a waiting plan / question is a story, inline in
+                // S-3: a waiting plan / question stays inline in
                 // the conversation (with its actions), never docked.
                 let docked: HashSet<String> = HashSet::new();
                 let (band, sheet) = crate::thread_screen::root_dock(

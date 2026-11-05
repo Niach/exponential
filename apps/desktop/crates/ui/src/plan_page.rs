@@ -10,10 +10,12 @@
 //! lightbox over every picture of the plan
 //! ([`crate::image_preview::open_picture_gallery`]).
 //!
-//! [`open`] is every way in that names a plan (a Conversation row, a story's
-//! `Open plan`, the Dock sheet glyph); [`prime_session`] + [`screen_for_session`]
+//! [`open`] is every way in that names a plan (a Conversation row, a Needs you
+//! row, the Dock sheet glyph); [`prime_session`] + [`screen_for_session`]
 //! are an inbox row's and a push's. All of them land on the thread's tab
-//! ([`crate::thread_screen::request_thread_plan`]).
+//! ([`crate::thread_screen::request_thread_plan`]). #FEED-191: a decision taken
+//! on the tab returns the chat to its Conversation, the ONE way back besides
+//! the Conversation tab itself.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -282,6 +284,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
     let Some((message_id, plan, facts)) = crate::thread_screen::plan_facts(props.row) else {
         return div().into_any_element();
     };
+    let facts = crate::plan_card::PlanFacts { on_tab: true, ..facts };
     let layout = &PLAN_PAGE.layout;
     let panel = &PLAN_PAGE.panel;
     let ids = &PLAN_PAGE.test_ids;
