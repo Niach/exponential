@@ -6,7 +6,7 @@
 // Locked by share-links.test.ts + share-links.real-db.test.ts.
 import { createHmac, randomBytes } from "node:crypto"
 import { TRPCError } from "@trpc/server"
-import { and, count, eq, gt, lt, isNull, ne, sql } from "drizzle-orm"
+import { and, count, eq, gt, lt, isNull, ne, or, sql } from "drizzle-orm"
 import { APP_SHARE_CAPS, APP_SHARE_COPY, linkState, shareFields, underShareCaps, type ShareLinkState, type ShareMode, type ShareSchema } from "@exp/domain-contract/app-share"
 import { CORE_CATALOG_ID, guestTemplate, PACKAGE_FORMAT_VERSION, validatePackage, validatePackageShares, type AppPackage, type PackageShare, type RecordKind } from "@exponential_app/eui"
 import { db } from "@/db/connection"
@@ -76,6 +76,18 @@ export async function rotateShareLink(app: { id: string }, name: string, now = n
     .update(appShareLinks)
     .set({ token: newToken(), rotatedAt: now, updatedAt: now })
     .where(and(eq(appShareLinks.appId, app.id), eq(appShareLinks.name, name), isNull(appShareLinks.revokedAt)))
+    .returning({ id: appShareLinks.id })
+  if (rows.length === 0) throw new TRPCError({ code: `NOT_FOUND`, message: `This link is off` })
+}
+
+/** VAPP-247: a live link's expiry, `days` from now, null = never. The token and
+ *  the sponsor stay; a revoked or expired link is off (enabling mints a new one). */
+export async function expireShareLink(app: { id: string }, name: string, days: number | null, now = new Date()): Promise<void> {
+  const expiresAt = days === null ? null : new Date(now.getTime() + days * DAY_MS)
+  const rows = await db
+    .update(appShareLinks)
+    .set({ expiresAt, updatedAt: now })
+    .where(and(eq(appShareLinks.appId, app.id), eq(appShareLinks.name, name), isNull(appShareLinks.revokedAt), or(isNull(appShareLinks.expiresAt), gt(appShareLinks.expiresAt, now))))
     .returning({ id: appShareLinks.id })
   if (rows.length === 0) throw new TRPCError({ code: `NOT_FOUND`, message: `This link is off` })
 }

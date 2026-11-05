@@ -54,6 +54,9 @@ class AppShareTest {
         assertEquals(AppShare.Copy.COPY_LINK, copy.string("copyLink"))
         assertEquals(AppShare.Copy.NEW_LINK, copy.string("newLink"))
         assertEquals(AppShare.Copy.GUEST, copy.string("guest"))
+        val choices = f.getValue("expiryChoices").jsonArray.map { it.jsonObject }
+        assertEquals(choices.map { it.string("label") }, AppShare.EXPIRY_CHOICES.map { it.label })
+        assertEquals(choices.map { it.stringOrNull("days")?.toInt() }, AppShare.EXPIRY_CHOICES.map { it.days })
     }
 
     @Test

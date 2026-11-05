@@ -22,6 +22,20 @@ public enum AppShare {
         public static let guest = "Guest"
     }
 
+    /// Fixture `expiryChoices` (VAPP-247): the Public links row's expiry
+    /// items, in menu order; `days` nil = never.
+    public struct ExpiryChoice: Sendable, Equatable {
+        public let days: Int?
+        public let label: String
+    }
+
+    public static let expiryChoices = [
+        ExpiryChoice(days: 7, label: "Expires in 7 days"),
+        ExpiryChoice(days: 30, label: "Expires in 30 days"),
+        ExpiryChoice(days: 90, label: "Expires in 90 days"),
+        ExpiryChoice(days: nil, label: "Never expires"),
+    ]
+
     /// Fixture `caps`: what `underShareCaps` reads.
     public enum Caps {
         public static let perIpPerHour = 10

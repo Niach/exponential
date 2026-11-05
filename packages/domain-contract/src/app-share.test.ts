@@ -4,6 +4,12 @@ import { historyRows } from "./app-records"
 import { linkState, shareByline, shareFields, shareRowSubtitle, shareSwitchOn, underShareCaps, type ShareLinkState, type ShareMode, type ShareSchema } from "./app-share"
 
 describe(`app-share.json`, () => {
+  test(`expiryChoices: whole days within a package's expires, never last`, () => {
+    const days = fixture.expiryChoices.map((c) => c.days)
+    expect(days.at(-1)).toBeNull()
+    for (const d of days.slice(0, -1)) expect(Number.isInteger(d) && d! >= 1 && d! <= 3650).toBe(true)
+    expect(new Set(fixture.expiryChoices.map((c) => c.label)).size).toBe(days.length)
+  })
   test.each(fixture.stateCases)(`linkState: $name`, (c) => expect(linkState(c.link, c.declared, c.now)).toBe(c.state as ShareLinkState))
   test.each(fixture.capCases)(`caps: $name`, (c) => expect(underShareCaps(c.ipCount, c.linkCount)).toBe(c.allowed))
   test.each(fixture.fieldCases)(`shareFields: $name`, (c) => {

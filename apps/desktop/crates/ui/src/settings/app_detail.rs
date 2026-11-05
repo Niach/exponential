@@ -100,6 +100,12 @@ pub(crate) fn toggled_grants(granted: &[String], name: &str, on: bool) -> Vec<St
     next
 }
 
+/// What one Public links write changes: `setShareLink`'s `action`, or a link's expiry (VAPP-247).
+enum ShareChange {
+    Action(&'static str),
+    Expiry(Option<u32>),
+}
+
 pub struct AppDetailPane {
     /// The `apps` row id this tab edits.
     app_id: String,
@@ -455,6 +461,15 @@ impl AppDetailPane {
     /// `rotate` | `revoke`), then the rows re-read (the state and URL are the
     /// server's); a failure = the failed-action toast.
     pub(crate) fn set_share(&mut self, name: String, action: &'static str, cx: &mut gpui::Context<Self>) {
+        self.change_share(name, ShareChange::Action(action), cx);
+    }
+
+    /// VAPP-247: the row's expiry item (`days` None = never), the same way.
+    pub(crate) fn set_share_expiry(&mut self, name: String, days: Option<u32>, cx: &mut gpui::Context<Self>) {
+        self.change_share(name, ShareChange::Expiry(days), cx);
+    }
+
+    fn change_share(&mut self, name: String, change: ShareChange, cx: &mut gpui::Context<Self>) {
         let Some((app_id, _)) = self.mcp_for.clone() else { return };
         if self.share_busy.is_some() {
             return;
@@ -470,8 +485,11 @@ impl AppDetailPane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    api::app_access::set_share_link(&trpc, &app_id, &name, action)
-                        .and_then(|()| api::app_access::app_tools(&trpc, &app_id))
+                    match change {
+                        ShareChange::Action(action) => api::app_access::set_share_link(&trpc, &app_id, &name, action),
+                        ShareChange::Expiry(days) => api::app_access::set_share_expiry(&trpc, &app_id, &name, days),
+                    }
+                    .and_then(|()| api::app_access::app_tools(&trpc, &app_id))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

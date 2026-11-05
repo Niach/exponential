@@ -257,7 +257,7 @@ private data class AppToolsInput(val appId: String)
 private data class AppHookRotateInput(val appId: String, val name: String)
 
 @Serializable
-private data class AppShareLinkInput(val appId: String, val name: String, val action: String)
+private data class AppShareLinkInput(val appId: String, val name: String, val action: String, val days: Int? = null)
 
 @Serializable
 private data class AppToolEnabledInput(val appId: String, val tool: String, val enabled: Boolean)
@@ -329,9 +329,9 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
             AppHookSecretDto.serializer(),
         )
 
-    /** VAPP-241: enable, rotate or revoke a public link (owner); [action] = [com.exponential.app.domain.AppShare.Action]. */
-    suspend fun setShareLink(accountId: String, appId: String, name: String, action: String) {
-        trpc.mutationUnit(accountId, "appAccess.setShareLink", AppShareLinkInput(appId, name, action), AppShareLinkInput.serializer())
+    /** VAPP-241: enable, rotate or revoke a public link (owner); [action] = [com.exponential.app.domain.AppShare.Action]. VAPP-247: `expire` + [days] sets its expiry (null, dropped on the wire, = never). */
+    suspend fun setShareLink(accountId: String, appId: String, name: String, action: String, days: Int? = null) {
+        trpc.mutationUnit(accountId, "appAccess.setShareLink", AppShareLinkInput(appId, name, action, days), AppShareLinkInput.serializer())
     }
 
     /** #VAPP-243: switch one exposed tool off (or back on) for every client (owners). */

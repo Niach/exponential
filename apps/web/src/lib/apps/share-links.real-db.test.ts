@@ -33,7 +33,7 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[share-links.real-db] skipped: ${ready.reason}`)
 
-const { enableShareLink, guestPage, handleSharePage, handleShareSubmit, revokeShareLink, rotateShareLink, shareRows } = await import(`@/lib/apps/share-links`)
+const { enableShareLink, expireShareLink, guestPage, handleSharePage, handleShareSubmit, revokeShareLink, rotateShareLink, shareRows } = await import(`@/lib/apps/share-links`)
 const { deleteRecord, listRecords, upsertRecord } = await import(`@/lib/apps/records-service`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
@@ -209,6 +209,34 @@ describe.skipIf(!ready.ok)(`public links (real db)`, () => {
     expect((await submit(token, { email: `a@b.c` }, { now: almost })).status).toBe(200)
     await expectGone(token, at)
     expect((await shareRows(w.app, at)).find((r) => r.name === `soon`)?.state).toBe(`expired`)
+  })
+
+  it(`an owner changes a live link's expiry: the token and sponsor stay, the next enable takes the package's`, async () => {
+    const w = await world()
+    const token = await linkOn(w, `soon`)
+    const until = async () => (await db.select().from(appShareLinks).where(eq(appShareLinks.token, token)))[0]!
+    await expireShareLink(w.app, `soon`, 30, NOW)
+    expect((await until()).expiresAt!.getTime()).toBe(NOW.getTime() + 30 * 86_400_000)
+    expect((await until()).enabledBy).toBe(w.owner)
+    expect(await tokenOf(w, `soon`)).toBe(token)
+    expect((await shareRows(w.app, NOW)).find((r) => r.name === `soon`)?.expiresAt).toBe(new Date(NOW.getTime() + 30 * 86_400_000).toISOString().slice(0, 10))
+    const late = new Date(NOW.getTime() + 2 * 86_400_000)
+    expect(await guestPage(token, late)).not.toBeNull()
+
+    await expireShareLink(w.app, `soon`, null, NOW)
+    expect((await until()).expiresAt).toBeNull()
+    expect(await guestPage(token, new Date(NOW.getTime() + 4000 * 86_400_000))).not.toBeNull()
+
+    await expireShareLink(w.app, `soon`, 1, NOW)
+    await expectGone(token, new Date(NOW.getTime() + 86_400_000))
+    // Expired is off: no way back on the same token.
+    await expect(expireShareLink(w.app, `soon`, 30, new Date(NOW.getTime() + 86_400_000))).rejects.toThrow(/off/)
+    await revokeShareLink(w.app, `soon`, NOW)
+    await expect(expireShareLink(w.app, `soon`, 30, NOW)).rejects.toThrow(/off/)
+    await expect(expireShareLink(w.app, `nope`, 30, NOW)).rejects.toThrow(/off/)
+
+    await enableShareLink(w.owner, w.app, `soon`, NOW)
+    expect((await db.select().from(appShareLinks).where(and(eq(appShareLinks.appId, w.app.id), eq(appShareLinks.name, `soon`))))[0]!.expiresAt!.getTime()).toBe(NOW.getTime() + 86_400_000)
   })
 
   it(`a link closes with its sponsor, its app and its declaration; a draft's share is not live`, async () => {

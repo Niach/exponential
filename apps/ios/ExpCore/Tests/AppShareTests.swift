@@ -15,6 +15,12 @@ final class AppShareTests: XCTestCase {
         let rowCases: [RowCase]
         let historyCases: [HistoryCase]
         let switchCases: [SwitchCase]
+        let expiryChoices: [ExpiryChoice]
+    }
+
+    private struct ExpiryChoice: Decodable {
+        let days: Int?
+        let label: String
     }
 
     private struct TestIds: Decodable {
@@ -101,6 +107,8 @@ final class AppShareTests: XCTestCase {
         for (key, value) in pinned {
             XCTAssertEqual(f.copy[key], value, key)
         }
+        XCTAssertEqual(AppShare.expiryChoices.map(\.days), f.expiryChoices.map(\.days))
+        XCTAssertEqual(AppShare.expiryChoices.map(\.label), f.expiryChoices.map(\.label))
     }
 
     func testStateCases() throws {

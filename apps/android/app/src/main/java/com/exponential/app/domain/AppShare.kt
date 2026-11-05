@@ -25,7 +25,19 @@ object AppShare {
         const val ENABLE = "enable"
         const val ROTATE = "rotate"
         const val REVOKE = "revoke"
+        const val EXPIRE = "expire"
     }
+
+    /** VAPP-247: one item of the row's expiry menu; [days] null = never. */
+    data class ExpiryChoice(val days: Int?, val label: String)
+
+    /** Fixture `expiryChoices`, in menu order. */
+    val EXPIRY_CHOICES = listOf(
+        ExpiryChoice(7, "Expires in 7 days"),
+        ExpiryChoice(30, "Expires in 30 days"),
+        ExpiryChoice(90, "Expires in 90 days"),
+        ExpiryChoice(null, "Never expires"),
+    )
 
     object Copy {
         const val TITLE = "Public links"

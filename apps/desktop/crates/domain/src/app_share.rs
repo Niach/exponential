@@ -44,12 +44,20 @@ pub struct ShareTestIds {
     pub share_row: String,
 }
 
+/// VAPP-247: one item of the Public links row's expiry menu; `days` None = never.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ShareExpiryChoice {
+    pub days: Option<u32>,
+    pub label: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppShareSpec {
     pub copy: ShareCopy,
     pub caps: ShareCaps,
     pub test_ids: ShareTestIds,
+    pub expiry_choices: Vec<ShareExpiryChoice>,
 }
 
 pub static APP_SHARE: LazyLock<AppShareSpec> =
@@ -171,6 +179,13 @@ mod tests {
         let cases = fixture[key].as_array().unwrap().clone();
         assert!(!cases.is_empty(), "{key}");
         cases
+    }
+
+    #[test]
+    fn reads_the_expiry_choices() {
+        let days: Vec<Option<u32>> = APP_SHARE.expiry_choices.iter().map(|c| c.days).collect();
+        assert_eq!(days, [Some(7), Some(30), Some(90), None]);
+        assert!(APP_SHARE.expiry_choices.iter().all(|c| !c.label.is_empty()));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull } from "drizzle-orm"
+import { MAX_SHARE_EXPIRES_DAYS } from "@exponential_app/eui"
 import { POLICY_LEVELS, memberPolicy, type Level } from "@exp/emcp/access"
 import { resolveUpstreamServer } from "@exp/emcp/upstream"
 import { runVia, type Expose } from "@exp/emcp/exposes"
@@ -15,7 +16,7 @@ import { invalidateAppShapeRules } from "@/lib/apps/records-shape"
 import { automationRows } from "@/lib/apps/automations"
 import { bindingsOf, writeUpstreamMappings } from "@/lib/apps/upstream-mapping"
 import { hookRows, rotateHookSecret } from "@/lib/apps/webhooks"
-import { enableShareLink, revokeShareLink, rotateShareLink, shareRows } from "@/lib/apps/share-links"
+import { enableShareLink, expireShareLink, revokeShareLink, rotateShareLink, shareRows } from "@/lib/apps/share-links"
 
 // #VAPP-183: who may use which app's MCP tools (@exp/emcp access.json).
 // The member × app POLICY (Settings › MCP Access): owners set a level per
@@ -226,9 +227,10 @@ export const appAccessRouter = router({
       return rotateHookSecret(ctx.session.user.id, app, input.name)
     }),
 
-  /** VAPP-241: turn a public link on, rotate its token or turn it off (owners). */
+  /** VAPP-241: turn a public link on, rotate its token or turn it off; VAPP-247:
+   *  `expire` sets a live link's expiry, `days` from now, none = never (owners). */
   setShareLink: authedProcedure
-    .input(z.object({ appId: uuid, name: z.string().min(1).max(24), action: z.enum([`enable`, `rotate`, `revoke`]) }))
+    .input(z.object({ appId: uuid, name: z.string().min(1).max(24), action: z.enum([`enable`, `rotate`, `revoke`, `expire`]), days: z.number().int().min(1).max(MAX_SHARE_EXPIRES_DAYS).nullish() }))
     .mutation(async ({ ctx, input }) => {
       const [app] = await ctx.db
         .select({ id: apps.id, teamId: apps.teamId, package: apps.package })
@@ -239,6 +241,7 @@ export const appAccessRouter = router({
       assertOwner((await memberOrNotFound(ctx.session.user.id, app.teamId)).role)
       if (input.action === `enable`) await enableShareLink(ctx.session.user.id, app, input.name)
       else if (input.action === `rotate`) await rotateShareLink(app, input.name)
+      else if (input.action === `expire`) await expireShareLink(app, input.name, input.days ?? null)
       else await revokeShareLink(app, input.name)
       return { ok: true as const }
     }),

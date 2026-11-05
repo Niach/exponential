@@ -665,7 +665,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
   - Every submission is audited in `app_share_submissions` (the IP only as a keyed hash).
 - **view:** a frozen query rendered read-only, as the link's `template` (#VAPP-246), else as a `RecordTable`. It is a snapshot computed by the server at view time, with no shape and no live sync to the guest, carrying only the named fields, no member data and no `exp:` source.
   - A template reaches a guest as a one-template package with the narrowed kind, no queries, actions or functions, and every binding reading the snapshot. Install refuses a template that could not run that way (`package-format.md`), and the server re-checks per request, so a refused template is the dead link's page.
-- URL: `/s/<token>`, a random token. An owner turns a link on and off in the app's Settings tab, and can rotate its token. Expiry comes from the package's `expires`.
+- URL: `/s/<token>`, a random token. An owner turns a link on and off in the app's Settings tab, and can rotate its token. Expiry starts from the package's `expires`; an owner can change a live link's expiry from its row's `…` menu (#VAPP-247: 7, 30 or 90 days from now, or never) until the next enable.
 - Billing: counts as one link, not a seat.
 
 ---
