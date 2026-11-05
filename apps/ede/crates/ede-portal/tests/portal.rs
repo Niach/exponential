@@ -55,8 +55,19 @@ fn pipewire() -> &'static PathBuf {
             assert!(Instant::now() < deadline, "pipewire did not start");
             std::thread::sleep(Duration::from_millis(20));
         }
-        // WirePlumber has no readiness file: give it a moment to settle.
-        std::thread::sleep(Duration::from_millis(2500));
+        // WirePlumber has no readiness file: it is up once PipeWire lists it
+        // as a client (a loaded CI runner takes seconds, so no fixed sleep).
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let clients = Command::new("pw-cli").args(["ls", "Client"]).env("PIPEWIRE_RUNTIME_DIR", &path).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+            if clients.contains("WirePlumber") {
+                break;
+            }
+            assert!(Instant::now() < deadline, "wireplumber did not register with pipewire:\n{clients}\n{}", std::fs::read_to_string(path.join("wireplumber.log")).unwrap_or_default());
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // Its session scripts (the link policy) load right after it registers.
+        std::thread::sleep(Duration::from_millis(500));
         (path, Daemon(child), dir)
     })
     .0
@@ -336,10 +347,10 @@ fn consume(node: u32, at: (i32, i32)) -> [u8; 3] {
             .unwrap();
         let ml = mainloop.clone();
         let timer = mainloop.loop_().add_timer(move |_| ml.quit());
-        timer.update_timer(Some(Duration::from_secs(10)), None).into_result().unwrap();
+        timer.update_timer(Some(Duration::from_secs(20)), None).into_result().unwrap();
         mainloop.run();
     });
-    rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|e| {
+    rx.recv_timeout(Duration::from_secs(20)).unwrap_or_else(|e| {
         for what in ["Node", "Link"] {
             let out = Command::new("pw-cli").args(["ls", what]).env("PIPEWIRE_RUNTIME_DIR", pipewire()).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
             eprintln!("--- pw-cli ls {what}\n{out}");
