@@ -7,9 +7,10 @@
  *
  * Usage (from apps/web, with the target's DATABASE_URL + GitHub App env):
  *   bun scripts/backfill-live-prs.ts                       # dry run
- *   bun scripts/backfill-live-prs.ts --apply [--move EXP-1,EXP-2]
+ *   bun scripts/backfill-live-prs.ts --apply [--move EXP-1,EXP-2] [--exclude EXP-3]
  * `--move` = the orphaned-merge issues that also take the merge automation
- * (default: none; every orphan gets its event either way).
+ * (default: none; every orphan gets its event either way). `--exclude` =
+ * issues left out of the orphaned-merge part entirely (no event).
  */
 import {
   applyOrphanedMerges,
@@ -25,6 +26,7 @@ function flag(name: string): string | null {
 async function main() {
   const apply = process.argv.includes(`--apply`)
   const move = new Set((flag(`--move`) ?? ``).split(`,`).map((id) => id.trim()).filter(Boolean))
+  const exclude = new Set((flag(`--exclude`) ?? ``).split(`,`).map((id) => id.trim()).filter(Boolean))
   const mode = apply ? `APPLY` : `dry run`
 
   const entries = await runLivePrBackfill({ apply })
@@ -38,7 +40,7 @@ async function main() {
     }
   }
 
-  const orphans = await findOrphanedMerges()
+  const orphans = (await findOrphanedMerges()).filter((o) => !exclude.has(o.identifier))
   const prs = new Set(orphans.map((o) => o.pullRequestId)).size
   const issueIds = new Set(orphans.map((o) => o.identifier))
   console.log(`[backfill] orphaned merges: ${orphans.length} missing pr_merged event(s), ${prs} PR(s), ${issueIds.size} issue(s) (${mode})`)
