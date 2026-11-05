@@ -132,6 +132,7 @@ public enum Apps {
             public static let reconnect = "Reconnect"
             public static let connected = "Connected"
             public static let notSetUp = "Not set up"
+            public static let usesServer = "Uses {server}"
             /// An owner's action on web and desktop (phones add no servers).
             public static let addServer = "Add server"
         }
@@ -232,6 +233,8 @@ public enum Apps {
         // #VAPP-243: the Settings tab's Accounts and MCP tools groups.
         public static let accounts = "app-settings-accounts"
         public static let accountRow = "app-account"
+        public static let importUpstreams = "app-import-upstreams"
+        public static let importUpstream = "app-import-upstream"
         public static let mcpTools = "app-settings-mcp-tools"
         public static let mcpToolRow = "app-mcp-tool"
         // #VAPP-243: the Settings tab's Record access group and its rows.
@@ -664,6 +667,33 @@ public enum Apps {
             self.serverId = serverId
             self.state = state
         }
+    }
+
+    /// #VAPP-254 (`upstreamPickerCases`): an Accounts or import row's Select.
+    public struct UpstreamPicker: Equatable, Sendable {
+        public struct Option: Equatable, Sendable, Identifiable {
+            public let value: String
+            public let label: String
+            public var id: String { value }
+        }
+        public let value: String
+        public let options: [Option]
+    }
+
+    public static let upstreamPickerNone = "none"
+
+    /// `servers` = (id, name) in name order; empty = no Select. The clear
+    /// option only when no server has exactly the upstream's name.
+    public static func upstreamPicker(name: String, serverId: String?, servers: [(id: String, name: String)]) -> UpstreamPicker? {
+        guard !servers.isEmpty else { return nil }
+        let clear = servers.contains { $0.name == name } ? [] : [UpstreamPicker.Option(value: upstreamPickerNone, label: Apps.Copy.Accounts.notSetUp)]
+        return UpstreamPicker(value: serverId ?? upstreamPickerNone, options: clear + servers.map { UpstreamPicker.Option(value: $0.id, label: $0.name) })
+    }
+
+    /// The row's second line naming the real server, when it is not the name.
+    public static func accountCaption(name: String, serverName: String?) -> String? {
+        guard let serverName, serverName != name else { return nil }
+        return Apps.Copy.Accounts.usesServer.replacingOccurrences(of: "{server}", with: serverName)
     }
 
     public enum AccountAction: String, Equatable, Sendable {

@@ -410,8 +410,11 @@ function connectUrl(ctx: BrokerContext): string {
 async function runUpstream(ctx: BrokerContext, tool: BrokerTool, input: Record<string, unknown>): Promise<CallToolResult> {
   const run = tool.expose.run as UpstreamRun
   const args = (resolveArgs(run.args ?? {}, input) ?? {}) as Record<string, unknown>
-  const server = tool.app.upstreams.includes(run.upstream) ? await loadRoutedServer(ctx.teamId, run.upstream) : null
-  if (!server) return brokerError(tool, UPSTREAM_ERRORS.missing, `the team has no MCP server ${run.upstream} (an owner adds it under Settings › MCP: ${connectUrl(ctx)})`)
+  // #VAPP-254: the app's mapping, else exactly that name; messages and
+  // provenance name the REAL server.
+  const server = tool.app.upstreams.includes(run.upstream) ? await loadRoutedServer(ctx.teamId, run.upstream, tool.app.id) : null
+  if (!server) return brokerError(tool, UPSTREAM_ERRORS.missing, `no team MCP server fills ${run.upstream} (an owner picks one on the app's Settings or adds it under Settings › MCP: ${connectUrl(ctx)})`)
+  const realServer = { [PROVENANCE_KEYS.upstream]: server.name }
   // #VAPP-239 (M2): a device-routed server runs on its owner's device.
   const route = routeServer(server, ctx.user.id)
   if (`error` in route) return brokerError(tool, route.error, route.message)
@@ -425,7 +428,7 @@ async function runUpstream(ctx: BrokerContext, tool: BrokerTool, input: Record<s
     })
     if (`result` in out) {
       const result = withProvenance(tool, out.result as CallToolResult)
-      result._meta = { ...(result._meta ?? {}), [PROVENANCE_KEYS.device]: server.device!.label }
+      result._meta = { ...(result._meta ?? {}), ...realServer, [PROVENANCE_KEYS.device]: server.device!.label }
       return result
     }
     return brokerError(tool, out.error, out.error === UPSTREAM_ERRORS.disconnected ? `${out.message}: ${connectUrl(ctx)}` : out.message)
@@ -433,17 +436,18 @@ async function runUpstream(ctx: BrokerContext, tool: BrokerTool, input: Record<s
   const launch = await resolveForLaunch(db, { userId: ctx.user.id, teamIds: [ctx.teamId], serverIds: [server.id] })
   const entry = launch.servers[0]
   if (!entry?.url) {
-    return brokerError(tool, UPSTREAM_ERRORS.disconnected, `connect your ${run.upstream} account first: ${connectUrl(ctx)}`)
+    return brokerError(tool, UPSTREAM_ERRORS.disconnected, `connect your ${server.name} account first: ${connectUrl(ctx)}`)
   }
   const headers = Object.fromEntries(entry.headers.map((h) => [h.name, h.value]))
   const called = await callUpstreamTool(entry.url, headers, run.tool, args, (annotations) => upstreamCallError(tool.expose, annotations))
   if (called.ok) {
     const result = withProvenance(tool, called.result)
+    result._meta = { ...(result._meta ?? {}), ...realServer }
     return result
   }
-  if (called.reason === `vetoed`) return brokerError(tool, called.error, `${run.upstream}'s ${run.tool} says it is ${called.error === `destructive` ? `destructive` : `not read-only`}: this tool does not run it`)
-  if (called.reason === `refused`) return brokerError(tool, UPSTREAM_ERRORS.disconnected, `${run.upstream} refused your connection; reconnect: ${connectUrl(ctx)}`)
-  return brokerError(tool, UPSTREAM_ERRORS.failed, `${run.upstream}: ${called.error}`)
+  if (called.reason === `vetoed`) return brokerError(tool, called.error, `${server.name}'s ${run.tool} says it is ${called.error === `destructive` ? `destructive` : `not read-only`}: this tool does not run it`)
+  if (called.reason === `refused`) return brokerError(tool, UPSTREAM_ERRORS.disconnected, `${server.name} refused your connection; reconnect: ${connectUrl(ctx)}`)
+  return brokerError(tool, UPSTREAM_ERRORS.failed, `${server.name}: ${called.error}`)
 }
 
 /** #VAPP-236 (A2): hand the input to a team agent as the member. */

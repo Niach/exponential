@@ -122,6 +122,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON app_records FOR EAC
   EXECUTE FUNCTION update_updated_at();
 -- #VAPP-237: an app's webhook secrets (a rotation).
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON app_hooks FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON app_upstream_bindings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON app_share_links FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- NEW-3: conversations.
 -- #EXP-1380: a digest-only write (the trigger below) is no edit of the row.

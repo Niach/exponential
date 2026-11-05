@@ -185,6 +185,30 @@ class AppsTest {
         }
     }
 
+    // #VAPP-254: upstreamPicker + accountCaption replay `upstreamPickerCases`.
+    @Test
+    fun `upstreamPickerCases replay`() {
+        val block = fixture["upstreamPickerCases"]!!.jsonObject
+        assertEquals(block["none"]!!.jsonPrimitive.content, Apps.UPSTREAM_PICKER_NONE)
+        fun opt(obj: JsonObject, key: String) = obj[key]?.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+        for (element in block["cases"]!!.jsonArray) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val row = case["row"]!!.jsonObject
+            val upstream = row["name"]!!.jsonPrimitive.content
+            val servers = case["servers"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content to it.jsonObject["name"]!!.jsonPrimitive.content }
+            val got = Apps.upstreamPicker(upstream, opt(row, "serverId"), servers)
+            val expected = case["expected"]!!.let { if (it is JsonNull) null else it.jsonObject }
+            assertEquals(name, expected?.get("value")?.jsonPrimitive?.content, got?.value)
+            assertEquals(
+                name,
+                expected?.get("options")?.jsonArray?.map { Apps.UpstreamPickerOption(it.jsonObject["value"]!!.jsonPrimitive.content, it.jsonObject["label"]!!.jsonPrimitive.content) },
+                got?.options,
+            )
+            assertEquals(name, opt(case, "caption"), Apps.accountCaption(upstream, opt(row, "serverName")))
+        }
+    }
+
     // #VAPP-243: accountRow replays `accountRowCases` and locks `copy.accounts` + `copy.mcpTools`.
     @Test
     fun `accountRowCases replay`() {
@@ -193,6 +217,7 @@ class AppsTest {
             "title" to Apps.AccountsCopy.TITLE, "connect" to Apps.AccountsCopy.CONNECT,
             "reconnect" to Apps.AccountsCopy.RECONNECT, "connected" to Apps.AccountsCopy.CONNECTED,
             "notSetUp" to Apps.AccountsCopy.NOT_SET_UP, "addServer" to Apps.AccountsCopy.ADD_SERVER,
+            "usesServer" to Apps.AccountsCopy.USES_SERVER,
         )
         assertEquals(accounts.keys, expectedAccounts.keys)
         for ((key, value) in expectedAccounts) assertEquals(key, accounts[key]!!.jsonPrimitive.content, value)
@@ -347,6 +372,7 @@ class AppsTest {
             "previewScreens" to Apps.TestIds.PREVIEW_SCREENS,
             "run" to Apps.TestIds.RUN, "runMenu" to Apps.TestIds.RUN_MENU, "newMenu" to Apps.TestIds.NEW_MENU,
             "accounts" to Apps.TestIds.ACCOUNTS, "accountRow" to Apps.TestIds.ACCOUNT_ROW,
+            "importUpstreams" to Apps.TestIds.IMPORT_UPSTREAMS, "importUpstream" to Apps.TestIds.IMPORT_UPSTREAM,
             "mcpTools" to Apps.TestIds.MCP_TOOLS, "mcpToolRow" to Apps.TestIds.MCP_TOOL_ROW,
             "policies" to Apps.TestIds.POLICIES, "policyRow" to Apps.TestIds.POLICY_ROW,
         )

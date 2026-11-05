@@ -121,6 +121,8 @@ object Apps {
         const val NOT_SET_UP = "Not set up"
         /** An owner's action on web and desktop (phones add no servers). */
         const val ADD_SERVER = "Add server"
+        /** #VAPP-254: an Accounts row's second line. */
+        const val USES_SERVER = "Uses {server}"
     }
 
     /** #VAPP-243: the Settings tab's MCP tools group (`copy.mcpTools`). */
@@ -192,6 +194,8 @@ object Apps {
         // #VAPP-243: the Accounts and MCP tools groups + one of their rows.
         const val ACCOUNTS = "app-settings-accounts"
         const val ACCOUNT_ROW = "app-account"
+        const val IMPORT_UPSTREAMS = "app-import-upstreams"
+        const val IMPORT_UPSTREAM = "app-import-upstream"
         const val MCP_TOOLS = "app-settings-mcp-tools"
         const val MCP_TOOL_ROW = "app-mcp-tool"
         // #VAPP-243: the Record access group + one of its rows.
@@ -402,6 +406,24 @@ object Apps {
     /** [status] = `notSetUp` or the upstream.json state; [label] = the muted
      *  trailing text when there is no action. */
     data class AccountRow(val status: String, val label: String?, val action: AccountAction?, val actionLabel: String?)
+
+    // #VAPP-254 (fixture `upstreamPickerCases`): an Accounts or import row's
+    // Select, and the second line naming the real server.
+    const val UPSTREAM_PICKER_NONE = "none"
+
+    data class UpstreamPickerOption(val value: String, val label: String)
+
+    data class UpstreamPicker(val value: String, val options: List<UpstreamPickerOption>)
+
+    /** `servers` = (id, name) in name order; empty = no Select. */
+    fun upstreamPicker(name: String, serverId: String?, servers: List<Pair<String, String>>): UpstreamPicker? {
+        if (servers.isEmpty()) return null
+        val clear = if (servers.any { it.second == name }) emptyList() else listOf(UpstreamPickerOption(UPSTREAM_PICKER_NONE, AccountsCopy.NOT_SET_UP))
+        return UpstreamPicker(serverId ?: UPSTREAM_PICKER_NONE, clear + servers.map { UpstreamPickerOption(it.first, it.second) })
+    }
+
+    fun accountCaption(name: String, serverName: String?): String? =
+        serverName?.takeIf { it != name }?.let { AccountsCopy.USES_SERVER.replace("{server}", it) }
 
     fun accountRow(row: AccountRowInput): AccountRow {
         if (row.serverId == null) return AccountRow("notSetUp", AccountsCopy.NOT_SET_UP, null, null)

@@ -232,6 +232,42 @@ fn upstream_cases() {
 }
 
 #[test]
+fn upstream_mapping_cases() {
+    let f = fixture::upstream();
+    let refs = |value: &Value| -> Vec<upstream::UpstreamServerRef> {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| upstream::UpstreamServerRef { id: s(&r["id"]).to_string(), name: s(&r["name"]).to_string() })
+            .collect()
+    };
+    for case in f["mapping"]["resolveCases"].as_array().unwrap() {
+        let servers = refs(&case["servers"]);
+        let got = upstream::resolve_upstream_server(s(&case["upstream"]), opt_str(&case["bound"]), &servers);
+        let got = got.map(|(server, source)| {
+            (server.id.as_str(), if source == upstream::UpstreamSource::Mapped { "mapped" } else { "name" })
+        });
+        let want = case["expected"].as_object().map(|e| (s(&e["id"]), s(&e["source"])));
+        assert_eq!(got, want, "{}", case["name"]);
+    }
+    for case in f["mapping"]["writeCases"].as_array().unwrap() {
+        let got = upstream::upstream_mapping_write(s(&case["upstream"]), opt_str(&case["serverId"]), &refs(&case["servers"]));
+        let want = if case["expected"]["error"].is_string() {
+            upstream::UpstreamMappingWrite::Error(upstream::ERROR_MISSING)
+        } else if case["expected"]["op"] == "set" {
+            upstream::UpstreamMappingWrite::Set(s(&case["expected"]["serverId"]).to_string())
+        } else {
+            upstream::UpstreamMappingWrite::Clear
+        };
+        assert_eq!(got, want, "{}", case["name"]);
+    }
+    for case in f["mapping"]["auditCases"].as_array().unwrap() {
+        assert_eq!(upstream::upstream_mapping_tool(s(&case["upstream"]), opt_str(&case["server"])), s(&case["expected"]));
+    }
+}
+
+#[test]
 fn upstream_binding_cases() {
     let b = &fixture::upstream()["binding"];
     assert_eq!(b["scheme"], upstream::BINDING_SCHEME);

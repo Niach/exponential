@@ -3872,6 +3872,29 @@ export const appHooks = pgTable(
   (table) => [unique(`app_hooks_app_name_unique`).on(table.appId, table.name)]
 )
 
+// #VAPP-254 (@exp/emcp upstream.json `mapping`): which team server fills an
+// upstream this app declares, set by a team owner. No row = the server of
+// exactly that name. Never exported with the app. SERVER-ONLY (never a shape).
+export const appUpstreamBindings = pgTable(
+  `app_upstream_bindings`,
+  {
+    id: uuidPk(),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    upstream: varchar({ length: 64 }).notNull(),
+    serverId: uuid(`server_id`)
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: `cascade` }),
+    setBy: text(`set_by`).references(() => users.id, { onDelete: `set null` }),
+    ...timestamps,
+  },
+  (table) => [unique(`app_upstream_bindings_app_upstream_unique`).on(table.appId, table.upstream), index(`app_upstream_bindings_server_idx`).on(table.serverId)]
+)
+
 // #VAPP-237: the replay cache: every accepted delivery's signature (its
 // nonce) per hook, kept 2 x the timestamp window, pruned by the watchdog.
 // SERVER-ONLY.
