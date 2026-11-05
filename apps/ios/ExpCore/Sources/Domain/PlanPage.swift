@@ -156,11 +156,35 @@ public enum PlanPage {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// #EXP-1662: the plan a thread's tab shows (`tabCases`): the newest waiting
-    /// card, else the newest approved or rejected one. `plans` = oldest first.
-    public static func planTabTarget(_ plans: [(id: String, decision: String?)]) -> String? {
-        plans.last { $0.decision == nil }?.id
-            ?? plans.last { $0.decision == "approved" || $0.decision == "rejected" }?.id
+    /// #EXP-1662 / #FEED-191: the plan a thread's tab shows (`tabCases`): the
+    /// newest waiting card, else `kept` while it is an approved or rejected
+    /// plan of the thread (the plan the tab showed during THIS visit of the
+    /// chat; the host clears it when the person leaves), else none: a decided
+    /// plan leaves the strip. `plans` = oldest first.
+    public static func planTabTarget(_ plans: [(id: String, decision: String?)], kept: String? = nil) -> String? {
+        if let waiting = plans.last(where: { $0.decision == nil }) { return waiting.id }
+        guard let kept, let held = plans.first(where: { $0.id == kept }) else { return nil }
+        return held.decision == "approved" || held.decision == "rejected" ? held.id : nil
+    }
+
+    /// #FEED-191: the plan tab's lead glyph (`tabGlyphCases`).
+    public struct TabGlyph: Equatable, Sendable {
+        /// `coding-plan` | `ui-check`.
+        public let icon: String
+        /// `text` = the chip's own text colour, `approved` = emerald (the
+        /// plan row's approved check).
+        public let tone: String
+
+        public init(icon: String, tone: String) {
+            self.icon = icon
+            self.tone = tone
+        }
+    }
+
+    /// An approved plan = THE check in emerald (as its row), anything else =
+    /// the plan glyph.
+    public static func planTabGlyph(_ decision: String?) -> TabGlyph {
+        decision == "approved" ? TabGlyph(icon: "ui-check", tone: "approved") : TabGlyph(icon: "coding-plan", tone: "text")
     }
 
     /// #EXP-1662: `Plan: title`, the row's and the wide tab's label

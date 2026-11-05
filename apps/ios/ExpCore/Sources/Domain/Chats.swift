@@ -1047,8 +1047,11 @@ extension Chats {
         var seen = Set<String>()
         // Kept agent messages by instant (a multiset: two may share one).
         var counted: [Double: Int] = [:]
-        for key in ["first", "preview", "waiting"] {
-            guard let m = digest[key] as? [String: Any], let id = text(m["id"]) else { continue }
+        // #FEED-191: then EVERY waiting card (`waits`, newest first); absent = [].
+        let heads: [Any?] = ["first", "preview", "waiting"].map { key -> Any? in digest[key] }
+        let waits: [Any?] = ((digest["waits"] as? [Any]) ?? []).map { entry -> Any? in entry }
+        for entry in heads + waits {
+            guard let m = entry as? [String: Any], let id = text(m["id"]) else { continue }
             guard seen.insert(id).inserted else { continue }
             let authorKind = text(m["authorKind"]) ?? ""
             let createdAt = text(m["createdAt"]) ?? ""
