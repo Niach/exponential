@@ -948,7 +948,7 @@ final class SyncApplyTests: XCTestCase {
             ).save(db)
             // A child's link is the thread's too (the strip's count ×4).
             try SessionIssueEntity(
-                id: "si-c", sessionId: "t-child", issueId: "i3", teamId: "ws1", sortOrder: 3,
+                id: "si-child", sessionId: "t-child", issueId: "i3", teamId: "ws1", sortOrder: 3,
                 createdAt: at, updatedAt: at
             ).save(db)
             // i1 sits in BOTH ws1 threads; i2 only in t-new (linked first).
@@ -1002,7 +1002,7 @@ final class SyncApplyTests: XCTestCase {
             XCTAssertEqual(try SessionQueries.messages(db: db, rootId: "t-new").map(\.id), ["m1", "m2"])
             XCTAssertEqual(try SessionQueries.messages(db: db, sessionId: "t-child").map(\.id), ["m2"])
             XCTAssertEqual(
-                try SessionQueries.sessionIssues(db: db, rootId: "t-new").map(\.id), ["si-a", "si-b", "si-c"]
+                try SessionQueries.sessionIssues(db: db, rootId: "t-new").map(\.id), ["si-a", "si-b", "si-child"]
             )
             XCTAssertEqual(try SessionQueries.issues(db: db, rootId: "t-new").map(\.id), ["i2", "i1", "i3"])
             XCTAssertEqual(
