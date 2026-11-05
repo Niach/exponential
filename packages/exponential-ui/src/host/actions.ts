@@ -26,7 +26,7 @@ import { parseSource } from "./sources"
 import { NAVIGATE_FUNCTION } from "./screens"
 import { RECORDS_SCHEME } from "./query"
 import { literalType, rowOf, schemaType } from "./expressions"
-import { validateRecord, validateRecordSchema } from "./records"
+import { validateRecord, validateRecordSchema, withoutNulls } from "./records"
 import type { RecordSchema } from "./records"
 import type { RecordRow } from "./query"
 import { recordPolicy, recordRefusal, type AppAccessLevel } from "./record-policy"
@@ -128,7 +128,7 @@ function validateAction(pkg: Record<string, unknown>, name: string, action: unkn
   const issues: PackageIssue[] = []
   if (!ACTION_NAME_PATTERN.test(name)) issues.push({ path: at, message: `an action name is a letter, then letters, digits and underscores` })
   if (!isObject(action)) return [...issues, { path: at, message: `an action is {params?, steps}` }]
-  if (action.params !== undefined) issues.push(...validateRecordSchema(action.params, `${at}/params`))
+  if (action.params !== undefined) issues.push(...validateRecordSchema(action.params, `${at}/params`, { params: true }))
   if (!Array.isArray(action.steps) || action.steps.length === 0) return [...issues, { path: `${at}/steps`, message: `steps is a non-empty array` }]
   if (action.steps.length > ACTION_LIMITS.steps) issues.push({ path: `${at}/steps`, message: `at most ${ACTION_LIMITS.steps} steps` })
   const types = actionVarTypes(action)
@@ -171,9 +171,12 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
       const kindName = typeof body.kind === `string` ? body.kind : ``
       const def = own(records, kindName) && isObject(records[kindName]) ? (records[kindName] as Record<string, unknown>) : null
       if (!def) issues.push({ path: `${here}/kind`, message: `records:${kindName} names no declared kind` })
+      // VAPP-206: an id that may be missing = create or patch.
+      let mayCreate = body.id === undefined
       if (body.id !== undefined) {
         const t = slot(body.id, `${here}/id`, types, issues)
-        if (t !== null && !fits(`string`, t)) issues.push({ path: `${here}/id`, message: `id is a string, got ${typeDisplay(t)}` })
+        if (t !== null && !fits(optionalType(`string`), t)) issues.push({ path: `${here}/id`, message: `id is a string, got ${typeDisplay(t)}` })
+        if (t !== null && isOptional(t)) mayCreate = true
       }
       if (!isObject(body.data)) return [...issues, { path: `${here}/data`, message: `data is an object of field expressions` }]
       const schema = def && isObject(def.schema) ? def.schema : null
@@ -191,7 +194,7 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
         if (t !== null && !fits(want, t)) issues.push({ path: fieldAt, message: `${field} is ${typeDisplay(want)}, got ${typeDisplay(t)}` })
       }
       // A create names every required field (a patch keeps the row's).
-      if (schema && body.id === undefined && Array.isArray(schema.required))
+      if (schema && mayCreate && Array.isArray(schema.required))
         for (const field of schema.required) if (typeof field === `string` && !own(body.data, field)) issues.push({ path: `${here}/data`, message: `${field} is required by ${kindName}` })
       return issues
     }
@@ -351,7 +354,10 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
   const p = params === undefined || params === null ? {} : params
   if (!isObject(p)) return { error: `params is an object` }
   if (isObject(action.params)) {
-    const issues = validateRecord(action.params as unknown as RecordSchema, p)
+    // VAPP-206: an optional param left "" (a Select unpicked) passes as absent.
+    const required = Array.isArray(action.params.required) ? action.params.required : []
+    const given = Object.fromEntries(Object.entries(p).filter(([k, v]) => v !== `` || required.includes(k)))
+    const issues = validateRecord(action.params as unknown as RecordSchema, given)
     if (issues.length) return { error: paramIssueText(issues) }
   }
   const vars: Record<string, unknown> = { params: p, data: ctx.data ?? null, me: ctx.me ?? null }
@@ -395,14 +401,26 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
           const def = own(records, kindName) && isObject(records[kindName]) ? (records[kindName] as Record<string, unknown>) : null
           if (!def || !isObject(def.schema)) return failAction(`${where}: records: no kind ${kindName}`)
           let id: string | undefined
+          // VAPP-206: a null or empty id = a create, a string = a patch.
           if (body.id !== undefined) {
             const v = value(body.id)
-            if (typeof v !== `string` || !v) failAction(`${where}: id is a string, got ${typeName(v)}`)
-            id = v as string
+            if (v !== null && typeof v !== `string`) failAction(`${where}: id is a string, got ${typeName(v)}`)
+            if (v) id = v as string
           }
-          const data: Record<string, unknown> = {}
-          for (const field of Object.keys(body.data).sort()) data[field] = value(body.data[field])
           const schema = def.schema as unknown as RecordSchema
+          const required = Array.isArray(schema.required) ? schema.required : []
+          const data: Record<string, unknown> = {}
+          for (const field of Object.keys(body.data).sort()) {
+            const raw = body.data[field]
+            const v = value(raw)
+            // VAPP-206: absent stays absent. An expression's null (a param left
+            // out) writes nothing; "" in an optional field (an unpicked Select,
+            // an emptied Input) is no value. On a patch a literal null and that
+            // "" clear the field.
+            const none = v === null || (v === `` && !required.includes(field))
+            if (none && (id === undefined || (v === null && typeof raw === `string`))) continue
+            data[field] = none ? null : v
+          }
           // A patch is checked field by field (the store merges and checks the row).
           const issues = validateRecord(id === undefined ? schema : { ...schema, required: [] }, data)
           if (issues.length) failAction(`${where}: records: ${issueText(issues)}`)
@@ -498,10 +516,11 @@ export function applyRecordBatch(rows: readonly RecordRow[], writes: readonly Ac
     }
     const refusal = judge(w.kind, `create`)
     if (refusal) return { error: `${where}: ${refusal}` }
-    const issues = validateRecord(schema, w.data)
+    const created = withoutNulls(w.data)
+    const issues = validateRecord(schema, created)
     if (issues.length) return { error: `${where}: records: ${issueText(issues)}` }
     const id = options.newId(creates++)
-    out.push({ id, kind: w.kind, data: { ...w.data }, createdBy: options.me ?? null, authorId: options.me ?? null, createdAt: options.now, updatedAt: options.now })
+    out.push({ id, kind: w.kind, data: created, createdBy: options.me ?? null, authorId: options.me ?? null, createdAt: options.now, updatedAt: options.now })
     ids.push(id)
   }
   return { rows: out, ids }

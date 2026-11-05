@@ -82,7 +82,7 @@ describe(`a package action on a host`, () => {
     const s = surface({ toasts })
     const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions.log`, args: { date: `2026-11-03`, hours: 2 } })
     expect(out.error).toBeUndefined()
-    expect(s.rows().map((r) => r.data)).toContainEqual({ date: `2026-11-03`, hours: 2, note: null })
+    expect(s.rows().map((r) => r.data)).toContainEqual({ date: `2026-11-03`, hours: 2 })
     expect((s.data() as { form: { hours: number } }).form.hours).toBe(0)
     expect(toasts).toEqual([`Logged 2:00`])
   })

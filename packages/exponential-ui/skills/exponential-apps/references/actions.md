@@ -47,6 +47,17 @@ out, a literal of another type; a dynamic arg is checked when it runs), and
 a press of `bind` with a literal `source` is checked like a template binding
 (a URI, in `sources`, a declared kind, a package query).
 
+**Create or patch, and absent stays absent** (VAPP-206). One action can do
+both: `params` may name `id` (a param is no record), and a `records.upsert`
+`id` may be `string?`; then its `data` names every required field, and at run
+time a null or `""` id creates while a non-empty string patches. Writing a
+field: an expression that evaluates to null writes nothing, so a param left
+out neither stores null nor clears the row's value. `""` in a field the kind
+does not require (an unpicked Select, an emptied Input) writes nothing on a
+create and clears on a patch. A literal JSON `null` writes nothing on a create
+and clears on a patch. A create never stores a null field, and a RecordForm
+follows the same rules.
+
 **All or nothing.** `runAction` evaluates the steps in order against ONE
 snapshot (a `set` never changes what a later step reads) and returns the
 plan `{writes, sets, calls}`, or the one error that discards the action: a

@@ -41,8 +41,26 @@ fn non_empty_string_list(v: &Value) -> bool {
     string_list(v).is_some_and(|l| !l.is_empty())
 }
 
+/// VAPP-206: a create's data without its null fields: absent stays absent (a
+/// patch keeps them: null clears a field).
+pub fn without_nulls(data: &Value) -> Value {
+    match data.as_object() {
+        Some(m) => Value::Object(m.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect()),
+        None => data.clone(),
+    }
+}
+
 /// Every problem with a kind's schema, each with a JSON pointer under `at`.
 pub fn validate_record_schema(schema: &Value, at: &str) -> Vec<PackageIssue> {
+    validate_schema(schema, at, true)
+}
+
+/// VAPP-206: an action's params are no record: they may name a reserved key (`id`).
+pub fn validate_params_schema(schema: &Value, at: &str) -> Vec<PackageIssue> {
+    validate_schema(schema, at, false)
+}
+
+fn validate_schema(schema: &Value, at: &str, reserved: bool) -> Vec<PackageIssue> {
     let mut issues = Vec::new();
     let Some((obj, properties)) = schema.as_object().filter(|o| o.get("type").and_then(Value::as_str) == Some("object")).and_then(|o| o.get("properties").and_then(Value::as_object).map(|p| (o, p))) else {
         return vec![issue(at, "a record schema is {type: \"object\", properties}")];
@@ -54,7 +72,7 @@ pub fn validate_record_schema(schema: &Value, at: &str) -> Vec<PackageIssue> {
     for name in names {
         let field = &properties[name];
         let fp = format!("{at}/properties/{name}");
-        if RECORD_RESERVED_KEYS.contains(&name.as_str()) {
+        if reserved && RECORD_RESERVED_KEYS.contains(&name.as_str()) {
             issues.push(issue(&fp, format!("{name} is a reserved record key")));
         }
         let Some(field) = field.as_object().filter(|f| f.get("type").and_then(Value::as_str).is_some_and(|t| RECORD_FIELD_TYPES.contains(&t))) else {

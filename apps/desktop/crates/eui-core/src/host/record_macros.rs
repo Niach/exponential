@@ -264,7 +264,11 @@ fn upsert_action(kind: &str, fields: &[Value], record_id: Option<&Value>) -> Val
     let mut data = Map::new();
     for f in fields {
         if let (Some(name), Some(value)) = (f.get("name").and_then(Value::as_str), f.get("value")) {
-            data.insert(name.into(), if f.get("widget").and_then(Value::as_str) == Some("datetime") { date_time_value(f) } else { value.clone() });
+            let value = if f.get("widget").and_then(Value::as_str) == Some("datetime") { date_time_value(f) } else { value.clone() };
+            // VAPP-206: an optional field left "" (an unpicked Select, an
+            // emptied Input) writes null: absent on a create, cleared on a patch.
+            let bound = if f.get("required") == Some(&Value::Bool(true)) { value } else { json!({"call": "expr", "args": {"expr": "v == '' ? null : v", "vars": {"v": value}, "default": null}}) };
+            data.insert(name.into(), bound);
         }
     }
     let mut args = Map::new();

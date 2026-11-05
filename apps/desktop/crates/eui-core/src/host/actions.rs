@@ -15,7 +15,7 @@ use serde_json::{json, Map, Value};
 
 use super::expressions::{literal_type, row_of, schema_type};
 use super::package::PackageIssue;
-use super::records::{validate_record, validate_record_schema};
+use super::records::{validate_params_schema, validate_record, without_nulls};
 use super::utf16_cmp;
 use crate::cel::{check_expression, effect_words, evaluate_counted, is_optional, optional_type, parse_expression, required_type, type_display, type_name, ExpressionEnv, FunctionEffect, MAX_STEPS};
 
@@ -175,7 +175,7 @@ fn validate_action(pkg: &Map<String, Value>, name: &str, action: &Value, at: &st
         return issues;
     };
     if let Some(params) = action.get("params") {
-        issues.extend(validate_record_schema(params, &format!("{at}/params")));
+        issues.extend(validate_params_schema(params, &format!("{at}/params")));
     }
     let steps = match action.get("steps").and_then(Value::as_array) {
         Some(steps) if !steps.is_empty() => steps,
@@ -239,11 +239,16 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
             if def.is_none() {
                 issues.push(issue(format!("{here}/kind"), format!("records:{kind_name} names no declared kind")));
             }
+            // VAPP-206: an id that may be missing = create or patch.
+            let mut may_create = body.get("id").is_none();
             if let Some(id) = body.get("id") {
                 let id_at = format!("{here}/id");
                 if let Some(t) = slot(id, &id_at, types, &mut issues) {
-                    if !fits(&ty("string"), &t) {
+                    if !fits(&optional_type(ty("string")), &t) {
                         issues.push(issue(&id_at, format!("id is a string, got {}", type_display(&t))));
+                    }
+                    if is_optional(&t) {
+                        may_create = true;
                     }
                 }
             }
@@ -273,7 +278,7 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
                 }
             }
             // A create names every required field (a patch keeps the row's).
-            if let (Some(schema), None) = (schema, body.get("id")) {
+            if let (Some(schema), true) = (schema, may_create) {
                 if let Some(required) = schema.get("required").and_then(Value::as_array) {
                     for field in required.iter().filter_map(Value::as_str) {
                         if !data.contains_key(field) {
@@ -512,7 +517,13 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
         return Err("params is an object".into());
     }
     if let Some(schema) = action.get("params").filter(|s| s.is_object()) {
-        let issues = validate_record(schema, &p);
+        // VAPP-206: an optional param left "" (a Select unpicked) passes as absent.
+        let required = schema.get("required").and_then(Value::as_array);
+        let mut given = p.clone();
+        if let Some(m) = given.as_object_mut() {
+            m.retain(|k, v| v.as_str() != Some("") || required.is_some_and(|r| r.iter().any(|x| x.as_str() == Some(k.as_str()))));
+        }
+        let issues = validate_record(schema, &given);
         if !issues.is_empty() {
             return Err(param_issue_text(&issues));
         }
@@ -575,17 +586,34 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
                 let Some(schema) = records.get(kind_name).and_then(Value::as_object).and_then(|d| d.get("schema")).filter(|s| s.is_object()) else {
                     return Err(format!("{where}: records: no kind {kind_name}"));
                 };
+                // VAPP-206: a null or empty id = a create, a string = a patch.
                 let mut id = None;
                 if let Some(expr) = body.get("id") {
-                    let v = value(expr)?;
-                    match v {
-                        Value::String(s) if !s.is_empty() => id = Some(s),
+                    match value(expr)? {
+                        Value::Null => {}
+                        Value::String(s) => {
+                            if !s.is_empty() {
+                                id = Some(s);
+                            }
+                        }
                         other => return Err(format!("{where}: id is a string, got {}", type_name(&other))),
                     }
                 }
+                let required = schema.get("required").and_then(Value::as_array);
                 let mut data = Map::new();
                 for field in sorted_keys(data_exprs) {
-                    data.insert(field.clone(), value(&data_exprs[field.as_str()])?);
+                    let raw = &data_exprs[field.as_str()];
+                    let v = value(raw)?;
+                    // VAPP-206: absent stays absent. An expression's null (a param
+                    // left out) writes nothing; "" in an optional field (an
+                    // unpicked Select, an emptied Input) is no value. On a patch a
+                    // literal null and that "" clear the field.
+                    let is_required = required.is_some_and(|r| r.iter().any(|x| x.as_str() == Some(field.as_str())));
+                    let none = v.is_null() || (v.as_str() == Some("") && !is_required);
+                    if none && (id.is_none() || (v.is_null() && raw.is_string())) {
+                        continue;
+                    }
+                    data.insert(field.clone(), if none { Value::Null } else { v });
                 }
                 let data = Value::Object(data);
                 // A patch is checked field by field (the store merges and checks the row).
@@ -729,6 +757,7 @@ pub fn apply_record_batch_as(
         if let Some(refusal) = judge(kind, RecordOp::Create, None) {
             return Err(format!("{where}: {refusal}"));
         }
+        let wdata = without_nulls(&wdata);
         let issues = validate_record(schema, &wdata);
         if !issues.is_empty() {
             return Err(format!("{where}: records: {}", issue_text(&issues)));
