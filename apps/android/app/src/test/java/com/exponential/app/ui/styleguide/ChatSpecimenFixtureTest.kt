@@ -63,9 +63,9 @@ class ChatSpecimenFixtureTest {
     fun `the chat-selection specimen's bar reads chatSelectionActions (EXP-1388)`() {
         assertEquals(
             listOf(
-                Chats.ChatSelectionAction.MarkRead to listOf("a", "c"),
-                Chats.ChatSelectionAction.Archive to listOf("a", "c"),
-                Chats.ChatSelectionAction.Delete to listOf("a", "c"),
+                Chats.ChatSelectionAction.MarkRead to listOf("b", "c"),
+                Chats.ChatSelectionAction.Archive to listOf("b", "c"),
+                Chats.ChatSelectionAction.Delete to listOf("b", "c"),
             ),
             chatSelectionSpecimenActions().map { it.action to it.sessionIds },
         )
