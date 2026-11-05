@@ -389,3 +389,82 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
     }
     assert_eq!(h.capture(0).at(479, 400), BACKGROUND);
 }
+
+/// #EDE-16: a window that leaves decorations to the compositor gets a
+/// title bar above its geometry, tiles under it, closes from its button;
+/// one that insists on its own gets none.
+#[test]
+fn server_side_frames_sit_above_the_window_and_their_buttons_work() {
+    use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode;
+    let h = harness(&[(800, 600)]);
+    let mut app = Session::connect(h.connect());
+    assert!(app.state.globals.iter().any(|g| g == "zxdg_decoration_manager_v1"));
+    let t = app.toplevel("Terminal");
+    app.decorate(&t, None);
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&t.index) == Some(&(Mode::ServerSide as u32)));
+    let (geo, framed) = h.with(|ede| {
+        let w = ede.space.elements().next().cloned().unwrap();
+        (ede.space.element_geometry(&w).unwrap(), ede.framed_geometry(&w).unwrap())
+    });
+    assert_eq!(framed.size.h, geo.size.h + ede_compositor::frames::HEIGHT);
+    assert_eq!(framed.loc.y + ede_compositor::frames::HEIGHT, geo.loc.y);
+    assert!(framed.loc.y >= 0, "the frame is on screen: {framed:?}");
+    // The bar is the card colour, drawn by the compositor.
+    let frame = h.capture(0);
+    let bar = frame.at(geo.loc.x + 10, geo.loc.y - 10);
+    assert_eq!(bar & 0x00ff_ffff, 0x0017_1717, "{bar:08x}");
+    assert_eq!(frame.at(geo.loc.x + 10, geo.loc.y + 10), BLUE);
+
+    // Maximized: the frame stays, the window fills the rest of the work area.
+    let max_x = (geo.loc.x + geo.size.w - 2 * 28 - 4 + 10) as f64;
+    h.with(move |ede| {
+        ede.pointer_motion_to((max_x, (geo.loc.y - 18) as f64).into(), 0);
+        ede.pointer_button(0x110, smithay::backend::input::ButtonState::Pressed, 0);
+        ede.pointer_button(0x110, smithay::backend::input::ButtonState::Released, 0);
+    });
+    wait_for(&mut app, |c| c.state.toplevels[t.index].size.1 > 0 && c.state.toplevels[t.index].size.1 < 600);
+    let (max_geo, tile) = h.with(|ede| {
+        let w = ede.space.elements().next().cloned().unwrap();
+        (ede.space.element_geometry(&w).unwrap(), window_state(&w).tile)
+    });
+    assert_eq!(tile, Some(Tile::Maximized));
+    assert_eq!(max_geo.loc.y, ede_compositor::frames::HEIGHT, "the bar sits at the top of the work area");
+
+    // The close button asks the app to close.
+    let close_x = (max_geo.loc.x + max_geo.size.w - 28 - 4 + 10) as f64;
+    h.with(move |ede| {
+        ede.pointer_motion_to((close_x, (max_geo.loc.y - 18) as f64).into(), 0);
+        ede.pointer_button(0x110, smithay::backend::input::ButtonState::Pressed, 0);
+        ede.pointer_button(0x110, smithay::backend::input::ButtonState::Released, 0);
+    });
+    wait_for(&mut app, |c| c.state.toplevels[t.index].closed);
+
+    // Client-side decorations: no frame.
+    let csd = app.toplevel("Browser");
+    app.decorate(&csd, Some(Mode::ClientSide));
+    app.draw(&csd, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.decoration_modes.get(&csd.index) == Some(&(Mode::ClientSide as u32)));
+    assert!(h.with(|ede| {
+        let w = ede.space.elements().last().cloned().unwrap();
+        ede.frame_height(&w) == 0
+    }));
+}
+
+/// #EDE-16: with no shell subscribed the compositor draws the recovery
+/// screen; a shell that subscribes clears it.
+#[test]
+fn the_recovery_screen_shows_without_a_shell() {
+    let h = harness(&[(800, 600)]);
+    assert_ne!(h.capture(0).at(400, 300) & 0x00ff_ffff, 0x0017_1717, "still within the start grace");
+    h.with(|ede| ede.recovery.start_grace = Duration::ZERO);
+    assert_eq!(h.capture(0).at(400, 300) & 0x00ff_ffff, 0x0017_1717, "the card in the middle");
+    let mut shell = h.ipc();
+    shell.subscribe().unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(h.capture(0).at(400, 300), BACKGROUND);
+    drop(shell);
+    std::thread::sleep(Duration::from_millis(100));
+    h.with(|ede| ede.recovery.return_grace = Duration::ZERO);
+    assert_eq!(h.capture(0).at(400, 300) & 0x00ff_ffff, 0x0017_1717, "gone for longer than the grace");
+}

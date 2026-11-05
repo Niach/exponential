@@ -162,8 +162,20 @@ impl Ede {
         match hotkey {
             Hotkey::SwitcherNext => self.cycle_focus(false),
             Hotkey::SwitcherPrev => self.cycle_focus(true),
+            // No shell to launch one: the compositor opens the terminal itself.
+            Hotkey::Terminal => self.spawn(&["x-terminal-emulator".to_string()]),
             _ => {}
         }
+    }
+
+    /// Super+Shift+R (#EDE-16): the stock shell documents back as a commit
+    /// (`ede-ui reset`), then the shell's unit restarted. Works with a dead
+    /// shell: nothing here needs it. `EDE_RESTORE_COMMAND` replaces the
+    /// command (the dev harness, a test).
+    pub fn restore_shell(&self) {
+        let command = std::env::var("EDE_RESTORE_COMMAND").ok().filter(|c| !c.is_empty()).unwrap_or_else(|| "ede-ui reset; systemctl --user restart ede-shell.service".into());
+        tracing::warn!(%command, "restoring the shell");
+        self.spawn(&["sh".to_string(), "-c".to_string(), command]);
     }
 
     /// The fallback switcher (#EDE-16): focus moves to the next window in

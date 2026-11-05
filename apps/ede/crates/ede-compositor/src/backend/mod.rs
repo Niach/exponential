@@ -28,7 +28,7 @@ use crate::state::Ede;
 
 /// What `output` shows, front to back: the lock surface while the session
 /// is locked, a fullscreen window alone, else the layers and windows.
-pub fn output_elements<R>(state: &Ede, output: &Output, renderer: &mut R) -> Vec<OutputElements<R>>
+pub fn output_elements<R>(state: &mut Ede, output: &Output, renderer: &mut R) -> Vec<OutputElements<R>>
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
@@ -40,7 +40,7 @@ where
 /// (screen capture, a lent view, an agent's screenshot): the same scene, but
 /// protected windows are solid black and a locked session is black
 /// altogether. Every capture path goes through here (#NEW-106).
-pub fn capture_elements<R>(state: &Ede, output: &Output, renderer: &mut R) -> Vec<OutputElements<R>>
+pub fn capture_elements<R>(state: &mut Ede, output: &Output, renderer: &mut R) -> Vec<OutputElements<R>>
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
@@ -48,7 +48,7 @@ where
     scene(state, output, renderer, true)
 }
 
-fn scene<R>(state: &Ede, output: &Output, renderer: &mut R, redact: bool) -> Vec<OutputElements<R>>
+fn scene<R>(state: &mut Ede, output: &Output, renderer: &mut R, redact: bool) -> Vec<OutputElements<R>>
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
@@ -72,16 +72,25 @@ where
     }
 
     let mut elements = Vec::new();
+    // The recovery screen (#EDE-16) sits above everything but the cursor.
+    elements.extend(state.recovery_elements(renderer, output).into_iter().map(OutputElements::Texture));
+    let focused = state.focused_window();
+    let state = &*state;
     let window = |renderer: &mut R, elements: &mut Vec<_>, w: &smithay::desktop::Window| {
         let Some(loc) = state.space.element_location(w) else { return };
         let loc = loc - w.geometry().loc - out.loc;
         if redact && state.is_protected_window(w) {
             let mut bbox = w.bbox();
             bbox.loc += loc;
+            bbox.loc.y -= state.frame_height(w);
+            bbox.size.h += state.frame_height(w);
             let geo = bbox.to_physical_precise_round(scale);
             elements.push(OutputElements::Solid(SolidColorRenderElement::new(Id::new(), geo, CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)));
             return;
         }
+        // The frame (Tier A) at the window's own place, above its surface.
+        let window_loc = loc + w.geometry().loc;
+        elements.extend(state.frame_elements(renderer, w, window_loc, scale, focused.as_ref() == Some(w), redact).into_iter().map(OutputElements::Texture));
         elements.extend(
             AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(w, renderer, loc.to_physical_precise_round(scale), scale.into(), 1.0)
                 .into_iter()
@@ -129,7 +138,7 @@ where
 
 /// Draws `output` (damage-tracked) into `framebuffer`.
 pub fn render<'a, 'd, R>(
-    state: &Ede,
+    state: &mut Ede,
     output: &Output,
     renderer: &mut R,
     framebuffer: &mut R::Framebuffer<'a>,
@@ -146,7 +155,7 @@ where
 
 /// Draws what a capture of `output` may see ([`capture_elements`]).
 pub fn render_capture<'a, 'd, R>(
-    state: &Ede,
+    state: &mut Ede,
     output: &Output,
     renderer: &mut R,
     framebuffer: &mut R::Framebuffer<'a>,
@@ -163,7 +172,7 @@ where
 
 /// Draws `output` in software (pixman) into memory: `shared` = what a
 /// capture may see ([`capture_elements`]).
-pub fn draw_output(renderer: &mut smithay::backend::renderer::pixman::PixmanRenderer, state: &Ede, output: &Output, shared: bool) -> Result<headless::Frame, String> {
+pub fn draw_output(renderer: &mut smithay::backend::renderer::pixman::PixmanRenderer, state: &mut Ede, output: &Output, shared: bool) -> Result<headless::Frame, String> {
     let mode = output.current_mode().ok_or("output has no mode")?;
     let size = (mode.size.w, mode.size.h);
     draw_offscreen(renderer, size, state.clear_color(), |renderer| {
@@ -207,7 +216,7 @@ fn draw_offscreen(
 /// An output as `ede-protocol` captures it, drawn in software. Clients
 /// whose buffers pixman cannot read (a GPU-only dmabuf) are missing from it
 /// until the backends read back from their own renderer.
-pub fn capture_output(state: &Ede, output: &Output) -> Result<headless::Frame, String> {
+pub fn capture_output(state: &mut Ede, output: &Output) -> Result<headless::Frame, String> {
     let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
     draw_output(&mut renderer, state, output, true)
 }
@@ -247,9 +256,11 @@ pub fn frame_done(state: &mut Ede, output: &Output) {
 
 smithay::backend::renderer::element::render_elements! {
     /// Everything an output shows: the cursor on top, then layers + windows
-    /// (`Solid` = a protected window in a capture).
+    /// (`Memory` = the cursor, a window frame or the recovery screen;
+    /// `Solid` = a protected window in a capture).
     pub OutputElements<R> where R: ImportAll + ImportMem;
-    Cursor=smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement<R>,
+    Memory=smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement<R>,
+    Texture=smithay::backend::renderer::element::texture::TextureRenderElement<<R as smithay::backend::renderer::RendererSuper>::TextureId>,
     Surface=WaylandSurfaceRenderElement<R>,
     Solid=smithay::backend::renderer::element::solid::SolidColorRenderElement,
 }
@@ -288,7 +299,7 @@ where
         CursorImageStatus::Named(_) => {
             let at = (pos - smithay::utils::Point::from((hotspot.0 as f64, hotspot.1 as f64))).to_physical(1.0);
             MemoryRenderBufferRenderElement::from_buffer(renderer, at, fallback, None, None, None, Kind::Cursor)
-                .map(|e| vec![OutputElements::Cursor(e)])
+                .map(|e| vec![OutputElements::Memory(e)])
                 .unwrap_or_default()
         }
     }

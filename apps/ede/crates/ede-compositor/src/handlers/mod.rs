@@ -1,6 +1,7 @@
 //! The smithay handler impls: one module per protocol family.
 
 mod compositor;
+mod decoration;
 mod dmabuf;
 mod input_method;
 mod layer_shell;

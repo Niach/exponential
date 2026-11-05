@@ -105,6 +105,28 @@ Driving it with `xdotool` on the live desktop sends keys to whatever window
 is focused there, not necessarily eDE: script input against a private
 `Xvfb :77` (Mesa EGL: `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`).
 
+## Tier A: frames, the recovery screen, the restore hotkey (#EDE-16)
+
+What the compositor draws itself, without gpui, from colour tokens only,
+never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
+
+- **Window frames**: a client that leaves decorations to the compositor
+  (xdg-decoration, or an X11 window without its own per its Motif hints)
+  gets a 36 px title bar: the title, maximize and close, a draggable bar
+  (double-click maximizes), a 6 px resize band around the window. The frame
+  stays when maximized or tiled, goes when fullscreen. A client that
+  insists on its own decorations (GTK 4, libadwaita) keeps them.
+- **Recovery screen**: while the shell is not subscribed to ede-protocol
+  (never within 20 s of start, or gone for 8 s) every output shows what to
+  do: Super+Shift+R, Ctrl+Alt+T (the compositor opens the terminal itself
+  then), Super+Shift+E.
+- **Super+Shift+R**: `ede-ui reset` (every factory document back, as
+  commits; the person's edits stay in the history) and `systemctl --user
+  restart ede-shell.service`; `EDE_RESTORE_COMMAND` replaces the command.
+  It needs nothing from the shell.
+- Fallback focus cycling (Alt+Tab without a shell) is in [Hotkeys](#hotkeys-ede-12).
+- The consent shield and the takeover banner wait for the agent spaces (M2).
+
 ## Outputs: mode, scale, position (#EDE-18)
 
 `~/.config/ede/compositor.toml` names each output by connector:

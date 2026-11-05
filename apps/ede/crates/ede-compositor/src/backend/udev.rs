@@ -297,6 +297,9 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
 
     crate::logind::start(&mut state);
     state.start_session();
+    // A wake-up each second: the recovery screen (#EDE-16) appears on an
+    // idle desktop without waiting for input.
+    event_loop.handle().insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, _| TimeoutAction::ToDuration(Duration::from_secs(1)))?;
 
     // Every loop turn: repaint outputs that are not waiting for a vblank.
     // Clean frames submit nothing, so an idle desktop stays idle.

@@ -13,6 +13,7 @@
 pub mod backend;
 pub mod config;
 pub mod doctor;
+pub mod frames;
 pub mod grabs;
 mod handlers;
 pub mod hotkeys;
@@ -24,7 +25,9 @@ pub mod lock;
 pub mod logind;
 pub mod outputs;
 pub mod protected;
+pub mod recovery;
 pub mod state;
+pub mod text;
 pub mod workspaces;
 
 pub use config::Config;

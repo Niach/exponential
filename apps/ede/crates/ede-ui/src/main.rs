@@ -17,6 +17,7 @@ const USAGE: &str = "usage: ede-ui [--dir DIR] [--factory DIR] <command>
   rm NAME                  delete NAME.json as a commit
   discard NAME             drop NAME's uncommitted edit (back to the last commit)
   undo                     revert the newest edit
+  reset                    every factory document back as it ships (your edits stay in the history)
   log [N]                  the history, newest first
   watch                    hot reload; one JSON change per line
   supervise -- CMD ARGS…   run the shell: watch, commit, frame-ack watchdog, crash revert
@@ -114,6 +115,10 @@ fn run(dir: PathBuf, factory: PathBuf, args: &[String]) -> Result<bool, String> 
                 }
                 Err(e) => return Err(e.to_string()),
             }
+        }
+        ("reset", []) => {
+            let (mut ui, _) = open()?;
+            print_changes(&ui.reset_to_factory().map_err(|e| e.to_string())?);
         }
         ("rm", [name]) => {
             let (mut ui, _) = open()?;
