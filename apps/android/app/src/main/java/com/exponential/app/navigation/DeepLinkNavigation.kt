@@ -130,6 +130,9 @@ fun sessionTargetRoute(sessionId: String, target: InboxRoute.SessionTarget?): St
         null -> Routes.session(sessionId)
     }
 
+/** results-tab.json: what `?tab=` lands on the Results tab. */
+private val LEGACY_RESULTS_TABS = setOf(Routes.THREAD_TAB_RESULTS, "stories", Routes.THREAD_TAB_GUIDE)
+
 /**
  * #EXP-1674: the native screen of an in-app link (app-link.json `routes`).
  * [uri] = the link's absolute URL, whose `?comment=` and `?view=guide` still
@@ -142,8 +145,12 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
         is LinkDestination.Conversation -> navigateDeepLink(
             when {
                 !destination.isRoot -> Routes.session(destination.id)
+                // results-tab.json: an older `?view=guide` or `?tab=stories`
+                // lands on the Results tab.
                 destination.sessionPath && query("view") == Routes.THREAD_TAB_GUIDE ->
-                    Routes.thread(destination.id, Routes.THREAD_TAB_GUIDE)
+                    Routes.thread(destination.id, Routes.THREAD_TAB_RESULTS)
+                destination.sessionPath && query("tab") in LEGACY_RESULTS_TABS ->
+                    Routes.thread(destination.id, Routes.THREAD_TAB_RESULTS)
                 else -> Routes.thread(destination.id)
             },
         )

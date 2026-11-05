@@ -103,6 +103,7 @@ import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.thread.ThreadScreen
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.ui.plan.OpenPlanPage
+import com.exponential.app.ui.chats.NeedsYouPage
 import com.exponential.app.ui.threads.ThreadsScreen
 import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
@@ -777,6 +778,18 @@ private fun AuthenticatedNav(
                 inboxUnread = unreadCountLatest.value > 0,
                 // #EXP-1388: the Archived entry pushes the Archived page.
                 onOpenArchived = { navController.navigate(Routes.CHATS_ARCHIVED) { launchSingleTop = true } },
+                // #FEED-191: the Needs you entry pushes THE list.
+                onOpenNeedsYou = { navController.navigate(Routes.CHATS_NEEDS_YOU) { launchSingleTop = true } },
+            )
+        }
+        composable(Routes.CHATS_NEEDS_YOU) {
+            // #FEED-191 (needs-you.json): pushed, the page header with back; a
+            // row opens the chat on the right tab.
+            NeedsYouPage(
+                onBack = { navController.popBackStack() },
+                onOpen = { row -> navController.navigate(Routes.needsYou(row)) },
+                onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
+                inboxUnread = unreadCountLatest.value > 0,
             )
         }
         composable(Routes.CHATS_ARCHIVED) {
@@ -1123,6 +1136,12 @@ private fun AuthenticatedNav(
                 },
                 // #EXP-1662: the plan card the plan tab opens on.
                 navArgument("plan") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                // #FEED-191: the waiting card the Conversation centres.
+                navArgument("card") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null

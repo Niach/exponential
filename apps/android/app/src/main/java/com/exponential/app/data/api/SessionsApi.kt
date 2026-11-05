@@ -213,11 +213,6 @@ data class SessionDeleteResult(val txid: Long? = null)
 @Serializable
 data class SessionsSetReadInput(val sessionIds: List<String>, val read: Boolean)
 
-/** S-3 `sessions.markStoriesSeen` input: the ROOT + the shown story's
- *  createdAt (epoch ms). */
-@Serializable
-data class SessionsMarkStoriesSeenInput(val sessionId: String, val at: Long)
-
 /** #EXP-1388 `sessions.setArchived` input. */
 @Serializable
 data class SessionsSetArchivedInput(val sessionIds: List<String>, val archived: Boolean)
@@ -426,18 +421,6 @@ class SessionsApi @Inject constructor(
             path = "sessions.setRead",
             input = SessionsSetReadInput(sessionIds, read),
             inputSerializer = SessionsSetReadInput.serializer(),
-        )
-    }
-
-    /** S-3 (stories.json): a story of this ROOT's tree was SHOWN in the
-     *  viewer; the server keeps the greatest [at] (epoch ms, the story's
-     *  createdAt) in `session_reads.story_seen_at`. */
-    suspend fun markStoriesSeen(accountId: String, sessionId: String, at: Long) {
-        trpc.mutationUnit(
-            accountId,
-            path = "sessions.markStoriesSeen",
-            input = SessionsMarkStoriesSeenInput(sessionId, at.coerceAtLeast(0)),
-            inputSerializer = SessionsMarkStoriesSeenInput.serializer(),
         )
     }
 

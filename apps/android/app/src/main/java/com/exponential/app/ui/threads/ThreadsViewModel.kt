@@ -14,6 +14,10 @@ import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.NeedsYou
+import com.exponential.app.data.db.PullRequestEntity
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.steer.SessionSender
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,8 +45,8 @@ import kotlinx.coroutines.launch
  * chats.json: ONE active team drives every phone screen (no team bands), so
  * [SessionTree.partitionThreads] runs over the ACTIVE team
  * ([TeamSelection.selectedId]); the phone list = [Chats.chatList] over its
- * groups, the header's agent bubbles = [Chats.agentBubbles] over
- * [SessionTree.listAgents]. The menus' calls (Stop = `sessions.end` on the
+ * groups, the Agents section = [Chats.agentChatRows] over
+ * [SessionTree.listAgents], the Needs you entry and page = [NeedsYou.needsYou]. The menus' calls (Stop = `sessions.end` on the
  * root, Delete = `sessions.delete`, the agent's turn Stop = `sessions.stop`,
  * Compact / New conversation = the builtin lines through `sessions.send`)
  * live here too.
@@ -222,20 +226,6 @@ class ThreadsViewModel @Inject constructor(
         SessionTree.listAgents(defs, s, teamId = team, me = me)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** chats.json `agentBubbles`: the header's bubbles (ring = needs you /
-     *  unread), the active team's agents in list order. */
-    val bubbles: StateFlow<List<Chats.AgentBubble>> = combine(agents, inputs, auth.userId) { rows, input, me ->
-        Chats.agentBubbles(rows, input.sessions, input.messages, input.reads, me)
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private val _filter = MutableStateFlow(Chats.ChatFilter.All)
-    /** The selected filter chip. */
-    val filter: StateFlow<Chats.ChatFilter> = _filter
-
-    fun selectFilter(filter: Chats.ChatFilter) {
-        _filter.value = filter
-    }
-
     private val _view = MutableStateFlow(Chats.ChatListView.List)
     /** #EXP-1388: the chats, or the Archived page (its own pushed route). */
     val view: StateFlow<Chats.ChatListView> = _view
@@ -258,22 +248,37 @@ class ThreadsViewModel @Inject constructor(
             prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId!! }.mapValues { (_, rows) -> rows.map { it.state } }
         }
 
-    /** chats.json `chatList`: the phone list (flat roots by activity, the
-     *  preview, the time, the unread count) under the selected chip. */
+    /** #FEED-191 (needs-you.json): every plan, question and ready PR waiting on
+     *  the viewer in the ACTIVE team, newest first; web `useNeedsYou`'s input: a
+     *  session named by THE session title, an agent conversation by its agent;
+     *  only the digests' waiting kinds; the team's pull requests. */
+    val needsYouRows: StateFlow<List<NeedsYou.Row>> = combine(
+        combine(inputs, activeTeam) { input, team -> input to team },
+        agentDefinitions,
+        pullRequestRows,
+        auth.userId,
+        minuteClock,
+    ) { (input, team), definitions, prs, me, now ->
+        needsYouFold(input.sessions, input.links, input.issues, input.messages, definitions, prs, team, me, now)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** chats.json `chatList`: the phone list (roots by activity, the preview,
+     *  the time, the unread count); #FEED-191: no chips, the screen groups it
+     *  under [Chats.chatSections]. */
     val chatList: StateFlow<Chats.ChatList> = combine(
         combine(groups, inputs) { g, i -> g to i },
         prStates,
         words,
-        combine(_filter, _view) { f, v -> f to v },
+        _view,
         minuteClock,
-    ) { (g, input), states, w, (filter, view), now ->
+    ) { (g, input), states, w, view, now ->
         Chats.chatList(
             groups = g,
             messages = input.messages,
             reads = input.reads,
             prStates = states,
             words = w,
-            filter = filter,
+            filter = Chats.ChatFilter.All,
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
@@ -283,21 +288,21 @@ class ThreadsViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
 
     /** S-3 (chats.json `agentChatRows`): the AGENT rows pinned on top of the
-     *  list, [agents] order (the viewer's Assistant first), under the chip;
-     *  none on the Archived page. */
+     *  list, [agents] order (the viewer's Assistant first); none on the
+     *  Archived page. */
     val agentRows: StateFlow<List<Chats.AgentChatRow>> = combine(
         combine(agents, inputs) { a, i -> a to i },
         auth.userId,
-        combine(_filter, _view) { f, v -> f to v },
+        _view,
         minuteClock,
-    ) { (rows, input), me, (filter, view), now ->
+    ) { (rows, input), me, view, now ->
         Chats.agentChatRows(
             agents = rows,
             sessions = input.sessions,
             messages = input.messages,
             reads = input.reads,
             me = me,
-            filter = filter,
+            filter = Chats.ChatFilter.All,
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
@@ -427,6 +432,68 @@ class ThreadsViewModel @Inject constructor(
         list.any { it.key == SessionTree.ThreadsGroupKey.NeedsYou && it.rows.isNotEmpty() }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
+
+/** #FEED-191: [NeedsYou.needsYou] over the synced rows of [team] (null = every
+ *  team, while none is active). */
+internal fun needsYouFold(
+    sessions: List<SessionTree.Session>,
+    links: List<SessionTree.SessionIssue>,
+    issues: List<SessionTree.Issue>,
+    messages: List<SessionTree.Message>,
+    definitions: List<SessionTree.AgentDefinition>,
+    pullRequests: List<PullRequestEntity>,
+    team: String?,
+    me: String?,
+    now: Long,
+): List<NeedsYou.Row> {
+    val inTeam = sessions.filter { team == null || it.teamId == team }
+    val ids = inTeam.mapTo(HashSet()) { it.id }
+    val titles = SessionTree.sessionTitles(sessions, links, issues, messages)
+    val agentNames = definitions.associate { it.id to it.name }
+    return NeedsYou.needsYou(
+        now = now,
+        me = me,
+        sessions = inTeam.map { session ->
+            NeedsYou.SessionInput(
+                id = session.id,
+                rootId = session.rootId,
+                name = session.agentId?.let(agentNames::get) ?: titles[session.id] ?: session.title.orEmpty(),
+                status = session.status,
+                agentId = session.agentId,
+                userId = session.userId,
+                busy = session.busy,
+            )
+        },
+        messages = messages.mapNotNull { message ->
+            val kind = (message.card?.get("kind") as? JsonPrimitive)?.contentOrNull
+            if (message.sessionId !in ids || kind !in WAITING_KINDS) return@mapNotNull null
+            NeedsYou.MessageInput(
+                id = message.id,
+                sessionId = message.sessionId,
+                authorSessionId = message.authorSessionId,
+                body = message.body,
+                createdAt = message.createdAt,
+                answeredAt = message.answeredAt,
+                card = message.card,
+            )
+        },
+        pullRequests = pullRequests.filter { team == null || it.teamId == team }.map { pr ->
+            NeedsYou.PullRequestInput(
+                id = pr.id,
+                rootSessionId = pr.rootSessionId,
+                number = pr.number?.toLong() ?: 0L,
+                title = pr.title.orEmpty(),
+                state = pr.state,
+                checksState = pr.checksState,
+                basePullRequestId = pr.basePullRequestId,
+                createdAt = pr.createdAt,
+            )
+        },
+    )
+}
+
+/** The digests' card kinds a person acts on. */
+private val WAITING_KINDS = setOf("plan", "question", "ask")
 
 /** The thing every chat menu call names (`Couldn't stop the chat`). */
 internal const val CHAT_THING = "the chat"

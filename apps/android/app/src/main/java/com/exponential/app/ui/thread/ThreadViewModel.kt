@@ -141,6 +141,9 @@ class ThreadViewModel @Inject constructor(
     /** #EXP-1662: the plan card a way in opened the plan tab on. */
     val initialPlan: String? = savedStateHandle["plan"]
 
+    /** needs-you.json: the waiting card a way in centres in the Conversation. */
+    val initialCard: String? = savedStateHandle["card"]
+
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     /** The synced root row; null while loading or once it is gone. */
@@ -458,6 +461,11 @@ class ThreadViewModel @Inject constructor(
             onSent()
         }
     }
+
+    /** results-tab.json: an inline surface's reply press goes to the session
+     *  that posted the result. */
+    fun sendTo(sessionId: String, text: String) =
+        run("send", "the message") { sender.send(SessionsSendInput.message(sessionId, text)) }
 
     /** A CHILD session under [parentId] on [deviceId] (a follow-up). */
     fun startChild(parentId: String, deviceId: String, text: String) =

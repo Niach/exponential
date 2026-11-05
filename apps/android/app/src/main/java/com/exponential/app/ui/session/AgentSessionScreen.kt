@@ -1783,7 +1783,9 @@ private fun ActivityFeed(
     // that card (the main stream only: feed-header · load-earlier · the head
     // cards · the rows, each row carrying the cards its calls posted).
     val cardScroll = LocalCardScrollRequest.current
-    LaunchedEffect(cardScroll) {
+    // #FEED-191: a way in (a Needs you row) may ask before the rows load: the
+    // request is live for its highlight, so a row landing in that time retries.
+    LaunchedEffect(cardScroll, rows.size, sessionCards.head.size) {
         val request = cardScroll ?: return@LaunchedEffect
         if (focused != null) return@LaunchedEffect
         val lead = 1 + (if (canLoadEarlier) 1 else 0)

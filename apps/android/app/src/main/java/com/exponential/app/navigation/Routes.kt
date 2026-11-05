@@ -1,5 +1,7 @@
 package com.exponential.app.navigation
 
+import com.exponential.app.domain.NeedsYou
+
 /**
  * EXP-1291 Threads v2: the route strings every screen lane navigates by.
  *
@@ -17,10 +19,14 @@ object Routes {
     /** #EXP-1388: the Chats tab's Archived page (pushed from its entry row). */
     const val CHATS_ARCHIVED = "threads-archived"
 
+    /** #FEED-191 (needs-you.json): THE list, pushed from the Chats list's first row. */
+    const val CHATS_NEEDS_YOU = "threads-needs-you"
+
     /** `tab` = the tab the thread opens on (`guide` for a `?view=guide`
      *  link); absent = the Conversation. `plan` = the plan card the plan tab
-     *  opens on (#EXP-1662; absent = `planTabTarget`). */
-    const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}&plan={plan}"
+     *  opens on (#EXP-1662; absent = `planTabTarget`). `card` = the waiting card
+     *  the Conversation centres (#FEED-191 needs-you.json). */
+    const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}&plan={plan}&card={card}"
 
     /** EXP-1635 (share-targets.json): STEP 1 of a share; New issue pushes [SHARE_COMPOSE]. */
     const val SHARE_TO = "share-to"
@@ -28,6 +34,7 @@ object Routes {
 
     const val THREAD_TAB_GUIDE = "guide"
     const val THREAD_TAB_PLAN = "plan"
+    const val THREAD_TAB_RESULTS = "results"
     fun thread(rootSessionId: String, tab: String? = null): String =
         if (tab == null) "thread/$rootSessionId" else "thread/$rootSessionId?tab=$tab"
 
@@ -38,6 +45,19 @@ object Routes {
      *  its plan tab, on the plan card [messageId]. */
     fun threadPlan(rootSessionId: String, messageId: String): String =
         "thread/$rootSessionId?tab=$THREAD_TAB_PLAN&plan=$messageId"
+
+    /** #FEED-191 (needs-you.json): the thread [rootSessionId] on its
+     *  Conversation, centred on the waiting card [messageId]. */
+    fun threadCard(rootSessionId: String, messageId: String): String =
+        "thread/$rootSessionId?card=$messageId"
+
+    /** #FEED-191 (needs-you.json): where a Needs you row opens, by `opens`. */
+    fun needsYou(row: NeedsYou.Row): String = when (row.opens) {
+        NeedsYou.Opens.Plan -> threadPlan(row.rootId, row.messageId)
+        NeedsYou.Opens.Card -> threadCard(row.rootId, row.messageId)
+        NeedsYou.Opens.Results -> thread(row.rootId, THREAD_TAB_RESULTS)
+        NeedsYou.Opens.Chat -> thread(row.rootId)
+    }
 
     /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,
      *  `section` = a `SettingsNav` row id (General, Members, Labels, Boards,

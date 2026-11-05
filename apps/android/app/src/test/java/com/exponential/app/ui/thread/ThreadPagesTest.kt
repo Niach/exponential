@@ -9,7 +9,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /** EXP-1343 / #EXP-1433: the phone pager's pages = Conversation · (the one
- *  issue | the item opened from the group) · Stories (web `thread-pages.ts`). */
+ *  issue | the item opened from the group) · Results (web `thread-pages.ts`). */
 class ThreadPagesTest {
 
     private val groupTabs = listOf(
@@ -23,22 +23,22 @@ class ThreadPagesTest {
             SessionTree.SessionState.Working,
             nested = listOf(SessionTree.NestedSession("s2", "Measure", SessionTree.SessionState.NeedsYou, 1)),
         ),
-        ThreadTab.Stories,
+        ThreadTab.Results,
     )
 
     @Test
     fun theGroupIsNeverAPageUntilAnItemIsOpenedFromIt() {
-        assertEquals(listOf("conversation", "stories"), threadPages(groupTabs).map(::threadTabKey))
+        assertEquals(listOf("conversation", "results"), threadPages(groupTabs).map(::threadTabKey))
         assertEquals(
-            listOf("conversation", "session:s2", "stories"),
+            listOf("conversation", "session:s2", "results"),
             threadPages(groupTabs, open = "session:s2").map(::threadTabKey),
         )
         assertEquals(
-            listOf("conversation", "issue:i2", "stories"),
+            listOf("conversation", "issue:i2", "results"),
             threadPages(groupTabs, open = "issue:i2").map(::threadTabKey),
         )
         // Not an item of the group: no page.
-        assertEquals(listOf("conversation", "stories"), threadPages(groupTabs, open = "issue:nope").map(::threadTabKey))
+        assertEquals(listOf("conversation", "results"), threadPages(groupTabs, open = "issue:nope").map(::threadTabKey))
     }
 
     @Test
@@ -47,10 +47,10 @@ class ThreadPagesTest {
         // shown one; Android drops it when the pager rests on another page.
         assertEquals("session:s2", threadGroupOpenAfterSettle("session:s2", "session:s2"))
         assertNull(threadGroupOpenAfterSettle("session:s2", "conversation"))
-        assertNull(threadGroupOpenAfterSettle("issue:i2", "stories"))
+        assertNull(threadGroupOpenAfterSettle("issue:i2", "results"))
         assertNull(threadGroupOpenAfterSettle(null, "conversation"))
-        val open = threadGroupOpenAfterSettle("issue:i2", "stories")
-        assertEquals(listOf("conversation", "stories"), threadPages(groupTabs, open = open).map(::threadTabKey))
+        val open = threadGroupOpenAfterSettle("issue:i2", "results")
+        assertEquals(listOf("conversation", "results"), threadPages(groupTabs, open = open).map(::threadTabKey))
     }
 
     @Test
@@ -67,8 +67,8 @@ class ThreadPagesTest {
 
     @Test
     fun oneIssueAndNoSessionKeepsItsChipAndItsPage() {
-        val tabs = listOf(ThreadTab.Add, ThreadTab.Conversation, ThreadTab.IssueTab("i1", "APP-1"), ThreadTab.Stories)
-        assertEquals(listOf("conversation", "issue:i1", "stories"), threadPages(tabs).map(::threadTabKey))
+        val tabs = listOf(ThreadTab.Add, ThreadTab.Conversation, ThreadTab.IssueTab("i1", "APP-1"), ThreadTab.Results)
+        assertEquals(listOf("conversation", "issue:i1", "results"), threadPages(tabs).map(::threadTabKey))
         assertEquals(SessionTree.StripMode.Chips, threadStripItems(tabs, null).mode.mode)
     }
 
@@ -109,14 +109,14 @@ class ThreadPagesTest {
     @Test
     fun `the plan page follows Conversation`() {
         // #EXP-1662 (plan-page.json): web `threadPages`.
-        val tabs = threadTabsWithPlan(listOf(ThreadTab.Conversation, ThreadTab.Add, ThreadTab.IssueTab("i1", "EXP-1"), ThreadTab.Stories), hasPlan = true)
-        assertEquals(listOf("conversation", "plan", "issue:i1", "stories"), threadPages(tabs).map(::threadTabKey))
+        val tabs = threadTabsWithPlan(listOf(ThreadTab.Conversation, ThreadTab.Add, ThreadTab.IssueTab("i1", "EXP-1"), ThreadTab.Results), hasPlan = true)
+        assertEquals(listOf("conversation", "plan", "issue:i1", "results"), threadPages(tabs).map(::threadTabKey))
     }
 
     @Test
     fun `no plan no page`() {
-        val tabs = threadTabsWithPlan(listOf(ThreadTab.Conversation, ThreadTab.Stories), hasPlan = false)
-        assertEquals(listOf("conversation", "stories"), threadPages(tabs).map(::threadTabKey))
+        val tabs = threadTabsWithPlan(listOf(ThreadTab.Conversation, ThreadTab.Results), hasPlan = false)
+        assertEquals(listOf("conversation", "results"), threadPages(tabs).map(::threadTabKey))
     }
 
     @Test
