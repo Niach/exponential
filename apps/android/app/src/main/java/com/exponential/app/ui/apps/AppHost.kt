@@ -59,7 +59,9 @@ import at.exponential.ui.host.PickedFile
 import at.exponential.ui.host.NavigateTarget
 import at.exponential.ui.host.RecordRow
 import at.exponential.ui.host.RecordMigrations
+import at.exponential.ui.host.RecordsOverlay
 import at.exponential.ui.host.RecordsQuery
+import at.exponential.ui.host.RecordsStore
 import at.exponential.ui.host.Screens
 import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.ffi.HostZone
@@ -648,6 +650,10 @@ fun rememberAppHost(
         val migrations = packages.firstOrNull()?.let { JsonValue.parse(it)["migrations"] }?.takeIf { (it.array?.size ?: 0) > 0 && migrateFrom != null }
             ?.let { JsonValue.Obj(mapOf("migrations" to it)) }
 
+        // VAPP-212: one store per app (a draft preview's migrated copies apart):
+        // the rows stay in Rust and only what changed crosses the FFI.
+        val recordStores = java.util.concurrent.ConcurrentHashMap<String, RecordsStore<AppRecordEntity>>()
+
         fun recordsValues(query: RecordsQuery): Flow<JsonValue?> {
             // The app whose records are read: the hosting app, or
             // (`app=`) another app of the same team by slug (it may
@@ -657,7 +663,7 @@ fun rememberAppHost(
             } else {
                 teamApps.map { rows -> rows.firstOrNull { it.slug == query.app }?.id }.distinctUntilChanged()
             }
-            val rows = target.flatMapLatest { recordsOf(it) }
+            val rows = target.flatMapLatest { app -> recordsOf(app).map { app to it } }
             // VAPP-235: that app's outbox entries, laid over the synced rows
             // (re-emitting on every outbox change); while acked entries wait
             // for the shape, a tick re-checks their grace.
@@ -679,41 +685,39 @@ fun rememberAppHost(
             val refs = if (query.app == null) RecordsQuery.refs(packageRecords, query.from) else JsonValue.Null
             val expanded = (query.structured["expand"]?.array.orEmpty()).mapNotNull { it.string }
             val issueRefs = expanded.filter { refs[it]?.string == "issue" }
-            val memberRefs = expanded.filter { refs[it]?.string == "member" }
             val refIssues: Flow<List<IssueEntity>> = if (issueRefs.isEmpty()) flowOf(emptyList()) else teamRows { d, t -> d.issueDao().observeByTeamForApps(t) }
             // VAPP-222 (R6): the hosting app's state machine + my team role (an owner takes every edge).
             val transitions = if (query.app == null) RecordsQuery.transitions(packageRecords, query.from) else JsonValue.Null
             val role: Flow<String?> = if (transitions == JsonValue.Null) flowOf(null) else teamRows { d, t -> d.teamMemberDao().observeByTeam(t) }.map { rows -> rows.firstOrNull { it.userId == me }?.role }
-            return combine(rows, entries, users, refIssues, role) { records, pending, people, teamIssueRows, myRole ->
-                val synced = records.map(AppRecords::row)
-                // VAPP-235: acked entries the shape reflects (or past the grace) leave.
+            fun stored(row: AppRecords.Row) = RecordRow(
+                id = row.id,
+                kind = row.kind,
+                data = JsonValue.Obj(row.data),
+                createdBy = row.createdBy,
+                authorId = row.authorId,
+                createdAt = row.createdAt,
+                updatedAt = row.updatedAt,
+            )
+            // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
+            fun shown(row: RecordRow): RecordRow {
+                if (migrations == null || migrateFrom == null || query.app != null) return row
+                val out = RecordMigrations.migrate(migrations, migrateFrom, row.kind, row.data, System.currentTimeMillis().toDouble())
+                val kind = out["kind"]?.string
+                val data = out["data"]
+                return if (out["error"] != null || (out["applied"]?.number ?: 0.0) <= 0.0 || kind == null || data == null) row else row.copy(kind = kind, data = data)
+            }
+            val draft = migrations != null && migrateFrom != null && query.app == null
+            return combine(rows, entries, users, refIssues, role) { (app, records), pending, people, teamIssueRows, myRole ->
+                // VAPP-235: the outbox reads only the rows it wrote; acked entries
+                // the shape reflects (or past the grace) leave.
+                val written = AppRecords.outboxWrittenIds(pending)
+                val touched = if (written.isEmpty()) emptyList() else records.filter { it.id in written }.map(AppRecords::row)
                 val account = auth.activeAccountId.value
-                if (account != null && pending.any { it.state == AppRecords.Outbox.ACKED_STATE }) outbox.prune(account, pending, synced)
-                val mapped = AppRecords.outboxRows(synced, pending, me).map { row ->
-                    RecordRow(
-                        id = row.id,
-                        kind = row.kind,
-                        data = JsonValue.Obj(row.data),
-                        createdBy = row.createdBy,
-                        authorId = row.authorId,
-                        createdAt = row.createdAt,
-                        updatedAt = row.updatedAt,
-                    )
-                }.let { rows ->
-                    // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
-                    if (migrations == null || migrateFrom == null || query.app != null) rows
-                    else rows.map { row ->
-                        val out = RecordMigrations.migrate(migrations, migrateFrom, row.kind, row.data, System.currentTimeMillis().toDouble())
-                        val kind = out["kind"]?.string
-                        val data = out["data"]
-                        if (out["error"] != null || (out["applied"]?.number ?: 0.0) <= 0.0 || kind == null || data == null) row else row.copy(kind = kind, data = data)
-                    }
-                }
-                // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
-                val wanted = mapped.mapNotNullTo(HashSet()) { it.authorId ?: it.createdBy }
-                // VAPP-219: a member ref expands to {id, name}.
-                for (row in mapped) for (f in memberRefs) row.data[f]?.string?.let { wanted.add(it) }
-                val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
+                if (account != null && pending.any { it.state == AppRecords.Outbox.ACKED_STATE }) outbox.prune(account, pending, touched)
+                val laid = AppRecords.outboxOverlay(touched, pending, me)
+                val overlay = RecordsOverlay(laid.upserts.map { shown(stored(it)) }, laid.deletes)
+                // VAPP-187: `author` = the AUTHOR's name; VAPP-219: a member ref expands to {id, name}.
+                val names = people.associate { it.id to it.name.orEmpty() }
                 // VAPP-214: the hosting app's computed fields (another app's rows carry none).
                 val computed = if (query.app == null) RecordsQuery.computed(packageRecords, query.from) else emptyMap()
                 val issueSummaries = teamIssueRows.associate {
@@ -721,7 +725,11 @@ fun rememberAppHost(
                 }
                 // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
                 val nowMs = System.currentTimeMillis()
-                query.value(mapped, me, AppRecords.isoNow(nowMs), names, computed, today = TeamZone.day(nowMs, zone.offsetMinutes(nowMs.toDouble())), refs = refs, issues = issueSummaries, transitions = transitions, role = myRole)
+                val store = recordStores.getOrPut("${app.orEmpty()}${if (draft) ":draft" else ""}") { RecordsStore() }
+                synchronized(store) {
+                    store.sync(records, { it.id }, { shown(stored(AppRecords.row(it))) })
+                    query.value(store, me, AppRecords.isoNow(nowMs), names, computed, today = TeamZone.day(nowMs, zone.offsetMinutes(nowMs.toDouble())), refs = refs, issues = issueSummaries, transitions = transitions, role = myRole, overlay = overlay)
+                }
             }
         }
 

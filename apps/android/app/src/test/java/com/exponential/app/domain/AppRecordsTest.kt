@@ -488,6 +488,22 @@ class AppRecordsTest {
         }
     }
 
+    /** VAPP-212: the overlay laid over the rows answers the same cases. */
+    @Test
+    fun `outboxOverlay replays rowsCases`() {
+        for (c in outboxCases("rowsCases")) {
+            val name = c["name"]!!.string!!
+            val rows = c["rows"]!!.array!!.map(::recordRow)
+            val overlay = AppRecords.outboxOverlay(rows, c["entries"]!!.array!!.map(::entry), c["me"]?.string)
+            val laid = rows.filter { it.id !in overlay.deletes }.toMutableList()
+            for (row in overlay.upserts) {
+                val i = laid.indexOfFirst { it.id == row.id }
+                if (i >= 0) laid[i] = row else laid += row
+            }
+            assertJson(name, c["expected"]!!, JsonValue.Arr(laid.map(::rowJson)))
+        }
+    }
+
     @Test
     fun `outboxOutcome replays outcomeCases`() {
         for (c in outboxCases("outcomeCases")) {

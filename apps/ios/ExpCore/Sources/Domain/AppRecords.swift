@@ -1543,6 +1543,27 @@ extension AppRecords {
         return out
     }
 
+    /// VAPP-212: `outboxRows` as an overlay on a store that keeps the synced rows.
+    public struct OutboxOverlay: Sendable {
+        public let upserts: [Row]
+        public let deletes: [String]
+    }
+
+    /// VAPP-212: the ids `entries` write: the only synced rows `outboxOverlay`
+    /// and `outboxPrune` read.
+    public static func outboxWrittenIds(_ entries: [OutboxEntry]) -> Set<String> {
+        Set(entries.flatMap { $0.writes.map(\.id) })
+    }
+
+    /// VAPP-212: what `outboxRows` does to `rows`, only the written rows
+    /// travelling: laid over the store, it answers `rowsCases`.
+    public static func outboxOverlay(_ rows: [Row], entries: [OutboxEntry], me: String?) -> OutboxOverlay {
+        let written = outboxWrittenIds(entries)
+        let upserts = outboxRows(rows.filter { written.contains($0.id) }, entries: entries, me: me)
+        let kept = Set(upserts.map(\.id))
+        return OutboxOverlay(upserts: upserts, deletes: written.filter { !kept.contains($0) }.sorted())
+    }
+
     /// What a replay's answer does to its entry (TS `outboxOutcome`,
     /// `outcomeCases`).
     public static func outboxOutcome(_ entry: OutboxEntry, result: OutboxResult) -> OutboxOutcome {

@@ -1047,10 +1047,29 @@ enum AppHostStore {
         /// read through them (copies, nothing written).
         var migrateFrom: String? = nil
         var migrations: JSONValue? = nil
+        /// VAPP-212: the rows on the Rust side, one store per app.
+        var stores = RecordStores()
+    }
+
+    /// VAPP-212: one `RecordsStore` per app (a draft preview's migrated copies
+    /// apart): the rows stay in Rust and only what changed crosses the FFI.
+    final class RecordStores: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stores: [String: RecordsStore<AppRecordEntity>] = [:]
+
+        func store(_ key: String) -> RecordsStore<AppRecordEntity> {
+            lock.lock()
+            defer { lock.unlock() }
+            if let store = stores[key] { return store }
+            let store = RecordsStore<AppRecordEntity>()
+            stores[key] = store
+            return store
+        }
     }
 
     /// What one records read sees: the app's rows and their authors' names.
     private struct RecordsSnapshot: Sendable {
+        var appId: String? = nil
         var rows: [AppRecordEntity] = []
         var names: [String: String] = [:]
         /// VAPP-219 (R5): identifier → the summary an expanded issue ref inlines.
@@ -1083,16 +1102,18 @@ enum AppHostStore {
         let push = { (snapshot: RecordsSnapshot) in
             // VAPP-235: the outbox laid over the synced rows (pending AND
             // acked, oldest first); acked entries the rows reflect (or past
-            // the grace) leave the store.
-            let synced = snapshot.rows.map { AppRecords.Row($0) }
-            let kept = AppRecords.outboxPrune(snapshot.entries, rows: synced, now: AppRecords.outboxNow())
+            // the grace) leave the store. It reads only the rows it wrote.
+            let written = AppRecords.outboxWrittenIds(snapshot.entries)
+            let touched = written.isEmpty ? [] : snapshot.rows.filter { written.contains($0.id) }.map { AppRecords.Row($0) }
+            let kept = AppRecords.outboxPrune(snapshot.entries, rows: touched, now: AppRecords.outboxNow())
             if kept.count < snapshot.entries.count, let pool {
                 let keptIds = Set(kept.map(\.writeId))
                 let gone = snapshot.entries.map(\.writeId).filter { !keptIds.contains($0) }
                 Task { await AppRecordOutbox.remove(gone, pool: pool) }
             }
-            let rows = AppRecords.outboxRows(synced, entries: snapshot.entries, me: scope.me).map { row in
-                RecordRow(
+            let draft = scope.migrateFrom != nil && scope.migrations != nil && query.app == nil
+            func stored(_ row: AppRecords.Row) -> RecordRow {
+                let shown = RecordRow(
                     id: row.id,
                     kind: row.kind,
                     data: JSONValue.parse(CardJSON.object(row.data).compactString),
@@ -1101,26 +1122,24 @@ enum AppHostStore {
                     createdAt: row.createdAt,
                     updatedAt: row.updatedAt
                 )
-            }
-            // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
-            let shown: [RecordRow]
-            if let from = scope.migrateFrom, let migrations = scope.migrations, query.app == nil {
+                // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
+                guard draft, let from = scope.migrateFrom, let migrations = scope.migrations else { return shown }
                 let ms = Date().timeIntervalSince1970 * 1000
-                shown = rows.map { row in
-                    let out = RecordMigrations.migrate(package: migrations, version: from, kind: row.kind, data: row.data, now: ms)
-                    guard out["error"] == nil, (out["applied"]?.number ?? 0) > 0, let kind = out["kind"]?.string, let data = out["data"] else { return row }
-                    var moved = row
-                    moved.kind = kind
-                    moved.data = data
-                    return moved
-                }
-            } else {
-                shown = rows
+                let out = RecordMigrations.migrate(package: migrations, version: from, kind: shown.kind, data: shown.data, now: ms)
+                guard out["error"] == nil, (out["applied"]?.number ?? 0) > 0, let kind = out["kind"]?.string, let data = out["data"] else { return shown }
+                var moved = shown
+                moved.kind = kind
+                moved.data = data
+                return moved
             }
+            let laid = AppRecords.outboxOverlay(touched, entries: snapshot.entries, me: scope.me)
+            let overlay = RecordsOverlay(upserts: laid.upserts.map(stored), deletes: laid.deletes)
+            let store = scope.stores.store((snapshot.appId ?? "") + (draft ? ":draft" : ""))
+            store.sync(snapshot.rows, id: \.id, row: { stored(AppRecords.Row($0)) })
             // VAPP-214: the hosting app's computed fields (another app's rows carry none).
             let computed = query.app == nil ? RecordsQuery.computed(records: scope.records, kind: query.from) : [:]
             let now = Date()
-            let value = query.value(rows: shown, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed, refs: refs, issues: snapshot.issues, transitions: transitions, role: snapshot.role)
+            let value = query.value(store: store, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed, refs: refs, issues: snapshot.issues, transitions: transitions, role: snapshot.role, overlay: overlay)
             let json = value.json
             guard json != last else { return }
             last = json
@@ -1179,7 +1198,7 @@ enum AppHostStore {
             if transitions != .null, let me = scope.me, let teamId = scope.teamId {
                 role = try TeamMemberEntity.filter(Column("team_id") == teamId && Column("user_id") == me).fetchOne(db)?.role
             }
-            return RecordsSnapshot(rows: rows, names: names, issues: issues, entries: entries, role: role)
+            return RecordsSnapshot(appId: appId, rows: rows, names: names, issues: issues, entries: entries, role: role)
         }
         let observe = Task { @MainActor in
             do {
