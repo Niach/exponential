@@ -38,3 +38,5 @@
 - Sama ulkoasu kaikkialla: yksi keskustelun otsikko, ja salatun keskustelun tiedosto näkyy tiedostorivinä
 - Sovellusten tietueissa on päivämäärä- ja aikavalitsimet, ja omistajat voivat valita tekijän
 - Omistajat asettavat julkisen linkin vanhenemisen asetuksista
+- Tehtävät, asetukset ja keskustelut näyttävät samalta kaikissa sovelluksissa
+- Päivämäärän ja ajan sisältävän tietueen tallennus ei enää siirrä sitä aikavyöhykkeen verran

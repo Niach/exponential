@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.1 (2026-11-05)
+
+- Released with the SDK at 0.16.1: a top or bottom Drawer spans the window on desktop, iOS and Android (VAPP-253).
+
 ## 0.16.0 (2026-11-05)
 
 - Released with the SDK at 0.16.0: the records store moves behind a `RecordStore` handle (VAPP-212; **breaking** for the Swift and Compose `RecordsQuery.value(rows…)` and the FFI `records_value_json`), RecordForm date-time pickers and an owner's Author field (VAPP-245), and text that binds in Dialog, Alert and Chip (VAPP-206).

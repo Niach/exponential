@@ -38,3 +38,5 @@
 - Überall gleicher Look: ein Chat-Kopf, und eine Datei in einem verschlüsselten Chat erscheint als Dateizeile
 - Einträge in Apps haben Datums- und Zeitauswahl, und Inhaber können den Autor wählen
 - Inhaber legen in den Einstellungen fest, wann ein öffentlicher Link abläuft
+- Issues, Einstellungen und Chats sehen in allen Apps gleich aus
+- Ein Eintrag mit Datum und Uhrzeit verschiebt sich beim Speichern nicht mehr um die Zeitzone

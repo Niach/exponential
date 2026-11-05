@@ -38,3 +38,5 @@
 - Samme utseende overalt: én chatteoverskrift, og en fil i en kryptert chat vises som en fillinje
 - Poster i apper har dato- og tidsvelgere, og eiere kan velge forfatteren
 - Eiere setter utløp for en offentlig lenke i Innstillinger
+- Saker, innstillinger og chatter ser like ut i alle appene
+- Å lagre en post med dato og tid flytter den ikke lenger med tidssonen

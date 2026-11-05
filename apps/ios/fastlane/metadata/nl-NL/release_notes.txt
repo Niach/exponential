@@ -38,3 +38,5 @@
 - Overal hetzelfde uiterlijk: één chatkop, en een bestand in een versleutelde chat verschijnt als bestandsregel
 - Records in apps hebben datum- en tijdkiezers, en eigenaren kiezen de auteur
 - Eigenaren stellen in Instellingen in wanneer een openbare link verloopt
+- Issues, instellingen en chats zien er in elke app hetzelfde uit
+- Een record met datum en tijd opslaan verschuift het niet meer met je tijdzone

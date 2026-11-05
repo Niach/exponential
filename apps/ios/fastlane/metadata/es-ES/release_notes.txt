@@ -38,3 +38,5 @@
 - El mismo aspecto en todas partes: una cabecera de chat, y un archivo en un chat cifrado se muestra como una línea de archivo
 - Los registros de las apps tienen selectores de fecha y hora, y los propietarios eligen el autor
 - Los propietarios fijan en Ajustes cuándo caduca un enlace público
+- Las incidencias, los ajustes y los chats se ven igual en todas las apps
+- Guardar un registro con fecha y hora ya no lo desplaza según tu zona horaria

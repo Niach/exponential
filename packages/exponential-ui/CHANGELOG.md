@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.1 (2026-11-05)
+
+- Released with the SDK at 0.16.1: a top or bottom Drawer spans the window on desktop, iOS and Android (VAPP-253).
+
 ## 0.16.0 (2026-11-05)
 
 - RecordForm: a `date-time` field is a DatePicker + TimePicker pair in the team zone (the new expression function `dateTime(day, time?)`). RecordTable: a phone's row has its own Delete.
