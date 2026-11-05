@@ -307,7 +307,12 @@ pub fn needs_you(input: &NeedsYouInput) -> Vec<NeedsYouRow> {
     }
     let mut out: Vec<NeedsYouRow> = rows.into_values().collect();
     out.extend(pull_request_rows(input));
-    out.sort_by(|a, b| ms(&b.created_at).cmp(&ms(&a.created_at)).then_with(|| b.message_id.cmp(&a.message_id)));
+    out.sort_by(|a, b| {
+        (a.kind == NeedsYouKind::Pr)
+            .cmp(&(b.kind == NeedsYouKind::Pr))
+            .then_with(|| ms(&b.created_at).cmp(&ms(&a.created_at)))
+            .then_with(|| b.message_id.cmp(&a.message_id))
+    });
     out
 }
 

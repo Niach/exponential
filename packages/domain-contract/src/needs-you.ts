@@ -163,7 +163,7 @@ function pullRequestRows(input: {
 }
 
 /** THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready to
- *  merge, newest first. */
+ *  merge under them, each newest first. */
 export function needsYou(input: {
   now: number
   me: string | null
@@ -206,6 +206,8 @@ export function needsYou(input: {
       pullRequests: input.pullRequests ?? [],
     }),
   ].sort(
-    (a, b) => ms(b.createdAt) - ms(a.createdAt) || (a.messageId < b.messageId ? 1 : a.messageId > b.messageId ? -1 : 0)
+    (a, b) =>
+      Number(a.kind === `pr`) - Number(b.kind === `pr`) ||
+      ms(b.createdAt) - ms(a.createdAt) || (a.messageId < b.messageId ? 1 : a.messageId > b.messageId ? -1 : 0)
   )
 }

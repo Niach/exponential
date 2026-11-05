@@ -274,6 +274,7 @@ public enum NeedsYou {
         }
         let all = Array(rows.values) + pullRequestRows(now: now, me: me, sessions: sessions, pullRequests: pullRequests)
         return all.sorted { a, b in
+            if (a.kind == .pr) != (b.kind == .pr) { return b.kind == .pr }
             let at = ms(a.createdAt), bt = ms(b.createdAt)
             return at != bt ? at > bt : a.messageId > b.messageId
         }

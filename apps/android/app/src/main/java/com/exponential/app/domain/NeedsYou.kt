@@ -226,6 +226,6 @@ object NeedsYou {
             if (waitingIn.add(row.sessionId)) rows[row.messageId] = row
         }
         return (rows.values + pullRequestRows(now, me, sessions, pullRequests))
-            .sortedWith(compareByDescending<Row> { ms(it.createdAt) }.thenByDescending { it.messageId })
+            .sortedWith(compareBy<Row> { it.kind == Kind.Pr }.thenByDescending { ms(it.createdAt) }.thenByDescending { it.messageId })
     }
 }
