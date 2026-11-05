@@ -1,12 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
+  andClauses,
   buildTeamScopedChildWhere,
   getUserTeamIds,
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // EXP-1291 — which issues a PR closes. Team-scoped with the issue's static
-// trash/archive predicates; the board mirrors stay server-only.
+// trash/archive predicates; the board mirrors stay server-only. EXP-1706:
+// `closes` is server-only too; a reference row (closes = false) never syncs.
 export const PULL_REQUEST_ISSUE_COLUMNS = [
   `id`,
   `pull_request_id`,
@@ -24,7 +26,7 @@ export const Route = createFileRoute(`/api/shapes/pull-request-issues`)({
         columns: PULL_REQUEST_ISSUE_COLUMNS,
         getWhere: async (userId) => {
           const teamIds = userId ? await getUserTeamIds(userId) : []
-          return buildTeamScopedChildWhere(teamIds)
+          return andClauses(buildTeamScopedChildWhere(teamIds), `"closes" = true`)
         },
       }),
     },

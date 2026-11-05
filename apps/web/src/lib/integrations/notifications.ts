@@ -555,7 +555,7 @@ async function loadPrSessionCandidates(
 ): Promise<PrSessionCandidate[]> {
   const openers = sql`SELECT pr.session_id FROM pull_requests pr
     JOIN pull_request_issues pri ON pri.pull_request_id = pr.id
-    WHERE pri.issue_id = ${issue.id} AND pr.session_id IS NOT NULL`
+    WHERE pri.issue_id = ${issue.id} AND pri.closes AND pr.session_id IS NOT NULL`
   const rows = await db
     .select({
       userId: sessions.userId,

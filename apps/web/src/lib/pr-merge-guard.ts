@@ -13,6 +13,7 @@
 // Once the parent MERGED, the merge paths await the EXP-324 heal and refuse
 // while GitHub still reports the merged branch as the base
 // (`basedOnMergedPr` + `awaitRebaseOffMergedBranch`).
+import { squashTitle } from "@exp/domain-contract/issue-lifecycle"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNotNull, ne } from "drizzle-orm"
 import {
@@ -48,13 +49,15 @@ export function openStackMessage(landing: ReadonlyArray<{ name: string }>): stri
   return `This pull request is part of an open stack. Use Merge stack to land it with the pull requests below it: ${below.map((member) => member.name).join(`, `)}.`
 }
 
-/** The squash commit's title: `IDENT: title (#N)` for an issue's PR. */
+/** The squash commit's title: `IDENT: title (#N)` for an issue's PR; a
+ *  title that already carries an ident prefix keeps it, once (EXP-1706,
+ *  issue-lifecycle.json `squashTitle`). */
 export function squashCommitTitle(
   identifier: string | null,
   title: string,
   prNumber: number
 ): string {
-  return identifier ? `${identifier}: ${title} (#${prNumber})` : `${title} (#${prNumber})`
+  return squashTitle(identifier, title, prNumber)
 }
 
 /** The branches a team DEVELOPS a repository on: GitHub's default as stored
@@ -188,7 +191,7 @@ export async function prIssueIdentifiers(
     .select({ pullRequestId: pullRequestIssues.pullRequestId, identifier: issues.identifier })
     .from(pullRequestIssues)
     .innerJoin(issues, eq(issues.id, pullRequestIssues.issueId))
-    .where(inArray(pullRequestIssues.pullRequestId, pullRequestIds))
+    .where(and(inArray(pullRequestIssues.pullRequestId, pullRequestIds), eq(pullRequestIssues.closes, true)))
     .orderBy(asc(pullRequestIssues.createdAt))
   const out = new Map<string, string>()
   for (const row of rows) if (!out.has(row.pullRequestId)) out.set(row.pullRequestId, row.identifier)
