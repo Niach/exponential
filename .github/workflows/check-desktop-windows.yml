@@ -1,0 +1,38 @@
+name: check-desktop-windows
+
+# FEED-189: the gate's desktop `cargo check` runs on Linux, so `cfg(windows)`
+# code merges uncompiled, and the release's Windows leg is continue-on-error.
+# This compiles the app for Windows on the PRs that touch its update and
+# relaunch path. Informational: not part of `gate`.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/check-desktop-windows.yml"
+      - "apps/desktop/crates/app/src/windows_integration.rs"
+      - "apps/desktop/crates/app/src/main.rs"
+      - "apps/desktop/crates/coding/src/process.rs"
+      - "apps/desktop/crates/updater/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-desktop-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: windows-check
+      - uses: ./.github/actions/cargo-fetch
+      - name: cargo check
+        shell: bash
+        run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app

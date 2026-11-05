@@ -359,7 +359,7 @@ pub fn reset_ide_data(cx: &mut App) {
                 }
             })
             .await;
-        let _ = cx.update(|cx| cx.restart());
+        let _ = cx.update(|cx| crate::update::relaunch(None, cx));
     })
     .detach();
 }

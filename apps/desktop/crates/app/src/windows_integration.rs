@@ -50,6 +50,16 @@ fn deep_link_args() -> Vec<String> {
         .collect()
 }
 
+/// FEED-189: a launch that replaces an exiting app ([`coding::process`]'s
+/// relaunch) waits for it first. Its port file goes with it: the OS can hand
+/// that ephemeral port to another program, and [`acquire`] would then "forward"
+/// to a stranger and exit, leaving no app at all.
+pub fn await_relaunch() {
+    if coding::process::await_relaunch(std::env::args()) {
+        let _ = std::fs::remove_file(port_file());
+    }
+}
+
 /// Result of the single-instance guard (same contract as the Linux version).
 pub enum Instance {
     /// We own the listener; deep links now flow into `url_tx`. Continue booting.

@@ -1316,10 +1316,7 @@ impl Shell {
                         .small()
                         .label("Restart to update")
                         .on_click(move |_: &ClickEvent, _, cx| {
-                            if let Some(path) = restart_path.clone() {
-                                cx.set_restart_path(path);
-                            }
-                            cx.restart();
+                            update::relaunch(restart_path.clone(), cx);
                         }),
                 );
             }
@@ -1529,10 +1526,7 @@ impl Shell {
                         .w_full()
                         .label("Restart to update")
                         .on_click(move |_: &ClickEvent, _, cx| {
-                            if let Some(path) = restart_path.clone() {
-                                cx.set_restart_path(path);
-                            }
-                            cx.restart();
+                            update::relaunch(restart_path.clone(), cx);
                         }),
                 );
             }

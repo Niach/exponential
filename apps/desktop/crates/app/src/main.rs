@@ -95,6 +95,9 @@ fn main() {
     // Windows: same single-instance + deep-link bridge as Linux (gpui's
     // on_open_urls is macOS-only), over loopback TCP instead of a Unix
     // socket, plus per-user HKCU registration of the exponential:// scheme.
+    // FEED-189: a relaunch waits for the app it replaces first.
+    #[cfg(target_os = "windows")]
+    windows_integration::await_relaunch();
     #[cfg(target_os = "windows")]
     match windows_integration::acquire(url_tx.clone()) {
         windows_integration::Instance::Forwarded => return,
