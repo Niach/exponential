@@ -127,6 +127,33 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 - Fallback focus cycling (Alt+Tab without a shell) is in [Hotkeys](#hotkeys-ede-12).
 - The consent shield and the takeover banner wait for the agent spaces (M2).
 
+## Tier B: `ede-sealed` (#EDE-17)
+
+The surfaces a document on disk must never be: compiled into
+`ede-sealed` (`apps/ede/sealed/*.json`, a second binary of the shell
+workspace, drawn with the same gpui + eui-gpui and tokens), each a
+full-screen overlay with the keyboard to itself. The compositor marks every
+layer surface of that executable as protected (black in captures, never
+driven, no input method), and trusts the lock client by the pid it spawned:
+
+- **Lock** (`ede-sealed lock`): with no `[lock] command` the compositor
+  starts it on Super+L, idle and suspend; while locked only that process's
+  surfaces show (black until one arrives), only they get input, bindings
+  are off except VT switching. The password goes to PAM inside the binary
+  (`libpam.so.0` opened at run time; service `ede` when `/etc/pam.d/ede`
+  exists, else `login`), and the session opens only through the `unlock`
+  op with the grant the compositor minted for that process (`EDE_TOKEN`).
+  A lock client that dies keeps the session locked and is started again.
+  `swaylock` still works through `[lock] command` (ext-session-lock).
+- **polkit** (`ede-sealed polkit`, `ede-polkit-agent.service`): the
+  session's authentication agent; polkitd's request opens the prompt, the
+  password goes to `polkit-agent-helper-1`.
+- **Consent** (`ede-sealed consent --title … --body … [--allow …] [--deny
+  …]`): a question to the person for an agent's privileged action; prints
+  `allow` or `deny`, exits 0 or 1 (eMCP/ede-tools call it in M2).
+- Not done: a keyring prompt of our own (gnome-keyring unlocks at login
+  through PAM and keeps its own prompter), the accent-only theming.
+
 ## Outputs: mode, scale, position (#EDE-18)
 
 `~/.config/ede/compositor.toml` names each output by connector:

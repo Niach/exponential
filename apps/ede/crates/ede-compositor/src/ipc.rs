@@ -91,6 +91,13 @@ impl Ipc {
         self.grants.iter().find(|g| &g.token == token)
     }
 
+    /// A grant the compositor hands a process it starts (the sealed lock).
+    pub fn mint_for(&mut self, session: &str, capabilities: Vec<Capability>) -> Grant {
+        let grant = Grant { token: new_token(), session_id: SessionId::new(session).unwrap(), run_id: None, capabilities, expires_at: None };
+        self.grants.push(grant.clone());
+        grant
+    }
+
     /// Is the shell (the root grant) subscribed to events? Hotkeys go to it
     /// then; otherwise the compositor falls back ([`crate::hotkeys`]).
     pub fn shell_subscribed(&self) -> bool {
@@ -316,12 +323,27 @@ impl Ede {
                 if bindings && grant.session_id.as_str() != ROOT_SESSION {
                     return Err(fail(ErrorCode::Forbidden, "only the shell's grant drives the bindings"));
                 }
-                let refused = match event {
-                    InputEvent::Key { key, pressed } => {
-                        self.drive_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, bindings)
+                // `bindings` = the person's own input (the harness): it
+                // reaches the lock screen and protected surfaces like a
+                // real keyboard; the agent path refuses those.
+                let refused = match (event, bindings) {
+                    (InputEvent::Key { key, pressed }, true) => {
+                        self.keyboard_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32);
+                        Ok(())
                     }
-                    InputEvent::PointerMotion { x, y } => self.drive_pointer_motion((x, y).into(), now as u32),
-                    InputEvent::PointerButton { button, pressed } => {
+                    (InputEvent::PointerMotion { x, y }, true) => {
+                        self.pointer_motion_to((x, y).into(), now as u32);
+                        Ok(())
+                    }
+                    (InputEvent::PointerButton { button, pressed }, true) => {
+                        self.pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32);
+                        Ok(())
+                    }
+                    (InputEvent::Key { key, pressed }, false) => {
+                        self.drive_key((key + 8).into(), if pressed { KeyState::Pressed } else { KeyState::Released }, now as u32, false)
+                    }
+                    (InputEvent::PointerMotion { x, y }, false) => self.drive_pointer_motion((x, y).into(), now as u32),
+                    (InputEvent::PointerButton { button, pressed }, false) => {
                         self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32)
                     }
                 };
@@ -354,6 +376,11 @@ impl Ede {
                     None => None,
                 };
                 self.set_output(&name, &crate::outputs::OutputChange { mode, scale, position }).map_err(|e| fail(ErrorCode::Invalid, &e))?;
+                json(serde_json::Value::Null)
+            }
+            Request::Unlock => {
+                let token = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.token.clone()).ok_or_else(|| fail(ErrorCode::Unauthorized, "no token"))?;
+                self.sealed_unlock(&token).map_err(|e| fail(ErrorCode::Forbidden, e))?;
                 json(serde_json::Value::Null)
             }
             Request::Logout => {

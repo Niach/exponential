@@ -24,7 +24,10 @@ use crate::state::Ede;
 pub enum LockState {
     #[default]
     Unlocked,
+    /// An ext-session-lock client (swaylock and the like).
     Locked(Locked),
+    /// The sealed lock client ([`crate::sealed`]).
+    Sealed(crate::sealed::Sealed),
 }
 
 #[derive(Debug)]
@@ -40,7 +43,7 @@ pub struct Locked {
 
 impl Ede {
     pub fn is_locked(&self) -> bool {
-        matches!(self.lock, LockState::Locked(_))
+        matches!(self.lock, LockState::Locked(_) | LockState::Sealed(_))
     }
 
     /// The lock was confirmed to the client (every output showed it).
@@ -48,24 +51,33 @@ impl Ede {
         matches!(&self.lock, LockState::Locked(l) if l.pending.is_none())
     }
 
-    pub fn lock_surface_on(&self, output: &Output) -> Option<&LockSurface> {
-        let LockState::Locked(l) = &self.lock else { return None };
-        l.surfaces.iter().find(|(o, s)| o == output && s.alive()).map(|(_, s)| s)
+    /// The surface the lock shows on `output`: the ext-session-lock
+    /// client's, or the sealed client's layer surface.
+    pub fn lock_surface_on(&self, output: &Output) -> Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface> {
+        match &self.lock {
+            LockState::Locked(l) => l.surfaces.iter().find(|(o, s)| o == output && s.alive()).map(|(_, s)| s.wl_surface().clone()),
+            LockState::Sealed(_) => self.sealed_lock_surface_on(output),
+            LockState::Unlocked => None,
+        }
     }
 
     pub fn is_lock_surface(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> bool {
-        let LockState::Locked(l) = &self.lock else { return false };
-        l.surfaces.iter().any(|(_, s)| s.wl_surface() == surface)
+        match &self.lock {
+            LockState::Locked(l) => l.surfaces.iter().any(|(_, s)| s.wl_surface() == surface),
+            LockState::Sealed(_) => self.sealed_lock_surfaces().iter().any(|(_, s)| s == surface),
+            LockState::Unlocked => false,
+        }
     }
 
-    /// Starts the configured lock client (Super+L, idle, suspend). Nothing
-    /// happens without `[lock] command`, or when already locked.
+    /// Starts the lock (Super+L, idle, suspend): `[lock] command` when
+    /// configured (an ext-session-lock client), else the sealed lock
+    /// client (#EDE-17). Nothing when already locked.
     pub fn request_lock(&mut self) {
         if self.is_locked() {
             return;
         }
         if self.config.lock.command.is_empty() {
-            tracing::info!("lock requested, but no [lock] command is configured");
+            self.begin_sealed_lock();
             return;
         }
         let argv = self.config.lock.command.clone();
@@ -111,6 +123,10 @@ impl Ede {
     /// Keyboard focus goes to the lock surface of the output under the
     /// pointer (else any).
     fn focus_lock_surface(&mut self) {
+        if matches!(self.lock, LockState::Sealed(_)) {
+            self.focus_sealed_lock();
+            return;
+        }
         let pointer = self.seat.get_pointer().unwrap();
         let output = self.output_at(pointer.current_location());
         let surface = {
@@ -129,7 +145,7 @@ impl Ede {
         self.focus_lock_surface();
     }
 
-    fn enter_lock(&mut self) {
+    pub(crate) fn enter_lock(&mut self) {
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.seat.get_pointer().unwrap();
         // A drag in progress ends; nothing behind the lock keeps input.
@@ -162,6 +178,9 @@ impl SessionLockHandler for Ede {
     fn lock(&mut self, confirmation: SessionLocker) {
         let lock = confirmation.ext_session_lock().clone();
         match &mut self.lock {
+            LockState::Sealed(_) => {
+                tracing::warn!("an ext-session-lock client was refused: the sealed lock holds the session");
+            }
             LockState::Locked(l) if l.lock.is_alive() => {
                 // Someone else holds the lock: dropping the locker answers
                 // `finished`.

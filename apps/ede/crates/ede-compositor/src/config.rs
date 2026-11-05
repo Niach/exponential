@@ -59,9 +59,9 @@ pub fn parse_mode(text: &str) -> Option<(i32, i32, i32)> {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Lock {
-    /// The ext-session-lock client Super+L, idle and suspend start, e.g.
-    /// `["swaylock", "-f"]`. Empty = nothing locks until the shell's lock
-    /// screen exists.
+    /// An ext-session-lock client for Super+L, idle and suspend, e.g.
+    /// `["swaylock", "-f"]`. Empty (the default) = eDE's own sealed lock
+    /// screen, `ede-sealed lock` (#EDE-17).
     pub command: Vec<String>,
     /// Lock before the machine suspends (logind PrepareForSleep) and on
     /// `loginctl lock-session` (udev backend).

@@ -26,6 +26,7 @@ pub mod logind;
 pub mod outputs;
 pub mod protected;
 pub mod recovery;
+pub mod sealed;
 pub mod state;
 pub mod text;
 pub mod workspaces;

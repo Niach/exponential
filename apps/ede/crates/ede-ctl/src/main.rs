@@ -8,7 +8,7 @@
 //! ede-ctl capture [--output NAME | --window ID] --png FILE   a capture as a PNG
 //! ede-ctl capture --png FILE --expect-drawn                  …and fail unless something is drawn
 //! ede-ctl key <keycode> [--pressed|--released] [--bindings]  a key by evdev code (both edges by default; --bindings = as the person's, through Alt+Tab, Super, the media keys)
-//! ede-ctl pointer <x> <y> [--click]                          pointer motion, optionally a left click
+//! ede-ctl pointer <x> <y> [--click] [--bindings]              pointer motion, optionally a left click (--bindings = as the person's)
 //! ```
 //!
 //! An agent in the VM uses this instead of QMP's screendump and
@@ -20,7 +20,7 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 use ede_protocol::{CaptureTarget, Client, InputEvent, WindowId};
 
 fn usage() -> ! {
-    eprintln!("usage: ede-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click]");
+    eprintln!("usage: ede-ctl windows | outputs | capture [--output NAME | --window ID] --png FILE [--expect-drawn] | key CODE [--pressed|--released] [--bindings] | pointer X Y [--click] [--bindings]");
     std::process::exit(2)
 }
 
@@ -104,10 +104,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "pointer" => {
             let x: f64 = args.next().unwrap_or_else(|| usage()).parse()?;
             let y: f64 = args.next().unwrap_or_else(|| usage()).parse()?;
-            ede.input(InputEvent::PointerMotion { x, y })?;
-            if args.next().as_deref() == Some("--click") {
-                ede.input(InputEvent::PointerButton { button: 0x110, pressed: true })?;
-                ede.input(InputEvent::PointerButton { button: 0x110, pressed: false })?;
+            let rest: Vec<String> = args.collect();
+            let bindings = rest.iter().any(|a| a == "--bindings");
+            let mut send = |event: InputEvent| -> Result<(), ede_protocol::Error> { if bindings { ede.input_as_person(event) } else { ede.input(event) } };
+            send(InputEvent::PointerMotion { x, y })?;
+            if rest.iter().any(|a| a == "--click") {
+                send(InputEvent::PointerButton { button: 0x110, pressed: true })?;
+                send(InputEvent::PointerButton { button: 0x110, pressed: false })?;
             }
         }
         _ => usage(),

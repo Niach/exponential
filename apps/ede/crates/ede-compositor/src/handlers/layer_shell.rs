@@ -26,9 +26,16 @@ impl WlrLayerShellHandler for Ede {
             surface.send_close();
             return;
         };
+        let layer = LayerSurface::new(surface, namespace);
+        let origin = crate::sealed::origin_of(self, layer.wl_surface());
+        layer.user_data().insert_if_missing(|| origin);
         let mut map = layer_map_for_output(&output);
-        if let Err(e) = map.map_layer(&LayerSurface::new(surface, namespace)) {
+        if let Err(e) = map.map_layer(&layer) {
             tracing::warn!("layer surface refused: {e}");
+        }
+        drop(map);
+        if matches!(&self.lock, crate::lock::LockState::Sealed(s) if s.pid == origin.pid) {
+            self.focus_sealed_lock();
         }
     }
 

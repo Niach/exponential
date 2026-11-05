@@ -91,6 +91,9 @@ pub enum Request {
     Lock,
     /// End the session cleanly (the compositor exits 0; ede-session logs out).
     Logout,
+    /// The sealed lock client (#EDE-17) authenticated: open the session.
+    /// Only the grant the compositor minted for that client is accepted.
+    Unlock,
     /// The workspaces, the active one and each one's windows (#EDE-18).
     ListWorkspaces,
     SwitchWorkspace { index: usize },
@@ -129,7 +132,7 @@ impl Request {
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } => Some(Capability::InputPerson),
-            Request::ReloadConfig | Request::Lock | Request::Logout | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
         }
     }
 }
@@ -422,6 +425,10 @@ impl Client {
 
     pub fn logout(&mut self) -> Result<(), Error> {
         self.call(Request::Logout).map(|_| ())
+    }
+
+    pub fn unlock(&mut self) -> Result<(), Error> {
+        self.call(Request::Unlock).map(|_| ())
     }
 
     pub fn workspaces(&mut self) -> Result<Vec<WorkspaceInfo>, Error> {

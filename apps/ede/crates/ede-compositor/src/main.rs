@@ -1,4 +1,7 @@
-//! `ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]`
+//! `ede-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--debug-captures] [-- command args…]`
+//! `--debug-captures`: ede-protocol captures show protected surfaces and the
+//! lock (pictures of them in a VM); refused with --udev, a real screen is
+//! never captured unredacted.
 //! `ede-compositor doctor`: what this machine is missing for eDE.
 //!
 //! Inside a running X11 or Wayland session it nests in a window (winit);
@@ -23,6 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut headless: Option<(i32, i32)> = None;
     let mut no_xwayland = false;
     let mut safe_mode = false;
+    let mut debug_captures = false;
     let mut udev = std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none();
     let mut config_path = Config::default_path();
     let mut command: Vec<String> = Vec::new();
@@ -38,6 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Stock settings: the config file is not read (ede-session's
             // crash recovery, or the "safe mode" login entry).
             "--safe-mode" => safe_mode = true,
+            "--debug-captures" => debug_captures = true,
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
@@ -65,6 +70,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.xwayland = false;
     }
 
+    if debug_captures && udev && headless.is_none() {
+        return Err("--debug-captures never applies to a real screen (udev)".into());
+    }
     if udev && headless.is_none() {
         #[cfg(feature = "udev")]
         {
@@ -78,6 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let display: Display<Ede> = Display::new()?;
     let mut state = Ede::new(display, event_loop.handle(), event_loop.get_signal(), config);
     state.config_path = config_path;
+    state.debug_captures = debug_captures;
     let socket = state.listen()?;
     tracing::info!("listening on {}", socket.to_string_lossy());
     if !command.is_empty() {

@@ -98,7 +98,7 @@ impl Ede {
     /// Any surface: a lock surface, or part of a protected window (its
     /// subsurfaces and popups included).
     pub fn is_protected_surface(&self, surface: &WlSurface) -> bool {
-        if self.is_lock_surface(surface) {
+        if self.is_lock_surface(surface) || self.is_sealed_surface(surface) {
             return true;
         }
         let root = self.toplevel_root(surface);

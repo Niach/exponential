@@ -45,7 +45,8 @@ where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
 {
-    scene(state, output, renderer, true)
+    let redact = !state.debug_captures;
+    scene(state, output, renderer, redact)
 }
 
 fn scene<R>(state: &mut Ede, output: &Output, renderer: &mut R, redact: bool) -> Vec<OutputElements<R>>
@@ -65,7 +66,7 @@ where
             return vec![];
         }
         let Some(lock) = state.lock_surface_on(output) else { return vec![] };
-        return render_elements_from_surface_tree(renderer, lock.wl_surface(), (0, 0), scale, 1.0, Kind::Unspecified)
+        return render_elements_from_surface_tree(renderer, &lock, (0, 0), scale, 1.0, Kind::Unspecified)
             .into_iter()
             .map(OutputElements::Surface)
             .collect();
