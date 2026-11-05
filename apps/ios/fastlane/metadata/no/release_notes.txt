@@ -41,3 +41,6 @@
 - Saker, innstillinger og chatter ser like ut i alle appene
 - Å lagre en post med dato og tid flytter den ikke lenger med tidssonen
 - Saker en app opprettet viser "via" appen
+- En godkjent plan får en hake, og avgjorte planer forlater fanene
+- Trenger deg viser alle ventende kort
+- En økt på en frakoblet enhet sier fra og tilbyr flytting

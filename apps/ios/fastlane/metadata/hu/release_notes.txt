@@ -41,3 +41,6 @@
 - A feladatok, beállítások és csevegések minden appban ugyanúgy néznek ki
 - Egy dátumot és időt tartalmazó rekord mentése már nem tolja el az időzónával
 - Az app által létrehozott feladatoknál látszik, melyik app „által” készültek
+- A jóváhagyott terv pipát kap, az eldöntött tervek eltűnnek a fülekről
+- A Rád vár minden várakozó kártyát mutat
+- Az offline eszközön futó munkamenet jelzi ezt, és felajánlja az áthelyezést

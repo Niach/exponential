@@ -41,3 +41,6 @@
 - Problemele, setările și chaturile arată la fel în toate aplicațiile
 - Salvarea unei înregistrări cu dată și oră nu o mai mută cu fusul orar
 - Problemele create de o aplicație arată „prin” acea aplicație
+- Un plan aprobat primește o bifă, iar planurile decise ies din file
+- Are nevoie de tine arată toate cardurile în așteptare
+- O sesiune pe un dispozitiv offline spune asta și oferă mutarea

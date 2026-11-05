@@ -41,3 +41,6 @@
 - Os issues, as definições e os chats têm o mesmo aspeto em todas as apps
 - Guardar um registo com data e hora já não o desloca pelo teu fuso horário
 - Os issues criados por uma app indicam "via" essa app
+- Um plano aprovado recebe um visto e os planos decididos saem dos separadores
+- Precisa de ti mostra todos os cartões em espera
+- Uma sessão num dispositivo offline diz isso e oferece Mover

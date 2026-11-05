@@ -41,3 +41,6 @@
 - Opgaver, indstillinger og chats ser ens ud i alle apps
 - At gemme en post med dato og tid flytter den ikke længere med tidszonen
 - Opgaver oprettet af en app viser "via" appen
+- En godkendt plan får et flueben, og afgjorte planer forlader fanerne
+- Har brug for dig viser alle ventende kort
+- En session på en offline enhed siger det og tilbyder at flytte den

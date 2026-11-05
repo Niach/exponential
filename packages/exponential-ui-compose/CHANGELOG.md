@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.2 (2026-11-06)
+
+- The icon list follows the app: `power` and the eDE icons (`ede-window`, `ede-lock`, `ede-power`, `ede-suspend`, …) are new.
+
 ## 0.16.1 (2026-11-05)
 
 - #VAPP-253: a Drawer's bottom sheet spans the window (the core's layer viewport, no `sheetMaxWidth`) instead of keeping the surface's width.

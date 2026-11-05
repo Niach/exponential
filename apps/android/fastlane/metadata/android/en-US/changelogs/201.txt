@@ -1,0 +1,3 @@
+- An approved plan gets a check, and decided plans leave the tabs
+- Needs you shows every waiting card
+- A session on an offline device says so and offers Move

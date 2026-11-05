@@ -41,3 +41,6 @@
 - Problémy, nastavení a chaty vypadají stejně ve všech aplikacích
 - Uložení záznamu s datem a časem ho už neposune o časové pásmo
 - Úlohy vytvořené aplikací ukazují „přes“ tuto aplikaci
+- Schválený plán dostane fajfku a rozhodnuté plány zmizí ze záložek
+- Potřebuje vás ukazuje všechny čekající karty
+- Relace na offline zařízení to řekne a nabídne přesun

@@ -41,3 +41,6 @@
 - Issues, Einstellungen und Chats sehen in allen Apps gleich aus
 - Ein Eintrag mit Datum und Uhrzeit verschiebt sich beim Speichern nicht mehr um die Zeitzone
 - Von einer App erstellte Issues zeigen „via“ diese App
+- Ein genehmigter Plan bekommt ein Häkchen, entschiedene Pläne verlassen die Tabs
+- Braucht dich zeigt jede wartende Karte
+- Eine Sitzung auf einem Offline-Gerät sagt es und bietet Verschieben an

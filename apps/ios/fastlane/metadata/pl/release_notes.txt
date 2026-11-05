@@ -41,3 +41,6 @@
 - Zadania, ustawienia i czaty wyglądają tak samo we wszystkich aplikacjach
 - Zapis rekordu z datą i godziną nie przesuwa go już o strefę czasową
 - Zadania utworzone przez aplikację pokazują „przez” tę aplikację
+- Zatwierdzony plan dostaje znacznik, a rozstrzygnięte plany znikają z kart
+- Potrzebuje cię pokazuje każdą czekającą kartę
+- Sesja na urządzeniu offline mówi o tym i proponuje przeniesienie

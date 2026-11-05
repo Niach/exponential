@@ -41,3 +41,6 @@
 - Issues, settings and chats look the same on every app
 - Saving a date-time record no longer shifts it by your time zone
 - Issues an app created read "via" that app
+- An approved plan gets a check, and decided plans leave the tabs
+- Needs you shows every waiting card
+- A session on an offline device says so and offers Move

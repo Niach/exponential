@@ -41,3 +41,6 @@
 - Zadaci, postavke i chatovi izgledaju isto u svim aplikacijama
 - Spremanje zapisa s datumom i vremenom više ga ne pomiče za vremensku zonu
 - Zadaci koje je stvorila aplikacija pokazuju "putem" te aplikacije
+- Odobreni plan dobiva kvačicu, a odlučeni planovi napuštaju kartice
+- Treba te prikazuje sve kartice na čekanju
+- Sesija na izvanmrežnom uređaju to kaže i nudi premještanje
