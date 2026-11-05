@@ -63,7 +63,8 @@ function upstreamStates(app: ConsentApp): Record<string, UpstreamState> {
 
 function appCaption(app: ConsentApp): string {
   const tools = `${app.toolCount} ${app.toolCount === 1 ? `tool` : `tools`}`
-  const needs = app.upstreams.map((u) => u.name)
+  // #VAPP-254: the real server, when a mapping fills the upstream.
+  const needs = app.upstreams.map((u) => u.serverName ?? u.name)
   return needs.length ? `${tools} · needs ${needs.join(`, `)}` : tools
 }
 
@@ -229,7 +230,7 @@ export function AppsConsent({
                       disabled={pending !== null}
                       onClick={() => void connect(u.serverId!, u.auth)}
                     >
-                      {app.upstreams.length > 1 ? `Connect ${u.name}` : `Connect`}
+                      {app.upstreams.length > 1 ? `Connect ${u.serverName ?? u.name}` : `Connect`}
                     </Button>
                   ) : u.state ? (
                     <span key={u.name} className="text-xs text-muted-foreground">
