@@ -1,6 +1,6 @@
 //! VAPP-110: the typed `apps.*` client (web `apps/web/src/lib/trpc/apps.ts`).
 //!
-//! An app is a team's declarative Exponential UI package. The list and the
+//! An app is a team's declarative genUI package. The list and the
 //! head package ride the synced `apps` shape, the versions `app_versions`
 //! (package-less); [`get`] with a `version` is the only path to an OLD
 //! version's package. Create, rename and delete are the creator's or an

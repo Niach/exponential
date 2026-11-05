@@ -285,13 +285,13 @@ export function validateCardSurface(surface: CardSurfaceInput | undefined): Card
   }
   const root = surface.root
   if (typeof root.id !== `string` || typeof root.component !== `string`) {
-    throw bad(`surface.root must be an Exponential UI node: {id, component, props?, children?}`)
+    throw bad(`surface.root must be a genUI node: {id, component, props?, children?}`)
   }
   let result: ReduceResult
   try {
     result = reduceNested(root as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
   } catch (error) {
-    throw bad(`surface.root is not a valid Exponential UI tree: ${error instanceof Error ? error.message : String(error)}`)
+    throw bad(`surface.root is not a valid genUI tree: ${error instanceof Error ? error.message : String(error)}`)
   }
   const count = countNodes(result)
   if (count > PLAN_CARD_SURFACE_MAX_COMPONENTS) {
@@ -300,7 +300,7 @@ export function validateCardSurface(surface: CardSurfaceInput | undefined): Card
   if (result.issues.length > 0) {
     const listed = result.issues.slice(0, 10).map((issue) => `${issue.id}: ${issue.message}`)
     const more = result.issues.length > 10 ? `; and ${result.issues.length - 10} more` : ``
-    throw bad(`surface is not valid in the Exponential UI core catalog: ${listed.join(`; `)}${more}`)
+    throw bad(`surface is not valid in the genUI core catalog: ${listed.join(`; `)}${more}`)
   }
   // EXP-1604: a Motion's animation is checked by the engine itself (the
   // WASM): the dialect compiles, Lottie has no expressions and fits the limits.
@@ -406,7 +406,7 @@ export function buildSurfaceCard(input: {
   description?: string
 }): Extract<MessageCard, { kind: `surface` }> {
   const surface = validateCardSurface(input.surface)
-  if (!surface) throw bad(`surface is required: an Exponential UI core tree {root, data?}`)
+  if (!surface) throw bad(`surface is required: a genUI core tree {root, data?}`)
   const title = input.title?.trim() || null
   if (title && title.length > SURFACE_CARD_TITLE_MAX) {
     throw bad(`title is ${title.length} characters; the cap is ${SURFACE_CARD_TITLE_MAX}`)

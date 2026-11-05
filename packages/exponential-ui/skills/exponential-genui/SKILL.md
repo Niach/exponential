@@ -1,13 +1,13 @@
 ---
-name: exponential-ui
-description: "Write Exponential UI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any eUI surface; exponential_apps {op: \"catalog\"} lists the components and their props."
+name: exponential-genui
+description: "Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props."
 ---
 
-# Exponential UI
+# genUI
 
-> Generated from the eUI prompt and catalog (eUI 0.15.3) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from the genUI prompt and catalog (genUI 0.15.3) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
-Exponential UI (eUI) paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `exponential_show` card, an app template and every other surface use this one model.
+genUI paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `exponential_show` card, an app template and every other surface use this one model.
 
 ## Rules
 

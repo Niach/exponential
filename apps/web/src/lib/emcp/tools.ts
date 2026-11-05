@@ -4047,7 +4047,7 @@ export function registerExponentialTools(
   )
 
   // -----------------------------------------------------------------------
-  // Apps (VAPP-110: a team's declarative Exponential UI packages; an app's
+  // Apps (VAPP-110: a team's declarative genUI packages; an app's
   // editor session publishes versions here)
   // -----------------------------------------------------------------------
 
@@ -4320,7 +4320,7 @@ export function registerExponentialTools(
     `exponential_apps_catalog`,
     {
       annotations: READ_ONLY,
-      description: `The package format, the bindings (exp: sources), the host functions, records and every Exponential UI component an app may use. Read it once before writing a package. only = just these components' props (for an exponential_show surface).`,
+      description: `The package format, the bindings (exp: sources), the host functions, records and every genUI component an app may use. Read it once before writing a package. only = just these components' props (for an exponential_show surface).`,
       inputSchema: strictInput({ only: z.array(z.string().min(1).max(40)).min(1).max(20).optional() }),
     },
     async ({ only }) => {

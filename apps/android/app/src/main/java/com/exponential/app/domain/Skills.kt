@@ -21,9 +21,9 @@ object Skills {
     /** #VAPP-213 `builtin.pill`: a built-in's list pill and picker hint. */
     const val BUILTIN_PILL = "Built-in"
     /** `builtin.names`: the shipped built-ins. */
-    val BUILTIN_NAMES = listOf("exponential-apps", "exponential-motion", "exponential-ui")
+    val BUILTIN_NAMES = listOf("exponential-apps", "exponential-genui", "exponential-motion")
     /** `builtin.editorDelivery`: the order an app editor session gets them. */
-    val BUILTIN_EDITOR_DELIVERY = listOf("exponential-apps", "exponential-ui", "exponential-motion")
+    val BUILTIN_EDITOR_DELIVERY = listOf("exponential-apps", "exponential-genui", "exponential-motion")
     const val EMPTY_TITLE = "No skills yet"
     const val PICKER_EMPTY = "No skills"
     const val AGENT_ROW_LABEL = "Skills"

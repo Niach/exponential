@@ -1436,10 +1436,10 @@ pub fn validate_card_surface(surface: Option<&Value>) -> Result<Value, String> {
     }
     let root = surface.get("root").cloned().unwrap_or(Value::Null);
     if !root.get("id").is_some_and(Value::is_string) || !root.get("component").is_some_and(Value::is_string) {
-        return Err("surface.root must be an Exponential UI node: {id, component, props?, children?}".into());
+        return Err("surface.root must be a genUI node: {id, component, props?, children?}".into());
     }
     let nested: eui_core::NestedNode =
-        serde_json::from_value(root.clone()).map_err(|e| format!("surface.root is not a valid Exponential UI tree: {e}"))?;
+        serde_json::from_value(root.clone()).map_err(|e| format!("surface.root is not a valid genUI tree: {e}"))?;
     let result = eui_core::reducer::reduce_nested(&nested, &eui_core::reducer::ReduceOptions::new(eui_core::CORE_CATALOG_ID));
     let count = count_nodes(&result.root) + result.templates.iter().flat_map(|t| t.values()).map(count_nodes).sum::<usize>();
     if count > PLAN_CARD_SURFACE_MAX_COMPONENTS {
@@ -1448,7 +1448,7 @@ pub fn validate_card_surface(surface: Option<&Value>) -> Result<Value, String> {
     if !result.issues.is_empty() {
         let listed: Vec<String> = result.issues.iter().take(10).map(|i| format!("{}: {}", i.id, i.message)).collect();
         let more = if result.issues.len() > 10 { format!("; and {} more", result.issues.len() - 10) } else { String::new() };
-        return Err(format!("surface is not valid in the Exponential UI core catalog: {}{more}", listed.join("; ")));
+        return Err(format!("surface is not valid in the genUI core catalog: {}{more}", listed.join("; ")));
     }
     Ok(json!({ "root": root, "data": surface.get("data").cloned().unwrap_or(Value::Null) }))
 }
@@ -2410,9 +2410,9 @@ mod tests {
         assert_eq!(build_show_card(&text).unwrap_err(), SHOW_TEXT_ONLY_ERROR);
         // Not a node / an unknown component: the reducer's verdict.
         let bad = ShowInput::parse(&json!({ "surface": { "root": { "component": "Stack" } } })).unwrap();
-        assert_eq!(build_show_card(&bad).unwrap_err(), "surface.root must be an Exponential UI node: {id, component, props?, children?}");
+        assert_eq!(build_show_card(&bad).unwrap_err(), "surface.root must be a genUI node: {id, component, props?, children?}");
         let unknown = ShowInput::parse(&json!({ "surface": { "root": { "id": "s", "component": "Stack", "children": [{ "id": "x", "component": "Blink" }] } } })).unwrap();
-        assert!(build_show_card(&unknown).unwrap_err().starts_with("surface is not valid in the Exponential UI core catalog: "));
+        assert!(build_show_card(&unknown).unwrap_err().starts_with("surface is not valid in the genUI core catalog: "));
         let empty = ShowInput::parse(&json!({})).unwrap();
         assert_eq!(build_show_card(&empty).unwrap_err(), "Pass surface, ask, plan or pictures.");
     }

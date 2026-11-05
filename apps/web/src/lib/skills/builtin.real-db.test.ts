@@ -45,10 +45,34 @@ describe.skipIf(!ready.ok)(`built-in skills (real db)`, () => {
     expect(rows.map((r) => [r.name, r.builtin])).toEqual(BUILTINS.map((b) => [b.name, true]).sort())
   })
 
+  it(`reconcile renames exponential-ui in place, and retires it where the team already holds the new name`, async () => {
+    const teamId = await team()
+    const [old] = await db
+      .insert(skills)
+      .values({ teamId, name: `exponential-ui`, description: `old`, body: `old`, builtin: true })
+      .returning({ id: skills.id })
+    await reconcileBuiltinSkills([teamId])
+    const [renamed] = await db.select({ id: skills.id }).from(skills).where(and(eq(skills.teamId, teamId), eq(skills.name, `exponential-genui`)))
+    expect(renamed!.id).toBe(old!.id)
+    expect((await rowsOf(teamId)).map((r) => r.name)).toEqual(BUILTINS.map((b) => b.name).sort())
+
+    const taken = await team()
+    await db.insert(skills).values([
+      { teamId: taken, name: `exponential-ui`, description: `old`, body: `old`, builtin: true },
+      { teamId: taken, name: `exponential-genui`, description: `ours`, body: `# ours`, builtin: false },
+    ])
+    await reconcileBuiltinSkills([taken])
+    expect((await rowsOf(taken)).map((r) => [r.name, r.builtin])).toEqual([
+      [`exponential-apps`, true],
+      [`exponential-genui`, false],
+      [`exponential-motion`, true],
+    ])
+  })
+
   it(`reconcile seeds, heals a stale row, drops a retired built-in and leaves a team's own skill alone`, async () => {
     const teamId = await team()
     await db.insert(skills).values([
-      { teamId, name: `exponential-ui`, description: `ours`, body: `# ours`, builtin: false },
+      { teamId, name: `exponential-genui`, description: `ours`, body: `# ours`, builtin: false },
       { teamId, name: `exponential-legacy`, description: `old`, body: `# old`, builtin: true },
     ])
     await reconcileBuiltinSkills([teamId])
@@ -60,10 +84,10 @@ describe.skipIf(!ready.ok)(`built-in skills (real db)`, () => {
     const rows = await rowsOf(teamId)
     expect(rows.map((r) => [r.name, r.builtin])).toEqual([
       [`exponential-apps`, true],
+      [`exponential-genui`, false],
       [`exponential-motion`, true],
-      [`exponential-ui`, false],
     ])
     expect(rows[0]!.body).toBe(BUILTINS.find((b) => b.name === `exponential-apps`)!.body)
-    expect(rows[2]!.body).toBe(`# ours`)
+    expect(rows[1]!.body).toBe(`# ours`)
   })
 })

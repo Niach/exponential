@@ -1,13 +1,13 @@
 # The package and its versions
 
-> Generated from packages/exponential-ui/docs/package-format.md (Versions, The package, The package file) and docs/spec/apps.md §2.3 (eUI 0.15.3) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+> Generated from packages/exponential-ui/docs/package-format.md (Versions, The package, The package file) and docs/spec/apps.md §2.3 (genUI 0.15.3) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
 
 ## Versions
 
 A package MUST carry `formatVersion`. This document is format version
 **4** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
 `policy`, 4 added a screen's `nav` and `exposed`), and a host reads exactly its
-own version: eApps keeps no backwards compatibility. A missing one is
+own version: Apps keeps no backwards compatibility. A missing one is
 `/formatVersion: formatVersion is required (4)`, an older one `format version
 3 is no longer read: write 4`, a newer one `format version 5 is newer than
 this host (4)`; a host never guesses at keys it does not know. The catalog a package

@@ -1,13 +1,13 @@
 ---
 name: exponential-motion
-description: "Animate with eUI Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file."
+description: "Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file."
 ---
 
-# eUI Motion
+# Motion
 
-> Generated from docs/spec/motion.md and the Motion guide (eUI 0.15.3) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from docs/spec/motion.md and the Motion guide (genUI 0.15.3) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
-`Motion` is the eUI component for vector animation. **Lottie JSON is the
+`Motion` is the genUI component for vector animation. **Lottie JSON is the
 stored and rendered format.** Models and people write a readable **dialect**
 that compiles 1:1 to Lottie and converts back without loss. One Rust engine,
 `eui-motion`, samples any frame into a flat **display list**; all six

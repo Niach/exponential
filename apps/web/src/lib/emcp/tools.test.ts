@@ -3241,7 +3241,7 @@ describe(`exponential_show {plan | ask} (S-3, the EXP-1280 cards)`, () => {
     [`an unanswerable question`, { questions: [{ id: `q`, prompt: `Q?`, custom: false, options: [] }] }, `cannot be answered`],
     [`a surface outside the core catalog`, { surface: { root: { id: `r`, component: `Nope` } } }, `unknown component Nope`],
     [`a surface with invalid props`, { surface: { root: { id: `r`, component: `Text` } } }, `props.text: required`],
-    [`a surface root that is no node`, { surface: { root: { kind: `x` } } }, `Exponential UI node`],
+    [`a surface root that is no node`, { surface: { root: { kind: `x` } } }, `genUI node`],
     [`a malformed surface tree`, { surface: { root: { id: `r`, component: `Stack`, children: `x` } } }, `not a valid`],
     [
       `a surface past the byte cap`,
@@ -3404,7 +3404,7 @@ describe(`exponential_show {surface} (Chats)`, () => {
 
   it.each([
     [`a surface outside the core catalog`, { root: { id: `r`, component: `Nope` } }, `unknown component Nope`],
-    [`a surface root that is no node`, { root: { kind: `x` } }, `Exponential UI node`],
+    [`a surface root that is no node`, { root: { kind: `x` } }, `genUI node`],
     [`a surface past the byte cap`, { root: { id: `r`, component: `Text`, props: { text: `x`.repeat(70_000) } } }, `the cap is 65536`],
   ])(`refuses %s`, async (_name, bad, message) => {
     const result = await show({ surface: bad })

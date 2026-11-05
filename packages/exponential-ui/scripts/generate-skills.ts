@@ -9,11 +9,11 @@
 //   <name>/SKILL.md          frontmatter (name, description) + a compact body
 //   <name>/references/*.md   the doc sections, verbatim (images dropped)
 //   <name>/examples/*        the worked examples (samples/apps, the Motion gallery)
-//   index.json               the manifest: eUI version + per skill name, description, files
+//   index.json               the manifest: genUI version + per skill name, description, files
 //   index.ts                 the same with every file inlined (?raw), for the server
 //
 // Sources: packages/exponential-ui/docs/package-format.md, docs/spec/apps.md,
-// docs/spec/motion.md, samples/apps/*.app.json, the eUI prompt (src/prompt.ts:
+// docs/spec/motion.md, samples/apps/*.app.json, the genUI prompt (src/prompt.ts:
 // the rules, functions and style sections every model gets), the built-in
 // themes, the Motion guide (eval/motion/guide.md + lottie-guide.md, the
 // text models get) and the Motion gallery (the 8 recorded replies the guide
@@ -39,9 +39,9 @@ export const MOTION_GALLERY = [`pulse-dot`, `progress-ring`, `typing-dots`, `hea
 const SAMPLE_APPS = [`crm`, `leave-planner`, `standup`, `time-tracker`] as const
 
 const DESCRIPTIONS: Record<string, string> = {
-  "exponential-apps": `Build or change an Exponential app (eApps): the package format (formatVersion 4), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.`,
-  "exponential-ui": `Write Exponential UI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any eUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
-  "exponential-motion": `Animate with eUI Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.`,
+  "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 4), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records.`,
+  "exponential-genui": `Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
+  "exponential-motion": `Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.`,
 }
 
 const read = (path: string) => readFileSync(join(ROOT, path), `utf8`)
@@ -89,7 +89,7 @@ function demote(md: string, by: number): string {
 }
 
 function page(title: string, from: string, body: string): string {
-  return `# ${title}\n\n> Generated from ${from} (eUI ${pkg.version}) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.\n\n${body.trim()}\n`
+  return `# ${title}\n\n> Generated from ${from} (genUI ${pkg.version}) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.\n\n${body.trim()}\n`
 }
 
 function skillMd(name: string, body: string): string {
@@ -170,7 +170,7 @@ function appsSkill(): Files {
 
   const body = [
     `# Exponential apps`,
-    `> Generated from the eApps docs (eUI ${pkg.version}) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.`,
+    `> Generated from the Apps docs (genUI ${pkg.version}) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.`,
     overview,
     `## Workflow`,
     editorWorkflow(`<slug>`),
@@ -196,7 +196,7 @@ function appsSkill(): Files {
   return files
 }
 
-// ── exponential-ui ──────────────────────────────────────────────────────
+// ── exponential-genui ──────────────────────────────────────────────────────
 
 function uiSkill(): Files {
   const files: Files = new Map()
@@ -207,8 +207,8 @@ function uiSkill(): Files {
     groups.set(group, [...(groups.get(group) ?? []), name])
   }
   const strip = (text: string) => text.split(`\n`).slice(1).join(`\n`).trim()
-  files.set(`references/functions.md`, page(`Client functions`, `the eUI prompt (src/prompt.ts, section functions)`, strip(catalogPrompt({ sections: [`functions`] }))))
-  files.set(`references/style.md`, page(`Style keys and tokens`, `the eUI prompt (src/prompt.ts, section style)`, strip(catalogPrompt({ sections: [`style`] }))))
+  files.set(`references/functions.md`, page(`Client functions`, `the genUI prompt (src/prompt.ts, section functions)`, strip(catalogPrompt({ sections: [`functions`] }))))
+  files.set(`references/style.md`, page(`Style keys and tokens`, `the genUI prompt (src/prompt.ts, section style)`, strip(catalogPrompt({ sections: [`style`] }))))
   const themes = JSON.parse(read(`packages/exponential-ui/docs/themes.generated.json`)) as { themes: { id: string; name: string; chain: string[] }[] }
   files.set(
     `references/themes.md`,
@@ -222,9 +222,9 @@ function uiSkill(): Files {
     )
   )
   const body = [
-    `# Exponential UI`,
-    `> Generated from the eUI prompt and catalog (eUI ${pkg.version}) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.`,
-    `Exponential UI (eUI) paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an \`exponential_show\` card, an app template and every other surface use this one model.`,
+    `# genUI`,
+    `> Generated from the genUI prompt and catalog (genUI ${pkg.version}) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.`,
+    `genUI paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an \`exponential_show\` card, an app template and every other surface use this one model.`,
     `## Rules`,
     PROMPT_RULES.map((rule) => `- ${rule}`).join(`\n`),
     `## Components`,
@@ -238,7 +238,7 @@ function uiSkill(): Files {
     ].join(`\n`),
     `Apps add their own bindings (exp: and records: sources) and host functions: the \`exponential-apps\` skill.`,
   ].join(`\n\n`)
-  files.set(`SKILL.md`, skillMd(`exponential-ui`, body))
+  files.set(`SKILL.md`, skillMd(`exponential-genui`, body))
   return files
 }
 
@@ -247,7 +247,7 @@ function uiSkill(): Files {
 function motionSkill(): Files {
   const spec = read(`docs/spec/motion.md`)
   const files: Files = new Map()
-  files.set(`references/spec.md`, page(`eUI Motion: the spec`, `docs/spec/motion.md`, demote(tidy(spec.split(`\n`).slice(1).join(`\n`)), 0)))
+  files.set(`references/spec.md`, page(`Motion: the spec`, `docs/spec/motion.md`, demote(tidy(spec.split(`\n`).slice(1).join(`\n`)), 0)))
   files.set(`references/lottie.md`, page(`Writing Lottie directly`, `packages/exponential-ui/eval/motion/lottie-guide.md`, read(`packages/exponential-ui/eval/motion/lottie-guide.md`)))
   const examples = MOTION_GALLERY.map((id) => {
     const fixture = JSON.parse(read(`packages/exponential-ui/eval/motion/fixtures/dialect/${id}.json`)) as { prompt: string; text: string }
@@ -259,8 +259,8 @@ function motionSkill(): Files {
   })
   const overview = section(spec, `0. In one paragraph`).split(`\n`).slice(1).join(`\n`).split("```")[0]!.trim()
   const body = [
-    `# eUI Motion`,
-    `> Generated from docs/spec/motion.md and the Motion guide (eUI ${pkg.version}) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.`,
+    `# Motion`,
+    `> Generated from docs/spec/motion.md and the Motion guide (genUI ${pkg.version}) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.`,
     overview,
     `## Sources`,
     section(spec, `1. Sources`).split(`\n`).slice(1).join(`\n`).trim(),
@@ -285,7 +285,7 @@ function motionSkill(): Files {
 
 const BUILDERS: Record<string, () => Files> = {
   "exponential-apps": appsSkill,
-  "exponential-ui": uiSkill,
+  "exponential-genui": uiSkill,
   "exponential-motion": motionSkill,
 }
 
@@ -310,7 +310,7 @@ export function buildSkills(): Map<string, string> {
     `index.json`,
     `${JSON.stringify(
       {
-        $comment: `AUTO-GENERATED by packages/exponential-ui/scripts/generate-skills.ts — do not edit. The built-in skills (packages/domain-contract/fixtures/skills.json \`builtin\`), versioned with eUI.`,
+        $comment: `AUTO-GENERATED by packages/exponential-ui/scripts/generate-skills.ts — do not edit. The built-in skills (packages/domain-contract/fixtures/skills.json \`builtin\`), versioned with genUI.`,
         version: pkg.version,
         skills: manifest,
       },

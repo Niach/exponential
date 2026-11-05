@@ -18,8 +18,8 @@ public enum Skills {
     /// rows with `builtin` true), their app-editor delivery order, and the pill
     /// a built-in's row shows instead of Default.
     public enum Builtin {
-        public static let names = ["exponential-apps", "exponential-motion", "exponential-ui"]
-        public static let editorDelivery = ["exponential-apps", "exponential-ui", "exponential-motion"]
+        public static let names = ["exponential-apps", "exponential-genui", "exponential-motion"]
+        public static let editorDelivery = ["exponential-apps", "exponential-genui", "exponential-motion"]
         public static let pill = "Built-in"
     }
 

@@ -1,10 +1,10 @@
-# The package format (eApps)
+# The package format (Apps)
 
 VAPP-161. One format for an Exponential app and a spezl block: a declarative
-Exponential UI package (VAPP-82: data, never code) plus the file it travels
+genUI package (VAPP-82: data, never code) plus the file it travels
 in. The format is transport-neutral: it names what a host provides (a record
 store, tool runners, extensions), never how (Exponential serves records from
-its synced store, spezl from a p2p store over eNet). `catalog/host.json`
+its synced store, spezl from a p2p store over P2P). `catalog/host.json`
 `package` is the machine-readable contract; this page is the prose spec other
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
 (`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `actions.ts`, `screens.ts`, `tests.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
@@ -19,7 +19,7 @@ extension compatibility, canonical JSON, signatures).
 A package MUST carry `formatVersion`. This document is format version
 **4** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
 `policy`, 4 added a screen's `nav` and `exposed`), and a host reads exactly its
-own version: eApps keeps no backwards compatibility. A missing one is
+own version: Apps keeps no backwards compatibility. A missing one is
 `/formatVersion: formatVersion is required (4)`, an older one `format version
 3 is no longer read: write 4`, a newer one `format version 5 is newer than
 this host (4)`; a host never guesses at keys it does not know. The catalog a package
@@ -69,7 +69,7 @@ reaches (neither the root nor a list's row template) is not checked.
 
 ## Screens
 
-VAPP-218 (eApps U1, `src/host/screens.ts`, `fixtures/host-router.json`
+VAPP-218 (Apps U1, `src/host/screens.ts`, `fixtures/host-router.json`
 `screens` + `navigate`; `catalog/host.json` `package.screens`). `screens`
 is the navigation manifest: the templates a person can open, in order.
 
@@ -82,7 +82,7 @@ is the navigation manifest: the templates a person can open, in order.
 
 - At least 1 and at most **5** screens in the navigation, each keyed by its
   `template` (a declared template, no duplicates); `title` 1..32 characters;
-  `icon` an Exponential UI icon name; `params` an object of strings, the params
+  `icon` a genUI icon name; `params` an object of strings, the params
   it opens with. Install refuses an unknown template, a duplicate, a sixth
   navigation screen, an unknown key, a bad icon or a non-string param.
 - **`nav: false`** (the only allowed value) is a detail screen: outside the
@@ -142,7 +142,7 @@ declares every kind (VAPP-122: the kind pattern, the JSON Schema subset and
 the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
 
-**Policy** (eApps R3, `fixtures/record-policy.json`): who may read, create,
+**Policy** (Apps R3, `fixtures/record-policy.json`): who may read, create,
 update and delete a kind's records, one level per op:
 
 ```jsonc
@@ -162,7 +162,7 @@ synced rows, so a private kind never reaches another member's device);
 the refusal texts are the fixture's `copy`. Field-level privacy is out: use
 a separate kind with `read: owners`.
 
-**Files** (eApps R7, VAPP-221; `fixtures/host-router.json` `acme.files` and
+**Files** (Apps R7, VAPP-221; `fixtures/host-router.json` `acme.files` and
 `attachments`): `format: "attachment"` on a string field holds one file, on a
 list's string `items` a list of files:
 
@@ -188,7 +188,7 @@ of the app references any more (a trashed record still does, until the
 trash purge) after a week. `recordAttachmentIds(schema, data)` lists the
 ids a record references.
 
-**Computed fields** (eApps Q3, VAPP-214; `fixtures/records-query.json`
+**Computed fields** (Apps Q3, VAPP-214; `fixtures/records-query.json`
 VAPP-214 cases, `fixtures/expressions.json` `packages`): fields evaluated on
 read by the expression evaluator (below), never stored, so they never go stale:
 
@@ -213,7 +213,7 @@ them: the clients' records query (`recordsValue(rows, query, {…, computed})`,
 the FFI context's `computed`; `kindComputed(records, kind)` picks a kind's)
 and Exponential's server (the records list, MCP and the broker's reads).
 
-**Refs** (eApps R5, VAPP-219; `fixtures/records-query.json` VAPP-219
+**Refs** (Apps R5, VAPP-219; `fixtures/records-query.json` VAPP-219
 cases, `fixtures/host-router.json` `acme.crm` / `acme.badrefs`): string
 fields that hold an id, so a kind points at another instead of nesting:
 
@@ -231,7 +231,7 @@ write (Exponential: BAD_REQUEST naming the field). A read follows a ref with
 `expand` (below); deleting the target never cascades: the ref dangles and
 an expanded one reads null.
 
-**Transitions** (eApps R6, VAPP-222; `fixtures/record-transitions.json`): a
+**Transitions** (Apps R6, VAPP-222; `fixtures/record-transitions.json`): a
 state machine on ONE enum field:
 
 ```jsonc
@@ -267,7 +267,7 @@ transitions: kindTransitions(kind), role})`). Exponential's server enforces
 it on every create, patch, batch write and restore (an owner may restore any
 state).
 
-**Migrations** (eApps R8, VAPP-233; `fixtures/record-migrations.json`):
+**Migrations** (Apps R8, VAPP-233; `fixtures/record-migrations.json`):
 a new version that reshapes a kind says how its records move:
 
 ```jsonc
@@ -317,17 +317,17 @@ structured query, below):
 | `limit=<n>` | default 100, capped at 500 |
 | `sum=<field>` | `sum` = Σ of the field over the matches (before `limit`) |
 | `by=<dateField>&month=YYYY-MM` | the month view: that month's rows only, `month` = {key, label, prev, next, today, days (every day with its count and sum), labels/counts/sums}; no `month` = the month of now |
-| `until=<endField>` | eApps U3: a row SPANS its `by` day to its `until` day (inclusive); the calendar views below place it on every day it covers |
-| `view=week&day=YYYY-MM-DD` | eApps U3: the week view (Monday first, the week holding `day`, default today): `week` = {key, label, prev, next, today, days, segments} |
-| `view=timeline&start=…&scale=week\|month\|quarter&columns=n&row=<field>` | eApps U3: the timeline: `timeline` = {scale, key, label, prev, next, today, columns, bands, rows: [{key, index, lanes, count, items}], now} |
-| `day=`, `lanes=1..8`, `tone=<field>` | eApps U3: the month view's selected day (its `agenda`), the lanes per week before "+N more" (default 3), the field a row's colour (`chart1`..`chart8`) comes from |
+| `until=<endField>` | Apps U3: a row SPANS its `by` day to its `until` day (inclusive); the calendar views below place it on every day it covers |
+| `view=week&day=YYYY-MM-DD` | Apps U3: the week view (Monday first, the week holding `day`, default today): `week` = {key, label, prev, next, today, days, segments} |
+| `view=timeline&start=…&scale=week\|month\|quarter&columns=n&row=<field>` | Apps U3: the timeline: `timeline` = {scale, key, label, prev, next, today, columns, bands, rows: [{key, index, lanes, count, items}], now} |
+| `day=`, `lanes=1..8`, `tone=<field>` | Apps U3: the month view's selected day (its `agenda`), the lanes per week before "+N more" (default 3), the field a row's colour (`chart1`..`chart8`) comes from |
 | `app=<slug>` | another app's rows (the HOST decides which rows that is) |
 | `<field>=v` | a data field equals `v` (as text) |
 | `<field>.gt\|gte\|lt\|lte=v` | numbers when both parse, else text (code units) |
 | `<field>.in=a,b` | the field (as text) is one of the comma-separated values |
 | `<field>.between=lo,hi` | inclusive, numbers when both parse, else text |
 | `before=<date>` | the rows whose date (`by`'s field, else `createdAt`) is before it leave the rows and are totalled into `before` |
-| `expand=<field>[,<field>]` | eApps R5: each ref field reads its target inlined (below) |
+| `expand=<field>[,<field>]` | Apps R5: each ref field reads its target inlined (below) |
 | `q=<json>` | the JSON form below (the other params are ignored) |
 | `query=<name>` | one of the package's `queries` (below) |
 
@@ -361,11 +361,11 @@ pointer) drops that part; the rest still runs.
   "running": { "hours": "sum" },                    // sum count avg min max, cumulative
   "before": "2026-10-01",                           // or {field, date}
   "sort": [["date", "desc"]], "limit": 500,         // also mine, user, app, sum, month: {field, key?}
-  "expand": ["customer"],                           // ref fields inlined (eApps R5)
+  "expand": ["customer"],                           // ref fields inlined (Apps R5)
 }
 ```
 
-- `expand: [field…]` (eApps R5): every output row carries each named REF's
+- `expand: [field…]` (Apps R5): every output row carries each named REF's
   target in place of its id, one level: a `{kind}` ref = that record as a
   row (`{…data, id, createdAt, updatedAt, createdBy, authorId, author}`, its
   own refs not followed), an `issue` ref = the issue's summary `{id,
@@ -396,7 +396,7 @@ pointer) drops that part; the rest still runs.
   sort order. The names `count`, `sum`, `running`, `rows` and a group
   column's are taken.
 
-**Calendar views** (eApps U3, `src/host/calendar.ts`, the Rust core's
+**Calendar views** (Apps U3, `src/host/calendar.ts`, the Rust core's
 `host::calendar`, fixtures/records-query.json): the month view's `month`
 gains `weeks` (Monday-first, padding days included: `{key, days: 7 ×
 {date, day, weekday, initial, inMonth, weekend, today, selected, total,
@@ -457,7 +457,7 @@ Records have ONE spelling on every host: read `records:<kind>?q`, write
 
 ## Record macros
 
-VAPP-217 (eApps U2, `src/host/record-macros.ts`, Rust `host::record_macros`,
+VAPP-217 (Apps U2, `src/host/record-macros.ts`, Rust `host::record_macros`,
 `fixtures/record-macros.json`; the expansion: `catalog/macros.json`,
 `fixtures/catalog-macros.json` `RecordForm/*` + `RecordTable/*`). Two catalog
 macros put a kind's whole form or table on a screen as ONE node:
@@ -501,7 +501,7 @@ macros put a kind's whole form or table on a screen as ONE node:
 
 ## Public links
 
-VAPP-241 (eApps P1, `src/host/share.ts`, Rust `host::share`,
+VAPP-241 (Apps P1, `src/host/share.ts`, Rust `host::share`,
 `fixtures/package-share.json`; the links themselves:
 `packages/domain-contract/fixtures/app-share.json`). `share` declares the
 links an owner can turn on; nothing is public until one does.
@@ -863,14 +863,14 @@ call's input; the first key must be a declared input property). A string
 that is exactly one template keeps the value's type; inside text the value
 is printed. Destructive is never exposed: a name holding delete, merge, close,
 end, remove or trash is refused, and a `read` binding whose run writes is
-refused. At most 32 tools. `exposeIssues` returns every issue with its eMCP
+refused. At most 32 tools. `exposeIssues` returns every issue with its MCP Proxy
 error code; the host adds its own rules on top (Exponential: only grantable,
 non-destructive actions; upstreams the team has).
 
 ## Extensions
 
 `extensions: [{id, version, components?}]` declares the custom component
-catalogs (eUI extensions, VAPP-85: `defineExtension`) a package needs beyond
+catalogs (genUI extensions, VAPP-85: `defineExtension`) a package needs beyond
 its `catalogId`. `id` = the extension catalog's id, `version` = the minimum
 `MAJOR.MINOR.PATCH` it needs (caret: the host's version has the same major and
 is not lower), `components` = the names the package uses from it. A host
