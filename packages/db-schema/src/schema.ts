@@ -2650,6 +2650,8 @@ export interface ConversationDigestJson {
   first: ConversationDigestMessageJson | null
   preview: ConversationDigestMessageJson | null
   waiting: ConversationDigestMessageJson | null
+  /** #FEED-191: every waiting card, newest first (absent on older digests). */
+  waits?: ConversationDigestMessageJson[]
   agentAt: string | null
   agentTimes: string[]
 }

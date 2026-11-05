@@ -625,6 +625,14 @@ RETURNS jsonb AS $$
         AND m.answered_at IS NULL AND jsonb_typeof(m.card) = 'object'
         AND m.card->>'kind' IN ('question', 'plan', 'ask')
       ORDER BY m.created_at DESC, m.id DESC LIMIT 1),
+    -- #FEED-191: EVERY waiting card (Needs you lists each), newest first, 20 at most.
+    'waits', COALESCE((
+      SELECT jsonb_agg(conversation_digest_message(w) ORDER BY w.created_at DESC, w.id DESC) FROM (
+        SELECT m.* FROM messages m
+        WHERE m.conversation_id = conv AND m.author_kind IN ('user', 'agent')
+          AND m.answered_at IS NULL AND jsonb_typeof(m.card) = 'object'
+          AND m.card->>'kind' IN ('question', 'plan', 'ask')
+        ORDER BY m.created_at DESC, m.id DESC LIMIT 20) w), '[]'::jsonb),
     'agentAt', (
       SELECT conversation_digest_ms(m.created_at) FROM messages m
       WHERE m.conversation_id = conv AND m.author_kind = 'agent'
@@ -676,6 +684,9 @@ CREATE OR REPLACE TRIGGER refresh_conversation_digests_delete
 -- Backfill (idempotent, every boot): conversations from before the column
 -- (a digest is never NULL once computed, an empty one included).
 UPDATE conversations SET digest = conversation_digest(id) WHERE digest IS NULL;
+-- #FEED-191: digests from before `waits` gain it (idempotent: every digest
+-- written since carries the key).
+UPDATE conversations SET digest = conversation_digest(id) WHERE digest IS NOT NULL AND NOT digest ? 'waits';
 
 -- Review of #1218: the first prompt's body moved to its first usable line
 -- (and cuts count code points): recompute every digest ONCE (the marker

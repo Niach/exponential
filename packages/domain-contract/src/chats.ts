@@ -535,6 +535,8 @@ export function surfaceReply(event: { name?: unknown; context?: unknown }): Surf
 export const DIGEST_AGENT_TAIL = 100
 /** A digest message's body / card text is cut to this many characters. */
 export const DIGEST_TEXT_MAX = 500
+/** #FEED-191: the most waiting cards a digest keeps (`waits`). */
+export const DIGEST_WAITS_MAX = 20
 
 export interface DigestMessage {
   id: string
@@ -554,6 +556,10 @@ export interface ConversationDigest {
   preview: DigestMessage | null
   /** The newest WAITING question / plan / ask among them. */
   waiting: DigestMessage | null
+  /** #FEED-191: EVERY waiting question / plan / ask (Needs you lists each),
+   *  newest first, at most `DIGEST_WAITS_MAX`; absent on a digest written
+   *  before it (read as `[]`). `waiting` stays for older clients. */
+  waits?: DigestMessage[]
   /** The newest agent message, event cards included (`partitionThreads`). */
   agentAt: string | null
   /** The newest `DIGEST_AGENT_TAIL` non-event agent messages' times,
@@ -648,16 +654,17 @@ export function conversationDigest(sessionId: string, messages: readonly TreeMes
     .filter((m) => m.authorKind === `user` || m.authorKind === `agent`)
     .filter((m) => (m.card ? PREVIEW_CARDS.has(String(m.card.kind)) : m.body.trim() !== ``))
     .sort((a, b) => oldestFirst(b, a))
-  const waiting =
-    candidates.find(
-      (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
-    ) ?? null
+  const waits = candidates.filter(
+    (m) => m.answeredAt === null && (m.card?.kind === `question` || m.card?.kind === `plan` || m.card?.kind === `ask`)
+  )
+  const waiting = waits[0] ?? null
   const agents = own.filter((m) => m.authorKind === `agent`).sort(oldestFirst)
   const tail = agents.filter((m) => m.card?.kind !== `event`).slice(-DIGEST_AGENT_TAIL)
   return {
     first: first ? digestMessage(first, digestFirstBody(first.body)) : null,
     preview: candidates[0] ? digestMessage(candidates[0]) : null,
     waiting: waiting ? digestMessage(waiting) : null,
+    waits: waits.slice(0, DIGEST_WAITS_MAX).map((m) => digestMessage(m)),
     agentAt: agents.length > 0 ? agents[agents.length - 1]!.createdAt : null,
     agentTimes: tail.map((m) => m.createdAt),
   }
@@ -673,7 +680,7 @@ export function digestMessages(sessionId: string, digest: ConversationDigest | n
   const seen = new Set<string>()
   // Kept agent messages by time (a multiset: two may share a time).
   const counted = new Map<number, number>()
-  for (const m of [digest.first, digest.preview, digest.waiting]) {
+  for (const m of [digest.first, digest.preview, digest.waiting, ...(digest.waits ?? [])]) {
     if (!m || seen.has(m.id)) continue
     seen.add(m.id)
     out.push({
