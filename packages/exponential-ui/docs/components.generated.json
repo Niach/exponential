@@ -4024,7 +4024,6 @@
       "example": {
         "id": "example",
         "component": "Skeleton",
-        "width": "60%",
         "height": "16px"
       },
       "macro": null

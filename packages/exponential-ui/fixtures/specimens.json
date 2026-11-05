@@ -6799,7 +6799,6 @@
                 "id": "c0-skeleton",
                 "component": "Skeleton",
                 "props": {
-                  "width": "60%",
                   "height": "16px"
                 }
               }
@@ -6826,7 +6825,6 @@
                 "id": "c1-skeleton",
                 "component": "Skeleton",
                 "props": {
-                  "width": "60%",
                   "height": "16px",
                   "rounded": true
                 }
