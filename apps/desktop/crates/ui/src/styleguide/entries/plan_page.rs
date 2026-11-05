@@ -6,7 +6,7 @@
 //! ([`crate::plan_page::plan_page`]): THE Outline with `specimen.activeSection`
 //! active, the document from its top (pictures = the committed samples,
 //! EXP-1654: [`crate::specimen_pictures`] seeds the entry's cache) and the
-//! floating questions on question 1.
+//! questions RAIL on question 1 (#FEED-191).
 //! `EXP_DEV_SCREEN=styleguide:plan-page` draws it full-window.
 
 use domain::plan_page::PLAN_PAGE;
@@ -93,7 +93,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     );
     v_flex()
         // At most the specimen's width: a narrower pane (the IDE window
-        // beside its sidebar) shrinks it, never clips the header and panel.
+        // beside its sidebar) shrinks it, never clips the header and rail.
         .w_full()
         .max_w(px(WIDE.0))
         .h(px(WIDE.1))

@@ -54,6 +54,8 @@ pub struct PlanPageLayout {
     pub title_size: f32,
     pub row_height: f32,
     pub tab_max_width: f32,
+    /// #FEED-191: the wide questions rail's width.
+    pub rail_width: f32,
 }
 
 /// #EXP-1662: the floating questions panel (`panel`).
@@ -176,12 +178,41 @@ fn flush_prose(blocks: &mut Vec<PlanBlock>, prose: &mut Vec<String>) {
     prose.clear();
 }
 
-/// #EXP-1662: the plan a thread's tab shows (`tabCases`; `plans` = (id,
-/// decision), oldest first): the newest waiting one, else the newest approved
-/// or rejected one; superseded and dismissed never.
-pub fn plan_tab_target<'a>(plans: &[(&'a str, Option<&str>)]) -> Option<&'a str> {
-    let newest = |pick: &dyn Fn(Option<&str>) -> bool| plans.iter().rev().find(|(_, decision)| pick(*decision)).map(|(id, _)| *id);
-    newest(&|decision| decision.is_none()).or_else(|| newest(&|decision| matches!(decision, Some("approved" | "rejected"))))
+/// #EXP-1662 / #FEED-191: the plan a thread's tab shows (`tabCases`; `plans`
+/// = (id, decision), oldest first): the newest waiting one, else `kept` while
+/// it is an approved or rejected plan of the thread (the plan the tab showed
+/// during THIS visit of the chat; the host clears it when the person leaves),
+/// else none: a decided plan leaves the strip.
+pub fn plan_tab_target<'a>(plans: &[(&'a str, Option<&str>)], kept: Option<&str>) -> Option<&'a str> {
+    if let Some((id, _)) = plans.iter().rev().find(|(_, decision)| decision.is_none()) {
+        return Some(*id);
+    }
+    let kept = kept?;
+    plans
+        .iter()
+        .find(|(id, _)| *id == kept)
+        .filter(|(_, decision)| matches!(decision, Some("approved" | "rejected")))
+        .map(|(id, _)| *id)
+}
+
+/// #FEED-191: the plan tab's lead glyph (`tabGlyphCases`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PlanTabGlyph {
+    /// `coding-plan` | `ui-check`.
+    pub icon: &'static str,
+    /// `text` = the chip's own text colour, `approved` = emerald (the plan
+    /// row's approved check).
+    pub tone: &'static str,
+}
+
+/// #FEED-191: an approved plan's chip leads with THE check in emerald (as its
+/// row), anything else with the plan glyph.
+pub fn plan_tab_glyph(decision: Option<&str>) -> PlanTabGlyph {
+    if decision == Some("approved") {
+        PlanTabGlyph { icon: "ui-check", tone: "approved" }
+    } else {
+        PlanTabGlyph { icon: "coding-plan", tone: "text" }
+    }
 }
 
 /// #EXP-1662: `Plan: title`, the row's and the wide tab's label
@@ -425,6 +456,7 @@ mod tests {
         assert_eq!(PLAN_PAGE.layout.title_size, 28.0);
         assert_eq!(PLAN_PAGE.layout.row_height, 44.0);
         assert_eq!(PLAN_PAGE.layout.tab_max_width, 260.0);
+        assert_eq!(PLAN_PAGE.layout.rail_width, 360.0);
         assert_eq!(PLAN_PAGE.panel.max_width, 720.0);
         assert_eq!(PLAN_PAGE.panel.max_height_fraction, 0.4);
     }
@@ -475,7 +507,17 @@ mod tests {
                 .iter()
                 .map(|plan| (plan["id"].as_str().unwrap(), plan["decision"].as_str()))
                 .collect();
-            assert_eq!(plan_tab_target(&plans), case["expect"].as_str(), "{}", case["name"]);
+            assert_eq!(plan_tab_target(&plans, case["kept"].as_str()), case["expect"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn tab_glyph_matches_the_fixture() {
+        let cases = fixture()["tabGlyphCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let actual = serde_json::to_value(plan_tab_glyph(case["decision"].as_str())).unwrap();
+            assert_eq!(actual, case["expected"], "{}", case["decision"]);
         }
     }
 

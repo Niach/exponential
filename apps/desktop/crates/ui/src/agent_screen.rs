@@ -953,6 +953,13 @@ impl Focusable for AgentScreenView {
     }
 }
 
+impl AgentScreenView {
+    /// #FEED-191: the conversation's thread view (root id, view), once it has one.
+    pub(crate) fn thread_view(&self) -> Option<&(String, Entity<crate::thread_screen::ThreadScreenView>)> {
+        self.thread.as_ref()
+    }
+}
+
 impl Render for AgentScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let editor = matches!(self.subject, ChannelSubject::App(_));

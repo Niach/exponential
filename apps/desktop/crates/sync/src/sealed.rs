@@ -136,10 +136,7 @@ impl Opener {
             return true;
         };
         let mut sealed = false;
-        for slot in ["first", "preview", "waiting"] {
-            let Some(Value::Object(message)) = digest.get_mut(slot) else {
-                continue;
-            };
+        let mut open = |message: &mut serde_json::Map<String, Value>| {
             let mut body = message.get("body").and_then(Value::as_str).map(str::to_string);
             let mut card = message.get("card").cloned().filter(|card| !card.is_null());
             let state = open_parts(&mut body, &mut card, &tree);
@@ -148,6 +145,19 @@ impl Opener {
                 message.insert("body".into(), Value::String(body.unwrap_or_default()));
                 message.insert("card".into(), card.unwrap_or(Value::Null));
                 message.insert("_seal".into(), serde_json::to_value(state_name(state)).unwrap_or(Value::Null));
+            }
+        };
+        for slot in ["first", "preview", "waiting"] {
+            if let Some(Value::Object(message)) = digest.get_mut(slot) {
+                open(message);
+            }
+        }
+        // #FEED-191: every waiting card (`waits`) opens like the slots.
+        if let Some(Value::Array(waits)) = digest.get_mut("waits") {
+            for wait in waits {
+                if let Value::Object(message) = wait {
+                    open(message);
+                }
             }
         }
         root.is_some() || !sealed
@@ -331,6 +341,7 @@ mod tests {
             digest: Some(serde_json::json!({
                 "preview": {"id": "m1", "authorKind": "user", "body": envelope, "createdAt": "2026-10-30T00:00:00Z"},
                 "waiting": {"id": "m2", "authorKind": "agent", "body": "", "card": split["envelope"], "createdAt": "2026-10-30T00:00:00Z"},
+                "waits": [{"id": "m2", "authorKind": "agent", "body": "", "card": split["envelope"], "createdAt": "2026-10-30T00:00:00Z"}],
             })),
             ..ConversationRow::default()
         };
@@ -341,6 +352,8 @@ mod tests {
         assert_eq!(preview.seal, Some(SealState::Opened));
         let waiting = digest.waiting.unwrap();
         assert_eq!(waiting.card.as_ref(), Some(&split["card"]));
+        // #FEED-191: every `waits` entry opens too.
+        assert_eq!(digest.waits[0].card.as_ref(), Some(&split["card"]));
 
         // A session the sessions shape has not delivered yet: locked, retried.
         let mut unknown = ConversationRow {

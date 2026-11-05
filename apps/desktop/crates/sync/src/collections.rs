@@ -244,6 +244,7 @@ sealed_shape_row!(ConversationRow, "conversations", open_conversation, |row| {
         [&digest.first, &digest.preview, &digest.waiting]
             .into_iter()
             .flatten()
+            .chain(digest.waits.iter())
             .any(|message| domain::sealed::is_closed(message.seal))
     })
 });
