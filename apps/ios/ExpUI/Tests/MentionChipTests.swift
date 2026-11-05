@@ -167,7 +167,7 @@ final class MentionDisplayTests: XCTestCase {
         display.mentionMembers = members
         display.load(markdown: src, baseURL: nil)
         guard case let .text(_, shown) = display.blocks[0] else { return XCTFail("expected a text block") }
-        XCTAssertEqual(shown.string, "Ping \u{200A}@Ada\u{00A0}Lovelace about #EXP-42 Fix login flow")
+        XCTAssertEqual(shown.string, "Ping \u{200A}@Ada\u{00A0}Lovelace about #EXP-42\u{00A0}Fix\u{00A0}login\u{00A0}flow")
 
         let editable = IssueEditorModel()
         editable.issueRefResolver = display.issueRefResolver
@@ -177,6 +177,10 @@ final class MentionDisplayTests: XCTestCase {
         XCTAssertEqual(editable.currentMarkdown(), src)
         guard case let .text(_, edited) = editable.blocks[0] else { return XCTFail("expected a text block") }
         XCTAssertTrue(edited.string.contains("@ada@example.com"))
+        // EXP-1676: the no-break run is the display model's alone: what a person
+        // edits and copies keeps ordinary spaces.
+        XCTAssertFalse(edited.string.contains("\u{00A0}"))
+        XCTAssertFalse(edited.string.contains("\u{200A}"))
     }
 
     func testLateSyncingMembersChipAnAlreadyLoadedCard() {
