@@ -168,7 +168,7 @@ export function AppImportDialog({
               placeholder={APP_EXPORT_COPY.importPlaceholder}
               rows={6}
               spellCheck={false}
-              className="font-mono text-xs"
+              className="field-sizing-fixed font-mono text-xs"
               data-testid="app-import-text"
             />
             <input
