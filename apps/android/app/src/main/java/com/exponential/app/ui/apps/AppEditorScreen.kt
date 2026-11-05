@@ -918,7 +918,9 @@ private fun AppChatPane(
             ) {
                 val focus = remember { FocusRequester() }
                 var focused by remember { mutableStateOf(false) }
-                if (draft && deviceId != null) {
+                // One tap on the capsule opens AND focuses (a kept draft that
+                // reopens the card by itself takes no keyboard).
+                if ((draft || text.isBlank()) && deviceId != null) {
                     LaunchedEffect(Unit) {
                         // requestFocus on an unplaced node no-ops: retry until it lands.
                         var attempts = 0
