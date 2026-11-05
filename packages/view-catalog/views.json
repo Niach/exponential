@@ -27,7 +27,7 @@
     {
       "id": "reviews",
       "label": "Reviews",
-      "blurb": "The read-only diff view and the PR row (S-3: the Guide is gone; stories carry what a session shows).",
+      "blurb": "The read-only diff view and the PR row (S-3: the Guide is gone; the Results tab carries what a session shows).",
       "order": 5
     },
     {
@@ -1309,8 +1309,8 @@
       "notes": {
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor is a line of the first card's own patch (strings.xml's added feature_topic_api_error string). EXP-1251: the page sits under the Guide (a back row to it); on md+ the file tree is the column beside the cards, the phone lists the files in the bar's sheet beside the white Merge capsule.",
         "desktop": "EXP-1251: the issue tab's Guide owns the diff pages (`steer_viewer` guide_page) and nothing deep-links straight to the complete diff any more, so `issue:<id>?face=guide` lands on the Guide; the desktop half of this view is the `guide` drive until a page deep link exists.",
-        "ios": "S-3: no iOS capture; the diff was reached through the Guide tab, which is gone (stories replace it).",
-        "android": "S-3: no Android capture; the diff was reached through the Guide tab, which is gone (stories replace it)."
+        "ios": "S-3: no iOS capture; the diff was reached through the Guide tab, which is gone (the Results tab replaces it).",
+        "android": "S-3: no Android capture; the diff was reached through the Guide tab, which is gone (the Results tab replaces it)."
       }
     },
     {
@@ -6973,7 +6973,7 @@
       "id": "threads",
       "group": "coding",
       "title": "Chats",
-      "blurb": "Every chat of the team (chats.json, EXP-1373): the agent bubbles, the filter chips (All · Needs you · Running · Unread) and one flat row per root chat with its lead disc, title, time, two-line preview, ONE quiet right word (question, ready to merge, stack) and the unread badge.",
+      "blurb": "Every chat of the team (chats.json, EXP-1373): the agents, then the chats under their section headers: one row per root chat with its lead disc, title, time, two-line preview, ONE quiet right word (question, ready to merge, stack) and the unread badge.",
       "order": 18,
       "web": {
         "route": "/t/$teamSlug/threads",
@@ -7009,7 +7009,7 @@
         "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top.",
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Threads tab, gated on the seeded rows' quiet words (`question`, `stack`).",
         "android": "See ios.",
-        "web-mobile": "Thread 58cb32df (chats.json): the phone Chats screen, not the bands: the large Chats headline with the search and inbox circles, the agent bubbles, the filter chips (All · Needs you · Running · Unread) and one flat row per root chat of the ACTIVE team (52 lead disc, title + time, two-line preview, word, unread badge)."
+        "web-mobile": "Thread 58cb32df (chats.json): the phone Chats screen, not the bands: the large Chats headline with the search and inbox circles, the agents, then the chats under their section headers: one row per root chat of the ACTIVE team (52 lead disc, title + time, two-line preview, word, unread badge)."
       }
     },
     {
@@ -7785,120 +7785,6 @@
       }
     },
     {
-      "id": "story-ring",
-      "group": "coding",
-      "title": "Story ring",
-      "blurb": "THE story ring ×4 (S-3, stories.json): an avatar inside a ring with one arc per story (waiting = the ask tint, unseen = foreground, seen = the hairline), riding the agent bubbles row over the chat list.",
-      "order": 47,
-      "web": {
-        "route": "/t/$teamSlug/agent?dev=story-ring",
-        "anchor": {
-          "testId": "story-ring-specimen",
-          "timeoutMs": 20000
-        },
-        "settleMs": 800
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_story-ring",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_story-ring",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "styleguide:story-ring"
-        },
-        "anchorDelayMs": 1500
-      },
-      "notes": {
-        "web": "The DEV-ONLY `?dev=story-ring` on the Agent route: `@exp/ui` `StoryRingSpecimen`: an Assistant ring, a waiting chat, an unseen result and a seen one.",
-        "ios": "The specimen in ChatSpecimens / StyleguideScreenshots, shot sg_story-ring.",
-        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:story-ring`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "Inherits web."
-      }
-    },
-    {
-      "id": "story-viewer",
-      "group": "coding",
-      "title": "Story viewer",
-      "blurb": "THE story viewer ×4 (S-3, stories.json): the progress segments, the header (avatar, session, kind · age, close), the draft as an Exponential UI surface and its choices in the footer; phones full screen, wide a centered modal sized by its frame (#EXP-1463: a picture's own aspect).",
-      "order": 48,
-      "web": {
-        "route": "/t/$teamSlug/agent?dev=story-viewer",
-        "anchor": {
-          "testId": "story-viewer-specimen",
-          "timeoutMs": 20000
-        },
-        "settleMs": 800
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_story-viewer",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_story-viewer",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "styleguide:story-viewer"
-        },
-        "anchorDelayMs": 1500
-      },
-      "notes": {
-        "web": "The DEV-ONLY `?dev=story-viewer` on the Agent route: `@exp/ui` `StoryViewerSpecimen`: a draft question with a surface and two choices.",
-        "ios": "The specimen in ChatSpecimens / StyleguideScreenshots, shot sg_story-viewer.",
-        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:story-viewer`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "Inherits web."
-      }
-    },
-    {
-      "id": "story-tab",
-      "group": "coding",
-      "title": "Stories tab",
-      "blurb": "THE session screen's Stories tab body ×4 (stories.json STORIES TAB): one tile per story, waiting first then newest first, the title with its kind · outcome · age, a row of picture thumbnails with a short caption under each; no prose.",
-      "order": 51,
-      "web": {
-        "route": "/t/$teamSlug/agent?dev=story-tab",
-        "anchor": {
-          "testId": "story-tab-specimen",
-          "timeoutMs": 20000
-        },
-        "settleMs": 800
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_story-tab",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_story-tab",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "styleguide:story-tab"
-        },
-        "anchorDelayMs": 1500
-      },
-      "notes": {
-        "web": "The DEV-ONLY `?dev=story-tab` on the Agent route: `@exp/ui` `StoryTabSpecimen` = stories.json tabCases[1]: a waiting question, a result with two pictures, settled plans and an answered question, an old result.",
-        "ios": "The specimen in StorySpecimens / StyleguideScreenshots, shot sg_story-tab.",
-        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:story-tab`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "Inherits web."
-      }
-    },
-    {
       "id": "thread-results",
       "group": "coding",
       "title": "Thread · Results",
@@ -7914,11 +7800,11 @@
       },
       "webMobile": "inherit",
       "ios": {
-        "shot": "sg_thread-stories",
+        "shot": "sg_thread-results",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_thread-stories",
+        "shot": "sg_thread-results",
         "lane": "styleguide"
       },
       "desktop": {
@@ -7932,7 +7818,7 @@
       },
       "notes": {
         "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID: APP-14's thread (the stack top over APP-15, the one seeded PR with a real GitHub diff, so the Changes row counts). seed-screenshots gives it results with the board's web + iOS shots.",
-        "ios": "The LIVE walk: APP-14's thread from Chats, then its last strip tab (the shot keeps its name `sg_thread-stories` until the final cleanup renames it ×2: the styleguide lane is name-identical).",
+        "ios": "The LIVE walk: APP-14's thread from Chats, then its last strip tab.",
         "android": "See ios.",
         "desktop": "APP-14's thread opened on its last strip tab: `thread:$diffThread` + `EXP_DEV_THREAD_CHILD=results`.",
         "web-mobile": "Inherits web: the phone pager's last page (the icon-only Results tab)."
