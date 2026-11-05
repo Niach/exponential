@@ -2332,6 +2332,197 @@ public func FfiConverterTypeMotionPlayer_lower(_ value: MotionPlayer) -> UInt64 
 
 
 /**
+ * VAPP-212: one app's rows on the Rust side. A host pushes sync deltas
+ * (`apply_json`), and a query crosses the FFI without the rows (`value_json`).
+ */
+public protocol RecordStoreProtocol: AnyObject, Sendable {
+    
+    /**
+     * `delta_json` = `{upserts: [row], deletes: [id]}`, with only the rows
+     * that changed; deletes apply first.
+     */
+    func applyJson(deltaJson: String) throws 
+    
+    /**
+     * How many rows the store holds.
+     */
+    func count()  -> UInt64
+    
+    /**
+     * THE records value over the store: `query_json` and `context_json` as
+     * in [`records_value_json`]; `overlay_json` = the unsynced writes laid
+     * over this one query, a delta (`MemoryRecordStore::value`).
+     */
+    func valueJson(queryJson: String, contextJson: String, overlayJson: String?) throws  -> String
+    
+}
+/**
+ * VAPP-212: one app's rows on the Rust side. A host pushes sync deltas
+ * (`apply_json`), and a query crosses the FFI without the rows (`value_json`).
+ */
+open class RecordStore: RecordStoreProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_recordstore(self.handle, $0) }
+    }
+    /**
+     * Rows stay in first-seen order.
+     */
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_constructor_recordstore_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_recordstore(handle, $0) }
+    }
+
+    
+    /**
+     * Rows stay `createdAt` descending, then `id`: a synced table's order.
+     */
+public static func newestFirst() -> RecordStore  {
+    return try!  FfiConverterTypeRecordStore_lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_constructor_recordstore_newest_first($0
+    )
+})
+}
+    
+
+    
+    /**
+     * `delta_json` = `{upserts: [row], deletes: [id]}`, with only the rows
+     * that changed; deletes apply first.
+     */
+open func applyJson(deltaJson: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_recordstore_apply_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(deltaJson),$0
+    )
+}
+}
+    
+    /**
+     * How many rows the store holds.
+     */
+open func count() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_recordstore_count(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * THE records value over the store: `query_json` and `context_json` as
+     * in [`records_value_json`]; `overlay_json` = the unsynced writes laid
+     * over this one query, a delta (`MemoryRecordStore::value`).
+     */
+open func valueJson(queryJson: String, contextJson: String, overlayJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_recordstore_value_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(queryJson),
+        FfiConverterString.lower(contextJson),
+        FfiConverterOptionString.lower(overlayJson),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecordStore: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RecordStore
+
+    public static func lift(_ handle: UInt64) throws -> RecordStore {
+        return RecordStore(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RecordStore) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecordStore {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RecordStore, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecordStore_lift(_ handle: UInt64) throws -> RecordStore {
+    return try FfiConverterTypeRecordStore.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecordStore_lower(_ value: RecordStore) -> UInt64 {
+    return FfiConverterTypeRecordStore.lower(value)
+}
+
+
+
+
+
+
+/**
  * Server-Sent Events (`data:` lines per event; an event = one message or
  * JSONL). Same `{messages, issues}` JSON as `JsonlDecoder`.
  */
@@ -8588,6 +8779,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_heights() != 22303) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_apply_json() != 22726) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_count() != 25) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_recordstore_value_json() != 48632) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end() != 33049) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8871,6 +9071,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new() != 47547) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_recordstore_new() != 54869) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_recordstore_newest_first() != 13404) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new() != 2920) {

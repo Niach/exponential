@@ -107,6 +107,7 @@ measurer and a throwing host formatter.
 | `setHovered(ids)`, `setHover(id, on)`, `FfiNode.hovered` + `interactionStates` (VAPP-100) | the pointer's hover like `setPressed`: recipes' `hover` and `:hover` styles resolve through it; the node records carry the host-set states |
 | `FfiNode.hoverStyled` (VAPP-100) | the node restyles under the pointer: a `:hover` style block, or a recipe rule on `state: hover` its props match (effective theme). Track a mouse over these nodes (as over pressables, triggers, fields) and report `setHover`; re-read after a theme switch |
 | `markDirty(index)` after a load (VAPP-100) | a Markdown whose picture loaded is measured again; an Image's box never changes (its ratio decides) |
+| `RecordStore` (VAPP-212) | one app's rows on the Rust side: `RecordStore()` (first-seen order) or `RecordStore.newestFirst()` (`createdAt` descending, then `id`), `applyJson({upserts: [row], deletes: [id]})` with only the rows that changed, `valueJson(query, context, overlay?)` (the records value; `overlay` = a delta for this one query), `count()` |
 | helpers | `formatCallJson(call, formatter?, now?, offsetMinutes?)`, `displayStringJson`, `parseDateValueJson`, `formatPatternJson(pattern, fields, names?)`, `relativeTimeUnitJson`, `listJson({op, …})` (`window`, `scrollTo`, `scrollToItem`, `sections`, `sticky {…, gap?, rowOffsets?}`, `keys`, `rowKeys`) |
 
 ## Build
