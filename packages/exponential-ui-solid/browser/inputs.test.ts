@@ -270,6 +270,27 @@ describe(`interaction parity with React (the same script, the same __xuiLog)`, (
       async (page) => ({ value: await page.locator(`input`).inputValue(), now: await page.getAttribute(`input`, `aria-valuenow`), text: await page.getAttribute(`input`, `aria-valuetext`), inc: await page.getAttribute(`[data-xui-part="NumberField/increment"]`, `disabled`) })
     )
   })
+  it(`NumberField (VAPP-208): a click or Tab selects the seeded value and typing replaces it`, async () => {
+    const node = { id: `n`, component: `NumberField`, props: { label: `Hours`, name: `hours`, min: 0, max: 24, step: 0.25, value: 0 } }
+    const clicked = await bothAgree(
+      tree(node),
+      async (page) => {
+        await page.click(`input`)
+        await page.keyboard.type(`1.5`)
+      },
+      async (page) => ({ value: await page.locator(`input`).inputValue(), now: await page.getAttribute(`input`, `aria-valuenow`) })
+    )
+    expect(clicked.state).toEqual({ value: `1.5`, now: `1.5` })
+    const tabbed = await bothAgree(
+      tree(node),
+      async (page) => {
+        await page.focus(`input`)
+        await page.keyboard.type(`2`)
+      },
+      async (page) => ({ value: await page.locator(`input`).inputValue(), now: await page.getAttribute(`input`, `aria-valuenow`) })
+    )
+    expect(tabbed.state).toEqual({ value: `2`, now: `2` })
+  })
   it(`Checkbox: Space toggles, Enter does not; Switch: Space and the row toggle`, async () => {
     const node = {
       id: `root`,

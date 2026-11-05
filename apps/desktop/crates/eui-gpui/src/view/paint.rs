@@ -924,7 +924,7 @@ impl SurfaceView {
                 if n.component == "Composer" {
                     self.paint_composer(&lcx, cx)
                 } else {
-                    self.field_element(&lcx)?
+                    self.field_element(&lcx, cx)?
                 }
             }
             ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => {

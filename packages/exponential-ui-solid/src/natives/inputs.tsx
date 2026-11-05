@@ -183,6 +183,10 @@ export function NumberFieldNative(props: NativeProps): JSX.Element {
   const [value, setValue] = createBoundState<number | null>(() => props.node, () => props.scope, `value`, external)
   const [text, setText] = createSignal<string | null>(null)
   let el: HTMLInputElement | undefined
+  // VAPP-208: focus selects the seeded value, so typing replaces it. A press
+  // selects again on release, because the press itself places the caret after
+  // focus (a drag keeps its own range).
+  let pressFocused = false
   const f = createField({ node: () => props.node, domId: () => props.domId, props: () => props.props, value, focusEl: () => el })
   const disabled = () => bool(props.props.disabled) || Boolean(f.form?.disabled)
   // Display through the surface Formatter (round 2 §3); the typed text is
@@ -245,7 +249,16 @@ export function NumberFieldNative(props: NativeProps): JSX.Element {
           onFocus={() => {
             const v = value()
             setText(v === null ? `` : String(v).replace(`.`, decimalSep()))
+            el?.select()
             void props.emit(`focus`)
+          }}
+          onMouseDown={() => {
+            pressFocused = text() === null
+          }}
+          onMouseUp={(e) => {
+            if (!pressFocused) return
+            pressFocused = false
+            if (e.currentTarget.selectionStart === e.currentTarget.selectionEnd) e.currentTarget.select()
           }}
           onInput={(e) => {
             const raw = e.currentTarget.value
@@ -256,6 +269,7 @@ export function NumberFieldNative(props: NativeProps): JSX.Element {
           onBlur={() => {
             const v = value()
             if (v !== null && clamp(v) !== v) commit(clamp(v))
+            pressFocused = false
             setText(null)
             f.touch()
             void props.emit(`blur`)

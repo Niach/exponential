@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use eui_core::surface::PlacedNode;
-use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, FocusHandle, Focusable as _, MouseButton, Subscription, Task, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, FocusHandle, Focusable as _, MouseButton, Pixels, Point, Subscription, Task, Window};
 use gpui_component::input::{Input, InputEvent, InputState, TextareaState};
 use serde_json::{json, Value};
 
@@ -87,6 +87,10 @@ pub(crate) struct Field {
     /// subscription still counts as outstanding).
     pub synced: String,
     pub grows: bool,
+    /// The field has the focus (its `Focus` / `Blur` events).
+    focused: bool,
+    /// VAPP-208: where the press that focuses this field went down.
+    focusing_press: Option<Point<Pixels>>,
     _subscription: Subscription,
 }
 
@@ -116,6 +120,12 @@ impl Field {
         match &self.input {
             FieldInput::Line(s) => s.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx)),
             FieldInput::Multi(s) => s.update(cx, |s, cx| s.set_placeholder(placeholder, window, cx)),
+        }
+    }
+
+    fn select_all(&self, window: &mut Window, cx: &mut App) {
+        if let FieldInput::Line(s) = &self.input {
+            s.update(cx, |s, cx| s.select_all(window, cx));
         }
     }
 
@@ -180,7 +190,7 @@ impl SurfaceView {
                 (FieldInput::Multi(state), sub)
             };
             let grows = kind.grows(&n);
-            self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, placeholder, grows, _subscription: sub });
+            self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, placeholder, grows, focused: false, focusing_press: None, _subscription: sub });
         }
         self.fields.retain(|id, _| keep.contains(id));
     }
@@ -219,15 +229,46 @@ impl SurfaceView {
                 }
             }
             InputEvent::Blur => {
+                if let Some(f) = self.fields.get_mut(id) {
+                    f.focused = false;
+                    f.focusing_press = None;
+                }
                 self.flush_field(id, Some("commit"), window, cx);
                 if let Some(i) = self.cache.index_of(id) {
                     self.fire(i, "blur", None, cx);
                 }
             }
             InputEvent::Focus => {
+                // VAPP-208: a NumberField's focus selects its value, so typing
+                // replaces it (web's `select()` on focus).
+                if let Some(f) = self.fields.get_mut(id) {
+                    f.focused = true;
+                    if f.kind == FieldKind::Number {
+                        f.select_all(window, cx);
+                    }
+                }
                 self.track_focus(window, cx);
                 cx.notify();
             }
+        }
+    }
+
+    /// A press went down in field `id` (it may be the one that focuses it).
+    fn field_press_down(&mut self, id: &str, at: Point<Pixels>) {
+        if let Some(f) = self.fields.get_mut(id) {
+            f.focusing_press = (f.kind == FieldKind::Number && !f.focused).then_some(at);
+        }
+    }
+
+    /// VAPP-208: the press's own caret and any jitter's range land after the
+    /// focus: the release of the press that focused a NumberField selects
+    /// again, unless it was a real drag.
+    fn field_press_up(&mut self, id: &str, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(f) = self.fields.get_mut(id) else { return };
+        let Some(from) = f.focusing_press.take() else { return };
+        let (dx, dy) = (f32::from(at.x - from.x), f32::from(at.y - from.y));
+        if dx * dx + dy * dy <= 16.0 {
+            f.select_all(window, cx);
         }
     }
 
@@ -290,6 +331,24 @@ impl SurfaceView {
         true
     }
 
+    /// Type `text` over the current selection through the platform text-input
+    /// entry point (no range = the selection, what a keystroke asks for).
+    pub fn type_over_selection(&mut self, id: &str, text: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        use gpui::EntityInputHandler as _;
+        let Some(f) = self.fields.get(id) else { return false };
+        match &f.input {
+            FieldInput::Line(s) => s.update(cx, |s, cx| s.replace_text_in_range(None, text, window, cx)),
+            FieldInput::Multi(s) => s.update(cx, |s, cx| s.replace_text_in_range(None, text, window, cx)),
+        }
+        true
+    }
+
+    /// What field `id` does on gaining focus, for automation and tests (a test
+    /// window has no native view for a really focused input).
+    pub fn field_gained_focus(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.on_field_event(id, &InputEvent::Focus, window, cx);
+    }
+
     /// The current text of field `id`.
     pub fn field_text(&self, id: &str, cx: &App) -> Option<String> {
         self.fields.get(id).map(|f| f.value(cx))
@@ -321,7 +380,7 @@ impl SurfaceView {
     /// The gpui-component input of a field leaf inside its content box (the
     /// frame div paints the recipe chrome; the input draws none). A Select
     /// search field shows its glyph at the start.
-    pub(crate) fn field_element(&self, lcx: &crate::paint::natives::LeafCx) -> Option<AnyElement> {
+    pub(crate) fn field_element(&self, lcx: &crate::paint::natives::LeafCx, cx: &mut Context<Self>) -> Option<AnyElement> {
         let n = lcx.node;
         let f = self.fields.get(&n.id)?;
         let (x, y, w, h) = lcx.inner();
@@ -347,11 +406,19 @@ impl SurfaceView {
         };
         // A press in the field is the field's (caret, selection): it never
         // bubbles to a host's own press handling, like the pressable leaves claim theirs.
+        let (down, up) = (n.id.clone(), n.id.clone());
         let mut row = lcx
             .row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))
             .items_center()
             .gap(px(if icon.is_some() { 8.0 } else { 0.0 }))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                    this.field_press_down(&down, ev.position);
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_up(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseUpEvent, window, cx| this.field_press_up(&up, ev.position, window, cx)));
         if let Some(name) = icon {
             row = row.child(div().flex_none().opacity(0.6).child(icons::concept(lcx.host, &name, 16.0, ink)));
         }
