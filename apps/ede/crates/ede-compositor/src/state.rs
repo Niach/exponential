@@ -103,6 +103,13 @@ pub struct Ede {
     pub ipc: crate::ipc::Ipc,
     /// Alt+Tab, Super, the media keys: what the shell answers ([`crate::hotkeys`]).
     pub hotkeys: crate::hotkeys::Hotkeys,
+    /// The active workspace and the parked windows ([`crate::workspaces`]).
+    pub workspaces: crate::workspaces::Workspaces,
+    /// wp-fractional-scale + wp-viewporter: HiDPI at 1.5× and the like.
+    pub fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState,
+    pub viewporter_state: smithay::wayland::viewporter::ViewporterState,
+    /// Set by a backend that can change an output's mode (udev: a modeset).
+    pub set_mode: Option<Box<dyn FnMut(&Output, smithay::output::Mode) -> Result<(), String>>>,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
 }
@@ -118,6 +125,10 @@ pub struct WindowState {
     pub restore: Option<Rect>,
     /// Fullscreen, with the geometry to go back to.
     pub fullscreen: Option<Rect>,
+    /// The workspace it lives on (0-based, [`crate::workspaces`]).
+    pub workspace: usize,
+    /// Where it sat when it was parked (its workspace left the screen).
+    pub parked_at: Option<Point<i32, Logical>>,
 }
 
 pub fn window_state(window: &Window) -> WindowState {
@@ -203,6 +214,10 @@ impl Ede {
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
             ipc: crate::ipc::Ipc::default(),
             hotkeys: crate::hotkeys::Hotkeys::default(),
+            workspaces: crate::workspaces::Workspaces::default(),
+            fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<Self>(&dh),
+            viewporter_state: smithay::wayland::viewporter::ViewporterState::new::<Self>(&dh),
+            set_mode: None,
             config_path: None,
         }
     }
@@ -263,11 +278,21 @@ impl Ede {
         }
     }
 
-    /// Lays outputs out left to right in the order they were added.
+    /// Lays outputs out left to right in the order they were added, unless
+    /// `[[outputs]]` in the config names a position; a configured scale
+    /// applies too ([`crate::outputs`]).
     pub fn add_output(&mut self, output: &Output) {
-        let x = self.space.outputs().filter_map(|o| self.space.output_geometry(o)).map(|g| g.loc.x + g.size.w).max().unwrap_or(0);
-        self.space.map_output(output, (x, 0));
+        let settings = self.config.output(&output.name()).cloned();
+        if let Some(scale) = settings.as_ref().and_then(|s| s.scale) {
+            output.change_current_state(None, None, Some(smithay::output::Scale::Fractional(scale)), None);
+        }
+        let at = match settings.as_ref().and_then(|s| s.position) {
+            Some([x, y]) => (x, y),
+            None => (self.space.outputs().filter_map(|o| self.space.output_geometry(o)).map(|g| g.loc.x + g.size.w).max().unwrap_or(0), 0),
+        };
+        self.space.map_output(output, at);
         layer_map_for_output(output).arrange();
+        self.emit(ede_protocol::events::OUTPUT_CHANGED, serde_json::json!({ "output": output.name() }));
     }
 
     /// Unplugged: the rest close ranks left to right, and the windows that
@@ -431,9 +456,26 @@ impl Ede {
             }
             None => (0, 0).into(),
         };
+        let mut st = window_state(&window);
+        st.workspace = self.workspaces.active;
+        set_window_state(&window, st);
         self.move_window(&window, loc, true);
+        self.send_preferred_scale(&window);
         self.window_event(ede_protocol::events::WINDOW_OPENED, &window);
         self.focus(Some(window));
+    }
+
+    /// Tells a window's surface the fractional scale of the output under
+    /// its centre (wp-fractional-scale), so HiDPI clients draw crisply.
+    pub fn send_preferred_scale(&self, window: &Window) {
+        let Some(surface) = window.wl_surface() else { return };
+        let geo = self.space.element_geometry(window).unwrap_or_else(|| Rectangle::from_size(window.geometry().size));
+        let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
+        let Some(output) = self.output_at(center) else { return };
+        let scale = output.current_scale().fractional_scale();
+        smithay::wayland::compositor::with_states(&surface, |states| {
+            smithay::wayland::fractional_scale::with_fractional_scale(states, |f| f.set_preferred_scale(scale));
+        });
     }
 
     /// Gives `window` the geometry `rect` with the xdg states of `tile`

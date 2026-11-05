@@ -21,6 +21,39 @@ pub struct Config {
     pub lock: Lock,
     pub idle: Idle,
     pub protected: Protected,
+    /// Per-output settings (#EDE-18): `[[outputs]]` with the connector name
+    /// (`DP-1`, `HEADLESS-1`); an output not listed takes its preferred
+    /// mode, scale 1 and the next place to the right.
+    pub outputs: Vec<OutputSettings>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OutputSettings {
+    pub name: String,
+    /// `"2560x1440@60"` (the refresh is optional: `"2560x1440"`).
+    pub mode: Option<String>,
+    /// 1.0, 1.25, 1.5, 2.0…; the logical size is the mode divided by it.
+    pub scale: Option<f64>,
+    /// `[x, y]` in logical px.
+    pub position: Option<[i32; 2]>,
+}
+
+impl OutputSettings {
+    /// `(width, height, refresh in mHz)` of `mode`, refresh 0 = any.
+    pub fn parsed_mode(&self) -> Option<(i32, i32, i32)> {
+        parse_mode(self.mode.as_deref()?)
+    }
+}
+
+/// `WxH[@R]` → `(w, h, refresh mHz)`; `R` may carry decimals (`59.94`).
+pub fn parse_mode(text: &str) -> Option<(i32, i32, i32)> {
+    let (size, refresh) = match text.split_once('@') {
+        Some((s, r)) => (s, r.parse::<f64>().ok()?),
+        None => (text, 0.0),
+    };
+    let (w, h) = size.split_once('x')?;
+    Some((w.trim().parse().ok()?, h.trim().parse().ok()?, (refresh * 1000.0).round() as i32))
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -90,6 +123,7 @@ impl Default for Config {
             lock: Lock::default(),
             idle: Idle::default(),
             protected: Protected::default(),
+            outputs: Vec::new(),
         }
     }
 }
@@ -137,7 +171,23 @@ impl Config {
     pub fn parse(text: &str) -> Result<Self, String> {
         let cfg: Config = toml::from_str(text).map_err(|e| e.to_string())?;
         cfg.background_rgba()?;
+        for o in &cfg.outputs {
+            if o.name.is_empty() {
+                return Err("[[outputs]] needs a name".into());
+            }
+            if o.mode.as_deref().is_some_and(|m| parse_mode(m).is_none()) {
+                return Err(format!("output {}: mode must be WxH or WxH@R, got {:?}", o.name, o.mode));
+            }
+            if o.scale.is_some_and(|s| !(0.5..=4.0).contains(&s)) {
+                return Err(format!("output {}: scale must be between 0.5 and 4", o.name));
+            }
+        }
         Ok(cfg)
+    }
+
+    /// The settings for output `name`, if listed.
+    pub fn output(&self, name: &str) -> Option<&OutputSettings> {
+        self.outputs.iter().find(|o| o.name == name)
     }
 
     /// Reads `path`; missing = defaults, unreadable or invalid = defaults plus
@@ -190,6 +240,18 @@ mod tests {
         assert!(cfg.lock.on_suspend);
         assert_eq!(cfg.idle.lock_after, 0);
         assert_eq!(cfg.protected.app_ids, ["org.example.Bank"]);
+    }
+
+    #[test]
+    fn outputs_name_a_mode_a_scale_and_a_place() {
+        let cfg = Config::parse("[[outputs]]\nname = \"DP-1\"\nmode = \"5120x2880@60\"\nscale = 2.0\nposition = [0, 0]\n[[outputs]]\nname = \"DP-2\"\nscale = 1.5\n").unwrap();
+        assert_eq!(cfg.output("DP-1").unwrap().parsed_mode(), Some((5120, 2880, 60_000)));
+        assert_eq!(cfg.output("DP-2").unwrap().scale, Some(1.5));
+        assert!(cfg.output("HDMI-A-1").is_none());
+        assert_eq!(parse_mode("1920x1080@59.94"), Some((1920, 1080, 59_940)));
+        assert_eq!(parse_mode("1920x1080"), Some((1920, 1080, 0)));
+        assert!(Config::parse("[[outputs]]\nname = \"DP-1\"\nmode = \"big\"\n").is_err());
+        assert!(Config::parse("[[outputs]]\nname = \"DP-1\"\nscale = 9\n").is_err());
     }
 
     #[test]

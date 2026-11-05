@@ -39,6 +39,12 @@ pub enum Action {
     Lock,
     /// A key the shell answers ([`crate::hotkeys`]); the event is sent after delivery.
     Hotkey,
+    /// Super+1…9, Ctrl+Alt+Left/Right.
+    Workspace(usize),
+    WorkspaceStep(i32),
+    /// Super+Shift+1…9, Ctrl+Alt+Shift+Left/Right: the focused window along.
+    MoveToWorkspace(usize),
+    MoveToWorkspaceStep(i32),
 }
 
 impl Ede {
@@ -208,6 +214,26 @@ impl Ede {
             }
             Action::Lock => self.request_lock(),
             Action::Hotkey => {}
+            Action::Workspace(i) => {
+                self.switch_workspace(i);
+            }
+            Action::WorkspaceStep(d) => {
+                let n = self.workspace_count() as i32;
+                let next = (self.active_workspace() as i32 + d).rem_euclid(n.max(1));
+                self.switch_workspace(next as usize);
+            }
+            Action::MoveToWorkspace(i) => {
+                if let Some(w) = self.focused_window() {
+                    self.move_to_workspace(&w, i, true);
+                }
+            }
+            Action::MoveToWorkspaceStep(d) => {
+                if let Some(w) = self.focused_window() {
+                    let n = self.workspace_count() as i32;
+                    let next = (self.active_workspace() as i32 + d).rem_euclid(n.max(1));
+                    self.move_to_workspace(&w, next as usize, true);
+                }
+            }
             Action::Close => self.close_focused(),
             Action::Tile(tile) => {
                 if let Some(w) = self.focused_window() {
@@ -258,11 +284,40 @@ impl Ede {
     }
 }
 
+/// `1`…`9` from the digit keysyms and their US-shifted symbols.
+fn digit(sym: u32) -> Option<usize> {
+    match sym {
+        keysyms::KEY_1..=keysyms::KEY_9 => Some((sym - keysyms::KEY_1 + 1) as usize),
+        keysyms::KEY_exclam => Some(1),
+        keysyms::KEY_at => Some(2),
+        keysyms::KEY_numbersign => Some(3),
+        keysyms::KEY_dollar => Some(4),
+        keysyms::KEY_percent => Some(5),
+        keysyms::KEY_asciicircum => Some(6),
+        keysyms::KEY_ampersand => Some(7),
+        keysyms::KEY_asterisk => Some(8),
+        keysyms::KEY_parenleft => Some(9),
+        _ => None,
+    }
+}
+
 fn binding(mods: &ModifiersState, sym: u32) -> Option<Action> {
     if (keysyms::KEY_XF86Switch_VT_1..=keysyms::KEY_XF86Switch_VT_12).contains(&sym) {
         return Some(Action::SwitchVt((sym - keysyms::KEY_XF86Switch_VT_1 + 1) as i32));
     }
+    // Super+1…9 (Shift: move the window along); the keysym of the digit
+    // row stays a digit under Shift on most layouts only through its
+    // keycode, so both the digit and its shifted symbol count.
+    if mods.logo && !mods.alt && !mods.ctrl {
+        if let Some(n) = digit(sym) {
+            return Some(if mods.shift { Action::MoveToWorkspace(n - 1) } else { Action::Workspace(n - 1) });
+        }
+    }
     match (mods.alt, mods.logo, mods.ctrl, mods.shift, sym) {
+        (true, false, true, false, keysyms::KEY_Left) => Some(Action::WorkspaceStep(-1)),
+        (true, false, true, false, keysyms::KEY_Right) => Some(Action::WorkspaceStep(1)),
+        (true, false, true, true, keysyms::KEY_Left) => Some(Action::MoveToWorkspaceStep(-1)),
+        (true, false, true, true, keysyms::KEY_Right) => Some(Action::MoveToWorkspaceStep(1)),
         (false, true, false, true, keysyms::KEY_E) => Some(Action::Quit),
         (true, false, false, false, keysyms::KEY_F4) => Some(Action::Close),
         (false, true, false, false, keysyms::KEY_l) => Some(Action::Lock),

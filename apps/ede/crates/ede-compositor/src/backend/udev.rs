@@ -5,8 +5,12 @@
 //!
 //! Structure follows smithay's anvil (MIT, Copyright (c) 2017 Victor Berger
 //! and Smithay contributors), cut down to what eDE needs today: one render
-//! GPU (the primary), no DRM leases, no dmabuf feedback. Explicit sync for
-//! NVIDIA comes with Xwayland in #NEW-102.
+//! GPU (the primary), no DRM leases. Explicit sync for NVIDIA comes with
+//! Xwayland in #NEW-102. #EDE-18: the mode from `[[outputs]]`, a live
+//! modeset through [`Ede::set_mode`], and a per-output dmabuf feedback
+//! with a scanout tranche of the primary plane's formats, sent to a
+//! fullscreen window so games and video allocate buffers the DRM
+//! compositor can put straight on the plane (direct scanout).
 
 use std::{
     cell::RefCell,
@@ -57,7 +61,7 @@ use smithay::{
     },
     utils::DeviceFd,
     wayland::{
-        dmabuf::DmabufFeedbackBuilder,
+        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder},
         drm_syncobj::{supports_syncobj_eventfd, DrmSyncobjState},
     },
 };
@@ -88,6 +92,9 @@ struct Surface {
     queued: bool,
     /// An idle re-check is scheduled (nothing changed last time).
     idle_timer: Option<RegistrationToken>,
+    /// What a fullscreen window hears: render formats, then the primary
+    /// plane's formats as a scanout tranche (`None` = no feedback).
+    feedback: Option<(DmabufFeedback, DmabufFeedback)>,
 }
 
 struct Device {
@@ -239,6 +246,28 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
             tracing::warn!("VT {vt}: {e}");
         }
     }));
+    // A modeset for `set_output` (#EDE-18).
+    let modeset = udev.clone();
+    state.set_mode = Some(Box::new(move |output, wl_mode| {
+        let id = *output.user_data().get::<OutputId>().ok_or("not a DRM output")?;
+        let mut u = modeset.borrow_mut();
+        let u = &mut *u;
+        let device = u.devices.get_mut(&id.node).ok_or("its GPU is gone")?;
+        let surface = device.surfaces.get_mut(&id.crtc).ok_or("its output is gone")?;
+        let info = device.manager.device().get_connector(surface.connector, false).map_err(|e| e.to_string())?;
+        let mode = info
+            .modes()
+            .iter()
+            .find(|m| WlMode::from(**m) == wl_mode)
+            .copied()
+            .ok_or_else(|| format!("{} has no mode {}x{}@{}", output.name(), wl_mode.size.w, wl_mode.size.h, wl_mode.refresh))?;
+        let mut renderer = u.gpus.single_renderer(&device.render_node).map_err(|e| e.to_string())?;
+        surface.drm_output.use_mode(mode, &mut renderer, &DrmOutputRenderElements::<_, OutputElements<UdevRenderer<'_>>>::default()).map_err(|e| format!("{e:?}"))?;
+        output.change_current_state(Some(wl_mode), None, None, None);
+        surface.queued = false;
+        tracing::info!("output {} now {}x{}@{}", output.name(), wl_mode.size.w, wl_mode.size.h, wl_mode.refresh);
+        Ok(())
+    }));
     let importer = udev.clone();
     state.dmabuf_importer = Some(Box::new(move |dmabuf| {
         let mut u = importer.borrow_mut();
@@ -373,7 +402,20 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
         };
 
         let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
-        let mode = info.modes().iter().find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED)).copied().unwrap_or(info.modes()[0]);
+        let preferred = info.modes().iter().find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED)).copied().unwrap_or(info.modes()[0]);
+        // `[[outputs]]` may name a mode (refresh 0 = the highest of that size).
+        let mode = match state.configured_mode(&name) {
+            Some((w, h, refresh)) => {
+                let mut fitting: Vec<_> = info.modes().iter().filter(|m| m.size() == (w as u16, h as u16)).copied().collect();
+                fitting.sort_by_key(|m| std::cmp::Reverse(m.vrefresh()));
+                let chosen = if refresh == 0 { fitting.first().copied() } else { fitting.into_iter().find(|m| (WlMode::from(*m).refresh - refresh).abs() < 500) };
+                chosen.unwrap_or_else(|| {
+                    tracing::warn!("{name}: no mode {w}x{h}@{}; using the preferred one", refresh as f64 / 1000.0);
+                    preferred
+                })
+            }
+            None => preferred,
+        };
         let wl_mode = WlMode::from(mode);
         let (mm_w, mm_h) = info.size().unwrap_or((0, 0));
         let output = Output::new(
@@ -381,7 +423,10 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
             PhysicalProperties { size: (mm_w as i32, mm_h as i32).into(), subpixel: Subpixel::Unknown, make: "Unknown".into(), model: name.clone() },
         );
         let global = output.create_global::<Ede>(&state.display_handle);
-        output.set_preferred(wl_mode);
+        for m in info.modes() {
+            output.add_mode(WlMode::from(*m));
+        }
+        output.set_preferred(WlMode::from(preferred));
         output.change_current_state(Some(wl_mode), None, None, None);
         output.user_data().insert_if_missing(|| OutputId { node, crtc });
 
@@ -416,8 +461,21 @@ fn scan_connectors(udev: &Shared, state: &mut Ede, node: DrmNode) {
             }
         };
         tracing::info!("output {name} connected, {}x{}@{}", wl_mode.size.w, wl_mode.size.h, wl_mode.refresh);
+        // Direct scanout: what the primary plane takes, as a tranche after
+        // the render formats; a fullscreen window hears it (render_surface).
+        let feedback = {
+            let render_formats = renderer.dmabuf_formats();
+            let plane_formats = drm_output.with_compositor(|c| c.surface().plane_info().formats.clone());
+            let render = DmabufFeedbackBuilder::new(device.render_node.dev_id(), render_formats.clone()).build().ok();
+            let scanout = DmabufFeedbackBuilder::new(device.render_node.dev_id(), render_formats)
+                .add_preference_tranche(node.dev_id(), Some(smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout), plane_formats)
+                .build()
+                .ok();
+            render.zip(scanout)
+        };
+        drop(renderer);
         state.add_output(&output);
-        device.surfaces.insert(crtc, Surface { output, connector: info.handle(), drm_output, global: Some(global), queued: false, idle_timer: None });
+        device.surfaces.insert(crtc, Surface { output, connector: info.handle(), drm_output, global: Some(global), queued: false, idle_timer: None, feedback });
     }
 }
 
@@ -507,7 +565,14 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     let result = surface.drm_output.render_frame(&mut renderer, &elements, state.clear_color(), FrameFlags::DEFAULT);
     drop(renderer);
     match result {
-        Ok(frame) if !frame.is_empty => match surface.drm_output.queue_frame(()) {
+        Ok(frame) if !frame.is_empty => {
+            // The fullscreen window alone on this output may go straight to
+            // the plane: tell it which buffers make that possible.
+            if let (Some((render_fb, scanout_fb)), Some(w)) = (surface.feedback.as_ref(), state.fullscreen_on(&output)) {
+                use smithay::backend::renderer::element::utils::select_dmabuf_feedback;
+                w.send_dmabuf_feedback(&output, |_, _| Some(output.clone()), |s, _| select_dmabuf_feedback(s, &frame.states, render_fb, scanout_fb));
+            }
+            match surface.drm_output.queue_frame(()) {
             Ok(()) => {
                 surface.queued = true;
                 if let Some(t) = surface.idle_timer.take() {
@@ -516,7 +581,8 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                 super::frame_done(state, &output);
             }
             Err(e) => tracing::warn!("{}: queue_frame: {e:?}", output.name()),
-        },
+            }
+        }
         Ok(_) => {
             // Nothing changed. Clients still waiting on a frame callback get
             // one a refresh later, so they never stall.

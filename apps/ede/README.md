@@ -105,6 +105,39 @@ Driving it with `xdotool` on the live desktop sends keys to whatever window
 is focused there, not necessarily eDE: script input against a private
 `Xvfb :77` (Mesa EGL: `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`).
 
+## Outputs: mode, scale, position (#EDE-18)
+
+`~/.config/ede/compositor.toml` names each output by connector:
+
+```toml
+[[outputs]]
+name = "DP-1"
+mode = "5120x2880@60"   # WxH or WxH@R; unset = the preferred mode
+scale = 2.0             # 0.5…4, fractional too (1.25, 1.5): wp-fractional-scale + wp-viewporter
+position = [0, 0]       # logical px; unset = next to the previous output
+[[outputs]]
+name = "DP-2"
+scale = 2.0
+position = [2560, 0]
+```
+
+An output not listed takes its preferred mode, scale 1 and the next place
+to the right. `ede-protocol`'s `list_outputs` lists every mode, the current
+and preferred one, make, model and physical size; `set_output {name, mode?,
+scale?, position?}` (`system`) applies a change live, the Displays page
+(#EDE-14) persists it to the file and `reload_config` re-applies the file.
+A modeset on udev goes through the DRM output (`use_mode`); nested and
+headless outputs resize. Every surface hears its output's preferred scale
+(fractional through wp-fractional-scale-v1; integer clients keep
+`wl_surface.set_buffer_scale`). Direct scanout: a fullscreen window alone
+on an output is the frame's only element, and smithay's DRM compositor
+puts it straight on the primary plane when its buffer fits (the default
+frame flags allow it); the udev backend sends such windows a dmabuf
+feedback with a scanout tranche of the plane's formats so games and video
+allocate scanout-able buffers. Hybrid GPUs: one render GPU (the primary),
+outputs on the other card render through it (smithay's multi-GPU
+renderer); a per-output render device is not done.
+
 ## Doctor
 
 ```bash
@@ -124,7 +157,13 @@ serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
 Bindings: Alt+drag moves a window, dropping it on a side edge tiles it to a
 half (corners = quarter, top = maximize), Super+Left/Right tile, Super+Up
 maximizes, Super+Down restores, Alt+F4 closes, Super+L locks, Super+Shift+E quits
-(logs out of the session), Ctrl+Alt+F1…F12 switch VTs (udev).
+(logs out of the session), Ctrl+Alt+F1…F12 switch VTs (udev). Workspaces
+(#EDE-18, shared by every output as on Cinnamon, four listed, up to nine):
+Super+1…9 switch, Super+Shift+1…9 take the focused window along,
+Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
+workspace is parked off screen; the taskbar still lists it and focusing it
+switches back. Over ede-protocol: `list_workspaces`, `switch_workspace`,
+`move_to_workspace`, the `workspace.switched` event.
 
 ## Run it as the session (a TTY)
 

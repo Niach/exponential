@@ -881,10 +881,18 @@ fn clock() -> String {
     format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
 }
 
-/// The open windows for the taskbar, over ede-protocol.
+/// The open windows for the taskbar, over ede-protocol: the active
+/// workspace's (#EDE-18), protected ones without their title.
 fn windows_json(ede: &mut ede_protocol::Client) -> Option<Vec<Value>> {
     let windows = ede.windows().ok()?;
-    Some(windows.into_iter().filter(|w| !w.protected).map(|w| json!({"id": w.id, "title": w.title.unwrap_or_else(|| w.app_id.unwrap_or_else(|| "Window".into())), "focused": w.focused})).collect())
+    let active = ede.workspaces().ok().and_then(|ws| ws.iter().find(|w| w.active).map(|w| w.index)).unwrap_or(0);
+    Some(
+        windows
+            .into_iter()
+            .filter(|w| !w.protected && w.workspace == active)
+            .map(|w| json!({"id": w.id, "title": w.title.unwrap_or_else(|| w.app_id.unwrap_or_else(|| "Window".into())), "focused": w.focused, "workspace": w.workspace}))
+            .collect(),
+    )
 }
 
 fn main() {
@@ -934,7 +942,7 @@ fn main() {
                             return;
                         }
                     }
-                } else if event.kind.starts_with("window.") {
+                } else if event.kind.starts_with("window.") || event.kind.starts_with("workspace.") {
                     if let Some(list) = windows_json(&mut calls) {
                         if windows_tx.send(list).is_err() {
                             return;
