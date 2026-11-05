@@ -1,7 +1,7 @@
-# `eui-motion`: animations for Exponential UI
+# `eui-motion`: animations for genUI
 
-The engine behind the eUI `Motion` component (EXP-1584). It loads a Lottie
-animation, validates it against the eUI limits (expressions are refused) and
+The engine behind the genUI `Motion` component (EXP-1584). It loads a Lottie
+animation, validates it against the genUI limits (expressions are refused) and
 samples any frame into a flat **display list**. Every painter replays that list
 and nothing else, so every renderer shows the same picture:
 

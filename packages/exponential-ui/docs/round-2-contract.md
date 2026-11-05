@@ -1,4 +1,4 @@
-# Exponential UI — round 2 contract
+# genUI — round 2 contract
 
 > **Round 4 (VAPP-103):** this is the round's historical record. Names it
 > uses that round 3 folded (ToggleGroup, TabBar, ButtonGroup, DropdownMenu,

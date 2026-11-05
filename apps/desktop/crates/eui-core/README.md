@@ -1,6 +1,6 @@
-# `eui-core` — the Exponential UI core
+# `eui-core` — the genUI core
 
-The Rust engine behind every native Exponential UI painter (gpui, SwiftUI,
+The Rust engine behind every native genUI painter (gpui, SwiftUI,
 Compose), VAPP-86. It is the native half of [`@exponential_app/eui`]
 (`packages/exponential-ui`): the same catalog, macro table, basic-catalog map
 and built-in themes, EMBEDDED by the same generator, replaying the same

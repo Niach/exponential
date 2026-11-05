@@ -1,6 +1,6 @@
-# Exponential UI conformance
+# genUI conformance
 
-A renderer is **Exponential UI conformant** when its runner replays every
+A renderer is **genUI conformant** when its runner replays every
 suite of [`manifest.json`](manifest.json) (GENERATED from the fixtures,
 drift-gated) and the report passes:
 
@@ -213,7 +213,7 @@ EXPONENTIAL_UI_PARITY_GROUP=matrix,overlay bun run --filter @exponential_app/eui
 Once two platforms pass, the A2UI ecosystem's renderers page gets an entry
 (a pull request to google/A2UI, a person's call: it is outward-facing):
 
-> **Exponential UI** (React, SwiftUI, Jetpack Compose, gpui): native renderers
+> **genUI** (React, SwiftUI, Jetpack Compose, gpui): native renderers
 > of the A2UI v0.9 basic catalog plus an 81-component core catalog, runtime
 > themes, extension catalogs and a host API (transports, functions, bindings,
-> policy). Apache-2.0. https://exponential.at/ui/
+> policy). Apache-2.0. https://exponential.at/sdk/genui/

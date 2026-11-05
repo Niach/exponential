@@ -4,7 +4,7 @@ version = "0.2.4"
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "eTalk's call codec: Opus through the pure-Rust opus-rs by default, libopus behind a feature."
+description = "Voice's call codec: Opus through the pure-Rust opus-rs by default, libopus behind a feature."
 repository = "https://github.com/Niach/exponential"
 readme = "../etalk/README.md"
 

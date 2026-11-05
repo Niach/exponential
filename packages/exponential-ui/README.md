@@ -1,6 +1,6 @@
-# `@exponential_app/eui` — the Exponential UI catalog
+# `@exponential_app/eui` — the genUI catalog
 
-The data half of Exponential UI (VAPP-84): the **core catalog** of
+The data half of genUI (VAPP-84): the **core catalog** of
 components an A2UI surface may use, the **A2UI basic catalog** vendored and
 mapped onto it, the **macro table** that turns composite components into
 natives, the **model-facing descriptions** and prompt, the **token names**
@@ -206,7 +206,7 @@ is the catalog's `Motion.layers` description (`eval/motion/guide.md`, scored by
 
 ## The web layer (`@exponential_app/eui/web`)
 
-FEED-128: the FRAMEWORK-FREE half of a web renderer, so React and Solid compile byte-identical stylesheets and share one bind pass. `src/web/`: `theme-css.ts` (`compileTheme`: a resolved theme → one scoped sheet; `globalsCss(theme, {light?, dark?})`: the theme as UNSCOPED shadcn globals with literal values, `:root` + `.dark`, for an app that is not Exponential UI), `box-css.ts` (the per-node sheet), `base-css.ts` (`BASE_CSS`, layer `xui-base`), `data.ts` (JSON pointers, bindings, client functions, `bindTree`), `urls.ts` + `media.ts` (URL/media policy, the bounded blob cache, `fetchLimited`), `host-types.ts` (`HostPlugin<Icon, Markdown>`, the events), and the natives' pure helpers (`coerce`, `table`, `dates`, `inputs` = `HostOwnedController`, `markdown` = the parser to a tree, `form` = the field registry, `list`, `listbox`). Nothing in it imports a UI framework.
+FEED-128: the FRAMEWORK-FREE half of a web renderer, so React and Solid compile byte-identical stylesheets and share one bind pass. `src/web/`: `theme-css.ts` (`compileTheme`: a resolved theme → one scoped sheet; `globalsCss(theme, {light?, dark?})`: the theme as UNSCOPED shadcn globals with literal values, `:root` + `.dark`, for an app that is not genUI), `box-css.ts` (the per-node sheet), `base-css.ts` (`BASE_CSS`, layer `xui-base`), `data.ts` (JSON pointers, bindings, client functions, `bindTree`), `urls.ts` + `media.ts` (URL/media policy, the bounded blob cache, `fetchLimited`), `host-types.ts` (`HostPlugin<Icon, Markdown>`, the events), and the natives' pure helpers (`coerce`, `table`, `dates`, `inputs` = `HostOwnedController`, `markdown` = the parser to a tree, `form` = the field registry, `list`, `listbox`). Nothing in it imports a UI framework.
 
 FEED-131: `@exponential_app/eui/web/primitives` (`src/web/primitives/`) is the framework-free half of the shadcn primitive set: one module per primitive holding its Tailwind class recipes (cva recipes keep their names, `buttonVariants`, `alertVariants`, `codeBlockVariants`; plain strings are one frozen `<MODULE>_CLASSES` object keyed by part, with conditional fragments as keyed entries; the named constants `MENU_*_CLASS`, `SEGMENTED_*`, `GLASS_CARD_CLASS`, `FIELD_CHROME_CLASS`, `MOBILE_ARMS` stay) plus the pure helpers (`cn`, `getInitials`, `middleTruncate`, `avatarHueIndex`, `ringGeometry`, `choiceToggle`, `isTypeaheadPortalInteraction`, …). The React set and its Solid twin import ONE source of class strings, and `recipes.test.ts` fails if either renderer's file of the same name carries a class literal. A Tailwind build that paints them scans this directory (`@source`).
 
@@ -247,7 +247,7 @@ painters through the facade); `catalog/host.json` is the contract and
   A2UI basic, then the registered extensions; `clientCapabilities`.
 - **Links**: `Link.href`, `Button.href` and `Row.href` open through the host's
   `openUrl`, and a host's optional `textLinks(text)` hook turns parts of a
-  `Row` subtitle into tappable spans (`[{text, href?}]`; eUI knows nothing of
+  `Row` subtitle into tappable spans (`[{text, href?}]`; genUI knows nothing of
   what they mean). `catalog/host.json` `urls` is the contract.
 - **Policy** (every renderer, every href and src): `decideUrl` (schemes
   `https http mailto tel`; `schemes: ["https"]` = https only; optional host
@@ -334,7 +334,7 @@ against React.
 | `kitchen-sink.json` / `.expanded.json` | every visible component once, the VAPP-4 layout cases kept, round 1's responsive section (1→2→3 column grid, collapsing sidebar, hidden-on-narrow nodes, state blocks) and bound macros; view id `exponential-ui-kitchen-sink` |
 | `specimens.json` | generated (VAPP-93): one surface per component (its example, up to two enum props and two booleans, captioned; an overlay once, open) + `exponential-ui-demo` from the hand-written `demo-surface.json`; id = the view id ui.exponential.at shows four shots of |
 | `prompt-budget.json` | the prompt's size on record (full / lite / terse) and the budget |
-| `motion-frames.json` | EXP-1602: eUI Motion display lists (JSON + packed) per Lottie case and frame; every painter's pixel reference is `conformance/motion/parity/` |
+| `motion-frames.json` | EXP-1602: Motion display lists (JSON + packed) per Lottie case and frame; every painter's pixel reference is `conformance/motion/parity/` |
 | `motion-validate.json` | EXP-1602: the engine's refusals and warnings (expressions, the `limits.json › motion` limits) |
 | `motion-playback.json` | EXP-1604: the shared playback clock (props × elapsed ms → frame) |
 | `motion-state.json` | EXP-1605: dotLottie state machines (steps → state, entered, inputs) |

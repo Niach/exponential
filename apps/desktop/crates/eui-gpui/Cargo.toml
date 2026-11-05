@@ -3,9 +3,9 @@ name = "eui-gpui"
 version = "0.15.3"
 edition = "2021"
 license = "Apache-2.0"
-description = "Exponential UI gpui painter: paints the core catalog from eui-core's resolved frames and visuals as absolute gpui elements (overlays, windowed lists, extension painters, the generic glass controls)."
+description = "genUI gpui painter: paints the core catalog from eui-core's resolved frames and visuals as absolute gpui elements (overlays, windowed lists, extension painters, the generic glass controls)."
 repository = "https://github.com/Niach/exponential"
-homepage = "https://exponential.at/ui/"
+homepage = "https://exponential.at/sdk/genui/"
 readme = "README.md"
 keywords = ["a2ui", "gpui", "generative-ui"]
 # VAPP-90: the desktop painter. It depends on the core and on gpui (plus

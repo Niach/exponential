@@ -1,6 +1,6 @@
 # etalk-gpui
 
-eTalk's gpui side, the same code in Exponential and spezl: the voice tray
+Voice's gpui side, the same code in Exponential and spezl: the voice tray
 (`voice_tray`), push to talk and the wake word with the overlay capsule
 (`push_to_talk`, `voice_overlay`), caller mode with its call panel and
 floating pill (`voice_call`), spoken replies (`speak_replies`) and meeting
@@ -18,10 +18,10 @@ etalk_gpui::init(cx, Box::new(MyHost::new()));
 ```
 
 once, before the first window, after the host set up gpui-component's
-`Theme` (eTalk paints with `cx.theme()` and eUI's default theme; it links no
+`Theme` (Voice paints with `cx.theme()` and genUI's default theme; it links no
 app theme crate, `tests/dependency_gate.rs`). It installs the host as a gpui Global and
 starts the speaker, push to talk, the call, the meeting host and the tray, in
-that order. Then the host tells eTalk what changed:
+that order. Then the host tells Voice what changed:
 
 | Call | When |
 | --- | --- |

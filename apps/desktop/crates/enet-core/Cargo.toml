@@ -5,7 +5,7 @@ edition = "2021"
 # MIT OR Apache-2.0 (not the workspace's Apache-2.0): eNet is consumed by
 # spezl, an MIT app; iroh itself is MIT OR Apache-2.0.
 license = "MIT OR Apache-2.0"
-description = "eNet: Exponential's p2p, end-to-end encrypted networking core on iroh 1.x (chat, blobs, signed gossip records, call datagrams, encrypted push payloads)."
+description = "P2P: Exponential's p2p, end-to-end encrypted networking core on iroh 1.x (chat, blobs, signed gossip records, call datagrams, encrypted push payloads)."
 repository = "https://github.com/Niach/exponential"
 readme = "README.md"
 keywords = ["iroh", "p2p", "quic", "e2ee"]

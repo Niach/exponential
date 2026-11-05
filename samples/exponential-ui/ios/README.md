@@ -1,4 +1,4 @@
-# Exponential UI sample: iOS (SwiftUI)
+# genUI sample: iOS (SwiftUI)
 
 A blank iOS app (`GreenhouseSample.xcodeproj`) hosting the `greenhouse`
 surface streamed from the local A2UI JSONL server, with the server's

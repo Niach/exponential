@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Dev-only picture tooling around exponential.at: the App Store / Play Store screenshot compositor, the social cards, the eApps concept pictures. Nothing it renders is committed except apps/site/public/{social,eapps}.",
+  "description": "Dev-only picture tooling around exponential.at: the App Store / Play Store screenshot compositor, the social cards, the Apps concept pictures. Nothing it renders is committed except apps/site/public/{social,eapps}.",
   "scripts": {
     "screenshots:store": "bun scripts/store/render-store-screenshots.tsx",
     "screenshots:pop-sidecars": "bun scripts/store/pop-sidecars.ts",

@@ -1,13 +1,13 @@
 # eDE
 
 The Exponential Desktop Environment (#NEW-10): a Wayland compositor plus a
-shell drawn in eUI. This is its own Cargo workspace; it depends on the shared
+shell drawn in genUI. This is its own Cargo workspace; it depends on the shared
 libraries, never the other way round.
 
 | Crate | Role |
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
-| `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on eCore's `Capability`/`Grant`/`Failure`/`Envelope`. ePilot, eos-agent and the shell link it. |
+| `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it. |
 | `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## Run it nested (Cinnamon/X11)
@@ -94,7 +94,7 @@ remove ede`; Cinnamon is untouched.
 `$XDG_RUNTIME_DIR/ede/<wayland-N>.sock` (directory 0700): frames of a
 little-endian `u32` length plus JSON (`{"id": 1, "op": "list_windows"}`),
 the pixels of a capture as the frame after its reply. `hello` with a token
-first; each op needs the eCore capability it names:
+first; each op needs the Core capability it names:
 
 | Op | Capability |
 |---|---|
@@ -148,7 +148,7 @@ app_ids = ["org.example.Bank"]   # on top of the built-in list
 
 ## Lock, idle, input methods, protected surfaces
 
-The lock screen is a client of `ext-session-lock` (the eUI shell's, later;
+The lock screen is a client of `ext-session-lock` (the genUI shell's, later;
 `swaylock` today). From the lock request on, every output draws only that
 client's lock surface (black until it draws), only it gets keys and clicks,
 and bindings are off except Ctrl+Alt+F1…F12. If the lock client crashes the

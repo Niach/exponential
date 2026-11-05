@@ -1,4 +1,4 @@
-# Exponential UI — round 5 contract (VAPP-162)
+# genUI — round 5 contract (VAPP-162)
 
 Round 5 adds the low-level pieces the spezl drafts (a chat app with voice
 calls, push-to-talk, computer-use plans and QR pairing) kept rebuilding: a

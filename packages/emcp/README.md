@@ -1,6 +1,6 @@
 # @exp/emcp
 
-eMCP's contract: how an Exponential app exposes MCP tools (`exposes` bindings, `${input.x}` resolution, `<app>__<tool>` naming), who sees them (the grant model and the access rule), the `mcp_calls` audit row, app automations (trigger matching, the loop guard, the sponsor), the vault format and the upstream OAuth states. Each `fixtures/*.json` is the spec (its `$comment`) plus the cases; `src/` holds the pure TypeScript references that replay them. The server half (`apps/web/src/lib/emcp`) and the Rust crate `emcp` replay the same fixtures.
+MCP Proxy's contract: how an Exponential app exposes MCP tools (`exposes` bindings, `${input.x}` resolution, `<app>__<tool>` naming), who sees them (the grant model and the access rule), the `mcp_calls` audit row, app automations (trigger matching, the loop guard, the sponsor), the vault format and the upstream OAuth states. Each `fixtures/*.json` is the spec (its `$comment`) plus the cases; `src/` holds the pure TypeScript references that replay them. The server half (`apps/web/src/lib/emcp`) and the Rust crate `emcp` replay the same fixtures.
 
 ```ts
 import { validateExposes, qualifiedToolName } from "@exp/emcp/exposes"

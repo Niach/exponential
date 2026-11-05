@@ -1,6 +1,6 @@
-# `@exponential_app/eui-solid`: the Exponential UI SolidJS renderer
+# `@exponential_app/eui-solid`: the genUI SolidJS renderer
 
-The SolidJS renderer of Exponential UI (FEED-128): an A2UI surface in the
+The SolidJS renderer of genUI (FEED-128): an A2UI surface in the
 core catalog (`@exponential_app/eui`) painted with the **identical DOM** of the
 React renderer (`@exponential_app/eui-react`), with the same compiled stylesheet
 and runtime themes. Overlays, menus, selects, tabs, accordions and the form

@@ -1,4 +1,4 @@
-# Releasing eUI (Exponential UI)
+# Releasing genUI
 
 One tag, every registry: push `eui-v<semver>` and
 `.github/workflows/release-eui.yml` builds, verifies and publishes. Each

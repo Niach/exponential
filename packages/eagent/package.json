@@ -1,7 +1,7 @@
 {
   "name": "@exp/eagent",
   "version": "0.0.0",
-  "description": "eAgent's orchestration spec: the session tree, the bus, wake-ups, reports, caps and the watchdog as fixtures plus a pure TypeScript reference reducer (Exponential's server and eagent-hub-core replay them)",
+  "description": "ACP's orchestration spec: the session tree, the bus, wake-ups, reports, caps and the watchdog as fixtures plus a pure TypeScript reference reducer (Exponential's server and eagent-hub-core replay them)",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

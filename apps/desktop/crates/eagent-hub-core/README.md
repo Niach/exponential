@@ -1,4 +1,4 @@
-# `eagent-hub-core`: eAgent's orchestration reducer
+# `eagent-hub-core`: ACP's orchestration reducer
 
 A pure Rust port of `packages/eagent/src/reduce.ts` (#EXP-1509): the session
 tree, the bus, wake-ups, end reports, caps and the watchdog as one function,
@@ -8,13 +8,13 @@ let outcome = eagent_hub_core::reduce(&state, &envelope);
 // Outcome { state, effects, result } | Outcome { state (unchanged), effects: [], failure }
 ```
 
-`state` is a `HubState`, `envelope` an eCore `Envelope` (`at` is now), the
+`state` is a `HubState`, `envelope` a Core `Envelope` (`at` is now), the
 effects are `post`, `edit`, `brief`, `nudge` and `kill`. Types mirror
 `packages/eagent/src/model.ts` in camelCase JSON; `Field<T>` keeps a
 TypeScript `undefined` apart from `null` where the fixtures do.
 `hydrate(given)` fills a fixture's `given` with `rules.json` defaults.
 
-**The rule** (`tests/dependency_gate.rs`): eCore, serde and serde_json only;
+**The rule** (`tests/dependency_gate.rs`): Core, serde and serde_json only;
 no I/O, no clock, no async.
 
 **Byte-identical copy** with the TS reference: lines come from

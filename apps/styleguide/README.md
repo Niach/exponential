@@ -78,7 +78,7 @@ Bands: the control sections draw `Inputs & pickers`, `Buttons & chips`,
    (registered in that folder's `mod.rs`): the desktop crate embeds
    `sections.json` and its drift test (`every_registered_id_has_an_entry_file_and_an_owner_in_index_order`) fails until `entries::ENTRIES` lists the same ids in the same order.
 
-If the piece is low-level and generic, it also goes into Exponential UI
+If the piece is low-level and generic, it also goes into genUI
 (`packages/exponential-ui` catalog + `fixtures/specimens.json` + its
 `exponential-ui-<name>` view and four shots, then its ui.exponential.at page);
 an Exponential-specific composition stays here only.
@@ -102,7 +102,7 @@ that is the only way the dot goes away.
 ## Components (sections 2 and 3)
 
 **Generic specimens live on ui.exponential.at (VAPP-93).** Every control that
-is part of the Exponential UI SDK's core catalog — buttons, fields, checkbox,
+is part of the genUI module's core catalog — buttons, fields, checkbox,
 switch, select and the picker surface, date picker, badge, avatar, card,
 separator, dialog, drawer (the sheet), alert, empty states, skeleton, meters,
 rings, tabs, the composer and, in the round-3 vocabulary (VAPP-102), **Row**

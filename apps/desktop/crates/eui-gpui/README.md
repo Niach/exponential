@@ -1,6 +1,6 @@
 # `eui-gpui`: the desktop painter
 
-The gpui painter of the Exponential UI SDK (VAPP-90, hardened in round 1).
+The gpui painter of the genUI module (VAPP-90, hardened in round 1).
 The core crate [`eui-core`](../eui-core) reduces an A2UI surface,
 resolves the theme and lays the tree out with taffy. This crate measures text
 for it in-process and paints the result in gpui. It depends on the core,

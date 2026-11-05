@@ -1,12 +1,12 @@
-# `enet-core` (eNet): the networking core
+# `enet-core` (P2P): the networking core
 
-eNet is the p2p, end-to-end encrypted networking library shared by
+P2P is the p2p, end-to-end encrypted networking library shared by
 Exponential and spezl, built on [iroh](https://iroh.computer) 1.x. One Rust
 core; Swift and Kotlin get it through [`exponential-net-ffi`](../exponential-net-ffi)
 (UniFFI), the browser through [`exponential-net-wasm`](../exponential-net-wasm)
 (wasm-bindgen).
 
-License: **MIT OR Apache-2.0** (the three eNet crates, unlike the rest of
+License: **MIT OR Apache-2.0** (the three P2P crates, unlike the rest of
 this workspace, so an MIT app like spezl can ship them; iroh, iroh-gossip
 and iroh-blobs are MIT OR Apache-2.0 too).
 
@@ -94,7 +94,7 @@ caller gets `Event::CallAccepted`. `send_frame(call, bytes)` numbers frames
 (`seq` from 0) and sends each as one datagram `[u32 BE seq][payload]`; a frame
 larger than the path's datagram size (or a path without datagrams) goes on a
 unidirectional stream `[u32 BE len][u32 BE seq][payload]` instead. Frames
-arrive as `Event::CallFrame {seq, data}` in arrival order: eNet does no
+arrive as `Event::CallFrame {seq, data}` in arrival order: P2P does no
 encoding and no timing, the app's codec (Opus) and jitter buffer do.
 Closing the connection ends the call (`Event::CallEnded {Local|Remote|Failed}`).
 

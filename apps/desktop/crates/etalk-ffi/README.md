@@ -1,4 +1,4 @@
-# `etalk-ffi`: eTalk for Swift and Kotlin
+# `etalk-ffi`: Voice for Swift and Kotlin
 
 The UniFFI 0.31 facade over [`etalk`](../etalk) (the call machine) and
 [`etalk-codec`](../etalk-codec) (Opus) for iOS, macOS and Android, so a phone
@@ -6,7 +6,7 @@ places the same call as the desktop (#EXP-1441): an xcframework / an Android
 `.so` plus the generated bindings. gpui-free, engine-free, no app crate.
 
 Audio I/O stays native (AVAudioEngine; Oboe / AudioRecord): the facade takes
-and returns PCM frames. Transport is not eTalk's job: the packets ride eNet's
+and returns PCM frames. Transport is not Voice's job: the packets ride P2P's
 call channel (`exp/enet/call/1`, `exponential-net-ffi`'s `sendFrame`).
 
 ## The contract
@@ -82,7 +82,7 @@ Every `etalk-v*` tag (`release-etalk.yml`, `docs/libraries.md`) publishes:
 - **Maven Central**: `at.exponential:etalk:<version>` (an AAR: the `.so` for
   arm64-v8a, armeabi-v7a, x86_64 + the binding, package
   `at.exponential.talk.ffi`; JNA comes along). `android/` is the Gradle
-  library on eUI Compose's toolchain; `release/central-bundle.sh` is the
+  library on genUI Compose's toolchain; `release/central-bundle.sh` is the
   Portal bundle.
 
 ```swift

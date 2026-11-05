@@ -1,6 +1,6 @@
 # `ui-compose`: the Jetpack Compose painter
 
-This is the Android renderer of the Exponential UI SDK (VAPP-89), the Compose twin of the SwiftUI painter
+This is the Android renderer of the genUI module (VAPP-89), the Compose twin of the SwiftUI painter
 [`packages/exponential-ui-swift`](../exponential-ui-swift).
 
 The Rust core [`eui-core`](../../apps/desktop/crates/eui-core) does three jobs:

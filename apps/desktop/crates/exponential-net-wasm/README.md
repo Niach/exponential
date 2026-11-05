@@ -1,4 +1,4 @@
-# `exponential-net-wasm`: eNet in the browser
+# `exponential-net-wasm`: P2P in the browser
 
 The wasm-bindgen facade over [`enet-core`](../enet-core) for the
 Exponential web app. License: MIT OR Apache-2.0.
@@ -50,7 +50,7 @@ wasm-bindgen --target web --out-dir pkg $CARGO_TARGET_DIR/wasm32-unknown-unknown
 
 **getrandom** is selected per crate, with no workspace `.cargo/config.toml`:
 this crate depends, for `wasm32-unknown-unknown` only, on getrandom 0.4 with
-`wasm_js` (iroh, eNet) and getrandom 0.2 with `js` (ring, iroh's TLS
+`wasm_js` (iroh, P2P) and getrandom 0.2 with `js` (ring, iroh's TLS
 crypto). ring's C objects need `llvm-ar` (`rustup component add llvm-tools`):
 Apple `ar` writes an empty archive for wasm objects and the link fails on
 `ring_core_*` symbols. getrandom 0.3, which would need the `getrandom_backend="wasm_js"`
