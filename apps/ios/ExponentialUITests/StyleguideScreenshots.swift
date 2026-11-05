@@ -31,7 +31,7 @@ import XCTest
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
-///   sg_story-ring · sg_story-viewer · sg_plan-page · sg_team-avatar ·
+///   sg_plan-page · sg_team-avatar ·
 ///   sg_share-targets · sg_share-composer · sg_composer-add-file ·
 ///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
 ///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
@@ -747,13 +747,13 @@ final class StyleguideScreenshots: XCTestCase {
             settle(1)
         }
 
-        // ── sg_thread-stories: APP-14's thread on its Results tab ──────────
+        // ── sg_thread-results: APP-14's thread on its Results tab ──────────
         // results-tab.json, LIVE: from Chats, APP-14's thread (the stack top
         // over APP-15, the seeded PR with a real GitHub diff), then the
         // strip's last tab (icon-only, pinned right). Gate on the Changes row
         // (the PR's files loaded) and a result.
-        if ScreenshotShots.isWanted("sg_thread-stories") {
-            walkThreadStories(app)
+        if ScreenshotShots.isWanted("sg_thread-results") {
+            walkThreadResults(app)
             showBoard(app)
             settle(1)
         }
@@ -1128,7 +1128,6 @@ final class StyleguideScreenshots: XCTestCase {
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
         // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
         // sg_device-readiness (EXP-1375) · sg_session-xref · sg_pr-checks (#EXP-1611) ·
-        // sg_story-ring · sg_story-viewer · sg_story-tab (S-3, stories.json) ·
         // sg_needs-you · sg_results-tab (#FEED-191): the
         // styleguide entries' specimens.
         walkSpecimens(app)
@@ -1174,8 +1173,8 @@ final class StyleguideScreenshots: XCTestCase {
     static let specimenEntries = [
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-        "call-controls", "call-pill", "device-readiness", "session-xref", "story-ring", "story-viewer",
-        "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
+        "call-controls", "call-pill", "device-readiness", "session-xref",
+        "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
         "needs-you", "results-tab",
     ]
@@ -1215,9 +1214,6 @@ final class StyleguideScreenshots: XCTestCase {
             case "call-pill": snapshot("sg_call-pill", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
             case "session-xref": snapshot("sg_session-xref", settle: 2)
-            case "story-ring": snapshot("sg_story-ring", settle: 2)
-            case "story-viewer": snapshot("sg_story-viewer", settle: 2)
-            case "story-tab": snapshot("sg_story-tab", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
             // #FEED-191: THE entry row + THE list, THE Results tab body.
@@ -1650,10 +1646,9 @@ final class StyleguideScreenshots: XCTestCase {
     }
 
     /// results-tab.json: Chats → APP-14's thread → its Results tab
-    /// (`sg_thread-stories`, its name until the final cleanup renames it ×2);
-    /// ends back on the Chats list.
+    /// (`sg_thread-results`); ends back on the Chats list.
     @MainActor
-    private func walkThreadStories(_ app: XCUIApplication) {
+    private func walkThreadResults(_ app: XCUIApplication) {
         let threadsTab = app.buttons["tab-threads"]
         expect(threadsTab, within: Wait.nav, "Threads tab missing")
         threadsTab.tap()
@@ -1670,7 +1665,7 @@ final class StyleguideScreenshots: XCTestCase {
             "The Results tab drew no Changes row — are the seeded PR's files reachable on GitHub?"
         )
         expect(anyElement(app, identified: "result-section"), within: Wait.sync, "The Results tab drew no result")
-        snapshot("sg_thread-stories", settle: 3)
+        snapshot("sg_thread-results", settle: 3)
         goBack(app)
         settle(1)
     }

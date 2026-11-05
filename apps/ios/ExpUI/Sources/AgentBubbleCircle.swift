@@ -67,7 +67,7 @@ public struct AgentBubbleCircle: View {
 }
 
 /// The bubble's glyph alone (`AgentBubbleCircle.Glyph` at `size`): the
-/// circle's centre, and S-3's story-ring bubble inside THE StoryRing.
+/// circle's centre.
 struct AgentBubbleGlyph: View {
     let glyph: AgentBubbleCircle.Glyph
     let size: CGFloat

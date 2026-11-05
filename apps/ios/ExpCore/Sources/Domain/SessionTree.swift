@@ -311,15 +311,14 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let eventName: String?
     /// NEW-1 / #EXP-1399 `ask` mirror: the origin question / plan message.
     public let messageId: String?
-    /// S-3 (stories.json) plan | question | surface: the explicit story flag
-    /// (nil = absent: ask/plan or a resolved picture make it one).
+    /// surface: `result`'s older name, still read on old cards (results-tab.json).
     public let story: Bool?
     /// #FEED-191 (results-tab.json) surface: the explicit result flag (nil =
     /// absent: `story`, else a resolved picture makes it one).
     public let result: Bool?
-    /// The card's `pictures` (plan uploads; S-3: a result story's screenshots).
+    /// The card's `pictures` (plan uploads; a result's screenshots).
     public let pictures: [PlanCardPicture]
-    /// #EXP-1432 stories.json: the story's one line under its title.
+    /// #EXP-1432: a result's one line under its title.
     public let description: String?
     /// #EXP-1561 plan | question: a person dismissed it (`dismissed: true`).
     public let dismissed: Bool
@@ -760,7 +759,7 @@ public struct SessionBanner: Equatable, Sendable {
 }
 
 /// #EXP-1433 (session-thread.json `stripModeCases`): the strip between
-/// Conversation and Stories. `chips` = at most one issue and no session (that
+/// Conversation and Results. `chips` = at most one issue and no session (that
 /// issue keeps its chip); `group` = ONE icon tab for every issue and session,
 /// `count` of them, opening THE menu of their rows.
 public struct ThreadStripMode: Equatable, Sendable {
@@ -804,8 +803,8 @@ public struct ThreadTabNestedSession: Equatable, Sendable {
 }
 
 /// The thread header's tab strip (EXP-1334: + · Conversation · issue chips ·
-/// session chips; nothing scrolls). S-3: the Guide tab is gone ×4 (stories
-/// replace it).
+/// session chips; nothing scrolls). S-3: the Guide tab is gone ×4 (the Results
+/// tab replaces it).
 public enum ThreadTab: Equatable, Sendable {
     /// The "+" (link/file an issue), LEFT of Conversation.
     case add

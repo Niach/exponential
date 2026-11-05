@@ -1,7 +1,7 @@
 import Foundation
 
 /// Thread 58cb32df (owner 2026-10-23, #EXP-1373): Chats, the phone app's
-/// WhatsApp-like list, the agent bubbles, the context menus ×4, the transcript
+/// WhatsApp-like list, the context menus ×4, the transcript
 /// dividers and the surface card's reply. Pure and byte-locked by
 /// `packages/domain-contract/fixtures/chats.json` (its `$comment` holds the
 /// rules; TS reference `src/chats.ts`). `ChatsTests` replays every case group.
@@ -27,12 +27,6 @@ public enum Chats {
         public enum BoardMenu {
             public static let newBoard = "New board"
             public static let newTeam = "New team"
-        }
-        public enum Filters {
-            public static let all = "All"
-            public static let needsYou = "Needs you"
-            public static let running = "Working"
-            public static let unread = "Unread"
         }
         public enum Preview {
             public static let working = "working…"
@@ -205,8 +199,6 @@ public enum Chats {
     /// Fixture `testIds`.
     public enum TestIds {
         public static let chatRow = "chat-row"
-        public static let chatFilter = "chat-filter"
-        public static let agentBubble = "agent-bubble"
         public static let inboxButton = "chats-inbox"
         public static let tabTeam = "tab-team"
         public static let boardChip = "board-chip"
@@ -319,8 +311,6 @@ public enum Chats {
         public static let selectBadgeGlyph: Double = 14
         public static let selectBadgeRadius: Double = 4
         public static let archivedGlyph: Double = 24
-        public static let bubble: Double = 66
-        public static let bubbleRing: Double = 3
         /// S-3: a DONE chat's row (`ChatRow.dim`) draws at this opacity.
         public static let dimOpacity: Double = 0.5
         /// S-3: a chat row's lead glyph (concept; needs-you = this glyph +
@@ -396,15 +386,6 @@ public enum Chats {
 
     // MARK: - Types
 
-    public enum ChatFilter: String, CaseIterable, Sendable, Hashable {
-        case all
-        case needsYou = "needs_you"
-        case running
-        case unread
-    }
-
-    public static let filters: [ChatFilter] = ChatFilter.allCases
-
     public enum ChatLead: String, Equatable, Sendable {
         case needsYou = "needs_you"
         case working, open, merged, waiting
@@ -453,14 +434,11 @@ public enum Chats {
 
     public struct ChatList: Equatable, Sendable {
         public let rows: [ChatRow]
-        /// Chip counts (All has none).
-        public let counts: [ChatFilter: Int]
         /// #EXP-1388: archived chats of the active team (the Archived entry).
         public let archived: Int
 
-        public init(rows: [ChatRow], counts: [ChatFilter: Int], archived: Int = 0) {
+        public init(rows: [ChatRow], archived: Int = 0) {
             self.rows = rows
-            self.counts = counts
             self.archived = archived
         }
     }
@@ -521,17 +499,6 @@ public enum Chats {
             self.action = action
             self.sessionIds = sessionIds
         }
-    }
-
-    public enum AgentRing: String, Equatable, Sendable {
-        case needsYou = "needs_you"
-        case unread
-    }
-
-    public struct AgentBubble: Equatable, Sendable, Identifiable {
-        public let agent: AgentRow
-        public let ring: AgentRing?
-        public var id: String { agent.agentId }
     }
 
     /// S-3: an agent row pinned on top of the Chats list (`agentRowCases`).
@@ -815,26 +782,15 @@ public enum Chats {
         }.count
     }
 
-    private static func keep(_ row: ChatRow, _ filter: ChatFilter) -> Bool {
-        switch filter {
-        case .all: true
-        case .needsYou: row.group == ThreadsListGroup.Key.needsYou.rawValue
-        case .running: row.group == ThreadsListGroup.Key.running.rawValue
-        case .unread: row.unreadCount > 0
-        }
-    }
-
     /// The phone Chats list (`listCases`): the ROOT rows of
     /// `partitionThreads` (active team) flattened and sorted by activity desc
-    /// (ties by id), each with its lead, preview, time and unread count, then
-    /// filtered by the chip.
+    /// (ties by id), each with its lead, preview, time and unread count.
     public static func chatList(
         groups: [ThreadsListGroup],
         messages: [TreeMessage],
         reads: [TreeSessionRead] = [],
         prStates: [String: [String]] = [:],
         words: [String: ThreadRowWord] = [:],
-        filter: ChatFilter,
         view: ChatListView = .list,
         now: String,
         utcOffsetMinutes: Int,
@@ -888,14 +844,8 @@ public enum Chats {
             if ta != tb { return ta > tb }
             return a.sessionId < b.sessionId
         }
-        let all = rows.filter { isArchived($0) == wantArchived }
         return ChatList(
-            rows: all.filter { keep($0, filter) },
-            counts: [
-                .needsYou: all.filter { keep($0, .needsYou) }.count,
-                .running: all.filter { keep($0, .running) }.count,
-                .unread: all.filter { keep($0, .unread) }.count,
-            ],
+            rows: rows.filter { isArchived($0) == wantArchived },
             archived: rows.filter(isArchived).count
         )
     }
@@ -972,49 +922,14 @@ public enum Chats {
             .replacingOccurrences(of: "{m}", with: String(total))
     }
 
-    /// A chip's label: its copy, then its count when there is one.
-    public static func chatFilterLabel(_ filter: ChatFilter, counts: [ChatFilter: Int]) -> String {
-        let label: String
-        switch filter {
-        case .all: return Copy.Filters.all
-        case .needsYou: label = Copy.Filters.needsYou
-        case .running: label = Copy.Filters.running
-        case .unread: label = Copy.Filters.unread
-        }
-        let n = counts[filter] ?? 0
-        return n > 0 ? "\(label) \(n)" : label
-    }
-
-    /// The Chats header's agent bubbles (`bubbleCases`), in `listAgents`
-    /// order: amber ring = the viewer's conversation needs them, white ring =
-    /// an agent message newer than their read of it, else none.
-    public static func agentBubbles(
-        agents: [AgentRow],
-        sessions: [TreeSession],
-        messages: [TreeMessage],
-        reads: [TreeSessionRead] = [],
-        me: String?
-    ) -> [AgentBubble] {
-        agents.map { agent in
-            if agent.needsYou { return AgentBubble(agent: agent, ring: .needsYou) }
-            let conversation = sessions.first {
-                $0.parentId == nil && $0.agentId == agent.agentId && me != nil && $0.userId == me
-            }
-            let unread = conversation.map { unreadCount(rootId: $0.id, messages: messages, reads: reads) > 0 } ?? false
-            return AgentBubble(agent: agent, ring: unread ? .unread : nil)
-        }
-    }
-
     /// S-3: the Chats list's pinned AGENTS section (`agentRowCases`): one
-    /// row per `listAgents` row (that order), filtered by the chip like a
-    /// chat; none on the Archived page.
+    /// row per `listAgents` row (that order); none on the Archived page.
     public static func agentChatRows(
         agents: [AgentRow],
         sessions: [TreeSession],
         messages: [TreeMessage],
         reads: [TreeSessionRead] = [],
         me: String?,
-        filter: ChatFilter,
         view: ChatListView = .list,
         now: String,
         utcOffsetMinutes: Int
@@ -1054,14 +969,6 @@ public enum Chats {
                 busy: agent.busy
             )
         }
-        .filter { row in
-            switch filter {
-            case .all: true
-            case .needsYou: row.needsYou
-            case .running: row.busy
-            case .unread: row.unreadCount > 0
-            }
-        }
     }
 
     /// A chat row's context menu ×4 (`menuCases`): S-3 no Stop/End
@@ -1072,7 +979,7 @@ public enum Chats {
         canSteer && canDelete ? [.delete] : []
     }
 
-    /// The agent chat's header menu (and its bubble's long-press) ×4
+    /// The agent chat's header menu (and its row's long-press) ×4
     /// (`agentMenuCases`). S-3: no Stop (the composer's stop-turn is the one).
     public static func agentMenuEntries(busy: Bool, isOwner: Bool) -> [AgentMenuEntry] {
         var entries: [AgentMenuEntry] = [.compact, .newConversation]

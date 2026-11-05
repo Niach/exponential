@@ -294,7 +294,7 @@ public struct PlanCardPicture: Equatable, Sendable {
     public let attachmentId: String?
     public let width: Double?
     public let height: Double?
-    /// S-3: a result story's caption under the picture (nil = none).
+    /// A result's caption under the picture (nil = none).
     public let caption: String?
 
     public init(

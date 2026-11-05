@@ -1,56 +1,13 @@
 import ExpCore
 import SwiftUI
 
-// #EXP-1493 → #EXP-1662 THE plan tab's parts ×4 (fixtures/plan-page.json +
-// stories.json `badge`; web packages/ui plan-page.tsx, desktop plan_page.rs,
-// Android ui/plan/PlanPage.kt): the kind badge, the phone picture group (THE
-// eUI Carousel: one slide per picture, "i / n" top-left, dots under it), THE
-// outline (eUI `Outline`: the caption, one row per section, the questions
-// row), the floating panel's surface and the thumbnail strip the story
-// viewer's plan cover and gallery filmstrip share. The tab's body (markdown,
+// #EXP-1493 → #EXP-1662 THE plan tab's parts ×4 (fixtures/plan-page.json; web
+// packages/ui plan-page.tsx, desktop plan_page.rs, Android ui/plan/PlanPage.kt):
+// the phone picture group (THE eUI Carousel: one slide per picture, "i / n"
+// top-left, dots under it), THE outline (eUI `Outline`: the caption, one row per
+// section, the questions row) and the floating panel's surface. The tab's body (markdown,
 // the questions, lightbox) lives in the app (`PlanPageBody`): those renderers
 // are the app's.
-
-extension Stories.Kind {
-    /// The ask-dock tints: plan primary, question yellow, a result the
-    /// closed-check green.
-    public var tint: Color {
-        switch self {
-        case .plan: DesignTokens.Palette.primary
-        case .question: DesignTokens.Semantic.yellow
-        case .result: DesignTokens.Semantic.green
-        }
-    }
-}
-
-/// THE kind badge (stories.json `badge` = THE Pill, sm, readonly): the
-/// concept icon + the kind word in the tint, the tint at `fill` behind and
-/// at `stroke` as its border.
-public struct StoryKindBadge: View {
-    let kind: Stories.Kind
-
-    public init(kind: Stories.Kind) {
-        self.kind = kind
-    }
-
-    public var body: some View {
-        let tint = kind.tint
-        return HStack(spacing: 4) {
-            AppIcon(AppIcons.conceptOrName(Stories.Badge.icon(kind)) ?? AppIcons.codingPlan, size: 11, weight: .semibold)
-            Text(Stories.Copy.kind(kind))
-                .font(.caption2.weight(.medium))
-                .lineLimit(1)
-        }
-        .foregroundStyle(tint)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(tint.opacity(Stories.Badge.fill)))
-        .overlay(Capsule().stroke(tint.opacity(Stories.Badge.stroke), lineWidth: 1))
-        .accessibilityElement(children: .combine)
-        .fixedSize()
-        .accessibilityIdentifier("story-badge")
-    }
-}
 
 /// #EXP-1662 THE floating panel's surface (plan-page.json `panel`): centred,
 /// `maxWidth` wide, the menu surface fill + hairline + `radius`, `padding`; it
@@ -281,60 +238,5 @@ public struct PlanOutlineList: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanPage.TestIds.outline)
-    }
-}
-
-/// The story viewer's thumbnail row: the plan cover's (40 pt tall, up to 4
-/// + `+N` muted) and the gallery filmstrip (52 pt squares); the current =
-/// a 2 pt foreground ring. A tap = `onPick(index)`.
-public struct StoryThumbnailStrip<Thumb: View>: View {
-    let count: Int
-    let current: Int?
-    let height: CGFloat
-    /// nil = square tiles.
-    let width: CGFloat?
-    let limit: Int?
-    let onPick: (Int) -> Void
-    let thumb: (Int) -> Thumb
-
-    public init(
-        count: Int, current: Int?, height: CGFloat, width: CGFloat? = nil, limit: Int? = nil,
-        onPick: @escaping (Int) -> Void, @ViewBuilder thumb: @escaping (Int) -> Thumb
-    ) {
-        self.count = count
-        self.current = current
-        self.height = height
-        self.width = width
-        self.limit = limit
-        self.onPick = onPick
-        self.thumb = thumb
-    }
-
-    public var body: some View {
-        let shown = min(count, limit ?? count)
-        let radius = CGFloat(Stories.Tab.Tile.radius) * 0.8
-        HStack(spacing: 8) {
-            ForEach(0..<shown, id: \.self) { index in
-                Button { onPick(index) } label: {
-                    thumb(index)
-                        .frame(width: width ?? height, height: height)
-                        .clipShape(RoundedRectangle(cornerRadius: radius))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: radius)
-                                .stroke(
-                                    index == current ? Color.white : GlassTokens.strokeCard,
-                                    lineWidth: index == current ? 2 : GlassTokens.hairline
-                                )
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            if shown < count {
-                Text("+\(count - shown)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-        }
     }
 }

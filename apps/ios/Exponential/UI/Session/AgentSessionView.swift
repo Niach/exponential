@@ -732,8 +732,7 @@ struct AgentSessionView: View {
                                 TranscriptLoadEarlierButton { model.loadEarlier() }
                             }
                             // S-3 (dock.json): a waiting plan or question
-                            // stays inline, answerable; it is a story now,
-                            // never a DockCard.
+                            // stays inline, answerable, never a DockCard.
                             // #EXP-1625: the model's immutable row snapshots.
                             let entries = model.transcript
                             let lastId = entries.last?.id
@@ -1326,7 +1325,7 @@ struct AgentSessionView: View {
 
     /// N-12: THE Dock's rows: THE Queue, the queued messages and the
     /// banners (`SessionDock`). S-3 (dock.json): a waiting plan or question
-    /// is a story, never a DockCard; it stays inline in the transcript.
+    /// is never a DockCard; it stays inline in the transcript.
     private func dockRows(_ model: AgentSessionModel) -> [Dock.Row] {
         Dock.rows(SessionDock.sources(model, session: session))
     }

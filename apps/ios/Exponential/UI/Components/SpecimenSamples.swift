@@ -3,7 +3,7 @@ import UIKit
 
 /// EXP-1654: the committed sample pictures (`packages/exponential-ui/samples`,
 /// bundled as the `samples` folder). A styleguide specimen's attachment id
-/// named in `samples.json` `attachments` (plan-page `sg-1`…, story-tab
+/// named in `samples.json` `attachments` (plan-page `sg-1`…, results-tab
 /// `att-w`, `att-i`) paints that PNG, never fetching. Styleguide captures
 /// only (`-uiTesting -uiTestingStyleguide <id>`): the product never reads it.
 enum SpecimenSamples {
