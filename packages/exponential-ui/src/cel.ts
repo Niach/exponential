@@ -5,8 +5,8 @@
 // expression has no loops, no user functions, a length cap, no nested
 // comprehensions and a step limit, so it always terminates.
 //
-// The subset: number, string ('…' or "…"), true, false, null and list
-// literals; names; field paths `a.b` and indexes `a[0]`, `m["k"]`;
+// The subset: number, string ('…' or "…"), true, false, null, list and map
+// (`{'k': e}`, VAPP-206: string keys) literals; names; field paths `a.b` and indexes `a[0]`, `m["k"]`;
 // `+ - * / %`, unary `-` and `!`; `== != < <= > >=`; `&& ||`; `c ? a : b`;
 // function calls (`FUNCTIONS` below); the macros `list.map(x, e)`,
 // `.filter(x, p)`, `.all(x, p)`, `.exists(x, p)`, single level. ONE number
@@ -266,7 +266,7 @@ function text(fn: string, v: unknown): string {
 // The function table (CEL calls and the A2UI function form)
 // ---------------------------------------------------------------------------
 
-type Param = `number` | `string` | `temporal` | `sized` | `any`
+type Param = `number` | `string` | `temporal` | `sized` | `list` | `any`
 
 interface FunctionDef {
   /** The CEL parameters in order; `variadic` repeats the last one. */
@@ -368,6 +368,70 @@ function size(v: unknown): number {
   return fail(`size needs a list, string or map, got ${typeName(v)}`)
 }
 
+/** VAPP-206: `string(v)`: a number's or a bool's text, a string as it is. */
+function stringOf(v: unknown): string {
+  if (typeof v === `string`) return v
+  if (typeof v === `number`) return numText(v)
+  if (typeof v === `boolean`) return v ? `true` : `false`
+  return fail(`string needs a number, string or bool, got ${typeName(v)}`)
+}
+
+function listOf(fn: string, v: unknown): unknown[] {
+  if (!Array.isArray(v)) return fail(`${fn} needs a list, got ${typeName(v)}`)
+  return v
+}
+
+/** VAPP-206: a list's numbers; a null entry (a row's missing optional
+ *  field) is skipped. */
+function numbersOf(fn: string, v: unknown): number[] {
+  const out: number[] = []
+  for (const x of listOf(fn, v)) {
+    if (x === null || x === undefined) continue
+    if (typeof x !== `number`) fail(`${fn} needs a list of numbers, got ${typeName(x)}`)
+    out.push(x as number)
+  }
+  return out
+}
+
+const fieldOf = (row: unknown, field: string): unknown => (isMap(row) && Object.prototype.hasOwnProperty.call(row, field) ? (row[field] ?? null) : null)
+
+/** VAPP-206: `sortBy`'s order: numbers by value, strings by UTF-16 code unit,
+ *  anything else equal (the sort is stable). */
+function sortOrder(a: unknown, b: unknown): number {
+  if ((typeof a === `number` && typeof b === `number`) || (typeof a === `string` && typeof b === `string`)) return a < b ? -1 : a > b ? 1 : 0
+  return 0
+}
+
+function sortBy(args: unknown[]): unknown[] {
+  const list = listOf(`sortBy`, args[0])
+  const field = text(`sortBy`, args[1])
+  const order = args.length > 2 ? args[2] : `asc`
+  if (order !== `asc` && order !== `desc`) fail(`sortBy order is asc or desc`)
+  const sign = order === `asc` ? 1 : -1
+  return [...list].sort((x, y) => {
+    const a = fieldOf(x, field)
+    const b = fieldOf(y, field)
+    // A missing value sorts last in either order.
+    if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1
+    return sign * sortOrder(a, b)
+  })
+}
+
+function groupOf(args: unknown[]): { key: unknown; rows: unknown[] }[] {
+  const field = text(`groupOf`, args[1])
+  const out: { key: unknown; rows: unknown[] }[] = []
+  for (const row of listOf(`groupOf`, args[0])) {
+    const key = fieldOf(row, field)
+    const group = out.find((g) => deepEqual(g.key, key))
+    if (group) group.rows.push(row ?? null)
+    else out.push({ key, rows: [row ?? null] })
+  }
+  return out
+}
+
+/** JS `trim`'s set (the Rust twin spells it). */
+const trimText = (v: string) => v.trim()
+
 /** THE function table (spec §4.2): CEL calls them positionally, the A2UI
  *  form by the names in `args`. Generic only (decision §18.8): no working
  *  days, no holidays. */
@@ -428,6 +492,64 @@ export const EXPRESSION_FUNCTIONS: Readonly<Record<string, FunctionDef>> = {
   hours: { params: [`number`], args: [`minutes`], run: ([m]) => num(number(`hours`, m) / 60), returns: always(`number`) },
   formatDuration: { params: [`number`, `string`], args: [`hours`, `format`], run: formatDuration, returns: always(`string`) },
   size: { params: [`sized`], args: [`value`], run: ([v]) => size(v), returns: always(`number`) },
+  // VAPP-206: the Text and Arrays rows (CEL only, like size: `CEL_ONLY`).
+  string: { params: [`any`], args: [`value`], run: ([v]) => stringOf(v), returns: always(`string`) },
+  trim: { params: [`string`], args: [`value`], run: ([v]) => trimText(text(`trim`, v)), returns: always(`string`) },
+  lower: { params: [`string`], args: [`value`], run: ([v]) => text(`lower`, v).toLowerCase(), returns: always(`string`) },
+  upper: { params: [`string`], args: [`value`], run: ([v]) => text(`upper`, v).toUpperCase(), returns: always(`string`) },
+  split: {
+    params: [`string`, `string`],
+    args: [`value`, `separator`],
+    run: ([v, sep]) => {
+      const value = text(`split`, v)
+      const separator = text(`split`, sep)
+      if (!separator) fail(`split needs a separator`)
+      return value.split(separator)
+    },
+    returns: always([`string`]),
+  },
+  join: {
+    params: [`list`, `string`],
+    min: 1,
+    args: [`values`, `separator`],
+    run: (a) => {
+      const separator = a.length > 1 ? text(`join`, a[1]) : ``
+      return listOf(`join`, a[0])
+        .map((x) => (typeof x === `string` ? x : fail(`join needs a list of strings, got ${typeName(x)}`)))
+        .join(separator)
+    },
+    returns: always(`string`),
+  },
+  sumOf: { params: [`list`], args: [`values`], run: ([v]) => num(numbersOf(`sumOf`, v).reduce((a, b) => a + b, 0)), returns: always(`number`) },
+  avgOf: {
+    params: [`list`],
+    args: [`values`],
+    run: ([v]) => {
+      const ns = numbersOf(`avgOf`, v)
+      return ns.length ? num(ns.reduce((a, b) => a + b, 0) / ns.length) : null
+    },
+    returns: always({ "?": `number` }),
+  },
+  minOf: {
+    params: [`list`],
+    args: [`values`],
+    run: ([v]) => numbersOf(`minOf`, v).reduce<number | null>((a, b) => (a === null || b < a ? b : a), null),
+    returns: always({ "?": `number` }),
+  },
+  maxOf: {
+    params: [`list`],
+    args: [`values`],
+    run: ([v]) => numbersOf(`maxOf`, v).reduce<number | null>((a, b) => (a === null || b > a ? b : a), null),
+    returns: always({ "?": `number` }),
+  },
+  countOf: { params: [`list`], args: [`values`], run: ([v]) => listOf(`countOf`, v).filter((x) => x !== null && x !== undefined).length, returns: always(`number`) },
+  sortBy: { params: [`list`, `string`, `string`], min: 2, args: [`values`, `field`, `order`], run: sortBy, returns: (types) => (Array.isArray(types[0]) ? types[0] : [`dyn`]) },
+  groupOf: {
+    params: [`list`, `string`],
+    args: [`values`, `field`],
+    run: groupOf,
+    returns: (types) => [{ key: optionalType(`dyn`), rows: Array.isArray(types[0]) ? types[0] : [`dyn`] }],
+  },
   // VAPP-195: the value, or the default when it is missing (null).
   orElse: {
     params: [`any`, `any`],
@@ -447,6 +569,10 @@ export { EXPRESSION_CALL_NAMES }
 export const EXPRESSION_BIND_FUNCTIONS: Readonly<Record<string, (args: Record<string, unknown>) => unknown>> = Object.fromEntries(
   EXPRESSION_CALL_NAMES.map((name) => [name, (args: Record<string, unknown>) => callExpressionFunction(name, args)?.value]),
 )
+
+/** VAPP-206: reachable from CEL only (`{call: expr}`): the bind table and the
+ *  catalog keep their names. */
+export const CEL_ONLY: readonly string[] = [`size`, `string`, `trim`, `lower`, `upper`, `split`, `join`, `sumOf`, `avgOf`, `minOf`, `maxOf`, `countOf`, `sortBy`, `groupOf`]
 
 const MACROS = new Set([`map`, `filter`, `all`, `exists`])
 
@@ -474,7 +600,7 @@ export function callExpressionFunction(name: string, args: Record<string, unknow
     const result = evaluateExpression(args.expr, isMap(args.vars) ? args.vars : {}, env)
     return `value` in result ? { value: result.value } : fallback
   }
-  if (name === `size` || !Object.prototype.hasOwnProperty.call(EXPRESSION_FUNCTIONS, name)) return undefined
+  if (CEL_ONLY.includes(name) || !Object.prototype.hasOwnProperty.call(EXPRESSION_FUNCTIONS, name)) return undefined
   const def = EXPRESSION_FUNCTIONS[name]!
   let positional: unknown[]
   if (def.variadic) positional = Array.isArray(args.values) ? args.values : []
@@ -499,6 +625,7 @@ export type ExprNode =
   | { k: `lit`; v: unknown; at: number }
   | { k: `id`; name: string; at: number }
   | { k: `list`; items: ExprNode[]; at: number }
+  | { k: `map`; entries: [string, ExprNode][]; at: number }
   | { k: `field`; of: ExprNode; name: string; at: number }
   | { k: `index`; of: ExprNode; index: ExprNode; at: number }
   | { k: `unary`; op: string; arg: ExprNode; at: number }
@@ -516,7 +643,7 @@ interface Token {
 }
 
 const OPS2 = [`==`, `!=`, `<=`, `>=`, `&&`, `||`]
-const OPS1 = `+-*/%<>!()[],.?:`
+const OPS1 = `+-*/%<>!()[]{},.?:`
 const isDigit = (c: string | undefined) => c !== undefined && c >= `0` && c <= `9`
 const isIdStart = (c: string | undefined) => c !== undefined && ((c >= `a` && c <= `z`) || (c >= `A` && c <= `Z`) || c === `_`)
 const isIdPart = (c: string | undefined) => isIdStart(c) || isDigit(c)
@@ -629,6 +756,8 @@ export function expressionNames(node: ExprNode): string[] {
         return
       case `list`:
         return n.items.forEach((x) => walk(x, bound))
+      case `map`:
+        return n.entries.forEach(([, x]) => walk(x, bound))
       case `field`:
         return walk(n.of, bound)
       case `has`:
@@ -807,6 +936,25 @@ class Parser {
     }
   }
 
+  /** VAPP-206: `{'k': e, …}`: string keys, no duplicates, `?` never (it
+   *  spells an optional type). */
+  private map(): [string, ExprNode][] {
+    const entries: [string, ExprNode][] = []
+    while (!this.isOp(`}`)) {
+      const key = this.peek()
+      if (key.t !== `str`) fail(`at ${key.at}: a map key is a string`)
+      if (key.v === `?`) fail(`at ${key.at}: ? is not a map key`)
+      if (entries.some(([k]) => k === key.v)) fail(`at ${key.at}: duplicate key ${key.v}`)
+      this.next()
+      this.expect(`:`)
+      entries.push([key.v as string, this.expr()])
+      if (!this.isOp(`,`)) break
+      this.next()
+    }
+    this.expect(`}`)
+    return entries
+  }
+
   private primary(): ExprNode {
     const t = this.peek()
     if (t.t === `num`) {
@@ -851,6 +999,10 @@ class Parser {
     if (t.t === `op` && t.v === `[`) {
       this.next()
       return { k: `list`, items: this.list(`]`), at: t.at }
+    }
+    if (t.t === `op` && t.v === `{`) {
+      this.next()
+      return { k: `map`, entries: this.map(), at: t.at }
     }
     return this.unexpected()
   }
@@ -898,6 +1050,8 @@ class Evaluator {
         return node.v
       case `list`:
         return node.items.map((item) => this.ev(item, scope))
+      case `map`:
+        return Object.fromEntries(node.entries.map(([k, v]) => [k, this.ev(v, scope)]))
       case `id`: {
         for (let s = scope; s; s = s.parent) if (s.name === node.name) return s.value
         if (!Object.prototype.hasOwnProperty.call(this.vars, node.name)) fail(`unknown name ${node.name}`)
@@ -1075,10 +1229,11 @@ function accepts(param: Param, t: ExprType): boolean {
   if (param === `number`) return t === `number`
   if (param === `string`) return isTextual(t)
   if (param === `temporal`) return isTextual(t)
+  if (param === `list`) return Array.isArray(t)
   return t === `string` || t === `map` || Array.isArray(t) || isRow(t)
 }
 
-const PARAM_NAME: Record<Param, string> = { number: `a number`, string: `a string`, temporal: `a date`, sized: `a list, string or map`, any: `a value` }
+const PARAM_NAME: Record<Param, string> = { number: `a number`, string: `a string`, temporal: `a date`, sized: `a list, string or map`, list: `a list`, any: `a value` }
 
 interface TypeScope {
   name: string
@@ -1164,6 +1319,8 @@ class Checker {
         if (items.length === 0) return [`dyn`]
         return [items.every((t) => JSON.stringify(t) === JSON.stringify(items[0])) ? items[0]! : `dyn`]
       }
+      case `map`:
+        return Object.fromEntries(node.entries.map(([k, v]) => [k, this.tc(v, scope)]))
       case `id`: {
         for (let s = scope; s; s = s.parent) if (s.name === node.name) return s.type
         if (!Object.prototype.hasOwnProperty.call(this.types, node.name)) return fail(`unknown name ${node.name}`)
@@ -1314,6 +1471,8 @@ class Checker {
       const d = lit(1)
       if (typeof d === `number` && (!Number.isInteger(d) || d < 0 || d > 10)) fail(`round needs 0 to 10 digits`)
     }
+    if (node.fn === `sortBy` && typeof lit(2) === `string` && lit(2) !== `asc` && lit(2) !== `desc`) fail(`sortBy order is asc or desc`)
+    if (node.fn === `split` && lit(1) === ``) fail(`split needs a separator`)
     if (node.fn === `div` && lit(1) === 0) fail(`division by zero`)
     if (node.fn === `mod` && lit(1) === 0) fail(`modulo by zero`)
     const format = node.fn === `formatDuration` ? lit(1) : undefined

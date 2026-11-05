@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-191 (eApps Q2, spec docs/spec/apps.md §4.2-4.4): the expression language, ONE fixture for the TS reference (src/cel.ts) and the Rust core (eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. The string form is a SUBSET of CEL: number/string/bool/null/list literals, names, field paths a.b, indexes a[0] / m['k'], + - * / %, unary - and !, == != < <= > >=, && || (short-circuit), c ? a : b, the function table, and the macros map/filter/all/exists, single level. ONE number type (a double, like JSON: 7 / 2 = 3.5; CEL splits int/uint/double); no implicit conversion; a missing field (or a field of null) reads null; == is deep JSON equality; strings compare by UTF-16 code unit. Errors are exact texts; a parse error starts `at <code point>: `. Functions (also the A2UI form {call, args}): mul{a,b} div{a,b} mod{a,b} round{value,digits?} (half away from zero, digits 0..10) floor ceil abs{value} min max{values} today{} now{} dateAdd{date,n,unit} dateDiff{a,b,unit} (b - a, truncated) startOf endOf{date,unit} weekday{date} (ISO, Monday 1) isoWeek{date} hours{minutes} formatDuration{hours,format} (h:mm, hh:mm), size (CEL only), and expr{expr, vars} = the string form at bind time (a var whose binding resolves to nothing, e.g. a row's missing optional field, is null, never an unknown name); a failed call has NO value (`none`). A date is `YYYY-MM-DD` (a calendar day), a timestamp an ISO instant (no offset = UTC; written back as toISOString). Everything date-like runs in the TEAM zone `zones[env.zone]` = a UTC offset per instant (minutes east, `offset` until the first transition, then each `[at, offset]`): a day unit keeps the wall clock (a time in a DST gap moves forward by the gap, a repeated time takes its later instant), second/minute/hour are real time. Units: second minute hour day week month quarter year (startOf/endOf: day..year; a date takes no sub-day unit in dateAdd). Cost: `limits` (maxLength code points, maxDepth = nested expressions and unary operators, maxSteps = evaluated nodes + comprehension iterations; a case's `maxSteps` overrides). `eval`: expr over `vars` in `env` (a case may override now / zone) → value | error. `check`: the type checker at package validation over `checkTypes` (types spelled as JSON: number string bool null date timestamp map dyn, [T] = a list, an object = a row with exactly those fields) → type | error. `calls`: the A2UI form resolved over `callData` (bind time) → value | none, and its `cel` twin over the same data as vars agrees. `packages`: validatePackage's expression issues: every {call: expr} anywhere in a template is parsed and checked; a var's type comes from a literal, a records binding (`records:<kind>`: {rows: [row], count, sum, groups, totals, before, month}; a row = the kind's schema fields + id createdAt updatedAt createdBy authorId author) or the template data; anything else is dyn. VAPP-195 (E2, spec §4.2): MISSING VALUES ARE EXPLICIT. A type that may be missing is `T?`, spelled {\"?\": T}; it prints `T?`. A kind's field that is not in its schema's `required` reads `T?` (the row keys never do), and so does a var the checker cannot type (`dyn?`: an open binding path, a call). A field or index of a `T?` is optional too. Arithmetic, comparisons (< <= > >=), && || !, a condition, a macro's list or a function argument on a `T?` is an error `<path> may be missing: guard it with has(), a null check or orElse()` (<path> as written: a.b[0].c, else `the value at <code point>`); == and != take one (the null check). Guards: `has(a.b)` (CEL's presence test: true when the field is there and not null; has() of a null value is false; a non-field argument is the parse error `has needs a field: has(a.b)`), `p != null` / `p == null`, through `&&`, `||` and `!`, narrow p in the branch (or the right operand) they prove; `orElse(x, default)` (A2UI {value, default}) is x, or default when x is null, typed T (a default of another type is `orElse needs a <T> default, got <U>`). A ternary with a null branch is T?. Every `{call: expr}` in a package template needs `default` (`an expression binding needs a default, shown when it fails`); at bind time a failing call (expr, any expression function, any bind-time function: an error, the step limit, a throw) resolves to its `default` (absent = no value), so a binding never throws. VAPP-204: the checker trusts nothing that may be missing. A records value's `sum`, `groups`, `totals`, `before` and `month` follow the binding's query (its `query=` expanded): present = typed (`month` = {key label prev next: string, today: date, days: [{date: date, day: number, weekday: string, count: number, sum: number, running: map?}], labels: [string], counts sums: [number]}, `groups` = [map], `totals`/`before` = map), left out = `T?`; a row gets `running: map` when the query runs one without groups; a field of a `map` is `dyn?`; an index is `T?` and, at run time, an index past either end reads null (like a missing field). Inside a row template (a component's `children: {componentId, path}`), a relative `{path}` is typed against the list's item: a records row's field is its schema type (`T?` unless required) and a field a closed row has not (a records kind without additionalProperties: true) is the issue `unknown field <f> in <path>` at the binding's `…/vars/<name>/path`, as is one below a records binding's absolute path; such an expression is not checked further. `has(x)` on a bare name hints `x != null`. VAPP-214 (Q3, spec §4.4): a kind's `computed` ({name: CEL}, at most 16, else `at most 16 computed fields per kind` at /records/<kind>/computed; not an object = `computed is {name: expression}` there) is checked at /records/<kind>/computed/<name>: a name declared by the schema = `<name> shadows a field of the schema`; a row key = `<name> is a reserved record key`; not a string = `a computed field is an expression (a string)`; an expression naming another computed field = `a computed field reads no computed field: <names, sorted, \", \">` (so no cycles); else it is checked against the kind's schema fields (`T?` unless required) and the row keys id createdBy authorId (string) createdAt updatedAt (timestamp), its error the message. A records row's type gains every computed field the schema does not declare, typed as its expression (`dyn?` when it does not check).",
+  "$comment": "VAPP-191 (eApps Q2, spec docs/spec/apps.md §4.2-4.4): the expression language, ONE fixture for the TS reference (src/cel.ts) and the Rust core (eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. The string form is a SUBSET of CEL: number/string/bool/null/list literals, names, field paths a.b, indexes a[0] / m['k'], + - * / %, unary - and !, == != < <= > >=, && || (short-circuit), c ? a : b, the function table, and the macros map/filter/all/exists, single level. ONE number type (a double, like JSON: 7 / 2 = 3.5; CEL splits int/uint/double); no implicit conversion; a missing field (or a field of null) reads null; == is deep JSON equality; strings compare by UTF-16 code unit. Errors are exact texts; a parse error starts `at <code point>: `. Functions (also the A2UI form {call, args}): mul{a,b} div{a,b} mod{a,b} round{value,digits?} (half away from zero, digits 0..10) floor ceil abs{value} min max{values} today{} now{} dateAdd{date,n,unit} dateDiff{a,b,unit} (b - a, truncated) startOf endOf{date,unit} weekday{date} (ISO, Monday 1) isoWeek{date} hours{minutes} formatDuration{hours,format} (h:mm, hh:mm), size (CEL only), and expr{expr, vars} = the string form at bind time (a var whose binding resolves to nothing, e.g. a row's missing optional field, is null, never an unknown name); a failed call has NO value (`none`). A date is `YYYY-MM-DD` (a calendar day), a timestamp an ISO instant (no offset = UTC; written back as toISOString). Everything date-like runs in the TEAM zone `zones[env.zone]` = a UTC offset per instant (minutes east, `offset` until the first transition, then each `[at, offset]`): a day unit keeps the wall clock (a time in a DST gap moves forward by the gap, a repeated time takes its later instant), second/minute/hour are real time. Units: second minute hour day week month quarter year (startOf/endOf: day..year; a date takes no sub-day unit in dateAdd). Cost: `limits` (maxLength code points, maxDepth = nested expressions and unary operators, maxSteps = evaluated nodes + comprehension iterations; a case's `maxSteps` overrides). `eval`: expr over `vars` in `env` (a case may override now / zone) → value | error. `check`: the type checker at package validation over `checkTypes` (types spelled as JSON: number string bool null date timestamp map dyn, [T] = a list, an object = a row with exactly those fields) → type | error. `calls`: the A2UI form resolved over `callData` (bind time) → value | none, and its `cel` twin over the same data as vars agrees. `packages`: validatePackage's expression issues: every {call: expr} anywhere in a template is parsed and checked; a var's type comes from a literal, a records binding (`records:<kind>`: {rows: [row], count, sum, groups, totals, before, month}; a row = the kind's schema fields + id createdAt updatedAt createdBy authorId author) or the template data; anything else is dyn. VAPP-195 (E2, spec §4.2): MISSING VALUES ARE EXPLICIT. A type that may be missing is `T?`, spelled {\"?\": T}; it prints `T?`. A kind's field that is not in its schema's `required` reads `T?` (the row keys never do), and so does a var the checker cannot type (`dyn?`: an open binding path, a call). A field or index of a `T?` is optional too. Arithmetic, comparisons (< <= > >=), && || !, a condition, a macro's list or a function argument on a `T?` is an error `<path> may be missing: guard it with has(), a null check or orElse()` (<path> as written: a.b[0].c, else `the value at <code point>`); == and != take one (the null check). Guards: `has(a.b)` (CEL's presence test: true when the field is there and not null; has() of a null value is false; a non-field argument is the parse error `has needs a field: has(a.b)`), `p != null` / `p == null`, through `&&`, `||` and `!`, narrow p in the branch (or the right operand) they prove; `orElse(x, default)` (A2UI {value, default}) is x, or default when x is null, typed T (a default of another type is `orElse needs a <T> default, got <U>`). A ternary with a null branch is T?. Every `{call: expr}` in a package template needs `default` (`an expression binding needs a default, shown when it fails`); at bind time a failing call (expr, any expression function, any bind-time function: an error, the step limit, a throw) resolves to its `default` (absent = no value), so a binding never throws. VAPP-204: the checker trusts nothing that may be missing. A records value's `sum`, `groups`, `totals`, `before` and `month` follow the binding's query (its `query=` expanded): present = typed (`month` = {key label prev next: string, today: date, days: [{date: date, day: number, weekday: string, count: number, sum: number, running: map?}], labels: [string], counts sums: [number]}, `groups` = [map], `totals`/`before` = map), left out = `T?`; a row gets `running: map` when the query runs one without groups; a field of a `map` is `dyn?`; an index is `T?` and, at run time, an index past either end reads null (like a missing field). Inside a row template (a component's `children: {componentId, path}`), a relative `{path}` is typed against the list's item: a records row's field is its schema type (`T?` unless required) and a field a closed row has not (a records kind without additionalProperties: true) is the issue `unknown field <f> in <path>` at the binding's `…/vars/<name>/path`, as is one below a records binding's absolute path; such an expression is not checked further. `has(x)` on a bare name hints `x != null`. VAPP-214 (Q3, spec §4.4): a kind's `computed` ({name: CEL}, at most 16, else `at most 16 computed fields per kind` at /records/<kind>/computed; not an object = `computed is {name: expression}` there) is checked at /records/<kind>/computed/<name>: a name declared by the schema = `<name> shadows a field of the schema`; a row key = `<name> is a reserved record key`; not a string = `a computed field is an expression (a string)`; an expression naming another computed field = `a computed field reads no computed field: <names, sorted, \", \">` (so no cycles); else it is checked against the kind's schema fields (`T?` unless required) and the row keys id createdBy authorId (string) createdAt updatedAt (timestamp), its error the message. A records row's type gains every computed field the schema does not declare, typed as its expression (`dyn?` when it does not check). VAPP-206 (spec §4.2): map literals `{'k': e}` (string keys in source order, a row type over the values' types; a non-string key `a map key is a string`, a repeat `duplicate key <k>`, `? is not a map key`), so a list of rows becomes Select options: rows.map(r, {'value': r.id, 'label': r.name}). The Text and Arrays rows, in CEL only (never {call: name}): string(v) (number, string, bool), trim lower upper(s) (trim = JS String.prototype.trim's set), split(s, sep) (sep non-empty), join(list, sep?) (strings; sep default empty); sumOf avgOf minOf maxOf countOf(list) (a null entry is skipped; sumOf of nothing 0, avg/min/max of nothing null, typed number?), sortBy(list, field, order?) (asc | desc, stable; numbers by value, strings by code unit; a missing value last in either order), groupOf(list, field) ([{key, rows}] in first-seen order).",
   "limits": {
     "maxLength": 1000,
     "maxDepth": 32,
@@ -1096,6 +1096,274 @@
       "name": "E2: has() on a number",
       "expr": "has(hours.x)",
       "error": "no field x on number"
+    },
+    {
+      "name": "a map literal",
+      "expr": "{'value': 'a', 'n': 1 + 1}",
+      "value": {
+        "value": "a",
+        "n": 2
+      }
+    },
+    {
+      "name": "an empty map literal",
+      "expr": "{}",
+      "value": {}
+    },
+    {
+      "name": "a trailing comma in a map",
+      "expr": "{'a': 1,}",
+      "value": {
+        "a": 1
+      }
+    },
+    {
+      "name": "rows as Select options",
+      "expr": "[{'id': 'p1', 'name': 'Alpha'}, {'id': 'p2', 'name': 'Beta'}].map(r, {'value': r.id, 'label': r.name})",
+      "value": [
+        {
+          "value": "p1",
+          "label": "Alpha"
+        },
+        {
+          "value": "p2",
+          "label": "Beta"
+        }
+      ]
+    },
+    {
+      "name": "a map's field",
+      "expr": "{'a': 1}.a",
+      "value": 1
+    },
+    {
+      "name": "string of a number",
+      "expr": "string(1.5)",
+      "value": "1.5"
+    },
+    {
+      "name": "string of a bool",
+      "expr": "string(true)",
+      "value": "true"
+    },
+    {
+      "name": "string of a string",
+      "expr": "string('x')",
+      "value": "x"
+    },
+    {
+      "name": "trim",
+      "expr": "trim('  a b \\t\\n')",
+      "value": "a b"
+    },
+    {
+      "name": "whitespace trims to nothing",
+      "expr": "size(trim('   '))",
+      "value": 0
+    },
+    {
+      "name": "lower",
+      "expr": "lower('AbC')",
+      "value": "abc"
+    },
+    {
+      "name": "upper",
+      "expr": "upper('AbC')",
+      "value": "ABC"
+    },
+    {
+      "name": "split",
+      "expr": "split('a,b,,c', ',')",
+      "value": [
+        "a",
+        "b",
+        "",
+        "c"
+      ]
+    },
+    {
+      "name": "join",
+      "expr": "join(['a', 'b'], '-')",
+      "value": "a-b"
+    },
+    {
+      "name": "join without a separator",
+      "expr": "join(['a', 'b'])",
+      "value": "ab"
+    },
+    {
+      "name": "sumOf skips null",
+      "expr": "sumOf([1, null, 2.5])",
+      "value": 3.5
+    },
+    {
+      "name": "sumOf of nothing",
+      "expr": "sumOf([])",
+      "value": 0
+    },
+    {
+      "name": "avgOf",
+      "expr": "avgOf([1, null, 2])",
+      "value": 1.5
+    },
+    {
+      "name": "avgOf of nothing",
+      "expr": "avgOf([])",
+      "value": null
+    },
+    {
+      "name": "minOf",
+      "expr": "minOf([3, 1, null, 2])",
+      "value": 1
+    },
+    {
+      "name": "maxOf",
+      "expr": "maxOf([3, 1, null, 2])",
+      "value": 3
+    },
+    {
+      "name": "maxOf of nothing",
+      "expr": "maxOf([])",
+      "value": null
+    },
+    {
+      "name": "countOf skips null",
+      "expr": "countOf([1, null, 'a'])",
+      "value": 2
+    },
+    {
+      "name": "sortBy: missing last, ascending",
+      "expr": "sortBy([{'a': 2}, {'b': 1}, {'a': 1}], 'a')",
+      "value": [
+        {
+          "a": 1
+        },
+        {
+          "a": 2
+        },
+        {
+          "b": 1
+        }
+      ]
+    },
+    {
+      "name": "sortBy: missing last, descending",
+      "expr": "sortBy([{'a': 1}, {'b': 1}, {'a': 2}], 'a', 'desc')",
+      "value": [
+        {
+          "a": 2
+        },
+        {
+          "a": 1
+        },
+        {
+          "b": 1
+        }
+      ]
+    },
+    {
+      "name": "sortBy: strings, stable",
+      "expr": "sortBy([{'a': 'b', 'n': 1}, {'a': 'a', 'n': 2}, {'a': 'b', 'n': 3}], 'a')",
+      "value": [
+        {
+          "a": "a",
+          "n": 2
+        },
+        {
+          "a": "b",
+          "n": 1
+        },
+        {
+          "a": "b",
+          "n": 3
+        }
+      ]
+    },
+    {
+      "name": "groupOf: first seen order",
+      "expr": "groupOf([{'a': 'x', 'n': 1}, {'a': 'y', 'n': 2}, {'a': 'x', 'n': 3}, {'n': 4}], 'a')",
+      "value": [
+        {
+          "key": "x",
+          "rows": [
+            {
+              "a": "x",
+              "n": 1
+            },
+            {
+              "a": "x",
+              "n": 3
+            }
+          ]
+        },
+        {
+          "key": "y",
+          "rows": [
+            {
+              "a": "y",
+              "n": 2
+            }
+          ]
+        },
+        {
+          "key": null,
+          "rows": [
+            {
+              "n": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a map key is a string",
+      "expr": "{a: 1}",
+      "error": "at 1: a map key is a string"
+    },
+    {
+      "name": "a repeated map key",
+      "expr": "{'a': 1, 'a': 2}",
+      "error": "at 9: duplicate key a"
+    },
+    {
+      "name": "? is no map key",
+      "expr": "{'?': 1}",
+      "error": "at 1: ? is not a map key"
+    },
+    {
+      "name": "an unclosed map",
+      "expr": "{'a': 1",
+      "error": "at 7: unexpected end"
+    },
+    {
+      "name": "string of a list",
+      "expr": "string([1])",
+      "error": "string needs a number, string or bool, got list"
+    },
+    {
+      "name": "string of null",
+      "expr": "string(null)",
+      "error": "string needs a number, string or bool, got null"
+    },
+    {
+      "name": "split needs a separator",
+      "expr": "split('a', '')",
+      "error": "split needs a separator"
+    },
+    {
+      "name": "join of numbers",
+      "expr": "join([1])",
+      "error": "join needs a list of strings, got number"
+    },
+    {
+      "name": "sumOf of strings",
+      "expr": "sumOf(['a'])",
+      "error": "sumOf needs a list of numbers, got string"
+    },
+    {
+      "name": "sortBy's order",
+      "expr": "sortBy([], 'a', 'up')",
+      "error": "sortBy order is asc or desc"
     }
   ],
   "checkTypes": {
@@ -1532,6 +1800,97 @@
       "name": "E2: a value with no path is named by its position",
       "expr": "[maybe][0] + 1",
       "error": "the value at 7 may be missing: guard it with has(), a null check or orElse()"
+    },
+    {
+      "name": "a map literal is a row",
+      "expr": "{'value': 'a', 'n': 1}",
+      "type": {
+        "value": "string",
+        "n": "number"
+      }
+    },
+    {
+      "name": "rows as options",
+      "expr": "[{'id': 1}].map(r, {'value': r.id})",
+      "type": [
+        {
+          "value": "number"
+        }
+      ]
+    },
+    {
+      "name": "trim is a string",
+      "expr": "trim('a')",
+      "type": "string"
+    },
+    {
+      "name": "split is a list of strings",
+      "expr": "split('a', ',')",
+      "type": [
+        "string"
+      ]
+    },
+    {
+      "name": "sumOf is a number",
+      "expr": "sumOf([1])",
+      "type": "number"
+    },
+    {
+      "name": "avgOf may be missing",
+      "expr": "avgOf([1])",
+      "type": {
+        "?": "number"
+      }
+    },
+    {
+      "name": "sortBy keeps the list",
+      "expr": "sortBy([{'a': 1}], 'a')",
+      "type": [
+        {
+          "a": "number"
+        }
+      ]
+    },
+    {
+      "name": "groupOf",
+      "expr": "groupOf([{'a': 1}], 'a')",
+      "type": [
+        {
+          "key": {
+            "?": "dyn"
+          },
+          "rows": [
+            {
+              "a": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "trim needs a string",
+      "expr": "trim(1)",
+      "error": "trim needs a string, got number"
+    },
+    {
+      "name": "sumOf needs a list",
+      "expr": "sumOf(1)",
+      "error": "sumOf needs a list, got number"
+    },
+    {
+      "name": "sortBy's literal order",
+      "expr": "sortBy([], 'a', 'up')",
+      "error": "sortBy order is asc or desc"
+    },
+    {
+      "name": "a split separator",
+      "expr": "split('a', '')",
+      "error": "split needs a separator"
+    },
+    {
+      "name": "a map's unknown field",
+      "expr": "{'a': 1}.b",
+      "error": "unknown field b"
     }
   ],
   "callData": {

@@ -557,7 +557,7 @@ The string form is a **subset of CEL** (the Common Expression Language),
 the same in the TS reference (`src/cel.ts`) and the Rust core (`cel`):
 
 - literals: numbers, `'…'` / `"…"` strings (`\\ \' \" \n \t \r`), `true`,
-  `false`, `null`, lists `[a, b]`; names (the vars); `a.b`, `a[0]`, `m['k']`
+  `false`, `null`, lists `[a, b]`, maps `{'k': e}` (string keys); names (the vars); `a.b`, `a[0]`, `m['k']`
   (a missing field, a field of null, or an index past either end is null);
 - `+ - * / %` (numbers; `+` also joins two strings or two lists), unary `-`
   and `!`, `== !=` (deep JSON equality), `< <= > >=` (two numbers or two
@@ -568,8 +568,8 @@ the same in the TS reference (`src/cel.ts`) and the Rust core (`cel`):
   macro's body is refused; chaining is fine).
 
 Unlike full CEL there is ONE number type (a double, like JSON: `7 / 2` is
-`3.5`), no implicit conversion (`'a' + 1` is an error), no `in`, no map
-literals, no user functions and no loops. An error (`1 / 0`, a missing name,
+`3.5`), no implicit conversion (`'a' + 1` is an error), no `in`, no user functions
+and no loops. An error (`1 / 0`, a missing name,
 a wrong type) gives the call no value.
 
 | Function | A2UI args | |
@@ -590,6 +590,15 @@ a wrong type) gives the call no value.
 | `size(x)` | (CEL only; `len` in A2UI) | a list, string (code points) or map |
 | `orElse(x, default)` | `value, default` | `x`, or `default` when `x` is null (narrows `T?` to `T`) |
 | `has(a.b)` | (CEL only) | the field is there and not null |
+| `string(x)` | (CEL only) | a number's or bool's text, a string as it is |
+| `trim(s)` `lower(s)` `upper(s)` | (CEL only) | `size(trim(x)) > 0` refuses a whitespace-only value |
+| `split(s, sep)` `join(list, sep?)` | (CEL only) | `sep` non-empty for `split`; `join` takes strings |
+| `sumOf(list)` `avgOf(list)` `minOf(list)` `maxOf(list)` `countOf(list)` | (CEL only) | a null entry is skipped; `sumOf([])` is 0, the average, min and max of nothing are null (`number?`) |
+| `sortBy(list, field, order?)` | (CEL only) | `asc` (default) or `desc`, stable; a missing value last in either order |
+| `groupOf(list, field)` | (CEL only) | `[{key, rows}]` in first-seen order |
+
+A list of rows becomes Select options with a map literal:
+`rows.map(r, {'value': r.id, 'label': r.name})`.
 
 Units: `second minute hour day week month quarter year` (a date takes no
 sub-day unit in `dateAdd`). A date is `YYYY-MM-DD` (a calendar day), a
