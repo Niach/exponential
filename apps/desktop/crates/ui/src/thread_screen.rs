@@ -4416,6 +4416,15 @@ mod tests {
             theme::init(cx);
             let store = Store::open(cx, None, None);
             cx.set_global(store);
+            // The session's root composer (SteerSessionView) reads the auth handles.
+            let data_dir = std::env::temp_dir().join(format!("exp-plan-strip-{}", std::process::id()));
+            std::fs::create_dir_all(&data_dir).unwrap();
+            let auth = api::AuthStore::load_with_token_store(data_dir.clone(), api::TokenStore::file_only(data_dir.clone()));
+            cx.set_global(crate::session::AuthContext {
+                auth,
+                client: std::sync::Arc::new(api::AuthClient::new()),
+                data_dir,
+            });
             let collections = Store::global(cx).collections().clone();
             let root: SessionRow = serde_json::from_value(serde_json::json!({
                 "id": "r1",
