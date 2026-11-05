@@ -790,8 +790,8 @@ mod tests {
     fn case_storage(index: usize) -> Option<(u64, Vec<crate::worktree_lifecycle::KeptRow>)> {
         use crate::worktree_lifecycle::{KeptReason, KeptRow};
         match index {
-            11 => Some((214_300_000_000, Vec::new())),
-            12 => Some((
+            11 | 12 => Some((214_300_000_000, Vec::new())),
+            13 => Some((
                 6_240_000_000,
                 vec![
                     KeptRow { label: "exp-session-9497089a".into(), reason: KeptReason::Uncommitted },
@@ -869,7 +869,7 @@ mod tests {
             // NEW-78: the first case's machine, plus its microphone row.
             6..=10 => case_input(0),
             // EXP-1375: the first case's machine, plus its storage group.
-            11 | 12 => case_input(0),
+            11..=13 => case_input(0),
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -878,7 +878,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 13, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 14, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -892,6 +892,7 @@ mod tests {
             if let Some((free, kept)) = case_storage(index) {
                 add_storage(&mut doctor, Some(free), &kept);
             }
+            add_key_holder(&mut doctor, index != 12);
             assert_eq!(
                 low_disk(&doctor),
                 case["composerWarning"].as_str() == Some(KEY_DISK),

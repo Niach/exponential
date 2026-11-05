@@ -271,6 +271,24 @@
       "composerWarning": null
     },
     {
+      "name": "#FEED-192: the key holder not running: a warning with no pill, never a blocker",
+      "doctor": {
+        "checkedAt": "2026-11-05T09:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" },
+          { "key": "disk", "group": "storage", "state": "ok", "detail": "214 GB free" },
+          { "key": "key_holder", "group": "storage", "label": "Encryption keys", "state": "action", "detail": "Key holder not running · restart while signed in and online" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": { "codex": "sign_in" },
+      "composerWarning": null
+    },
+    {
       "name": "EXP-1375: low disk with two kept worktrees: a warning, never a blocker",
       "doctor": {
         "checkedAt": "2026-10-28T09:00:00.000Z",
@@ -288,24 +306,6 @@
       "localPrimary": null,
       "remotePills": { "codex": "sign_in" },
       "composerWarning": "disk"
-    },
-    {
-      "name": "#FEED-192: the key holder not running: a warning with no pill, never a blocker",
-      "doctor": {
-        "checkedAt": "2026-11-05T09:00:00.000Z",
-        "items": [
-          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
-          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
-          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
-          { "key": "computer_use", "group": "computer_use", "state": "off" },
-          { "key": "disk", "group": "storage", "state": "ok", "detail": "214 GB free" },
-          { "key": "key_holder", "group": "storage", "label": "Encryption keys", "state": "action", "detail": "Key holder not running · restart while signed in and online" }
-        ]
-      },
-      "runnable": ["claude"],
-      "localPrimary": null,
-      "remotePills": { "codex": "sign_in" },
-      "composerWarning": null
     }
   ]
 }

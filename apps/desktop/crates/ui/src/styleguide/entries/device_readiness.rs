@@ -141,6 +141,6 @@ mod tests {
 
     #[test]
     fn every_fixture_case_draws() {
-        assert_eq!(cases().len(), 13);
+        assert_eq!(cases().len(), 14);
     }
 }
