@@ -13,6 +13,7 @@
 //!   (mutation, owners) → `{ok: true}`;
 //! - #VAPP-238: `rotateHook {appId, name}` (mutation, owners) → `{name,
 //!   url, secret}` (the secret is shown once, never refetched);
+//! - VAPP-247: `setShareLink {appId, name, action: expire, days}`
 //! - VAPP-241: `setShareLink {appId, name, action: enable|rotate|revoke}`
 //!   (mutation, owners) → `{ok: true}`;
 //! - `setToolEnabled {appId, tool, enabled}` (mutation, owners) →
@@ -239,6 +240,27 @@ pub fn set_share_link(trpc: &TrpcClient, app_id: &str, name: &str, action: &str)
         ok: bool,
     }
     let _: Ok = trpc.mutation("appAccess.setShareLink", &Input { app_id, name, action })?;
+    Ok(())
+}
+
+/// VAPP-247: `appAccess.setShareLink {action: expire, days}` — a live link's
+/// expiry, `days` from now, `None` = never (owners; the server checks).
+pub fn set_share_expiry(trpc: &TrpcClient, app_id: &str, name: &str, days: Option<u32>) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+        name: &'a str,
+        action: &'a str,
+        days: Option<u32>,
+    }
+    #[derive(Deserialize)]
+    struct Ok {
+        #[serde(default)]
+        #[allow(dead_code)]
+        ok: bool,
+    }
+    let _: Ok = trpc.mutation("appAccess.setShareLink", &Input { app_id, name, action: "expire", days })?;
     Ok(())
 }
 
@@ -481,6 +503,18 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.contains("POST /api/trpc/appAccess.setShareLink"), "mutation: {request}");
         assert!(request.contains(r#""appId":"a-1""#) && request.contains(r#""name":"signup""#) && request.contains(r#""action":"rotate""#), "{request}");
+    }
+
+    #[test]
+    fn set_share_expiry_posts_the_days_or_null() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set_share_expiry(&client(&base), "a-1", "signup", Some(30)).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""action":"expire""#) && request.contains(r#""days":30"#), "{request}");
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set_share_expiry(&client(&base), "a-1", "signup", None).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""days":null"#), "{request}");
     }
 
     #[test]

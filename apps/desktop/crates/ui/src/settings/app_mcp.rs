@@ -342,7 +342,7 @@ pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDe
 /// (`app-settings-share-links`), `None` when the published package declares
 /// no shares. Everyone reads it: one row per share = the name over its
 /// subtitle; an owner's Switch (on = enable, off = revoke) and, while on, the
-/// `…` menu Copy link / New link.
+/// `…` menu Copy link / New link, then the expiry items (VAPP-247).
 pub(crate) fn shares_group(
     data: &AppToolsOut,
     busy: Option<&str>,
@@ -376,14 +376,24 @@ pub(crate) fn shares_group(
                     .disabled(busy.is_some())
                     .pointer_menu(move |menu, _, _| {
                         let (url, name, view) = (url.clone(), name.clone(), view.clone());
-                        menu.item(crate::controls::pointer_label_item(APP_SHARE.copy.copy_link.clone(), false).on_click(move |_, window, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
-                            crate::toast::show(crate::toast::Toast::success(domain::apps::APPS.copy.webhooks.copied.clone()), window, cx);
-                        }))
-                        .item(crate::controls::pointer_label_item(APP_SHARE.copy.new_link.clone(), false).on_click(move |_, _, cx| {
-                            let name = name.clone();
-                            let _ = view.update(cx, |this, cx| this.set_share(name, "rotate", cx));
-                        }))
+                        let (rotate_name, rotate_view) = (name.clone(), view.clone());
+                        let mut menu = menu
+                            .item(crate::controls::pointer_label_item(APP_SHARE.copy.copy_link.clone(), false).on_click(move |_, window, cx| {
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
+                                crate::toast::show(crate::toast::Toast::success(domain::apps::APPS.copy.webhooks.copied.clone()), window, cx);
+                            }))
+                            .item(crate::controls::pointer_label_item(APP_SHARE.copy.new_link.clone(), false).on_click(move |_, _, cx| {
+                                let name = rotate_name.clone();
+                                let _ = rotate_view.update(cx, |this, cx| this.set_share(name, "rotate", cx));
+                            }));
+                        for choice in &APP_SHARE.expiry_choices {
+                            let (name, view, days) = (name.clone(), view.clone(), choice.days);
+                            menu = menu.item(crate::controls::pointer_label_item(choice.label.clone(), false).on_click(move |_, _, cx| {
+                                let name = name.clone();
+                                let _ = view.update(cx, |this, cx| this.set_share_expiry(name, days, cx));
+                            }));
+                        }
+                        menu
                     }),
             );
         }

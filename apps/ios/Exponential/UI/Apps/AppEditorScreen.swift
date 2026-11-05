@@ -1333,6 +1333,11 @@ struct AppSettingsSheet: View {
                     GlassMenuItem(AppShare.Copy.newLink, icon: AppIcons.uiRefresh, enabled: shareBusy == nil) {
                         setShare(share.name, .rotate)
                     }
+                    ForEach(AppShare.expiryChoices, id: \.label) { choice in
+                        GlassMenuItem(choice.label, icon: AppIcons.uiClock, enabled: shareBusy == nil) {
+                            setShare(share.name, .expire, days: choice.days)
+                        }
+                    }
                 } label: {
                     GhostIconLabel(AppIcons.uiMore)
                         .accessibilityLabel(share.name)
@@ -1442,7 +1447,7 @@ struct AppSettingsSheet: View {
 
     /// VAPP-241 `appAccess.setShareLink`, then the rows reread (the state,
     /// expiry and URL are the server's). A failure = the failed-action toast.
-    private func setShare(_ name: String, _ action: AppShareAction) {
+    private func setShare(_ name: String, _ action: AppShareAction, days: Int? = nil) {
         guard canToggle, shareBusy == nil, let app = model.app else { return }
         shareBusy = name
         let api = deps.appsApi
@@ -1450,7 +1455,7 @@ struct AppSettingsSheet: View {
         Task {
             defer { shareBusy = nil }
             do {
-                try await api.setShareLink(accountId: account, appId: app.id, name: name, action: action)
+                try await api.setShareLink(accountId: account, appId: app.id, name: name, action: action, days: days)
                 shares = try await api.tools(accountId: account, appId: app.id).shares
             } catch {
                 toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the link"), description: error.trpcUserMessage)

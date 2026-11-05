@@ -7,6 +7,8 @@ import fixture from "../fixtures/app-share.json" with { type: "json" }
 export const APP_SHARE = fixture
 export const APP_SHARE_COPY = fixture.copy
 export const APP_SHARE_CAPS = fixture.caps
+/** VAPP-247: the Public links row's expiry items, in menu order (`days` null = never). */
+export const APP_SHARE_EXPIRY_CHOICES: readonly { days: number | null; label: string }[] = fixture.expiryChoices
 
 export type ShareLinkState = `off` | `on` | `expired` | `orphaned`
 export type ShareMode = `submit` | `view`

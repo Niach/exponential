@@ -469,13 +469,13 @@ class AppEditorViewModel @Inject constructor(
 
     /** VAPP-241: enable, rotate or revoke [name] (`appAccess.setShareLink`),
      *  then re-read the rows; a failure = the failed-action toast. */
-    fun setShareLink(name: String, action: String) {
+    fun setShareLink(name: String, action: String, days: Int? = null) {
         if (_shareBusy.value != null) return
         val accountId = auth.activeAccountId.value ?: return
         _shareBusy.value = name
         viewModelScope.launch {
             try {
-                accessApi.setShareLink(accountId, appId, name, action)
+                accessApi.setShareLink(accountId, appId, name, action, days)
                 refreshTools()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t

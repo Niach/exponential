@@ -652,15 +652,17 @@ private struct AppRotateHookInput: Encodable {
     let name: String
 }
 
-/// VAPP-241 `appAccess.setShareLink {appId, name, action}`.
+/// VAPP-241 `appAccess.setShareLink {appId, name, action}`; VAPP-247 `expire`
+/// sets a live link's expiry (`days`, none = never).
 public enum AppShareAction: String, Encodable, Sendable {
-    case enable, rotate, revoke
+    case enable, rotate, revoke, expire
 }
 
 private struct AppSetShareLinkInput: Encodable {
     let appId: String
     let name: String
     let action: AppShareAction
+    let days: Int?
 }
 
 /// `appAccess.rotateHook`'s answer: the secret, shown ONCE.
@@ -907,11 +909,12 @@ public final class AppsApi: Sendable {
     }
 
     /// VAPP-241 `appAccess.setShareLink {appId, name, action}` (owners): turn
-    /// a public link on, give it a new token or turn it off.
-    public func setShareLink(accountId: String, appId: String, name: String, action: AppShareAction) async throws {
+    /// a public link on, give it a new token or turn it off; `expire` + `days`
+    /// sets its expiry (nil = never).
+    public func setShareLink(accountId: String, appId: String, name: String, action: AppShareAction, days: Int? = nil) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "appAccess.setShareLink",
-            input: AppSetShareLinkInput(appId: appId, name: name, action: action)
+            input: AppSetShareLinkInput(appId: appId, name: name, action: action, days: days)
         )
     }
 

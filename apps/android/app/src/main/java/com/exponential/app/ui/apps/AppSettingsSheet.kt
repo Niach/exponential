@@ -374,6 +374,17 @@ internal fun AppSettingsBody(
                                             viewModel.setShareLink(share.name, AppShare.Action.ROTATE)
                                         },
                                     )
+                                    AppShare.EXPIRY_CHOICES.forEach { choice ->
+                                        GlassMenuItem(
+                                            leadingIcon = { Icon(ExpIcons.uiClock, contentDescription = null) },
+                                            text = { Text(choice.label) },
+                                            enabled = editable,
+                                            onClick = {
+                                                menu = false
+                                                viewModel.setShareLink(share.name, AppShare.Action.EXPIRE, choice.days)
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -4,7 +4,7 @@ import { Button, conceptIcon, GlassGroup, Menu, Pill, Prompt, Switch, toast } fr
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { accountCaption, accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, automationSponsor, UPSTREAM_PICKER_NONE, webhookRow } from "@exp/domain-contract/apps"
-import { APP_SHARE, APP_SHARE_COPY, shareRowSubtitle, shareSwitchOn } from "@exp/domain-contract/app-share"
+import { APP_SHARE, APP_SHARE_COPY, APP_SHARE_EXPIRY_CHOICES, shareRowSubtitle, shareSwitchOn } from "@exp/domain-contract/app-share"
 import { promptActions, rotateWebhookSecretPrompt } from "@/lib/prompts"
 import { UpstreamPickerSelect } from "./upstream-picker-select"
 
@@ -104,10 +104,10 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
   }
 
   // VAPP-241 (app-share.json `rowCases`): the Public links rows.
-  const setShare = async (name: string, action: `enable` | `rotate` | `revoke`) => {
+  const setShare = async (name: string, action: `enable` | `rotate` | `revoke` | `expire`, days?: number | null) => {
     setBusy(`share:${name}`)
     try {
-      await trpc.appAccess.setShareLink.mutate({ appId, name, action }, SKIP_ERROR_TOAST)
+      await trpc.appAccess.setShareLink.mutate({ appId, name, action, days }, SKIP_ERROR_TOAST)
       const next = await trpc.appAccess.appTools.query({ appId })
       setData(next)
     } catch (e) {
@@ -138,6 +138,7 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
                     entries={[
                       { kind: `item` as const, id: `copy`, label: APP_SHARE_COPY.copyLink, onSelect: () => copyText(s.url!) },
                       { kind: `item` as const, id: `rotate`, label: APP_SHARE_COPY.newLink, onSelect: () => void setShare(s.name, `rotate`) },
+                      ...APP_SHARE_EXPIRY_CHOICES.map((c) => ({ kind: `item` as const, id: `expire-${c.days ?? `never`}`, label: c.label, onSelect: () => void setShare(s.name, `expire`, c.days) })),
                     ]}
                     trigger={
                       <Button size="icon-sm" variant="ghost" aria-label={s.name}>

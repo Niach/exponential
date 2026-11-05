@@ -535,7 +535,8 @@ links an owner can turn on; nothing is public until one does.
   a member, an issue or another record); a `submit` link must name every
   required field, and cannot fill a required file or ref field.
 - `query` (view only) = a package query of the kind. `expires` = whole days
-  from enabling, 1 to 3650; default never.
+  from enabling, 1 to 3650; default never. An owner can change a live link's
+  expiry from the host's settings until the next enable.
 - `template` (view only, VAPP-246) = a package template the guest's page
   renders; default a read-only RecordTable. Install refuses one a guest's host
   could not run. It may read only `records:<kind>`, or
