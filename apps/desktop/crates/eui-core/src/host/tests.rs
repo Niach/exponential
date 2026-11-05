@@ -187,16 +187,17 @@ fn seed_data(row: &Map<String, Value>) -> Value {
 }
 
 /// A test's store: its `records` (kinds sorted, rows in order), ids
-/// `<kind>-<n>` unless given, authored by `author` (else the test's member),
-/// stamped `now`.
-fn seed_rows(records: Option<&Value>, me: &str, now: &str) -> Vec<RecordRow> {
+/// `<kind>-<n>` unless given, authored by `author`, else the fixed seed author
+/// [`PACKAGE_TEST_DEFAULT_AS`] and never the test's `as` (VAPP-207), stamped
+/// `now`.
+fn seed_rows(records: Option<&Value>, now: &str) -> Vec<RecordRow> {
     let mut rows = Vec::new();
     let Some(records) = records.and_then(Value::as_object) else { return rows };
     for kind in sorted_keys(records) {
         let Some(list) = records[kind.as_str()].as_array() else { continue };
         for (j, row) in list.iter().enumerate() {
             let Some(row) = row.as_object() else { continue };
-            let author = row.get("author").and_then(Value::as_str).unwrap_or(me).to_string();
+            let author = row.get("author").and_then(Value::as_str).unwrap_or(PACKAGE_TEST_DEFAULT_AS).to_string();
             let id = row.get("id").and_then(Value::as_str).map_or_else(|| format!("{kind}-{}", j + 1), str::to_string);
             rows.push(RecordRow { id, kind: kind.clone(), data: seed_data(row), created_by: Some(author.clone()), author_id: Some(author), created_at: now.into(), updated_at: now.into() });
         }
@@ -232,7 +233,7 @@ fn run_test(pkg: &Map<String, Value>, t: &Map<String, Value>) -> Value {
     let kinds = pkg.get("records").filter(|r| r.is_object());
     let viewer = RecordViewer { id: Some(me), role: Some(role), access: None };
     // eApps R3: the test reads what its member may read, and writes under the policy.
-    let stored = seed_rows(t.get("records"), me, now);
+    let stored = seed_rows(t.get("records"), now);
     let stored_values: Vec<Value> = stored.iter().map(|r| serde_json::to_value(r).unwrap_or(Value::Null)).collect();
     let visible: Vec<bool> = stored_values.iter().map(|v| readable_rows(std::slice::from_ref(v), kinds, &viewer).len() == 1).collect();
     let rows: Vec<RecordRow> = stored.iter().zip(&visible).filter(|(_, v)| **v).map(|(r, _)| r.clone()).collect();

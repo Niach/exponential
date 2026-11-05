@@ -715,8 +715,8 @@ upsert), so a failing test refuses the package like a type error:
 
 At most 50. Each test runs on its OWN in-memory store seeded with
 `records` (`{<kind>: [rows]}`: the kind's data, checked against its schema,
-plus an optional `id`, default `<kind>-<n>`, and `author`, default the
-test's member), at `now` (an ISO instant, UTC; default
+plus an optional `id`, default `<kind>-<n>`, and `author`, default `member`, never the
+test's `as`), at `now` (an ISO instant, UTC; default
 `2026-01-01T00:00:00.000Z`) as the member `as` (default `member`) with the
 team role `role` (`member` or `owner`, default `member`). It reads only the
 rows that member may read under each kind's `policy`, and an action's writes

@@ -1900,7 +1900,7 @@
         }
       },
       "expect": {
-        "error": "params: /stage one of prospect|qualified|proposal|won|lost"
+        "error": "stage must be one of prospect, qualified, proposal, won, lost"
       }
     },
     {

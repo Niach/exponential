@@ -486,6 +486,21 @@ fn issue_text(issues: &[PackageIssue]) -> String {
     issues.iter().map(|i| format!("{} {}", if i.path.is_empty() { "/" } else { &i.path }, i.message)).collect::<Vec<_>>().join("; ")
 }
 
+/// VAPP-207: a bad param in words (the toast): `stage must be one of a, b`.
+fn param_issue_text(issues: &[PackageIssue]) -> String {
+    let text = |i: &PackageIssue| {
+        let field = i.path.strip_prefix('/').unwrap_or(&i.path);
+        if i.message == "required" || i.message == "not in the schema" {
+            format!("{field} is {}", i.message)
+        } else if i.message.starts_with("one of ") {
+            format!("{field} must be {}", i.message.replace('|', ", "))
+        } else {
+            format!("{field} must be {}", i.message)
+        }
+    };
+    issues.iter().map(text).collect::<Vec<_>>().join("; ")
+}
+
 /// Run a package action against one snapshot: its plan `{writes, sets,
 /// calls}`, or the error that discards it whole (a false `require` = its
 /// message; else `step <i>: …`).
@@ -499,7 +514,7 @@ pub fn run_action(pkg: &Value, name: &str, params: &Value, ctx: &ActionContext) 
     if let Some(schema) = action.get("params").filter(|s| s.is_object()) {
         let issues = validate_record(schema, &p);
         if !issues.is_empty() {
-            return Err(format!("params: {}", issue_text(&issues)));
+            return Err(param_issue_text(&issues));
         }
     }
     let mut vars = Map::new();
