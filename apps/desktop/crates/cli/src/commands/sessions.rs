@@ -530,7 +530,7 @@ impl Viewer {
                 .map_err(|err| {
                     log::debug!("sessions log: the daemon's viewer proxy: {err}");
                     anyhow!(
-                        "the running daemon (pid {pid}) holds this machine's eNet identity and does not view sessions for the CLI — update it (`exponential update`), or stop it and retry"
+                        "the running daemon (pid {pid}) holds this machine's P2P identity and does not view sessions for the CLI — update it (`exponential update`), or stop it and retry"
                     )
                 });
         }

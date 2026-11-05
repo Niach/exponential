@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Exponential UI · theme builder</title>
+<title>genUI · theme builder</title>
 <link rel="stylesheet" href="./builder.css">
 </head>
 <body class="xb" data-mode="dark">
 <header class="bar">
-  <strong>Exponential UI</strong><span class="muted">theme builder</span>
+  <strong>genUI</strong><span class="muted">theme builder</span>
   <label>Base <select id="base"></select></label>
   <span class="seg"><button type="button" data-set-mode="light">Light</button><button type="button" data-set-mode="dark">Dark</button></span>
   <label>Width <select id="width"><option value="390">390 · phone</option><option value="600">600</option><option value="900">900</option><option value="1200">1200</option></select></label>
@@ -27,7 +27,7 @@
 </main>
 <dialog id="import" class="import">
   <h2>Import</h2>
-  <p>Paste a shadcn <code>globals.css</code> (v4 oklch or v3 HSL triplets), a tweakcn export, or an Exponential UI theme JSON. Colours, the radius ladder, fonts and shadows become overrides on the current base.</p>
+  <p>Paste a shadcn <code>globals.css</code> (v4 oklch or v3 HSL triplets), a tweakcn export, or an genUI theme JSON. Colours, the radius ladder, fonts and shadows become overrides on the current base.</p>
   <textarea id="import-text" class="mono" rows="14" spellcheck="false" placeholder=":root {&#10;  --background: oklch(1 0 0);&#10;  --primary: oklch(0.55 0.2 260);&#10;  --radius: 0.625rem;&#10;}&#10;.dark { … }"></textarea>
   <pre id="import-report" class="mono"></pre>
   <div class="actions"><button type="button" id="import-close">Close</button><button type="button" id="import-apply" class="primary">Apply</button></div>

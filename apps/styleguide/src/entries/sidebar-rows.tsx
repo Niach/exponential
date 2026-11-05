@@ -108,7 +108,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1477`,
   title: `Sidebar rows`,
-  blurb: `The team rail's rows: compact 28px nav, agent, app, board and Active rows under muted section headers. Every trailing indicator shares ONE column: 20px wide, 4px in from the row's right edge, contents centred (a count grows leftwards). A nav row's dot, the Drafts count, an agent's needs-you dot or spinner, an Active row's device glyph, a section header's "+" and a row's hover gear (which takes the column from the dot while hovered) all line up in it. The dot is ONE ${designTokens.sidebar.trailingDot}px disc (\`sidebar.trailingDot\`) in the rail's tones: unread = primary, needs you = \`semantic.yellow\` (${designTokens.semantic.yellow}), live = green; the Drafts count is the eUI 16px count badge (\`Badge\` / IDE \`count_badge\`), muted.`,
+  blurb: `The team rail's rows: compact 28px nav, agent, app, board and Active rows under muted section headers. Every trailing indicator shares ONE column: 20px wide, 4px in from the row's right edge, contents centred (a count grows leftwards). A nav row's dot, the Drafts count, an agent's needs-you dot or spinner, an Active row's device glyph, a section header's "+" and a row's hover gear (which takes the column from the dot while hovered) all line up in it. The dot is ONE ${designTokens.sidebar.trailingDot}px disc (\`sidebar.trailingDot\`) in the rail's tones: unread = primary, needs you = \`semantic.yellow\` (${designTokens.semantic.yellow}), live = green; the Drafts count is the genUI 16px count badge (\`Badge\` / IDE \`count_badge\`), muted.`,
   status: {
     web: {
       state: `ok`,

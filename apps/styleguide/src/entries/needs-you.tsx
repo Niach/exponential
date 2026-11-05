@@ -10,7 +10,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `FEED-191`,
   title: `Needs you`,
-  blurb: `Every plan and question waiting on the viewer and every PR ready to merge (fixture \`needs-you.json\` ×4; Exponential-specific, not eUI): one reading column of THE inbox page's ListRow, newest first: the glyph in the needs-you tone, the title with its age muted at the end, then the chat · meta muted. A press opens the chat on the right tab. None = THE EmptyState. Wide: a sidebar entry right after Agent with a count Badge, gone at 0. Phones: the first row of Chats (the row above the list here), pushing the list.`,
+  blurb: `Every plan and question waiting on the viewer and every PR ready to merge (fixture \`needs-you.json\` ×4; Exponential-specific, not genUI): one reading column of THE inbox page's ListRow, newest first: the glyph in the needs-you tone, the title with its age muted at the end, then the chat · meta muted. A press opens the chat on the right tab. None = THE EmptyState. Wide: a sidebar entry right after Agent with a count Badge, gone at 0. Phones: the first row of Chats (the row above the list here), pushing the list.`,
   status: {
     web: {
       state: `ok`,

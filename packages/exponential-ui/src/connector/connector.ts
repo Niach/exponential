@@ -83,7 +83,7 @@ export class ExponentialConnector {
     const res = await this.fetch(meta.registration_endpoint, {
       method: `POST`,
       headers: { "content-type": `application/json` },
-      body: JSON.stringify({ client_name: this.options.clientName ?? `Exponential UI host`, redirect_uris: [this.options.redirectUri], grant_types: [`authorization_code`, `refresh_token`], response_types: [`code`], token_endpoint_auth_method: `none` }),
+      body: JSON.stringify({ client_name: this.options.clientName ?? `genUI host`, redirect_uris: [this.options.redirectUri], grant_types: [`authorization_code`, `refresh_token`], response_types: [`code`], token_endpoint_auth_method: `none` }),
     })
     if (!res.ok) throw new Error(`registration failed: HTTP ${res.status}`)
     this.clientId = ((await res.json()) as { client_id: string }).client_id

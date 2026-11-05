@@ -4,7 +4,7 @@
 
     <!-- usesCleartextTraffic: the local agent server on http://10.0.2.2 (the emulator's host). -->
     <application
-        android:label="Exponential UI guide"
+        android:label="genUI guide"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity

@@ -162,7 +162,7 @@ export class WebInstall {
   }
 
   async sendChat(to: string, body: Uint8Array): Promise<void> {
-    if (!this.node || this.stopped) throw new Error(`eNet node is not running`)
+    if (!this.node || this.stopped) throw new Error(`P2P node is not running`)
     await this.node.sendChat(to, body)
   }
 

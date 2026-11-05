@@ -162,7 +162,7 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(540.0), px(620.0)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions { title: Some("Exponential UI · gpui sample".into()), ..Default::default() }),
+            titlebar: Some(TitlebarOptions { title: Some("genUI · gpui sample".into()), ..Default::default() }),
             ..Default::default()
         };
         cx.open_window(options, |_, cx| {

@@ -102,7 +102,7 @@ impl Writer for Live {
         sealing::seal_card(root_id, card).map_err(|err| err.to_string())
     }
     fn new_root(&self, target_device: Option<&str>) -> Result<NewRootSeal, String> {
-        self.0.as_ref().ok_or("eNet is not running")?.new_root_seal(target_device)
+        self.0.as_ref().ok_or("P2P is not running")?.new_root_seal(target_device)
     }
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         match sealing::service() {

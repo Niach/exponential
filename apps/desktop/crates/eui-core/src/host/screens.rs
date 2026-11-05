@@ -106,7 +106,7 @@ pub fn validate_package_screens(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
         if let Some(icon) = s.get("icon") {
             if !icon.as_str().is_some_and(|n| ICON_NAMES.contains(&n)) {
                 let shown = icon.as_str().map(str::to_string).unwrap_or_else(|| icon.to_string());
-                issues.push(issue(format!("{at}/icon"), format!("icon {shown} is not an Exponential UI icon")));
+                issues.push(issue(format!("{at}/icon"), format!("icon {shown} is not a genUI icon")));
             }
         }
         if let Some(params) = s.get("params") {

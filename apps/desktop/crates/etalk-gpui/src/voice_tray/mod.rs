@@ -63,7 +63,7 @@ fn icon_svg_bytes() -> &'static [u8] {
 
 /// The tray's title / tooltip.
 fn title() -> &'static str {
-    BRAND.get().map_or("eTalk", |brand| brand.name)
+    BRAND.get().map_or("Voice", |brand| brand.name)
 }
 
 /// The Linux tray's StatusNotifierItem id.

@@ -62,13 +62,13 @@
     },
     {
       "id": "exponential-ui",
-      "label": "Exponential UI",
+      "label": "genUI",
       "blurb": "The open generative-UI SDK (VAPP-84): the core catalog’s kitchen sink painted by each platform’s renderer, the reference every painter is compared against.",
       "order": 11
     },
     {
       "id": "exponential-ui-catalog",
-      "label": "Exponential UI · core catalog",
+      "label": "genUI · core catalog",
       "blurb": "One specimen per core catalog component (packages/exponential-ui/fixtures/specimens.json) plus the home page demo, painted by all four renderers under the exponential theme: the shots ui.exponential.at shows on each component page. The site owns these; apps/styleguide does not list them.",
       "order": 12
     }
@@ -2354,7 +2354,7 @@
     {
       "id": "exponential-ui-kitchen-sink",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · kitchen sink",
+      "title": "genUI · kitchen sink",
       "blurb": "Every component of the core catalog once (packages/exponential-ui/fixtures/kitchen-sink.json) under the exponential theme: the VAPP-4 layout cases, the form controls with a 150 ms host echo, overlays, lists, feedback. Web = the React renderer (VAPP-87); desktop, iOS and Android land with their painters (VAPP-90, VAPP-88, VAPP-89).",
       "order": 1,
       "web": {
@@ -2419,7 +2419,7 @@
       "id": "app",
       "group": "coding",
       "title": "App editor",
-      "blurb": "VAPP-110 + VAPP-122 + VAPP-177: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) docked beside the TAB pane, the header ending in the Preview | Versions | Settings segmented control; the Preview tab = the head package rendered live by the Exponential UI renderer through the app host, its records (fixtures/app-records.json) live. Phones show Chat | Preview with a … menu (Versions, Settings, Export, Delete app) and the shot opens Preview.",
+      "blurb": "VAPP-110 + VAPP-122 + VAPP-177: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) docked beside the TAB pane, the header ending in the Preview | Versions | Settings segmented control; the Preview tab = the head package rendered live by the genUI renderer through the app host, its records (fixtures/app-records.json) live. Phones show Chat | Preview with a … menu (Versions, Settings, Export, Delete app) and the shot opens Preview.",
       "order": 31,
       "web": {
         "route": "/t/$teamSlug/app-editor/$appSlug",
@@ -3240,7 +3240,7 @@
     {
       "id": "exponential-ui-box",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Box",
+      "title": "genUI · Box",
       "blurb": "A styled container laid out by the whitelisted style object; the primitive every macro expands into. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/box/.",
       "order": 2,
       "web": {
@@ -3274,7 +3274,7 @@
     {
       "id": "exponential-ui-stack",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Stack",
+      "title": "genUI · Stack",
       "blurb": "A flex container that lays its children out in one direction with a gap. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/stack/.",
       "order": 3,
       "web": {
@@ -3308,7 +3308,7 @@
     {
       "id": "exponential-ui-grid",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Grid",
+      "title": "genUI · Grid",
       "blurb": "An equal-column grid for cards and tiles. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/grid/.",
       "order": 4,
       "web": {
@@ -3342,7 +3342,7 @@
     {
       "id": "exponential-ui-card",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Card",
+      "title": "genUI · Card",
       "blurb": "A bordered content card with an optional title and description; use it for grouped content, not page headers. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/card/.",
       "order": 5,
       "web": {
@@ -3376,7 +3376,7 @@
     {
       "id": "exponential-ui-separator",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Separator",
+      "title": "genUI · Separator",
       "blurb": "A hairline that divides content. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/separator/.",
       "order": 6,
       "web": {
@@ -3410,7 +3410,7 @@
     {
       "id": "exponential-ui-list",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · List",
+      "title": "genUI · List",
       "blurb": "A windowed scrolling list; required for anything longer than a screen, children may come from a data template. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/list/.",
       "order": 7,
       "web": {
@@ -3444,7 +3444,7 @@
     {
       "id": "exponential-ui-group",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Group",
+      "title": "genUI · Group",
       "blurb": "A form-field container: a rounded group of rows with an optional title and footnote. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/group/.",
       "order": 10,
       "web": {
@@ -3478,7 +3478,7 @@
     {
       "id": "exponential-ui-text",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Text",
+      "title": "genUI · Text",
       "blurb": "A run of text in one of the type styles; prefer dedicated components over inline markdown. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/text/.",
       "order": 11,
       "web": {
@@ -3512,7 +3512,7 @@
     {
       "id": "exponential-ui-heading",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Heading",
+      "title": "genUI · Heading",
       "blurb": "A section or page heading at one of four levels. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/heading/.",
       "order": 12,
       "web": {
@@ -3546,7 +3546,7 @@
     {
       "id": "exponential-ui-markdown",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Markdown",
+      "title": "genUI · Markdown",
       "blurb": "Rendered GitHub-flavoured markdown (paragraphs, lists, code, tables, images), the one interchange every platform shares. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/markdown/.",
       "order": 13,
       "web": {
@@ -3580,7 +3580,7 @@
     {
       "id": "exponential-ui-image",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Image",
+      "title": "genUI · Image",
       "blurb": "A picture from a URL, or a placeholder box when it has none. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/image/.",
       "order": 14,
       "web": {
@@ -3614,7 +3614,7 @@
     {
       "id": "exponential-ui-icon",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Icon",
+      "title": "genUI · Icon",
       "blurb": "One icon from the shared Lucide registry, by name. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/icon/.",
       "order": 15,
       "web": {
@@ -3648,7 +3648,7 @@
     {
       "id": "exponential-ui-video",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Video",
+      "title": "genUI · Video",
       "blurb": "A video player: the poster until play, then the platform player with its controls. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/video/.",
       "order": 16,
       "web": {
@@ -3682,7 +3682,7 @@
     {
       "id": "exponential-ui-audio-player",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · AudioPlayer",
+      "title": "genUI · AudioPlayer",
       "blurb": "An audio player with a title and a play control. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/audio-player/.",
       "order": 17,
       "web": {
@@ -3716,7 +3716,7 @@
     {
       "id": "exponential-ui-avatar",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Avatar",
+      "title": "genUI · Avatar",
       "blurb": "A round user picture that falls back to initials on a stable hue. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/avatar/.",
       "order": 18,
       "web": {
@@ -3750,7 +3750,7 @@
     {
       "id": "exponential-ui-carousel",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Carousel",
+      "title": "genUI · Carousel",
       "blurb": "A horizontally paging scroller; each child is one page. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/carousel/.",
       "order": 19,
       "web": {
@@ -3784,7 +3784,7 @@
     {
       "id": "exponential-ui-tabs",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Tabs",
+      "title": "genUI · Tabs",
       "blurb": "Tab navigation; the child at index i is the panel of tab i. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/tabs/.",
       "order": 20,
       "web": {
@@ -3818,7 +3818,7 @@
     {
       "id": "exponential-ui-accordion",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Accordion",
+      "title": "genUI · Accordion",
       "blurb": "Collapsible sections; the child at index i is the body of item i. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/accordion/.",
       "order": 22,
       "web": {
@@ -3852,7 +3852,7 @@
     {
       "id": "exponential-ui-collapsible",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Collapsible",
+      "title": "genUI · Collapsible",
       "blurb": "One disclosure section with a title row that shows or hides its children. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/collapsible/.",
       "order": 23,
       "web": {
@@ -3886,7 +3886,7 @@
     {
       "id": "exponential-ui-pagination",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Pagination",
+      "title": "genUI · Pagination",
       "blurb": "Previous, next and the current page out of a total. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/pagination/.",
       "order": 24,
       "web": {
@@ -3920,7 +3920,7 @@
     {
       "id": "exponential-ui-dialog",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Dialog",
+      "title": "genUI · Dialog",
       "blurb": "A centred modal over the surface, opened by its trigger slot or by binding `open`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/dialog/.",
       "order": 26,
       "web": {
@@ -3954,7 +3954,7 @@
     {
       "id": "exponential-ui-drawer",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Drawer",
+      "title": "genUI · Drawer",
       "blurb": "A panel sliding in from an edge (a bottom sheet on phones). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/drawer/.",
       "order": 27,
       "web": {
@@ -3988,7 +3988,7 @@
     {
       "id": "exponential-ui-dock-card",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · DockCard",
+      "title": "genUI · DockCard",
       "blurb": "N-12: THE DockCard: a one-row floating card (a tinted label, a caption, trailing meta, one title line, the open chevron) that opens its children in a bottom sheet with a pinned footer. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/dock-card/.",
       "order": 28,
       "web": {
@@ -4022,7 +4022,7 @@
     {
       "id": "exponential-ui-popover",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Popover",
+      "title": "genUI · Popover",
       "blurb": "A small panel anchored to its trigger, opened on press. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/popover/.",
       "order": 29,
       "web": {
@@ -4056,7 +4056,7 @@
     {
       "id": "exponential-ui-tooltip",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Tooltip",
+      "title": "genUI · Tooltip",
       "blurb": "A short hint shown on hover or long-press over its children. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/tooltip/.",
       "order": 30,
       "web": {
@@ -4089,7 +4089,7 @@
     {
       "id": "exponential-ui-badge",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Badge",
+      "title": "genUI · Badge",
       "blurb": "A small status label or count. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/badge/.",
       "order": 32,
       "web": {
@@ -4122,7 +4122,7 @@
     {
       "id": "exponential-ui-alert",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Alert",
+      "title": "genUI · Alert",
       "blurb": "An inline banner with an icon, a title and a message. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/alert/.",
       "order": 33,
       "web": {
@@ -4155,7 +4155,7 @@
     {
       "id": "exponential-ui-empty-state",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · EmptyState",
+      "title": "genUI · EmptyState",
       "blurb": "What a screen or a list says when it has nothing, in two sizes: `page` (the icon disc, a title, a sentence teaching the next step, an action) and `list` (one muted line under a bare glyph). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/empty-state/.",
       "order": 35,
       "web": {
@@ -4188,7 +4188,7 @@
     {
       "id": "exponential-ui-progress",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Progress",
+      "title": "genUI · Progress",
       "blurb": "A horizontal progress bar with an optional label. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/progress/.",
       "order": 36,
       "web": {
@@ -4221,7 +4221,7 @@
     {
       "id": "exponential-ui-meter",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Meter",
+      "title": "genUI · Meter",
       "blurb": "A usage track: a bar of coloured segments against a maximum, with a caption and a value. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/meter/.",
       "order": 37,
       "web": {
@@ -4254,7 +4254,7 @@
     {
       "id": "exponential-ui-ring",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Ring",
+      "title": "genUI · Ring",
       "blurb": "A circular progress ring for a fraction, sized like an icon. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/ring/.",
       "order": 38,
       "web": {
@@ -4287,7 +4287,7 @@
     {
       "id": "exponential-ui-spinner",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Spinner",
+      "title": "genUI · Spinner",
       "blurb": "An indeterminate activity indicator. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/spinner/.",
       "order": 39,
       "web": {
@@ -4320,7 +4320,7 @@
     {
       "id": "exponential-ui-skeleton",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Skeleton",
+      "title": "genUI · Skeleton",
       "blurb": "A shimmering placeholder block while content loads. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/skeleton/.",
       "order": 40,
       "web": {
@@ -4353,7 +4353,7 @@
     {
       "id": "exponential-ui-voice-wave",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · VoiceWave",
+      "title": "genUI · VoiceWave",
       "blurb": "A live voice level: three waves around an optional centre child. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/voice-wave/.",
       "order": 98,
       "web": {
@@ -4386,7 +4386,7 @@
     {
       "id": "exponential-ui-message-bubble",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · MessageBubble",
+      "title": "genUI · MessageBubble",
       "blurb": "A chat message bubble, in (left) or out (right), with its time and delivery status. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/message-bubble/.",
       "order": 99,
       "web": {
@@ -4419,7 +4419,7 @@
     {
       "id": "exponential-ui-call-surface",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · CallSurface",
+      "title": "genUI · CallSurface",
       "blurb": "A voice call screen: the voice wave around an avatar, the name, status, caption and the round call buttons. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/call-surface/.",
       "order": 100,
       "web": {
@@ -4452,7 +4452,7 @@
     {
       "id": "exponential-ui-plan",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Plan",
+      "title": "genUI · Plan",
       "blurb": "A plan card: steps to approve, then progress with a Stop button. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/plan/.",
       "order": 101,
       "web": {
@@ -4485,7 +4485,7 @@
     {
       "id": "exponential-ui-qr-code",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · QrCode",
+      "title": "genUI · QrCode",
       "blurb": "A QR code of a value, dark modules on a light plate in every theme. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/qr-code/.",
       "order": 102,
       "web": {
@@ -4518,7 +4518,7 @@
     {
       "id": "exponential-ui-outline",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Outline",
+      "title": "genUI · Outline",
       "blurb": "An anchor list: one row per section, the active one marked by a 2 px bar, a trailing count. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/outline/.",
       "order": 104,
       "web": {
@@ -4551,7 +4551,7 @@
     {
       "id": "exponential-ui-mosaic",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Mosaic",
+      "title": "genUI · Mosaic",
       "blurb": "A wide picture group: one large picture beside two small ones, a +N tile past three. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/mosaic/.",
       "order": 105,
       "web": {
@@ -4584,7 +4584,7 @@
     {
       "id": "exponential-ui-zoomable-image",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · ZoomableImage",
+      "title": "genUI · ZoomableImage",
       "blurb": "A picture that zooms (pinch, ⌘-wheel, double-tap) and pans, with the zoom pill. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/zoomable-image/.",
       "order": 106,
       "web": {
@@ -4617,7 +4617,7 @@
     {
       "id": "exponential-ui-motion",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Motion",
+      "title": "genUI · Motion",
       "blurb": "A vector animation (Lottie-compatible) painted from the core's display list, the same pixels on every platform. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/motion/.",
       "order": 107,
       "web": {
@@ -4650,7 +4650,7 @@
     {
       "id": "exponential-ui-choice-tiles",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · ChoiceTiles",
+      "title": "genUI · ChoiceTiles",
       "blurb": "Picture tiles picking one or many values; options show `image` and `description`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/choice-tiles/.",
       "order": 108,
       "web": {
@@ -4683,7 +4683,7 @@
     {
       "id": "exponential-ui-search-list",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · SearchList",
+      "title": "genUI · SearchList",
       "blurb": "A search field over rows: typing filters, arrows move, Enter picks. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/search-list/.",
       "order": 109,
       "web": {
@@ -4716,7 +4716,7 @@
     {
       "id": "exponential-ui-qr-scanner",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · QrScanner",
+      "title": "genUI · QrScanner",
       "blurb": "A QR scanner viewfinder; the host owns the camera and reports the decoded value. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/qr-scanner/.",
       "order": 103,
       "web": {
@@ -4749,7 +4749,7 @@
     {
       "id": "exponential-ui-table",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Table",
+      "title": "genUI · Table",
       "blurb": "A small data table from header labels and rows of cell strings; v1 lays it out as a grid without sorting. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/table/.",
       "order": 41,
       "web": {
@@ -4782,7 +4782,7 @@
     {
       "id": "exponential-ui-chart",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Chart",
+      "title": "genUI · Chart",
       "blurb": "A bar, line, area or pie chart from categories and series (VAPP-50; painters land later). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/chart/.",
       "order": 42,
       "web": {
@@ -4815,7 +4815,7 @@
     {
       "id": "exponential-ui-button",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Button",
+      "title": "genUI · Button",
       "blurb": "A press target with a label and optional icon (or one custom child); bind `press` for the handler. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/button/.",
       "order": 43,
       "web": {
@@ -4848,7 +4848,7 @@
     {
       "id": "exponential-ui-link",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Link",
+      "title": "genUI · Link",
       "blurb": "Inline link text that opens a URL or fires `press`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/link/.",
       "order": 44,
       "web": {
@@ -4881,7 +4881,7 @@
     {
       "id": "exponential-ui-toggle",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Toggle",
+      "title": "genUI · Toggle",
       "blurb": "A two-state button that stays pressed. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/toggle/.",
       "order": 45,
       "web": {
@@ -4914,7 +4914,7 @@
     {
       "id": "exponential-ui-input",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Input",
+      "title": "genUI · Input",
       "blurb": "A single-line text field the host owns; bind `value` for two-way state and add `checks` for validation. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/input/.",
       "order": 46,
       "web": {
@@ -4947,7 +4947,7 @@
     {
       "id": "exponential-ui-textarea",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Textarea",
+      "title": "genUI · Textarea",
       "blurb": "A multi-line text field the host owns; bind `value` for two-way state. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/textarea/.",
       "order": 47,
       "web": {
@@ -4980,7 +4980,7 @@
     {
       "id": "exponential-ui-checkbox",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Checkbox",
+      "title": "genUI · Checkbox",
       "blurb": "A labelled checkbox; bind `checked`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/checkbox/.",
       "order": 48,
       "web": {
@@ -5013,7 +5013,7 @@
     {
       "id": "exponential-ui-radio",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Radio",
+      "title": "genUI · Radio",
       "blurb": "A labelled group of radio options choosing one value; bind `value`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/radio/.",
       "order": 49,
       "web": {
@@ -5046,7 +5046,7 @@
     {
       "id": "exponential-ui-switch",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Switch",
+      "title": "genUI · Switch",
       "blurb": "A labelled on/off switch; bind `checked`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/switch/.",
       "order": 50,
       "web": {
@@ -5079,7 +5079,7 @@
     {
       "id": "exponential-ui-slider",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Slider",
+      "title": "genUI · Slider",
       "blurb": "A range slider between min and max; bind `value`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/slider/.",
       "order": 51,
       "web": {
@@ -5112,7 +5112,7 @@
     {
       "id": "exponential-ui-select",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Select",
+      "title": "genUI · Select",
       "blurb": "A picker of one (or many) options in a dropdown; searchable, and `source` binds the host's own lists (statuses, members) instead of inline options. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/select/.",
       "order": 52,
       "web": {
@@ -5145,7 +5145,7 @@
     {
       "id": "exponential-ui-date-picker",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · DatePicker",
+      "title": "genUI · DatePicker",
       "blurb": "A calendar date field (date only in v1); bind `value` as an ISO date. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/date-picker/.",
       "order": 53,
       "web": {
@@ -5178,7 +5178,7 @@
     {
       "id": "exponential-ui-composer",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Composer",
+      "title": "genUI · Composer",
       "blurb": "The chat input box: a growing text field with a submit button and optional attachments. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/composer/.",
       "order": 54,
       "web": {
@@ -5211,7 +5211,7 @@
     {
       "id": "exponential-ui-demo",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · demo surface",
+      "title": "genUI · demo surface",
       "blurb": "The home page demo of ui.exponential.at (packages/exponential-ui/fixtures/demo-surface.json): the answer an agent streams for `How did last night's release go?`, shown beside its live React replay.",
       "order": 62,
       "web": {
@@ -5244,7 +5244,7 @@
     {
       "id": "exponential-ui-scroll-area",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · ScrollArea",
+      "title": "genUI · ScrollArea",
       "blurb": "A scrolling region of bounded height or width. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/scroll-area/.",
       "order": 63,
       "web": {
@@ -5277,7 +5277,7 @@
     {
       "id": "exponential-ui-sidebar",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Sidebar",
+      "title": "genUI · Sidebar",
       "blurb": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a `bar` Segmented, or a Drawer from an AppBar button). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/sidebar/.",
       "order": 64,
       "web": {
@@ -5310,7 +5310,7 @@
     {
       "id": "exponential-ui-app-bar",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · AppBar",
+      "title": "genUI · AppBar",
       "blurb": "A top bar with a title, an optional subtitle and back button, and `leading`/`trailing` slots for controls. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/app-bar/.",
       "order": 65,
       "web": {
@@ -5343,7 +5343,7 @@
     {
       "id": "exponential-ui-code-block",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · CodeBlock",
+      "title": "genUI · CodeBlock",
       "blurb": "Source code in a mono block with built-in syntax colouring, optional line numbers and a copy button. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/code-block/.",
       "order": 66,
       "web": {
@@ -5376,7 +5376,7 @@
     {
       "id": "exponential-ui-kbd",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Kbd",
+      "title": "genUI · Kbd",
       "blurb": "A keyboard shortcut drawn as a key cap. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/kbd/.",
       "order": 67,
       "web": {
@@ -5409,7 +5409,7 @@
     {
       "id": "exponential-ui-label",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Label",
+      "title": "genUI · Label",
       "blurb": "A caption for a control that has no label of its own, with an optional required mark. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/label/.",
       "order": 68,
       "web": {
@@ -5442,7 +5442,7 @@
     {
       "id": "exponential-ui-breadcrumb",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Breadcrumb",
+      "title": "genUI · Breadcrumb",
       "blurb": "The path to the current page; every item but the last is a link that fires `select` with its value. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/breadcrumb/.",
       "order": 69,
       "web": {
@@ -5475,7 +5475,7 @@
     {
       "id": "exponential-ui-stepper",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Stepper",
+      "title": "genUI · Stepper",
       "blurb": "Wizard progress: numbered steps, finished ones ticked. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/stepper/.",
       "order": 71,
       "web": {
@@ -5508,7 +5508,7 @@
     {
       "id": "exponential-ui-alert-dialog",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · AlertDialog",
+      "title": "genUI · AlertDialog",
       "blurb": "A modal that asks for a confirmation and ignores clicks outside; fires `confirm` or `cancel`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/alert-dialog/.",
       "order": 72,
       "web": {
@@ -5541,7 +5541,7 @@
     {
       "id": "exponential-ui-toast",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Toast",
+      "title": "genUI · Toast",
       "blurb": "A transient notice in the toast layer; render one per notice with `open` bound. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/toast/.",
       "order": 75,
       "web": {
@@ -5574,7 +5574,7 @@
     {
       "id": "exponential-ui-sparkline",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Sparkline",
+      "title": "genUI · Sparkline",
       "blurb": "A tiny inline trend line of recent values, no axes or legend. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/sparkline/.",
       "order": 76,
       "web": {
@@ -5607,7 +5607,7 @@
     {
       "id": "exponential-ui-form",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Form",
+      "title": "genUI · Form",
       "blurb": "Collects its fields by `name` and fires `submit` with their values once every check passes (a `submit` Button or Enter submits). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/form/.",
       "order": 77,
       "web": {
@@ -5640,7 +5640,7 @@
     {
       "id": "exponential-ui-number-field",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · NumberField",
+      "title": "genUI · NumberField",
       "blurb": "A numeric field with steppers, min/max/step clamping and locale formatting. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/number-field/.",
       "order": 78,
       "web": {
@@ -5673,7 +5673,7 @@
     {
       "id": "exponential-ui-rating",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Rating",
+      "title": "genUI · Rating",
       "blurb": "A row of stars scoring out of `max`; `readOnly` only displays. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/rating/.",
       "order": 79,
       "web": {
@@ -5706,7 +5706,7 @@
     {
       "id": "exponential-ui-chip-input",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · ChipInput",
+      "title": "genUI · ChipInput",
       "blurb": "A multi-value field of removable chips (Enter or comma adds); bind `values`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/chip-input/.",
       "order": 80,
       "web": {
@@ -5739,7 +5739,7 @@
     {
       "id": "exponential-ui-date-range-picker",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · DateRangePicker",
+      "title": "genUI · DateRangePicker",
       "blurb": "A two-date range field with one calendar (ISO dates). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/date-range-picker/.",
       "order": 81,
       "web": {
@@ -5772,7 +5772,7 @@
     {
       "id": "exponential-ui-time-picker",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · TimePicker",
+      "title": "genUI · TimePicker",
       "blurb": "A time-of-day field (`HH:mm`) picked from a list every `step` minutes, or typed. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/time-picker/.",
       "order": 82,
       "web": {
@@ -5805,7 +5805,7 @@
     {
       "id": "exponential-ui-file-upload",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · FileUpload",
+      "title": "genUI · FileUpload",
       "blurb": "A drop zone with a browse button; files reach the host via `upload`, which lists them back in `files`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/file-upload/.",
       "order": 83,
       "web": {
@@ -5838,7 +5838,7 @@
     {
       "id": "exponential-ui-resizable",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Resizable",
+      "title": "genUI · Resizable",
       "blurb": "Panels split by draggable handles. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/resizable/.",
       "order": 84,
       "web": {
@@ -6152,7 +6152,7 @@
     {
       "id": "exponential-ui-row",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Row",
+      "title": "genUI · Row",
       "blurb": "THE list row: a lead glyph or slot, a mono identifier, a title with a subtitle, trailing meta or a readable value, a slot and a chevron; flat or a card, nestable by depth. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/row/.",
       "order": 85,
       "web": {
@@ -6185,7 +6185,7 @@
     {
       "id": "exponential-ui-section",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Section",
+      "title": "genUI · Section",
       "blurb": "A band header over hairline-divided rows: a title with an optional caption, count and glyph, foldable, tinted; no title = just the rows. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/section/.",
       "order": 86,
       "web": {
@@ -6218,7 +6218,7 @@
     {
       "id": "exponential-ui-chip",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Chip",
+      "title": "genUI · Chip",
       "blurb": "A small labelled token: a pill for a filter, label or state, or a rect naming an entity with a glyph or picture, optionally removable. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/chip/.",
       "order": 87,
       "web": {
@@ -6251,7 +6251,7 @@
     {
       "id": "exponential-ui-segmented",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Segmented",
+      "title": "genUI · Segmented",
       "blurb": "ONE row of segments selecting one or many values: the pill-track segmented control, bare toggles, joined outline buttons or a bottom bar of destinations. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/segmented/.",
       "order": 88,
       "web": {
@@ -6284,7 +6284,7 @@
     {
       "id": "exponential-ui-menu",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Menu",
+      "title": "genUI · Menu",
       "blurb": "A menu of actions, checkboxes, groups and one-level submenus: opened by pressing its child (or a default button) or by right-click / long-press on it. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/menu/.",
       "order": 89,
       "web": {
@@ -6317,7 +6317,7 @@
     {
       "id": "exponential-ui-trace",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Trace",
+      "title": "genUI · Trace",
       "blurb": "A column of TraceItem lines (an agent's steps). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/trace/.",
       "order": 90,
       "web": {
@@ -6350,7 +6350,7 @@
     {
       "id": "exponential-ui-trace-item",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · TraceItem",
+      "title": "genUI · TraceItem",
       "blurb": "One step line: icon, title, muted detail; may expand to show its children. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/trace-item/.",
       "order": 91,
       "web": {
@@ -6383,7 +6383,7 @@
     {
       "id": "exponential-ui-page",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Page",
+      "title": "genUI · Page",
       "blurb": "VAPP-126: A screen: an AppBar row (back, title, trailing actions) over a padded scrolling body. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/page/.",
       "order": 92,
       "web": {
@@ -6416,7 +6416,7 @@
     {
       "id": "exponential-ui-toolbar",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · Toolbar",
+      "title": "genUI · Toolbar",
       "blurb": "VAPP-126: Controls in one row, bottoms aligned, wrapping on phones; `trailing` = the end action. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/toolbar/.",
       "order": 93,
       "web": {
@@ -6449,7 +6449,7 @@
     {
       "id": "exponential-ui-split-view",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · SplitView",
+      "title": "genUI · SplitView",
       "blurb": "VAPP-126: List (`list` slot) + detail (children); phones show one at a time, the detail with a back button. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/split-view/.",
       "order": 94,
       "web": {
@@ -6482,7 +6482,7 @@
     {
       "id": "exponential-ui-field-group",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · FieldGroup",
+      "title": "genUI · FieldGroup",
       "blurb": "VAPP-126: Fields side by side (Starts / Ends) that stack on phones. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/field-group/.",
       "order": 95,
       "web": {
@@ -6515,7 +6515,7 @@
     {
       "id": "exponential-ui-form-actions",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · FormActions",
+      "title": "genUI · FormActions",
       "blurb": "VAPP-126: The end-aligned button row: children, Cancel, then THE submit (the one primary). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/form-actions/.",
       "order": 96,
       "web": {
@@ -6548,7 +6548,7 @@
     {
       "id": "exponential-ui-stat-tile",
       "group": "exponential-ui-catalog",
-      "title": "Exponential UI · StatTile",
+      "title": "genUI · StatTile",
       "blurb": "VAPP-126: A dashboard tile: label, big value, toned change, trend sparkline. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/stat-tile/.",
       "order": 97,
       "web": {
@@ -6823,7 +6823,7 @@
       "id": "plan-card",
       "group": "coding",
       "title": "Plan card",
-      "blurb": "THE rich plan / question card ×4 (EXP-1280, plan-card.json): plan mode posts ONE card through exponential_plan_propose: the markdown with pictures, the agent's Exponential UI surface in its Preview frame, one block per question (THE option rows, or picture tiles once any option has a picture; Choose one / Choose any; Other…), THE plan options + the feedback field, approving only once every question is answered. Answered = closed: the picks highlighted, the decision and the feedback.",
+      "blurb": "THE rich plan / question card ×4 (EXP-1280, plan-card.json): plan mode posts ONE card through exponential_plan_propose: the markdown with pictures, the agent's genUI surface in its Preview frame, one block per question (THE option rows, or picture tiles once any option has a picture; Choose one / Choose any; Other…), THE plan options + the feedback field, approving only once every question is answered. Answered = closed: the picks highlighted, the decision and the feedback.",
       "order": 25,
       "web": {
         "route": "/t/$teamSlug/agent?dev=plan-card",
@@ -7286,7 +7286,7 @@
       "id": "chat-transcript",
       "group": "coding",
       "title": "Chat transcript",
-      "blurb": "The chat transcript pieces ×4 (chats.json TRANSCRIPT + SURFACE CARD): the person’s and the agent’s bubbles, the /compact and /new divider pills, an agent’s inline Exponential UI preview, a superseded plan line.",
+      "blurb": "The chat transcript pieces ×4 (chats.json TRANSCRIPT + SURFACE CARD): the person’s and the agent’s bubbles, the /compact and /new divider pills, an agent’s inline genUI preview, a superseded plan line.",
       "order": 34,
       "web": {
         "route": "/t/$teamSlug/agent?dev=chat-transcript",
