@@ -4,17 +4,14 @@ import {
   agentMenuEntries,
   chatSelectionActions,
   threadMenuEntries,
-  type AgentBubble,
   type AgentChatRow,
-  type ChatFilter,
   type ChatRow as ChatRowModel,
 } from "@exp/domain-contract/chats"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import { BoardGlyph } from "./board-glyph"
 import { BulkBarAction, BulkBarCapsule, BulkBarSeparator } from "./bulk-bar"
-import { AgentBubbles, CHAT_SELECTION_ICONS, ChatFilterChips, ChatList, ChatsHeader } from "./chat-list"
-import { STORY_RING_SPECIMEN, storySpecimenAvatar } from "./stories-specimen"
+import { CHAT_SELECTION_ICONS, ChatList, ChatsHeader } from "./chat-list"
 import { Dialog } from "./dialog"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
@@ -41,37 +38,23 @@ const noop = (): void => {}
 
 // ── chat-list ────────────────────────────────────────────────────────────
 // The phone Chats screen's pieces fed the fixture's own expected model:
-// `listCases[0]` and `bubbleCases[0]`. The chips filter the same rows locally.
+// `listCases[0]` and `agentRowCases[0]`.
 
-const LIST = chats.listCases[0]!.expected
-const LIST_ROWS = LIST.rows as ChatRowModel[]
-const BUBBLES = chats.bubbleCases[0]!.expected as AgentBubble[]
+const LIST_ROWS = chats.listCases[0]!.expected.rows as ChatRowModel[]
 /** S-3: the pinned agent rows (`agentRowCases[0]`: the Assistant first). */
 const AGENT_ROWS = chats.agentRowCases[0]!.expected as AgentChatRow[]
 
 // EXP-1647: the phone column is 390px at the PHONE root (16px) = 24.375rem:
-// the wide web root is 18.5px (styles.css), so a px column held the
-// rem-sized chips 16% too tight and the last chip clipped ("Unrea…").
+// the wide web root is 18.5px (styles.css). #FEED-191: no rings, no chips: the
+// agents, then the chats under their section headers.
 export function ChatListSpecimen() {
-  const [filter, setFilter] = useState<ChatFilter>(`all`)
-  const rows = LIST_ROWS.filter(
-    (row) =>
-      filter === `all` ||
-      (filter === `needs_you` && row.group === `needs_you`) ||
-      (filter === `running` && row.group === `running`) ||
-      (filter === `unread` && row.unreadCount > 0)
-  )
   return (
     <div
       data-testid="chat-list-specimen"
       className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatsHeader inboxUnread />
-      {/* S-3 (stories.json specimen): Triage + Designer wear their rings,
-          the two chat rings follow. */}
-      <AgentBubbles bubbles={BUBBLES} rings={STORY_RING_SPECIMEN} ringAvatar={storySpecimenAvatar} />
-      <ChatFilterChips value={filter} counts={LIST.counts} onChange={setFilter} />
-      <ChatList rows={rows} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
+      <ChatList rows={LIST_ROWS} agentRows={AGENT_ROWS} agentOf={() => `claude`} />
     </div>
   )
 }
@@ -106,7 +89,6 @@ export function ChatSelectionSpecimen() {
       data-testid="chat-selection-specimen"
       className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
-      <ChatFilterChips value="all" counts={LIST.counts} onChange={noop} />
       <ChatList
         rows={LIST_ROWS}
         agentOf={() => `claude`}
@@ -428,7 +410,7 @@ export function SealedLockedSpecimen() {
         </div>
         <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0">
           <div className="text-xs text-muted-foreground">Chats list</div>
-          <ChatList rows={LOCKED_LIST_ROWS} agentOf={() => `claude`} />
+          <ChatList flat rows={LOCKED_LIST_ROWS} agentOf={() => `claude`} />
         </div>
       </div>
     </TooltipProvider>

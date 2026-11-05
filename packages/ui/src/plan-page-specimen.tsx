@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { PLAN_PAGE_SPECIMEN, planRowLabel } from "@exp/domain-contract/plan-page"
-import { STORY_TAB } from "@exp/domain-contract/stories"
+import { RESULTS_TAB } from "@exp/domain-contract/results-tab"
 import { THREAD_COPY, threadAskRow, type TreeMessage } from "@exp/domain-contract/session-tree"
 import { cn } from "./cn"
 import { PlanPage } from "./plan-page"
@@ -71,7 +71,7 @@ export function PlanPageSpecimen({ size = `wide` }: { size?: `wide` | `phone` })
           conversation={{ label: THREAD_COPY.conversation, active: false, onSelect: noop }}
           plan={{ label: planRowLabel(plan.plan), active: true, waiting: true, onSelect: noop }}
           issues={[]}
-          stories={{ label: STORY_TAB.copy.label, active: false, dot: false, onSelect: noop }}
+          results={{ label: RESULTS_TAB.copy.label, active: false, onSelect: noop }}
         />
       </div>
       <PlanPage

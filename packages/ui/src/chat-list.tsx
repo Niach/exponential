@@ -2,10 +2,12 @@ import { useMemo, type ComponentProps, type MouseEvent as ReactMouseEvent, type 
 import { STORY_ROW, storyRow, type StoryRing as StoryRingModel } from "@exp/domain-contract/stories"
 import {
   CHAT_FILTERS,
+  CHAT_SECTION_KEYS,
   CHATS_COPY,
   CHATS_SHELL,
   CHATS_TEST_IDS,
   chatFilterLabel,
+  chatSections,
   type AgentBubble,
   type AgentChatRow,
   type ChatFilter,
@@ -48,7 +50,9 @@ import { StoryRing, StoryRingButton } from "./stories"
 //   ChatArchivedRow  the Archived entry (#EXP-1388): the plain ui-archive
 //                    glyph in the disc column, the count in the time slot
 //   AgentChatRowButton  S-3: an agent row pinned on top (its avatar disc)
-//   ChatList         the rows (or the skeleton / the empty state)
+//   ChatList         #FEED-191: Agents, then `chatSections` under their headers
+//                    (the Archived entry = first under Chats); the Archived
+//                    page is flat. Or the skeleton / the empty state.
 
 const ChatsIcon = conceptIcon(`nav-threads`)
 /** S-3 (`shell.chatLead`): a chat row's plain lead glyph. */
@@ -632,8 +636,7 @@ export function AgentChatRowButton({
   )
 }
 
-/** S-3: a section header of the list (`copy.sections`), only while an agent
- *  row exists. */
+/** A section header of the list (`copy.sections`). */
 function ChatSectionHeader({ title }: { title: string }) {
   return (
     <div
@@ -647,9 +650,11 @@ function ChatSectionHeader({ title }: { title: string }) {
   )
 }
 
-/** The flat list (`chatList(...).rows`): the Archived entry (when
- *  `archived` > 0), the rows, the skeleton while the shapes load, else the
- *  empty state. `selection` non-null = the list SELECTS (#EXP-1388). */
+/** #FEED-191 (chats.json): THE list: `entry` (the phones' Needs you row), the
+ *  agents, then `chatSections(rows)` under their headers, the Archived entry
+ *  (when `archived` > 0) first under `chats`; `flat` (the Archived page) = the
+ *  rows alone, no headers. The skeleton while the shapes load, else the empty
+ *  state. `selection` non-null = the list SELECTS (#EXP-1388). */
 export function ChatList({
   rows,
   agentRows = [],
@@ -664,10 +669,12 @@ export function ChatList({
   selection = null,
   onRowClick,
   onSelectToggle,
+  flat = false,
+  entry,
   className,
 }: {
   rows: readonly ChatRowModel[]
-  /** S-3: the agents pinned on top (`agentChatRows`); none = no headers. */
+  /** S-3: the agents pinned on top (`agentChatRows`). */
   agentRows?: readonly AgentChatRow[]
   onOpenAgent?: (agentId: string) => void
   /** A root's agent CLI (its working mark). */
@@ -677,8 +684,7 @@ export function ChatList({
   entering?: (sessionId: string) => string
   emptyTitle?: string
   onOpen?: (sessionId: string) => void
-  /** #EXP-1388: the archived count for the entry row (0 = no entry; the
-   *  caller passes 0 unless the filter is All). */
+  /** #EXP-1388: the archived count for the entry row (0 = no entry). */
   archived?: number
   onOpenArchived?: () => void
   /** #EXP-1388: the selected ids while selecting, else null. */
@@ -686,41 +692,63 @@ export function ChatList({
   onRowClick?: (sessionId: string, event: ReactMouseEvent<HTMLButtonElement>) => void
   /** #EXP-1388: the rows are selectable (the wide checkbox column). */
   onSelectToggle?: (sessionId: string, event: ReactMouseEvent<HTMLElement>) => void
+  /** #FEED-191: no section headers (the Archived page). */
+  flat?: boolean
+  /** #FEED-191: what leads the list (the phones' `NeedsYouEntryRow`). */
+  entry?: ReactNode
   className?: string
 }) {
   if (loading) return <SkeletonRows rowHeight={76} />
   const empty = <EmptyState icon={ChatsIcon} title={emptyTitle ?? THREADS_LIST_COPY.empty} size="page" />
-  if (rows.length === 0 && archived === 0 && agentRows.length === 0) return empty
+  if (rows.length === 0 && archived === 0 && agentRows.length === 0 && !entry) return empty
   const aligned = Boolean(onSelectToggle) || selection !== null
-  const sections = agentRows.length > 0
+  const paint = (row: ChatRowModel) => (
+    <ChatRow
+      key={row.sessionId}
+      row={row}
+      agent={agentOf?.(row.sessionId) ?? null}
+      className={entering?.(row.sessionId)}
+      onOpen={onOpen}
+      onRowClick={onRowClick}
+      onSelectToggle={onSelectToggle}
+      selecting={selection !== null}
+      selected={selection?.has(row.sessionId) ?? false}
+    />
+  )
+  const archivedEntry =
+    archived > 0 ? <ChatArchivedRow count={archived} onOpen={onOpenArchived} aligned={aligned} /> : null
+  const sections = flat ? [] : chatSections(rows)
   return (
     <div data-slot="chat-list" data-testid="chat-list" className={cn(`flex flex-col`, className)}>
-      {sections && (
+      {entry}
+      {agentRows.length > 0 && (
         <>
           <ChatSectionHeader title={CHATS_COPY.sections.agents} />
           {agentRows.map((row) => (
             <AgentChatRowButton key={row.agentId} row={row} onOpen={onOpenAgent} aligned={aligned} />
           ))}
-          <ChatSectionHeader title={CHATS_COPY.sections.chats} />
         </>
       )}
-      {sections && rows.length === 0 && archived === 0 && empty}
-      {archived > 0 && (
-        <ChatArchivedRow count={archived} onOpen={onOpenArchived} aligned={aligned} />
+      {rows.length === 0 && archived === 0 && empty}
+      {flat ? (
+        <>
+          {archivedEntry}
+          {rows.map(paint)}
+        </>
+      ) : (
+        CHAT_SECTION_KEYS.map((key) => {
+          const own = sections.find((section) => section.key === key)?.rows ?? []
+          const lead = key === `chats` ? archivedEntry : null
+          if (own.length === 0 && !lead) return null
+          return (
+            <div key={key} data-section={key} className="flex flex-col">
+              <ChatSectionHeader title={CHATS_COPY.sections[key]} />
+              {lead}
+              {own.map(paint)}
+            </div>
+          )
+        })
       )}
-      {rows.map((row) => (
-        <ChatRow
-          key={row.sessionId}
-          row={row}
-          agent={agentOf?.(row.sessionId) ?? null}
-          className={entering?.(row.sessionId)}
-          onOpen={onOpen}
-          onRowClick={onRowClick}
-          onSelectToggle={onSelectToggle}
-          selecting={selection !== null}
-          selected={selection?.has(row.sessionId) ?? false}
-        />
-      ))}
     </div>
   )
 }

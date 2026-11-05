@@ -25,7 +25,7 @@
       "agent-home", "work-tabs-strip",
       "getting-started",
       "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "chat-selection", "sealed-locked",
-      "story-ring", "story-viewer", "story-tab"
+      "story-ring", "story-viewer", "story-tab", "results-tab", "needs-you"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -114,6 +114,8 @@
     "sealed-locked": "EXP-1459",
     "story-ring": "S-3",
     "story-viewer": "S-3",
-    "story-tab": "S-3"
+    "story-tab": "S-3",
+    "results-tab": "FEED-191",
+    "needs-you": "FEED-191"
   }
 }
