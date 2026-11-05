@@ -200,9 +200,17 @@ struct McpSettingsPage: View {
                 .fixedSize()
         default:
             let secret = server.auth == "secret"
-            GlassPill(secret ? "Set key" : "Connect", icon: secret ? AppIcons.uiPrivate : AppIcons.uiSignIn,
-                      mode: .action { connect(server) }, enabled: pendingServer != server.id)
-                .fixedSize()
+            // EXP-1676: web's primary `Button size="sm"`, glyph + label.
+            let live = pendingServer != server.id
+            Button { connect(server) } label: {
+                GlassSubmitLabel(secret ? "Set key" : "Connect", enabled: live, small: true) {
+                    AppIcon(secret ? AppIcons.uiPrivate : AppIcons.uiSignIn, size: GlassPillTokens.glyphMd)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.pressScale)
+            .disabled(!live)
+            .fixedSize()
         }
     }
 

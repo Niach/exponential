@@ -49,7 +49,9 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
@@ -305,9 +307,9 @@ fun PromptSettingsScreen(
                 // EXP-1554 (web parity): the submit is compact, right-aligned
                 // under the body, never a full-width bar.
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    GlassPill(
+                    GlassSubmitButton(
                         if (creating) CREATE_PROMPT_LABEL else SAVE_LABEL,
-                        primary = true,
+                        size = SubmitSize.Compact,
                         enabled = canSubmit,
                         loading = state.saving,
                         onClick = {

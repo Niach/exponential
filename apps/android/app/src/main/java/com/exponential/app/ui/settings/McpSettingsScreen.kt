@@ -58,8 +58,10 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.MemberAvatar
 import com.exponential.app.ui.components.PillSize
@@ -398,10 +400,17 @@ private fun ServerRow(server: McpServerListRow, pending: Boolean, onConnect: () 
                 enabled = !pending,
                 onClick = onConnect,
             )
-            else -> GlassPill(
+            // EXP-1676: web's `Button size="sm"`: the glyph, the text button's shape.
+            else -> GlassSubmitButton(
                 if (server.auth == "secret") "Set key" else "Connect",
-                size = PillSize.Sm,
-                primary = true,
+                size = SubmitSize.Small,
+                icon = {
+                    Icon(
+                        if (server.auth == "secret") ExpIcons.uiPrivate else ExpIcons.uiSignIn,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
                 enabled = !pending,
                 onClick = onConnect,
                 modifier = Modifier.testTag("mcp-server-connect"),
