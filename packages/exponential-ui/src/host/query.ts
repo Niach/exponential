@@ -58,6 +58,9 @@ export interface RecordsFilter {
 export interface RecordsSortKey {
   field: string
   order: RecordsOrder
+  /** VAPP-206: where a missing value goes, whatever the order; unset = it
+   *  compares as empty text (first ascending, last descending). */
+  nulls?: `first` | `last`
 }
 
 /** `by=<dateField>&month=YYYY-MM`: the rows of one month, every day listed. */
@@ -443,8 +446,11 @@ export function parseRecordsJson(json: unknown, kind?: string | null): { query: 
   query.user = str(`user`)
   query.sum = str(`sum`)
   if (json.mine !== undefined) {
-    if (typeof json.mine !== `boolean`) issues.push({ path: `/mine`, message: `mine is a boolean` })
-    else query.mine = json.mine
+    // VAPP-206: `${param}` reads a binding's param: true or 1 = mine.
+    const m = json.mine
+    if (typeof m === `boolean`) query.mine = m
+    else if (typeof m === `string` && (m === `` || m === `true` || m === `false` || m === `1` || m === `0` || /^\$\{[^}]*\}$/.test(m))) query.mine = m === `true` || m === `1`
+    else issues.push({ path: `/mine`, message: `mine is a boolean` })
   }
   if (json.where !== undefined) {
     if (!Array.isArray(json.where)) issues.push({ path: `/where`, message: `where is a list of conditions` })
@@ -475,9 +481,9 @@ export function parseRecordsJson(json: unknown, kind?: string | null): { query: 
     else {
       const keys: RecordsSortKey[] = []
       list.forEach((entry, i) => {
-        const [name, order] = typeof entry === `string` ? [entry, `asc`] : Array.isArray(entry) ? [entry[0], entry.length > 1 ? entry[1] : `asc`] : [null, null]
-        if (typeof name !== `string` || !name.trim() || (order !== `asc` && order !== `desc`)) return void issues.push({ path: typeof json.sort === `string` ? `/sort` : `/sort/${i}`, message: `a sort key is field or [field, asc|desc]` })
-        keys.push({ field: name.trim(), order })
+        const [name, order, nulls] = typeof entry === `string` ? [entry, `asc`, undefined] : Array.isArray(entry) ? [entry[0], entry.length > 1 ? entry[1] : `asc`, entry[2]] : [null, null, undefined]
+        if (typeof name !== `string` || !name.trim() || (order !== `asc` && order !== `desc`) || (nulls !== undefined && nulls !== `first` && nulls !== `last`)) return void issues.push({ path: typeof json.sort === `string` ? `/sort` : `/sort/${i}`, message: `a sort key is field or [field, asc|desc]` })
+        keys.push(nulls === undefined ? { field: name.trim(), order } : { field: name.trim(), order, nulls })
       })
       if (keys.length) query.sort = keys
     }
@@ -588,13 +594,14 @@ export function fillQueryTemplates(value: unknown, params: Record<string, string
  *  one of the package's `queries` → the same source with that query, its
  *  `${param}` templates filled from the other params, as `q=<canonical JSON>`.
  *  Anything else is returned as written. */
-export function expandQuerySource(source: string, queries: Record<string, unknown> | undefined): string {
+export function expandQuerySource(source: string, queries: Record<string, unknown> | undefined, hostParams?: Record<string, string>): string {
   const parsed = parseSource(source)
   const id = parsed?.params.query
   if (!parsed || id === undefined || !isObject(queries) || !Object.prototype.hasOwnProperty.call(queries, id)) return source
   const { query: _, ...params } = parsed.params
   const q = queries[id]
-  const filled = fillQueryTemplates(q, params)
+  // VAPP-206: `${today}`, `${now}`, `${month}` unless the binding names its own.
+  const filled = fillQueryTemplates(q, { ...hostParams, ...params })
   const base = source.trim()
   const head = base.includes(`?`) ? base.slice(0, base.indexOf(`?`)) : base
   return sourceWithParams(head, { q: canonicalJson(filled) })
@@ -666,17 +673,25 @@ function sorted(rows: RecordRow[], sort: readonly RecordsSortKey[]): RecordRow[]
     const values = rows.map((row) => field(row, s.field))
     const keys = values.map(keyOf)
     const sign = s.order === `asc` ? 1 : -1
-    if (keys.every((k) => k.n !== null)) {
-      const v = Float64Array.from(keys, (k) => k.n!)
-      return (a: number, b: number) => sign * (v[a]! < v[b]! ? -1 : v[a]! > v[b]! ? 1 : 0)
+    const compareColumn = (): ((a: number, b: number) => number) => {
+      if (keys.every((k) => k.n !== null)) {
+        const v = Float64Array.from(keys, (k) => k.n!)
+        return (a, b) => sign * (v[a]! < v[b]! ? -1 : v[a]! > v[b]! ? 1 : 0)
+      }
+      if (keys.every((k) => k.n === null)) {
+        const distinct = [...new Set(keys.map((k) => k.t))].sort(byCodeUnits)
+        const rank = new Map(distinct.map((t, i) => [t, i]))
+        const v = Uint32Array.from(keys, (k) => rank.get(k.t)!)
+        return (a, b) => sign * (v[a]! - v[b]!)
+      }
+      return (a, b) => sign * compareKeys(keys[a]!, keys[b]!, values[a], values[b])
     }
-    if (keys.every((k) => k.n === null)) {
-      const distinct = [...new Set(keys.map((k) => k.t))].sort(byCodeUnits)
-      const rank = new Map(distinct.map((t, i) => [t, i]))
-      const v = Uint32Array.from(keys, (k) => rank.get(k.t)!)
-      return (a: number, b: number) => sign * (v[a]! - v[b]!)
-    }
-    return (a: number, b: number) => sign * compareKeys(keys[a]!, keys[b]!, values[a], values[b])
+    const column = compareColumn()
+    if (!s.nulls) return column
+    // VAPP-206: a missing value goes first or last, whatever the order.
+    const missing = values.map((v) => v === null || v === undefined)
+    const before = s.nulls === `first` ? -1 : 1
+    return (a: number, b: number) => (missing[a] !== missing[b] ? (missing[a] ? before : -before) : column(a, b))
   })
   const idx = rows.map((_, i) => i)
   idx.sort((a, b) => {

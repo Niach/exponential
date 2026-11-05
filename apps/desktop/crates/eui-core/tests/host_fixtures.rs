@@ -33,6 +33,17 @@ fn host_policy_every_function_url_media_source_and_negotiation_case_equals_the_r
 }
 
 #[test]
+fn host_params_at_an_instant_in_a_zone() {
+    let f = fixture("host-router.json");
+    for c in f["hostParams"].as_array().unwrap() {
+        let now = eui_core::cel::parse_timestamp(c["now"].as_str().unwrap()).unwrap();
+        let offset = c["offset"].as_i64().unwrap() as i32;
+        let zone = move |_: f64| offset;
+        assert_eq!(eui_core::host::host_params(Some(now), Some(&zone)), c["expected"], "{}", c["name"]);
+    }
+}
+
+#[test]
 fn host_router_every_validation_and_flow_equals_the_reference() {
     assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "screens", "navigate", "crossApp", "flows"]));
 }

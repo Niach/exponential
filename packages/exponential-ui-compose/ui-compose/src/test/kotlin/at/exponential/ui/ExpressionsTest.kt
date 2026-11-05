@@ -44,6 +44,16 @@ class ExpressionsTest {
         return Fixtures.json("expressions.json")
     }
 
+    /** VAPP-206: `fixtures/host-router.json` `hostParams`. */
+    @Test
+    fun hostParams() {
+        Fixtures.require()
+        for (c in Fixtures.json("host-router.json")["hostParams"]?.array.orEmpty()) {
+            val got = at.exponential.ui.host.HostParams.values(instant(c["now"]!!.string!!), FixtureZone(c))
+            same(got, c["expected"]!!, "hostParams: ${c["name"]?.string}")
+        }
+    }
+
     @Test
     fun eval() {
         val f = fixture()

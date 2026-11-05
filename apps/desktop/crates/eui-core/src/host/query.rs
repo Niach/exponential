@@ -139,6 +139,10 @@ pub enum RecordsOrder {
 pub struct RecordsSortKey {
     pub field: String,
     pub order: RecordsOrder,
+    /// VAPP-206: where a missing value goes (`first` | `last`), whatever the
+    /// order; `None` = it compares as empty text (first ascending, last descending).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nulls: Option<String>,
 }
 
 /// `by=<dateField>&month=YYYY-MM`: the rows of one month, every day listed.
@@ -322,7 +326,7 @@ impl Default for RecordsQuery {
             user: None,
             where_: Vec::new(),
             or: Vec::new(),
-            sort: vec![RecordsSortKey { field: RECORDS_SORT_DEFAULT.to_string(), order: RecordsOrder::Desc }],
+            sort: vec![RecordsSortKey { field: RECORDS_SORT_DEFAULT.to_string(), order: RecordsOrder::Desc, nulls: None }],
             limit: RECORDS_LIMIT_DEFAULT,
             sum: None,
             month: None,
@@ -482,7 +486,7 @@ pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>
         mine: matches!(params.get("mine").map(String::as_str), Some("1" | "true")),
         user: trimmed(params.get("user").map(String::as_str)),
         where_,
-        sort: vec![RecordsSortKey { field: trimmed(params.get("sort").map(String::as_str)).unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string()), order }],
+        sort: vec![RecordsSortKey { field: trimmed(params.get("sort").map(String::as_str)).unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string()), order, nulls: None }],
         limit,
         sum: trimmed(params.get("sum").map(String::as_str)),
         before: before.map(|date| RecordsBefore { field: by.clone().unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string()), date }),
@@ -665,6 +669,8 @@ pub fn parse_records_json(json: &Value, kind: Option<&str>) -> (RecordsQuery, Ve
     match obj.get("mine") {
         None => {}
         Some(Value::Bool(b)) => query.mine = *b,
+        // VAPP-206: `${param}` reads a binding's param: true or 1 = mine.
+        Some(Value::String(s)) if matches!(s.as_str(), "" | "true" | "false" | "1" | "0") || (s.starts_with("${") && s.ends_with('}') && !s[2..s.len() - 1].contains('}')) => query.mine = s == "true" || s == "1",
         Some(_) => issue(&mut issues, "/mine", "mine is a boolean"),
     }
     match obj.get("where") {
@@ -707,11 +713,13 @@ pub fn parse_records_json(json: &Value, kind: Option<&str>) -> (RecordsQuery, Ve
                 let mut keys = Vec::new();
                 for (i, entry) in list.iter().enumerate() {
                     let asc = Value::String("asc".into());
-                    let (name, order): (Option<&Value>, Option<&Value>) = match entry {
-                        Value::String(_) => (Some(entry), Some(&asc)),
-                        Value::Array(pair) => (pair.first(), if pair.len() > 1 { pair.get(1) } else { Some(&asc) }),
-                        _ => (None, None),
+                    let (name, order, nulls): (Option<&Value>, Option<&Value>, Option<&Value>) = match entry {
+                        Value::String(_) => (Some(entry), Some(&asc), None),
+                        Value::Array(pair) => (pair.first(), if pair.len() > 1 { pair.get(1) } else { Some(&asc) }, pair.get(2)),
+                        _ => (None, None, None),
                     };
+                    let nulls_ok = nulls.is_none_or(|n| matches!(n.as_str(), Some("first" | "last")));
+                    let nulls = nulls.and_then(Value::as_str).map(str::to_string);
                     let name = name.and_then(Value::as_str).map(js_trim).filter(|n| !n.is_empty());
                     let order = match order.and_then(Value::as_str) {
                         Some("asc") => Some(RecordsOrder::Asc),
@@ -719,7 +727,7 @@ pub fn parse_records_json(json: &Value, kind: Option<&str>) -> (RecordsQuery, Ve
                         _ => None,
                     };
                     match (name, order) {
-                        (Some(name), Some(order)) => keys.push(RecordsSortKey { field: name.to_string(), order }),
+                        (Some(name), Some(order)) if nulls_ok => keys.push(RecordsSortKey { field: name.to_string(), order, nulls }),
                         _ => issue(&mut issues, if single { "/sort".to_string() } else { format!("/sort/{i}") }, "a sort key is field or [field, asc|desc]"),
                     }
                 }
@@ -892,11 +900,24 @@ pub fn fill_query_templates(value: &Value, params: &BTreeMap<String, String>) ->
 /// `${param}` templates filled from the other params, as `q=<canonical
 /// JSON>` (a `kind` param stays). Anything else is returned as written.
 pub fn expand_query_source(source: &str, queries: Option<&Value>) -> String {
+    expand_query_source_with(source, queries, None)
+}
+
+/// VAPP-206: with the host's params: `${today}`, `${now}`, `${month}` unless
+/// the binding names its own.
+pub fn expand_query_source_with(source: &str, queries: Option<&Value>, host: Option<&Value>) -> String {
     let Some(parsed) = parse_source(source) else { return source.to_string() };
     let Some(id) = parsed.params.get("query") else { return source.to_string() };
     let Some(query) = queries.and_then(Value::as_object).and_then(|q| q.get(id)) else { return source.to_string() };
     let mut params = parsed.params.clone();
     params.remove("query");
+    if let Some(host) = host.and_then(Value::as_object) {
+        for (k, v) in host {
+            if let Some(v) = v.as_str() {
+                params.entry(k.clone()).or_insert_with(|| v.to_string());
+            }
+        }
+    }
     let filled = fill_query_templates(query, &params);
     let base = js_trim(source);
     let head = base.split_once('?').map_or(base, |(h, _)| h);
@@ -1488,10 +1509,22 @@ impl<'a> Col<'a> {
 /// total (the index breaks an id tie), so the unstable sort gives the
 /// stable one's result.
 fn sorted<'r, 'a>(rows: Vec<&'r RecordRowRef<'a>>, sort: &[RecordsSortKey]) -> Vec<&'r RecordRowRef<'a>> {
-    let cols: Vec<(Col<'a>, bool)> = sort.iter().map(|s| (Col::of(&rows, &s.field), s.order == RecordsOrder::Asc)).collect();
+    // VAPP-206: a key's `nulls`: which rows miss the field, and whether they go first.
+    let cols: Vec<(Col<'a>, bool, Option<(Vec<bool>, bool)>)> = sort
+        .iter()
+        .map(|s| {
+            let nulls = s.nulls.as_deref().map(|n| (rows.iter().map(|row| matches!(field(row, &s.field), Field::Missing | Field::Json(Value::Null))).collect::<Vec<bool>>(), n == "first"));
+            (Col::of(&rows, &s.field), s.order == RecordsOrder::Asc, nulls)
+        })
+        .collect();
     let ascii: Vec<bool> = rows.iter().map(|row| row.id.is_ascii()).collect();
     let order = |a: usize, b: usize| {
-        for (col, asc) in &cols {
+        for (col, asc, nulls) in &cols {
+            if let Some((missing, first)) = nulls {
+                if missing[a] != missing[b] {
+                    return if missing[a] == *first { Ordering::Less } else { Ordering::Greater };
+                }
+            }
             let c = col.cmp(a, b);
             if c.is_ne() {
                 return if *asc { c } else { c.reverse() };
@@ -1505,7 +1538,7 @@ fn sorted<'r, 'a>(rows: Vec<&'r RecordRowRef<'a>>, sort: &[RecordsSortKey]) -> V
         }
     };
     let mut idx: Vec<usize> = (0..rows.len()).collect();
-    if cols.iter().any(|(c, _)| matches!(c, Col::Mixed(_))) {
+    if cols.iter().any(|(c, _, _)| matches!(c, Col::Mixed(_))) {
         idx.sort_by(|&a, &b| order(a, b));
     } else {
         idx.sort_unstable_by(|&a, &b| order(a, b).then(a.cmp(&b)));

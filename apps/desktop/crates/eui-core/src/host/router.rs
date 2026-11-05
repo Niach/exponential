@@ -232,8 +232,12 @@ impl HostRouter {
                             }
                         }
                         // VAPP-190: `?query=<name>` follows the package's named query.
+                        // VAPP-206: `${today}`, `${now}`, `${month}` from the host's params.
                         let source = match info.package_id.as_deref().and_then(|id| self.packages.get(id)) {
-                            Some(pkg) => super::query::expand_query_source(source, pkg.get("queries")),
+                            Some(pkg) => {
+                                let host = body.get("hostParams");
+                                super::query::expand_query_source_with(&super::host_params::fill_host_params(source, host), pkg.get("queries"), host)
+                            }
                             None => source.to_string(),
                         };
                         vec![json!({"op": "bind", "surfaceId": sid, "path": normalize_path(Some(path)), "source": source})]
@@ -250,7 +254,11 @@ impl HostRouter {
                 };
                 let mut ops = Vec::new();
                 let pkg_id = pkg.get("id").and_then(Value::as_str).map(str::to_string);
-                for m in template_messages(&pkg, template_id, sid, body.get("data")).unwrap_or_default() {
+                for mut m in template_messages(&pkg, template_id, sid, body.get("data")).unwrap_or_default() {
+                    // VAPP-206: the template's own binds read the host's params too.
+                    if let (Some(host), Some(bind)) = (body.get("hostParams").filter(|h| h.is_object()), m.get_mut("bindDataModel").and_then(Value::as_object_mut)) {
+                        bind.insert("hostParams".into(), host.clone());
+                    }
                     ops.extend(self.route(&m));
                     // The surface belongs to the package from its creation on (its
                     // function policy and source allowlist apply to the template's own binds).

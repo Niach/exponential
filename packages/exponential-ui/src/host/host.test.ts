@@ -36,6 +36,7 @@ import {
   MEDIA_LIMITS,
 } from "."
 import { crossAppTarget, navigateTarget, resolveScreen } from "./screens"
+import { hostParams } from "./host-params"
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, HostIssue, MediaOptions, TransportStatus, UrlPolicy, AppPackage } from "."
 import { neutralTheme } from "../themes"
 import { CORE_CATALOG_ID } from "../catalog"
@@ -91,6 +92,11 @@ describe(`host-router.json`, () => {
     test(`records: ${c.name}`, () => expect(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)).toEqual(c.expected as never))
   for (const c of routerFixture.attachments)
     test(`attachments: ${c.name}`, () => expect(recordAttachmentIds(packages[c.package]!.records![c.kind]!.schema, c.data)).toEqual(c.expected))
+  for (const c of (routerFixture as unknown as { hostParams: { name: string; now: string; offset: number; expected: unknown }[] }).hostParams)
+    test(`hostParams: ${c.name}`, () => {
+      expect(hostParams(Date.parse(c.now), () => c.offset)).toEqual(c.expected as never)
+    })
+
   for (const flow of routerFixture.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
     test(`flow: ${flow.name}`, () => {
       const r = new HostRouter({ extensionIds: flow.extensionIds ?? [] })

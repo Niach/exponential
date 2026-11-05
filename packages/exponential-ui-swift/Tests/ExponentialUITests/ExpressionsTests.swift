@@ -39,6 +39,15 @@ final class ExpressionsTests: XCTestCase {
         return .object([key: c[key] ?? .null])
     }
 
+    /// VAPP-206: `fixtures/host-router.json` `hostParams`.
+    func testHostParams() throws {
+        let f = try Fixtures.json("host-router.json")
+        for c in f["hostParams"]?.array ?? [] {
+            let got = HostParams.values(nowMs: Self.instant(c["now"]?.string ?? ""), zone: FixtureZone(c))
+            same(got, c["expected"] ?? .null, c["name"]?.string ?? "")
+        }
+    }
+
     func testEval() throws {
         let f = try Fixtures.json("expressions.json")
         let vars = f["vars"]?.object ?? [:]

@@ -10,6 +10,7 @@ import type { HostOp, ServerMessage } from "./contract"
 import { sourceAllowed, supportedCatalogIds, templateMessages, validatePackage } from "./package"
 import type { AvailableExtension, PackageIssue, AppPackage } from "./package"
 import { parseSource } from "./sources"
+import { fillHostParams } from "./host-params"
 import { expandQuerySource } from "./query"
 import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
@@ -119,7 +120,9 @@ export class HostRouter {
         if (pkg && !sourceAllowed(pkg.sources, body.source))
           return [{ op: `send`, message: errorMessage(`SOURCE_DENIED`, surfaceId, `source ${body.source} is not in package ${pkg.id}'s sources`, normalizePath(body.path) || `/`) }]
         // VAPP-190: `?query=<name>` follows the package's named query.
-        return [{ op: `bind`, surfaceId, path: normalizePath(body.path), source: pkg ? expandQuerySource(body.source, pkg.queries) : body.source }]
+        // VAPP-206: `${today}`, `${now}`, `${month}` from the host's params.
+        const host = isObject(body.hostParams) ? (body.hostParams as Record<string, string>) : undefined
+        return [{ op: `bind`, surfaceId, path: normalizePath(body.path), source: pkg ? expandQuerySource(fillHostParams(body.source, host), pkg.queries, host) : body.source }]
       }
       case `applyTemplate`: {
         if (typeof body.templateId !== `string`) return [this.invalid(surfaceId, `applyTemplate.templateId is required`)]
@@ -127,6 +130,9 @@ export class HostRouter {
         if (!pkg) return [{ op: `send`, message: errorMessage(`TEMPLATE_NOT_FOUND`, surfaceId, `no installed package has the template ${body.templateId}`) }]
         const ops: HostOp[] = []
         for (const m of templateMessages(pkg, body.templateId, surfaceId, body.data) ?? []) {
+          // VAPP-206: the template's own binds read the host's params too.
+          const bind = (m as { bindDataModel?: Record<string, unknown> }).bindDataModel
+          if (bind && isObject(body.hostParams)) bind.hostParams = body.hostParams
           ops.push(...this.route(m))
           // The surface belongs to the package from its creation on (its
           // function policy and source allowlist apply to the template's own binds).

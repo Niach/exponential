@@ -136,7 +136,7 @@
         "fixtures/host-router.json"
       ],
       "unit": "package, screen or flow",
-      "cases": 77,
+      "cases": 79,
       "check": "Validate each package; validate each record against its kind's schema; resolve each screen (`resolveScreen`) and navigate target (`navigateTarget`, VAPP-218); decide each link from another app (`crossAppTarget`, #EXP-1674); for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
