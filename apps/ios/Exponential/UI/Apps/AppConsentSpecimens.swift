@@ -28,7 +28,7 @@ struct AppConsentSpecimens: View {
         .task {
             let consent = AppActions.actionConsent(
                 "exponential.comments.create",
-                args: [(key: "issueId", value: .string("APP-15")), (key: "body", value: .string("Logged 8 h: docs, admin"))]
+                args: [(key: "body", value: .string("Logged 8 h: docs, admin")), (key: "issueId", value: .string("APP-15"))]
             )
             _ = await gate.ask(AppConsentWords(
                 tool: consent?.tool ?? "exponential_comments",

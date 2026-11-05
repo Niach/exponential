@@ -2,6 +2,26 @@ import SwiftUI
 import AVKit
 import ExponentialUIPrimitives
 
+/// EXP-1676: THE FILLED play triangle of the media controls ×5 (Compose
+/// `Glyph.Play`'s `M6 3l14 9-14 9z` in a 24 box), never Lucide's outline.
+private struct FilledPlayGlyph: View {
+    let size: CGFloat
+    let color: Color
+
+    var body: some View {
+        Canvas { context, canvas in
+            let u = min(canvas.width, canvas.height) / 24
+            var path = Path()
+            path.move(to: CGPoint(x: 6 * u, y: 3 * u))
+            path.addLine(to: CGPoint(x: 20 * u, y: 12 * u))
+            path.addLine(to: CGPoint(x: 6 * u, y: 21 * u))
+            path.closeSubpath()
+            context.fill(path, with: .color(color))
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 struct IconLeaf: View {
     let cx: LeafContext
 
@@ -182,7 +202,7 @@ struct VideoLeaf: View {
                         if playback.loading {
                             ProgressView().controlSize(.small).tint(.white)
                         } else {
-                            ConceptIcon(name: "ui-play", size: 20, color: .white, model: cx.model)
+                            FilledPlayGlyph(size: 20, color: .white)
                         }
                     }
                 }
@@ -242,7 +262,11 @@ struct AudioLeaf: View {
                         if playback.loading {
                             ProgressView().controlSize(.mini).tint(cx.themeColor("background") ?? .white)
                         } else {
-                            ConceptIcon(name: playback.playing ? "pause" : "ui-play", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model)
+                            if playback.playing {
+                                ConceptIcon(name: "pause", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model)
+                            } else {
+                                FilledPlayGlyph(size: 14, color: cx.themeColor("background") ?? .white)
+                            }
                         }
                     }
                 }

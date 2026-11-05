@@ -209,7 +209,7 @@ struct VoiceCallAvatar: View {
     /// The whole ring area (`VoiceWave` xl), fixed so nothing below moves.
     static let frame: CGFloat = 200
     /// The avatar disc.
-    static let disc: CGFloat = 104
+    static let disc: CGFloat = 96
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
@@ -234,7 +234,7 @@ struct VoiceCallAvatar: View {
                 AppIcon(icon, size: 44, weight: .medium)
                     .foregroundStyle(Color(hex: callee.color) ?? DesignTokens.Palette.foreground)
             } else {
-                ExpLogoMark(size: 60, color: DesignTokens.Palette.foreground)
+                ExpLogoMark(size: 56, color: DesignTokens.Palette.foreground)
             }
         }
         .frame(width: Self.disc, height: Self.disc)
@@ -247,13 +247,13 @@ struct VoiceCallAvatar: View {
             // Two soft halos breathing out of the disc.
             ZStack {
                 Circle()
-                    .fill(DesignTokens.Palette.foreground.opacity(0.06))
-                    .frame(width: Self.disc + 64, height: Self.disc + 64)
+                    .fill(DesignTokens.Palette.foreground.opacity(0.04))
+                    .frame(width: Self.disc + 80, height: Self.disc + 80)
                     .scaleEffect(moves && pulse ? 1.12 : 1)
                     .opacity(moves && pulse ? 0.4 : 1)
                 Circle()
-                    .fill(DesignTokens.Palette.foreground.opacity(0.08))
-                    .frame(width: Self.disc + 28, height: Self.disc + 28)
+                    .fill(DesignTokens.Palette.foreground.opacity(0.07))
+                    .frame(width: Self.disc + 40, height: Self.disc + 40)
             }
             .onAppear {
                 guard moves else { return }
