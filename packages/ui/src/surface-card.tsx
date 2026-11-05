@@ -225,16 +225,6 @@ export function TranscriptDivider({
 /** EXP-1459: the locked pill's test id (component tests, captures). */
 export const SEALED_LOCKED_TEST_ID = `sealed-locked`
 
-/** The issue chips inside a chat bubble run INLINE with the prose like the
- *  natives' (iOS/Android wrap a chip's title with the text, its box cloned
- *  on each line; the identifier never splits), never a full line each: the app's `.issue-ref-pill`
- *  (an atomic truncating box elsewhere, EXP-899) becomes an inline run here. */
-const CHAT_BUBBLE_INLINE_CHIPS_CLASS = cn(
-  `[&_.issue-ref-pill]:inline! [&_.issue-ref-pill]:max-w-none! [&_.issue-ref-pill]:whitespace-nowrap! [&_.issue-ref-pill]:after:whitespace-normal!`,
-  `[&_.issue-ref-pill]:[box-decoration-break:clone]! [&_.issue-ref-pill]:[-webkit-box-decoration-break:clone]!`,
-  `[&_.issue-ref-pill]:py-0! [&_.issue-ref-pill]:leading-[inherit]!`
-)
-
 /** Phones: the agent's text bubble on the left. */
 export function ChatBubble({
   children,
@@ -248,7 +238,7 @@ export function ChatBubble({
   return (
     <div data-testid="chat-bubble" className={cn(`flex justify-start`, className)}>
       <div className="flex max-w-[94%] min-w-0 flex-col gap-1 rounded-2xl rounded-tl-[6px] border border-glass-stroke-card bg-glass-card-opaque px-3.5 py-2.5 text-sm text-foreground">
-        <div className={cn(`min-w-0`, CHAT_BUBBLE_INLINE_CHIPS_CLASS)}>{children}</div>
+        <div className="min-w-0">{children}</div>
         {time && (
           <div data-slot="chat-bubble-time" className="self-end text-[0.6875rem] text-muted-foreground tabular-nums">
             {time}
