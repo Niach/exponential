@@ -2984,6 +2984,7 @@
         },
         "description": {
           "type": "string",
+          "bindable": true,
           "description": "A muted line under the heading."
         },
         "open": {
@@ -3382,7 +3383,8 @@
         },
         "message": {
           "type": "string",
-          "description": "The detail under the heading."
+          "bindable": true,
+          "description": "Detail under the heading."
         },
         "type": {
           "type": "enum",
@@ -3445,6 +3447,7 @@
         },
         "detail": {
           "type": "string",
+          "bindable": true,
           "description": "Muted text after the label."
         },
         "removable": {

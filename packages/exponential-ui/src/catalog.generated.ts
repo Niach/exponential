@@ -235,7 +235,7 @@ export interface ComponentProps {
   Breadcrumb: { items: Shapes["option"][] }
   Outline: { items: Shapes["outlineItem"][]; value?: string | Dynamic; caption?: string }
   Stepper: { steps: Shapes["step"][]; current?: number | Dynamic; orientation?: OrientationValue }
-  Dialog: { title?: string; description?: string; open?: boolean | Dynamic; dismissible?: boolean }
+  Dialog: { title?: string; description?: string | Dynamic; open?: boolean | Dynamic; dismissible?: boolean }
   Drawer: { title?: string; description?: string; open?: boolean | Dynamic; side?: SideValue | Responsive<SideValue>; dismissible?: boolean; dragToDismiss?: boolean }
   DockCard: { label: string | Dynamic; title: string | Dynamic; caption?: string | Dynamic; meta?: string | Dynamic; icon?: IconName; tone?: ToneValue; open?: boolean | Dynamic }
   AlertDialog: { title: string; description?: string; confirmLabel?: string; cancelLabel?: string; destructive?: boolean; open?: boolean | Dynamic }
@@ -244,8 +244,8 @@ export interface ComponentProps {
   Menu: { label?: string; icon?: IconName; items: Shapes["menuItem"][]; openOn?: MenuOpenOnValue }
   Toast: { title: string | Dynamic; description?: string | Dynamic; type?: AlertTypeValue; open?: boolean | Dynamic; duration?: number; actionLabel?: string; dismissible?: boolean }
   Badge: { text: string | Dynamic; variant?: VariantValue | Dynamic; icon?: IconName }
-  Alert: { title: string; message?: string; type?: AlertTypeValue }
-  Chip: { label: string | Dynamic; shape?: ChipShapeValue; selected?: boolean; tone?: ToneValue | Dynamic; dot?: string; icon?: IconName; image?: string; detail?: string; removable?: boolean; pressable?: boolean }
+  Alert: { title: string; message?: string | Dynamic; type?: AlertTypeValue }
+  Chip: { label: string | Dynamic; shape?: ChipShapeValue; selected?: boolean; tone?: ToneValue | Dynamic; dot?: string; icon?: IconName; image?: string; detail?: string | Dynamic; removable?: boolean; pressable?: boolean }
   EmptyState: { icon: IconName; title: string; description?: string; actionLabel?: string; size?: "page" | "list" }
   Progress: { value: number | Dynamic; max?: number; label?: string; tone?: ToneValue }
   Meter: { segments: Shapes["segment"][]; max?: number; label?: string; value?: string }

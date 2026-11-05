@@ -273,8 +273,15 @@ impl Surface {
         let Some(action) = node.on.as_ref().and_then(|o| o.get(event)).cloned() else { return vec![] };
         let mut out = vec![];
         let scope = self.scope_of(id);
+        // VAPP-206: a Table's `rowPress` resolves in the pressed row: a
+        // relative `{path: "id"}` reads it.
+        let pressed = if event == "rowPress" { payload.as_ref().and_then(|p| p.get("row")).cloned() } else { None };
         let outcome = {
             let ctx = self.resolve_ctx(&scope);
+            let ctx = match &pressed {
+                Some(row) => ctx.with_item(row),
+                None => ctx,
+            };
             run_action(&action, &ctx)
         };
         if let Some((path, value)) = outcome.written {

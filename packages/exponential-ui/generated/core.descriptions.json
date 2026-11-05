@@ -1224,7 +1224,7 @@
           "description": "The banner heading."
         },
         "message": {
-          "description": "The detail under the heading."
+          "description": "Detail under the heading."
         },
         "type": {
           "description": "The severity, which picks the icon and tone."

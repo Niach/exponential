@@ -91,6 +91,13 @@ export function forced(states: readonly string[], ...extra: (string | false | un
   return all.length ? all.join(` `) : undefined
 }
 
+/** VAPP-206: a Table's `rowPress` resolves in the pressed row: a relative
+ *  `{path: "id"}` reads it (the data model's other paths stay absolute). */
+function rowPressContext(event: string, payload: Record<string, unknown> | undefined, rctx: ResolveContext): ResolveContext {
+  if (event !== `rowPress` || payload?.row === undefined) return rctx
+  return { ...rctx, data: { ...(rctx.data as Record<string, unknown>), $pressedRow: payload.row }, scope: `/$pressedRow` }
+}
+
 /** Run one of a node's actions (round-1 contract §1 `runAction`): the
  *  function args AND the event context resolve against the data WITH the
  *  component's own write applied (round 4 `withOwnWrites`: `own` = what
@@ -105,7 +112,7 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   const action = node.on?.[event]
   if (!action) return undefined
   const base = resolveContextOf(ctx, scope)
-  const rctx: ResolveContext = own ? { ...base, data: withOwnWrites(ctx.data, node.props, own, scope ? { base: scope } : {}) } : base
+  const rctx: ResolveContext = rowPressContext(event, payload, own ? { ...base, data: withOwnWrites(ctx.data, node.props, own, scope ? { base: scope } : {}) } : base)
   const fn = action.functionCall
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined

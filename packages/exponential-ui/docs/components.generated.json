@@ -2834,7 +2834,7 @@
           "name": "description",
           "type": "string",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "A muted line under the heading."
         },
@@ -3502,9 +3502,9 @@
           "name": "message",
           "type": "string",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
-          "description": "The detail under the heading."
+          "description": "Detail under the heading."
         },
         {
           "name": "type",
@@ -3610,7 +3610,7 @@
           "name": "detail",
           "type": "string",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "description": "Muted text after the label."
         },

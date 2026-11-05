@@ -5664,7 +5664,17 @@
               "description": "The dialog heading."
             },
             "description": {
-              "type": "string",
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
               "description": "A muted line under the heading."
             },
             "open": {
@@ -8218,8 +8228,18 @@
               "description": "The banner heading."
             },
             "message": {
-              "type": "string",
-              "description": "The detail under the heading."
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
+              "description": "Detail under the heading."
             },
             "type": {
               "enum": [
@@ -8893,7 +8913,17 @@
               "description": "A round picture instead of the icon."
             },
             "detail": {
-              "type": "string",
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DataBinding"
+                },
+                {
+                  "$ref": "#/$defs/FunctionCall"
+                }
+              ],
               "description": "Muted text after the label."
             },
             "removable": {
