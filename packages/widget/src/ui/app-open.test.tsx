@@ -292,6 +292,28 @@ describe(`panel open → on-demand screenshot flow`, () => {
     }
   })
 
+  it(`FEED-193: another screenshot keeps the first as a picture, up to the cap`, async () => {
+    captureScreenshot.mockResolvedValue(new Blob([`x`], { type: `image/png` }))
+    await openPanel()
+    await clickTakeScreenshot()
+    annotatorProps?.onSave([], null)
+    await flush()
+    const another = () =>
+      [...container.querySelectorAll<HTMLButtonElement>(`.exp-add-image`)].find(
+        (chip) => chip.textContent === `Add another screenshot`
+      )
+    for (const taken of [1, 2, 3]) {
+      another()!.click()
+      await flush()
+      annotatorProps?.onSave([], null)
+      await flush()
+      expect(container.querySelectorAll(`.exp-thumb`).length).toBe(taken)
+    }
+    expect(captureScreenshot).toHaveBeenCalledTimes(4)
+    expect(container.querySelector(`.exp-thumb img`)?.getAttribute(`alt`)).toBe(`screenshot-2.png`)
+    expect(another()).toBeUndefined()
+  })
+
   it(`captures immediately while the delay is Off`, async () => {
     captureScreenshot.mockResolvedValue(new Blob([`x`], { type: `image/png` }))
     await openPanel()

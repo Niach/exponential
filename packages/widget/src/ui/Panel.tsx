@@ -96,6 +96,7 @@ export function Panel(props: {
   captureDelay: CaptureDelay
   onCycleCaptureDelay(): void
   onRetake(): void
+  onAddScreenshot(): void
   onAnnotate(): void
   onRemoveScreenshot(): void
   onAddImages(files: File[]): void
@@ -492,6 +493,11 @@ export function Panel(props: {
               onClick={() => fileInputRef.current?.click()}
             >
               {t.addImage}
+            </button>
+          )}
+          {props.screenshot && !props.flattening && props.uploads.length < maxUploadedImages && (
+            <button type="button" className="exp-add-image" onClick={props.onAddScreenshot}>
+              {t.addScreenshot}
             </button>
           )}
           <input

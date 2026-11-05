@@ -3,6 +3,7 @@ import type { WidgetRuntimeState } from "../types"
 import type { AnnotationShape, NormalizedRect } from "../annotate/shapes"
 import { flattenAnnotations } from "../annotate/flatten"
 import { captureScreenshot } from "../capture/engine"
+import { screenshotFilename } from "../capture/image"
 import type { CaptureEngine } from "../capture/engine"
 import { snapdomEngine } from "../capture/snapdom-engine"
 import {
@@ -149,6 +150,8 @@ export function App({ state }: { state: WidgetRuntimeState }) {
   phaseRef.current = phase
   const baseRef = useRef(base)
   baseRef.current = base
+  const annotatedRef = useRef(annotated)
+  annotatedRef.current = annotated
   const uploadsRef = useRef(uploads)
   uploadsRef.current = uploads
 
@@ -422,6 +425,17 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       ),
     [takeScreenshotWith]
   )
+
+  // FEED-193: the current shot (with its marks) joins the attached pictures,
+  // then a new one is taken; the form stays as typed. Before/after pairs and
+  // zoom levels are what reporters want this for.
+  const addAnotherScreenshot = useCallback(() => {
+    const current = annotatedRef.current ?? baseRef.current
+    if (!current) return
+    const name = screenshotFilename(current.blob).replace(`.`, `-${uploadsRef.current.length + 2}.`)
+    addImages([new File([current.blob], name, { type: current.blob.type })])
+    takeScreenshot()
+  }, [addImages, takeScreenshot])
 
   const openAnnotator = useCallback(() => {
     if (!baseRef.current) return
@@ -801,6 +815,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           onClose={close}
           onCapture={takeScreenshot}
           onRetake={retake}
+          onAddScreenshot={addAnotherScreenshot}
           onAnnotate={openAnnotator}
           onRemoveScreenshot={() => replaceBase(null)}
           onAddImages={addImages}

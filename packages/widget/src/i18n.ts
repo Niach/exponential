@@ -32,6 +32,7 @@ const en = {
   // Attached pictures
   removeImage: (filename: string) => `Remove ${filename}`,
   addImage: `Add image`,
+  addScreenshot: `Add another screenshot`,
   addImageTitle: `Attach pictures — you can also drop or paste them`,
   imageWrongType: `Only image files can be attached.`,
   imageTooLarge: `Images must be 10 MB or smaller.`,
@@ -113,6 +114,7 @@ const de: WidgetMessages = {
   delayTitle: `Aufnahme verzögern, um Menüs und Pop-ups mit aufzunehmen`,
   removeImage: (filename: string) => `${filename} entfernen`,
   addImage: `Bild hinzufügen`,
+  addScreenshot: `Weiteren Screenshot hinzufügen`,
   addImageTitle: `Bilder anhängen – Sie können sie auch hineinziehen oder einfügen`,
   imageWrongType: `Es können nur Bilddateien angehängt werden.`,
   imageTooLarge: `Bilder dürfen höchstens 10 MB groß sein.`,
