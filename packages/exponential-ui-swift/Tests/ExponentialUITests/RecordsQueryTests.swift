@@ -51,21 +51,12 @@ final class RecordsQueryTests: XCTestCase {
         }
     }
 
+    /// VAPP-212: through the handle: seeded, then with a row that came and went.
     func testValueCases() throws {
         let f = try Fixtures.json("records-query.json")
         let cases = f["valueCases"]?.array ?? []
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
-            let query = c["query"].map { RecordsQuery.parse(json: $0.json, kind: c["kind"]?.string).query } ?? RecordsQuery.parse(params: strings(c["params"]), kind: c["kind"]?.string)
-            let value = query.value(rows: rows(c["rows"]), me: c["me"]?.string, now: c["now"]?.string ?? "", today: c["today"]?.string, names: strings(c["names"]), computed: strings(c["computed"]), refs: c["refs"] ?? .null, issues: c["issues"]?.object ?? [:], transitions: c["transitions"] ?? .null, role: c["role"]?.string)
-            same(value, c["expected"], c["name"]?.string ?? "")
-        }
-    }
-
-    /// VAPP-212: the same cases through the handle: seeded, then with a row that came and went.
-    func testValueCasesThroughTheStore() throws {
-        let f = try Fixtures.json("records-query.json")
-        for c in f["valueCases"]?.array ?? [] {
             let name = c["name"]?.string ?? ""
             let query = c["query"].map { RecordsQuery.parse(json: $0.json, kind: c["kind"]?.string).query } ?? RecordsQuery.parse(params: strings(c["params"]), kind: c["kind"]?.string)
             let given = rows(c["rows"])
@@ -135,6 +126,6 @@ final class RecordsQueryTests: XCTestCase {
         // `kind` is no reserved param: only the source's name is the kind.
         XCTAssertNil(RecordsQuery.parse(params: ["kind": "entry"]).from)
         XCTAssertNil(RecordsQuery.parse(params: [:]).from)
-        XCTAssertEqual(RecordsQuery.parse(params: [:]).value(rows: [], me: nil, now: "2026-10-24T09:00:00Z", names: [:]), .null)
+        XCTAssertEqual(RecordsQuery.parse(params: [:]).value(store: RecordsStore<RecordRow>(), me: nil, now: "2026-10-24T09:00:00Z"), .null)
     }
 }

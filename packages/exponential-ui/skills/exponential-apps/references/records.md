@@ -207,7 +207,7 @@ limit, sum, month: {field, key} | null}` (`parseRecordsQuery(params, kind?)`,
 names, computed?})` evaluates it over the rows of any store
 (`@exponential_app/eui/host/query`, the Rust core's `host::query`, the FFI's
 `parse_records_query_json` / `parse_records_source_json` /
-`records_value_json` for the Swift and Compose SDKs);
+the `RecordStore` handle for the Swift and Compose SDKs);
 `fixtures/records-query.json` locks all of it.
 
 **The JSON form** (VAPP-190, `parseRecordsJson(json, kind?)` → `{query,

@@ -6,7 +6,7 @@
 //! [`RecordsQuery`]; [`records_value`] evaluates it over the rows of any
 //! store. The desktop host calls it directly; the Swift and Compose SDKs
 //! reach it through `exponential-ui-ffi` (`parse_records_query_json`,
-//! `parse_records_json`, `parse_records_source_json`, `records_value_json`).
+//! `parse_records_json`, `parse_records_source_json`, the `RecordStore` handle).
 //!
 //! VAPP-190 (Q1): the JSON form ([`parse_records_json`], a package's
 //! `queries`, the `q=<json>` param): `group` (any field, `author`, date

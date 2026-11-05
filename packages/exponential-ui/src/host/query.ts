@@ -4,7 +4,7 @@
 // over the rows of any `RecordStore` (record-store.ts). Pure, so the Rust
 // core mirrors it line by line (`eui-core` `host/query.rs`, reached by the
 // Swift and Compose SDKs through the FFI's `parse_records_query_json` /
-// `parse_records_json` / `records_value_json`); fixtures/records-query.json
+// `parse_records_json` and the `RecordStore` handle); fixtures/records-query.json
 // is the spec.
 //
 // VAPP-190 (Q1): the JSON query form (`parseRecordsJson`, a package's

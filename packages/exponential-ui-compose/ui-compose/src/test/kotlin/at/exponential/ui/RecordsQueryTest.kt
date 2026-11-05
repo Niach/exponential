@@ -63,22 +63,12 @@ class RecordsQueryTest {
         }
     }
 
+    /** VAPP-212: through the handle: seeded, then with a row that came and went. */
     @Test
     fun valueCases() {
         val all = cases("valueCases")
         assertFalse(all.isEmpty())
         for (c in all) {
-            val json = c["query"]
-            val query = if (json != null) RecordsQuery.parseJson(json.json, c["kind"]?.string).query else RecordsQuery.parse(strings(c["params"]), c["kind"]?.string)
-            val value = query.value(rows(c["rows"]), c["me"]?.string, c["now"]?.string ?: "", strings(c["names"]), strings(c["computed"]), c["today"]?.string, c["refs"] ?: JsonValue.Null, c["issues"]?.obj.orEmpty(), c["transitions"] ?: JsonValue.Null, c["role"]?.string)
-            same(value, c["expected"], c["name"]?.string ?: "")
-        }
-    }
-
-    /** VAPP-212: the same cases through the handle: seeded, then with a row that came and went. */
-    @Test
-    fun valueCasesThroughTheStore() {
-        for (c in cases("valueCases")) {
             val name = c["name"]?.string ?: ""
             val json = c["query"]
             val query = if (json != null) RecordsQuery.parseJson(json.json, c["kind"]?.string).query else RecordsQuery.parse(strings(c["params"]), c["kind"]?.string)
@@ -145,6 +135,6 @@ class RecordsQueryTest {
         // `kind` is no reserved param: only the source's name is the kind.
         assertNull(RecordsQuery.parse(mapOf("kind" to "entry")).from)
         assertNull(RecordsQuery.parse(emptyMap()).from)
-        assertEquals(JsonValue.Null, RecordsQuery.parse(emptyMap()).value(emptyList(), null, "2026-10-24T09:00:00Z"))
+        assertEquals(JsonValue.Null, RecordsQuery.parse(emptyMap()).value(RecordsStore<RecordRow>(), null, "2026-10-24T09:00:00Z"))
     }
 }

@@ -1289,21 +1289,11 @@ fn the_records_query_fixture_replays_through_the_free_functions() {
         assert_eq!(serde_json::to_value(got).unwrap(), c["expected"], "bucket: {} {}", c["date"], c["bucket"]);
     }
     assert_eq!(date_bucket("2026-10-05".into(), "fortnight".into()), None);
-    for c in cases("valueCases") {
-        let query = match c.get("query") {
-            Some(json) => canon(&parse_records_json(json.to_string(), c["kind"].as_str().map(str::to_string)).unwrap())["query"].to_string(),
-            None => parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap(),
-        };
-        let ctx = json!({"me": c["me"], "now": c["now"], "today": c.get("today"), "names": c["names"], "computed": c.get("computed"), "refs": c.get("refs"), "issues": c.get("issues"), "transitions": c.get("transitions"), "role": c.get("role")});
-        let got = records_value_json(c["rows"].to_string(), query, ctx.to_string()).unwrap();
-        assert!(eui_core::json::equal(&canon(&got), &c["expected"]), "value: {}\n got {got}", c["name"]);
-    }
-    assert!(records_value_json("[]".into(), "{}".into(), "{}".into()).is_err());
 }
 
-/// VAPP-212: every `valueCases` row set through the handle answers the same
-/// BYTES as the free function: seeded at once, row by row, and with a row
-/// that came and went.
+/// VAPP-212: `valueCases` through the handle, the one way to the value: seeded
+/// at once, then the same BYTES row by row, with a row that came and went, and
+/// under an overlay that changes nothing.
 #[test]
 fn the_records_query_fixture_replays_through_the_record_store() {
     let f = fixture("records-query.json");
@@ -1314,13 +1304,11 @@ fn the_records_query_fixture_replays_through_the_record_store() {
             None => parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap(),
         };
         let ctx = json!({"me": c["me"], "now": c["now"], "today": c.get("today"), "names": c["names"], "computed": c.get("computed"), "refs": c.get("refs"), "issues": c.get("issues"), "transitions": c.get("transitions"), "role": c.get("role")}).to_string();
-        let free = records_value_json(c["rows"].to_string(), query.clone(), ctx.clone()).unwrap();
-        assert!(eui_core::json::equal(&canon(&free), &c["expected"]), "value: {}", c["name"]);
-
         let seeded = RecordStore::new();
         seeded.apply_json(json!({"upserts": c["rows"]}).to_string()).unwrap();
         assert_eq!(seeded.count(), c["rows"].as_array().unwrap().len() as u64, "count: {}", c["name"]);
-        assert_eq!(seeded.value_json(query.clone(), ctx.clone(), None).unwrap(), free, "seeded: {}", c["name"]);
+        let want = seeded.value_json(query.clone(), ctx.clone(), None).unwrap();
+        assert!(eui_core::json::equal(&canon(&want), &c["expected"]), "value: {}\n got {want}", c["name"]);
 
         let deltas = RecordStore::new();
         let ghost = json!({"id": "ghost", "kind": "ghost", "data": {}, "createdBy": null, "createdAt": "2020-01-01T00:00:00.000Z", "updatedAt": "2020-01-01T00:00:00.000Z"});
@@ -1329,8 +1317,8 @@ fn the_records_query_fixture_replays_through_the_record_store() {
             deltas.apply_json(json!({"upserts": [row]}).to_string()).unwrap();
         }
         deltas.apply_json(json!({"deletes": ["ghost"]}).to_string()).unwrap();
-        assert_eq!(deltas.value_json(query.clone(), ctx.clone(), None).unwrap(), free, "deltas: {}", c["name"]);
-        assert_eq!(deltas.value_json(query, ctx, Some(r#"{"upserts":[],"deletes":["no-such-row"]}"#.into())).unwrap(), free, "empty overlay: {}", c["name"]);
+        assert_eq!(deltas.value_json(query.clone(), ctx.clone(), None).unwrap(), want, "deltas: {}", c["name"]);
+        assert_eq!(deltas.value_json(query, ctx, Some(r#"{"upserts":[],"deletes":["no-such-row"]}"#.into())).unwrap(), want, "empty overlay: {}", c["name"]);
     }
 }
 

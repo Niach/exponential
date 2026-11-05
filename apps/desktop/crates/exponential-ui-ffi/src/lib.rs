@@ -2918,18 +2918,6 @@ fn records_value_text(query_json: &str, context_json: &str, eval: impl FnOnce(&h
     Ok(value.map_or_else(|| "null".to_string(), |v| v.to_string()))
 }
 
-/// VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
-/// the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
-/// `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's computed fields; VAPP-219: its refs and the issue summaries `expand` inlines);
-/// the value JSON, `null` without a kind.
-#[uniffi::export]
-pub fn records_value_json(rows_json: String, query_json: String, context_json: String) -> Result<String, UiError> {
-    guarded("records_value_json", || {
-        let rows: Vec<h::RecordRow> = parse(&rows_json)?;
-        records_value_text(&query_json, &context_json, |query, ctx| h::records_value_owned(&rows, query, ctx))
-    })
-}
-
 /// VAPP-212: one app's rows on the Rust side. A host pushes sync deltas
 /// (`apply_json`), and a query crosses the FFI without the rows (`value_json`).
 #[derive(uniffi::Object)]
@@ -2966,9 +2954,13 @@ impl RecordStore {
         shield("RecordStore.count", || 0, || self.inner.lock().unwrap_or_else(|e| e.into_inner()).len() as u64)
     }
 
-    /// THE records value over the store: `query_json` and `context_json` as
-    /// in [`records_value_json`]; `overlay_json` = the unsynced writes laid
-    /// over this one query, a delta (`MemoryRecordStore::value`).
+    /// VAPP-189: THE records value over the store (`valueCases`): `query_json`
+    /// = a parsed query, `context_json` = `{me, now, today?, names, computed?,
+    /// refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's
+    /// computed fields; VAPP-219: its refs and the issue summaries `expand`
+    /// inlines); `overlay_json` = the unsynced writes laid over this one
+    /// query, a delta (`MemoryRecordStore::value`). The value JSON, `null`
+    /// without a kind.
     pub fn value_json(&self, query_json: String, context_json: String, overlay_json: Option<String>) -> Result<String, UiError> {
         guarded("RecordStore.value_json", || {
             let overlay: Option<h::RecordsDelta> = overlay_json.as_deref().map(parse::<h::RecordsDelta>).transpose()?;
