@@ -804,7 +804,6 @@ impl Render for AppDetailPane {
                         }),
                 )
             })
-            .child(div().flex_1())
             .when(manage, |actions| {
                 actions.child(
                     Button::new(SharedString::from(format!("app-detail-delete-{}", row.id)))

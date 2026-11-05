@@ -1978,10 +1978,17 @@ impl DeviceSettingsView {
                         .h_auto()
                         .px_4()
                         .py_3()
-                        .justify_start()
                         .text_color(danger)
-                        .icon(Icon::new(registry::UI_DELETE).size_3p5().text_color(danger))
-                        .label("Remove device")
+                        // The button centres its content: a full-width child
+                        // is what lands it on the leading edge.
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .gap_2()
+                                .child(Icon::new(registry::UI_DELETE).size_3p5().text_color(danger))
+                                .child("Remove device"),
+                        )
                         .disabled(self.remove_busy)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.prompt_remove(label.clone(), window, cx);

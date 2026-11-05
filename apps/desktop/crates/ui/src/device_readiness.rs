@@ -607,8 +607,20 @@ pub(crate) fn render_row(
                 on_toggle(*checked, window, cx);
             });
         }
-        // The fixture's switch row: label + switch, NO description.
-        surface::glass_toggle_row(row.label.clone(), None, switch.into_any_element(), cx)
+        // The fixture's switch row: label + switch, NO description; read-only
+        // (no toggle), the label dims with the switch like web's disabled row.
+        let foreground = cx.theme().foreground;
+        let label_color = if props.on_toggle.is_some() { foreground } else { foreground.opacity(0.5) };
+        surface::glass_row_shell()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_sm()
+                    .text_color(label_color)
+                    .child(SharedString::from(row.label.clone())),
+            )
+            .child(switch)
             .px_3()
             .py_2()
     } else {
