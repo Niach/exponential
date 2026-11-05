@@ -125,6 +125,8 @@ struct ShellData {
     notifications: Value,
     tray: Vec<Value>,
     traymenu: Value,
+    /// `/services/<domain>` from ede-services (#EDE-13).
+    services: Value,
 }
 
 /// The notifications heard this session, newest first.
@@ -518,6 +520,7 @@ fn feed(view: &mut SurfaceView, data: &ShellData, cx: &mut gpui::Context<Surface
     let _ = view.set_data("/notifications", Some(data.notifications.clone()), cx);
     let _ = view.set_data("/tray", Some(Value::Array(data.tray.clone())), cx);
     let _ = view.set_data("/traymenu", Some(data.traymenu.clone()), cx);
+    let _ = view.set_data("/services", Some(data.services.clone()), cx);
 }
 
 fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
@@ -957,6 +960,46 @@ fn main() {
     tracing::info!(apps = installed.len(), demo, "desktop entries");
     // Thumbnails from the capture thread while the switcher is open.
     let (thumbs_tx, thumbs_rx) = mpsc::channel::<(String, String)>();
+    // The services data source: every domain's snapshot, then its changes.
+    let (services_tx, services_rx) = mpsc::channel::<(String, Value)>();
+    if !demo {
+        std::thread::Builder::new()
+            .name("ede-shell-services".into())
+            .spawn(move || {
+                // The daemon may start after the shell: try for a while.
+                let mut client = None;
+                for _ in 0..30 {
+                    match ede_services::socket::Client::connect_default() {
+                        Ok(c) => {
+                            client = Some(c);
+                            break;
+                        }
+                        Err(_) => std::thread::sleep(Duration::from_secs(1)),
+                    }
+                }
+                let Some(mut client) = client else {
+                    tracing::info!("no ede-services socket: /services stays empty");
+                    return;
+                };
+                let domains: Vec<String> = client.call(json!({"op": "list"})).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+                for d in &domains {
+                    if let Ok(snapshot) = client.get(d) {
+                        let _ = services_tx.send((d.clone(), snapshot));
+                    }
+                }
+                if client.subscribe().is_err() {
+                    return;
+                }
+                while let Ok(event) = client.next_event() {
+                    if let (Some(d), Some(s)) = (event["domain"].as_str(), event.get("snapshot")) {
+                        if services_tx.send((d.to_string(), s.clone())).is_err() {
+                            return;
+                        }
+                    }
+                }
+            })
+            .expect("the services thread");
+    }
     // Notifications and tray changes from the session bus.
     let (dbus_tx, dbus_rx) = mpsc::channel::<dbus::Event>();
     let dbus = if demo { None } else { dbus::Dbus::start(dbus_tx, clock) };
@@ -991,7 +1034,7 @@ fn main() {
         } else {
             json!({"service": "", "title": "", "items": []})
         };
-        let data = ShellData { time: clock(), apps: apps::filter(&installed, ""), switcher, osd, notifications, tray, traymenu, ..Default::default() };
+        let data = ShellData { time: clock(), apps: apps::filter(&installed, ""), switcher, osd, notifications, tray, traymenu, services: json!({}), ..Default::default() };
         let shell: SharedShell = Rc::new(RefCell::new(Shell { options, ui: ui.clone(), open: HashMap::new(), data, ede: ede_protocol::Client::connect_env().ok(), theme, apps: installed, switcher: None, capturing: Arc::new(AtomicBool::new(false)), osd_until: None, notifications: Notifications::default(), dbus, tray: Vec::new(), _watcher: watcher }));
         if demo {
             // The toasts golden: the sample toast as an open surface.
@@ -1053,6 +1096,10 @@ fn main() {
                 }
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
+                }
+                while let Ok((domain, snapshot)) = services_rx.try_recv() {
+                    s.borrow_mut().data.services[domain] = snapshot;
+                    dirty = true;
                 }
                 let expired = s.borrow_mut().notifications.expire(Instant::now());
                 if !expired.is_empty() {

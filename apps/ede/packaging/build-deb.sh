@@ -41,11 +41,11 @@ chmod 755 "$stage"
 trap 'rm -rf "$stage"' EXIT
 
 release=(--release); [ "$profile" = debug ] && release=()
-cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui --features ede-compositor/udev
+cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services --features ede-compositor/udev
 # The shell is its own workspace (gpui never enters the compositor's).
 (cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell --bins)
 
-for bin in ede-compositor ede-session ede-ui; do
+for bin in ede-compositor ede-session ede-ui ede-services; do
   install -Dm755 "$target/$profile/$bin" "$stage/usr/bin/$bin"
 done
 install -Dm755 "$shell_target/$profile/ede-shell" "$stage/usr/bin/ede-shell"

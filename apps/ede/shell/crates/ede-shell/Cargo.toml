@@ -11,6 +11,8 @@ eui-core.workspace = true
 eui-gpui.workspace = true
 ede-protocol.workspace = true
 ede-ui = { path = "../../../crates/ede-ui" }
+# The services data source (#EDE-13): /services/<domain> in every document.
+ede-services = { path = "../../../crates/ede-services" }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
