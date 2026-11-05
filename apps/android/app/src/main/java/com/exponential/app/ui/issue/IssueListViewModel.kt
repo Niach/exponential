@@ -274,6 +274,12 @@ class IssueListViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #VAPP-231: the synced apps' names by id (a row's `via <app>` tail). */
+    val appNames: StateFlow<Map<String, String>> =
+        dbFlow.scopedQuery(emptyList()) { it.appDao().observeAll() }
+            .map { apps -> apps.associate { it.id to it.name } }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     val relations: StateFlow<List<IssueRelationEntity>> =
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

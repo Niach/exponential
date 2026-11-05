@@ -187,7 +187,7 @@ struct MyIssuesListContent: View {
                     .foregroundStyle(status.color)
                     .frame(width: 16)
 
-                Text(issue.title)
+                issueTitleText(issue.title, viaApp: issue.viaAppId.flatMap { vm.appNames[$0] })
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)

@@ -22,6 +22,8 @@ import {
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 import { trpc } from "@/lib/trpc-client"
 import { formatDate } from "@/lib/utils"
+import { withViaApp } from "@exp/domain-contract/via-app"
+import { useAppName } from "@/hooks/use-apps"
 import { useToday } from "@/hooks/use-now"
 import { dueDateToneClass } from "@/lib/issue-due-date"
 import type { StatusRowOption } from "@/lib/team-statuses"
@@ -127,6 +129,14 @@ const NO_AGENTS: readonly SyncedAgent[] = []
 /** EXP-1259 D8: the first-load placeholder in the issue row's geometry
  *  (40px rows at every width, the natives' list metric, EXP-1554; the
  *  status glyph's dot leading). */
+/** #VAPP-231 (via-app.json): an app's issue reads ` · via <app>` on the title's
+ *  own truncating line, so the caption is what a narrow row cuts first. Its
+ *  own component so only those rows query the app. */
+function ViaAppTail({ appId }: { appId: string }) {
+  const tail = withViaApp(``, useAppName(appId))
+  return tail ? <span className="text-muted-foreground">{tail}</span> : null
+}
+
 function IssueListSkeleton() {
   return (
     <div data-testid="issue-list-skeleton" className="max-md:px-4 max-md:pt-1">
@@ -390,7 +400,10 @@ const IssueRow = memo(function IssueRow({
           />
         </div>
         <span className="flex items-center gap-1.5 text-sm truncate md:ml-2 min-w-0 max-md:flex-1">
-          <span className="truncate">{issue.title}</span>
+          <span className="truncate">
+            {issue.title}
+            {issue.viaAppId && <ViaAppTail appId={issue.viaAppId} />}
+          </span>
           {/* EXP-998: the counts pill is the PHONE's affordance (the natives'
               too); at md+ the rail at the row's right edge draws the
               relations as arrows and its node opens the same mini-graph. */}

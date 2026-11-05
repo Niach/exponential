@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.domain.withViaApp
 import com.exponential.app.domain.EmptyStateCopy
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -683,6 +684,7 @@ private fun IssueListContent(
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
     val agentsById = remember(agents) { agents.associateBy { it.id } }
+    val appNames by viewModel.appNames.collectAsStateWithLifecycle()
 
     // EXP-1115: nothing to show until the issues shape has snapshotted at
     // least once — a full resync (or a fresh install) would otherwise flash
@@ -800,6 +802,7 @@ private fun IssueListContent(
                                 assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
                                 // #EXP-1383: an agent assignee wears THE AGENT MARK.
                                 assigneeAgent = entry.issue.assigneeAgentId?.let { agentsById[it] }?.actorRow(),
+                                viaAppName = entry.issue.viaAppId?.let { appNames[it] },
                                 selected = if (selectionActive) entry.issue.id in selectedIds else null,
                                 // EXP-980: what blocks this row, and what
                                 // it blocks — the pill opens the graph.
@@ -852,6 +855,8 @@ internal fun IssueRow(
     onLongClick: (() -> Unit)? = null,
     /** #EXP-1383: an agent assignee (exclusive with [assignee]): the mark. */
     assigneeAgent: AgentSettings.AgentRowLike? = null,
+    /** #VAPP-231: the app it came through (`via <app>` on the title's line). */
+    viaAppName: String? = null,
     // Multi-select rendering (EXP-239): null = no selection UI; false/true
     // show the leading check indicator, true additionally tints the row.
     selected: Boolean? = null,
@@ -904,6 +909,7 @@ internal fun IssueRow(
         // title, its badges and the chevron.
         IssueRowContent(
             title = issue.title,
+            titleTail = withViaApp("", viaAppName),
             leading = {
                 // #EXP-1388: the shared selection glyph cell (the Chats rows' too).
                 if (selected != null) SelectionGlyph(selected)

@@ -602,7 +602,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 | `app_access` + per-tool switch | ✅ | #VAPP-183 |
 | Revocation cascades | ✅ | #VAPP-184 |
 | Settings › MCP merged ×4 | ✅ | #VAPP-185 |
-| "via <app>" | ✅ comments, issues, sessions, records, own-UI writes; issue list rows open | #VAPP-186, #VAPP-229, #VAPP-231 |
+| "via <app>" | ✅ comments, issues, sessions, records, own-UI writes, issue list rows | #VAPP-186, #VAPP-229, #VAPP-231 |
 | Broker `records` = full query | ✅ | Q4 #VAPP-216: `run.records` list + `records_list` `query` run the Q1 evaluator (`@exponential_app/eui/host/query`) over the caller's readable rows (read policy + RLS first, ≤ 25,000 rows read); `records-query.json` replays through the broker |
 | http upstreams | ✅ | |
 | Per-app upstream mapping | ✅ | #VAPP-254, below |

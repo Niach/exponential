@@ -339,6 +339,8 @@ impl IssueListView {
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
+            // #VAPP-231: a row's `via <app>` tail reads the synced app names.
+            cx.observe(&collections.apps, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // EXP-314: the group vocabulary itself is synced data now.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
@@ -727,7 +729,21 @@ impl IssueListView {
                             .whitespace_nowrap()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .child(SharedString::from(issue.title.clone())),
+                            .child({
+                                // #VAPP-231 (via-app.json): the caption is the title's
+                                // muted tail, so a narrow row cuts it first.
+                                let via_app = crate::comments::synced_app_name(issue.via_app_id.as_deref(), cx);
+                                let tail = domain::via_app::with_via_app("", via_app.as_deref());
+                                let start = issue.title.len();
+                                gpui::StyledText::new(format!("{}{tail}", issue.title)).with_highlights(
+                                    (!tail.is_empty()).then(|| {
+                                        (
+                                            start..start + tail.len(),
+                                            gpui::HighlightStyle { color: Some(cx.theme().muted_foreground), ..Default::default() },
+                                        )
+                                    }),
+                                )
+                            }),
                     )
             )
             // auto labels — the web rounded-full chips, collapsed to bare

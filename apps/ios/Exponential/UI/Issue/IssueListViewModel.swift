@@ -42,6 +42,8 @@ final class IssueListViewModel {
     /// #EXP-1383: a solo team hides its assignee affordances only while it
     /// has no agents.
     var hidesAssignee = false
+    /// #VAPP-231: the synced apps' names by id (a row's `via <app>` tail).
+    var appNames: [String: String] = [:]
     /// #EXP-1383: the board's team's agents in the assignee picker's order.
     var teamAgents: [AgentDefinitionEntity] = []
     var error: String?
@@ -198,6 +200,18 @@ final class IssueListViewModel {
                 for try await users in userObservation.removeDuplicates().values(in: pool) {
                     self?.users = users
                     self?.rebuildUserIndex()
+                }
+            } catch {}
+        })
+
+        // #VAPP-231: the synced apps' names, a row's `via <app>` tail.
+        let appObservation = ValueObservation.tracking { db in
+            try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await apps in appObservation.values(in: pool) {
+                    self?.appNames = Dictionary(apps.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
                 }
             } catch {}
         })

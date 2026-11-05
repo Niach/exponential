@@ -10,11 +10,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.TextEmphasis
@@ -49,6 +53,8 @@ fun RowScope.IssueRowContent(
     statusGap: Dp = 10.dp,
     titleColor: Color = MaterialTheme.colorScheme.onSurface,
     titleWeight: FontWeight? = null,
+    /** #VAPP-231: muted text on the title's own line, cut first when it is narrow. */
+    titleTail: String = "",
     /** On the title's line, after it (a blocks badge, labels, a team name). */
     titleAccessory: (@Composable RowScope.() -> Unit)? = null,
     subLine: (@Composable () -> Unit)? = null,
@@ -62,14 +68,14 @@ fun RowScope.IssueRowContent(
     if (subLine == null) {
         TitleLine(
             identifier, identifierMinWidth, identifierEllipsis, identifierGap, status, statusGap,
-            title, titleColor, titleWeight, titleAccessory, fillTitle = true,
+            title, titleColor, titleWeight, titleTail, titleAccessory, fillTitle = true,
         )
     } else {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TitleLine(
                     identifier, identifierMinWidth, identifierEllipsis, identifierGap, status, statusGap,
-                    title, titleColor, titleWeight, titleAccessory, fillTitle = false,
+                    title, titleColor, titleWeight, titleTail, titleAccessory, fillTitle = false,
                 )
             }
             subLine()
@@ -92,6 +98,7 @@ private fun RowScope.TitleLine(
     title: String,
     titleColor: Color,
     titleWeight: FontWeight?,
+    titleTail: String,
     titleAccessory: (@Composable RowScope.() -> Unit)?,
     /** Single-line rows fill the title so trailing glyphs pin to the edge;
      *  a stacked line lets an accessory sit right after the words. */
@@ -113,8 +120,14 @@ private fun RowScope.TitleLine(
         status()
         if (statusGap > 0.dp) Spacer(Modifier.width(statusGap))
     }
+    val tailColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Text(
-        title,
+        remember(title, titleTail, tailColor) {
+            buildAnnotatedString {
+                append(title)
+                withStyle(SpanStyle(color = tailColor)) { append(titleTail) }
+            }
+        },
         style = MaterialTheme.typography.bodyMedium,
         color = titleColor,
         fontWeight = titleWeight,
