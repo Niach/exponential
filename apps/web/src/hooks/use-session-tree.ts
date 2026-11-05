@@ -607,8 +607,16 @@ function useNewestMessages(input: {
         : undefined,
     [sessionKey]
   )
-  const waitingIds = ((digests ?? []) as { digest: unknown }[])
-    .map((row) => (row.digest as ConversationDigest | null)?.waiting?.id)
+  // #FEED-191 (chats.json): EVERY waiting card (`waits`; an older digest =
+  // its `waiting`), so one beyond the loaded page still reaches the thread.
+  const waitingIds = [
+    ...new Set(
+      ((digests ?? []) as { digest: unknown }[]).flatMap((row) => {
+        const digest = row.digest as ConversationDigest | null
+        return [digest?.waiting?.id, ...(digest?.waits ?? []).map((m) => m.id)]
+      })
+    ),
+  ]
     .filter((id): id is string => typeof id === `string`)
     .sort()
   const waitingKey = waitingIds.join(`,`)

@@ -259,9 +259,19 @@ export function ThreadScreen({
     () => view.rows.filter((row): row is Extract<ThreadRow, { type: `plan` }> => row.type === `plan`),
     [view.rows]
   )
-  const tabPlanId = planTabTarget(planRows)
+  // #FEED-191 (plan-page.json `planTabTarget(plans, kept)`): `kept` = the plan
+  // the tab showed during THIS visit of the chat (its target, or a plan whose
+  // row was pressed), so a plan decided while the person is here keeps its
+  // chip; leaving the chat (unmount, or another root) clears it.
+  const [keptState, setKeptState] = useState<{ rootId: string; planId: string } | null>(null)
+  const kept = keptState?.rootId === root.id ? keptState.planId : null
+  const tabPlanId = planTabTarget(planRows, kept)
   const tabPlan = planRows.find((row) => row.id === tabPlanId) ?? null
   const shownPlan = search.tab === `plan` ? (planRows.find((row) => row.id === search.plan) ?? tabPlan) : null
+  const showingPlanId = shownPlan?.id ?? tabPlanId
+  useEffect(() => {
+    if (showingPlanId && showingPlanId !== kept) setKeptState({ rootId: root.id, planId: showingPlanId })
+  }, [showingPlanId, kept, root.id])
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
@@ -479,6 +489,7 @@ export function ThreadScreen({
               label: planRowLabel((shownPlan ?? tabPlan).plan),
               active: tab.kind === `plan`,
               waiting: (shownPlan ?? tabPlan).decision === null,
+              decision: (shownPlan ?? tabPlan).decision,
               onSelect: () => showPage(`plan`),
             }
           : undefined
