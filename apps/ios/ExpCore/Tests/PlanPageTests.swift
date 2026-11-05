@@ -59,7 +59,7 @@ final class PlanPageTests: XCTestCase {
         let layout = try XCTUnwrap(f["layout"] as? [String: Any])
         XCTAssertEqual(num(layout["outlineWidth"]), PlanPage.Layout.outlineWidth)
         XCTAssertEqual(num(layout["columnMaxWidth"]), PlanPage.Layout.columnMaxWidth)
-        XCTAssertNil(layout["railWidth"])
+        XCTAssertEqual(num(layout["railWidth"]), PlanPage.Layout.railWidth)
         XCTAssertNil(layout["headerHeight"])
         XCTAssertEqual(
             layout["columnPadding"] as? [String: Double],
@@ -110,7 +110,15 @@ final class PlanPageTests: XCTestCase {
             let plans = try XCTUnwrap(entry["plans"] as? [[String: Any]], name).map { raw -> (id: String, decision: String?) in
                 (raw["id"] as? String ?? "", raw["decision"] as? String)
             }
-            same(PlanPage.planTabTarget(plans) ?? NSNull(), entry["expect"], name)
+            same(PlanPage.planTabTarget(plans, kept: entry["kept"] as? String) ?? NSNull(), entry["expect"], name)
+        }
+    }
+
+    func testTabGlyphCases() throws {
+        for entry in try cases("tabGlyphCases") {
+            let decision = entry["decision"] as? String
+            let glyph = PlanPage.planTabGlyph(decision)
+            same(["icon": glyph.icon, "tone": glyph.tone], entry["expected"], decision ?? "nil")
         }
     }
 

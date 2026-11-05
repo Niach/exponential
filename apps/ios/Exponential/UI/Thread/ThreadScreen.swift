@@ -71,6 +71,11 @@ struct ThreadScreen: View {
     /// #EXP-1662: the plan a way in named (`.plan(id)`), while the tab shows
     /// it; nil = `PlanPage.planTabTarget`.
     @State private var planPick: String?
+    /// #FEED-191 (plan-page.json `kept`): the plan the tab last showed during
+    /// THIS visit of the chat (its target, or a plan whose row was pressed);
+    /// it lives as long as the screen does, so leaving the chat clears it and
+    /// a tab switch inside it keeps it.
+    @State private var planKept: String?
     /// A requested issue tab that has not synced into the strip yet (a
     /// just-filed issue): the page shows the Conversation and switches the
     /// moment the tab arrives; a tab tap drops the request.
@@ -192,8 +197,14 @@ struct ThreadScreen: View {
             return nil
         }
         if let planPick, let picked = plans.first(where: { $0.id == planPick }) { return picked }
-        let target = PlanPage.planTabTarget(plans.map { (id: $0.id, decision: $0.decision) })
+        let target = PlanPage.planTabTarget(plans.map { (id: $0.id, decision: $0.decision) }, kept: planKept)
         return plans.first { $0.id == target }
+    }
+
+    /// #FEED-191: the shown plan's id (`kept` follows it whenever it is set).
+    private var shownPlanId: String? {
+        guard let view = model?.view else { return nil }
+        return shownPlan(view)?.id
     }
 
     /// chats.json AGENT CHAT: an agent's chat's pages: the Conversation, and
@@ -448,6 +459,11 @@ struct ThreadScreen: View {
         // The navigator popped back to THIS page for a filed issue: land on
         // the tab it names.
         .onChange(of: threadLoaded, initial: true) { _, _ in focusPendingCard() }
+        // #FEED-191: `kept` = the tab's plan whenever there is one, so a plan
+        // decided during this visit keeps its chip until the person leaves.
+        .onChange(of: shownPlanId, initial: true) { _, id in
+            if let id { planKept = id }
+        }
         .onChange(of: threadLanding.request) { _, request in
             guard let request, request.threadId == rootId else { return }
             land(on: request.page)
@@ -560,7 +576,8 @@ struct ThreadScreen: View {
                 UIApplication.endEditing()
                 waitingOpen = true
             },
-            planWaiting: shownPlan(view).map { $0.decision == nil }
+            planWaiting: shownPlan(view).map { $0.decision == nil },
+            planGlyph: PlanPage.planTabGlyph(shownPlan(view)?.decision)
         )
     }
 

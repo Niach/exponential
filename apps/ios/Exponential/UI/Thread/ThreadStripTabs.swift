@@ -119,6 +119,9 @@ struct ThreadStripTabs: View {
     /// #EXP-1662 (plan-page.json): the thread holds a plan (nil = no chip);
     /// true = its plan waits (the needs-you dot).
     var planWaiting: Bool?
+    /// #FEED-191 (plan-page.json `planTabGlyph`): the chip's lead glyph; an
+    /// approved plan = THE check in emerald.
+    var planGlyph: PlanPage.TabGlyph = PlanPage.planTabGlyph(nil)
 
     /// entity-chip.json `tab` size: every chip in the strip is one height —
     /// web `STRIP_TAB_CLASS` `h-8 rounded-md`: 32pt tall, the 10pt row radius
@@ -206,14 +209,16 @@ struct ThreadStripTabs: View {
         .accessibilityIdentifier("thread-tab-\(single.identifier)")
     }
 
-    /// #EXP-1662: the plan tab on a phone: the `coding-plan` glyph, `copy.title`
-    /// and the 6 pt needs-you dot while its plan waits.
+    /// #EXP-1662: the plan tab on a phone: the `coding-plan` glyph (#FEED-191:
+    /// `planTabGlyph`, an approved plan = the emerald check, as its row),
+    /// `copy.title` and the 6 pt needs-you dot while its plan waits.
     private func planChip(waiting: Bool) -> some View {
         var selected = false
         if case .plan = selection { selected = true }
         return ThreadStripTab(selected: selected, bordered: true, fresh: false) {
             HStack(spacing: ThreadStripMetrics.innerSpacing) {
-                AppIcon(AppIcons.codingPlan, size: AppIcon.Size.small, weight: .medium)
+                AppIcon(AppIcons.conceptOrName(planGlyph.icon) ?? AppIcons.codingPlan, size: AppIcon.Size.small, weight: .medium)
+                    .foregroundStyle(planGlyph.tone == "approved" ? AnyShapeStyle(DesignTokens.Semantic.green) : AnyShapeStyle(HierarchicalShapeStyle.primary))
                 Text(PlanPage.Copy.title)
                     .font(ThreadStripMetrics.nameFont)
                     .lineLimit(1)
