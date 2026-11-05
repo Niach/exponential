@@ -272,7 +272,8 @@ struct AgentSessionView: View {
         ) {
             // EXP-1211: the agent's quick replies, directly above the
             // composer; gone whenever the composer is.
-            if !bandRetired(model) {
+            // Web's `/` menu floats over them: they yield while it is up.
+            if !bandRetired(model), composerMenu(model) != .slash {
                 SessionComposerReplies(sessionId: session.id)
                     .environment(\.accountId, accountId)
             }

@@ -5110,9 +5110,10 @@ internal fun SessionComposer(
                 if (dock != null) dock(sessionDock) else SessionDockCards(sessionDock)
             }
             // EXP-1211: the quick replies sit directly above the card, and
-            // hide whenever the composer does (the ask dock).
+            // hide whenever the composer does (the ask dock). Web's `/` menu
+            // floats over them: here they yield while it is up.
             val replies = composerReplies
-            if (!composerHidden && replies != null) {
+            if (!composerHidden && replies != null && composerMenu != ComposerMenu.Slash) {
                 ComposerRepliesRow(
                     replies = replies,
                     pending = replyPending,

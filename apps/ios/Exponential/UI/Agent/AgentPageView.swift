@@ -92,18 +92,18 @@ struct AgentPageView: View {
                             }
                             VStack(alignment: .leading, spacing: CGFloat(ComposerAgentRow.rowToCard)) {
                                 agentRow(composer)
-                                // EXP-1649: the `/` menu sits fully ABOVE the
-                                // card as its own surface (web's caret
-                                // typeahead: w-72, its bottom 4pt over the
-                                // card's top); laid out, so it pushes the
-                                // agent row up and never covers the card.
-                                VStack(alignment: .leading, spacing: 4) {
+                                // EXP-1649: the `/` menu floats ABOVE the card
+                                // as its own surface (web's TypeaheadMenu
+                                // `w-full`, its bottom 4pt over the card's
+                                // top), over the agent row; nothing moves.
+                                AgentComposerCard(model: composer) { issueId in
+                                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                                }
+                                .overlay(alignment: .top) {
                                     if !composer.draftEditor.showsAutocompleteMenu, slashMenuVisible(composer) {
                                         slashMenu(composer)
-                                            .frame(width: 288, alignment: .leading)
-                                    }
-                                    AgentComposerCard(model: composer) { issueId in
-                                        deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .alignmentGuide(.top) { $0[.bottom] + 4 }
                                     }
                                 }
                             }

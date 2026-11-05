@@ -1580,7 +1580,6 @@ fn open_in_window(
 pub(crate) const TYPEAHEAD_MIN_W: f32 = 260.;
 pub(crate) const TYPEAHEAD_MAX_W: f32 = 380.;
 /// The web's own `w-72`, for the host-anchored arm.
-const TYPEAHEAD_W: f32 = 288.;
 /// The tallest the menu gets on either side of the caret (web `MAX_HEIGHT`).
 pub(crate) const TYPEAHEAD_MAX_H: f32 = 320.;
 /// The shortest it is allowed to be capped to (web `MIN_HEIGHT`) — under
@@ -1642,7 +1641,7 @@ pub(crate) enum TypeaheadArm {
         caret_bottom: Pixels,
     },
     /// EXP-1649: web `TypeaheadMenu placement="above"` — `absolute left-0
-    /// bottom-full mb-1 w-72` against a `relative` host: the composer's `/`
+    /// bottom-full mb-1 w-full` against a `relative` host: the composer's `/`
     /// menu, its own popover over the composer card, left-aligned with it.
     /// The host makes the card's wrapper [`gpui::Styled::relative`] and adds
     /// this as its child.
@@ -1697,11 +1696,12 @@ pub(crate) fn typeahead_menu(
             div()
                 .absolute()
                 .left_0()
+                .right_0()
                 .bottom_full()
                 .mb(px(TYPEAHEAD_GAP))
                 .child(
                     surface
-                        .w(px(TYPEAHEAD_W))
+                        .w_full()
                         .max_h(px(TYPEAHEAD_MAX_H))
                         .children(rows),
                 ),
