@@ -40,6 +40,8 @@ export type { MarkdownInline, MarkdownBlock, MarkdownList, MarkdownListItem, Mar
 export { FormRegistry, documentOrder, fieldErrorsVisible, validateOnDefault } from "./form"
 export type { FormField, FormError, FormCheck } from "./form"
 export { scrollParent, listViewport } from "./list"
+export { stripFit, stripKeyMove, isReorderKey, startStripDrag } from "./tabs-strip"
+export type { StripDragSource, StripDragHandlers } from "./tabs-strip"
 export type { ListAxis } from "./list"
 export { layoutSize, visualScale, elementScale } from "./primitives/measure"
 export type { LayoutSize } from "./primitives/measure"

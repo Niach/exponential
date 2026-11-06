@@ -255,7 +255,7 @@ pub(crate) fn rich_tab_padding(closable: bool) -> (f32, f32) {
 /// EXP-1334 — THE strip chip box (web `stripTabClass`, ONE for every strip
 /// of chips: the thread header's issue + session chips, the work tabs strip
 /// above the content card, the "+N" of a folded zone): 32px tall, 6px
-/// radius, 10px sides, `gap 6`, `text_sm`. Three states and no more: at
+/// radius, 10px sides, `gap 4` (VAPP-279: genUI `strip` Tabs' `$spacing.xs`), `text_sm`. Three states and no more: at
 /// rest a `bordered` chip keeps its hairline (a tab has no stroke) and reads
 /// muted; the pointer only turns the text foreground (no wash); active =
 /// the strong glass stroke over the glass active fill, foreground.
@@ -277,7 +277,7 @@ pub(crate) fn strip_chip_frame(id: impl Into<ElementId>, active: bool, bordered:
         .flex()
         .flex_shrink_0()
         .items_center()
-        .gap(px(6.))
+        .gap(px(4.))
         .px(px(STRIP_CHIP_PX))
         .rounded(px(6.))
         .border_1()

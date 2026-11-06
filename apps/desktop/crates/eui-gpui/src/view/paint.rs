@@ -780,14 +780,19 @@ impl SurfaceView {
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| this.motion_pointer(&down, true, false, cx)))
                 .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, _, cx| this.motion_pointer(&up, false, true, cx)));
         }
+        // VAPP-279: a strip tab's press may become a reorder drag.
+        let strip_tab = n.pressable && self.is_strip_tab(index);
         if n.pressable && !is_text_field(n) {
             let (down, up, out) = (id.clone(), id.clone(), id);
             el = el
                 .when(style.cursor.is_none(), |d| d.cursor_pointer())
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, _, window, cx| {
+                    cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
                         cx.stop_propagation();
+                        if strip_tab {
+                            this.tab_drag_down(&down, f32::from(ev.position.x));
+                        }
                         this.press_down(&down, window, cx)
                     }),
                 )
@@ -1156,7 +1161,14 @@ impl SurfaceView {
         if lcx.style.letter_spacing != 0.0 || lcx.shimmer.is_some() {
             row = row.child(natives::tracked_text(lcx.tracked(vec![shown], align, true)).min_w_0().flex_1().h(px(ts.line_height)));
         } else {
-            row = row.child(aligned(div().min_w_0().flex_1().truncate(), align).child(SharedString::from(text::with_paragraph_direction(&shown, lcx.rtl).into_owned())));
+            // VAPP-279: the measurer gave this box exactly the shaped width;
+            // gpui's ellipsis can fire on a sub-pixel shortfall (a strip tab
+            // read "google keywor…" where every other renderer showed the
+            // whole title), so a text within a pixel of its box never truncates.
+            let need = shaper.line_width(&shown, &lcx.font, ts.font_size);
+            let room = w - lead - trail;
+            let text_box = if need <= room + 1.0 { div().min_w_0().flex_1().overflow_hidden() } else { div().min_w_0().flex_1().truncate() };
+            row = row.child(aligned(text_box, align).child(SharedString::from(text::with_paragraph_direction(&shown, lcx.rtl).into_owned())));
         }
         match (owner, part) {
             ("Tabs", Some("tab")) => {

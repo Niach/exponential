@@ -22,9 +22,107 @@ impl Builder<'_, '_> {
             .or_else(|| values.first().cloned())
             .unwrap_or_default();
         self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
+        if str_prop(&owner.props, "variant") == Some("strip") {
+            self.tab_strip(&owner, &tabs, &values, &active);
+        } else {
+            self.tab_pills(&owner, &tabs, &values, &active);
+        }
+        let content = self.part(&owner, "content", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column"}), json!({}));
+        let count = self.child_keys(node, scope).len();
+        for i in 0..count {
+            let hidden = values.get(i) != Some(&active);
+            self.one_child(content, node, i, scope, hidden);
+        }
+    }
+
+    /// VAPP-279: the `strip` header row (the IDE's work tabs): per tab an
+    /// `item` box (the chip: `selected` on the active one) holding the
+    /// `tab` (icon + title, truncating) and its `close`; the tabs that do
+    /// not fit (`local.tab_fit`, refitted after each pass by
+    /// `Surface::fit_tab_strips`) stay laid out but out of flow and
+    /// invisible (their widths keep feeding the fit), folded into the `+N`
+    /// `more` button; then the `new` +. A live drag shows its preview
+    /// order (`local.tab_order`).
+    fn tab_strip(&mut self, owner: &super::LNode, tabs: &[Value], values: &[String], active: &str) {
+        let n = tabs.len();
+        let order: Vec<usize> = self.ctx.local.tab_order.get(&owner.id).filter(|o| o.len() == n && (0..n).all(|i| o.contains(&i))).cloned().unwrap_or_else(|| (0..n).collect());
+        let fit = self.ctx.local.tab_fit.get(&owner.id).cloned();
+        let shown = |i: usize| fit.as_ref().is_none_or(|f| f.contains(&i));
+        let closable = matches!(str_prop(&owner.props, "closable"), Some("hover" | "always"));
+        let folded = json!({"position": "absolute", "top": 0, "insetInlineStart": 0, "visibility": "hidden", "pointerEvents": "none"});
+        let list = self.part(owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "alignSelf": "stretch", "position": "relative"}), json!({}));
+        for &i in &order {
+            let tab = &tabs[i];
+            let selected = values[i] == active;
+            let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "minWidth": 0, "maxWidth": crate::layout::TAB_STRIP_MAX_WIDTH});
+            // The IDE's chip: the × sits `$spacing.xs` from the end border
+            // and from the title (round-7 contract, Tabs strip).
+            if closable {
+                style["paddingInlineEnd"] = json!("$spacing.xs");
+            }
+            if !shown(i) {
+                for (k, v) in folded.as_object().into_iter().flatten() {
+                    style[k] = v.clone();
+                }
+            }
+            let item = self.part_in(list, owner, "item", "Box", NodeKind::Container, style, json!({"value": values[i]}), &format!(".{i}"));
+            self.query_prop(item, "selected", Value::Bool(selected));
+            if selected {
+                self.add_state(item, "selected");
+            }
+            let mut props = json!({"text": tab.get("label").map(js).unwrap_or_default(), "lines": 1, "value": values[i]});
+            if let Some(icon) = tab.get("icon") {
+                props["icon"] = icon.clone();
+            }
+            if let Some(count) = tab.get("count") {
+                props["count"] = count.clone();
+            }
+            let mut tab_style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 1, "minWidth": 0});
+            if closable {
+                tab_style["paddingInlineEnd"] = json!("$spacing.xs");
+            }
+            let t = self.part_in(item, owner, "tab", "Text", NodeKind::Leaf, tab_style, props, &format!(".{i}"));
+            self.query_prop(t, "selected", Value::Bool(selected));
+            if selected {
+                self.add_state(t, "selected");
+            }
+            self.nodes[t as usize].pressable = true;
+            if closable {
+                let name = tab.get("label").map(js).unwrap_or_default();
+                let label = self.string_with("closeTab", &[("name", &name)]);
+                let c = self.part_in(item, owner, "close", "Button", NodeKind::Leaf, json!({"flexShrink": 0, "alignSelf": "center"}), json!({"icon": super::builtin_icon("Tabs.close"), "label": label, "variant": "ghost", "size": "icon", "value": values[i]}), &format!(".{i}"));
+                self.nodes[c as usize].pressable = true;
+            }
+        }
+        // `+N`: always built (folded while nothing overflows) so the fit
+        // knows its width before it shows.
+        let hidden = fit.as_ref().map(|f| n.saturating_sub(f.len())).unwrap_or(0);
+        let count = hidden.to_string();
+        let text = self.string_with("morePictures", &[("count", &count)]);
+        let label = self.string_with("moreTabs", &[("count", &count)]);
+        let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0});
+        if hidden == 0 {
+            for (k, v) in folded.as_object().into_iter().flatten() {
+                style[k] = v.clone();
+            }
+        }
+        // A Button leaf (its label centred by every painter), named `moreTabs`.
+        let more = self.part_in(list, owner, "more", "Button", NodeKind::Leaf, style, json!({"label": text, "variant": "ghost", "size": "sm", "count": hidden}), "");
+        self.default_a11y(more, "label", json!(label));
+        self.nodes[more as usize].pressable = hidden > 0;
+        if bool_prop(&owner.props, "addable") {
+            let label = self.string("newTab");
+            let n = self.part_in(list, owner, "new", "Button", NodeKind::Leaf, json!({"flexShrink": 0, "alignSelf": "center"}), json!({"icon": super::builtin_icon("Tabs.new"), "label": label, "variant": "ghost", "size": "icon"}), "");
+            self.nodes[n as usize].pressable = true;
+        }
+    }
+
+    /// The default `pill` header row (a segmented pill per tab).
+    fn tab_pills(&mut self, owner: &super::LNode, tabs: &[Value], values: &[String], active: &str) {
+        let owner = owner.clone();
         let fill = bool_prop(&owner.props, "fill");
         let closable = matches!(str_prop(&owner.props, "closable"), Some("hover" | "always"));
-        let list = self.part(&owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "stretch", "alignSelf": if fill { "stretch" } else { "flex-start" }}), json!({}));
+        let list =self.part(&owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "stretch", "alignSelf": if fill { "stretch" } else { "flex-start" }}), json!({}));
         for (i, tab) in tabs.iter().enumerate() {
             let label = tab.get("label").map(js).unwrap_or_default();
             let mut props = json!({"text": label, "lines": 1, "value": values[i]});
@@ -61,12 +159,6 @@ impl Builder<'_, '_> {
             let label = self.string("newTab");
             let n = self.part_in(list, &owner, "new", "Button", NodeKind::Leaf, json!({"flexShrink": 0, "alignSelf": "center"}), json!({"icon": super::builtin_icon("Tabs.new"), "label": label, "variant": "ghost", "size": "icon"}), "");
             self.nodes[n as usize].pressable = true;
-        }
-        let content = self.part(&owner, "content", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column"}), json!({}));
-        let count = self.child_keys(node, scope).len();
-        for i in 0..count {
-            let hidden = values.get(i) != Some(&active);
-            self.one_child(content, node, i, scope, hidden);
         }
     }
 

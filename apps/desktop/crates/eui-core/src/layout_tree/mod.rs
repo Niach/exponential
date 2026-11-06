@@ -218,10 +218,32 @@ pub struct FieldErrors {
     pub messages: Vec<String>,
 }
 
+/// VAPP-279: a strip tab's reorder drag, from its start.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TabDrag {
+    /// The dragged tab's slot among the visible ones.
+    pub from_slot: usize,
+    /// The `tabs` array index of each visible slot, in strip order.
+    pub slots: Vec<usize>,
+    /// Each visible item's centre x at the start (screen px).
+    pub centers: Vec<f32>,
+    /// The strip order (array indexes, hidden ones too) at the start.
+    pub order: Vec<usize>,
+    pub rtl: bool,
+}
+
 /// Local UI state the core owns (never sent to the producer unless bound).
 #[derive(Debug, Clone, Default)]
 pub struct LocalState {
     pub tabs: HashMap<String, String>,
+    /// VAPP-279: a `strip` Tabs' visible tabs (`tabs` array indexes; the
+    /// rest fold into `+N`), refitted after each pass; absent = all.
+    pub tab_fit: HashMap<String, Vec<usize>>,
+    /// VAPP-279: a strip's live drag preview: the `tabs` array indexes in
+    /// strip order while a reorder drag moves (absent = the array order).
+    pub tab_order: HashMap<String, Vec<usize>>,
+    /// VAPP-279: reorder drags in progress per Tabs id.
+    pub tab_drags: HashMap<String, TabDrag>,
     pub accordion: HashMap<String, Vec<String>>,
     pub carousel: HashMap<String, i64>,
     pub open: HashMap<String, bool>,

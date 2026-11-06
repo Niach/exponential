@@ -764,6 +764,14 @@
           "style": {
             "backgroundColor": "$color.muted"
           }
+        },
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "backgroundColor": "#00000000"
+          }
         }
       ],
       "tab": [
@@ -774,6 +782,35 @@
           "style": {
             "backgroundColor": "$color.accent",
             "boxShadow": "$shadow.none"
+          }
+        },
+        {
+          "when": {
+            "variant": "strip",
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "#00000000"
+          }
+        }
+      ],
+      "item": [
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "height": "$control.buttonMd"
+          }
+        }
+      ],
+      "more": [
+        {
+          "when": {
+            "variant": "strip"
+          },
+          "style": {
+            "height": "$control.buttonMd"
           }
         }
       ]

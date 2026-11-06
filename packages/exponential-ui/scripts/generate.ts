@@ -825,6 +825,18 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     label: `wide · scrolls`,
     node: { id: `wide`, component: `Table`, props: wideTableProps() },
   }],
+  // VAPP-279: the strip (the IDE's work tabs): icons, the active one, the
+  // close glyph on hover / always, the +, and a narrow strip folding into `+N`.
+  Tabs: [{
+    label: `variant · strip · icons · closable hover · addable`,
+    node: { id: `strip`, component: `Tabs`, props: { variant: `strip`, value: `notes`, closable: `hover`, addable: true, tabs: [{ label: `Inbox`, value: `inbox`, icon: `nav-inbox` }, { label: `Release notes`, value: `notes`, icon: `nav-changelog` }, { label: `Board`, value: `board`, icon: `nav-boards` }] } },
+  }, {
+    label: `variant · strip · closable always`,
+    node: { id: `strip-close`, component: `Tabs`, props: { variant: `strip`, value: `a`, closable: `always`, tabs: [{ label: `ExponentialOS`, value: `a`, icon: `status-in-progress` }, { label: `google keywords`, value: `b`, icon: `action-chat` }] } },
+  }, {
+    label: `variant · strip · overflow (+N)`,
+    node: { id: `strip-narrow`, component: `Tabs`, props: { variant: `strip`, value: `t4`, closable: `hover`, addable: true, tabs: [`Inbox`, `Release notes`, `Calendar`, `Settings`, `Search`, `Drafts`].map((label, i) => ({ label, value: `t${i}` })) }, style: { width: 320 } },
+  }],
   Input: [{
     label: `label · none`,
     node: { id: `search`, component: `Input`, props: { name: `q`, label: ``, type: `search`, placeholder: `Search` } },
@@ -1381,7 +1393,8 @@ function promptBudget() {
     // VAPP-232 + VAPP-217 (eApps U3 + U2): raised for the U2/U3 macros, awaiting Danny's review: Calendar + Timeline (+198 tokens), RecordForm + RecordTable (+239 tokens, host-filled props stay out of the prompt); the measured total (9216), no slack.
     // VAPP-286 (a named budget exception, round 7): Slider icon + endLabel + showValue, +21 tokens after trimming the new descriptions and the Slider's own sentence; the measured total (9237), no slack.
     // VAPP-282 (a named budget exception, round 7): DatePicker inline + marks (the dateMark shape) + today + the month event, +55 tokens with terse descriptions; the measured total with VAPP-286 (9292), no slack.
-    budgetTokens: 9292,
+    // VAPP-279 (a named budget exception, round 7 for the eDE shell): Tabs `variant: strip` + its `reorder`/`more` events, +22 tokens after trimming the new description; the measured total with VAPP-286 + VAPP-282 (9314), no slack.
+    budgetTokens: 9314,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

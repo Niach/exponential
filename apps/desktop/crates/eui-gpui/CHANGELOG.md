@@ -5,6 +5,12 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- #VAPP-258: two gpui host extras for an app's own Markdown: `HostPlugin::chip_icon` paints an inline chip's icon (a status glyph in its tint), `tasks_pressable` / `on_task_toggle` make task boxes pressable (the host rewrites its text); `markdown_hooks_version` memoizes a leaf's laid-out blocks (`paint::markdown_memo`), `markdown_visible_only` builds only the blocks near the host's viewport, `markdown_window_selection` joins the text units to the host's window-level selection (gpui-base, `paint::markdown_selection`).
+- An inline DatePicker paints the core's in-flow month grid; a marked day draws its event dot (VAPP-282).
+- Tabs `variant: strip` (#VAPP-279): a strip tab press becomes a reorder drag past `tabDragThreshold` (the press is spent); Ctrl/Cmd+Shift+Arrow moves the focused tab.
+- #VAPP-258 step 5: `HostPlugin::markdown_options` (`MarkdownOptions`, also `HostPolicy::markdown_options`): hard breaks, the chat rhythm (`density: chat` recipes), selection off, streamed text (`parse_with`, `parse_streaming`, a per-text memo). A document of 24+ blocks lays out and paints only the blocks crossing the clip (`LazyMdBlock`), the measured height unchanged. A copy across a chip gives its label; a chip box spans its whole placeholder (no stray gap after it).
+- #VAPP-258: Markdown host hooks: inline chips on `text_links` segments (`TextLink.chip`, measured as painted), `HostPlugin::image_size` / `image_pressable` / `on_image_press` for block images and `HostPlugin::attachment` for one-link video, audio and file blocks (also on `HostPolicy`).
+
 ## 0.16.3 (2026-11-06)
 
 - #VAPP-258: two gpui host extras for an app's own Markdown: `HostPlugin::chip_icon` paints an inline chip's icon (a status glyph in its tint), `tasks_pressable` / `on_task_toggle` make task boxes pressable (the host rewrites its text); `markdown_hooks_version` memoizes a leaf's laid-out blocks (`paint::markdown_memo`), `markdown_visible_only` builds only the blocks near the host's viewport, `markdown_window_selection` joins the text units to the host's window-level selection (gpui-base, `paint::markdown_selection`).

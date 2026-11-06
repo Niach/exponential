@@ -4318,6 +4318,14 @@
               ],
               "description": "The active tab's value; bind it for two-way state."
             },
+            "variant": {
+              "enum": [
+                "pill",
+                "strip"
+              ],
+              "description": "`strip`: flat tabs, `+N` overflow, drag reorder.",
+              "default": "pill"
+            },
             "fill": {
               "type": "boolean",
               "description": "Stretches the headers across the width.",
@@ -4350,6 +4358,12 @@
                   "$ref": "#/$defs/Action"
                 },
                 "new": {
+                  "$ref": "#/$defs/Action"
+                },
+                "reorder": {
+                  "$ref": "#/$defs/Action"
+                },
+                "more": {
                   "$ref": "#/$defs/Action"
                 }
               },

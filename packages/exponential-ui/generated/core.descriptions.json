@@ -696,6 +696,9 @@
         "value": {
           "description": "The active tab's value; bind it for two-way state."
         },
+        "variant": {
+          "description": "`strip`: flat tabs, `+N` overflow, drag reorder."
+        },
         "fill": {
           "description": "Stretches the headers across the width."
         },

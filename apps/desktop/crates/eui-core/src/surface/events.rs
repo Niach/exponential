@@ -268,7 +268,7 @@ impl Surface {
     /// so the context and the function's args resolve against that data,
     /// then `set` writes, then the event goes out with the payload merged
     /// into its context.
-    fn fire(&mut self, id: &str, event: &str, payload: Option<Value>) -> Vec<OutEvent> {
+    pub(super) fn fire(&mut self, id: &str, event: &str, payload: Option<Value>) -> Vec<OutEvent> {
         let Some(node) = self.source_node(id) else { return vec![] };
         let Some(action) = node.on.as_ref().and_then(|o| o.get(event)).cloned() else { return vec![] };
         let mut out = vec![];
@@ -432,6 +432,10 @@ impl Surface {
                 out.extend(self.fire(&owner_id, "close", Some(json!({"value": value}))));
             }
             ("Tabs", Some("new"), "press") => out.extend(self.fire(&owner_id, "new", None)),
+            // VAPP-279: a strip's `+N`, the reorder drag and keyboard move.
+            ("Tabs", Some("more"), "press") => out.extend(self.tab_more(&owner_id)),
+            ("Tabs", Some("tab"), "drag") if self.is_tab_strip(&owner_id) => out.extend(self.tab_drag(&n.id, &owner_id, payload.as_ref())),
+            ("Tabs", Some("tab"), "key") if self.is_tab_strip(&owner_id) => out.extend(self.tab_key(&n.id, &owner_id, payload.as_ref())),
             // EXP-1259: the SearchList field and rows.
             ("SearchList", Some("search"), "change") => {
                 let query = payload.as_ref().and_then(|p| p.get("value")).map(js).unwrap_or_default();

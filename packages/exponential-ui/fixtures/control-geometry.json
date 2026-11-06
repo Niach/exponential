@@ -1213,6 +1213,7 @@
         "cases": {
           "default": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -1223,8 +1224,36 @@
               "borderRadius": 6
             }
           },
+          "variant=pill": {
+            "props": {
+              "variant": "pill",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 6
+            }
+          },
+          "variant=strip": {
+            "props": {
+              "variant": "strip",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 28,
+              "paddingHorizontal": 8,
+              "gap": 4,
+              "borderRadius": 6
+            }
+          },
           "closable=none": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -1237,6 +1266,7 @@
           },
           "closable=hover": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "hover",
               "addable": false
@@ -1249,6 +1279,7 @@
           },
           "closable=always": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "always",
               "addable": false
@@ -2515,6 +2546,7 @@
         "cases": {
           "default": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -2525,8 +2557,36 @@
               "borderRadius": 8
             }
           },
+          "variant=pill": {
+            "props": {
+              "variant": "pill",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "variant=strip": {
+            "props": {
+              "variant": "strip",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 8,
+              "gap": 4,
+              "borderRadius": 8
+            }
+          },
           "closable=none": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -2539,6 +2599,7 @@
           },
           "closable=hover": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "hover",
               "addable": false
@@ -2551,6 +2612,7 @@
           },
           "closable=always": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "always",
               "addable": false
@@ -3820,6 +3882,7 @@
         "cases": {
           "default": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -3830,8 +3893,36 @@
               "borderRadius": 0
             }
           },
+          "variant=pill": {
+            "props": {
+              "variant": "pill",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 0,
+              "borderRadius": 0
+            }
+          },
+          "variant=strip": {
+            "props": {
+              "variant": "strip",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 8,
+              "gap": 4,
+              "borderRadius": 0
+            }
+          },
           "closable=none": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -3844,6 +3935,7 @@
           },
           "closable=hover": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "hover",
               "addable": false
@@ -3856,6 +3948,7 @@
           },
           "closable=always": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "always",
               "addable": false
@@ -5122,6 +5215,7 @@
         "cases": {
           "default": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -5132,8 +5226,36 @@
               "borderRadius": 8
             }
           },
+          "variant=pill": {
+            "props": {
+              "variant": "pill",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "variant=strip": {
+            "props": {
+              "variant": "strip",
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 8,
+              "gap": 4,
+              "borderRadius": 8
+            }
+          },
           "closable=none": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "none",
               "addable": false
@@ -5146,6 +5268,7 @@
           },
           "closable=hover": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "hover",
               "addable": false
@@ -5158,6 +5281,7 @@
           },
           "closable=always": {
             "props": {
+              "variant": "pill",
               "fill": false,
               "closable": "always",
               "addable": false

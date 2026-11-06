@@ -146,6 +146,7 @@ private struct NodeBody: View {
         .modifier(NativeHooks(node: node, model: model))
         .modifier(HoverReporting(id: node.id, model: model, on: hovers))
         .modifier(ResizeHandleModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
+        .modifier(TabStripDragModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
         .modifier(AccessibilityModifier(node: node, model: model, style: style))
         .modifier(PaintOnly(style: style, animation: animation, mirror: mirrorIcon))
@@ -344,6 +345,47 @@ struct VoiceWaveChild: View {
         }
     }
 }
+
+/// VAPP-279: a `strip` Tabs' tab drags into place after a long press
+/// (`tabLongPressMs`, the touch rule every renderer shares): `drag {phase,
+/// delta}` in pt along the row since the drag STARTED, global coordinates
+/// (the tab moves with the preview after each `move`).
+struct TabStripDragModifier: ViewModifier {
+    let node: NodeInfo
+    let model: SurfaceModel
+    let enabled: Bool
+    @State private var dragging = false
+
+    func body(content: Content) -> some View {
+        if enabled, model.isStripTab(node.index) {
+            let index = node.index
+            content.simultaneousGesture(
+                LongPressGesture(minimumDuration: tabLongPressSeconds)
+                    .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+                    .onChanged { value in
+                        guard case .second(true, let drag?) = value else { return }
+                        if !dragging {
+                            dragging = true
+                            model.tabDrag(index, phase: "start", delta: 0)
+                        }
+                        model.tabDrag(index, phase: "move", delta: drag.translation.width)
+                    }
+                    .onEnded { value in
+                        guard dragging else { return }
+                        dragging = false
+                        var delta: CGFloat = 0
+                        if case .second(true, let drag?) = value { delta = drag.translation.width }
+                        model.tabDrag(index, phase: "end", delta: delta)
+                    }
+            )
+        } else {
+            content
+        }
+    }
+}
+
+/// `catalog/layout.json` `tabLongPressMs`, in seconds.
+let tabLongPressSeconds: Double = 0.5
 
 /// A Resizable `handle` (round 2 §1): a drag along the group's axis,
 /// reported as `drag {phase, delta}` in pt of pointer travel since the drag

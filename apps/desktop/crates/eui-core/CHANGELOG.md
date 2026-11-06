@@ -10,6 +10,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## 0.16.3 (2026-11-06)
 
 - DatePicker `inline: true` lays the month grid out in flow (no trigger, no layer), days carry `mark`, `today` and the `isToday` / `outside` recipe props, the steppers fire `month {month}`; the calendar takes the web reference's geometry (28 steppers, narrow 24-tall weekday heads, centred day labels); `EEEEE` formats the narrow weekday (VAPP-282).
+- Tabs `variant: strip` (#VAPP-279): the strip build, the fit into `+N` after each pass (`Surface` refits, at most two extra rounds), the `drag` / `key` reorder with a live preview, `more`; `tabs_strip` (the pure rules), `TAB_STRIP_MAX_WIDTH`, `TAB_DRAG_THRESHOLD`, `TAB_LONG_PRESS_MS`.
 - A Meter with bound `segments` lays out each slice (the macro's track template), not an empty track (VAPP-278).
 - `brand-exponential` (#VAPP-283): the Exponential logo as an icon concept (icons.json `custom`, a filled 24-unit glyph in currentColor), in the Icon vocabulary of every renderer; the Icon specimen's non-Lucide case shows it.
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception).

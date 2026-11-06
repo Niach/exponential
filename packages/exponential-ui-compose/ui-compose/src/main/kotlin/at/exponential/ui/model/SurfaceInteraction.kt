@@ -195,6 +195,19 @@ fun SurfaceModel.resizeDrag(index: Int, phase: String, delta: Float) {
     fire(index, "drag", JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase), "delta" to JsonValue.Num(delta.toDouble()))))
 }
 
+/** VAPP-279: a `strip` Tabs' tab (it reorders by a long-press drag and by Ctrl+Shift+Arrow). */
+fun SurfaceModel.isStripTab(index: Int): Boolean {
+    val n = node(index) ?: return false
+    if (n.ownerComponent != "Tabs" || n.part != "tab") return false
+    val owner = n.owner?.let { indexOf(it) }?.let { node(it) } ?: return false
+    return owner.props["variant"]?.string == "strip"
+}
+
+/** VAPP-279: a strip tab's reorder drag (`phase` = start | move | end, `delta` = dp along the row since the drag started, screen direction). */
+fun SurfaceModel.tabDrag(index: Int, phase: String, delta: Float) {
+    fire(index, "drag", JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase), "delta" to JsonValue.Num(delta.toDouble()))))
+}
+
 /** A key on a node the core handles itself (a Resizable handle: arrows, Home, End, Enter). */
 fun SurfaceModel.nodeKey(index: Int, key: String) {
     fire(index, "key", JsonValue.Obj(mapOf("key" to JsonValue.Str(key))))

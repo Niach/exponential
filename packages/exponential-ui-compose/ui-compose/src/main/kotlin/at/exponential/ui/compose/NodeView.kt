@@ -10,6 +10,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
@@ -48,6 +49,8 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.fire
+import at.exponential.ui.model.isStripTab
+import at.exponential.ui.model.tabDrag
 import at.exponential.ui.model.focus
 import at.exponential.ui.model.holdInput
 import at.exponential.ui.model.holdPointer
@@ -309,6 +312,7 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .then(toast)
             .then(press)
             .then(resizeHandle(node, model, !invisible) { inputMode.inputMode == InputMode.Keyboard })
+            .then(tabStripDrag(node, model, !invisible))
             .paintedBox(style, size)
             .then(clip)
             .then(band),
@@ -444,6 +448,40 @@ private fun openContextMenu(model: SurfaceModel, owner: String) {
     val i = model.indexOf(owner) ?: return
     val f = model.frame(i)
     model.fire(i, "contextmenu", JsonValue.Obj(mapOf("x" to JsonValue.Num(f.center.x.toDouble()), "y" to JsonValue.Num(f.center.y.toDouble()))))
+}
+
+/**
+ * VAPP-279: a `strip` Tabs' tab drags into place after a long press (the
+ * platform's long-press timeout, `tabLongPressMs` on the web): `drag
+ * {phase, delta}` in dp along the row since the drag STARTED, in ROOT
+ * coordinates (the tab moves with the core's preview after each `move`).
+ */
+@Composable
+private fun tabStripDrag(node: NodeInfo, model: SurfaceModel, enabled: Boolean): Modifier {
+    if (!enabled || !model.isStripTab(node.index)) return Modifier
+    val index = node.index
+    val coords = remember(node.id) { arrayOfNulls<LayoutCoordinates>(1) }
+    return Modifier
+        .onPlaced { coords[0] = it }
+        .pointerInput(node.id) {
+            fun root(p: Offset): Offset = coords[0]?.takeIf { it.isAttached }?.localToRoot(p) ?: p
+            var start = Offset.Zero
+            var travel = 0f
+            detectDragGesturesAfterLongPress(
+                onDragStart = { at ->
+                    start = root(at)
+                    travel = 0f
+                    model.tabDrag(index, "start", 0f)
+                },
+                onDrag = { change, _ ->
+                    travel = (root(change.position).x - start.x) / density
+                    model.tabDrag(index, "move", travel)
+                    change.consume()
+                },
+                onDragEnd = { model.tabDrag(index, "end", travel) },
+                onDragCancel = { model.tabDrag(index, "end", 0f) },
+            )
+        }
 }
 
 /**

@@ -18,7 +18,12 @@
     "Select": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
     "DatePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
     "Composer": { "root": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border", "boxShadow": "$shadow.none" } } ] },
-    "Tabs": { "list": [ { "style": { "backgroundColor": "$color.muted" } } ], "tab": [ { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent", "boxShadow": "$shadow.none" } } ] },
+    "Tabs": {
+      "list": [ { "style": { "backgroundColor": "$color.muted" } }, { "when": { "variant": "strip" }, "style": { "backgroundColor": "#00000000" } } ],
+      "tab": [ { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent", "boxShadow": "$shadow.none" } }, { "when": { "variant": "strip", "state": "selected" }, "style": { "backgroundColor": "#00000000" } } ],
+      "item": [ { "when": { "variant": "strip" }, "style": { "height": "$control.buttonMd" } } ],
+      "more": [ { "when": { "variant": "strip" }, "style": { "height": "$control.buttonMd" } } ]
+    },
     "Segmented": { "root": [ { "when": { "variant": "bar" }, "style": { "backgroundColor": "$color.card" } } ], "item": [ { "when": { "variant": "segmented", "state": "selected" }, "style": { "backgroundColor": "$color.accent", "boxShadow": "$shadow.none" } } ] },
     "Chip": {
       "root": [

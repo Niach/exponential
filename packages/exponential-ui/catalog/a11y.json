@@ -282,7 +282,8 @@
         "ArrowLeft/ArrowRight: previous/next tab, activating it (wraps)",
         "Home/End: first/last tab",
         "Tab: into the active panel",
-        "Each close glyph (labelled `closeTab`, revealed by keyboard focus too) is a button after its tab; the + button (labelled `newTab`) follows the last tab"
+        "Each close glyph (labelled `closeTab`, revealed by keyboard focus too) is a button after its tab; the + button (labelled `newTab`) follows the last tab",
+        "`strip`: Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on a tab fires `reorder` (one place, none past an end); the `+N` button (labelled `moreTabs`) fires `more`"
       ]
     },
     "Segmented": {

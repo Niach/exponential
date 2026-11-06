@@ -20,7 +20,7 @@ export const PLACED: Readonly<Record<string, readonly string[]>> = {
   ChoiceTiles: [`error`],
   Checkbox: [`box`, `label`, `description`],
   Slider: [`header`, `label`, `value`, `row`, `icon`, `track`, `end`],
-  Tabs: [`list`, `content`, `new`],
+  Tabs: [`list`, `content`, `new`, `more`],
   // EXP-1259: the search list (a searchable submenu's parts carry `.<i>`).
   SearchList: [`head`, `search`, `count`, `body`, `list`, `empty`, `fade`],
   Menu: [`trigger`, `head`, `search`, `count`, `body`, `list`, `empty`, `fade`],

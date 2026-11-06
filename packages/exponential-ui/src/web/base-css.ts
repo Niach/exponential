@@ -12,7 +12,7 @@
 // never needs to (recipes carry only visuals, sizes and spacing).
 
 import { QR_SCANNER } from "./round5"
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TAB_STRIP_MAX_WIDTH, TEXT_SHIMMER, keyframesCss } from "@exponential_app/eui"
 
 /** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
  *  `shimmer` utility): the glyphs clip a gradient of the text colour that
@@ -162,6 +162,15 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Tabs-indicator{position:absolute;left:0;right:0;bottom:0}
 .xui-Tabs-content{display:flex;flex-direction:column;outline:none}
 .xui-Tabs-content[hidden]{display:none}
+.xui-Tabs-list[data-r-variant="strip"]{align-self:stretch;align-items:center}
+.xui-Tabs-item{display:flex;flex-direction:row;align-items:center;flex-shrink:0;min-width:0;max-width:${TAB_STRIP_MAX_WIDTH}px}
+.xui-Tabs-item>.xui-Tabs-tab{flex-direction:row;flex-shrink:1;min-width:0;touch-action:pan-y}
+.xui-Tabs-item .xui-Tabs-tab-body{min-width:0}
+.xui-Tabs-item .xui-Tabs-tab-body>span:not([data-count]){min-width:0;overflow:hidden;text-overflow:ellipsis}
+.xui-Tabs-more{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
+.xui-Tabs-item:has(>.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
+.xui-Tabs-item>.xui-Tabs-tab:has(+.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
+.xui-Tabs-item[data-folded],.xui-Tabs-more[data-folded]{position:absolute;top:0;inset-inline-start:0;visibility:hidden;pointer-events:none}
 [data-xui-c="Segmented"].xui-el{display:inline-flex;align-items:center;align-self:flex-start;flex-wrap:nowrap}
 [data-xui-c="Segmented"][data-r-fill="true"].xui-el,[data-xui-c="Segmented"][data-r-variant="bar"].xui-el{align-self:stretch}
 .xui-Segmented-item{display:inline-flex;align-items:center;justify-content:center;cursor:pointer;white-space:nowrap;flex:0 0 auto;min-width:0}

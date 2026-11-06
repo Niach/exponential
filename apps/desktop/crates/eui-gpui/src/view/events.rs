@@ -605,6 +605,16 @@ impl SurfaceView {
             cx.stop_propagation();
             return;
         }
+        // VAPP-279: Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on a strip tab
+        // moves it one place (the core fires `reorder`).
+        if (m.secondary() || m.control) && m.shift && matches!(ev.keystroke.key.as_str(), "left" | "right") {
+            if let Some(i) = self.focused.filter(|&i| self.is_strip_tab(i)) {
+                let key = if ev.keystroke.key == "left" { "ArrowLeft" } else { "ArrowRight" };
+                self.fire(i, "key", Some(json!({"key": key})), cx);
+                cx.stop_propagation();
+                return;
+            }
+        }
         // VAPP-162: key repeat never restarts a hold.
         if ev.is_held && matches!(ev.keystroke.key.as_str(), "space" | "enter") && self.focused_hold().is_some() {
             cx.stop_propagation();
@@ -1335,6 +1345,23 @@ impl SurfaceView {
         cx.notify();
     }
 
+    /// VAPP-279: is this a `strip` Tabs' tab (it reorders by drag and by
+    /// Ctrl/Cmd+Shift+Arrow)?
+    pub(crate) fn is_strip_tab(&self, index: u32) -> bool {
+        let Some(n) = self.cache.node(index) else { return false };
+        if n.owner_component.as_deref() != Some("Tabs") || n.part.as_deref() != Some("tab") {
+            return false;
+        }
+        let owner = self.cache.owner_of(index);
+        self.cache.node(owner).and_then(|o| o.props.get("variant")).and_then(Value::as_str) == Some("strip")
+    }
+
+    /// VAPP-279: a press on a strip tab: it becomes a reorder drag once
+    /// the pointer travels `tabDragThreshold` (then the press is spent).
+    pub(crate) fn tab_drag_down(&mut self, tab_id: &str, x: f32) {
+        self.tab_drag = Some(super::TabDrag { tab: tab_id.to_string(), start: x, started: false });
+    }
+
     pub(crate) fn scroll_drag_start(&mut self, id: &str, vertical: bool, pointer: f32, start_offset: f32, ratio: f32, cx: &mut Context<Self>) {
         self.scroll_drag = Some(ScrollDrag { id: id.to_string(), vertical, start_pointer: pointer, start_offset, ratio });
         cx.notify();
@@ -1355,6 +1382,22 @@ impl SurfaceView {
             if let Some(i) = self.cache.index_of(&d.handle) {
                 self.fire(i, "drag", Some(json!({"phase": "move", "delta": p - d.start})), cx);
             }
+            return;
+        }
+        if let Some(d) = self.tab_drag.clone() {
+            let delta = f32::from(ev.position.x) - d.start;
+            let Some(i) = self.cache.index_of(&d.tab) else { return };
+            if !d.started {
+                if delta.abs() < eui_core::layout::TAB_DRAG_THRESHOLD {
+                    return;
+                }
+                // The press is spent: the release drops, never presses.
+                self.press_cancel(&d.tab, cx);
+                self.pressed = None;
+                self.tab_drag = Some(super::TabDrag { started: true, ..d.clone() });
+                self.fire(i, "drag", Some(json!({"phase": "start", "delta": 0})), cx);
+            }
+            self.fire(i, "drag", Some(json!({"phase": "move", "delta": delta})), cx);
             return;
         }
         if let Some(d) = self.sheet_drag.as_mut() {
@@ -1396,6 +1439,15 @@ impl SurfaceView {
             }
             cx.notify();
             return;
+        }
+        if let Some(d) = self.tab_drag.take() {
+            if d.started {
+                if let Some(i) = self.cache.index_of(&d.tab) {
+                    self.fire(i, "drag", Some(json!({"phase": "end", "delta": f32::from(ev.position.x) - d.start})), cx);
+                }
+                cx.notify();
+                return;
+            }
         }
         if let Some(d) = self.scroll_drag.take() {
             self.scrollbars_recent(&d.id, cx);

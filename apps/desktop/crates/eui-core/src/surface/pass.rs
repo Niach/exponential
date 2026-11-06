@@ -35,6 +35,8 @@ pub(super) struct PassState {
     started: Instant,
     upcalls: u32,
     rounds: u32,
+    /// VAPP-279: strip Tabs refits this pass.
+    refits: u32,
     missing: Vec<usize>,
     heights: Vec<HeightRequest>,
 }
@@ -225,7 +227,7 @@ impl Surface {
     /// pass as resumable STEPS for a host that must not be called back
     /// while the surface is locked (the FFI).
     pub fn layout(&mut self, measure: &mut dyn Measure) -> LayoutOutput {
-        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, missing: Vec::new(), heights: Vec::new() };
+        let mut state = PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, missing: Vec::new(), heights: Vec::new() };
         self.prepare(measure.measure_id());
         loop {
             state.rounds += 1;
@@ -237,6 +239,9 @@ impl Surface {
                 self.apply_intrinsics(&missing, &answers);
             }
             let (frames, placed, pending) = self.compute_all();
+            if pending.is_empty() && self.refit_tab_strips(&frames, &mut state) {
+                continue;
+            }
             if pending.is_empty() || state.rounds >= 3 {
                 return self.finish(frames, placed, state);
             }
@@ -245,6 +250,25 @@ impl Surface {
             state.upcalls += 1;
             self.apply_heights(&pending, &heights);
         }
+    }
+
+    /// VAPP-279: a strip Tabs whose visible tabs changed rebuilds and lays
+    /// out again (at most twice a pass: the `+N` count can widen it once).
+    fn refit_tab_strips(&mut self, frames: &[Frame], state: &mut PassState) -> bool {
+        if state.refits >= 2 || !self.fit_tab_strips(frames) {
+            return false;
+        }
+        state.refits += 1;
+        state.rounds = state.rounds.saturating_sub(1);
+        for id in std::mem::take(&mut self.subtree_pending) {
+            if !self.rebuild_subtree(&id) {
+                self.rebuild();
+                self.subtree_pending.clear();
+                break;
+            }
+        }
+        self.restyle();
+        true
     }
 
     fn owned_leaves(&self, indices: impl Iterator<Item = usize>) -> Vec<LeafData> {
@@ -264,7 +288,7 @@ impl Surface {
     /// without holding the surface.
     pub fn layout_begin(&mut self, measure_id: u64) -> LayoutStep {
         self.prepare(measure_id);
-        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, missing: Vec::new(), heights: Vec::new() });
+        self.step_state = Some(PassState { started: Instant::now(), upcalls: 0, rounds: 0, refits: 0, missing: Vec::new(), heights: Vec::new() });
         self.step_round()
     }
 
@@ -283,6 +307,10 @@ impl Surface {
     fn step_compute(&mut self) -> LayoutStep {
         let (frames, placed, pending) = self.compute_all();
         let Some(mut state) = self.step_state.take() else { return LayoutStep::Idle };
+        if pending.is_empty() && self.refit_tab_strips(&frames, &mut state) {
+            self.step_state = Some(state);
+            return self.step_round();
+        }
         if pending.is_empty() || state.rounds >= 3 {
             return LayoutStep::Done(Box::new(self.finish(frames, placed, state)));
         }

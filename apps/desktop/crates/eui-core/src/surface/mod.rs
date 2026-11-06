@@ -23,6 +23,7 @@ mod events;
 mod pass;
 mod reconcile;
 mod restyle;
+mod tabs;
 
 pub use pass::{LayoutStep, LeafData};
 

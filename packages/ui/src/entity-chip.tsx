@@ -36,7 +36,7 @@ export const CHIP_GLYPH_CLASS = `!h-[0.875em] !w-[0.875em] shrink-0`
  *  tabs, `ThreadTabs`) — the tab size of a chip wears it too, so every chip
  *  in a strip is one height. Utilities only (no `issue-chip` paint), so the
  *  active wash wins. */
-export const STRIP_TAB_CLASS = `inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm font-normal`
+export const STRIP_TAB_CLASS = `inline-flex h-8 min-w-0 shrink-0 items-center gap-1 rounded-md border px-2.5 text-sm font-normal`
 
 /** The strip tab's state: the active one = the glass wash + strong stroke;
  *  at rest a tab has no stroke, a chip (`bordered`) keeps its hairline. */

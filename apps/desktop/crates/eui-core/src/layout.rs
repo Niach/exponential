@@ -47,6 +47,13 @@ pub const SEARCH_LIST_FADE: f32 = 24.0;
 /// EXP-1548: the narrowest a Table column without a `width` gets (px); a
 /// table whose columns need more than its box scrolls horizontally.
 pub const TABLE_COLUMN_MIN: f32 = 96.0;
+/// VAPP-279: the widest a `strip` Tabs item gets (px; its title truncates).
+pub const TAB_STRIP_MAX_WIDTH: f32 = 240.0;
+/// VAPP-279: how far a pointer travels on a strip tab before the press
+/// becomes a reorder drag (px).
+pub const TAB_DRAG_THRESHOLD: f32 = 4.0;
+/// VAPP-279: how long a touch rests on a strip tab before it drags (ms).
+pub const TAB_LONG_PRESS_MS: f64 = 500.0;
 
 #[cfg(test)]
 mod tests {
@@ -54,10 +61,10 @@ mod tests {
 
     #[test]
     fn the_constants_are_layout_json() {
-        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64)] {
+        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE), ("pendingDelayMs", PENDING_DELAY_MS), ("skeletonPulseMs", SKELETON_PULSE_MS), ("skeletonOpacityLow", SKELETON_OPACITY_LOW), ("skeletonOpacityHigh", SKELETON_OPACITY_HIGH), ("skeletonReducedOpacity", SKELETON_REDUCED_OPACITY), ("searchListFade", SEARCH_LIST_FADE as f64), ("tableColumnMin", TABLE_COLUMN_MIN as f64), ("tabStripMaxWidth", TAB_STRIP_MAX_WIDTH as f64), ("tabDragThreshold", TAB_DRAG_THRESHOLD as f64), ("tabLongPressMs", TAB_LONG_PRESS_MS)] {
             assert_eq!(layout_constant(name), Some(v), "{name}");
         }
-        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 18);
+        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 21);
         let json: serde_json::Value = serde_json::from_str(g::LAYOUT_JSON).unwrap();
         assert_eq!(json["windowThreshold"], 50);
     }

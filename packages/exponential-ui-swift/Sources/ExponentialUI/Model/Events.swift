@@ -658,6 +658,20 @@ extension SurfaceModel {
         fire(index, "drag", payload: .object(["phase": .string(phase), "delta": .number(Double(delta))]))
     }
 
+    /// VAPP-279: a `strip` Tabs' tab (it reorders by a long-press drag and
+    /// by Cmd+Shift+Arrow on a hardware keyboard).
+    public func isStripTab(_ index: Int) -> Bool {
+        guard let n = node(index), n.ownerComponent == "Tabs", n.part == "tab", let o = n.owner, let oi = self.index(of: o), let owner = node(oi) else { return false }
+        return owner.props.str("variant") == "strip"
+    }
+
+    /// VAPP-279: a strip tab's reorder drag (`phase` = start | move | end,
+    /// `delta` = pt along the row since the drag STARTED, screen
+    /// direction): the core previews the order and fires `reorder`.
+    public func tabDrag(_ index: Int, phase: String, delta: CGFloat) {
+        fire(index, "drag", payload: .object(["phase": .string(phase), "delta": .number(Double(delta))]))
+    }
+
     /// A key on a node the core handles itself (a Resizable handle: the
     /// arrows, Home, End, Enter).
     public func nodeKey(_ index: Int, key: String) {
