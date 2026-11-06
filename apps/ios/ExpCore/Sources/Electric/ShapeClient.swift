@@ -222,6 +222,14 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         }
     }
 
+    /// EXP-1676: whether a response is Electric's: every shape answer carries
+    /// its `electric-handle` / `electric-offset` headers (the shape proxy
+    /// forwards them); anything else answering is not this server.
+    static func isElectricResponse(_ response: HTTPURLResponse) -> Bool {
+        response.value(forHTTPHeaderField: "electric-handle") != nil
+            || response.value(forHTTPHeaderField: "electric-offset") != nil
+    }
+
     /// Does this failure mean "the network isn't usable yet" rather than "the
     /// server said no"? These all clear by themselves once the radio, the VPN
     /// tunnel or the DNS resolver is up.
@@ -357,7 +365,13 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
 
         logger.info("[\(self.shapeName)] HTTP \(httpResponse.statusCode), \(data.count) bytes, \(kind), \(elapsedMs)ms")
         SyncDebug.shared.log("[\(shapeName)] HTTP \(httpResponse.statusCode), \(data.count)B, \(kind) \(elapsedMs)ms")
-        SyncDebug.shared.reportShape(name: shapeName, httpStatus: httpResponse.statusCode, isLive: wasLive, accountId: accountId)
+        // EXP-1676: a 2xx without Electric's headers is not the server (a
+        // captive portal, a maintenance or SPA fallback page): no success.
+        let fromElectric = Self.isElectricResponse(httpResponse)
+        SyncDebug.shared.reportShape(
+            name: shapeName, httpStatus: httpResponse.statusCode, isLive: wasLive, accountId: accountId,
+            fromElectric: fromElectric
+        )
 
         if httpResponse.statusCode == 409 {
             // The shape rotated. Electric sends the replacement handle in the
@@ -427,6 +441,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         guard (200...299).contains(httpResponse.statusCode) else {
             throw ShapeError.httpError(httpResponse.statusCode)
         }
+        guard fromElectric else { throw ShapeError.notElectric(httpResponse.statusCode) }
 
         // EXP-656: a devices poll that came back is this client's own evidence
         // that its presence rows are current — stamped here rather than
@@ -606,6 +621,8 @@ public enum ShapeError: Error {
     /// the shape loop for good on this case.
     case upgradeRequired
     case httpError(Int)
+    /// EXP-1676: a 2xx that is not Electric's (no `electric-*` headers).
+    case notElectric(Int)
     /// #EXP-1623: HTTP 404, the server does not serve this shape (yet);
     /// run() re-asks every `unknownShapeRetry`.
     case unknownShape
