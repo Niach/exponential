@@ -92,10 +92,19 @@ public enum NeedsYou {
         public let checksState: String?
         public let basePullRequestId: String?
         public let createdAt: String
+        /// #EXP-1710 (merge-train.json NEEDS YOU): the train's state, wait and
+        /// hold reason; nil = a pre-train row.
+        public let mergeState: String?
+        public let mergeWait: String?
+        public let mergeHold: String?
+        /// When the opener session's device went offline (wire), nil = online.
+        public let deviceOfflineSince: String?
 
         public init(
             id: String, rootSessionId: String?, number: Int, title: String, state: String, checksState: String?,
-            basePullRequestId: String?, createdAt: String
+            basePullRequestId: String?, createdAt: String,
+            mergeState: String? = nil, mergeWait: String? = nil, mergeHold: String? = nil,
+            deviceOfflineSince: String? = nil
         ) {
             self.id = id
             self.rootSessionId = rootSessionId
@@ -105,6 +114,10 @@ public enum NeedsYou {
             self.checksState = checksState
             self.basePullRequestId = basePullRequestId
             self.createdAt = createdAt
+            self.mergeState = mergeState
+            self.mergeWait = mergeWait
+            self.mergeHold = mergeHold
+            self.deviceOfflineSince = deviceOfflineSince
         }
     }
 
@@ -132,12 +145,20 @@ public enum NeedsYou {
         public let meta: String
         public let age: String
         public let createdAt: String
+        /// #EXP-1710: a stuck PR's Button sm row (Retry, Merge now, Close
+        /// PR); empty = a plain row.
+        public let actions: [MergeTrain.StuckRow.Action]
+        /// #EXP-1710: the PR's number (a stuck row's confirms name it).
+        public let number: Int?
         public var id: String { messageId }
 
         public init(
             messageId: String, sessionId: String, rootId: String, kind: Kind, opens: Opens, title: String,
-            chat: String, meta: String, age: String, createdAt: String
+            chat: String, meta: String, age: String, createdAt: String,
+            actions: [MergeTrain.StuckRow.Action] = [], number: Int? = nil
         ) {
+            self.actions = actions
+            self.number = number
             self.messageId = messageId
             self.sessionId = sessionId
             self.rootId = rootId
@@ -216,18 +237,46 @@ public enum NeedsYou {
         )
     }
 
-    /// #EXP-1699: the PRs ready to merge (`prCases`).
+    /// #EXP-1699: the PRs ready to merge (`prCases`), and (#EXP-1710,
+    /// merge-train.json NEEDS YOU) the STUCK PRs: `auto` mode lists no ready
+    /// PR (nobody waits on a person), `approval` mode (or no mode: a
+    /// pre-train caller) keeps them, their tap being Needs approval.
     private static func pullRequestRows(
-        now: Double, me: String?, sessions: [SessionInput], pullRequests: [PullRequestInput]
+        now: Double, me: String?, sessions: [SessionInput], pullRequests: [PullRequestInput],
+        mergeMode: String?, owner: Bool
     ) -> [Row] {
         let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         let live = Set(pullRequests.filter { $0.state == "open" || $0.state == "draft" }.map(\.id))
         let working = Set(sessions.filter(\.busy).map(\.rootId))
+        let nowDate = Date(timeIntervalSince1970: now / 1000)
         return pullRequests.compactMap { pr in
-            guard let root = pr.rootSessionId.flatMap({ sessionsById[$0] }), pr.state == "open",
-                  pr.checksState == "success"
-            else { return nil }
+            guard let root = pr.rootSessionId.flatMap({ sessionsById[$0] }) else { return nil }
             if root.agentId != nil, root.userId != me { return nil }
+            if pr.state == "open" || pr.state == "draft",
+               let stuck = MergeTrain.stuckRow(
+                   number: pr.number, state: pr.mergeState, holdReason: pr.mergeHold,
+                   deviceOfflineSince: pr.deviceOfflineSince.flatMap(WireTimestamps.parse), now: nowDate, owner: owner
+               ) {
+                return Row(
+                    messageId: pr.id,
+                    sessionId: root.id,
+                    rootId: root.id,
+                    kind: .pr,
+                    opens: root.agentId == nil ? .results : .chat,
+                    title: stuck.title,
+                    chat: root.name,
+                    meta: stuck.meta,
+                    age: ResultsTab.age(ms(pr.createdAt), now: now),
+                    createdAt: pr.createdAt,
+                    actions: stuck.actions,
+                    number: pr.number
+                )
+            }
+            guard mergeMode != DomainContract.teamMergeModeAuto, pr.state == "open", pr.checksState == "success"
+            else { return nil }
+            // A train row already past the approval wait never asks again.
+            if let state = pr.mergeState, state != DomainContract.prMergeStateChecks { return nil }
+            if let wait = pr.mergeWait, wait != "approval" { return nil }
             if working.contains(root.id) { return nil }
             if let base = pr.basePullRequestId, live.contains(base) { return nil }
             return Row(
@@ -240,16 +289,20 @@ public enum NeedsYou {
                 chat: root.name,
                 meta: "#\(pr.number)",
                 age: ResultsTab.age(ms(pr.createdAt), now: now),
-                createdAt: pr.createdAt
+                createdAt: pr.createdAt,
+                number: pr.number
             )
         }
     }
 
     /// THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready
     /// to merge, newest first.
+    /// `mergeMode` = the team's (contract teamMergeMode; nil = a pre-train
+    /// caller: the EXP-1699 rows stay); `owner` = the viewer owns the team
+    /// (a stuck row's Merge now).
     public static func rows(
         now: Double, me: String?, sessions: [SessionInput], messages: [MessageInput],
-        pullRequests: [PullRequestInput] = []
+        pullRequests: [PullRequestInput] = [], mergeMode: String? = nil, owner: Bool = false
     ) -> [Row] {
         // Another member's agent conversation is theirs (chats.json `listAgents`).
         let mayRead = sessions.filter { $0.agentId == nil || $0.userId == me }
@@ -272,7 +325,9 @@ public enum NeedsYou {
         for row in unnamed where waitingIn.insert(row.sessionId).inserted {
             rows[row.messageId] = row
         }
-        let all = Array(rows.values) + pullRequestRows(now: now, me: me, sessions: sessions, pullRequests: pullRequests)
+        let all = Array(rows.values) + pullRequestRows(
+            now: now, me: me, sessions: sessions, pullRequests: pullRequests, mergeMode: mergeMode, owner: owner
+        )
         return all.sorted { a, b in
             if (a.kind == .pr) != (b.kind == .pr) { return b.kind == .pr }
             let at = ms(a.createdAt), bt = ms(b.createdAt)

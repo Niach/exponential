@@ -81,6 +81,8 @@ public struct UpdateTeamInput: Encodable, Sendable {
     public var name: String?
     /// EXP-1105: yolo mode.
     public var yoloMode: Bool?
+    /// #EXP-1709 (merge-train.json MODE): contract teamMergeMode.
+    public var mergeMode: String?
     /// EXP-1025: the team prompt (raw markdown; "" = none).
     public var agentPrompt: String?
     /// VAPP-201: the team time zone. nil = unchanged, `.some(nil)` = clear
@@ -96,9 +98,11 @@ public struct UpdateTeamInput: Encodable, Sendable {
         yoloMode: Bool? = nil,
         agentPrompt: String? = nil,
         timeZone: String?? = nil,
-        iconUrl: String?? = nil
+        iconUrl: String?? = nil,
+        mergeMode: String? = nil
     ) {
         self.teamId = teamId
+        self.mergeMode = mergeMode
         self.name = name
         self.yoloMode = yoloMode
         self.agentPrompt = agentPrompt
@@ -107,7 +111,7 @@ public struct UpdateTeamInput: Encodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case teamId, name, yoloMode, agentPrompt, timeZone, iconUrl
+        case teamId, name, yoloMode, mergeMode, agentPrompt, timeZone, iconUrl
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -115,6 +119,7 @@ public struct UpdateTeamInput: Encodable, Sendable {
         try c.encode(teamId, forKey: .teamId)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(yoloMode, forKey: .yoloMode)
+        try c.encodeIfPresent(mergeMode, forKey: .mergeMode)
         try c.encodeIfPresent(agentPrompt, forKey: .agentPrompt)
         if let timeZone {
             if let timeZone { try c.encode(timeZone, forKey: .timeZone) } else { try c.encodeNil(forKey: .timeZone) }

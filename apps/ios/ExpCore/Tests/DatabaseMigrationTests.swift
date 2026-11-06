@@ -144,7 +144,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name"]
+             "v100_app_record_share_name", "v101_merge_train"]
         )
     }
 
@@ -210,7 +210,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name"]
+             "v100_app_record_share_name", "v101_merge_train"]
         )
     }
 
@@ -748,7 +748,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name"]
+             "v100_app_record_share_name", "v101_merge_train"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -862,7 +862,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
              "v98_app_version_migration", "v99_message_attachment_ids",
-             "v100_app_record_share_name"]
+             "v100_app_record_share_name", "v101_merge_train"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1951,7 +1951,9 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "pull_requests"),
             ["id", "team_id", "root_session_id", "session_id", "repository_id",
              "number", "url", "title", "head", "base", "base_pull_request_id",
-             "state", "merged_at", "created_at", "updated_at", "checks_state"]
+             "state", "merged_at", "created_at", "updated_at", "checks_state",
+             "merge_state", "merge_wait", "merge_attempts", "merge_hold", "merge_queued_since",
+             "merge_now", "merge_position", "merge_train_id"]
         )
         XCTAssertEqual(
             try columnNames(pool, "pull_request_checks"),
@@ -4110,6 +4112,8 @@ final class DatabaseMigrationTests: XCTestCase {
             """#.utf8)
         let row = try JSONDecoder().decode(TeamEntity.self, from: wire)
         XCTAssertEqual(row.timeZone, "Europe/Vienna")
+        // The entity carries every later column (v101 `merge_mode`).
+        try DatabaseManager.runMigrations(on: pool)
         try pool.write { db in try row.save(db) }
         XCTAssertEqual(try pool.read { db in try TeamEntity.fetchOne(db, key: "t1") }, row)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
@@ -4260,6 +4264,71 @@ final class DatabaseMigrationTests: XCTestCase {
             try AppRecordOutboxEntity.order(Column("seq")).fetchAll(db).compactMap(\.entry)
         }
         XCTAssertEqual(read, [first, second])
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+
+    // #EXP-1710: v101 adds the merge train's `pull_requests` columns and
+    // `teams.merge_mode` (existing rows = checks / auto), resetting the
+    // pull-requests and teams cursors; wire rows round-trip.
+    func testMergeTrainColumnsAdded() throws {
+        let pool = try makePool("exp1710-merge-train")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v100_app_record_share_name")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "pull_requests" ("id", "team_id", "repository_id", "number", "url", "head", "base",
+                    "created_at", "updated_at")
+                VALUES ('pr1', 't', 'r', 7, 'u', 'h', 'master', 'x', 'x')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "teams" ("id", "name", "slug", "created_at", "updated_at")
+                VALUES ('t', 'Acme', 'acme', 'x', 'x')
+                """)
+            for shape in ["pull-requests", "teams", "issues"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v101_merge_train"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["pull-requests", "teams"])
+            let pr = try PullRequestEntity.fetchOne(db, key: "pr1")
+            XCTAssertEqual(pr?.mergeState, "checks")
+            XCTAssertEqual(pr?.mergeAttempts, 0)
+            XCTAssertEqual(pr?.mergeNow, false)
+            XCTAssertNil(pr?.mergePosition)
+            XCTAssertEqual(try TeamEntity.fetchOne(db, key: "t")?.mergeMode, "auto")
+        }
+        let wire = try JSONDecoder().decode(PullRequestEntity.self, from: Data(#"""
+            {"id":"pr2","team_id":"t","repository_id":"r","number":"8","url":"u","head":"h","base":"master",
+             "state":"open","checks_state":"success","merge_state":"queued","merge_wait":null,
+             "merge_attempts":"2","merge_hold":null,"merge_queued_since":"2027-01-15T10:00:00Z",
+             "merge_now":"t","merge_position":"2","merge_train_id":"tr1","created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertEqual(wire.mergeState, "queued")
+        XCTAssertEqual(wire.mergeAttempts, 2)
+        XCTAssertTrue(wire.mergeNow)
+        XCTAssertEqual(wire.mergePosition, 2)
+        XCTAssertEqual(wire.mergeTrainId, "tr1")
+        try pool.write { db in try wire.save(db) }
+        try pool.read { db in
+            XCTAssertEqual(try PullRequestEntity.fetchOne(db, key: "pr2"), wire)
+        }
+        let team = try JSONDecoder().decode(TeamEntity.self, from: Data(#"""
+            {"id":"t2","name":"Acme","slug":"acme","icon_url":null,"merge_mode":"approval",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertEqual(team.mergeMode, "approval")
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

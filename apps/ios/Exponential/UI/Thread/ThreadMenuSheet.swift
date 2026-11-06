@@ -8,13 +8,17 @@ import SwiftUI
 /// identifier, the same two rows, then `Unlink <IDENT>` (destructive). A pick hands the
 /// action back; the host runs it once the sheet has dismissed (a push or a
 /// second sheet from under a dismissing one is dropped). EXP-1307: the
-/// Guide header's `…` opens it untitled with `guideMenuEntries` — Close PR
-/// without merging (destructive; EXP-1338: no GitHub entry).
+/// Guide header's `…` opens it untitled with (#EXP-1710) `mergeMenuEntries`
+/// — Merge now (owners), Hold | Resume auto-merge, Close PR without merging
+/// (destructive; EXP-1338: no GitHub entry).
 struct ThreadMenuSheet: View {
     enum Action: Equatable {
         case linkIssue
         case newIssue
         case unlink
+        case mergeNow
+        case hold
+        case resume
         case closePr
     }
 
@@ -25,7 +29,7 @@ struct ThreadMenuSheet: View {
     /// The issue tab's identifier; nil = the "+" (no title, no Unlink).
     let identifier: String?
     /// EXP-1307: the Guide's `…` entries; nil = the strip's menu.
-    var guideEntries: [SessionTree.GuideMenuEntry]?
+    var guideEntries: [MergeTrain.MenuEntry]?
     let onPick: (Action) -> Void
 
     var body: some View {
@@ -34,6 +38,12 @@ struct ThreadMenuSheet: View {
                 if let guideEntries {
                     ForEach(guideEntries, id: \.self) { entry in
                         switch entry {
+                        case .mergeNow:
+                            row(.mergeNow, MergeTrain.Copy.Menu.mergeNow, icon: AppIcons.prMerged)
+                        case .hold:
+                            row(.hold, MergeTrain.Copy.Menu.hold, icon: AppIcons.prHold)
+                        case .resume:
+                            row(.resume, MergeTrain.Copy.Menu.resume, icon: AppIcons.prResume)
                         case .closePr:
                             row(.closePr, ClosePrCopy.menuItem, icon: AppIcons.prClosed, destructive: true)
                         case .checks:
@@ -72,7 +82,7 @@ struct ThreadMenuSheet: View {
             GlassMenuItemLabel(title, icon: icon, destructive: destructive)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("thread-menu-\(Self.testId(action))")
+        .accessibilityIdentifier(Self.accessibilityId(action))
     }
 
     private static func testId(_ action: Action) -> String {
@@ -80,7 +90,19 @@ struct ThreadMenuSheet: View {
         case .linkIssue: "link-issue"
         case .newIssue: "new-issue"
         case .unlink: "unlink"
+        case .mergeNow: "merge-now"
+        case .hold: "hold"
+        case .resume: "resume"
         case .closePr: "close-pr"
+        }
+    }
+
+    private static func accessibilityId(_ action: Action) -> String {
+        switch action {
+        case .mergeNow: MergeTrain.TestIds.mergeNow
+        case .hold: MergeTrain.TestIds.hold
+        case .resume: MergeTrain.TestIds.resume
+        default: "thread-menu-\(testId(action))"
         }
     }
 }

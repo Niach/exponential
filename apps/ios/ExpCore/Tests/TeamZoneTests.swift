@@ -60,6 +60,9 @@ final class UpdateTeamInputTimeZoneTests: XCTestCase {
     // VAPP-201: nil = unchanged (absent), `.some(nil)` = JSON null (clear).
     func testTimeZoneEncoding() throws {
         XCTAssertNil(try json(UpdateTeamInput(teamId: "t"))["timeZone"])
+        // #EXP-1710: the Merge select row's mode rides the same input.
+        XCTAssertNil(try json(UpdateTeamInput(teamId: "t"))["mergeMode"])
+        XCTAssertEqual(try json(UpdateTeamInput(teamId: "t", mergeMode: "approval"))["mergeMode"] as? String, "approval")
         XCTAssertEqual(try json(UpdateTeamInput(teamId: "t", timeZone: .some("Europe/Vienna")))["timeZone"] as? String, "Europe/Vienna")
         let cleared = try json(UpdateTeamInput(teamId: "t", timeZone: .some(nil)))
         XCTAssertTrue(cleared.keys.contains("timeZone"))

@@ -51,13 +51,21 @@ public struct NeedsYouEntryRow: View {
 /// THE LIST: the leading glyph in the needs-you tone (waiting-cards.json
 /// `icons`, a PR's `pr-open`), line 1 the title then the age muted trailing,
 /// line 2 the chat then ` · meta`, muted. No row = THE EmptyState.
+/// #EXP-1710: a stuck PR's row carries THE Button sm row under its text
+/// (Retry, Merge now, Close PR); `onAction` runs a press.
 public struct NeedsYouList: View {
     let rows: [NeedsYou.Row]
     let onOpen: (NeedsYou.Row) -> Void
+    var onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)?
 
-    public init(rows: [NeedsYou.Row], onOpen: @escaping (NeedsYou.Row) -> Void) {
+    public init(
+        rows: [NeedsYou.Row],
+        onOpen: @escaping (NeedsYou.Row) -> Void,
+        onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)? = nil
+    ) {
         self.rows = rows
         self.onOpen = onOpen
+        self.onAction = onAction
     }
 
     public var body: some View {
@@ -67,9 +75,20 @@ public struct NeedsYouList: View {
         } else {
             LazyVStack(spacing: 0) {
                 ForEach(rows) { row in
-                    Button { onOpen(row) } label: { NeedsYouRowView(row: row) }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier(NeedsYou.TestIds.row)
+                    if row.actions.isEmpty {
+                        Button { onOpen(row) } label: { NeedsYouRowView(row: row) }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier(NeedsYou.TestIds.row)
+                    } else {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Button { onOpen(row) } label: { NeedsYouRowView(row: row) }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier(NeedsYou.TestIds.row)
+                            NeedsYouStuckActions(row: row) { onAction?(row, $0) }
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier(MergeTrain.TestIds.stuckRow)
+                    }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -119,5 +138,35 @@ struct NeedsYouRowView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .flatRow()
+    }
+}
+
+/// #EXP-1710 (merge-train.json NEEDS YOU): THE Button sm row of a stuck PR,
+/// under the row's text column.
+struct NeedsYouStuckActions: View {
+    let row: NeedsYou.Row
+    let onAction: (MergeTrain.StuckRow.Action) -> Void
+
+    private func label(_ action: MergeTrain.StuckRow.Action) -> String {
+        switch action {
+        case .retry: MergeTrain.Copy.NeedsYou.retry
+        case .mergeNow: MergeTrain.Copy.NeedsYou.mergeNow
+        case .closePr: MergeTrain.Copy.NeedsYou.close
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(row.actions, id: \.self) { action in
+                GlassPill(label(action), size: .sm, mode: .action { onAction(action) })
+                    .fixedSize()
+                    .accessibilityIdentifier("\(MergeTrain.TestIds.stuckRow)-\(action.rawValue)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // The text column: the row's padding + the glyph + its gap.
+        .padding(.leading, 12 + 16 + 12)
+        .padding(.trailing, 12)
+        .padding(.bottom, 8)
     }
 }

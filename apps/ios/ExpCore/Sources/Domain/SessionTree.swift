@@ -329,6 +329,9 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let description: String?
     /// #EXP-1561 plan | question: a person dismissed it (`dismissed: true`).
     public let dismissed: Bool
+    /// #EXP-1710 event `pr_merge`: merged | conflict | failing | held (nil =
+    /// an older card: the fallback line).
+    public let mergeOutcome: String?
 
     public init(
         kind: String?,
@@ -365,10 +368,12 @@ public struct TreeMessageCard: Equatable, Sendable {
         result: Bool? = nil,
         pictures: [PlanCardPicture] = [],
         description: String? = nil,
-        dismissed: Bool = false
+        dismissed: Bool = false,
+        mergeOutcome: String? = nil
     ) {
         self.kind = kind
         self.dismissed = dismissed
+        self.mergeOutcome = mergeOutcome
         self.story = story
         self.result = result
         self.pictures = pictures
@@ -515,7 +520,8 @@ public struct TreeMessageCard: Equatable, Sendable {
             pictures: pictures,
             description: text("description"),
             // `card.dismissed === true` in the reference.
-            dismissed: CardJSON.isTrue(object["dismissed"])
+            dismissed: CardJSON.isTrue(object["dismissed"]),
+            mergeOutcome: text("mergeOutcome")
         )
     }
 
@@ -2414,7 +2420,13 @@ public enum SessionTree {
         pullRequests: [String: TreePullRequest],
         sessionName: (String) -> String? = { _ in nil }
     ) -> String? {
-        guard let template = ThreadCopy.events[card.event ?? ""] else { return nil }
+        guard var template = ThreadCopy.events[card.event ?? ""] else { return nil }
+        // #EXP-1710: the merge train's line by its outcome (merge-train.json
+        // copy.events); an older card keeps the fallback.
+        if card.event == DomainContract.messageEventKindPrMerge,
+           let outcome = MergeTrain.eventTemplate(outcome: card.mergeOutcome) {
+            template = outcome
+        }
         var text = template
         if text.contains("{issue}") {
             guard let issue = card.issueId.flatMap({ issues[$0] }) else { return nil }

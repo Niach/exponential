@@ -479,6 +479,12 @@ private struct PullRequestIdInput: Encodable {
     let pullRequestId: String
 }
 
+/// #EXP-1709: `pullRequests.hold` (hold = false: Resume auto-merge / Retry).
+private struct HoldPullRequestInput: Encodable {
+    let pullRequestId: String
+    let hold: Bool
+}
+
 public final class PullRequestsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -505,6 +511,26 @@ public final class PullRequestsApi: Sendable {
             accountId: accountId,
             path: "pullRequests.close",
             input: PullRequestIdInput(pullRequestId: pullRequestId)
+        )
+    }
+
+    /// #EXP-1709 (merge-train.json MENU): an owner's Merge now: the PR (its
+    /// whole stack) lands at the queue's front, untested.
+    public func mergeNow(accountId: String, pullRequestId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "pullRequests.mergeNow",
+            input: PullRequestIdInput(pullRequestId: pullRequestId)
+        )
+    }
+
+    /// #EXP-1709: a member's Hold auto-merge (`hold`) or Resume auto-merge /
+    /// the Needs you Retry (`!hold`).
+    public func hold(accountId: String, pullRequestId: String, hold: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "pullRequests.hold",
+            input: HoldPullRequestInput(pullRequestId: pullRequestId, hold: hold)
         )
     }
 

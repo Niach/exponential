@@ -45,6 +45,9 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
     /// EXP-1105 yolo mode: PRs auto-merge, so the Reviews tab hides unless
     /// an open PR (= a failed auto-merge) is waiting.
     public let yoloMode: Bool
+    /// #EXP-1709 (merge-train.json MODE): contract teamMergeMode, `auto`
+    /// (the default) | `approval` (a ready PR waits for Needs approval).
+    public let mergeMode: String
     /// EXP-630: the team's estimate scale (contract `issueEstimation`). NULL
     /// (a pre-rotation snapshot) reads as `none` = estimates off.
     public let estimationType: String?
@@ -60,6 +63,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
         slug: String,
         iconUrl: String?,
         yoloMode: Bool = false,
+        mergeMode: String = DomainContract.teamMergeModeAuto,
         estimationType: String? = nil,
         timeZone: String? = nil,
         createdAt: String,
@@ -70,6 +74,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
         self.slug = slug
         self.iconUrl = iconUrl
         self.yoloMode = yoloMode
+        self.mergeMode = mergeMode
         self.estimationType = estimationType
         self.timeZone = timeZone
         self.createdAt = createdAt
@@ -84,6 +89,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
         case id, name, slug
         case iconUrl = "icon_url"
         case yoloMode = "yolo_mode"
+        case mergeMode = "merge_mode"
         case estimationType = "estimation_type"
         case timeZone = "time_zone"
         case createdAt = "created_at"
@@ -103,6 +109,7 @@ extension TeamEntity: Codable {
         slug = try c.decode(String.self, forKey: .slug)
         iconUrl = try c.decodeIfPresent(String.self, forKey: .iconUrl)
         yoloMode = c.decodeWireBool(forKey: .yoloMode, default: false)
+        mergeMode = try c.decodeIfPresent(String.self, forKey: .mergeMode) ?? DomainContract.teamMergeModeAuto
         estimationType = try c.decodeIfPresent(String.self, forKey: .estimationType)
         timeZone = try c.decodeIfPresent(String.self, forKey: .timeZone)
         createdAt = try c.decode(String.self, forKey: .createdAt)
@@ -982,6 +989,19 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
     /// #EXP-1611: the CI aggregate (contract prChecksState; pr-checks.json
     /// `aggregate`), driving the header Merge pill.
     public let checksState: String
+    /// #EXP-1709 (merge-train.json STATE): the train's state of the PR
+    /// (contract prMergeState, default `checks`), what a `checks` PR still
+    /// waits for (`mergeWait`), bounces, the hold reason (person | bounces |
+    /// timeout, nil = none), the 24 h clock, an owner's Merge now, the
+    /// unit's 1-based queue place and the run testing it.
+    public let mergeState: String
+    public let mergeWait: String?
+    public let mergeAttempts: Int
+    public let mergeHold: String?
+    public let mergeQueuedSince: String?
+    public let mergeNow: Bool
+    public let mergePosition: Int?
+    public let mergeTrainId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -1000,6 +1020,14 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
         state: String = DomainContract.prStateOpen,
         mergedAt: String? = nil,
         checksState: String = DomainContract.prChecksStateNone,
+        mergeState: String = DomainContract.prMergeStateChecks,
+        mergeWait: String? = nil,
+        mergeAttempts: Int = 0,
+        mergeHold: String? = nil,
+        mergeQueuedSince: String? = nil,
+        mergeNow: Bool = false,
+        mergePosition: Int? = nil,
+        mergeTrainId: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1017,6 +1045,14 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
         self.state = state
         self.mergedAt = mergedAt
         self.checksState = checksState
+        self.mergeState = mergeState
+        self.mergeWait = mergeWait
+        self.mergeAttempts = mergeAttempts
+        self.mergeHold = mergeHold
+        self.mergeQueuedSince = mergeQueuedSince
+        self.mergeNow = mergeNow
+        self.mergePosition = mergePosition
+        self.mergeTrainId = mergeTrainId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -1032,6 +1068,14 @@ public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiabl
         case basePullRequestId = "base_pull_request_id"
         case mergedAt = "merged_at"
         case checksState = "checks_state"
+        case mergeState = "merge_state"
+        case mergeWait = "merge_wait"
+        case mergeAttempts = "merge_attempts"
+        case mergeHold = "merge_hold"
+        case mergeQueuedSince = "merge_queued_since"
+        case mergeNow = "merge_now"
+        case mergePosition = "merge_position"
+        case mergeTrainId = "merge_train_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -1054,6 +1098,15 @@ extension PullRequestEntity: Codable {
         state = try c.decodeIfPresent(String.self, forKey: .state) ?? DomainContract.prStateOpen
         mergedAt = try c.decodeIfPresent(String.self, forKey: .mergedAt)
         checksState = try c.decodeIfPresent(String.self, forKey: .checksState) ?? DomainContract.prChecksStateNone
+        // #EXP-1709: a pre-train snapshot omits them (the schema defaults).
+        mergeState = try c.decodeIfPresent(String.self, forKey: .mergeState) ?? DomainContract.prMergeStateChecks
+        mergeWait = try c.decodeIfPresent(String.self, forKey: .mergeWait)
+        mergeAttempts = try c.decodeWireInt(forKey: .mergeAttempts) ?? 0
+        mergeHold = try c.decodeIfPresent(String.self, forKey: .mergeHold)
+        mergeQueuedSince = try c.decodeIfPresent(String.self, forKey: .mergeQueuedSince)
+        mergeNow = c.decodeWireBool(forKey: .mergeNow, default: false)
+        mergePosition = try c.decodeWireInt(forKey: .mergePosition)
+        mergeTrainId = try c.decodeIfPresent(String.self, forKey: .mergeTrainId)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

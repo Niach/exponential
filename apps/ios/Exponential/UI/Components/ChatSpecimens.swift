@@ -888,10 +888,11 @@ struct SealedLockedSpecimens: View {
     }
 }
 
-/// #EXP-1611 (styleguide `pr-checks`, pr-checks.json): THE header Merge pill
-/// in its four check states (none, pending, success, failure), then the
-/// header `…`'s Checks entry and its pushed page as static menu panels over
-/// the fixture's `specimen` (checks + now).
+/// #EXP-1611 (styleguide `pr-checks`, pr-checks.json): THE header pill —
+/// since #EXP-1710 the merge train's STATUS pill (merge-train.json
+/// `statusPill`) in its states — then the header `…`'s Checks entry and its
+/// pushed page as static menu panels over the fixture's `specimen` (checks +
+/// now).
 struct PrChecksSpecimens: View {
     /// pr-checks.json `specimen.checks`.
     static let checks: [PrChecks.Check] = [
@@ -919,29 +920,54 @@ struct PrChecksSpecimens: View {
     /// pr-checks.json `specimen.now`.
     static let now = WireTimestamps.parse("2026-11-01T12:10:00.000Z") ?? Date()
 
-    private static let states = [
-        DomainContract.prChecksStateNone, DomainContract.prChecksStatePending,
-        DomainContract.prChecksStateSuccess, DomainContract.prChecksStateFailure,
+    /// One pill per train state (merge-train.json `statusPill` cases).
+    private struct PillState: Identifiable {
+        let id: String
+        let state: String
+        var wait: String?
+        var position: Int?
+        var batchSize: Int?
+        var hold: String?
+    }
+
+    private static let states: [PillState] = [
+        PillState(id: "draft", state: "draft", wait: "draft"),
+        PillState(id: "checks", state: "checks", wait: "checks"),
+        PillState(id: "session", state: "checks", wait: "session"),
+        PillState(id: "queued", state: "queued", position: 2),
+        PillState(id: "testing", state: "testing", batchSize: 4),
+        PillState(id: "merged", state: "merged"),
+        PillState(id: "conflict", state: "conflict"),
+        PillState(id: "failing", state: "failing", wait: "failing"),
+        PillState(id: "held", state: "held", hold: "person"),
+        PillState(id: "stuck", state: "held", hold: "bounces"),
+        PillState(id: "approval", state: "checks", wait: "approval"),
     ]
 
-    private static func pullRequest(_ state: String) -> PullRequestEntity {
+    private static func pullRequest(_ pill: PillState) -> PullRequestEntity {
         PullRequestEntity(
-            id: "pr-\(state)", teamId: "t", repositoryId: "r", number: 1611,
+            id: "pr-\(pill.id)", teamId: "t", repositoryId: "r", number: 1611,
             url: "https://github.com/o/r/pull/1611", head: "exp-1611", base: "master",
-            checksState: state, createdAt: "2026-11-01T12:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000Z"
+            state: pill.state == "merged" ? DomainContract.prStateMerged : DomainContract.prStateOpen,
+            checksState: PrChecks.aggregate(checks),
+            mergeState: pill.state, mergeWait: pill.wait, mergeHold: pill.hold, mergePosition: pill.position,
+            mergeTrainId: pill.batchSize == nil ? nil : "train",
+            createdAt: "2026-11-01T12:00:00.000Z", updatedAt: "2026-11-01T12:00:00.000Z"
         )
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             FlowLayout(spacing: 8, centersLines: true) {
-                ForEach(Self.states, id: \.self) { state in
+                ForEach(Self.states) { pill in
                     WorkMergePill(
-                        pullRequest: Self.pullRequest(state),
+                        pullRequest: Self.pullRequest(pill),
                         issueCount: 0,
                         checks: Self.checks,
+                        batchSize: pill.batchSize,
+                        onChecks: {},
                         state: .constant(WorkMergeState()),
-                        identifier: "pr-checks-pill-\(state)",
+                        identifier: "pr-checks-pill-\(pill.id)",
                         style: .toolbar
                     )
                 }

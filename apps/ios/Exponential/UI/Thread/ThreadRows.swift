@@ -302,6 +302,13 @@ struct ThreadRows: Sendable {
         return PullRequestStack.stackConfirm(pullRequest, in: stackPool)
     }
 
+    /// #EXP-1710 `Testing with N`: the synced PRs sharing the Guide PR's
+    /// testing run (`merge_train_id`), itself included; nil = no run.
+    var guideBatchSize: Int? {
+        guard let pullRequest = guidePullRequest, let train = pullRequest.mergeTrainId, !train.isEmpty else { return nil }
+        return max(stackPool.filter { $0.mergeTrainId == train }.count, 1)
+    }
+
     /// EXP-1306: the Guide's stack rail (desktop `thread_screen::stack_card`),
     /// nil unless its open PR sits in a linear open stack of 2+.
     var guideStackView: PullRequestStack.StackView? {
@@ -464,7 +471,8 @@ struct ThreadRows: Sendable {
             try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"session_issues\" WHERE \"session_id\" = ?1)", id),
             try stamp(db, table: "issue_relations", where: "\"type\" = 'parent'", nil),
             try stamp(db, table: "issue_statuses", where: "\"team_id\" = ?1", root.teamId),
-            try stamp(db, table: "pull_requests", where: "\"root_session_id\" = ?1", id),
+            // #EXP-1710: every column (the train's state, position and run).
+            try digest(db, table: "pull_requests", where: "\"root_session_id\" = ?1", id),
             // #EXP-1611: the thread PRs' CI rows (the Checks submenu).
             try stamp(db, table: "pull_request_checks", where: "\"pull_request_id\" IN (SELECT \"id\" FROM \"pull_requests\" WHERE \"root_session_id\" = ?1)", id),
             try digest(db, table: "devices", where: "\"device_id\" = ?1", root.deviceId),
@@ -487,6 +495,11 @@ struct ThreadRows: Sendable {
             // The Guide's stack walk: the team's PRs, their links and issues.
             let teamPrs = "SELECT \"id\" FROM \"pull_requests\" WHERE \"team_id\" = ?1"
             parts.append(try stamp(db, table: "pull_requests", where: "\"team_id\" = ?1", root.teamId))
+            // #EXP-1710: who shares a testing run (`Testing with N`).
+            parts.append(try String.fetchOne(db, sql: """
+                SELECT ifnull(group_concat("id" || '=' || "merge_train_id", ','), '') FROM "pull_requests"
+                WHERE "team_id" = ? AND "merge_train_id" IS NOT NULL
+                """, arguments: [root.teamId]) ?? "")
             parts.append(try stamp(db, table: "pull_request_issues", where: "\"pull_request_id\" IN (\(teamPrs))", root.teamId))
             parts.append(try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"pull_request_issues\" WHERE \"pull_request_id\" IN (\(teamPrs)))", root.teamId))
         }

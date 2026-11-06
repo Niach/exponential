@@ -212,7 +212,7 @@ struct TeamImageRow: View {
 
 /// General ×4 (web `general-section.tsx`): the General band over the Name
 /// row (label left, value right, saves on submit and on leaving the field),
-/// the Team image row (#EXP-1645), the time zone, Yolo mode, the Team prompt (raw monospace field, byte counter, autosaves),
+/// the Team image row (#EXP-1645), the time zone, the Merge mode (#EXP-1710), the Team prompt (raw monospace field, byte counter, autosaves),
 /// then the Danger zone (delete team, owner only; EXP-364: an owner may
 /// delete ANY team).
 private struct TeamGeneralPage: View {
@@ -234,8 +234,8 @@ private struct TeamGeneralPage: View {
     @FocusState private var focused: Field?
     @State private var name = ""
     @State private var savingName = false
-    /// The yolo flip while its write is in flight.
-    @State private var yoloPending: Bool?
+    /// #EXP-1710: the Merge mode pick while its write is in flight.
+    @State private var mergeModePending: String?
     /// VAPP-201: the zone pick while its write is in flight (`.some(nil)` =
     /// clearing it).
     @State private var zonePending: String??
@@ -284,15 +284,13 @@ private struct TeamGeneralPage: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("team-settings-identity")
 
-                GlassToggleRow("Yolo mode", isOn: Binding(
-                    get: { yoloPending ?? team.yoloMode },
-                    set: { toggleYolo($0) }
-                ))
-                .disabled(!data.isOwner || yoloPending != nil)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .glassSection()
-                .accessibilityIdentifier("team-yolo-mode")
+                // #EXP-1710 (merge-train.json MODE): the yolo switch became
+                // ONE Merge select row (Automatic | After approval), owners only.
+                mergeModeRow(team)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .glassSection()
+                    .accessibilityIdentifier(MergeTrain.TestIds.settingsRow)
 
                 promptSection
 
@@ -313,7 +311,7 @@ private struct TeamGeneralPage: View {
                 if focused != .name, !savingName, next.team?.name != data.team?.name {
                     name = next.team?.name ?? ""
                 }
-                if let pending = yoloPending, next.team?.yoloMode == pending { yoloPending = nil }
+                if let pending = mergeModePending, next.team?.mergeMode == pending { mergeModePending = nil }
                 if let pending = zonePending, let team = next.team, team.timeZone == pending { zonePending = nil }
                 data = next
             })
@@ -519,17 +517,36 @@ private struct TeamGeneralPage: View {
         }
     }
 
-    /// EXP-1105: a synced team flag, owner-flipped.
-    private func toggleYolo(_ next: Bool) {
-        guard data.isOwner else { return }
-        yoloPending = next
+    /// #EXP-1710: THE select row of the page (the zone row's look): Merge,
+    /// Automatic | After approval; an owner's pick saves at once.
+    private func mergeModeRow(_ team: TeamEntity) -> some View {
+        GlassPickerRow(
+            MergeTrain.Copy.Settings.label,
+            selection: Binding(
+                get: { mergeModePending ?? team.mergeMode },
+                set: { saveMergeMode($0) }
+            ),
+            options: DomainContract.teamMergeModeValues,
+            label: { mode in
+                mode == DomainContract.teamMergeModeApproval
+                    ? MergeTrain.Copy.Settings.approval
+                    : MergeTrain.Copy.Settings.auto
+            },
+            enabled: data.isOwner && mergeModePending == nil
+        )
+    }
+
+    /// #EXP-1710: `teams.update {mergeMode}`, owner-only.
+    private func saveMergeMode(_ next: String) {
+        guard let team = data.team, data.isOwner, next != team.mergeMode else { return }
+        mergeModePending = next
         Task {
             do {
-                try await deps.teamsApi.update(accountId: accountId, UpdateTeamInput(teamId: teamId, yoloMode: next))
+                try await deps.teamsApi.update(accountId: accountId, UpdateTeamInput(teamId: teamId, mergeMode: next))
             } catch {
-                yoloPending = nil
+                mergeModePending = nil
                 toaster.error(
-                    FeedbackStates.Errors.title(verb: "update", thing: "yolo mode"),
+                    FeedbackStates.Errors.title(verb: "update", thing: "the merge mode"),
                     description: error.trpcUserMessage
                 )
             }

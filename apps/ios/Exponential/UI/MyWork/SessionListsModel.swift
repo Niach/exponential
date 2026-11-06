@@ -112,7 +112,9 @@ final class SessionListsModel {
             me: me,
             sessions: input.sessions,
             messages: input.messages,
-            pullRequests: input.pullRequests
+            pullRequests: input.pullRequests,
+            mergeMode: input.mergeMode,
+            owner: me.map { input.owners.contains($0) } ?? false
         )
     }
 
@@ -174,6 +176,10 @@ final class SessionListsModel {
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
         var agents: [AgentLike]
+        /// #EXP-1710: each team's merge mode and its owners (Needs you's
+        /// stuck rows and the approval-only ready rows).
+        var mergeModes: [String: String] = [:]
+        var owners: [String: Set<String>] = [:]
     }
 
     private struct Derived: Sendable, Equatable {
@@ -252,7 +258,13 @@ final class SessionListsModel {
             ),
             pullRequests: try PullRequestEntity.fetchAll(db),
             deviceRows: try DeviceEntity.fetchAll(db),
-            agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init)
+            agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init),
+            mergeModes: Dictionary(
+                try TeamEntity.fetchAll(db).map { ($0.id, $0.mergeMode) }, uniquingKeysWith: { a, _ in a }
+            ),
+            owners: Dictionary(
+                grouping: try TeamMemberEntity.filter(Column("role") == "owner").fetchAll(db), by: \.teamId
+            ).mapValues { Set($0.map(\.userId)) }
         )
     }
 
@@ -391,6 +403,29 @@ final class SessionListsModel {
                 card: message.card
             ))
         }
+        // #EXP-1710 (merge-train.json NEEDS YOU): when the opener session's
+        // device went offline = its synced row's `last_seen_at` once it reads
+        // offline. A device the viewer cannot see (a teammate's private
+        // machine) reads online: its fix never shows as stuck here.
+        let sessionDevice = Dictionary(
+            rows.sessions.compactMap { s in s.deviceId.map { (s.id, (device: $0, user: s.userId)) } },
+            uniquingKeysWith: { a, _ in a }
+        )
+        let devicesById = Dictionary(grouping: rows.deviceRows, by: \.deviceId)
+        let clock = Date()
+        func offlineSince(_ sessionId: String?) -> String? {
+            guard let sessionId, let link = sessionDevice[sessionId], let candidates = devicesById[link.device],
+                  let device = candidates.first(where: { $0.userId == link.user }) ?? candidates.first,
+                  !DeviceLiveness.isOnline(lastSeenAt: device.lastSeenAt, now: clock)
+            else { return nil }
+            return device.lastSeenAt
+        }
+        for (teamId, mode) in rows.mergeModes {
+            inputs[teamId, default: NeedsYouInput()].mergeMode = mode
+        }
+        for (teamId, owners) in rows.owners {
+            inputs[teamId, default: NeedsYouInput()].owners = owners
+        }
         for pr in rows.pullRequests {
             inputs[pr.teamId, default: NeedsYouInput()].pullRequests.append(NeedsYou.PullRequestInput(
                 id: pr.id,
@@ -400,7 +435,11 @@ final class SessionListsModel {
                 state: pr.state,
                 checksState: pr.checksState,
                 basePullRequestId: pr.basePullRequestId,
-                createdAt: pr.createdAt
+                createdAt: pr.createdAt,
+                mergeState: pr.mergeState,
+                mergeWait: pr.mergeWait,
+                mergeHold: pr.mergeHold,
+                deviceOfflineSince: offlineSince(pr.sessionId ?? pr.rootSessionId)
             ))
         }
         return inputs
@@ -412,6 +451,9 @@ struct NeedsYouInput: Equatable, Sendable {
     var sessions: [NeedsYou.SessionInput] = []
     var messages: [NeedsYou.MessageInput] = []
     var pullRequests: [NeedsYou.PullRequestInput] = []
+    /// #EXP-1710: the team's merge mode (nil = not synced yet) and owners.
+    var mergeMode: String?
+    var owners: Set<String> = []
 }
 
 /// EXP-1316: a thread row's trailing device glyph (`DeviceIconDisplay`) and
