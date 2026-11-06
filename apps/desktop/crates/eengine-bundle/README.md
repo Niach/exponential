@@ -21,3 +21,24 @@ Nothing is compiled per app except iOS (the Mac lane links only the declared cap
 ## Signing
 
 With the author's own keys from `bundle.toml` `[signing.<target>]` (we never hold them). Without them a target signs ad-hoc or not at all and says so (`signing` in the fixture lists each target's inputs).
+
+## macOS (`--target macos`)
+
+Kit (`scripts/runner-kits/macos.sh`, on a Mac): `exponential-runner` (crate `eengine-runner`, profile `runner`, `MACOSX_DEPLOYMENT_TARGET=13.0`; universal via lipo when `aarch64-apple-darwin` and `x86_64-apple-darwin` are both installed, else the host arch) + `NOTICES.txt` (`apps/desktop/crates/eengine-runner/NOTICES.txt`, `EXP_RUNNER_NOTICES` overrides the path).
+
+Outputs:
+
+- `{name}.app`: `Contents/MacOS/<name>` (the runner), `Contents/Resources/app/` (`package.app.json`, `runner.json`), `Contents/Resources/AppIcon.icns` (the SVG at 16–1024 px), `Contents/Resources/NOTICES.txt`, and `Contents/Info.plist` (`CFBundleIdentifier` = the config id, name, version, `CFBundleURLTypes` with the scheme, `LSMinimumSystemVersion` 13.0, `NSHighResolutionCapable`). It is signed with the hardened runtime and the sandbox entitlements of the declared scopes (`manifest::macos_entitlements`). Under the App Sandbox the runner's data lands in `~/Library/Containers/<id>/Data/Library/Application Support/<id>/` (`records.sqlite`, `files/`).
+- `{name}-{version}.dmg`: hdiutil (UDZO, the .app + an `/Applications` link). Without hdiutil (a Linux host) only the .app is written, and the CLI says so.
+
+`[signing.macos]` in bundle.toml (all optional; none = ad-hoc `codesign -s -`, which runs on the bundling Mac only):
+
+| key | what |
+|---|---|
+| `identity` | a Developer ID Application identity in the keychain (`codesign --sign`) |
+| `p12_file`, `p12_password` | the certificate as a .p12, signed with `rcodesign` (any host, no keychain) |
+| `notary_api_key` | rcodesign's App Store Connect API key JSON (`rcodesign encode-app-store-connect-api-key`: `issuer_id`, `key_id`, `private_key`). The .dmg is notarized (`rcodesign notary-submit --staple`, else `xcrun notarytool submit --wait` + `stapler`) and the .app is stapled. Needs an identity or a p12 |
+
+```bash
+cargo test -p eengine-bundle   # on a Mac this bundles /usr/bin/true end to end: layout, codesign --verify, entitlements, the .dmg
+```
