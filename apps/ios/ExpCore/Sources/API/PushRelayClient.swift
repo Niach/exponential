@@ -35,6 +35,28 @@ public protocol PushRelayTransport: Sendable {
     func updateInstall(relay: String, install: PushRelayInstall, token: String, environment: String) async throws
     func mintCapability(relay: String, install: PushRelayInstall, label: String) async throws -> PushRelayCapability
     func revokeCapability(relay: String, install: PushRelayInstall, capabilityId: String) async throws
+    /// #EXP-1639: ActivityKit's push-to-start token (`PUT
+    /// /installs/:id/activity-start-token`, nil clears it).
+    func setActivityStartToken(relay: String, install: PushRelayInstall, token: String?) async throws
+    /// #EXP-1639: a started Live Activity's own push token (`POST
+    /// /installs/:id/activities`) → its `activityId`.
+    func registerActivity(relay: String, install: PushRelayInstall, token: String) async throws -> String
+}
+
+private struct ActivityStartTokenBody: Encodable {
+    let token: String?
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // The relay clears on an explicit null.
+        try container.encode(token, forKey: .token)
+    }
+
+    private enum CodingKeys: String, CodingKey { case token }
+}
+
+private struct RegisteredActivity: Decodable {
+    let activityId: String
 }
 
 public final class PushRelayClient: PushRelayTransport {
@@ -83,6 +105,27 @@ public final class PushRelayClient: PushRelayTransport {
         )
     }
 
+    public func setActivityStartToken(relay: String, install: PushRelayInstall, token: String?) async throws {
+        _ = try await send(
+            relay,
+            path: "/installs/\(try segment(install.installId))/activity-start-token",
+            method: "PUT",
+            bearer: install.installSecret,
+            json: try JSONEncoder().encode(ActivityStartTokenBody(token: token))
+        )
+    }
+
+    public func registerActivity(relay: String, install: PushRelayInstall, token: String) async throws -> String {
+        let data = try await send(
+            relay,
+            path: "/installs/\(try segment(install.installId))/activities",
+            method: "POST",
+            bearer: install.installSecret,
+            body: ["token": token]
+        )
+        return try decode(RegisteredActivity.self, data).activityId
+    }
+
     // MARK: - Private
 
     private func segment(_ raw: String) throws -> String {
@@ -96,14 +139,18 @@ public final class PushRelayClient: PushRelayTransport {
     }
 
     private func send(_ relay: String, path: String, method: String, bearer: String?, body: [String: String]?) async throws -> Data {
+        try await send(relay, path: path, method: method, bearer: bearer, json: try body.map { try JSONEncoder().encode($0) })
+    }
+
+    private func send(_ relay: String, path: String, method: String, bearer: String?, json: Data?) async throws -> Data {
         let base = relay.hasSuffix("/") ? String(relay.dropLast()) : relay
         guard let url = URL(string: base + path) else { throw PushRelayError.invalidUrl }
         var request = URLRequest(url: url)
         request.httpMethod = method
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
-        if let body {
+        if let json {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(body)
+            request.httpBody = json
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw PushRelayError.invalidResponse }
@@ -229,6 +276,27 @@ public actor PushRelayRegistrar {
         for (relay, install, capabilityId) in revocations {
             try? await transport.revokeCapability(relay: relay, install: install, capabilityId: capabilityId)
         }
+    }
+
+    /// #EXP-1639: every relay install this device holds (the push-to-start
+    /// token goes to each).
+    public func installs() -> [(relay: String, install: PushRelayInstall)] {
+        guard let state = try? load() else { return [] }
+        return state.installs.sorted { $0.key < $1.key }.map { ($0.key, $0.value.install) }
+    }
+
+    /// #EXP-1639: the install holding a capability for one of `accountIds`
+    /// (the account a Live Activity was pushed for): its activity token
+    /// registers there, the install its server pushes through.
+    public func install(forAnyOf accountIds: [String]) -> (relay: String, install: PushRelayInstall)? {
+        guard let state = try? load() else { return nil }
+        for accountId in accountIds {
+            if let found = state.installs.sorted(by: { $0.key < $1.key })
+                .first(where: { $0.value.capabilities[accountId] != nil }) {
+                return (found.key, found.value.install)
+            }
+        }
+        return nil
     }
 
     // MARK: - Private

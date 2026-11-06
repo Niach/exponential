@@ -9,6 +9,11 @@ let sharedSources: SourceFilesList = [
     "ShareExtension/ShareModels.swift",
     "ShareExtension/ShareToPage.swift",
     "ShareExtension/ShareChatComposerPage.swift",
+    // #EXP-1639: the Live Activity's attributes (the app starts nothing, it
+    // observes the pushed ones) and its drawing (the `os-live-activity`
+    // capture specimen).
+    "LiveActivity/SessionActivityAttributes.swift",
+    "LiveActivity/SessionActivityViews.swift",
 ]
 // VAPP-110: the app host's app-extension catalog, bundled straight from
 // packages/ui/exponential-ui (the bytes the web and desktop hosts install;
@@ -18,6 +23,8 @@ let appHostResources: [ResourceFileElement] = [
     // EXP-1654: the styleguide specimens' sample pictures (`SpecimenSamples`,
     // read only under `-uiTestingStyleguide`), bundled as the `samples` folder.
     .folderReference(path: "../../packages/exponential-ui/samples"),
+    // #EXP-1639: the Live Activity's mark, for the `os-live-activity` specimen.
+    "LiveActivity/Assets.xcassets",
 ]
 // GoogleService-Info.plist is per-target now (prod and staging are separate
 // Firebase apps: at.exponential vs at.exponential.staging). Each iOS app target
@@ -277,6 +284,29 @@ let notificationServiceInfoPlist: [String: Plist.Value] = [
     ]),
 ]
 
+// #EXP-1639 (live-activity.json): the Live Activity widget extension (prod +
+// staging): ExpPush + the curated token files only, no GRDB, no ExpCore. It
+// opens the sealed content-state with the push key in the shared keychain.
+let liveActivityInfoPlist: [String: Plist.Value] = [
+    "CFBundleShortVersionString": .string(appMarketingVersion),
+    "CFBundleVersion": .string(appBuildVersion),
+    "NSExtension": .dictionary([
+        "NSExtensionPointIdentifier": .string("com.apple.widgetkit-extension"),
+    ]),
+]
+let liveActivitySources: SourceFilesList = [
+    "LiveActivity/**",
+    "ExpUI/Sources/DesignTokens.generated.swift",
+    "ExpUI/Sources/GlassTokens.swift",
+    // DesignTokens' motion curves.
+    "ExpUI/Sources/Motion.swift",
+]
+let liveActivityResources: ResourceFileElements = [
+    "LiveActivity/Assets.xcassets",
+    "LiveActivity/PrivacyInfo.xcprivacy",
+]
+let liveActivityConditions = "$(inherited) LIVE_ACTIVITY_EXTENSION" + (hasEnetPush ? " ENET_PUSH" : "")
+
 let sharedInfoPlist: [String: Plist.Value] = [
     "CFBundleShortVersionString": .string(appMarketingVersion),
     "CFBundleVersion": .string(appBuildVersion),
@@ -313,6 +343,8 @@ let sharedInfoPlist: [String: Plist.Value] = [
     // NEW-69: `audio` keeps a call with an agent running with the screen
     // locked or another app in front (voice-call.json BACKGROUND).
     "UIBackgroundModes": .array([.string("remote-notification"), .string("audio")]),
+    // #EXP-1639: a running session on the Lock Screen (push-to-start).
+    "NSSupportsLiveActivities": .boolean(true),
     "ITSAppUsesNonExemptEncryption": .boolean(false),
     // NEW-69: a call with an agent streams the microphone to the member's
     // voice device.
@@ -428,7 +460,7 @@ let project = Project(
             // Universal Links, which the ShareExtension (still on
             // Exponential.entitlements) must not inherit.
             entitlements: "ExponentialApp.entitlements",
-            dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension"), .target(name: "NotificationService")],
+            dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension"), .target(name: "NotificationService"), .target(name: "LiveActivity")],
             settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new })
         ),
         .target(
@@ -445,7 +477,7 @@ let project = Project(
             resources: stagingResources,
             // App-only entitlements (EXP-92) — see the production target.
             entitlements: "ExponentialAppStaging.entitlements",
-            dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging"), .target(name: "NotificationService-Staging")],
+            dependencies: sharedDependencies + expPushDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging"), .target(name: "NotificationService-Staging"), .target(name: "LiveActivity-Staging")],
             settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new }.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
@@ -538,6 +570,47 @@ let project = Project(
             dependencies: expPushDependencies,
             settings: .settings(base: baseSettings.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
+            ]) { _, new in new })
+        ),
+        .target(
+            name: "LiveActivity",
+            destinations: [.iPhone, .iPad],
+            product: .appExtension,
+            bundleId: "at.exponential.liveactivity",
+            deploymentTargets: .iOS("17.4"),
+            infoPlist: .extendingDefault(with: liveActivityInfoPlist.merging([
+                "CFBundleDisplayName": "Exponential",
+            ]) { _, new in new }),
+            sources: liveActivitySources,
+            resources: liveActivityResources,
+            entitlements: "LiveActivity.entitlements",
+            dependencies: expPushDependencies + [
+                .sdk(name: "WidgetKit", type: .framework),
+                .sdk(name: "SwiftUI", type: .framework),
+            ],
+            settings: .settings(base: baseSettings.merging([
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string(liveActivityConditions),
+            ]) { _, new in new })
+        ),
+        .target(
+            name: "LiveActivity-Staging",
+            destinations: [.iPhone, .iPad],
+            product: .appExtension,
+            bundleId: "at.exponential.staging.liveactivity",
+            deploymentTargets: .iOS("17.4"),
+            infoPlist: .extendingDefault(with: liveActivityInfoPlist.merging([
+                "CFBundleDisplayName": "Exp Staging",
+                "CFBundleVersion": .string(stagingBuildVersion),
+            ]) { _, new in new }),
+            sources: liveActivitySources,
+            resources: liveActivityResources,
+            entitlements: "LiveActivityStaging.entitlements",
+            dependencies: expPushDependencies + [
+                .sdk(name: "WidgetKit", type: .framework),
+                .sdk(name: "SwiftUI", type: .framework),
+            ],
+            settings: .settings(base: baseSettings.merging([
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS": .string("\(liveActivityConditions) STAGING"),
             ]) { _, new in new })
         ),
     ],

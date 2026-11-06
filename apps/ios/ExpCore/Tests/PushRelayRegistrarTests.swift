@@ -50,6 +50,15 @@ final class PushRelayRegistrarTests: XCTestCase {
         func revokeCapability(relay: String, install: PushRelayInstall, capabilityId: String) async throws {
             record("DELETE \(install.installId) \(capabilityId)")
         }
+
+        func setActivityStartToken(relay: String, install: PushRelayInstall, token: String?) async throws {
+            record("PUT start \(install.installId) \(token ?? "null")")
+        }
+
+        func registerActivity(relay: String, install: PushRelayInstall, token: String) async throws -> String {
+            record("POST activities \(install.installId) \(token)")
+            return "act_\(token)"
+        }
     }
 
     private func registrar(_ keychain: MemoryKeychain, _ relay: FakeRelay) -> PushRelayRegistrar {
@@ -144,5 +153,32 @@ final class PushRelayRegistrarTests: XCTestCase {
             RegisterTokenInput(token: "t", platform: "ios", capability: "cap_x", pushPublicKey: "k")
         )) as? [String: String]
         XCTAssertEqual(sealed, ["token": "t", "platform": "ios", "capability": "cap_x", "pushPublicKey": "k"])
+    }
+
+    /// #EXP-1639: the start token goes to every install, an activity token to
+    /// the install holding its account's capability.
+    func testLiveActivityInstallLookups() async throws {
+        let keychain = MemoryKeychain(), relay = FakeRelay()
+        let r = registrar(keychain, relay)
+        _ = try await r.capability(relay: "https://b.example", accountId: "b", label: "b", apnsToken: "aa")
+        _ = try await r.capability(relay: "https://a.example", accountId: "a", label: "a", apnsToken: "aa")
+        let all = await r.installs()
+        XCTAssertEqual(all.map(\.relay), ["https://a.example", "https://b.example"])
+        let forB = await r.install(forAnyOf: ["x", "b"])
+        XCTAssertEqual(forB?.relay, "https://b.example")
+        XCTAssertEqual(forB?.install.installId, "ins_1")
+        let none = await r.install(forAnyOf: ["x"])
+        XCTAssertNil(none)
+    }
+
+    func testRegisterInputCarriesLiveActivitiesOnlyWhenOn() throws {
+        let on = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            RegisterTokenInput(token: "t", platform: "ios", capability: "cap_x", pushPublicKey: "k", liveActivities: true)
+        )) as? [String: Any]
+        XCTAssertEqual(on?["liveActivities"] as? Bool, true)
+        let activity = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            RegisterActivityInput(token: "t", sessionId: "s", activityId: "act_1")
+        )) as? [String: String]
+        XCTAssertEqual(activity, ["token": "t", "sessionId": "s", "activityId": "act_1"])
     }
 }

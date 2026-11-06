@@ -30,6 +30,9 @@ final class PushTokenManager: @unchecked Sendable {
     private let relayRegistrar: PushRelayRegistrar
     private let pushKeys: PushKeyStore
     private let apnsToken: @Sendable () -> Data?
+    /// #EXP-1639: the Live Activity tokens, handed over through the same
+    /// relay installs.
+    let liveActivities: LiveActivityCoordinator
 
     /// How an account's current registration was made.
     private enum Mode {
@@ -94,9 +97,13 @@ final class PushTokenManager: @unchecked Sendable {
             topic: Bundle.main.bundleIdentifier ?? "at.exponential",
             environment: environment
         )
+        self.liveActivities = LiveActivityCoordinator(
+            registrar: relayRegistrar, pushTokensApi: pushTokensApi, auth: auth, pushKeys: pushKeys
+        )
     }
 
     func start() {
+        liveActivities.start()
         reconcileTask = Task { [weak self] in
             // Failed registrations back off exponentially instead of hammering
             // an unreachable (or credential-rejecting) server every tick; the
@@ -226,6 +233,7 @@ final class PushTokenManager: @unchecked Sendable {
                     await Self.revokeCapability(relayRegistrar, accountId: accountId)
                 } else {
                     logger.info("FCM token registered (\(Self.describe(mode), privacy: .public))")
+                    if mode == .relay { liveActivities.registrationLanded(fcmToken: token) }
                 }
             } catch {
                 anyFailed = true
@@ -269,7 +277,9 @@ final class PushTokenManager: @unchecked Sendable {
                     accountId: accountId,
                     token: token,
                     capability: result.capability,
-                    pushPublicKey: keypair.publicKeyBase64Url
+                    pushPublicKey: keypair.publicKeyBase64Url,
+                    // #EXP-1639: this build draws sealed Live Activities.
+                    liveActivities: true
                 )
             }
             lock.withLock {
