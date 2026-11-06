@@ -39,6 +39,14 @@ describe(`first DOM difference`, () => {
     ;(b[0] as { c: DomNode[] }).c[1] = el(`div`, { "data-xui-id": `root`, "data-r-variant": `ghost` }, [el(`span`, { "data-xui-part": `label` }, [text(`Hi`)])])
     expect(firstDomDiff(base(), b)).toEqual({ path: `0/div[1]@data-r-variant`, reference: `(absent)`, candidate: `ghost` })
   })
+  test(`--radix-popper-* sizes compare at whole pixels; other style values stay exact`, () => {
+    const pop = (style: string) => [el(`div`, { "data-radix-popper-content-wrapper": ``, style })]
+    const react = `position: fixed; --radix-popper-available-height: 397.9310607910156px; --radix-popper-anchor-width: 429.67059326171875px;`
+    const solid = `position: fixed; --radix-popper-available-height: 398px; --radix-popper-anchor-width: 430px;`
+    expect(firstDomDiff(pop(react), pop(solid))).toBeUndefined()
+    expect(firstDomDiff(pop(`${react} width: 10.5px;`), pop(`${solid} width: 10px;`))?.path).toBe(`0@style`)
+    expect(firstDomDiff(pop(`--radix-popper-anchor-width: 429px;`), pop(`--radix-popper-anchor-width: 431px;`))?.path).toBe(`0@style`)
+  })
   test(`text, then the earliest difference wins`, () => {
     const b = base()
     ;(b[0] as { c: DomNode[] }).c[0] = el(`style`, { "data-xui-style": `theme` }, [text(`.b{}`)])

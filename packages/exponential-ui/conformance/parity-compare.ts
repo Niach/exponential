@@ -46,6 +46,15 @@ export interface DomDiff {
 
 const describe = (n: DomNode | undefined): string => (n === undefined ? `(nothing)` : `x` in n ? `#text ${JSON.stringify(n.x)}` : `<${n.t}>`)
 
+/** A `style` attribute with the `--radix-popper-*` sizes at whole pixels.
+ *  Floating UI writes the measured anchor and available sizes there, and the
+ *  two web renderers measure different elements of the same box, so one
+ *  reads `429.67px` where the other reads `430px` (release suite
+ *  42303466993). Sub-pixel drift in those numbers is not a parity bug. */
+export const normalizePopperSizes = (style: string): string => style.replace(/(--radix-popper-[a-z-]+:\s*)(-?\d+(?:\.\d+)?)px/g, (_, prop: string, n: string) => `${prop}${Math.round(Number(n))}px`)
+
+const attrValue = (k: string, v: string | undefined): string | undefined => (k === `style` && v !== undefined ? normalizePopperSizes(v) : v)
+
 /** The FIRST difference between two serialised trees in document order. */
 export function firstDomDiff(reference: DomNode[], candidate: DomNode[]): DomDiff | undefined {
   const visit = (a: DomNode | undefined, b: DomNode | undefined, path: string): DomDiff | undefined => {
@@ -57,7 +66,7 @@ export function firstDomDiff(reference: DomNode[], candidate: DomNode[]): DomDif
     const names = [...new Set([...ea.a.map(([k]) => k), ...eb.a.map(([k]) => k)])].sort()
     const av = new Map(ea.a)
     const bv = new Map(eb.a)
-    for (const k of names) if (av.get(k) !== bv.get(k)) return { path: `${path}@${k}`, reference: av.has(k) ? av.get(k)! : `(absent)`, candidate: bv.has(k) ? bv.get(k)! : `(absent)` }
+    for (const k of names) if (attrValue(k, av.get(k)) !== attrValue(k, bv.get(k))) return { path: `${path}@${k}`, reference: av.has(k) ? av.get(k)! : `(absent)`, candidate: bv.has(k) ? bv.get(k)! : `(absent)` }
     for (let i = 0; i < Math.max(ea.c.length, eb.c.length); i++) {
       const child = ea.c[i] ?? eb.c[i]!
       const d = visit(ea.c[i], eb.c[i], `${path}/${`x` in child ? `#text` : child.t}[${i}]`)
