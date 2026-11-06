@@ -112,7 +112,7 @@ pub use error::{ApiError, OFFLINE_MESSAGE};
 pub use login::{AuthClient, AuthConfig, AuthUser, OidcProvider, SignInSuccess};
 pub use patch::Patch;
 pub use token_store::{SecretKind, TokenStore};
-pub use trpc::TrpcClient;
+pub use trpc::{Blob, CallKind, HttpTransport, Transport, TrpcClient};
 pub use device_identity::device_id;
 
 use std::path::PathBuf;

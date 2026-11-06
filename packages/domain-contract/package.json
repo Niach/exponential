@@ -74,6 +74,7 @@
     "./fixtures/*": "./fixtures/*",
     "./team-image": "./src/team-image.ts",
     "./team-import": "./src/team-import.ts",
+    "./local-parity": "./src/local-parity.ts",
     "./team-zone": "./src/team-zone.ts",
     "./via-app": "./src/via-app.ts",
     "./app-share": "./src/app-share.ts"
