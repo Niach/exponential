@@ -8,6 +8,7 @@ import {
   checksSummary,
   formatCheckDuration,
   checksQueuedText,
+  checksWakeState,
   checksWakeText,
   mergeGate,
   mergeGateText,
@@ -18,6 +19,9 @@ import {
 describe(`pr-checks fixture`, () => {
   it.each(fixture.aggregate)(`aggregate: $name`, ({ checks, expected }) => {
     expect(aggregateChecksState(checks)).toBe(expected as PrChecksState)
+  })
+  it.each(fixture.wake)(`wake: $name`, ({ checks, required, expected }) => {
+    expect(checksWakeState(checks, required)?.state ?? null).toBe(expected as never)
   })
   it.each(fixture.githubStatus)(`github status $github`, ({ github, expected }) => {
     expect(checkStatusFromGithub(github)).toBe(expected as never)

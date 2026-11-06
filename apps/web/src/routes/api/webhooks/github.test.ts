@@ -607,7 +607,7 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
 describe(`github webhook — CI events (EXP-1610)`, () => {
   it(`check_run upserts the run on every tracked PR it names, with the base's required checks`, async () => {
     const checks = await import(`@/lib/integrations/pr-checks`)
-    vi.mocked(checks.pullRequestsForCheck).mockResolvedValue([{ id: PR_ID, repositoryId: `r1`, base: `master` }])
+    vi.mocked(checks.pullRequestsForCheck).mockResolvedValue([{ id: PR_ID, number: 7, repositoryId: `r1`, base: `master` }])
     const res = await postHandler({
       request: webhookRequest(`check_run`, {
         action: `completed`,
@@ -619,7 +619,7 @@ describe(`github webhook — CI events (EXP-1610)`, () => {
           started_at: `2026-11-01T10:00:00Z`,
           completed_at: `2026-11-01T10:04:00Z`,
           details_url: `https://github.com/org/repo/actions/runs/1/job/2`,
-          pull_requests: [{ number: 7 }],
+          pull_requests: [{ number: 7, head: { sha: `abc123` } }],
           check_suite: { head_branch: `exp/EXP-9` },
         },
         repository: { full_name: `org/repo` },
@@ -631,6 +631,8 @@ describe(`github webhook — CI events (EXP-1610)`, () => {
       expect.objectContaining({
         pullRequestId: PR_ID,
         headSha: `abc123`,
+        // #FEED-199: GitHub's current head of the PR, so a superseded run drops.
+        prHeadSha: `abc123`,
         required: new Set([`gate`]),
         checks: [
           expect.objectContaining({
@@ -646,7 +648,7 @@ describe(`github webhook — CI events (EXP-1610)`, () => {
 
   it(`a completed check_suite or workflow_run repairs its PRs; any other action is acked`, async () => {
     const checks = await import(`@/lib/integrations/pr-checks`)
-    vi.mocked(checks.pullRequestsForCheck).mockResolvedValue([{ id: PR_ID, repositoryId: `r1`, base: `master` }])
+    vi.mocked(checks.pullRequestsForCheck).mockResolvedValue([{ id: PR_ID, number: 7, repositoryId: `r1`, base: `master` }])
     for (const event of [`check_suite`, `workflow_run`]) {
       await postHandler({
         request: webhookRequest(event, {

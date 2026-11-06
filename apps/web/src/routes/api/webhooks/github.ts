@@ -210,7 +210,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const payload = JSON.parse(rawBody) as {
         check_run?: Parameters<typeof checkFromGithubRun>[0] & {
           head_sha?: string
-          pull_requests?: Array<{ number?: number }>
+          pull_requests?: Array<{ number?: number; head?: { sha?: string } }>
           check_suite?: { head_branch?: string | null }
         }
         repository?: { full_name?: string }
@@ -233,10 +233,14 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         const token = prs.length > 0 ? await resolveRepoInstallationToken(fullName).catch(() => null) : null
         for (const pr of prs) {
           const required = token ? await requiredChecksFor(fullName, pr.base, token) : undefined
+          // #FEED-199: GitHub names the PR's current head; a run for a
+          // superseded commit (cancelled by a push/rebase) is dropped.
+          const prHeadSha = run.pull_requests?.find((item) => item.number === pr.number)?.head?.sha ?? null
           await writePullRequestChecks({
             pullRequestId: pr.id,
             headSha: run.head_sha,
             checks: [check],
+            prHeadSha,
             ...(required ? { required } : {}),
           })
         }

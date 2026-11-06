@@ -172,6 +172,41 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
     expect((await ciLines(w.child)).map((line) => line.body)).toEqual([`CI on #7: success.`])
   })
 
+  // #FEED-199: a wake means the REQUIRED check reported a real outcome at
+  // the PR's current head.
+  it(`an early workflow never wakes; the required check's success does, once`, async () => {
+    const w = await threadWithPr()
+    const required = new Set([`gate`])
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `r1`, checks: [run(`pick`, `completed`, `success`)], required })
+    expect(await stateOf(w.prId)).toBe(`success`)
+    expect(await ciLines(w.child)).toEqual([])
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `r1`, checks: [run(`gate`, `in_progress`, null)], required })
+    expect(await ciLines(w.child)).toEqual([])
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `r1`, checks: [run(`gate`, `completed`, `success`)], required })
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `r1`, checks: [run(`ios-core`, `queued`, null)], required })
+    expect((await ciLines(w.child)).map((line) => line.body)).toEqual([`CI on #7: success.`])
+  })
+
+  it(`a cancelled run wakes nobody; a delivery for a superseded head is dropped`, async () => {
+    const w = await threadWithPr()
+    const required = new Set([`gate`])
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `c1`, checks: [run(`gate`, `completed`, `cancelled`)], required })
+    expect(await ciLines(w.child)).toEqual([])
+    const stale = await writePullRequestChecks({
+      pullRequestId: w.prId,
+      headSha: `c1`,
+      prHeadSha: `c2`,
+      checks: [run(`gate`, `completed`, `failure`, 5)],
+      required,
+    })
+    expect(stale).toBeNull()
+    expect(await ciLines(w.child)).toEqual([])
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `c2`, prHeadSha: `c2`, checks: [run(`gate`, `completed`, `failure`, 10)], required })
+    expect((await ciLines(w.child)).map((line) => line.body)).toEqual([
+      `CI on #7: failure (gate (https://github.com/o/r/actions/runs/gate)).`,
+    ])
+  })
+
   // 0f6fb188: #1714 went green at 02:34 with no check webhook subscribed;
   // its line came at 03:00, off the next merge call. The watchdog's sweep
   // reads the pending PR itself.
