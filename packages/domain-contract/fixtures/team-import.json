@@ -1,0 +1,662 @@
+{
+  "$comment": "#EXP-1713 TEAM IMPORT (Share a Local desktop as a team, #EDE-57; the offline IDE later): a tRPC-only API, never on MCP: `imports.create {name, slug?, manifest}` makes a team in state IMPORTING (the row exists, nobody is a member of it yet, so no shape, list or access check sees it; the slug is reserved); `imports.chunk {importId, seq, rows [{table, id, row}]}` stages rows (`chunk.maxRows` per call, `chunk.maxBytes` of serialized rows; idempotent per (importId, seq): a repeat of a seq already received changes nothing and answers the same counts); attachments' bytes go through the existing signed upload (`imports.chunk` answers an `uploadPath` per attachments row it receives, the same PUT as sessions_results; a row whose bytes never landed fails the commit); `imports.commit {importId}` applies every staged row in ONE transaction in `tables` order, then flips the team live: the caller becomes its owner, the team's builtin skills are seeded, `teams.imported_from` names the import. ROWS are the server's tables in snake_case (what every client's synced store holds): a column the server does not know is dropped, a required one that is missing fails the commit naming the table and column. IDS are kept: a primary key that already exists on the server is remapped to a fresh uuid and recorded in `import_id_map` (`remap.cases`: every foreign key that pointed at the old id follows, arrays of ids too); the commit answers how many were remapped. IDENTITY (`identity.cases`): the manifest names the local identity (`identity {userId, email}`); every user column equal to that id becomes the caller, any other user id becomes null, a user column that must not be null becomes the caller; `@<identity.email>` mentions in text (issue descriptions, comment and message bodies, agent instructions, prompt bodies) are rewritten to `@<caller email>`, other mentions stay. STATUSES (`statusMatch.cases`): a new team already has its builtin statuses; a local status maps to the team's by builtin key first, then by name (case-insensitive) within its category, then by ordinal among the still unmatched of its category (both sides in sort order), and is created when nothing matches; the started cap (ISSUE_STATUS_STARTED_MAX) still holds. SESSIONS arrive ended and private (`sessionArrival`: status ended, shared false, busy and needs_input false, ended_at kept or stamped at commit), their conversations map to the ones the server makes, their messages follow. STAYS LOCAL (never in a chunk): repository paths and worktrees, the vault, MCP credentials, CLI logins, device keys. LIMITS on a cloud instance only: the team plan's limits at commit (storage, app records), plus `attachmentsCapBytes` over every attachment; self-host has none. An import that is not committed within `abandonedAfterHours` is purged with its team (the sweep). CHUNKING (`chunking.cases`): the uploader (elocal's share, Rust) cuts the rows in `tables` order into chunks that respect both caps, never splitting a row; `rowBytes` = the serialized `{table, id, row}` of each row, `maxBytes` applies to the serialized rows array (its brackets and commas included).",
+  "tables": [
+    "boards",
+    "issue_statuses",
+    "labels",
+    "agents",
+    "prompts",
+    "apps",
+    "issues",
+    "issue_labels",
+    "issue_relations",
+    "comments",
+    "sessions",
+    "session_issues",
+    "conversations",
+    "messages",
+    "app_versions",
+    "app_records",
+    "attachments"
+  ],
+  "textColumns": {
+    "issues": [
+      "description"
+    ],
+    "comments": [
+      "body"
+    ],
+    "messages": [
+      "body"
+    ],
+    "agents": [
+      "instructions"
+    ],
+    "prompts": [
+      "body"
+    ]
+  },
+  "chunk": {
+    "maxRows": 1000,
+    "maxBytes": 2097152
+  },
+  "attachmentsCapBytes": 1073741824,
+  "abandonedAfterHours": 24,
+  "sessionArrival": {
+    "status": "ended",
+    "shared": false,
+    "busy": false,
+    "needsInput": false
+  },
+  "manifest": {
+    "version": 1,
+    "example": {
+      "version": 1,
+      "desktopId": "0f3a2c1e-9b1d-4c1e-8e7a-1d2f3a4b5c6d",
+      "name": "Local",
+      "identity": {
+        "userId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "email": "danny@local.desktop"
+      },
+      "deviceId": "9a8b7c6d-1111-4111-8111-111111111111",
+      "counts": {
+        "boards": 1,
+        "issues": 12
+      },
+      "attachmentBytes": 1048576
+    }
+  },
+  "validateChunk": {
+    "cases": [
+      {
+        "name": "an empty chunk is refused",
+        "rows": [],
+        "error": "A chunk needs at least one row"
+      },
+      {
+        "name": "an unknown table is refused",
+        "rows": [
+          {
+            "table": "users",
+            "id": "u1",
+            "row": {
+              "id": "u1"
+            }
+          }
+        ],
+        "error": "Unknown table: users"
+      },
+      {
+        "name": "a row whose id differs from its row.id is refused",
+        "rows": [
+          {
+            "table": "labels",
+            "id": "l1",
+            "row": {
+              "id": "l2",
+              "name": "Bug"
+            }
+          }
+        ],
+        "error": "labels l1: row.id must equal id"
+      },
+      {
+        "name": "a composite-key row carries no id of its own",
+        "rows": [
+          {
+            "table": "issue_labels",
+            "id": "i1/l1",
+            "row": {
+              "issue_id": "i1",
+              "label_id": "l1"
+            }
+          }
+        ],
+        "error": null
+      },
+      {
+        "name": "a valid chunk passes",
+        "rows": [
+          {
+            "table": "labels",
+            "id": "l1",
+            "row": {
+              "id": "l1",
+              "name": "Bug"
+            }
+          }
+        ],
+        "error": null
+      },
+      {
+        "name": "too many rows are refused",
+        "rowsRepeat": {
+          "table": "labels",
+          "times": 1001
+        },
+        "error": "A chunk holds at most 1000 rows"
+      },
+      {
+        "name": "too many bytes are refused",
+        "rowsRepeat": {
+          "table": "prompts",
+          "times": 1,
+          "bodyBytes": 2097152
+        },
+        "error": "A chunk holds at most 2 MB of rows"
+      }
+    ]
+  },
+  "identity": {
+    "cases": [
+      {
+        "name": "the local identity becomes the caller",
+        "localUserId": "u-local",
+        "callerId": "u-caller",
+        "value": "u-local",
+        "required": false,
+        "expected": "u-caller"
+      },
+      {
+        "name": "another user id becomes null",
+        "localUserId": "u-local",
+        "callerId": "u-caller",
+        "value": "u-other",
+        "required": false,
+        "expected": null
+      },
+      {
+        "name": "another user id in a required column becomes the caller",
+        "localUserId": "u-local",
+        "callerId": "u-caller",
+        "value": "u-other",
+        "required": true,
+        "expected": "u-caller"
+      },
+      {
+        "name": "null stays null",
+        "localUserId": "u-local",
+        "callerId": "u-caller",
+        "value": null,
+        "required": false,
+        "expected": null
+      },
+      {
+        "name": "null in a required column becomes the caller",
+        "localUserId": "u-local",
+        "callerId": "u-caller",
+        "value": null,
+        "required": true,
+        "expected": "u-caller"
+      },
+      {
+        "name": "an array of user ids keeps the caller and drops the rest",
+        "localUserId": "u-local",
+        "callerId": "u-caller",
+        "value": [
+          "u-local",
+          "u-other",
+          "u-local"
+        ],
+        "required": false,
+        "expected": [
+          "u-caller"
+        ]
+      }
+    ]
+  },
+  "mentions": {
+    "cases": [
+      {
+        "name": "the local handle is rewritten",
+        "text": "ping @danny@local.desktop please",
+        "localEmail": "danny@local.desktop",
+        "callerEmail": "danny@example.com",
+        "expected": "ping @danny@example.com please"
+      },
+      {
+        "name": "the handle matches case-insensitively",
+        "text": "@Danny@Local.Desktop ok",
+        "localEmail": "danny@local.desktop",
+        "callerEmail": "danny@example.com",
+        "expected": "@danny@example.com ok"
+      },
+      {
+        "name": "other mentions stay",
+        "text": "cc @sam@example.com",
+        "localEmail": "danny@local.desktop",
+        "callerEmail": "danny@example.com",
+        "expected": "cc @sam@example.com"
+      },
+      {
+        "name": "an email inside a word is not a mention",
+        "text": "mailto:danny@local.desktop",
+        "localEmail": "danny@local.desktop",
+        "callerEmail": "danny@example.com",
+        "expected": "mailto:danny@local.desktop"
+      },
+      {
+        "name": "null text stays null",
+        "text": null,
+        "localEmail": "danny@local.desktop",
+        "callerEmail": "danny@example.com",
+        "expected": null
+      }
+    ]
+  },
+  "statusMatch": {
+    "team": [
+      {
+        "id": "t-backlog",
+        "category": "backlog",
+        "name": "Backlog",
+        "sortOrder": 1,
+        "builtinKey": "backlog"
+      },
+      {
+        "id": "t-progress",
+        "category": "started",
+        "name": "In Progress",
+        "sortOrder": 1,
+        "builtinKey": "in_progress"
+      },
+      {
+        "id": "t-review",
+        "category": "started",
+        "name": "In Review",
+        "sortOrder": 2,
+        "builtinKey": "in_review"
+      },
+      {
+        "id": "t-done",
+        "category": "completed",
+        "name": "Done",
+        "sortOrder": 1,
+        "builtinKey": "done"
+      },
+      {
+        "id": "t-cancelled",
+        "category": "cancelled",
+        "name": "Cancelled",
+        "sortOrder": 1,
+        "builtinKey": "cancelled"
+      },
+      {
+        "id": "t-duplicate",
+        "category": "duplicate",
+        "name": "Duplicate",
+        "sortOrder": 1,
+        "builtinKey": "duplicate"
+      }
+    ],
+    "cases": [
+      {
+        "name": "the same builtins map by key",
+        "local": [
+          {
+            "id": "l-backlog",
+            "category": "backlog",
+            "name": "Backlog",
+            "sortOrder": 1,
+            "builtinKey": "backlog"
+          },
+          {
+            "id": "l-done",
+            "category": "completed",
+            "name": "Done",
+            "sortOrder": 1,
+            "builtinKey": "done"
+          }
+        ],
+        "map": {
+          "l-backlog": "t-backlog",
+          "l-done": "t-done"
+        },
+        "create": []
+      },
+      {
+        "name": "a renamed builtin still maps by key",
+        "local": [
+          {
+            "id": "l-wip",
+            "category": "started",
+            "name": "Doing",
+            "sortOrder": 1,
+            "builtinKey": "in_progress"
+          }
+        ],
+        "map": {
+          "l-wip": "t-progress"
+        },
+        "create": []
+      },
+      {
+        "name": "a custom status maps by name within its category",
+        "local": [
+          {
+            "id": "l-review",
+            "category": "started",
+            "name": "in review",
+            "sortOrder": 5,
+            "builtinKey": null
+          }
+        ],
+        "map": {
+          "l-review": "t-review"
+        },
+        "create": []
+      },
+      {
+        "name": "a name in another category does not match",
+        "local": [
+          {
+            "id": "l-cancelled",
+            "category": "cancelled",
+            "name": "Cancelled",
+            "sortOrder": 1,
+            "builtinKey": "cancelled"
+          },
+          {
+            "id": "l-done",
+            "category": "cancelled",
+            "name": "Done",
+            "sortOrder": 2,
+            "builtinKey": null
+          }
+        ],
+        "map": {
+          "l-cancelled": "t-cancelled"
+        },
+        "create": [
+          "l-done"
+        ]
+      },
+      {
+        "name": "unmatched statuses map by ordinal among what is left of the category",
+        "local": [
+          {
+            "id": "l-a",
+            "category": "started",
+            "name": "Alpha",
+            "sortOrder": 2,
+            "builtinKey": null
+          },
+          {
+            "id": "l-b",
+            "category": "started",
+            "name": "Beta",
+            "sortOrder": 1,
+            "builtinKey": null
+          },
+          {
+            "id": "l-c",
+            "category": "started",
+            "name": "Gamma",
+            "sortOrder": 3,
+            "builtinKey": null
+          }
+        ],
+        "map": {
+          "l-b": "t-progress",
+          "l-a": "t-review"
+        },
+        "create": [
+          "l-c"
+        ]
+      },
+      {
+        "name": "a key match takes its row out of the ordinal pool",
+        "local": [
+          {
+            "id": "l-review",
+            "category": "started",
+            "name": "Checking",
+            "sortOrder": 1,
+            "builtinKey": "in_review"
+          },
+          {
+            "id": "l-x",
+            "category": "started",
+            "name": "Blocked",
+            "sortOrder": 2,
+            "builtinKey": null
+          }
+        ],
+        "map": {
+          "l-review": "t-review",
+          "l-x": "t-progress"
+        },
+        "create": []
+      }
+    ]
+  },
+  "remap": {
+    "cases": [
+      {
+        "name": "a kept id changes nothing",
+        "table": "comments",
+        "row": {
+          "id": "c1",
+          "issue_id": "i1",
+          "parent_id": null
+        },
+        "foreignKeys": {
+          "issue_id": "issues",
+          "parent_id": "comments"
+        },
+        "existing": [],
+        "expected": {
+          "id": "c1",
+          "issue_id": "i1",
+          "parent_id": null
+        },
+        "remapped": 0
+      },
+      {
+        "name": "a colliding id is replaced and its references follow",
+        "table": "comments",
+        "row": {
+          "id": "c1",
+          "issue_id": "i1",
+          "parent_id": "c0"
+        },
+        "foreignKeys": {
+          "issue_id": "issues",
+          "parent_id": "comments"
+        },
+        "existing": [
+          "issues/i1",
+          "comments/c0"
+        ],
+        "fresh": {
+          "issues/i1": "i1-new",
+          "comments/c0": "c0-new"
+        },
+        "expected": {
+          "id": "c1",
+          "issue_id": "i1-new",
+          "parent_id": "c0-new"
+        },
+        "remapped": 2
+      },
+      {
+        "name": "an array of ids follows too",
+        "table": "messages",
+        "row": {
+          "id": "m1",
+          "attachment_ids": [
+            "a1",
+            "a2"
+          ],
+          "ref_issue_ids": [
+            "i1"
+          ]
+        },
+        "foreignKeys": {
+          "attachment_ids": "attachments",
+          "ref_issue_ids": "issues"
+        },
+        "existing": [
+          "attachments/a2"
+        ],
+        "fresh": {
+          "attachments/a2": "a2-new"
+        },
+        "expected": {
+          "id": "m1",
+          "attachment_ids": [
+            "a1",
+            "a2-new"
+          ],
+          "ref_issue_ids": [
+            "i1"
+          ]
+        },
+        "remapped": 1
+      },
+      {
+        "name": "a reference to a row outside the import is kept as is",
+        "table": "issues",
+        "row": {
+          "id": "i1",
+          "board_id": "b-elsewhere"
+        },
+        "foreignKeys": {
+          "board_id": "boards"
+        },
+        "existing": [],
+        "expected": {
+          "id": "i1",
+          "board_id": "b-elsewhere"
+        },
+        "remapped": 0
+      }
+    ]
+  },
+  "chunking": {
+    "cases": [
+      {
+        "name": "rows stay in tables order and fit the row cap",
+        "maxRows": 2,
+        "maxBytes": 100000,
+        "rows": [
+          {
+            "table": "issues",
+            "id": "i1",
+            "row": {
+              "id": "i1"
+            }
+          },
+          {
+            "table": "boards",
+            "id": "b1",
+            "row": {
+              "id": "b1"
+            }
+          },
+          {
+            "table": "labels",
+            "id": "l1",
+            "row": {
+              "id": "l1"
+            }
+          },
+          {
+            "table": "issues",
+            "id": "i2",
+            "row": {
+              "id": "i2"
+            }
+          }
+        ],
+        "expected": [
+          [
+            "boards/b1",
+            "labels/l1"
+          ],
+          [
+            "issues/i1",
+            "issues/i2"
+          ]
+        ]
+      },
+      {
+        "name": "the byte cap closes a chunk before the row that would overflow it",
+        "maxRows": 10,
+        "maxBytes": 140,
+        "rows": [
+          {
+            "table": "labels",
+            "id": "l1",
+            "row": {
+              "id": "l1",
+              "name": "aaaaaaaaaa"
+            }
+          },
+          {
+            "table": "labels",
+            "id": "l2",
+            "row": {
+              "id": "l2",
+              "name": "bbbbbbbbbb"
+            }
+          },
+          {
+            "table": "labels",
+            "id": "l3",
+            "row": {
+              "id": "l3",
+              "name": "cccccccccc"
+            }
+          }
+        ],
+        "expected": [
+          [
+            "labels/l1",
+            "labels/l2"
+          ],
+          [
+            "labels/l3"
+          ]
+        ]
+      },
+      {
+        "name": "a single row wider than the cap is its own chunk (the server refuses it)",
+        "maxRows": 10,
+        "maxBytes": 20,
+        "rows": [
+          {
+            "table": "labels",
+            "id": "l1",
+            "row": {
+              "id": "l1",
+              "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          {
+            "table": "labels",
+            "id": "l2",
+            "row": {
+              "id": "l2"
+            }
+          }
+        ],
+        "expected": [
+          [
+            "labels/l1"
+          ],
+          [
+            "labels/l2"
+          ]
+        ]
+      },
+      {
+        "name": "no rows make no chunks",
+        "maxRows": 10,
+        "maxBytes": 100,
+        "rows": [],
+        "expected": []
+      }
+    ]
+  }
+}
