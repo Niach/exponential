@@ -190,7 +190,7 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
             out.push(json!({"id": "root", "component": "Stack", "direction": "horizontal", "gap": "none", "align": "stretch", "style": {"height": "100%"}, "children": ["runner-sidebar"]}));
             out.push(json!({"id": "runner-sidebar", "component": "Sidebar", "width": shell("sidebarWidth"), "collapseBelow": "never", "children": ["runner-scroll"], "slots": {"sidebar": "runner-nav"}}));
             out.push(json!({"id": "runner-scroll", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0, "overflowY": "auto"}, "children": ["runner-page"]}));
-            out.push(json!({"id": "runner-nav", "component": "Stack", "gap": "sm", "children": nav_children}));
+            out.push(json!({"id": "runner-nav", "component": "Stack", "gap": "sm", "style": {"padding": "$spacing.sm"}, "children": nav_children}));
             out.push(json!({"id": "runner-title", "component": "Heading", "text": pkg.get("name").and_then(Value::as_str).unwrap_or(""), "level": shell("titleLevel")}));
             if tabs {
                 out.push(json!({"id": "runner-screens", "component": "List", "children": (0..nav.len()).map(|i| format!("runner-screen-{i}")).collect::<Vec<_>>()}));

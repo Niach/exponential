@@ -98,7 +98,7 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
       { id: `root`, component: `Stack`, direction: `horizontal`, gap: `none`, align: `stretch`, style: { height: `100%` }, children: [`runner-sidebar`] },
       { id: `runner-sidebar`, component: `Sidebar`, width: S.sidebarWidth, collapseBelow: `never`, children: [`runner-scroll`], slots: { sidebar: `runner-nav` } },
       { id: `runner-scroll`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner-page`] },
-      { id: `runner-nav`, component: `Stack`, gap: `sm`, children: nav_children },
+      { id: `runner-nav`, component: `Stack`, gap: `sm`, style: { padding: `$spacing.sm` }, children: nav_children },
       { id: `runner-title`, component: `Heading`, text: typeof pkg.name === `string` ? pkg.name : ``, level: S.titleLevel },
     ]
     if (tabs)
