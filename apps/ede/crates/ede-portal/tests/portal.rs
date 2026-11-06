@@ -41,18 +41,34 @@ fn pipewire() -> &'static PathBuf {
         let path = dir.path().to_path_buf();
         // SAFETY: set before any thread reads it (first use of the fixture).
         unsafe { std::env::set_var("PIPEWIRE_RUNTIME_DIR", &path) };
-        // Statics never drop: the daemon goes when this process does (its
-        // stdin closes, `read` returns).
+        // WirePlumber needs a session bus (device reservation, the portal
+        // permission store) and a CI container has none: a private one,
+        // so the daemons never see a desktop's. All three live in one
+        // shell that kills them when this process goes (its stdin closes,
+        // `read` returns); nothing inherits our stdout, so a leftover
+        // daemon can never hold a CI step open.
+        let bus = format!("unix:path={}", path.join("bus").display());
         let child = Command::new("sh")
-            .args(["-c", "pipewire 2>/dev/null & pw=$!; sleep 0.5; wireplumber > \"$PIPEWIRE_RUNTIME_DIR/wireplumber.log\" 2>&1 & wp=$!; read _; kill $wp $pw"])
+            .args([
+                "-c",
+                "dbus-daemon --session --nofork --address=\"$DBUS_SESSION_BUS_ADDRESS\" > \"$PIPEWIRE_RUNTIME_DIR/dbus.log\" 2>&1 & db=$!; \
+                 pipewire > \"$PIPEWIRE_RUNTIME_DIR/pipewire.log\" 2>&1 & pw=$!; sleep 0.5; \
+                 wireplumber > \"$PIPEWIRE_RUNTIME_DIR/wireplumber.log\" 2>&1 & wp=$!; \
+                 read _; kill $wp $pw $db",
+            ])
             .env("PIPEWIRE_RUNTIME_DIR", &path)
             .env("XDG_RUNTIME_DIR", &path)
+            .env("DBUS_SESSION_BUS_ADDRESS", &bus)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
             .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
-            .expect("pipewire");
-        let deadline = Instant::now() + Duration::from_secs(10);
+            .expect("sh");
+        let deadline = Instant::now() + Duration::from_secs(30);
         while !path.join("pipewire-0").exists() {
-            assert!(Instant::now() < deadline, "pipewire did not start");
+            assert!(Instant::now() < deadline, "pipewire did not start (is pipewire installed?):\n{}", std::fs::read_to_string(path.join("pipewire.log")).unwrap_or_default());
             std::thread::sleep(Duration::from_millis(20));
         }
         // WirePlumber has no readiness file: it is up once PipeWire lists it
@@ -60,10 +76,16 @@ fn pipewire() -> &'static PathBuf {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let clients = Command::new("pw-cli").args(["ls", "Client"]).env("PIPEWIRE_RUNTIME_DIR", &path).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
-            if clients.contains("WirePlumber") {
+            if clients.to_ascii_lowercase().contains("wireplumber") {
                 break;
             }
-            assert!(Instant::now() < deadline, "wireplumber did not register with pipewire:\n{clients}\n{}", std::fs::read_to_string(path.join("wireplumber.log")).unwrap_or_default());
+            assert!(
+                Instant::now() < deadline,
+                "wireplumber did not register with pipewire (are dbus, pipewire and wireplumber installed?):\n{clients}\n--- dbus\n{}\n--- pipewire\n{}\n--- wireplumber\n{}",
+                std::fs::read_to_string(path.join("dbus.log")).unwrap_or_default(),
+                std::fs::read_to_string(path.join("pipewire.log")).unwrap_or_default(),
+                std::fs::read_to_string(path.join("wireplumber.log")).unwrap_or_default()
+            );
             std::thread::sleep(Duration::from_millis(100));
         }
         // Its session scripts (the link policy) load right after it registers.
@@ -71,6 +93,14 @@ fn pipewire() -> &'static PathBuf {
         (path, Daemon(child), dir)
     })
     .0
+}
+
+/// A private `dbus-daemon --session` for one world and its address.
+fn session_bus() -> (Daemon, String) {
+    let mut dbus = Command::new("dbus-daemon").args(["--session", "--nofork", "--print-address"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().expect("dbus-daemon (the dbus package)");
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(dbus.stdout.as_mut().unwrap()), &mut line).unwrap();
+    (Daemon(dbus), line.trim().to_string())
 }
 
 struct World {
@@ -90,10 +120,7 @@ fn world(portal_toml: &str) -> World {
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter(std::env::var("RUST_LOG").unwrap_or("warn".into())).try_init();
     pipewire();
     let dir = tempfile::tempdir().unwrap();
-    let mut dbus = Command::new("dbus-daemon").args(["--session", "--nofork", "--print-address"]).stdout(Stdio::piped()).spawn().expect("dbus-daemon");
-    let mut line = String::new();
-    std::io::BufRead::read_line(&mut std::io::BufReader::new(dbus.stdout.as_mut().unwrap()), &mut line).unwrap();
-    let address = line.trim().to_string();
+    let (dbus, address) = session_bus();
 
     let h = Harness::start(Config::default(), &[(800, 600)]);
     let runtime = dir.path().to_path_buf();
@@ -108,7 +135,7 @@ fn world(portal_toml: &str) -> World {
         let bus = zbus::connection::Builder::address(address.as_str()).unwrap().build().await.unwrap();
         (portal, bus)
     });
-    World { h, bus, _portal: portal, _dbus: Daemon(dbus), dir, _guard: guard }
+    World { h, bus, _portal: portal, _dbus: dbus, dir, _guard: guard }
 }
 
 impl World {
@@ -200,7 +227,7 @@ fn global_shortcuts_bind_and_activate() {
         w.h.with(move |ede| ede.keyboard_key((code + 8).into(), state, 1));
     }
     let msg = zbus::block_on(async {
-        let timeout = async_timeout(Duration::from_secs(5));
+        let timeout = async_timeout(Duration::from_secs(15));
         futures_util::pin_mut!(timeout);
         match futures_util::future::select(signals.next(), timeout).await {
             futures_util::future::Either::Left((Some(Ok(msg)), _)) => Some(msg),
@@ -291,9 +318,36 @@ fn a_screencast_streams_the_output_over_pipewire() {
     let () = zbus::block_on(w.bus.call_method(Some(BUS_NAME), session, Some("org.freedesktop.impl.portal.Session"), "Close", &())).unwrap().body().deserialize().unwrap();
 }
 
-/// Links a consumer to `node` (no session manager here), waits for a frame
-/// and returns the BGR bytes at `at`.
+/// A consumer stream for the screencast node (WirePlumber links it, as it
+/// does for any app), the BGR bytes at `at` of the first frame. WirePlumber
+/// takes a moment to load its link policy after it registers, so a stream
+/// that sees no frame in a few seconds is connected again, a few times,
+/// before the diagnostics come out.
 fn consume(node: u32, at: (i32, i32)) -> [u8; 3] {
+    // The node by its serial, never its name: an earlier world's producer
+    // may still be registered under the same name, and ids are reused.
+    let info = Command::new("pw-cli").args(["info", &node.to_string()]).env("PIPEWIRE_RUNTIME_DIR", pipewire()).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    let serial = info.lines().find_map(|l| l.trim_start_matches(|c: char| c == '*' || c.is_whitespace()).strip_prefix("object.serial = ")).map(|v| v.trim_matches('"').to_string()).unwrap_or_else(|| panic!("node {node} has no object.serial:\n{info}"));
+    let mut last = String::new();
+    for attempt in 1..=4 {
+        match consume_once(&serial, at, Duration::from_secs(5)) {
+            Ok(pixel) => return pixel,
+            Err(e) => {
+                eprintln!("attempt {attempt}: {e}");
+                last = e;
+            }
+        }
+    }
+    for what in ["Node", "Link"] {
+        let out = Command::new("pw-cli").args(["ls", what]).env("PIPEWIRE_RUNTIME_DIR", pipewire()).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        eprintln!("--- pw-cli ls {what}\n{out}");
+    }
+    eprintln!("--- wireplumber\n{}", std::fs::read_to_string(pipewire().join("wireplumber.log")).unwrap_or_default());
+    panic!("no frame arrived: {last}")
+}
+
+fn consume_once(serial: &str, at: (i32, i32), timeout: Duration) -> Result<[u8; 3], String> {
+    let serial = serial.to_string();
     use pipewire as pw;
     use pw::{properties::properties, spa};
     let (tx, rx) = std::sync::mpsc::channel();
@@ -303,7 +357,7 @@ fn consume(node: u32, at: (i32, i32)) -> [u8; 3] {
         let context = pw::context::ContextRc::new(&mainloop, None).unwrap();
         let core = context.connect_rc(None).unwrap();
         // WirePlumber links us to the node we target, as it does for any app.
-        let stream = pw::stream::StreamRc::new(core.clone(), "probe", properties! { *pw::keys::MEDIA_TYPE => "Video", *pw::keys::MEDIA_CATEGORY => "Capture", *pw::keys::MEDIA_ROLE => "Screen", "target.object" => "ede-screencast" }).unwrap();
+        let stream = pw::stream::StreamRc::new(core.clone(), "probe", properties! { *pw::keys::MEDIA_TYPE => "Video", *pw::keys::MEDIA_CATEGORY => "Capture", *pw::keys::MEDIA_ROLE => "Screen", "target.object" => serial.as_str() }).unwrap();
         let tx2 = tx.clone();
         let _listener = stream
             .add_local_listener_with_user_data(0u32)
@@ -347,15 +401,8 @@ fn consume(node: u32, at: (i32, i32)) -> [u8; 3] {
             .unwrap();
         let ml = mainloop.clone();
         let timer = mainloop.loop_().add_timer(move |_| ml.quit());
-        timer.update_timer(Some(Duration::from_secs(20)), None).into_result().unwrap();
+        timer.update_timer(Some(timeout), None).into_result().unwrap();
         mainloop.run();
     });
-    rx.recv_timeout(Duration::from_secs(20)).unwrap_or_else(|e| {
-        for what in ["Node", "Link"] {
-            let out = Command::new("pw-cli").args(["ls", what]).env("PIPEWIRE_RUNTIME_DIR", pipewire()).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
-            eprintln!("--- pw-cli ls {what}\n{out}");
-        }
-        eprintln!("--- wireplumber\n{}", std::fs::read_to_string(pipewire().join("wireplumber.log")).unwrap_or_default());
-        panic!("no frame arrived: {e}")
-    })
+    rx.recv_timeout(timeout).map_err(|e| e.to_string())
 }
