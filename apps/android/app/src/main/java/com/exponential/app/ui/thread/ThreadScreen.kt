@@ -63,7 +63,6 @@ import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.InboxRoute
-import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WireTimestamps
@@ -75,7 +74,6 @@ import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.session.SessionLiveTail
@@ -93,10 +91,9 @@ import com.exponential.app.ui.markdown.MentionResolver
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.work.ChangesMergeControl
-import com.exponential.app.ui.work.ChangesViewModel
-import com.exponential.app.ui.work.MergeConfirmDialog
 import com.exponential.app.ui.work.MergeStatusPill
+import com.exponential.app.ui.work.NeedsApprovalConfirm
+import com.exponential.app.ui.work.MergeNowConfirm
 import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.work.LocalTitleCollapse
 import com.exponential.app.ui.work.PullRequestStack
@@ -699,16 +696,11 @@ fun ThreadScreen(
     // #EXP-1710: Merge now asks first (merge-train.json `mergeNowPrompt`:
     // Merge destructive, Cancel focused; `titleStack` inside an open stack).
     mergeNowConfirm?.let { pr ->
-        val inStack = PullRequestStack.stackConfirm(pr, (teamPullRequests + pullRequests).distinctBy { it.id }) != null
-        com.exponential.app.ui.components.PromptAlert(
-            prompt = Prompts.MergeNowPr.prompt(pr.number, stack = inStack),
+        MergeNowConfirm(
+            pr = pr,
+            stackPool = (teamPullRequests + pullRequests).distinctBy { it.id },
             onDismiss = { mergeNowConfirm = null },
-            handlers = mapOf(
-                "merge" to {
-                    mergeNowConfirm = null
-                    viewModel.mergePullRequestNow(pr.id)
-                },
-            ),
+            onMerge = { viewModel.mergePullRequestNow(pr.id) },
         )
     }
     // EXP-1307: the Guide `…`'s Close PR asks first (close-pr.json, the
@@ -1303,35 +1295,13 @@ private fun ThreadHeaderMerge(
     var checksOpen by remember { mutableStateOf(false) }
     Spacer(Modifier.width(com.exponential.app.domain.Chats.Shell.ChatHeader.GAP.dp))
     if (view.tap == "approve") {
-        val pr = stack?.throughId?.let { id -> stackPool.firstOrNull { it.id == id } } ?: newest
-        val changesVm = hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${pr.id}") { it.create(pr.id) }
-        val merging by changesVm.merging.collectAsStateWithLifecycle()
-        val actionError by changesVm.actionError.collectAsStateWithLifecycle()
-        val linkedCount by changesVm.linkedIssueCount.collectAsStateWithLifecycle()
-        val toaster = LocalToaster.current
-        LaunchedEffect(actionError) {
-            val message = actionError ?: return@LaunchedEffect
-            toaster.failedAction("merge", "the PR", message, retry = changesVm::retryMerge)
-        }
+        val merging = NeedsApprovalConfirm(
+            newest = newest,
+            stackPool = stackPool,
+            confirmOpen = approveOpen,
+            onDismiss = { approveOpen = false },
+        )
         MergeStatusPill(view = view, onClick = { approveOpen = true }, loading = merging)
-        if (approveOpen) {
-            MergeConfirmDialog(
-                merge = ChangesMergeControl(
-                    label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
-                    loading = merging,
-                    error = actionError,
-                    confirmPrompt = if (linkedCount > 0) {
-                        Prompts.MergeIssuePr.prompt(pr.number, linkedCount)
-                    } else {
-                        Prompts.MergeRunPr.prompt(pr.number)
-                    },
-                    onConfirm = { changesVm.mergePr() },
-                    stackConfirm = stack,
-                    onMergeStack = { changesVm.mergePr(stack = true) },
-                ),
-                onDismiss = { approveOpen = false },
-            )
-        }
         return
     }
     Box {

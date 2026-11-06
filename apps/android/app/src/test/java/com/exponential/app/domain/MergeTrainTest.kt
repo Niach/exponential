@@ -185,6 +185,25 @@ class MergeTrainTest {
     }
 
     @Test
+    fun `every offlineSince case matches the fixture`() {
+        for (case in cases("offlineSince")) {
+            val input = case.getValue("input").jsonObject
+            val device = input["device"]?.takeIf { it !is JsonNull }?.jsonObject?.let {
+                MergeTrain.OpenerDevice(online = it.getValue("online").jsonPrimitive.boolean, lastSeenAt = it.str("lastSeenAt"))
+            }
+            assertEquals(
+                case.str("name"),
+                case.str("expected"),
+                MergeTrain.offlineSince(
+                    opener = input.getValue("opener").jsonPrimitive.boolean,
+                    device = device,
+                    updatedAt = input.str("updatedAt")!!,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun `every stuckRow case matches the fixture`() {
         for (case in cases("stuckRow")) {
             val input = case.getValue("input").jsonObject

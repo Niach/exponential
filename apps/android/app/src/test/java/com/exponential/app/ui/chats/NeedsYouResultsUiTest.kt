@@ -8,6 +8,7 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.contractFixtureJson
 import com.exponential.app.navigation.Routes
 import com.exponential.app.ui.styleguide.NEEDS_YOU_SPECIMEN_ROWS
+import com.exponential.app.ui.styleguide.NEEDS_YOU_SPECIMEN_STUCK
 import com.exponential.app.ui.styleguide.RESULTS_SPECIMEN
 import com.exponential.app.ui.thread.RESULTS_TAB_KEY
 import com.exponential.app.ui.thread.resultPictureSet
@@ -15,6 +16,7 @@ import com.exponential.app.ui.thread.resultThumbWidth
 import com.exponential.app.ui.thread.threadInitialTabKey
 import com.exponential.app.ui.threads.chatDisplayedRows
 import com.exponential.app.ui.threads.needsYouFold
+import com.exponential.app.ui.threads.openerOfflineSince
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -95,6 +97,20 @@ class NeedsYouResultsUiTest {
             },
         )
         assertEquals(expected, actual)
+    }
+
+    // #EXP-1710: the specimen's ONE stuck row = merge-train.json `stuckRow`
+    // cases[0] (drawn under cases[1]'s rows).
+    @Test
+    fun `the needs-you specimen's stuck row is merge-train stuckRow cases 0`() {
+        val fixture = Json.parseToJsonElement(contractFixtureJson("merge-train.json")).jsonObject
+        val expected = fixture.getValue("stuckRow").jsonArray[0].jsonObject.getValue("expected").jsonObject
+        val row = NEEDS_YOU_SPECIMEN_STUCK
+        assertEquals(expected.getValue("title").jsonPrimitive.content, row.title)
+        assertEquals(expected.getValue("meta").jsonPrimitive.content, row.meta)
+        assertEquals(expected.getValue("actions").jsonArray.map { it.jsonPrimitive.content }, row.actions.map { it.wire })
+        assertEquals(NeedsYou.Kind.Pr, row.kind)
+        assertEquals(NeedsYou.Opens.Results, row.opens)
     }
 
     @Test
@@ -212,7 +228,7 @@ class NeedsYouResultsUiTest {
         val child = session("c1").copy(rootId = "s1", parentId = "s1", deviceId = "dev-1")
         val ready = PullRequestEntity(
             id = "ready", teamId = "t1", rootSessionId = "s1", sessionId = "c1", number = 6, title = "Ready",
-            checksState = "success", createdAt = "2027-01-15T07:30:00.000Z",
+            checksState = "success", createdAt = "2027-01-15T07:30:00.000Z", updatedAt = "2027-01-15T08:30:00.000Z",
         )
         val held = ready.copy(id = "held", number = 7, mergeState = "held", mergeHold = "bounces")
         val conflict = ready.copy(id = "conflict", number = 8, mergeState = "conflict", checksState = "failure")
@@ -233,11 +249,58 @@ class NeedsYouResultsUiTest {
         assertEquals("3 bounces", stuck.meta)
         assertEquals(listOf("retry", "merge-now", "close-pr"), stuck.actions.map { it.wire })
         assertEquals("Device offline", auto.first { it.messageId == "conflict" }.meta)
-        // No device row = online: the agent fixes it; a member gets no Merge now.
+        // merge-train.json `offlineSince`: no device row synced = never
+        // online, offline since the PR's updatedAt (08:30: 1.5 h, waits); a
+        // member gets no Merge now.
         val noDevice = fold("auto", owner = false, devs = emptyList())
         assertEquals(listOf("held"), noDevice.map { it.messageId })
         assertEquals(listOf("retry", "close-pr"), noDevice.single().actions.map { it.wire })
+        // An online opener device: the agent fixes it.
+        val online = listOf(devices.single().copy(lastSeenAt = "2027-01-15T09:59:30.000Z"))
+        assertEquals(listOf("held"), fold("auto", owner = true, devs = online).map { it.messageId })
         // `approval` keeps the ready row beside the stuck ones.
         assertEquals(setOf("ready", "held", "conflict"), fold("approval", owner = true, devs = devices).map { it.messageId }.toSet())
+        // #EXP-1710: only the `approval` ready row's press asks Needs
+        // approval; stuck rows keep opening results.
+        assertEquals(
+            setOf("ready"),
+            fold("approval", owner = true, devs = devices).filter { it.needsApproval }.map { it.messageId }.toSet(),
+        )
+    }
+
+    // #EXP-1710 (merge-train.json `offlineSince`): the opener = the PR's
+    // `sessionId` session, else its root; its device's presence decides; an
+    // unknown last-seen = the PR's updatedAt, never online.
+    @Test
+    fun `openerOfflineSince routes through the domain offlineSince`() {
+        val now = com.exponential.app.domain.WireTimestamps.parseEpochMs("2027-01-15T10:00:00.000Z")!!
+        val root = session("s1").copy(deviceId = "dev-root")
+        val child = session("c1").copy(rootId = "s1", parentId = "s1", deviceId = "dev-1")
+        val sessions = listOf(root, child).associateBy { it.id }
+        val pr = PullRequestEntity(
+            id = "pr", teamId = "t1", rootSessionId = "s1", sessionId = "c1", number = 8,
+            createdAt = "2027-01-15T07:00:00.000Z", updatedAt = "2027-01-15T08:00:00.000Z",
+        )
+        fun device(id: String, seen: String?) = com.exponential.app.data.db.DeviceEntity(
+            id = "row-$id", userId = "me", deviceId = id, lastSeenAt = seen,
+        )
+        fun since(p: PullRequestEntity, vararg devs: com.exponential.app.data.db.DeviceEntity) =
+            openerOfflineSince(p, sessions, devs.associateBy { it.deviceId }, now)
+        // Online (THE presence window): none.
+        assertEquals(null, since(pr, device("dev-1", "2027-01-15T09:59:30.000Z")))
+        // Offline, last seen known: since the last heartbeat.
+        assertEquals("2027-01-15T07:30:00.000Z", since(pr, device("dev-1", "2027-01-15T07:30:00.000Z")))
+        // Offline, no heartbeat: since the PR went conflict/failing.
+        assertEquals("2027-01-15T08:00:00.000Z", since(pr, device("dev-1", null)))
+        // No device row synced: never online.
+        assertEquals("2027-01-15T08:00:00.000Z", since(pr))
+        // No `sessionId`: the root opened it (its own device).
+        assertEquals(
+            "2027-01-15T06:00:00.000Z",
+            since(pr.copy(sessionId = null), device("dev-root", "2027-01-15T06:00:00.000Z"), device("dev-1", "2027-01-15T09:59:30.000Z")),
+        )
+        // No opener synced, or an opener without a device: none.
+        assertEquals(null, since(pr.copy(sessionId = "gone", rootSessionId = "gone")))
+        assertEquals(null, openerOfflineSince(pr, mapOf("c1" to child.copy(deviceId = null)), emptyMap(), now))
     }
 }
