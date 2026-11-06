@@ -73,6 +73,19 @@ impl Repo {
         Ok(out.status.success().then_some(out.stdout))
     }
 
+    /// `<file>` as the newest commit whose subject is exactly `subject`
+    /// left it; `None` when there is no such commit.
+    pub fn show_at_newest(&self, file: &str, subject: &str) -> io::Result<Option<Vec<u8>>> {
+        let out = self.ok(&["log", "--format=%H%x09%s", "--", file], "log")?;
+        let id = String::from_utf8_lossy(&out.stdout).lines().find_map(|line| {
+            let (id, s) = line.split_once('\t')?;
+            (s == subject).then(|| id.to_string())
+        });
+        let Some(id) = id else { return Ok(None) };
+        let out = self.git(&["show", &format!("{id}:{file}")])?;
+        Ok(out.status.success().then_some(out.stdout))
+    }
+
     /// Commit exactly `files` (added, changed or deleted in the working
     /// tree) with `message`. `None` when nothing differed from HEAD.
     pub fn commit(&self, files: &[String], message: &str) -> io::Result<Option<String>> {

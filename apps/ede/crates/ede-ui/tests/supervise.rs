@@ -141,6 +141,24 @@ fn the_factory_copy_arrives_as_the_first_commit() {
 }
 
 #[test]
+fn an_update_reaches_untouched_documents_and_spares_edited_ones() {
+    let (_tmp, dir, factory) = setup();
+    Runtime::open_with_factory(&dir, &factory).unwrap();
+    // The package ships a new panel: the untouched copy follows it.
+    fs::write(factory.join("panel.json"), serde_json::to_vec_pretty(&panel("factory 2")).unwrap()).unwrap();
+    Runtime::open_with_factory(&dir, &factory).unwrap();
+    assert_eq!(text(&dir), "factory 2");
+    assert_eq!(log(&dir), ["Factory panel", "Factory panel", "exponential-ui: history starts"]);
+    // The person edits it; the next update leaves their copy alone.
+    let (mut ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
+    ui.write("panel", &panel("mine"), "Edit panel.json").unwrap();
+    fs::write(factory.join("panel.json"), serde_json::to_vec_pretty(&panel("factory 3")).unwrap()).unwrap();
+    Runtime::open_with_factory(&dir, &factory).unwrap();
+    assert_eq!(text(&dir), "mine");
+    assert_eq!(log(&dir)[0], "Edit panel.json");
+}
+
+#[test]
 fn a_drawn_edit_stays() {
     let (_tmp, dir, factory) = setup();
     let run = Run::start(&dir, &factory);

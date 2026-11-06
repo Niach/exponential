@@ -30,7 +30,8 @@ fn status(level: &str) -> &'static str {
 /// The doctor's rows with a `status` to show; `None` when the compositor's
 /// doctor can't be run (not installed, unreadable output).
 pub fn parse_checks(stdout: &str) -> Option<Value> {
-    let rows: Vec<Value> = serde_json::from_str(stdout.trim()).ok()?;
+    // The JSON is one line; anything else on stdout (a library's chatter) is skipped.
+    let rows: Vec<Value> = stdout.lines().rev().find_map(|line| serde_json::from_str(line.trim()).ok())?;
     Some(Value::Array(
         rows.into_iter()
             .map(|mut row| {
@@ -51,7 +52,7 @@ fn run_doctor() -> Option<Value> {
         .map(|p| p.into_os_string())
         .unwrap_or_else(|| "exponential-compositor".into());
     // A failing check exits 1 with the same JSON: the output counts, not the status.
-    let out = std::process::Command::new(program).args(["doctor", "--json"]).output().ok()?;
+    let out = std::process::Command::new(program).args(["doctor", "--json"]).env_remove("RUST_LOG").output().ok()?;
     parse_checks(&String::from_utf8_lossy(&out.stdout))
 }
 
@@ -135,5 +136,7 @@ mod tests {
         assert_eq!(rows[0]["status"], "Fix needed");
         assert_eq!(rows[1]["status"], "OK");
         assert_eq!(parse_checks("FAIL  NVIDIA x"), None);
+        let noisy = "WARN smithay: Unable to become drm master\n[{\"name\":\"GPU\",\"level\":\"warn\",\"detail\":\"x\"}]\n";
+        assert_eq!(parse_checks(noisy).unwrap()[0]["status"], "Check");
     }
 }
