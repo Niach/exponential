@@ -1079,10 +1079,8 @@ struct ThreadScreen: View {
     /// #EXP-1710: Merge now's alert over the thread PR (`titleStack` on an
     /// open-stack member).
     private func askMergeNow() {
-        guard let rows, let pullRequest = rows.guidePullRequest, pullRequest.isOpen else { return }
-        mergeNowTarget = MergeNowTarget(
-            pullRequestId: pullRequest.id, number: pullRequest.number, stack: rows.guideStackConfirm != nil
-        )
+        guard let target = rows?.guideMergeNowTarget else { return }
+        mergeNowTarget = target
     }
 
     private func holdGuide(_ hold: Bool) {

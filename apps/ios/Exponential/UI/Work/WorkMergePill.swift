@@ -89,23 +89,29 @@ struct WorkMergePill: View {
     /// The plain merge confirm, or (EXP-1248) THE stack confirm, its copy
     /// byte-locked by `stack-merge-choice.json` `confirm`.
     private var confirmCard: GlassAlert<EmptyView> {
+        Self.approveCard(number: pullRequest.number, issueCount: issueCount, stackConfirm: stackConfirm) { merge() }
+    }
+
+    /// #EXP-1710: THE Needs approval confirm, shared by the pill and the
+    /// Needs you ready row's press: the plain merge confirm (prompts.json
+    /// merge-issue-pr / merge-run-pr) or THE stack confirm.
+    static func approveCard(
+        number: Int, issueCount: Int, stackConfirm: PullRequestStack.Confirm?, onMerge: @escaping () -> Void
+    ) -> GlassAlert<EmptyView> {
         guard let stackConfirm else {
-            return GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
+            let prompt = issueCount == 0
+                ? Prompts.MergeRunPr.copy(number: number)
+                : Prompts.MergeIssuePr.copy(number: number, issueCount: issueCount)
+            return GlassAlert(prompt: prompt, handlers: ["merge": onMerge])
         }
         return GlassAlert(
             title: stackConfirm.title,
             message: stackConfirm.body,
             actions: [
                 GlassAlertAction(PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel") {},
-                GlassAlertAction(stackConfirm.title, role: .primary, id: "merge-stack") { merge() },
+                GlassAlertAction(stackConfirm.title, role: .primary, id: "merge-stack") { onMerge() },
             ]
         )
-    }
-
-    private var mergePrompt: PromptCopy {
-        issueCount == 0
-            ? Prompts.MergeRunPr.copy(number: pullRequest.number)
-            : Prompts.MergeIssuePr.copy(number: pullRequest.number, issueCount: issueCount)
     }
 
     var body: some View {
@@ -164,30 +170,12 @@ struct WorkMergePill: View {
     /// local surgery on success: the train columns sync back.
     private func merge() {
         state.merging = true
-        let pullRequestId = stackConfirm?.throughId ?? pullRequest.id
-        let stack = stackConfirm != nil
-        let title = FeedbackStates.Errors.title(verb: "merge", thing: stack ? "the stack" : "the PR")
-        Task {
-            do {
-                let result = try await deps.pullRequestsApi.merge(
-                    accountId: accountId,
-                    pullRequestId: pullRequestId,
-                    stack: stack ? true : nil
-                )
-                if !result.merged, result.queued != true {
-                    toaster.error(title, description: result.error)
-                }
-            } catch {
-                toaster.error(
-                    title,
-                    description: error.userFacingMessage,
-                    action: ToastAction(label: FeedbackStates.Errors.retry) {
-                        Task { @MainActor in merge() }
-                    }
-                )
-            }
-            state.merging = false
-        }
+        MergeTrainActions(deps: deps, accountId: accountId, toaster: toaster).approve(
+            pullRequestId: stackConfirm?.throughId ?? pullRequest.id,
+            stack: stackConfirm != nil,
+            onStart: { state.merging = true },
+            onSettled: { state.merging = false }
+        )
     }
 }
 
@@ -266,6 +254,43 @@ struct MergeTrainActions {
     let accountId: String
     let toaster: Toaster
 
+    /// Needs approval (the pill, the Needs you ready row): `pullRequests.merge`
+    /// QUEUES it (the stack's top when `stack`); a refusal toasts the
+    /// server's words, a failure offers Retry.
+    func approve(
+        pullRequestId: String, stack: Bool,
+        onStart: @escaping @MainActor () -> Void = {}, onSettled: @escaping @MainActor () -> Void = {}
+    ) {
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        let toaster = toaster
+        let title = FeedbackStates.Errors.title(verb: "merge", thing: stack ? "the stack" : "the PR")
+        Task {
+            do {
+                let result = try await api.merge(
+                    accountId: accountId,
+                    pullRequestId: pullRequestId,
+                    stack: stack ? true : nil
+                )
+                if !result.merged, result.queued != true {
+                    toaster.error(title, description: result.error)
+                }
+            } catch {
+                toaster.error(
+                    title,
+                    description: error.userFacingMessage,
+                    action: ToastAction(label: FeedbackStates.Errors.retry) {
+                        Task { @MainActor in
+                            onStart()
+                            approve(pullRequestId: pullRequestId, stack: stack, onStart: onStart, onSettled: onSettled)
+                        }
+                    }
+                )
+            }
+            onSettled()
+        }
+    }
+
     func mergeNow(pullRequestId: String) {
         let api = deps.pullRequestsApi
         let accountId = accountId
@@ -343,4 +368,50 @@ struct MergeNowTarget: Identifiable, Equatable {
     /// The PR sits in an open stack (the alert's `titleStack`).
     let stack: Bool
     var id: String { pullRequestId }
+
+    /// THE one rule (the thread `…` and the Needs you stuck row): `titleStack`
+    /// while the PR sits in an open stack among `pool`.
+    init(_ pullRequest: PullRequestEntity, pool: [PullRequestEntity]) {
+        self.init(
+            pullRequestId: pullRequest.id,
+            number: pullRequest.number,
+            stack: pullRequest.isOpen && PullRequestStack.stackConfirm(pullRequest, in: pool) != nil
+        )
+    }
+
+    init(pullRequestId: String, number: Int, stack: Bool) {
+        self.pullRequestId = pullRequestId
+        self.number = number
+        self.stack = stack
+    }
+}
+
+/// #EXP-1710: the PR a Needs approval confirm asks about (the pill's own
+/// confirm, raised from a Needs you ready row).
+struct NeedsApprovalTarget: Identifiable, Equatable {
+    let pullRequestId: String
+    let number: Int
+    let issueCount: Int
+    /// Non-nil = it sits in an open stack: approving queues it all.
+    let stackConfirm: PullRequestStack.Confirm?
+    var id: String { pullRequestId }
+}
+
+extension View {
+    /// #EXP-1710: THE pill's Needs approval confirm over a target; Merge
+    /// queues it, Cancel leaves it.
+    func needsApprovalConfirm(
+        target: Binding<NeedsApprovalTarget?>, onConfirm: @escaping (NeedsApprovalTarget) -> Void
+    ) -> some View {
+        background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: target) { item in
+                    WorkMergePill.approveCard(
+                        number: item.number, issueCount: item.issueCount, stackConfirm: item.stackConfirm
+                    ) { onConfirm(item) }
+                }
+        }
+    }
 }

@@ -97,7 +97,8 @@ public enum NeedsYou {
         public let mergeState: String?
         public let mergeWait: String?
         public let mergeHold: String?
-        /// When the opener session's device went offline (wire), nil = online.
+        /// When the opener session's device went offline (wire, merge-train
+        /// `offlineSince`), nil = online or nothing to wait for.
         public let deviceOfflineSince: String?
 
         public init(
@@ -151,6 +152,9 @@ public enum NeedsYou {
         /// #EXP-1710: the PR's number (a stuck row's confirms name it).
         public let number: Int?
         public var id: String { messageId }
+        /// #EXP-1710: an `approval` ready PR row (a PR row without the
+        /// stuck row's buttons): its press is Needs approval, never the chat.
+        public var needsApproval: Bool { kind == .pr && actions.isEmpty }
 
         public init(
             messageId: String, sessionId: String, rootId: String, kind: Kind, opens: Opens, title: String,
