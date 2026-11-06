@@ -24383,8 +24383,9 @@ Inter
 ------------------------------------------------------------------------------
 
 Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter),
-licensed under the SIL Open Font License 1.1. The desktop application embeds
-the TTFs in its binary; the website self-hosts woff2 subsets.
+licensed under the SIL Open Font License 1.1. The desktop application and the
+desktop runner embed the TTFs in their binaries; the website self-hosts woff2
+subsets.
 
 ..............................................................................
 SIL Open Font License 1.1 — Inter
