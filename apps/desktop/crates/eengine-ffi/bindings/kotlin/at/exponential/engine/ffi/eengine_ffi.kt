@@ -7215,7 +7215,7 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
 
         /**
          * The components painted in place of the app when the bundle cannot load:
-         * `kind` = `missing`, `config`, `signature` or `invalid`.
+         * `kind` = `missing`, `config`, `signature`, `invalid` or `busy`.
          */
     @Throws(EngineException::class) fun `runnerFailure`(`kind`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(

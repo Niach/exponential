@@ -619,7 +619,7 @@ pub fn runner_package(package_json: String, form_factor: RunnerFormFactor) -> Re
 }
 
 /// The components painted in place of the app when the bundle cannot load:
-/// `kind` = `missing`, `config`, `signature` or `invalid`.
+/// `kind` = `missing`, `config`, `signature`, `invalid` or `busy`.
 #[uniffi::export]
 pub fn runner_failure(kind: String) -> Result<String, EngineError> {
     let kind: eengine::RunnerFailure = serde_json::from_value(Value::String(kind.clone())).map_err(|_| invalid(format!("runner failure `{kind}`")))?;

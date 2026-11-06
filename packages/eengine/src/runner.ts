@@ -19,7 +19,7 @@ export const RUNNER_BUNDLE = fixture.bundle
 export const RUNNER_SHELL = fixture.shell
 
 export type FormFactor = `wide` | `compact`
-export type RunnerFailure = `missing` | `config` | `signature` | `invalid`
+export type RunnerFailure = `missing` | `config` | `signature` | `invalid` | `busy`
 
 // ---------------------------------------------------------------- config
 
@@ -95,8 +95,10 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
   if (formFactor === `wide`) {
     const nav_children = [`runner-title`, ...(tabs ? [`runner-screens`] : []), ...(permissions ? [`runner-permissions`] : [])]
     const shell: SurfaceComponent[] = [
-      { id: `root`, component: `Sidebar`, width: S.sidebarWidth, collapseBelow: `never`, children: [`runner-page`], slots: { sidebar: `runner-nav` } },
-      { id: `runner-nav`, component: `Stack`, gap: `sm`, children: nav_children },
+      { id: `root`, component: `Stack`, direction: `horizontal`, gap: `none`, align: `stretch`, style: { height: `100%` }, children: [`runner-sidebar`] },
+      { id: `runner-sidebar`, component: `Sidebar`, width: S.sidebarWidth, collapseBelow: `never`, children: [`runner-scroll`], slots: { sidebar: `runner-nav` } },
+      { id: `runner-scroll`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner-page`] },
+      { id: `runner-nav`, component: `Stack`, gap: `sm`, style: { padding: `$spacing.sm` }, children: nav_children },
       { id: `runner-title`, component: `Heading`, text: typeof pkg.name === `string` ? pkg.name : ``, level: S.titleLevel },
     ]
     if (tabs)
@@ -120,7 +122,7 @@ function shellComponents(pkg: Pkg, screen: string, components: SurfaceComponent[
   const bar = [...(tabs ? [`runner-tabs-box`] : []), ...(permissions ? [`runner-permissions`] : [])]
   const shell: SurfaceComponent[] = [
     { id: `root`, component: `Stack`, gap: `none`, style: { height: `100%` }, children: [`runner-main`, `runner-separator`, `runner-bar`] },
-    { id: `runner-main`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0 }, children: [`runner-page`] },
+    { id: `runner-main`, component: `Box`, style: { display: `flex`, flexDirection: `column`, flexGrow: 1, minHeight: 0, overflowY: `auto` }, children: [`runner-page`] },
     { id: `runner-separator`, component: `Separator` },
     { id: `runner-bar`, component: `Stack`, direction: `horizontal`, gap: `sm`, align: `center`, justify: `end`, style: { padding: `$spacing.sm` }, children: bar },
   ]
