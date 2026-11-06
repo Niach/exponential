@@ -156,7 +156,7 @@ mod tests {
     }
 
     fn window(id: &str, x: i32, focused: bool, protected: bool) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: None, app_id: None, x, y: 10, width: 100, height: 100, focused, fullscreen: false, protected, x11: false, workspace: 0 }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: None, app_id: None, x, y: 10, width: 100, height: 100, focused, fullscreen: false, protected, x11: false, workspace: 0, minimized: false }
     }
 
     #[test]

@@ -8,21 +8,24 @@ license.workspace = true
 publish = false
 
 [dependencies]
-eui-core.workspace = true
-eui-gpui.workspace = true
-ede-protocol.workspace = true
-ede-ui = { path = "../../../crates/ede-ui" }
+eui-core = { path = "../eui-core" }
+eui-gpui = { path = "../eui-gpui", default-features = false }
+ede-protocol = { path = "../ede-protocol" }
+ede-ui = { path = "../../../ede/crates/ede-ui" }
 # The services data source (#EDE-13): /services/<domain> in every document.
-ede-services = { path = "../../../crates/ede-services" }
+ede-services = { path = "../../../ede/crates/ede-services" }
 gpui.workspace = true
-gpui_platform.workspace = true
+# Wayland only (#EDE-51): the shell is a layer-shell client of exponential-compositor; the
+# IDE's workspace line adds `x11`, which this crate never needs (`-p ede-shell` resolves
+# its own features; a `--workspace` build unifies them, which is fine).
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "wayland", "runtime_shaders"] }
 gpui-component.workspace = true
 gpui-component-assets.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-# The IDE's fonts and Lucide icons, embedded like apps/desktop/crates/app/src/assets.rs does.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# The IDE's fonts and Lucide icons (apps/desktop/assets), embedded like crates/app/src/assets.rs does.
 rust-embed = "8"
 # localtime_r for the clock.
 libc = "0.2"
@@ -37,7 +40,7 @@ libloading = "0.8"
 # The settings pages (#EDE-14) edit compositor.toml.
 toml = "0.8"
 # The theme bridge's choice for the Theme page (#EDE-19).
-ede-theme = { path = "../../../crates/ede-theme" }
+ede-theme = { path = "../../../ede/crates/ede-theme" }
 
 [dev-dependencies]
 tempfile = "3"

@@ -12,6 +12,7 @@ COPY packages/ecore/package.json packages/ecore/package.json
 COPY packages/emcp/package.json packages/emcp/package.json
 COPY packages/eengine/package.json packages/eengine/package.json
 COPY packages/ede/package.json packages/ede/package.json
+COPY packages/uicore/package.json packages/uicore/package.json
 COPY packages/etalk/package.json packages/etalk/package.json
 COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
 COPY packages/emoji/package.json packages/emoji/package.json
