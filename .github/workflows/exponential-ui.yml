@@ -120,6 +120,7 @@ jobs:
           EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
         run: bun run --filter @exponential_app/eui-bench bench:react
       - uses: actions/upload-artifact@v4
+        if: always()  # EXP-1702: a failed run keeps its report + failures/ screenshots
         with:
           name: conformance-react
           overwrite: true  # EXP-1386: a re-run replaces the attempt before, never a second same-named fragment

@@ -111,6 +111,7 @@ interface XuiProbes {
 }
 
 const fixture = (name: string) => JSON.parse(readFileSync(join(import.meta.dirname, `..`, `fixtures`, name), `utf8`))
+const CATALOG_SHARDS = 4
 const canon = (v: unknown) => JSON.stringify(v)
 
 function walk(node: UiNode, visit: (n: UiNode) => void): void {
@@ -164,11 +165,19 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
   async function runAll(browser: Browser, url: (q: Query) => string, open: (q: Query, viewport?: { width: number; height: number }) => ReturnType<typeof openPage>) {
     await block(`catalog: every case reduces cleanly and paints without Unknown`, async () => {
       const cases = fixture(`catalog-components.json`).cases as { name: string; node: NestedNode }[]
-      const page = await open({ view: `catalog`, theme: `exponential`, mode: `light` }, { width: 1400, height: 900 })
-      // Every case is painted once its last surface (a toast in its layer) is.
-      await page.waitForFunction(() => document.querySelector(`[data-xui-surface="Toast-example"] [data-xui-id]`) !== null, undefined, { timeout: 60_000 })
-      const painted = (await page.evaluate(() => Array.from(document.querySelectorAll(`.xui-surface`)).map((s) => ({ id: s.getAttribute(`data-xui-surface`), nodes: s.querySelectorAll(`[data-xui-id]`).length, unknown: s.querySelectorAll(`.xui-Unknown-root, [data-xui-component="Unknown"]`).length })))) as { id: string; nodes: number; unknown: number }[]
-      await page.context().close()
+      // EXP-1702: in CATALOG_SHARDS pages (`?shard=k/n`, every n-th case):
+      // each surface carries its own <style>s, so one page of every case
+      // recalcs styles quadratically (18 s on a dev box, past the 30 s
+      // first-surface wait on a hosted runner; a quarter paints in ~1.5 s).
+      const painted: { id: string; nodes: number; unknown: number }[] = []
+      for (let k = 0; k < CATALOG_SHARDS; k++) {
+        const page = await open({ view: `catalog`, shard: `${k}/${CATALOG_SHARDS}`, theme: `exponential`, mode: `light` }, { width: 1400, height: 900 })
+        // A shard is painted once its open toasts (in their layer, last) are.
+        const toasts = cases.filter((c, i) => i % CATALOG_SHARDS === k && c.node.component === `Toast` && (c.node.props as { open?: unknown } | undefined)?.open !== false).map((c) => c.name.replace(/[^a-z0-9]/gi, `-`))
+        await page.waitForFunction((ids) => ids.every((id) => document.querySelector(`[data-xui-surface="${id}"] [data-xui-id]`) !== null), toasts, { timeout: 60_000 })
+        painted.push(...((await page.evaluate(() => Array.from(document.querySelectorAll(`.xui-surface`)).map((s) => ({ id: s.getAttribute(`data-xui-surface`), nodes: s.querySelectorAll(`[data-xui-id]`).length, unknown: s.querySelectorAll(`.xui-Unknown-root, [data-xui-component="Unknown"]`).length })))) as { id: string; nodes: number; unknown: number }[]))
+        await page.context().close()
+      }
       const byId = new Map(painted.map((p) => [p.id, p]))
       for (const c of cases)
         record(`catalog`, c.name, () => {
