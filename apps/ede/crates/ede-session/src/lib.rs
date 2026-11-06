@@ -1,11 +1,18 @@
-//! `ede-session`: what LightDM runs for the "Exponential" session.
+//! `ede-session`: what the login manager (GDM, LightDM) runs for the
+//! "Exponential" session.
 //!
 //! It sets the session environment, starts `ede-compositor` on the seat,
 //! and once the compositor is up hands the environment to systemd and
 //! starts `ede-session.target` (autostart apps, polkit agent, keyring).
 //! When the compositor dies it restarts it; three quick crashes in a row
 //! and it comes back in safe mode (the stock settings), so a broken config
-//! never locks the person out.
+//! never locks the person out. A compositor that stopped itself because it
+//! cannot drive the display (exit code [`FATAL_EXIT`], the reason in
+//! [`failure_file`]) gets one try in safe mode, then the login screen.
+//! Before every fallback the reason shows on the displays
+//! (`ede-compositor recovery`, no GPU needed), never plain black (#EDE-40).
+//! SIGTERM (the login manager ending the session) stops the compositor and
+//! the session units, so the shell supervisor never outlives the display.
 
 use std::{
     path::{Path, PathBuf},
@@ -34,6 +41,14 @@ pub const QUICK_CRASH: Duration = Duration::from_secs(60);
 pub const CRASHES_FOR_SAFE_MODE: usize = 3;
 /// Never restart more often than this in one login.
 pub const MAX_RESTARTS: usize = 6;
+/// The compositor's exit code when it stopped itself: it cannot drive the
+/// display, and the same start would fail the same way (ede-compositor's
+/// `FATAL_EXIT`).
+pub const FATAL_EXIT: i32 = 3;
+/// How long the reason shows before a restart, and before the login screen
+/// (a key ends either wait).
+pub const SHOW_BEFORE_RESTART: Duration = Duration::from_secs(8);
+pub const SHOW_BEFORE_LOGOUT: Duration = Duration::from_secs(45);
 
 /// How a compositor run ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +57,8 @@ pub enum Exit {
     Clean,
     /// Crashed or failed after running for `ran`.
     Crashed { ran: Duration },
+    /// Stopped itself ([`FATAL_EXIT`]): no display could be driven.
+    Fatal { ran: Duration },
 }
 
 /// The next step after a run ended.
@@ -84,6 +101,17 @@ impl Policy {
                 }
                 Next::Restart { safe_mode: self.safe_mode }
             }
+            // The same start fails the same way: the stock settings once
+            // (an `[[outputs]]` mode or GPU pick may be at fault), then out.
+            Exit::Fatal { .. } => {
+                self.quick_crashes_in_a_row += 1;
+                self.restarts += 1;
+                if self.safe_mode || self.restarts > MAX_RESTARTS {
+                    return Next::Logout;
+                }
+                self.safe_mode = true;
+                Next::Restart { safe_mode: true }
+            }
         }
     }
 }
@@ -109,6 +137,18 @@ pub fn store_crashes(path: &Path, count: usize) {
     let _ = std::fs::write(path, format!("{count}\n"));
 }
 
+/// `$XDG_RUNTIME_DIR/ede/failure`: the compositor's reason for a
+/// [`FATAL_EXIT`] (it writes the file, [`take_failure`] reads and removes it).
+pub fn failure_file() -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join("ede").join("failure"))
+}
+
+pub fn take_failure(path: &Path) -> Option<String> {
+    let reason = std::fs::read_to_string(path).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let _ = std::fs::remove_file(path);
+    reason
+}
+
 /// The compositor's command line for one run.
 pub fn compositor_args(safe_mode: bool, ready_hook: &str) -> Vec<String> {
     let mut args = vec!["--udev".to_string()];
@@ -121,6 +161,22 @@ pub fn compositor_args(safe_mode: bool, ready_hook: &str) -> Vec<String> {
     args
 }
 
+/// What the displays say after `exit`, before `next` happens: the
+/// `ede-compositor recovery` command line. `detail` is the compositor's
+/// reason (the failure file) or how it ended.
+pub fn recovery_args(exit: Exit, next: Next, detail: &str) -> Vec<String> {
+    let title = match exit {
+        Exit::Crashed { ran } if ran >= QUICK_CRASH => "The Exponential session stopped",
+        _ => "Exponential could not start",
+    };
+    let (what_next, timeout) = match next {
+        Next::Restart { safe_mode: false } => ("Starting again", SHOW_BEFORE_RESTART),
+        Next::Restart { safe_mode: true } => ("Starting again with the stock settings (safe mode)", SHOW_BEFORE_RESTART),
+        Next::Logout => ("Back to the login screen; pick another session there to keep working", SHOW_BEFORE_LOGOUT),
+    };
+    vec!["recovery".into(), "--title".into(), title.into(), "--reason".into(), detail.into(), "--next".into(), what_next.into(), "--timeout".into(), timeout.as_secs().to_string()]
+}
+
 pub fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
@@ -131,6 +187,7 @@ mod tests {
 
     const QUICK: Exit = Exit::Crashed { ran: Duration::from_secs(5) };
     const LATE: Exit = Exit::Crashed { ran: Duration::from_secs(3600) };
+    const FATAL: Exit = Exit::Fatal { ran: Duration::from_secs(2) };
 
     #[test]
     fn logging_out_ends_the_session_and_forgives_crashes() {
@@ -168,6 +225,18 @@ mod tests {
         assert_eq!(p.after(LATE), Next::Logout);
     }
 
+    /// #EDE-40: a display that cannot be driven gets the stock settings
+    /// once, then the login screen; it counts as a quick crash across logins.
+    #[test]
+    fn a_fatal_start_tries_safe_mode_once_then_logs_out() {
+        let mut p = Policy::default();
+        assert_eq!(p.after(FATAL), Next::Restart { safe_mode: true });
+        assert_eq!(p.after(FATAL), Next::Logout);
+        assert_eq!(p.quick_crashes_in_a_row, 2);
+        let mut safe = Policy { safe_mode: true, ..Default::default() };
+        assert_eq!(safe.after(FATAL), Next::Logout, "already in safe mode: nothing left to try");
+    }
+
     #[test]
     fn crashes_carry_across_logins() {
         let dir = tempfile::tempdir().unwrap();
@@ -178,9 +247,33 @@ mod tests {
     }
 
     #[test]
+    fn the_failure_file_is_read_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("failure");
+        assert_eq!(take_failure(&path), None);
+        std::fs::write(&path, "Virtual-1 never drew a frame\n").unwrap();
+        assert_eq!(take_failure(&path).as_deref(), Some("Virtual-1 never drew a frame"));
+        assert_eq!(take_failure(&path), None, "removed");
+    }
+
+    #[test]
     fn the_compositor_runs_on_the_seat_and_calls_back_when_ready() {
         assert_eq!(compositor_args(false, "/usr/bin/ede-session"), ["--udev", "--", "/usr/bin/ede-session", "--ready"]);
         assert_eq!(compositor_args(true, "x"), ["--udev", "--safe-mode", "--", "x", "--ready"]);
+    }
+
+    #[test]
+    fn the_recovery_message_says_what_failed_and_what_comes_next() {
+        let args = recovery_args(FATAL, Next::Restart { safe_mode: true }, "Virtual-1 never drew a frame");
+        assert_eq!(args[0], "recovery");
+        assert_eq!(args[1..3], ["--title", "Exponential could not start"]);
+        assert_eq!(args[3..5], ["--reason", "Virtual-1 never drew a frame"]);
+        assert!(args[6].contains("safe mode"));
+        assert_eq!(args[7..9], ["--timeout".to_string(), SHOW_BEFORE_RESTART.as_secs().to_string()]);
+        let out = recovery_args(LATE, Next::Logout, "ede-compositor ended: signal 11");
+        assert_eq!(out[2], "The Exponential session stopped");
+        assert!(out[6].contains("login screen"));
+        assert_eq!(out[8], SHOW_BEFORE_LOGOUT.as_secs().to_string());
     }
 
     /// The files the .deb installs say what this crate expects.
@@ -197,6 +290,8 @@ mod tests {
             assert!(target.contains(unit), "{unit}");
             if unit.starts_with("ede-") {
                 assert!(root.join("systemd").join(unit).exists(), "{unit} ships");
+                // #EDE-40: stopping the session target stops them too.
+                assert!(std::fs::read_to_string(root.join("systemd").join(unit)).unwrap().contains("PartOf=graphical-session.target ede-session.target\n"), "{unit} is part of the session");
             }
         }
         assert_eq!(SESSION_ENV.iter().find(|(k, _)| *k == "XDG_CURRENT_DESKTOP").unwrap().1, "eDE");
@@ -211,6 +306,8 @@ mod tests {
             assert!(deb.contains(&format!("{bin} ")) || deb.contains(&format!("{bin}\"")) || deb.contains(&format!("-p {bin}")), "{bin} is packaged");
         }
         assert!(deb.contains("/usr/share/ede/ui/"), "the factory documents ship");
+        // #EDE-40: the icon theme is whatever is installed (ede-theme picks); a 10-minute install is not recommended.
+        assert!(!deb.contains("papirus"), "no icon theme in Recommends");
         // #EDE-17: the lock authenticates through its own PAM service, never the `login` fallback.
         assert!(deb.contains("/etc/pam.d/ede") && root.join("pam/ede").exists(), "the lock's PAM service ships");
         let polkit = std::fs::read_to_string(root.join("systemd/ede-polkit-agent.service")).unwrap();

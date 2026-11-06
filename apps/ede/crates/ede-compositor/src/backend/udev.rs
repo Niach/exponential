@@ -111,6 +111,8 @@ pub struct Udev {
     devices: HashMap<DrmNode, Device>,
     cursor: Cursor,
     cursor_buffers: Vec<(xcursor::parser::Image, MemoryRenderBuffer)>,
+    /// Whether the outputs ever drew (#EDE-40).
+    health: super::FrameHealth,
 }
 
 type Shared = Rc<RefCell<Udev>>;
@@ -125,7 +127,10 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     let seat_name = session.seat();
 
     let primary_gpu = match std::env::var("EDE_DRM_DEVICE") {
-        Ok(path) => DrmNode::from_path(path)?,
+        Ok(path) => {
+            let node = DrmNode::from_path(path)?;
+            super::render_node_for(None, node.node_with_type(NodeType::Render).and_then(Result::ok), node)
+        }
         Err(_) => primary_gpu(&seat_name)?
             .and_then(|p| DrmNode::from_path(p).ok()?.node_with_type(NodeType::Render)?.ok())
             .or_else(|| all_gpus(&seat_name).ok()?.into_iter().find_map(|p| DrmNode::from_path(p).ok()))
@@ -149,6 +154,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         devices: HashMap::new(),
         cursor: Cursor::load(),
         cursor_buffers: Vec::new(),
+        health: super::FrameHealth::default(),
     }));
 
     // Input.
@@ -216,17 +222,29 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     }
     {
         let mut u = udev.borrow_mut();
+        // The primary GPU must be a node a renderer was registered under
+        // (#EDE-40: on a software EGL device the card's render node is not
+        // what EGL names), else every frame would ask for a renderer that
+        // does not exist.
+        let registered: Vec<DrmNode> = u.devices.values().map(|d| d.render_node).collect();
+        if let Some(fallback) = super::reconcile_primary(u.primary_gpu, &registered) {
+            tracing::warn!("primary GPU {} has no renderer; rendering through {fallback}", u.primary_gpu);
+            u.primary_gpu = fallback;
+        }
         let primary = u.primary_gpu;
-        if let Ok(renderer) = u.gpus.single_renderer(&primary) {
-            state.shm_state.update_formats(renderer.shm_formats());
-            // linux-dmabuf v4 on the primary GPU's formats.
-            let formats = renderer.dmabuf_formats();
-            match DmabufFeedbackBuilder::new(primary.dev_id(), formats).build() {
-                Ok(feedback) => {
-                    state.dmabuf_state.create_global_with_default_feedback::<Ede>(&state.display_handle, &feedback);
+        match u.gpus.single_renderer(&primary) {
+            Ok(renderer) => {
+                state.shm_state.update_formats(renderer.shm_formats());
+                // linux-dmabuf v4 on the primary GPU's formats.
+                let formats = renderer.dmabuf_formats();
+                match DmabufFeedbackBuilder::new(primary.dev_id(), formats).build() {
+                    Ok(feedback) => {
+                        state.dmabuf_state.create_global_with_default_feedback::<Ede>(&state.display_handle, &feedback);
+                    }
+                    Err(e) => tracing::warn!("no dmabuf feedback ({e}); GPU clients fall back to shm"),
                 }
-                Err(e) => tracing::warn!("no dmabuf feedback ({e}); GPU clients fall back to shm"),
             }
+            Err(e) => return Err(format!("no renderer on the primary GPU {primary}: {e}").into()),
         }
         // Explicit sync when the primary GPU's DRM fd supports syncobj eventfds
         // (NVIDIA needs it for flicker-free Xwayland and games).
@@ -311,7 +329,10 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         }
         let _ = state.display_handle.flush_clients();
     })?;
-    Ok(())
+    match state.fatal.take() {
+        Some(reason) => Err(reason.into()),
+        None => Ok(()),
+    }
 }
 
 fn device_added(udev: &Shared, state: &mut Ede, node: DrmNode, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -321,11 +342,16 @@ fn device_added(udev: &Shared, state: &mut Ede, node: DrmNode, path: &Path) -> R
     let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
     let gbm = GbmDevice::new(fd)?;
 
-    // One render GPU: the device's own render node if it has a working EGL
-    // device, else the primary GPU renders for it.
+    // One render GPU: the node EGL's device names, else the card's own
+    // render node (Mesa's software device names none: llvmpipe on vmwgfx
+    // without 3D, a firmware framebuffer; #EDE-40), else the card itself.
     let display = unsafe { EGLDisplay::new(gbm.clone())? };
     let egl_device = EGLDevice::device_for_display(&display)?;
-    let render_node = egl_device.try_get_render_node().ok().flatten().unwrap_or(node);
+    let egl_node = egl_device.try_get_render_node().ok().flatten();
+    let render_node = super::render_node_for(egl_node, node.node_with_type(NodeType::Render).and_then(Result::ok), node);
+    if egl_device.is_software() {
+        tracing::info!("{node}: software EGL device (llvmpipe); rendering through {render_node}");
+    }
     u.gpus.as_mut().add_node(render_node, gbm.clone())?;
 
     let allocator = GbmAllocator::new(gbm.clone(), GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT);
@@ -536,7 +562,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     let mut renderer = match renderer {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!("no renderer for {node}: {e}");
+            frame_failed(u, state, &output, format!("no renderer for {node}: {e}"));
             return;
         }
     };
@@ -569,6 +595,7 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
     drop(renderer);
     match result {
         Ok(frame) if !frame.is_empty => {
+            u.health.drew();
             // The fullscreen window alone on this output may go straight to
             // the plane: tell it which buffers make that possible.
             if let (Some((render_fb, scanout_fb)), Some(w)) = (surface.feedback.as_ref(), state.fullscreen_on(&output)) {
@@ -605,6 +632,23 @@ fn render_surface(udev: &Shared, state: &mut Ede, node: DrmNode, crtc: crtc::Han
                     .ok();
             }
         }
-        Err(e) => tracing::warn!("{}: render failed: {e:?}", output.name()),
+        Err(e) => frame_failed(u, state, &output, format!("{}: render failed: {e:?}", output.name())),
+    }
+}
+
+/// An output got no frame: logged (the first time, then rarely), and when
+/// no output has drawn anything since start and this keeps happening, the
+/// session stops with the reason instead of staying black (#EDE-40);
+/// ede-session shows it and falls back.
+fn frame_failed(u: &mut Udev, state: &mut Ede, output: &Output, error: String) {
+    match u.health.failed(&error) {
+        super::Failure::Log => tracing::error!("{error}"),
+        super::Failure::Quiet => {}
+        super::Failure::Fatal => {
+            let reason = format!("{} never drew a frame: {error}", output.name());
+            tracing::error!("{reason}; stopping");
+            state.fatal = Some(reason);
+            state.loop_signal.stop();
+        }
     }
 }

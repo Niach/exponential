@@ -350,12 +350,26 @@ _COMM=ede-compositor` (the session itself; LightDM also writes
 `/etc/pam.d/ede` (a conffile). Remove with `sudo apt remove ede`; Cinnamon
 and GNOME are untouched.
 
-If eDE does not come up: the previous session is still in the menu, pick it
-and log in again, or Ctrl+Alt+F3 for a text login and `journalctl -b
-_COMM=ede-compositor`. Three quick crashes in a row land in safe mode by
-themselves. In a VirtualBox VM keep the VMSVGA graphics controller (the
-`vmwgfx` driver, its "unsupported hypervisor" kernel line is normal); 3D
-acceleration is not needed, eDE renders in software there like GNOME does.
+If eDE does not come up, the screen says so (#EDE-40): a compositor that
+cannot drive the display stops itself (exit code 3, the reason in
+`$XDG_RUNTIME_DIR/ede/failure`, and one that never gets a frame out after
+20 attempts counts), and `ede-session` paints the reason and what happens
+next onto every display with `ede-compositor recovery` (a DRM dumb buffer
+and the Tier A canvas, no GPU involved), then falls back: a crash restarts
+the compositor, three quick crashes in a row (also across logins) land in
+safe mode, a fatal start gets safe mode once and then the login screen,
+where the previous session is still in the menu. Any key skips the wait.
+Ctrl+Alt+F3 gives a text login; `journalctl -b _COMM=ede-compositor
+_COMM=ede-session` has the details, `ede-compositor doctor` what EGL
+renders with. Ending the session from the login manager (SIGTERM) stops
+the compositor and both session targets, so no unit keeps restarting the
+shell against a gone display. In a VirtualBox VM keep the VMSVGA graphics
+controller (the `vmwgfx` driver, its "unsupported hypervisor" kernel line
+is normal); 3D acceleration is not needed, eDE renders in software there
+like GNOME does: Mesa's EGL device is then a software device that names
+no render node, and the compositor renders through the card's own
+(`renderD128`). `ede-compositor recovery --reason … --png out.png --size
+1280x800` draws the message into a file for a look.
 
 ## ede-protocol
 

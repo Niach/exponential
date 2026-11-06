@@ -1,12 +1,20 @@
-//! `ede-session [--safe-mode]`: the session LightDM starts.
+//! `ede-session [--safe-mode]`: the session the login manager starts.
 //! `ede-session --ready`: run by the compositor once it is up.
 
 use std::{
-    process::{Command, ExitCode},
-    time::Instant,
+    process::{Child, Command, ExitCode, ExitStatus},
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
 };
 
-use ede_session::{compositor_args, load_crashes, state_file, store_crashes, Exit, Next, Policy, EXPORTED_ENV, SESSION_ENV};
+use ede_session::{compositor_args, failure_file, load_crashes, recovery_args, state_file, store_crashes, take_failure, Exit, Next, Policy, EXPORTED_ENV, FATAL_EXIT, SESSION_ENV};
+
+/// SIGTERM/SIGHUP/SIGINT arrived: the login manager ends the session.
+static TERMINATED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_terminate(_: libc::c_int) {
+    TERMINATED.store(true, Ordering::SeqCst);
+}
 
 fn main() -> ExitCode {
     tracing_subscriber::fmt()
@@ -42,6 +50,12 @@ fn ready() -> ExitCode {
 }
 
 fn run(mut safe_mode: bool) -> ExitCode {
+    // SAFETY: installing a handler that only stores a flag.
+    unsafe {
+        for signal in [libc::SIGTERM, libc::SIGHUP, libc::SIGINT] {
+            libc::signal(signal, on_terminate as extern "C" fn(libc::c_int) as libc::sighandler_t);
+        }
+    }
     for (k, v) in SESSION_ENV {
         std::env::set_var(k, v);
     }
@@ -67,6 +81,10 @@ fn run(mut safe_mode: bool) -> ExitCode {
         safe_mode = true;
     }
     policy.safe_mode = safe_mode;
+    let failure = failure_file();
+    if let Some(path) = &failure {
+        let _ = std::fs::remove_file(path);
+    }
 
     loop {
         let mut cmd = Command::new(&compositor);
@@ -77,22 +95,44 @@ fn run(mut safe_mode: bool) -> ExitCode {
             cmd.env_remove("EDE_SAFE_MODE");
         }
         let started = Instant::now();
-        let status = cmd.status();
-        let exit = match status {
-            Ok(s) if s.success() => Exit::Clean,
+        let status = cmd.spawn().and_then(wait_or_terminate);
+        let ran = started.elapsed();
+        if TERMINATED.load(Ordering::SeqCst) {
+            tracing::info!("the session was ended; stopping");
+            stop_session_units();
+            return ExitCode::SUCCESS;
+        }
+        let (exit, detail) = match status {
+            Ok(s) if s.success() => (Exit::Clean, String::new()),
+            Ok(s) if s.code() == Some(FATAL_EXIT) => {
+                let reason = failure.as_deref().and_then(take_failure).unwrap_or_else(|| "ede-compositor could not drive the display".into());
+                tracing::error!("ede-compositor stopped: {reason}");
+                (Exit::Fatal { ran }, reason)
+            }
             Ok(s) => {
                 tracing::error!("ede-compositor ended: {s}");
-                Exit::Crashed { ran: started.elapsed() }
+                (Exit::Crashed { ran }, format!("ede-compositor ended: {s}"))
             }
             Err(e) => {
                 tracing::error!("{compositor}: {e}");
-                Exit::Crashed { ran: started.elapsed() }
+                (Exit::Crashed { ran }, format!("{compositor}: {e}"))
             }
         };
         stop_session_units();
         let next = policy.after(exit);
         if let Some(path) = &crashes_path {
             store_crashes(path, policy.quick_crashes_in_a_row);
+        }
+        if exit != Exit::Clean {
+            // What happened, on the displays (#EDE-40): no GPU needed, so it
+            // shows even when rendering is what failed.
+            let shown = Command::new(&compositor).args(recovery_args(exit, next, &detail)).spawn().and_then(wait_or_terminate);
+            if let Err(e) = shown {
+                tracing::warn!("the recovery message could not show: {e}");
+            }
+            if TERMINATED.load(Ordering::SeqCst) {
+                return ExitCode::FAILURE;
+            }
         }
         match next {
             Next::Logout => {
@@ -105,8 +145,36 @@ fn run(mut safe_mode: bool) -> ExitCode {
     }
 }
 
-/// The compositor is gone: its apps and services go with it.
+/// Waits for `child`; when the session is being ended meanwhile, the child
+/// gets SIGTERM (then SIGKILL after five seconds) and its status is returned.
+fn wait_or_terminate(mut child: Child) -> std::io::Result<ExitStatus> {
+    let mut asked: Option<Instant> = None;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if TERMINATED.load(Ordering::SeqCst) {
+            match asked {
+                None => {
+                    // SAFETY: signalling our own child by pid.
+                    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+                    asked = Some(Instant::now());
+                }
+                Some(at) if at.elapsed() > Duration::from_secs(5) => {
+                    let _ = child.kill();
+                    return child.wait();
+                }
+                Some(_) => {}
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The compositor is gone: its apps and services go with it. Both targets
+/// stop: the units are `PartOf` them, and `ede-session --ready` starts them
+/// again on a restart.
 fn stop_session_units() {
-    let _ = Command::new("systemctl").args(["--user", "stop", "ede-session.target"]).status();
+    let _ = Command::new("systemctl").args(["--user", "stop", "ede-session.target", "graphical-session.target"]).status();
     let _ = Command::new("systemctl").args(["--user", "unset-environment"]).args(["WAYLAND_DISPLAY", "DISPLAY", "EDE_SAFE_MODE"]).status();
 }

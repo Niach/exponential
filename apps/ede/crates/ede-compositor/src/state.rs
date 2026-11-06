@@ -114,6 +114,9 @@ pub struct Ede {
     pub xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState,
     /// The recovery screen's state ([`crate::recovery`]).
     pub recovery: crate::recovery::Recovery,
+    /// Why the backend stopped the loop (#EDE-40: the outputs never drew);
+    /// the run ends with this error.
+    pub fatal: Option<String>,
     /// The last press on a title bar, for the double-click.
     pub title_click: Option<(Window, Instant)>,
     /// `--debug-captures` (headless and nested only): captures are not redacted.
@@ -233,6 +236,7 @@ impl Ede {
             set_mode: None,
             xdg_decoration_state: smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<Self>(&dh),
             recovery: crate::recovery::Recovery::default(),
+            fatal: None,
             title_click: None,
             debug_captures: false,
             frame_serial: 0,

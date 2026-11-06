@@ -39,6 +39,8 @@ xcursor = { version = "0.3", optional = true }
 # Tier A text (#EDE-16): window titles and the recovery screen, rasterized
 # from the embedded Inter font without gpui (the same swash the IDE pins).
 swash = "0.2.9"
+# The recovery message as a file (`ede-compositor recovery --png`, #EDE-40).
+png = "0.17"
 
 [dev-dependencies]
 wayland-client = "0.31.10"

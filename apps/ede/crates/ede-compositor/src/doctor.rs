@@ -233,16 +233,27 @@ pub fn check_drm(cards: &[DrmCard]) -> Check {
     Check { name, level, detail }
 }
 
+/// What EGL and GLES say about a render node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RendererProbe {
+    pub renderer: String,
+    pub version: String,
+    /// The render node EGL's device names; `None` = a software device
+    /// without one (Mesa on vmwgfx without 3D, a firmware framebuffer),
+    /// where the session renders through the card's own node (#EDE-40).
+    pub egl_node: Option<String>,
+}
+
 /// What the real session renders with: EGL + GLES on `render_node`, the
 /// same way the udev backend opens it (no seat needed, so it runs from
 /// inside another desktop). The GL renderer and version strings.
 #[cfg(feature = "udev")]
-pub fn probe_renderer(render_node: &Path) -> Result<(String, String), String> {
+pub fn probe_renderer(render_node: &Path) -> Result<RendererProbe, String> {
     use smithay::{
         backend::{
             allocator::gbm::GbmDevice,
             drm::DrmDeviceFd,
-            egl::{EGLContext, EGLDisplay},
+            egl::{EGLContext, EGLDevice, EGLDisplay},
             renderer::gles::{ffi, GlesRenderer},
         },
         utils::DeviceFd,
@@ -258,24 +269,30 @@ pub fn probe_renderer(render_node: &Path) -> Result<(String, String), String> {
     let fd = DrmDeviceFd::new(DeviceFd::from(OwnedFd::from(file)));
     let gbm = GbmDevice::new(fd).map_err(|e| format!("gbm: {e}"))?;
     let display = unsafe { EGLDisplay::new(gbm) }.map_err(|e| format!("EGL display: {e}"))?;
+    let egl_node = EGLDevice::device_for_display(&display).ok().and_then(|d| d.try_get_render_node().ok().flatten()).map(|n| n.to_string());
     let context = EGLContext::new(&display).map_err(|e| format!("EGL context: {e}"))?;
     let mut renderer = unsafe { GlesRenderer::new(context) }.map_err(|e| format!("GLES: {e}"))?;
-    renderer.with_context(|gl| unsafe { (gl_string(gl, ffi::RENDERER), gl_string(gl, ffi::VERSION)) }).map_err(|e| format!("GL: {e}"))
+    let (renderer, version) = renderer.with_context(|gl| unsafe { (gl_string(gl, ffi::RENDERER), gl_string(gl, ffi::VERSION)) }).map_err(|e| format!("GL: {e}"))?;
+    Ok(RendererProbe { renderer, version, egl_node })
 }
 
 /// Software renderers Mesa falls back to (a VM without 3D, no GPU driver).
 const SOFTWARE_RENDERERS: [&str; 3] = ["llvmpipe", "softpipe", "swrast"];
 
 /// `None` = this binary has no udev backend, so nothing was probed.
-pub fn check_renderer(probe: Option<Result<(String, String), String>>) -> Check {
+pub fn check_renderer(probe: Option<Result<RendererProbe, String>>) -> Check {
     let name = "render";
     match probe {
         None => Check { name, level: Level::Warn, detail: "built without the udev backend: nested and headless only (cargo build --features udev)".into() },
         Some(Err(e)) => Check { name, level: Level::Fail, detail: format!("EGL/GLES on the render node failed: {e}; the real session can't draw") },
-        Some(Ok((renderer, version))) => {
+        Some(Ok(RendererProbe { renderer, version, egl_node })) => {
             let software = SOFTWARE_RENDERERS.iter().any(|s| renderer.contains(s));
             let note = if software { " (software rendering: expected in a VM, slow on a real GPU)" } else { "" };
-            Check { name, level: Level::Ok, detail: format!("{renderer}, {version}{note}") }
+            let device = match egl_node {
+                Some(node) => format!(", EGL device {node}"),
+                None => ", EGL device names no render node (the session renders through the card's own)".into(),
+            };
+            Check { name, level: Level::Ok, detail: format!("{renderer}, {version}{note}{device}") }
         }
     }
 }
@@ -317,7 +334,7 @@ pub fn run_checks() -> Vec<Check> {
     #[cfg(feature = "udev")]
     let probe = nodes.first().map(|n| probe_renderer(&Path::new("/dev/dri").join(n)));
     #[cfg(not(feature = "udev"))]
-    let probe: Option<Result<(String, String), String>> = None;
+    let probe: Option<Result<RendererProbe, String>> = None;
     let system_keyboard = read(crate::config::SYSTEM_KEYBOARD).and_then(|t| crate::config::parse_system_keyboard(&t));
     let mut checks = vec![
         check_render_nodes(&nodes),
@@ -486,11 +503,12 @@ mod tests {
 
     #[test]
     fn the_renderer_check_tells_software_from_hardware() {
-        let sw = check_renderer(Some(Ok(("llvmpipe (LLVM 20.1.8, 256 bits)".into(), "OpenGL ES 3.2 Mesa 26.0.8".into()))));
+        let probe = |renderer: &str, egl_node: Option<&str>| RendererProbe { renderer: renderer.into(), version: "OpenGL ES 3.2 Mesa 26.0.8".into(), egl_node: egl_node.map(Into::into) };
+        let sw = check_renderer(Some(Ok(probe("llvmpipe (LLVM 20.1.8, 256 bits)", None))));
         assert_eq!(sw.level, Level::Ok);
-        assert!(sw.detail.contains("software rendering"), "{}", sw.detail);
-        let hw = check_renderer(Some(Ok(("AMD Radeon RX 7800 XT".into(), "OpenGL ES 3.2 Mesa 26.0.8".into()))));
-        assert!(!hw.detail.contains("software"));
+        assert!(sw.detail.contains("software rendering") && sw.detail.contains("names no render node"), "{}", sw.detail);
+        let hw = check_renderer(Some(Ok(probe("AMD Radeon RX 7800 XT", Some("renderD128")))));
+        assert!(!hw.detail.contains("software") && hw.detail.ends_with("EGL device renderD128"), "{}", hw.detail);
         assert_eq!(check_renderer(Some(Err("EGL display: no EGL".into()))).level, Level::Fail);
         assert_eq!(check_renderer(None).level, Level::Warn, "a winit-only build");
     }

@@ -2,7 +2,7 @@
 # so apps find their passwords without a second prompt.
 [Unit]
 Description=eDE keyring (gnome-keyring secrets)
-PartOf=graphical-session.target
+PartOf=graphical-session.target ede-session.target
 After=graphical-session.target
 ConditionPathExists=/usr/bin/gnome-keyring-daemon
 

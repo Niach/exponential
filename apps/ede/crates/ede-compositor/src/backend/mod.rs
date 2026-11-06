@@ -306,3 +306,107 @@ where
         }
     }
 }
+
+/// The node a card renders through: the one EGL's device names, else the
+/// card's own render node, else the card itself. Mesa's software device
+/// (llvmpipe on vmwgfx without 3D, a firmware framebuffer) names no node at
+/// all, and the card's render node is where the primary GPU is looked up
+/// (#EDE-40: registering the renderer under the card left every frame
+/// without one).
+pub fn render_node_for<T: Copy>(egl: Option<T>, own_render: Option<T>, card: T) -> T {
+    egl.or(own_render).unwrap_or(card)
+}
+
+/// `Some(node)` when `primary` is not a node a renderer was registered
+/// under: the first registered one renders instead (`None` = fine as is).
+pub fn reconcile_primary<T: Copy + PartialEq>(primary: T, registered: &[T]) -> Option<T> {
+    if registered.contains(&primary) {
+        None
+    } else {
+        registered.first().copied()
+    }
+}
+
+/// Whether the outputs ever drew (udev, #EDE-40). A session whose outputs
+/// get no frame at all would stay black forever with the log filling up;
+/// after [`FATAL_FAILURES`] attempts without one frame it stops itself with
+/// the reason, and ede-session shows it and falls back.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct FrameHealth {
+    pub drawn: bool,
+    pub failures: u32,
+}
+
+pub const FATAL_FAILURES: u32 = 20;
+/// After the first, a repeated failure is logged this often.
+const LOG_EVERY: u32 = 600;
+
+/// What to do with one failed frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    Log,
+    Quiet,
+    /// Nothing was ever drawn and this keeps happening: stop the session.
+    Fatal,
+}
+
+impl FrameHealth {
+    pub fn drew(&mut self) {
+        self.drawn = true;
+        self.failures = 0;
+    }
+
+    pub fn failed(&mut self, _error: &str) -> Failure {
+        self.failures += 1;
+        if !self.drawn && self.failures >= FATAL_FAILURES {
+            Failure::Fatal
+        } else if self.failures == 1 || self.failures % LOG_EVERY == 0 {
+            Failure::Log
+        } else {
+            Failure::Quiet
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_card_renders_through_egls_node_else_its_own_render_node_else_itself() {
+        assert_eq!(render_node_for(Some("renderD129"), Some("renderD128"), "card0"), "renderD129");
+        // Mesa's software device names no node: the card's render node, where the primary GPU lives.
+        assert_eq!(render_node_for(None, Some("renderD128"), "card0"), "renderD128");
+        assert_eq!(render_node_for(None, None, "card0"), "card0");
+    }
+
+    #[test]
+    fn the_primary_gpu_is_one_the_renderers_know() {
+        assert_eq!(reconcile_primary("renderD128", &["renderD128"]), None);
+        assert_eq!(reconcile_primary("renderD128", &["card0", "renderD129"]), Some("card0"));
+        assert_eq!(reconcile_primary("renderD128", &[]), None, "no devices: the caller already fails");
+    }
+
+    #[test]
+    fn a_session_that_never_draws_stops_after_twenty_failed_frames() {
+        let mut h = FrameHealth::default();
+        assert_eq!(h.failed("x"), Failure::Log, "the first failure is logged");
+        for _ in 1..FATAL_FAILURES - 1 {
+            assert_eq!(h.failed("x"), Failure::Quiet);
+        }
+        assert_eq!(h.failed("x"), Failure::Fatal);
+    }
+
+    #[test]
+    fn a_session_that_drew_once_only_logs_later_failures() {
+        let mut h = FrameHealth::default();
+        h.drew();
+        assert_eq!(h.failed("x"), Failure::Log);
+        for _ in 0..5 * FATAL_FAILURES {
+            assert_ne!(h.failed("x"), Failure::Fatal);
+        }
+        h.drew();
+        assert_eq!(h.failures, 0);
+        assert_eq!(h.failed("x"), Failure::Log);
+    }
+}

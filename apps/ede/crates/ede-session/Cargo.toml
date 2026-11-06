@@ -9,6 +9,8 @@ publish = false
 [dependencies]
 # The theme bridge's environment (#EDE-19: XCURSOR_* for the compositor's cursor).
 ede-theme = { path = "../ede-theme" }
+# SIGTERM from the login manager stops the compositor and the units (#EDE-40).
+libc = "0.2"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

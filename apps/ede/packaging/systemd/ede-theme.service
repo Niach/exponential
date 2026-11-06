@@ -5,7 +5,7 @@
 [Unit]
 Description=eDE theme bridge (GTK, Qt, cursors, icons from the design tokens)
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
-PartOf=graphical-session.target
+PartOf=graphical-session.target ede-session.target
 After=graphical-session.target
 Before=ede-shell.service
 ConditionEnvironment=WAYLAND_DISPLAY
