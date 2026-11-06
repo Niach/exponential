@@ -1,8 +1,8 @@
 // #VAPP-285: the Tree keys in the DOM, shared by the React and Solid Box:
-// `treeKey` (src/tree.ts) over the visible `[role=treeitem]` rows of the
+// `treeKey` (src/tree-key.ts) over the visible `[role=treeitem]` rows of the
 // nearest `[role=tree]`, read off their aria-level / aria-expanded.
 
-import { treeKey, type TreeKeyRow } from "../tree"
+import { treeKey, type TreeKeyRow } from "../tree-key"
 
 /** What a key on a treeitem does: `focus` = the row to focus, `toggle` =
  *  fold it (the Box's `toggle`, the fold keys), `none` = handled, nothing;
