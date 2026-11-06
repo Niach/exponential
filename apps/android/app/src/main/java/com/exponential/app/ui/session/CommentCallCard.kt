@@ -271,8 +271,13 @@ fun CommentCallCard(
             var expanded by remember { mutableStateOf(false) }
             var overflows by remember(body) { mutableStateOf(false) }
             val shape = RoundedCornerShape(8.dp)
+            // #VAPP-258: the clamp snaps to the body's whole lines (the genUI
+            // layout's line boxes), so the fold never cuts a line in half.
+            var laid by remember(body) { mutableStateOf<at.exponential.ui.primitives.MarkdownLaidOut?>(null) }
             val clampPx = with(LocalDensity.current) {
-                (CommentCallBodyStyle.fontSize * CommentCallCopy.CLAMP_EM).roundToPx()
+                // CLAMP_LINES of the body's line box (web `max-h-[4.5em]` = three 20px lines).
+                laid?.let { it.foldHeight(it.styles.body.lineHeight * CommentCallCopy.CLAMP_LINES + 1f).dp.roundToPx() }
+                    ?: (CommentCallBodyStyle.fontSize * CommentCallCopy.CLAMP_EM).roundToPx()
             }
             Column(
                 modifier = Modifier
@@ -338,7 +343,7 @@ fun CommentCallCard(
                         // chips (issue-refs.json `bare` = agent narration only).
                         com.exponential.app.ui.markdown.LocalIssueRefBare provides false,
                     ) {
-                        MarkdownView(body)
+                        MarkdownView(body, onLayout = { if (laid?.layout != it.layout) laid = it })
                     }
                 }
                 if (overflows || expanded) {

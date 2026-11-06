@@ -2,6 +2,7 @@
   "$comment": "VAPP-92: the hand-authored HALF of the built-in `exponential` theme — the glass look's recipes, layered over the neutral (shadcn) set. scripts/generate.ts composes themes/exponential.theme.json from this file plus the token VALUES of packages/design-tokens/tokens.json and the light/dark palettes of packages/ui/src/styles.css, so the app and the SDK cannot drift. Edit this file, run generate; never edit exponential.theme.json.",
   "recipes": {
     "Card": { "root": [ { "style": { "boxShadow": "$shadow.none" } } ] },
+    "Markdown": { "root": [ { "style": { "gap": "$spacing.sm" } } ] },
     "Group": { "body": [ { "style": { "backgroundColor": "$color.card" } } ] },
     "Section": { "header": [ { "style": { "backgroundColor": "$color.muted" } } ] },
     "Button": {

@@ -30,9 +30,8 @@ import com.exponential.app.ui.markdown.model.TableCell
 import com.exponential.app.ui.markdown.model.TableData
 
 /**
- * GFM tables (EXP-726) — the read renderer and the editor's cell grid, both
- * laid out by the same [TableGridLayout] so a table looks identical whether you
- * are reading it or typing in it.
+ * GFM tables (EXP-726): the editor's cell grid, laid out by [TableGridLayout]
+ * (#VAPP-258: the read path is genUI's Markdown table, [MarkdownView]).
  *
  * There is deliberately NO structural manipulation UI on mobile: no add /
  * delete / move row or column. Cells are editable, and the ONE table action
@@ -40,25 +39,8 @@ import com.exponential.app.ui.markdown.model.TableData
  * [TableCellTextToolbar]) — inserting and moving is a desktop-web / IDE
  * affordance.
  */
-@Composable
-internal fun TableBlockView(table: TableData, issueRefs: IssueRefHandler?) {
-    if (table.columnCount == 0) return
-    TableScrollBox { viewport ->
-        TableGridLayout(columnCount = table.columnCount, rowCount = table.rows.size + 1, viewport = viewport) {
-            for (col in 0 until table.columnCount) {
-                TableReadCell(table.header.getOrNull(col), table.alignmentAt(col), header = true, issueRefs)
-            }
-            for (row in table.rows) {
-                for (col in 0 until table.columnCount) {
-                    TableReadCell(row.getOrNull(col), table.alignmentAt(col), header = false, issueRefs)
-                }
-            }
-        }
-    }
-}
-
 /**
- * The editable twin of [TableBlockView]: the same grid, with every cell a
+ * The editor's table: the grid, with every cell a
  * [BlockTextField] keyed by its CELL id — [EditorModel.updateRun] routes those
  * straight through to the cell. Every cell's selection toolbar carries the
  * table's one action, Delete table (EXP-727).
@@ -108,38 +90,6 @@ private fun TableScrollBox(content: @Composable (viewport: () -> Int) -> Unit) {
     ) {
         content { viewport.intValue }
     }
-}
-
-@Composable
-private fun TableReadCell(
-    cell: TableCell?,
-    alignment: TableAlignment,
-    header: Boolean,
-    issueRefs: IssueRefHandler?,
-) {
-    val mentions = LocalMentions.current
-    val autolink = LocalMarkdownAutolink.current
-    val inlineCode = LocalInlineCodeStyle.current
-    val bare = LocalIssueRefBare.current
-    val appLinks = LocalAppLinks.current
-    val body = LocalMarkdownBodyStyle.current
-    val text = cell?.text.orEmpty()
-    val marks = cell?.marks.orEmpty()
-    // Web's `.tiptap-chat` table: 13px, tighter cells; a document's keeps 14.
-    val chat = body != MdStyle.body
-    ChipText(
-        line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
-        // EXP-787: a table reads at whatever body measure is in force.
-        style = body.copy(
-            fontSize = if (chat) MdStyle.chatTableFontSize else body.fontSize,
-            fontWeight = if (header) FontWeight.SemiBold else null,
-            textAlign = alignment.toTextAlign(),
-        ),
-        modifier = Modifier.padding(
-            horizontal = if (chat) MdStyle.chatTableCellPadX else MdStyle.tableCellPadX,
-            vertical = if (chat) MdStyle.chatTableCellPadY else MdStyle.tableCellPadY,
-        ),
-    )
 }
 
 /**

@@ -69,24 +69,6 @@ object MarkdownParser {
      * ever set by read-only renderers: the editor must keep GFM semantics or
      * the next save would rewrite the stored bytes.
      */
-    // EXP-1521: read-only renderers parse the same bodies over and over (a
-    // transcript row re-parses on every scroll-in, since lazy items drop their
-    // `remember`s off screen). Parsed blocks are immutable values, so the
-    // renderers share them here. The editor keeps calling [parse] (it edits).
-    private const val CACHE_MAX = 512
-    private val cache = object : LinkedHashMap<String, List<ContentBlock>>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ContentBlock>>?) = size > CACHE_MAX
-    }
-
-    /** [parse] for read-only renderers: memoized, never to be mutated. */
-    fun parseCached(markdown: String, softBreaksAsNewlines: Boolean = false): List<ContentBlock> {
-        val key = (if (softBreaksAsNewlines) "1" else "0") + markdown
-        synchronized(cache) { cache[key] }?.let { return it }
-        val blocks = parse(markdown, softBreaksAsNewlines)
-        synchronized(cache) { cache[key] = blocks }
-        return blocks
-    }
-
     fun parse(markdown: String, softBreaksAsNewlines: Boolean = false): List<ContentBlock> {
         if (markdown.isBlank()) {
             return mutableListOf<ContentBlock>(ContentBlock.TextBlock(content = RichText.EMPTY))
