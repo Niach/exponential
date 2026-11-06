@@ -1438,6 +1438,11 @@ impl MdStyles {
         s
     }
 
+    /// A table header cell's type: the body, semibold (measured and painted).
+    fn header_cell(&self) -> TextSpec {
+        TextSpec { weight: self.body.weight.max(600), ..self.body.clone() }
+    }
+
     fn spec_of(&self, kind: &BlockKind) -> &TextSpec {
         match kind {
             BlockKind::Heading(level) => self.heading_levels.get(level_slot(*level)).and_then(Option::as_ref).unwrap_or(&self.heading),
@@ -1539,10 +1544,18 @@ fn wrap_of(kind: &BlockKind, s: &MdStyles, width: Option<f32>) -> Option<f32> {
         BlockKind::Quote => (w - s.quote_border - s.quote_pad).max(1.0),
         BlockKind::Table { header, rows } => {
             let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
-            (w / cols as f32 - 2.0 * s.cell_pad_h).max(1.0)
+            cell_text_width(w, cols, s)
         }
         _ => w.max(1.0),
     })
+}
+
+/// A table cell's text width `width` wide with `cols` columns: whole pixels
+/// (#EXP-1728), so the box gpui rounds the cell's text into is exactly the
+/// width it was measured at (a fractional one could round down and wrap a
+/// line the layout counted as one).
+fn cell_text_width(width: f32, cols: usize, s: &MdStyles) -> f32 {
+    (width / cols.max(1) as f32 - 2.0 * s.cell_pad_h).floor().max(1.0)
 }
 
 /// #VAPP-258: every inline chip sized (the label shaped in the caption
@@ -1584,8 +1597,12 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
                 let cap = wrap_of(&b.kind, s, width).unwrap_or(f32::INFINITY);
                 let spec = s.spec_of(&b.kind).clone();
                 if let BlockKind::Table { header, rows } = &mut b.kind {
-                    // The cells wrap in the body spec (as `layout` measures them).
-                    for cell in header.iter_mut().chain(rows.iter_mut().flatten()) {
+                    // The cells wrap in their row's spec (as `layout` measures them).
+                    let head = s.header_cell();
+                    for cell in header.iter_mut() {
+                        size(cell, &head, cap);
+                    }
+                    for cell in rows.iter_mut().flatten() {
                         size(cell, &s.body, cap);
                     }
                 } else {
@@ -1643,10 +1660,13 @@ pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText)
             BlockKind::Rule => (1.0, Vec::new()),
             BlockKind::Table { header, rows } => {
                 let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
-                let cell_w = (width / cols as f32 - 2.0 * s.cell_pad_h).max(1.0);
+                let cell_w = cell_text_width(width, cols, s);
                 let mut heights = Vec::new();
-                for row in std::iter::once(header).chain(rows.iter()) {
-                    let h = row.iter().map(|c| text.height(c, &s.body, Some(cell_w))).fold(s.body.line_height, f32::max);
+                // #EXP-1728: the header row wraps in the weight it paints in.
+                let head = s.header_cell();
+                for (r, row) in std::iter::once(header).chain(rows.iter()).enumerate() {
+                    let spec = if r == 0 { &head } else { &s.body };
+                    let h = row.iter().map(|c| text.height(c, spec, Some(cell_w))).fold(s.body.line_height, f32::max);
                     heights.push(h + 2.0 * s.cell_pad_v + 1.0);
                 }
                 (heights.iter().sum::<f32>() + 1.0, heights)
@@ -2360,8 +2380,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                     let h = bx.rows.get(r).copied().unwrap_or(s.body.line_height);
                     for c in 0..cols {
                         let cell = row.get(c).cloned().unwrap_or_default();
-                        let weight = if r == 0 { s.body.weight.max(600) } else { s.body.weight };
-                        let spec = TextSpec { weight, ..s.body.clone() };
+                        let spec = if r == 0 { s.header_cell() } else { s.body.clone() };
                         // RTL: column 0 sits at the right, the separator on
                         // the cell's right side, the text right-aligned.
                         table = table.child(
@@ -2381,9 +2400,9 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                                         .absolute()
                                         .left(px(s.cell_pad_h))
                                         .top(px(s.cell_pad_v))
-                                        .w(px((col_w - 2.0 * s.cell_pad_h).max(1.0)))
+                                        .w(px(cell_text_width(width, cols, s)))
                                         .when(p.rtl, |d| d.text_right())
-                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors, (col_w - 2.0 * s.cell_pad_h).max(1.0), text)),
+                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors, cell_text_width(width, cols, s), text)),
                                 ),
                         );
                     }
@@ -2931,6 +2950,53 @@ mod tests {
 
     fn body() -> TextSpec {
         TextSpec { size: 14.0, line_height: 20.0, weight: 400, family: None }
+    }
+
+    /// #EXP-1728: the header row is measured in the weight it paints in
+    /// (semibold is wider: a header that fits in the body weight wraps).
+    #[test]
+    fn a_table_header_wraps_in_its_semibold_weight() {
+        struct Weighted;
+        impl MdText for Weighted {
+            fn height(&mut self, inlines: &[Inline], spec: &TextSpec, width: Option<f32>) -> f32 {
+                let per = if spec.weight >= 600 { 9.0 } else { 8.0 };
+                let w = plain(inlines).chars().count() as f32 * per;
+                width.map_or(1.0, |width| (w / width).ceil().max(1.0)) * spec.line_height
+            }
+            fn width(&mut self, inlines: &[Inline], s: &TextSpec) -> f32 {
+                Fixed.width(inlines, s)
+            }
+            fn widest_word(&mut self, inlines: &[Inline], s: &TextSpec) -> f32 {
+                Fixed.widest_word(inlines, s)
+            }
+            fn run_width(&mut self, text: &str, s: &TextSpec, bold: bool, italic: bool) -> f32 {
+                Fixed.run_width(text, s, bold, italic)
+            }
+            fn spots(&mut self, inlines: &[Inline], s: &TextSpec, width: f32, at: &[usize]) -> Vec<(f32, f32, f32)> {
+                Fixed.spots(inlines, s, width, at)
+            }
+        }
+        let s = MdStyles::plain(body());
+        // One column 216 wide = 200 of text: 25 characters fit at 8 px, not at 9.
+        let blocks = parse("| C shared renderer (vel) |\n|---|\n| pixel-identical |");
+        let lay = layout(&blocks, &s, 200.0 + 2.0 * s.cell_pad_h, &mut Weighted);
+        let row = |lines: f32| lines * s.body.line_height + 2.0 * s.cell_pad_v + 1.0;
+        assert_eq!(lay.blocks[0].rows, vec![row(2.0), row(1.0)], "the header wraps to two lines");
+    }
+
+    /// #EXP-1728: a cell's text wraps at whole pixels (a fractional width
+    /// the painted box rounds down from wrapped a line the layout counted as
+    /// one): 19 characters = 152 px fit 152.75 at measure, not 152 at paint.
+    #[test]
+    fn table_cells_wrap_at_whole_pixels() {
+        let s = MdStyles::plain(body());
+        let cell = 152.75 + 2.0 * s.cell_pad_h;
+        let blocks = parse("| a | b | c | d |\n|---|---|---|---|\n| Cost of a new compo | x | y | z |");
+        let lay = layout(&blocks, &s, 4.0 * cell, &mut Fixed);
+        assert_eq!(cell_text_width(4.0 * cell, 4, &s), 152.0);
+        assert_eq!(lay.blocks[0].rows[1], 20.0 + 2.0 * s.cell_pad_v + 1.0, "19 × 8 = 152 fits 152");
+        let lay = layout(&parse("| a |\n|---|\n| Cost of a new compon |"), &s, cell, &mut Fixed);
+        assert_eq!(lay.blocks[0].rows[1], 40.0 + 2.0 * s.cell_pad_v + 1.0, "160 px wraps at 152");
     }
 
     #[test]
