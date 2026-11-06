@@ -223,6 +223,12 @@ function interpolate(value: string, ctx: ExprContext): unknown {
 /** Any template value: strings interpolate, arrays and objects recurse, the
  *  `$`-objects compute (or emit a call when an input is dynamic). `undefined`
  *  results are dropped by the caller. */
+// An operator's operands: a malformed one (not an array, e.g. `{"$lt": null}`)
+// reads as no operands instead of throwing (VAPP-107 property).
+function operands(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
 export function evalValue(value: unknown, ctx: ExprContext): unknown {
   if (typeof value === `string`) {
     const whole = WHOLE.exec(value)
@@ -235,7 +241,10 @@ export function evalValue(value: unknown, ctx: ExprContext): unknown {
   if (typeof value !== `object` || value === null) return value
   const obj = value as Record<string, unknown>
   if (`$map` in obj) {
-    const spec = obj.$map as { from: string; cases: Record<string, unknown>; default?: unknown }
+    const raw = obj.$map as { from?: unknown; cases?: unknown; default?: unknown } | null
+    if (!raw || typeof raw !== `object` || typeof raw.from !== `string`) return undefined
+    const cases0 = raw.cases && typeof raw.cases === `object` && !Array.isArray(raw.cases) ? (raw.cases as Record<string, unknown>) : {}
+    const spec = { from: raw.from, cases: cases0, default: raw.default }
     const from = evalExpr(spec.from, ctx)
     if (isDynamic(from)) {
       const cases: Record<string, unknown> = {}
@@ -250,49 +259,49 @@ export function evalValue(value: unknown, ctx: ExprContext): unknown {
     return evalOperand(hit, ctx)
   }
   if (`$cond` in obj) {
-    const [cond, then, otherwise] = obj.$cond as [unknown, unknown, unknown]
+    const [cond, then, otherwise] = operands(obj.$cond)
     const decided = evalConditionValue(cond, ctx)
     if (isDynamic(decided)) return call(`cond`, { if: decided, then: evalOperand(then, ctx), else: evalOperand(otherwise, ctx) })
     return evalOperand(decided ? then : otherwise, ctx)
   }
   if (`$eq` in obj) {
-    const [a, b] = (obj.$eq as [unknown, unknown]).map((x) => evalOperand(x, ctx))
+    const [a, b] = operands(obj.$eq).map((x) => evalOperand(x, ctx))
     if (isDynamic(a) || isDynamic(b)) return call(`eq`, { a, b })
     return valuesEqual(a, b)
   }
   if (`$lt` in obj) {
-    const [a, b] = (obj.$lt as [unknown, unknown]).map((x) => evalOperand(x, ctx))
+    const [a, b] = operands(obj.$lt).map((x) => evalOperand(x, ctx))
     if (isDynamic(a) || isDynamic(b)) return call(`lt`, { a, b })
     return toNumber(a) < toNumber(b)
   }
   if (`$add` in obj) {
-    const [a, b] = (obj.$add as [unknown, unknown]).map((x) => evalOperand(x, ctx))
+    const [a, b] = operands(obj.$add).map((x) => evalOperand(x, ctx))
     if (isDynamic(a) || isDynamic(b)) return call(`add`, { a, b })
     return toNumber(a) + toNumber(b)
   }
   if (`$sub` in obj) {
-    const [a, b] = (obj.$sub as [unknown, unknown]).map((x) => evalOperand(x, ctx))
+    const [a, b] = operands(obj.$sub).map((x) => evalOperand(x, ctx))
     if (isDynamic(a) || isDynamic(b)) return call(`sub`, { a, b })
     return toNumber(a) - toNumber(b)
   }
   if (`$clamp` in obj) {
-    const [v, min, max] = (obj.$clamp as [unknown, unknown, unknown]).map((x) => evalOperand(x, ctx))
+    const [v, min, max] = operands(obj.$clamp).map((x) => evalOperand(x, ctx))
     if (isDynamic(v) || isDynamic(min) || isDynamic(max)) return call(`clamp`, { value: v, min, max })
     return clampNumber(v, min, max)
   }
   if (`$fill` in obj) {
     // Always emitted: the template is (usually) a `$string.<id>` only the
     // surface's string table can resolve, at bind time.
-    const [template, params] = obj.$fill as [unknown, Record<string, unknown> | undefined]
+    const [template, params] = operands(obj.$fill) as [unknown, Record<string, unknown> | undefined]
     const filled: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(params ?? {})) {
+    for (const [k, v] of Object.entries(params && typeof params === `object` ? params : {})) {
       const evaluated = evalOperand(v, ctx)
       if (evaluated !== undefined) filled[k] = evaluated
     }
     return call(`fill`, { template: evalOperand(template, ctx), params: filled })
   }
   if (`$percent` in obj) {
-    const [v, max] = (obj.$percent as [unknown, unknown]).map((x) => evalOperand(x, ctx))
+    const [v, max] = operands(obj.$percent).map((x) => evalOperand(x, ctx))
     if (isDynamic(v) || isDynamic(max)) return call(`percent`, { value: v, max })
     return percent(v, max)
   }
