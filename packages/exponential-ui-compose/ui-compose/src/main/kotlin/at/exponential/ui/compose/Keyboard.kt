@@ -115,6 +115,12 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
         if (typed != null && n.part == "item") return typeahead(model, n, typed)
         return false
     }
+    // #VAPP-284: a node that folds (a foldable Row's head or fold button:
+    // `expanded` set): the core's fold keys decide (`fold_key`, rtl-aware).
+    if ((key == "left" || key == "right") && n.accessibility?.get("expanded") is JsonValue.Bool) {
+        model.nodeKey(n.index, if (key == "left") "ArrowLeft" else "ArrowRight")
+        return true
+    }
     val rtl = model.direction == "rtl"
     val h = arrowStep(key, rtl, vertical = false)
     val hv = arrowStep(key, rtl, vertical = true)

@@ -344,6 +344,12 @@ impl Surface {
         if event == "press" && n.component == "Button" && n.part.is_none() && n.props.get("hold").and_then(Value::as_bool) == Some(true) {
             return vec![];
         }
+        // #VAPP-284: ArrowRight / ArrowLeft on a node that folds.
+        if event == "key" {
+            if let Some(out) = self.fold_key_event(&n, index, payload.as_ref()) {
+                return out;
+            }
+        }
         if event == "press" {
             if let Some(target) = n.trigger_for.clone() {
                 let mut out = self.fire(&n.id, "press", None);
@@ -1194,6 +1200,26 @@ impl Surface {
     // ------------------------------------------------------------------
     // Resizable (round 2 §1)
     // ------------------------------------------------------------------
+
+    /// #VAPP-284: a key on a node with an `on.toggle` and a boolean
+    /// `expanded` (a foldable Row's head or fold button): `toggle` when the
+    /// key changes the state (`crate::fold::fold_key`, the node's own
+    /// direction), nothing otherwise. `None` = not a folding node.
+    fn fold_key_event(&mut self, n: &LNode, index: u32, payload: Option<&Value>) -> Option<Vec<OutEvent>> {
+        let expanded = n.accessibility.as_ref().and_then(|a| a.get("expanded")).and_then(Value::as_bool)?;
+        let folds = n.on.as_ref().is_some_and(|on| on.contains_key("toggle"));
+        if !folds {
+            return None;
+        }
+        let key = payload.and_then(|p| p.get("key")).and_then(Value::as_str).unwrap_or_default();
+        let rtl = self.node_state.get(index as usize).is_some_and(|s| s.direction == taffy::style::Direction::Rtl);
+        if !crate::fold::fold_key(key, expanded, rtl) {
+            return Some(vec![]);
+        }
+        let mut out = self.fire(&n.id, "toggle", None);
+        out.push(OutEvent::Relayout);
+        Some(out)
+    }
 
     /// A Resizable's sizes as shown, its limits, axis, rtl and slot.
     fn resizable_state(&self, owner_id: &str) -> Option<ResizableState> {

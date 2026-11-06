@@ -357,7 +357,7 @@ pub struct MacroTemplate {
     #[serde(default, rename = "$as", skip_serializing_if = "Option::is_none")]
     pub as_: Option<String>,
     #[serde(default, rename = "$on", skip_serializing_if = "Option::is_none")]
-    pub on: Option<IndexMap<String, String>>,
+    pub on: Option<IndexMap<String, MacroRoute>>,
     #[serde(default, rename = "$context", skip_serializing_if = "Option::is_none")]
     pub context: Option<Props>,
     #[serde(default, rename = "$recipe", skip_serializing_if = "Option::is_none")]
@@ -393,6 +393,11 @@ pub struct MacroDef {
     /// (`MacroDef.$pass` in types.ts).
     #[serde(default, rename = "$pass", skip_serializing_if = "Vec::is_empty")]
     pub pass: Vec<MacroPass>,
+    /// #VAPP-284: other roots, tried in order: the first whose `$if` holds
+    /// AT EXPANSION (a bound condition never picks one) replaces `root`; its
+    /// root part keeps the author's id. The conditions see `{childCount}`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<MacroAlternative>,
 }
 
 /// #VAPP-277: one `$pass` entry: when `$if` holds (literal, in the macro's
@@ -407,6 +412,37 @@ pub struct MacroPass {
     pub if_: Option<Value>,
     #[serde(default)]
     pub props: Props,
+}
+
+/// #VAPP-284: one of a macro's alternative roots (`MacroDef.alternatives`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MacroAlternative {
+    #[serde(rename = "$if")]
+    pub if_: Value,
+    pub root: MacroTemplate,
+}
+
+/// A `$on` entry: the author's macro event (the part's `$context` merged
+/// in), or #VAPP-284 `{event, context}` = that event with its OWN context.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MacroRoute {
+    Event(String),
+    Routed {
+        event: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<Props>,
+    },
+}
+
+impl MacroRoute {
+    /// The author's macro event this part event routes to.
+    pub fn event(&self) -> &str {
+        match self {
+            MacroRoute::Event(e) => e,
+            MacroRoute::Routed { event, .. } => event,
+        }
+    }
 }
 
 /// An extension catalog: its own id, extending the core, with components and

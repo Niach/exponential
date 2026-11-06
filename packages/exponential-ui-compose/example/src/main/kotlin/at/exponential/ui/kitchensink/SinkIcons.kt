@@ -82,6 +82,7 @@ private val lFolder = outline("folder", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7
 private val lFolderGit2 = outline("folder-git-2", "M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5", "M11 12A2 2 0 1 0 15 12A2 2 0 1 0 11 12Z", "M18 19c-2.8 0-5-2.2-5-5v8", "M18 19A2 2 0 1 0 22 19A2 2 0 1 0 18 19Z")
 private val lFolderInput = outline("folder-input", "M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1", "M2 13h10", "m9 16 3-3-3-3")
 private val lFolderKanban = outline("folder-kanban", "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z", "M8 10v4", "M12 10v2", "M16 10v6")
+private val lFolderOpen = outline("folder-open", "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2")
 private val lFunnel = outline("funnel", "M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z")
 private val lGitBranch = outline("git-branch", "M6 3L6 15", "M15 6A3 3 0 1 0 21 6A3 3 0 1 0 15 6Z", "M3 18A3 3 0 1 0 9 18A3 3 0 1 0 3 18Z", "M18 9a9 9 0 0 1-9 9")
 private val lGitPullRequest = outline("git-pull-request", "M15 18A3 3 0 1 0 21 18A3 3 0 1 0 15 18Z", "M3 6A3 3 0 1 0 9 6A3 3 0 1 0 3 6Z", "M13 6h3a2 2 0 0 1 2 2v7", "M6 9L6 21")
@@ -99,6 +100,7 @@ private val lLayers = outline("layers", "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1
 private val lLightbulb = outline("lightbulb", "M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5", "M9 18h6", "M10 22h4")
 private val lLink = outline("link", "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71")
 private val lList = outline("list", "M3 5h.01", "M3 12h.01", "M3 19h.01", "M8 5h13", "M8 12h13", "M8 19h13")
+private val lListChecks = outline("list-checks", "M13 5h8", "M13 12h8", "M13 19h8", "m3 17 2 2 4-4", "m3 7 2 2 4-4")
 private val lListMusic = outline("list-music", "M16 5H3", "M11 12H3", "M11 19H3", "M21 16V5", "M15 16A3 3 0 1 0 21 16A3 3 0 1 0 15 16Z")
 private val lLoader = outline("loader", "M12 2v4", "m16.2 7.8 2.9-2.9", "M18 12h4", "m16.2 16.2 2.9 2.9", "M12 18v4", "m4.9 19.1 2.9-2.9", "M2 12h4", "m4.9 4.9 2.9 2.9")
 private val lLogOut = outline("log-out", "m16 17 5-5-5-5", "M21 12H9", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4")
@@ -139,6 +141,8 @@ private val lSlidersHorizontal = outline("sliders-horizontal", "M10 5H3", "M12 1
 private val lSprout = outline("sprout", "M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3", "M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4", "M5 21h14")
 private val lSquare = outline("square", "M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z")
 private val lSquareKanban = outline("square-kanban", "M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z", "M8 7v7", "M12 7v4", "M16 7v9")
+private val lSquareTerminal = outline("square-terminal", "m7 11 2-2-2-2", "M11 13h4", "M5 3H19A2 2 0 0 1 21 5V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3Z")
+private val lTag = outline("tag", "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z", "M7 7.5A0.5 0.5 0 1 0 8 7.5A0.5 0.5 0 1 0 7 7.5Z")
 private val lStar = outline("star", "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z")
 private val lTerminal = outline("terminal", "M12 19h8", "m4 17 6-6-6-6")
 private val lTrash2 = outline("trash-2", "M10 11v6", "M14 11v6", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", "M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2")
@@ -283,7 +287,10 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "search-x" to lSearchX,
     "send" to lSend,
     "settings" to lSettings,
+    "settings-issues" to lListChecks,
+    "settings-labels" to lTag,
     "settings-statuses" to lCircleDot,
+    "settings-tools" to lSquareTerminal,
     "shield-check" to lShieldCheck,
     "signal-high" to lSignalHigh,
     "skip-back" to lSkipBack,
@@ -327,6 +334,7 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "ui-external-link" to lExternalLink,
     "ui-file" to lFile,
     "ui-folder" to lFolder,
+    "ui-folder-open" to lFolderOpen,
     "ui-hold" to lHand,
     "ui-icon-placeholder" to lCircleDashed,
     "ui-info" to lInfo,

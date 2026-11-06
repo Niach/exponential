@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A foldable Row (#VAPP-284): a pressable Box with `on.toggle` and `aria-expanded` takes ArrowRight / ArrowLeft (`foldKey`, rtl-aware); a press target inside another fires only its own press.
+
 ## 0.17.0 (2026-11-06)
 
 - DatePicker `inline` (the month grid in place), `marks` event dots, `today`, the `month` event; days carry the `isToday` / `outside` recipe props, parity-gated against React (VAPP-282).

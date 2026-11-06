@@ -4912,6 +4912,23 @@
             "fontWeight": "$type.weight.medium"
           }
         }
+      ],
+      "foldIcon": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "transition": "$motion.standard",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "open": true
+          },
+          "style": {
+            "transform": "rotate(90deg)"
+          }
+        }
       ]
     },
     "Table": {

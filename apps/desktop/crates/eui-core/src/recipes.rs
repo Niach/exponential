@@ -67,6 +67,9 @@ pub fn macro_parts(def: &MacroDef) -> PartSpec {
         push_unique(&mut props, p);
     }
     walk_template(&def.root, &mut parts, &mut props);
+    for alternative in &def.alternatives {
+        walk_template(&alternative.root, &mut parts, &mut props);
+    }
     PartSpec { parts, props }
 }
 
@@ -184,7 +187,7 @@ mod tests {
         assert_eq!(parts["Badge"].parts, ["root", "icon", "label"]);
         assert_eq!(parts["Badge"].props, ["variant"]);
         assert_eq!(parts["Meter"].props, ["tone"]);
-        assert_eq!(parts["Row"].props, ["selected", "density", "surface", "depth"]);
+        assert_eq!(parts["Row"].props, ["selected", "density", "surface", "depth", "open"]); // #VAPP-284: the foldIcon's `open`
         assert_eq!(parts["Section"].props, ["tint", "tree", "open", "collapsible"]);
         assert_eq!(parts["Segmented"].parts, ["root", "item", "icon", "label", "badge"]);
         assert_eq!(parts["Menu"].props, ["openOn"]);

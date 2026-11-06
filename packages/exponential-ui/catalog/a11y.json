@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1 (docs/round-1-contract.md §6): the ACCESSIBILITY contract every renderer keeps. `roles` = the MACHINE-READABLE role vocabulary (ARIA names, plus `text` = static text and `hidden` = out of the accessibility tree; SwiftUI traits / Compose semantics / AccessKit roles map from them), used by every `role` here and by the expanded tree's `accessibility.role`. `components` = per component its `role` (one of `roles`: the role of the component's main accessible object), `notes` (prose: composite parts, states, which strings name it) and the KEYBOARD expectations, one line per key group (arrows flip in RTL; a roving tab stop = one Tab stop for the group, arrows move inside it). Every component is listed (round1.test.ts gates it). `commands` = what a HOST may ask of a surface at runtime. `rules` = what holds for every component. Round 2 (docs/round-2-contract.md): Resizable, `scrollToIndex`, sections, the per-node direction rule. Append-only; docs/components.generated.json carries each component's entry.",
+  "$comment": "Round 1 (docs/round-1-contract.md §6): the ACCESSIBILITY contract every renderer keeps. `roles` = the MACHINE-READABLE role vocabulary (ARIA names, plus `text` = static text and `hidden` = out of the accessibility tree; SwiftUI traits / Compose semantics / AccessKit roles map from them), used by every `role` here and by the expanded tree's `accessibility.role`. `components` = per component its `role` (one of `roles`: the role of the component's main accessible object), `notes` (prose: composite parts, states, which strings name it) and the KEYBOARD expectations, one line per key group (arrows flip in RTL; a roving tab stop = one Tab stop for the group, arrows move inside it). Every component is listed (round1.test.ts gates it). `commands` = what a HOST may ask of a surface at runtime. `rules` = what holds for every component. Round 2 (docs/round-2-contract.md): Resizable, `scrollToIndex`, sections, the per-node direction rule. Append-only; docs/components.generated.json carries each component's entry. #VAPP-284 (docs/round-7-contract.md): a pressable Box with an `on.toggle` and a boolean `expanded` takes ArrowRight to open and ArrowLeft to close (swapped in rtl): the key fires `toggle` only when it changes the state; a Row with children is a foldable parent built on it.",
   "roles": [
     "alert",
     "alertdialog",
@@ -82,7 +82,8 @@
       "role": "none",
       "notes": "group (button when pressable). A pressable Box is a button.",
       "keys": [
-        "Enter, Space: press (pressable only)"
+        "Enter, Space: press (pressable only)",
+        "ArrowRight, ArrowLeft: fire `toggle` to open, close (pressable, `expanded` set, `on.toggle` only)"
       ]
     },
     "Stack": {
@@ -662,9 +663,10 @@
     },
     "Row": {
       "role": "button",
-      "notes": "button (aria-selected when selected) when pressable, a group of its texts otherwise ($a11y); the guides are decorative",
+      "notes": "button (aria-selected when selected) when pressable, a group of its texts otherwise ($a11y); the guides are decorative; with children a foldable parent: the head carries aria-expanded (its fold glyph a button with aria-expanded when the head is pressable), the children a group",
       "keys": [
-        "Enter, Space: press (pressable only)"
+        "Enter, Space: press (pressable only)",
+        "ArrowRight, ArrowLeft: open, close a foldable parent"
       ]
     },
     "MessageBubble": {

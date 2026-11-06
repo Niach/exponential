@@ -2519,9 +2519,12 @@
         },
         "depth": {
           "description": "Depth under a tree Section (0 = root)."
+        },
+        "open": {
+          "description": "With children: whether they show, indented; bind it."
         }
       },
-      "description": "THE list row: a lead glyph or slot, a mono identifier, title and subtitle, trailing meta or value, a slot and a chevron; flat or card, nestable.",
+      "description": "THE list row: a lead glyph or slot, a mono identifier, title and subtitle, trailing meta or value, a slot and a chevron; flat or card, nestable; with children a foldable parent.",
       "example": {
         "title": "r/selfhosted",
         "meta": "312 posts",

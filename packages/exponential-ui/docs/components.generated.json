@@ -25,7 +25,8 @@
       "children": "many",
       "slots": [],
       "events": [
-        "press"
+        "press",
+        "toggle"
       ],
       "basic": [],
       "props": [
@@ -50,7 +51,8 @@
         "role": "none",
         "notes": "group (button when pressable). A pressable Box is a button.",
         "keys": [
-          "Enter, Space: press (pressable only)"
+          "Enter, Space: press (pressable only)",
+          "ArrowRight, ArrowLeft: fire `toggle` to open, close (pressable, `expanded` set, `on.toggle` only)"
         ]
       },
       "example": {
@@ -6970,14 +6972,15 @@
       "group": "list",
       "lite": true,
       "specimenId": "exponential-ui-row",
-      "description": "THE list row: a lead glyph or slot, a mono identifier, title and subtitle, trailing meta or value, a slot and a chevron; flat or card, nestable.",
-      "children": "none",
+      "description": "THE list row: a lead glyph or slot, a mono identifier, title and subtitle, trailing meta or value, a slot and a chevron; flat or card, nestable; with children a foldable parent.",
+      "children": "many",
       "slots": [
         "leading",
         "trailing"
       ],
       "events": [
-        "press"
+        "press",
+        "change"
       ],
       "basic": [],
       "props": [
@@ -7098,13 +7101,23 @@
           "responsive": false,
           "default": 0,
           "description": "Depth under a tree Section (0 = root)."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "With children: whether they show, indented; bind it."
         }
       ],
       "accessibility": {
         "role": "button",
-        "notes": "button (aria-selected when selected) when pressable, a group of its texts otherwise ($a11y); the guides are decorative",
+        "notes": "button (aria-selected when selected) when pressable, a group of its texts otherwise ($a11y); the guides are decorative; with children a foldable parent: the head carries aria-expanded (its fold glyph a button with aria-expanded when the head is pressable), the children a group",
         "keys": [
-          "Enter, Space: press (pressable only)"
+          "Enter, Space: press (pressable only)",
+          "ArrowRight, ArrowLeft: open, close a foldable parent"
         ]
       },
       "example": {

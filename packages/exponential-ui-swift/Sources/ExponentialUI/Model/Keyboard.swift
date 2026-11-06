@@ -209,6 +209,12 @@ extension SurfaceModel {
             nodeKey(n.index, key: k)
             return true
         }
+        // #VAPP-284: a node that folds (a foldable Row's head or fold button:
+        // `expanded` set): the core's fold keys decide (`fold_key`, rtl-aware).
+        if key == "left" || key == "right", case .bool = n.accessibility?["expanded"] {
+            nodeKey(n.index, key: key == "left" ? "ArrowLeft" : "ArrowRight")
+            return true
+        }
         let owner = n.ownerComponent ?? ""
         let rtl = isRTL
         let stepH = Self.arrowStep(key, rtl: rtl, vertical: false)

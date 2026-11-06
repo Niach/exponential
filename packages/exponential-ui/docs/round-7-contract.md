@@ -279,3 +279,50 @@ Renderers:
   `a_rail_row_is_one_tab_stop_whose_focus_opens_its_tooltip` +
   `hovering_a_rail_tile_opens_its_tooltip`; store shots
   `exponential-ui-sidebar` re-taken on iOS and Android.
+## Foldable Row parent (#VAPP-284)
+
+A Row with children is a foldable parent: the settings nav's groups
+(Issues › Labels, Statuses; This device › Tools) as one genUI component.
+It looks like the IDE's settings sidebar (`apps/desktop/crates/ui/src/settings/mod.rs`):
+the parent row, a trailing chevron (right = closed, down = open), the
+children indented under it.
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| catalog | `Row.children` none → many; `Row.open` (boolean, default false, bindable); `Row.events` + `change`; `Box.events` + `toggle` | `core.catalog.json` | `catalog-components.json` (`Row/open=true|false`), generated drift |
+| macro table | `alternatives: [{$if, root}]` (the first whose `$if` holds AT EXPANSION replaces `root`; its root part keeps the author's id; a bound condition never picks one); `{childCount}` = the author's children, visible to every value; a `$on` value may be `{event, context}` = that event with its OWN context | `macros.json` `$comment`, `src/macros.ts`, `eui-core` `macros.rs` (`MacroRoute`, `MacroAlternative`) | `catalog-macros.json` `Row/fold:*` |
+| Row | with children: root part `group` (column, gap xxs) → `head` = a nested Row with the author's props (+ `pressable`), `aria-expanded` = `open`, `toggle` → `change {open: !open}` + the `$set` write → `children` (only while `open`: role group labelled by the title, `paddingInlineStart` `$spacing.lg`, the author's children). A PRESSABLE author Row (an `on.press`, `href`, `pressable`) keeps `press` on the head and gets the `fold` button in the head's trailing slot (a pressable Box, role button, `$string.expand`/`$string.collapse`, `aria-expanded`; press and `toggle` → `change`); a plain one folds on the head's press and `foldIcon` is decorative. `chevron` is ignored on a parent | `macros.json` | `catalog-macros.json`, `bind-time.json` `Row/fold:bound`, `Row/fold:bound-plain` |
+| chevron | `foldIcon` = `ui-chevron-right` (sm, neutral); the neutral recipe turns it 90° when `open` (`$motion.standard`); rtl mirrors the glyph first (`rtlMirroredIcons`), so closed points left, open down | `themes/neutral.theme.json` `Row/foldIcon` | `theme-recipes.json`, `theme-resolved.json` |
+| keys | a pressable Box with an `on.toggle` and a boolean `expanded`: ArrowRight opens, ArrowLeft closes (swapped in rtl); a key that would not change the state does nothing | `a11y.json` (Row, Box), `src/fold.ts` `foldKey`, `eui-core` `fold::fold_key` + `Surface::event(index, "key", {key})` | `interactions-round1.json` `foldRow` |
+| specimen | the Row specimen gains `children · closed` (This device › Tools) and `children · open` (Issues › Labels, Statuses with Statuses selected) | `scripts/generate.ts` `SPECIMEN_EXTRA.Row` | `specimens.json`, `shots/exponential-ui-row` |
+
+On a rail (#VAPP-277: a collapsed rail Sidebar passes `rail` to every Row
+under it, the parent's children included) the parent keeps its `head` as the
+icon tile (no fold button, no `aria-expanded`) and its children follow as
+tiles, unindented, whatever `open`: a tile has no room for a fold state
+and hidden children would be unreachable from the rail (the old IDE rail
+was one tile per destination), the same rule as a rail Section's closed
+body. Locked by `catalog-macros.json` `Sidebar/rail:fold-collapsed` /
+`Sidebar/rail:fold-expanded`.
+
+Not a tree: the children are indented, without guides, and a foldable Row
+counts as depth 0 for the tree-guides pass (its root part is `group`). A
+real tree is `Tree` (#VAPP-285).
+
+Prompt budget +19 tokens, 9,381 → 9,400 on top of round 7's other items (a named exception: `open`, the
+children, `change`, Box `toggle`).
+
+Renderers:
+
+- [x] TS + Rust core: the expansion (`alternatives`, `childCount`, routed
+  contexts), the fold keys; `catalog_fixtures.rs` case count 649 → 651.
+- [x] React / Solid / element: Box `toggle` from ArrowRight / ArrowLeft
+  (`foldKey`, the node's direction); a press target inside another fires
+  only its own press (`stopPropagation`). `interactions-fixture.test.tsx`
+  replays `foldRow`.
+- [x] gpui: `handle_key` forwards ←/→ on a node with `expanded` to the core
+  (`event(i, "key")`); `tests/interaction.rs` replays `foldRow`.
+- [x] SwiftUI / Compose: the keyboard forwards ←/→ on a node with
+  `expanded` to `nodeKey` (the core decides); the macro paints with no other
+  change. `Round1ModelTests` / `InteractionTest` replay `foldRow` through
+  the model (`press`, `handleKey`); `Row/open=*` snapshots recorded.

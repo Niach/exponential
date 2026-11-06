@@ -1195,3 +1195,58 @@ fn a_strip_tab_drags_into_place_and_the_strip_folds(cx: &mut TestAppContext) {
     assert!(log.0.borrow().actions.iter().any(|e| e.name == "change"), "a click presses");
     assert_eq!(log.0.borrow().actions.iter().filter(|e| e.name == "reorder").count(), 1, "no reorder from a click");
 }
+
+/// #VAPP-284: the foldable Row through the painter: interactions-round1.json
+/// `foldRow` (a press on the head or its fold button, ArrowRight / ArrowLeft
+/// on the focused one, mirrored in rtl), the events the host sees and the
+/// head's `expanded` after.
+#[gpui::test]
+fn a_foldable_row_presses_folds_and_takes_the_arrows(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let fold = &f["foldRow"];
+    let c = fold["cases"].as_array().unwrap();
+    init(cx);
+    for c in c {
+        let name = c["name"].as_str().unwrap();
+        let mut row = fold["surface"].clone();
+        if c["pressable"] == json!(false) {
+            row["on"].as_object_mut().unwrap().remove("press");
+        }
+        let tree = json!({"id": "root", "component": "Box", "children": [row]});
+        let log = Recorder::default();
+        let host = Rc::new(log.clone());
+        let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, host, ..Default::default() };
+        let (view, vcx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+        let mut tree = tree;
+        if c["rtl"] == json!(true) {
+            tree["style"]["direction"] = json!("rtl");
+        }
+        let open = c["open"].clone();
+        view.update(vcx, |v, cx| {
+            v.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap(), cx);
+            if !open.is_null() {
+                v.set_data("/open", Some(open), cx).unwrap();
+            }
+        });
+        draw(vcx);
+        draw(vcx);
+        let step = &c["step"];
+        let part = step.get("press").or_else(|| step.get("on")).and_then(Value::as_str).unwrap();
+        let target = if part == "head" { "issues.head" } else { "issues.head.fold" };
+        let index = view.read_with(vcx, |v, _| v.index_of(target)).unwrap_or_else(|| panic!("{name}: no {target}"));
+        if step.get("press").is_some() {
+            vcx.update(|window, cx| view.update(cx, |v, cx| v.press(index, window, cx)));
+            draw(vcx);
+        } else {
+            while focused(&view, vcx).as_deref() != Some(target) {
+                assert!(tab(&view, vcx).is_some(), "{name}: {target} is not focusable");
+            }
+            let k = if step["key"] == json!("ArrowLeft") { "left" } else { "right" };
+            assert!(key(&view, vcx, k), "{name}: the arrow is the fold's");
+        }
+        let names: Vec<String> = log.0.borrow().actions.iter().map(|a| a.name.clone()).collect();
+        assert_eq!(json!(names), c["events"], "{name}: events");
+        let expanded = view.read_with(vcx, |v, _| v.surface().layout_node(v.index_of("issues.head").unwrap()).and_then(|n| n.accessibility.as_ref()).and_then(|a| a.get("expanded")).cloned());
+        assert_eq!(expanded, Some(c["after"].clone()), "{name}: expanded after");
+    }
+}

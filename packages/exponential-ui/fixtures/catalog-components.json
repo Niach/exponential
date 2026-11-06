@@ -10811,6 +10811,32 @@
       }
     },
     {
+      "name": "Row/open=true",
+      "node": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
+          "open": true
+        }
+      }
+    },
+    {
+      "name": "Row/open=false",
+      "node": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
+          "open": false
+        }
+      }
+    },
+    {
       "name": "Row/href",
       "node": {
         "id": "row",

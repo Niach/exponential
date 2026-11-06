@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A foldable Row (#VAPP-284): macro `alternatives` + `{childCount}`, `$on` routes with their own context (`MacroRoute`), `fold::fold_key` and `Surface::event(index, "key", {key})` firing `toggle` on a node that folds.
+
 ## 0.17.0 (2026-11-06)
 
 - Sidebar `rail` (#VAPP-277): the macro table's `$pass` (`MacroDef.pass`) runs before a macro's slots expand, and a template child may be a conditional slot splice (`TemplateChild::Slot`); a Tooltip `side` of `start`/`end` is logical (mirrored under RTL); a pressable node's `focus-visible` opens the tooltips it hosts (no tab stop of their own). Locked by `tests/painter_asks.rs` `sidebar_rail_*`.

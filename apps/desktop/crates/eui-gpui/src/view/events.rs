@@ -935,6 +935,13 @@ impl SurfaceView {
                 self.fire(n.index, "key", Some(json!({"key": dom})), cx);
                 return true;
             }
+            // #VAPP-284: a node that folds (a foldable Row's head or fold
+            // button: `expanded` set): the core's fold keys decide.
+            _ if matches!(key, "left" | "right") && n.accessibility.as_ref().and_then(|a| a.get("expanded")).is_some_and(Value::is_boolean) => {
+                let dom = if key == "left" { "ArrowLeft" } else { "ArrowRight" };
+                self.fire(n.index, "key", Some(json!({"key": dom})), cx);
+                return true;
+            }
             _ => {}
         }
         // Openers: ArrowDown (Up) on a picker / menu trigger opens it.

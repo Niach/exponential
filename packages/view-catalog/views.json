@@ -6183,7 +6183,7 @@
       "id": "exponential-ui-row",
       "group": "exponential-ui-catalog",
       "title": "genUI · Row",
-      "blurb": "THE list row: a lead glyph or slot, a mono identifier, a title with a subtitle, trailing meta or a readable value, a slot and a chevron; flat or a card, nestable by depth. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/row/.",
+      "blurb": "THE list row: a lead glyph or slot, a mono identifier, a title with a subtitle, trailing meta or a readable value, a slot and a chevron; flat or a card, nestable by depth; with children a foldable parent. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/row/.",
       "order": 85,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-row",

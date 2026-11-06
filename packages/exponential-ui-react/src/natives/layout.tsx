@@ -3,8 +3,8 @@
 // reordering keeps each item's state), optionally in sections; past
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react"
-import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential_app/eui"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, readView, useSurfaceContext } from "../context"
 import { getPointer, LITERAL_ROWS_ROOT } from "@exponential_app/eui/web"
 import { WindowedList, type WindowedListHandle } from "../list"
@@ -18,15 +18,28 @@ export function BoxNative({ node, props, rootProps, emit, children }: NativeProp
   const href = str(props.href)
   const pressable = bool(props.pressable) || Boolean(node.on?.press) || Boolean(href)
   if (!pressable) return <div {...(rootProps as Record<string, unknown>)}>{children}</div>
-  const press = () => {
+  const press = (e?: MouseEvent) => {
+    // #VAPP-284: a press target inside another (a foldable Row's fold
+    // button in its head) fires only its own press.
+    e?.stopPropagation()
     if (href) ctx.openUrl(href)
     void emit(`press`)
   }
-  const onKey = (e: KeyboardEvent) => {
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return
     if (e.key === `Enter` || e.key === ` `) {
       e.preventDefault()
       press()
+      return
+    }
+    // #VAPP-284: ArrowRight / ArrowLeft open / close a node that folds.
+    const expanded = String((rootProps as Record<string, unknown>)[`aria-expanded`])
+    if (node.on?.toggle && (expanded === `true` || expanded === `false`)) {
+      const rtl = ctx.direction === `rtl`
+      if (foldKey(e.key, expanded === `true`, rtl)) {
+        e.preventDefault()
+        void emit(`toggle`)
+      }
     }
   }
   return (
