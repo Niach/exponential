@@ -136,6 +136,10 @@ impl XwmHandler for Ede {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &parked);
             self.forget_parked(&parked);
         }
+        if let Some(minimized) = self.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+            self.window_event(ede_protocol::events::WINDOW_CLOSED, &minimized);
+            self.forget_minimized(&minimized);
+        }
         if let Some(window) = self.x11_window(&surface) {
             let had_focus = self.focused_window().as_ref() == Some(&window);
             if !surface.is_override_redirect() {
@@ -216,6 +220,21 @@ impl XwmHandler for Ede {
     fn unfullscreen_request(&mut self, _xwm: XwmId, surface: X11Surface) {
         if let Some(w) = self.x11_window(&surface) {
             self.set_fullscreen(&w, false);
+        }
+    }
+
+    // _NET_WM_STATE_HIDDEN / WM_CHANGE_STATE Iconic (#EDE-48): the app's own
+    // minimize goes into the taskbar; the X client asking back restores.
+    fn minimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+        if let Some(w) = self.x11_window(&surface) {
+            self.minimize_window(&w);
+        }
+    }
+
+    fn unminimize_request(&mut self, _xwm: XwmId, surface: X11Surface) {
+        if let Some(w) = self.minimized.iter().find(|w| w.x11_surface() == Some(&surface)).cloned() {
+            self.restore_window(&w);
+            self.focus(Some(w));
         }
     }
 

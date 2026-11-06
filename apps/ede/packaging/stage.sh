@@ -5,7 +5,7 @@
 # (pack-deb.sh, pack-rpm.sh, pack-arch.sh), built once on Ubuntu 24.04 (the
 # oldest glibc of the matrix, so the binaries run on every newer distro).
 # Build deps: cargo and the headers in apps/ede/README.md (udev feature),
-# plus the shell workspace's (gpui: libxkbcommon, wayland, vulkan loader,
+# plus the shell's, built in apps/desktop (gpui: libxkbcommon, wayland, vulkan loader,
 # fontconfig, clang). --dev stages the dev profile (a VM check in minutes;
 # never a release); --no-build stages what target/ already holds.
 # Contents (#EDE-2): exponential-compositor, exponential-session,
@@ -33,15 +33,16 @@ stage="$1"
 here="$(cd "$(dirname "$0")" && pwd)"
 ede="$(dirname "$here")"
 target="${CARGO_TARGET_DIR:-$ede/target}"
-# The shell is a second workspace with its own target directory (unless a
-# shared CARGO_TARGET_DIR says otherwise).
-shell_target="${CARGO_TARGET_DIR:-$ede/shell/target}"
+# The shell is a member of the IDE's workspace (apps/desktop, #EDE-51), with
+# its own target directory unless a shared CARGO_TARGET_DIR says otherwise.
+desktop="$(dirname "$ede")/desktop"
+shell_target="${CARGO_TARGET_DIR:-$desktop/target}"
 
 if [ "$build" = 1 ]; then
   release=(--release); [ "$profile" = debug ] && release=()
   (cd "$ede" && cargo build "${release[@]}" --locked -p ede-compositor -p ede-session -p ede-ui -p ede-services -p ede-portal -p ede-theme -p ede-ctl --features ede-compositor/udev)
-  # The shell is its own workspace (gpui never enters the compositor's).
-  (cd "$ede/shell" && cargo build "${release[@]}" --locked -p ede-shell --bins)
+  # The shell builds in the IDE's workspace (gpui never enters the compositor's).
+  (cd "$desktop" && cargo build "${release[@]}" --locked -p ede-shell --bins)
 fi
 
 rm -rf "$stage"; mkdir -p "$stage"; chmod 755 "$stage"

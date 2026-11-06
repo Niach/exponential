@@ -281,7 +281,9 @@ impl Ede {
                 if self.is_locked() {
                     return Err(fail(ErrorCode::Forbidden, "the session is locked"));
                 }
-                // A parked window brings its workspace along (the taskbar).
+                // A minimized window comes back first; a parked one brings
+                // its workspace along (the taskbar).
+                self.restore_window(&w);
                 let ws = crate::state::window_state(&w).workspace;
                 if ws != self.active_workspace() {
                     self.switch_workspace(ws);
@@ -290,8 +292,31 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             Request::CloseWindow { window } => {
-                let w = self.window_by_id(&window)?;
+                // Parked and minimized windows close from the taskbar too.
+                let w = self.any_window_by_id(&window)?;
                 self.close_window(&w);
+                json(serde_json::Value::Null)
+            }
+            Request::MinimizeWindow { window } => {
+                let w = self.any_window_by_id(&window)?;
+                if self.is_locked() {
+                    return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                self.minimize_window(&w);
+                json(serde_json::Value::Null)
+            }
+            Request::RestoreWindow { window } => {
+                let w = self.any_window_by_id(&window)?;
+                if self.is_locked() {
+                    return Err(fail(ErrorCode::Forbidden, "the session is locked"));
+                }
+                if self.restore_window(&w) {
+                    let ws = crate::state::window_state(&w).workspace;
+                    if ws != self.active_workspace() {
+                        self.switch_workspace(ws);
+                    }
+                    self.focus(Some(w));
+                }
                 json(serde_json::Value::Null)
             }
             Request::MoveWindow { window, x, y } => {
@@ -314,7 +339,9 @@ impl Ede {
                         crate::backend::capture_output(self, &output)
                     }
                     CaptureTarget::Window { window } => {
-                        let w = self.window_by_id(&window)?;
+                        // A parked or minimized window still has its last
+                        // frame (the taskbar's hover preview).
+                        let w = self.any_window_by_id(&window)?;
                         if !self.may_capture(&w) {
                             return Err(fail(ErrorCode::Forbidden, "a protected window is never captured"));
                         }
@@ -478,6 +505,7 @@ impl Ede {
                     protected,
                     x11: w.x11_surface().is_some(),
                     workspace: st.workspace,
+                    minimized: st.minimized,
                 })
             })
             .collect()

@@ -92,10 +92,10 @@ jobs:
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
           eui='^(packages/exponential-ui[a-z-]*/|apps/desktop/crates/(eui-[a-z-]+|exponential-ui-ffi)/|apps/desktop/Cargo\.(lock|toml)$|packages/(design-tokens|icons)/|\.github/workflows/(test|exponential-ui|pick-runner)\.yml$)'
           echo "eui=$(grep -qE "$eui" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core)/|\.github/workflows/test\.yml$)'
+          ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          # #EDE-10: the shell workspace (gpui + eui-gpui by path) and the factory documents it embeds.
-          ede_shell='^(apps/ede/shell/|apps/ede/ui/|apps/ede/crates/ede-protocol/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore|ztracing|ztracing_macro)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
+          # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
+          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol)/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore|ztracing|ztracing_macro)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
           echo "ede_shell=$(grep -qE "$ede_shell" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
@@ -449,10 +449,11 @@ jobs:
         working-directory: apps/ede
         run: cargo check --workspace --all-targets --locked --features ede-compositor/udev
 
-  # #EDE-10: eDE's shell workspace (apps/ede/shell: gpui + eui-gpui by path,
-  # the compositor workspace never links gpui). A `cargo check` at the SDK's
-  # pins, only when the shell or what it links changes; the eUI job already
-  # builds gpui on this runner, so the cache is warm.
+  # #EDE-10 / #EDE-51: eDE's shell (apps/desktop/crates/ede-shell, a member of
+  # the IDE's workspace since #EDE-51; the compositor workspace never links
+  # gpui). A `cargo check` of the shell's own graph (Wayland only) with its
+  # tests, only when the shell or what it links changes; the desktop job
+  # already builds gpui on this runner, so the cache is warm.
   ede-shell:
     needs: [pick, changes]
     if: needs.changes.outputs.ede_shell == 'true'
@@ -467,13 +468,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
-          workspaces: apps/ede/shell
+          workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
-        with:
-          dir: apps/ede/shell
       - name: Cargo check
-        working-directory: apps/ede/shell
-        run: cargo check --workspace --all-targets --locked
+        working-directory: apps/desktop
+        run: cargo check -p ede-shell -p ede-protocol --all-targets --locked
+      - name: Cargo test
+        working-directory: apps/desktop
+        run: cargo test -p ede-shell -p ede-protocol --locked
 
   # T1 eUI parity (2026-10-30): every renderer's conformance runner + the
   # `conformant` check on every PR that touches eUI (exponential-ui.yml with
