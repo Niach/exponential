@@ -14,6 +14,8 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 target="${CARGO_TARGET_DIR:-$here/target}"
+# The shell is its own workspace (its own target/ unless CARGO_TARGET_DIR is shared).
+shell_target="${CARGO_TARGET_DIR:-$here/shell/target}"
 out=""; popup=(); open=(); size="1280x720"; settle=1500; build=1
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,7 +45,7 @@ export EDE_SHELL_DEMO=1
 export RUST_LOG="${RUST_LOG:-info,smithay=warn,wgpu_core=error,wgpu_hal=error}"
 log="$scratch/run.log"
 "$target/debug/ede-compositor" --headless "$size" --no-xwayland -- \
-  "$target/debug/ede-ui" --dir "$scratch/ui" --factory "$here/ui" supervise -- "$target/debug/ede-shell" "${popup[@]}" "${open[@]}" > "$log" 2>&1 &
+  "$target/debug/ede-ui" --dir "$scratch/ui" --factory "$here/ui" supervise -- "$shell_target/debug/ede-shell" "${popup[@]}" "${open[@]}" > "$log" 2>&1 &
 pid=$!
 cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -rf "$scratch"; }
 trap cleanup EXIT
