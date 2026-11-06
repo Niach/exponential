@@ -20,7 +20,7 @@ import { fixDeclarationSpecifiers } from "../../exponential-ui/release/build-npm
 const dir = resolve(import.meta.dir, `..`)
 const packages = resolve(dir, `..`)
 const repo = resolve(packages, `..`)
-const ENTRIES = [`index`, `capabilities`, `consent`, `lifecycle`, `providers`, `outbox`, `tools`, `pdf`]
+const ENTRIES = [`index`, `capabilities`, `consent`, `lifecycle`, `providers`, `outbox`, `tools`, `pdf`, `web/index`]
 // The private workspace packages the twin imports, inlined in the bundle and
 // carried along in the declarations: specifier → source file under packages/.
 const PRIVATE: Record<string, string> = {
@@ -50,7 +50,7 @@ export async function prepareNpm(version: string, outDir: string): Promise<strin
     splitting: true,
     sourcemap: `linked`,
     external: [`@exponential_app/eui`, `@exponential_app/eui/*`],
-    naming: { entry: `[name].js`, chunk: `chunks/[name]-[hash].js` },
+    naming: { entry: `[dir]/[name].js`, chunk: `chunks/[name]-[hash].js` },
   })
   if (!result.success) throw new AggregateError(result.logs, `bun build failed`)
 
@@ -121,7 +121,7 @@ export async function prepareNpm(version: string, outDir: string): Promise<strin
     types: `./dist/types/eengine/src/index.d.ts`,
     exports: {
       ".": entry(`index`),
-      ...Object.fromEntries(ENTRIES.filter((e) => e !== `index`).map((e) => [`./${e}`, entry(e)])),
+      ...Object.fromEntries(ENTRIES.filter((e) => e !== `index`).map((e) => [`./${e.replace(/\/index$/, ``)}`, entry(e)])),
       "./fixtures/*": `./fixtures/*`,
       "./package.json": `./package.json`,
     },
