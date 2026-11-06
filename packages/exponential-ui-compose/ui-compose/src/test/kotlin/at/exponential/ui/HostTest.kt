@@ -244,7 +244,7 @@ class HostTest {
         val ran = ArrayList<String>()
         var consent = true
         val asked = ArrayList<String>()
-        val pkg = """{"formatVersion":4,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness.toast"]}"""
+        val pkg = """{"formatVersion":5,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness.toast"]}"""
         val h = host(
             HostOptions(
                 transport = t,

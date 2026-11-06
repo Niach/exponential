@@ -130,6 +130,13 @@ pub fn host_contract() -> Value {
                 "navigateFunction": super::screens::NAVIGATE_FUNCTION,
                 "paramsKey": super::screens::SCREEN_PARAMS_KEY,
             },
+            "capabilities": {
+                "max": super::capabilities::MAX_CAPABILITIES,
+                "whyMax": super::capabilities::MAX_CAPABILITY_WHY,
+                "scopes": super::capabilities::CAPABILITY_SCOPES,
+                "origins": super::capabilities::CAPABILITY_ORIGIN_SCOPES,
+                "originPattern": super::capabilities::CAPABILITY_ORIGIN_PATTERN,
+            },
             "share": {
                 "max": super::share::MAX_SHARES,
                 "namePattern": "^[a-z][a-z0-9_]{0,23}$",

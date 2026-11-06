@@ -1,8 +1,8 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team). VAPP-218 (eApps U1, src/host/screens.ts): `acme.screens` declares three screens (keyed by template; `settings` is a template that is no screen), a press and an action call step that navigate (`app.navigate`, the host function); `acme.badscreens` makes every screens mistake (a bad icon, a duplicate, an unknown template, a blank title, a non-string param, an unknown key, a too-long title, a screen that is no object, more than MAX_SCREENS = 5, a press and an action step navigating to no screen); `acme.screenslist` has screens that is no list. `screens` = resolveScreen(packages[package], screen, params) → {screen, title, icon, params} | null (the requested screen, else the first; its params, then the request's string params key by key); its `deals` template binds `${params.stage}` and `${params.q}` (templateMessages fills them from the data's params, percent-encoded, a missing one empty; the VAPP-218 flow); `navigate` = navigateTarget(packages[package], args) → {screen, params} | {error}. #EXP-1674 (format version 4): `acme.details` has seven screens, five in the navigation (nav: false ones do not count), one exposed nav screen and one exposed detail screen with a required and an optional param; `acme.closed` exposes nothing; `acme.onlydetails` has only nav: false screens (refused); `acme.baddetails` makes every nav and exposed mistake. `screens`: the fallback is the first in the NAVIGATION. `crossApp` = crossAppTarget(packages[package], screen, params) → {screen, params} | {error}: what a link from another app may open. VAPP-206: `hostParams` = {today, now, month} of a host (the team zone, read at each bind): every host adds them to its applyTemplate and bindDataModel messages. On a package surface the router fills `${today}`, `${now}`, `${month}` in a source (percent-encoded) and a named query's templates (a binding's own param of that name wins); a template's binds read its applyTemplate's. Without them a source stays as written and a query's template is empty. `hostParams` cases: hostParams(now, offset) → {today, now, month}.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team). VAPP-218 (eApps U1, src/host/screens.ts): `acme.screens` declares three screens (keyed by template; `settings` is a template that is no screen), a press and an action call step that navigate (`app.navigate`, the host function); `acme.badscreens` makes every screens mistake (a bad icon, a duplicate, an unknown template, a blank title, a non-string param, an unknown key, a too-long title, a screen that is no object, more than MAX_SCREENS = 5, a press and an action step navigating to no screen); `acme.screenslist` has screens that is no list. `screens` = resolveScreen(packages[package], screen, params) → {screen, title, icon, params} | null (the requested screen, else the first; its params, then the request's string params key by key); its `deals` template binds `${params.stage}` and `${params.q}` (templateMessages fills them from the data's params, percent-encoded, a missing one empty; the VAPP-218 flow); `navigate` = navigateTarget(packages[package], args) → {screen, params} | {error}. #EXP-1674 (format version 4): `acme.details` has seven screens, five in the navigation (nav: false ones do not count), one exposed nav screen and one exposed detail screen with a required and an optional param; `acme.closed` exposes nothing; `acme.onlydetails` has only nav: false screens (refused); `acme.baddetails` makes every nav and exposed mistake. `screens`: the fallback is the first in the NAVIGATION. `crossApp` = crossAppTarget(packages[package], screen, params) → {screen, params} | {error}: what a link from another app may open. VAPP-206: `hostParams` = {today, now, month} of a host (the team zone, read at each bind): every host adds them to its applyTemplate and bindDataModel messages. On a package surface the router fills `${today}`, `${now}`, `${month}` in a source (percent-encoded) and a named query's templates (a binding's own param of that name wins); a template's binds read its applyTemplate's. Without them a source stays as written and a query's template is empty. `hostParams` cases: hostParams(now, offset) → {today, now, month}. VAPP-260 (format version 5, src/host/capabilities.ts): `acme.capabilities` declares a valid capability manifest (an ask scope, a picker scope, `http.fetch` with two origins, one with a port); `acme.badcapabilities` makes every entry mistake (a host-only scope, a duplicate, a missing id, a blank and a too-long why, an unknown scope, `http.fetch` without origins, origins on a scope that takes none, an unknown key, an entry that is no object, an empty origins list on the wrong scope); `acme.badcapabilities2` every origin mistake (http, uppercase, a path, a duplicate, a non-string, a label starting with -, a six-digit port, origins that are no list); `acme.capabilitieslist` has capabilities that is no list; `acme.manycapabilities` has more than 16.",
   "packages": {
     "acme.devices": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.devices",
       "name": "Devices",
       "version": "1.0.0",
@@ -42,7 +42,7 @@
       ]
     },
     "broken": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "broken",
       "name": "",
       "version": "1",
@@ -80,7 +80,7 @@
       ]
     },
     "acme.scoped": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.scoped",
       "name": "Scoped",
       "version": "1.0.0",
@@ -113,7 +113,7 @@
       ]
     },
     "acme.leaky": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.leaky",
       "name": "Leaky",
       "version": "1.0.0",
@@ -144,7 +144,7 @@
       ]
     },
     "acme.hours": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.hours",
       "name": "Working hours",
       "version": "1.0.0",
@@ -251,7 +251,7 @@
       }
     },
     "acme.badrecords": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.badrecords",
       "name": "Bad records",
       "version": "1.0.0",
@@ -319,7 +319,7 @@
       }
     },
     "acme.v2": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.v2",
       "name": "Hours v2",
       "version": "2.0.0",
@@ -508,7 +508,7 @@
       ]
     },
     "acme.future": {
-      "formatVersion": 5,
+      "formatVersion": 6,
       "id": "acme.future",
       "name": "Future",
       "version": "1.0.0",
@@ -547,7 +547,7 @@
       ]
     },
     "acme.charts": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.charts",
       "name": "Charts",
       "version": "1.0.0",
@@ -589,7 +589,7 @@
       ]
     },
     "acme.exposes": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.exposes",
       "name": "Hours with tools",
       "version": "1.0.0",
@@ -739,7 +739,7 @@
       ]
     },
     "acme.badexposes": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.badexposes",
       "name": "Bad tools",
       "version": "1.0.0",
@@ -988,7 +988,7 @@
       ]
     },
     "acme.exposeslist": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.exposeslist",
       "name": "Tools not a list",
       "version": "1.0.0",
@@ -1012,7 +1012,7 @@
       }
     },
     "acme.queries": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.queries",
       "name": "Hours with queries",
       "version": "1.0.0",
@@ -1114,7 +1114,7 @@
       }
     },
     "acme.badqueries": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.badqueries",
       "name": "Bad queries",
       "version": "1.0.0",
@@ -1243,7 +1243,7 @@
       ]
     },
     "acme.querieslist": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.querieslist",
       "name": "Queries list",
       "version": "1.0.0",
@@ -1264,7 +1264,7 @@
       ]
     },
     "acme.badcomponents": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.badcomponents",
       "name": "Bad components",
       "version": "1.0.0",
@@ -1338,7 +1338,7 @@
       }
     },
     "acme.files": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.files",
       "name": "Expenses",
       "version": "1.0.0",
@@ -1406,7 +1406,7 @@
       }
     },
     "acme.crm": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.crm",
       "name": "CRM",
       "version": "1.0.0",
@@ -1486,7 +1486,7 @@
       }
     },
     "acme.badrefs": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.badrefs",
       "name": "CRM",
       "version": "1.0.0",
@@ -1584,7 +1584,7 @@
       }
     },
     "acme.expenses": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.expenses",
       "name": "CRM",
       "version": "1.0.0",
@@ -1645,7 +1645,7 @@
       }
     },
     "acme.hours2": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.hours2",
       "name": "Working hours",
       "version": "2.0.0",
@@ -1775,7 +1775,7 @@
       ]
     },
     "acme.screens": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.screens",
       "name": "Screens",
       "version": "1.0.0",
@@ -1909,7 +1909,7 @@
       }
     },
     "acme.badscreens": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.badscreens",
       "name": "Bad screens",
       "version": "1.0.0",
@@ -2022,7 +2022,7 @@
       }
     },
     "acme.screenslist": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.screenslist",
       "name": "Screens list",
       "version": "1.0.0",
@@ -2050,7 +2050,7 @@
       }
     },
     "acme.details": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.details",
       "name": "Details",
       "version": "1.0.0",
@@ -2219,7 +2219,7 @@
       }
     },
     "acme.closed": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.closed",
       "name": "Details",
       "version": "1.0.0",
@@ -2250,7 +2250,7 @@
       }
     },
     "acme.onlydetails": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.onlydetails",
       "name": "Details",
       "version": "1.0.0",
@@ -2282,7 +2282,7 @@
       }
     },
     "acme.baddetails": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.baddetails",
       "name": "Details",
       "version": "1.0.0",
@@ -2438,7 +2438,7 @@
       }
     },
     "acme.today": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.today",
       "name": "Today",
       "version": "1.0.0",
@@ -2497,6 +2497,255 @@
             {
               "path": "/own",
               "source": "records:entry?query=day&month=2026-01"
+            }
+          ]
+        }
+      }
+    },
+    "acme.capabilities": {
+      "formatVersion": 5,
+      "id": "acme.capabilities",
+      "name": "Photobook",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "capabilities": [
+        {
+          "id": "photos.read",
+          "why": "Pick the photos for an album."
+        },
+        {
+          "id": "share.send",
+          "why": "Share a finished album."
+        },
+        {
+          "id": "http.fetch",
+          "why": "Load print prices.",
+          "origins": [
+            "https://api.example.com",
+            "https://prices.example.com:8443"
+          ]
+        }
+      ],
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
+            }
+          ]
+        }
+      }
+    },
+    "acme.badcapabilities": {
+      "formatVersion": 5,
+      "id": "acme.badcapabilities",
+      "name": "Bad capabilities",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "capabilities": [
+        {
+          "id": "shell.edit",
+          "why": "Rearrange the panel."
+        },
+        {
+          "id": "photos.read",
+          "why": "Pick photos."
+        },
+        {
+          "id": "photos.read",
+          "why": "Again."
+        },
+        {
+          "why": "No id."
+        },
+        {
+          "id": "camera.capture",
+          "why": "   "
+        },
+        {
+          "id": "camera.capture2",
+          "why": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "id": "http.fetch",
+          "why": "No origins."
+        },
+        {
+          "id": "share.send",
+          "why": "Share.",
+          "origins": [
+            "https://a.example.com"
+          ]
+        },
+        {
+          "id": "location.read",
+          "why": "Where.",
+          "icon": "pin"
+        },
+        "photos.read",
+        {
+          "id": "clipboard.read",
+          "why": "Paste.",
+          "origins": []
+        }
+      ],
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
+            }
+          ]
+        }
+      }
+    },
+    "acme.badcapabilities2": {
+      "formatVersion": 5,
+      "id": "acme.badcapabilities2",
+      "name": "Bad origins",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "capabilities": [
+        {
+          "id": "http.fetch",
+          "why": "Rates.",
+          "origins": [
+            "http://api.example.com",
+            "https://API.example.com",
+            "https://a.example.com/path",
+            "https://a.example.com",
+            "https://a.example.com",
+            3,
+            "https://-a.example.com",
+            "https://a.example.com:123456"
+          ]
+        },
+        {
+          "id": "http.fetch",
+          "why": "Twice.",
+          "origins": "https://a.example.com"
+        }
+      ],
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
+            }
+          ]
+        }
+      }
+    },
+    "acme.capabilitieslist": {
+      "formatVersion": 5,
+      "id": "acme.capabilitieslist",
+      "name": "Capabilities list",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "capabilities": {
+        "id": "photos.read"
+      },
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
+            }
+          ]
+        }
+      }
+    },
+    "acme.manycapabilities": {
+      "formatVersion": 5,
+      "id": "acme.manycapabilities",
+      "name": "Too many",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "capabilities": [
+        {
+          "id": "camera.capture",
+          "why": "w"
+        },
+        {
+          "id": "clipboard.read",
+          "why": "w"
+        },
+        {
+          "id": "clipboard.write",
+          "why": "w"
+        },
+        {
+          "id": "files.read",
+          "why": "w"
+        },
+        {
+          "id": "files.write",
+          "why": "w"
+        },
+        {
+          "id": "location.read",
+          "why": "w"
+        },
+        {
+          "id": "notifications.post",
+          "why": "w"
+        },
+        {
+          "id": "photos.read",
+          "why": "w"
+        },
+        {
+          "id": "print.pdf",
+          "why": "w"
+        },
+        {
+          "id": "share.send",
+          "why": "w"
+        },
+        {
+          "id": "camera.capture",
+          "why": "w"
+        },
+        {
+          "id": "clipboard.read",
+          "why": "w"
+        },
+        {
+          "id": "clipboard.write",
+          "why": "w"
+        },
+        {
+          "id": "files.read",
+          "why": "w"
+        },
+        {
+          "id": "files.write",
+          "why": "w"
+        },
+        {
+          "id": "location.read",
+          "why": "w"
+        },
+        {
+          "id": "notifications.post",
+          "why": "w"
+        }
+      ],
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Hi"
             }
           ]
         }
@@ -3575,13 +3824,13 @@
         "acme.future": [
           {
             "path": "/formatVersion",
-            "message": "format version 5 is newer than this host (4)"
+            "message": "format version 6 is newer than this host (5)"
           }
         ],
         "acme.v1": [
           {
             "path": "/formatVersion",
-            "message": "format version 1 is no longer read: write 4"
+            "message": "format version 1 is no longer read: write 5"
           }
         ]
       },
@@ -4113,7 +4362,7 @@
       "expected": [
         {
           "path": "/formatVersion",
-          "message": "format version 5 is newer than this host (4)"
+          "message": "format version 6 is newer than this host (5)"
         }
       ]
     },
@@ -4122,7 +4371,7 @@
       "expected": [
         {
           "path": "/formatVersion",
-          "message": "format version 1 is no longer read: write 4"
+          "message": "format version 1 is no longer read: write 5"
         }
       ]
     },
@@ -4586,6 +4835,146 @@
     {
       "package": "acme.today",
       "expected": []
+    },
+    {
+      "package": "acme.capabilities",
+      "expected": []
+    },
+    {
+      "package": "acme.badcapabilities",
+      "expected": [
+        {
+          "path": "/capabilities/0/id",
+          "message": "unknown capability shell.edit"
+        },
+        {
+          "path": "/capabilities/2/id",
+          "message": "duplicate capability photos.read"
+        },
+        {
+          "path": "/capabilities/3/id",
+          "message": "unknown capability undefined"
+        },
+        {
+          "path": "/capabilities/4/why",
+          "message": "why is a required string"
+        },
+        {
+          "path": "/capabilities/5/id",
+          "message": "unknown capability camera.capture2"
+        },
+        {
+          "path": "/capabilities/5/why",
+          "message": "why is at most 200 characters"
+        },
+        {
+          "path": "/capabilities/6/origins",
+          "message": "http.fetch lists its origins"
+        },
+        {
+          "path": "/capabilities/7/origins",
+          "message": "origins are only for http.fetch"
+        },
+        {
+          "path": "/capabilities/8/icon",
+          "message": "unknown key icon"
+        },
+        {
+          "path": "/capabilities/9",
+          "message": "a capability is {id, why, origins?}"
+        },
+        {
+          "path": "/capabilities/10/origins",
+          "message": "origins are only for http.fetch"
+        }
+      ]
+    },
+    {
+      "package": "acme.badcapabilities2",
+      "expected": [
+        {
+          "path": "/capabilities/0/origins/0",
+          "message": "an origin is https://host[:port]"
+        },
+        {
+          "path": "/capabilities/0/origins/1",
+          "message": "an origin is https://host[:port]"
+        },
+        {
+          "path": "/capabilities/0/origins/2",
+          "message": "an origin is https://host[:port]"
+        },
+        {
+          "path": "/capabilities/0/origins/4",
+          "message": "duplicate origin https://a.example.com"
+        },
+        {
+          "path": "/capabilities/0/origins/5",
+          "message": "an origin is https://host[:port]"
+        },
+        {
+          "path": "/capabilities/0/origins/6",
+          "message": "an origin is https://host[:port]"
+        },
+        {
+          "path": "/capabilities/0/origins/7",
+          "message": "an origin is https://host[:port]"
+        },
+        {
+          "path": "/capabilities/1/id",
+          "message": "duplicate capability http.fetch"
+        },
+        {
+          "path": "/capabilities/1/origins",
+          "message": "origins is a non-empty list"
+        }
+      ]
+    },
+    {
+      "package": "acme.capabilitieslist",
+      "expected": [
+        {
+          "path": "/capabilities",
+          "message": "capabilities is a list of {id, why, origins?}"
+        }
+      ]
+    },
+    {
+      "package": "acme.manycapabilities",
+      "expected": [
+        {
+          "path": "/capabilities",
+          "message": "at most 16 capabilities"
+        },
+        {
+          "path": "/capabilities/10/id",
+          "message": "duplicate capability camera.capture"
+        },
+        {
+          "path": "/capabilities/11/id",
+          "message": "duplicate capability clipboard.read"
+        },
+        {
+          "path": "/capabilities/12/id",
+          "message": "duplicate capability clipboard.write"
+        },
+        {
+          "path": "/capabilities/13/id",
+          "message": "duplicate capability files.read"
+        },
+        {
+          "path": "/capabilities/14/id",
+          "message": "duplicate capability files.write"
+        },
+        {
+          "path": "/capabilities/15/id",
+          "message": "duplicate capability location.read"
+        },
+        {
+          "path": "/capabilities/16/id",
+          "message": "duplicate capability notifications.post"
+        }
+      ]
     }
   ],
   "records": [

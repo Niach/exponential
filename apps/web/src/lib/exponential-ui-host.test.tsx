@@ -421,7 +421,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
 
   it(`#VAPP-230: an upstream binding reads through the broker; disconnected keeps the default and shows Connect <server>`, async () => {
     const pkg = {
-      formatVersion: 4,
+      formatVersion: 5,
       id: `acme.console`,
       name: `Console`,
       version: `1.0.0`,
@@ -458,7 +458,7 @@ describe(`VAPP-157: the app host's media rule`, () => {
 
   it(`#VAPP-239: an offline device keeps the default and shows its banner without Connect`, async () => {
     const pkg = {
-      formatVersion: 4,
+      formatVersion: 5,
       id: `acme.console`,
       name: `Console`,
       version: `1.0.0`,

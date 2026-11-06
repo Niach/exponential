@@ -10,7 +10,7 @@
     "role": "member"
   },
   "package": {
-    "formatVersion": 4,
+    "formatVersion": 5,
     "id": "acme.hours",
     "name": "Hours",
     "version": "1.0.0",

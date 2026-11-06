@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- **Package format 5** (#VAPP-260, breaking: a host reads exactly 5): `capabilities: [{id, why, origins?}]`, the capability manifest the Engine's broker and the bundler read (`catalog/host.json` `package.capabilities`, `validatePackageCapabilities` / Rust `host::capabilities`, `docs/package-format.md` "Capabilities"); `fixtures/host-router.json` gains `acme.capabilities` and four invalid packages.
+
 ## 0.16.3 (2026-11-06)
 
 - `MarkdownText(_:context:options:hugsWidth:revision:)`: the catalog Markdown outside a surface (a host's own screens), on a context `SurfaceModel`'s theme and `HostPlugin` hooks, following Dynamic Type. Markdown's recipe-sized parts (chat body, headings, code, chip label and height) now scale with the surface's font scale, measurer included; multi-line code blocks paint every line (they painted only the first); text carrying inline chips paints at the measurer's line breaks. iOS `selectable: true` selects natively per text block (a selectable TextKit view on the measurer's lines; copy writes chips as their labels) instead of the whole-text Copy menu. Markdown block images paint the `Markdown/image` part's border (width, colour) inside their corners.

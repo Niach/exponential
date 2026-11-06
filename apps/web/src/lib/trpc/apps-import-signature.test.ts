@@ -10,7 +10,7 @@ const SEED = Uint8Array.from(Buffer.from(`9d61b19deffd5a60ba844af492ec2cc44449c5
 const file = buildAppExport({
   app: { name: `Hello` },
   package: {
-    formatVersion: 4,
+    formatVersion: 5,
     id: `acme.hello`,
     name: `Hello`,
     version: `1.0.0`,

@@ -24,6 +24,8 @@ import { packageTestIssues, validatePackageTests } from "./tests"
 import { validatePackageComponents } from "./components"
 import { fillScreenParams, validatePackageScreens } from "./screens"
 import { validatePackageShares } from "./share"
+import { validatePackageCapabilities } from "./capabilities"
+import type { PackageCapability } from "./capabilities"
 import type { PackageShare } from "./share"
 import { fillRecordMacros, usesRecordMacros, type RecordMacroOptions } from "./record-macros"
 import type { PackageScreen } from "./screens"
@@ -32,7 +34,7 @@ import type { PackageScreen } from "./screens"
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
  *  A package names it, and it is exactly this one: no older format is
  *  read (eApps keeps no backwards compatibility). */
-export const PACKAGE_FORMAT_VERSION = 4
+export const PACKAGE_FORMAT_VERSION = 5
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
  *  extension id in order, de-duplicated. */
@@ -112,6 +114,9 @@ export interface AppPackage {
   screens?: PackageScreen[]
   /** VAPP-241: the public link definitions an owner can turn on (`host/share.ts`). */
   share?: PackageShare[]
+  /** VAPP-260 (format 5): the capability manifest (`host/capabilities.ts`),
+   *  the ceiling of what its UI and agents reach through the Engine. */
+  capabilities?: PackageCapability[]
 }
 
 /** A package query's name. */
@@ -309,6 +314,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   issues.push(...validatePackageScreens(pkg))
   // VAPP-241: the public link definitions.
   issues.push(...validatePackageShares(pkg))
+  // VAPP-260 (format 5): the capability manifest.
+  issues.push(...validatePackageCapabilities(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))

@@ -126,7 +126,7 @@
     }
   ],
   "package": {
-    "formatVersion": 4,
+    "formatVersion": 5,
     "id": "acme.hours",
     "name": "Hours",
     "version": "1.0.0",
@@ -2147,7 +2147,7 @@
   },
   "hostCalls": {
     "package": {
-      "formatVersion": 4,
+      "formatVersion": 5,
       "id": "acme.steps",
       "name": "Steps",
       "version": "1.0.0",

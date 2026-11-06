@@ -191,7 +191,7 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
   // VAPP-122: records (fixtures/app-records.json): validated against the
   // head package's kind schema, patched by id, trashed with the app.
   const RECORDS_PACKAGE = {
-    formatVersion: 4,
+    formatVersion: 5,
     id: `t.hours`,
     name: `Hours`,
     version: `1.0.0`,

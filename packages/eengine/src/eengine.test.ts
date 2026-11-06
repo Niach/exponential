@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import appRecords from "@exp/domain-contract/fixtures/app-records.json" with { type: "json" }
+import host from "@exponential_app/eui/catalog/host.json" with { type: "json" }
 
 import capabilities from "../fixtures/capabilities.json" with { type: "json" }
 import consent from "../fixtures/consent.json" with { type: "json" }
@@ -50,6 +51,11 @@ describe(`capabilities`, () => {
       }
     }
     for (const name of capabilities.reservedNames) expect(capabilityNameValid(name)).toBe(false)
+  })
+  test(`the declarable scopes are genUI's package format 5 list`, () => {
+    const scopes = capabilities.capabilities.flatMap((c) => c.scopes.filter((s) => !(s as { hostOnly?: boolean }).hostOnly))
+    expect(scopes.map((s) => s.id).sort()).toEqual(host.package.capabilities.scopes)
+    expect(scopes.filter((s) => (s as { origins?: boolean }).origins).map((s) => s.id)).toEqual(host.package.capabilities.origins)
   })
   for (const c of capabilities.parseCases) {
     test(`parse ${c.from} ${c.name}`, () => expect(parseCapabilityCall(c.from as `ui` | `agent`, c.name)).toEqual(c.expected))

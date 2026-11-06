@@ -17,7 +17,7 @@ import { importRecords } from "@/lib/apps/records-service"
 import { DEMO_OPS_APP_ID, DEMO_OPS_SHARE_TOKEN } from "../screenshot-demo"
 
 const opsPackage = {
-  formatVersion: 4,
+  formatVersion: 5,
   id: `exponential.ops-desk`,
   name: `Ops desk`,
   version: `1.0.0`,

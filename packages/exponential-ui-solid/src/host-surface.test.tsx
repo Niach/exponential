@@ -23,7 +23,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
 /** `host-router.json`'s acme.scoped: one template bound to exp:devices,
  *  one function, two listed sources (exp:devices and the acme.* prefix). */
 const scoped: AppPackage = {
-  formatVersion: 4,
+  formatVersion: 5,
   id: `acme.scoped`,
   name: `Scoped`,
   version: `1.0.0`,
