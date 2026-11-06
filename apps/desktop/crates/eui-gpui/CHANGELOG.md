@@ -5,11 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
-- #VAPP-258: two gpui host extras for an app's own Markdown: `HostPlugin::chip_icon` paints an inline chip's icon (a status glyph in its tint), `tasks_pressable` / `on_task_toggle` make task boxes pressable (the host rewrites its text); `markdown_hooks_version` memoizes a leaf's laid-out blocks (`paint::markdown_memo`), `markdown_visible_only` builds only the blocks near the host's viewport, `markdown_window_selection` joins the text units to the host's window-level selection (gpui-base, `paint::markdown_selection`).
-- An inline DatePicker paints the core's in-flow month grid; a marked day draws its event dot (VAPP-282).
-
 ## 0.16.3 (2026-11-06)
 
+- #VAPP-258: two gpui host extras for an app's own Markdown: `HostPlugin::chip_icon` paints an inline chip's icon (a status glyph in its tint), `tasks_pressable` / `on_task_toggle` make task boxes pressable (the host rewrites its text); `markdown_hooks_version` memoizes a leaf's laid-out blocks (`paint::markdown_memo`), `markdown_visible_only` builds only the blocks near the host's viewport, `markdown_window_selection` joins the text units to the host's window-level selection (gpui-base, `paint::markdown_selection`).
+- An inline DatePicker paints the core's in-flow month grid; a marked day draws its event dot (VAPP-282).
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception). gpui paints the core's parts (no painter change).
 - #VAPP-258 step 5: `HostPlugin::markdown_options` (`MarkdownOptions`, also `HostPolicy::markdown_options`): hard breaks, the chat rhythm (`density: chat` recipes), selection off, streamed text (`parse_with`, `parse_streaming`, a per-text memo). A document of 24+ blocks lays out and paints only the blocks crossing the clip (`LazyMdBlock`), the measured height unchanged. A copy across a chip gives its label; a chip box spans its whole placeholder (no stray gap after it).

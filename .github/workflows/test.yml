@@ -321,9 +321,12 @@ jobs:
   # ExpCore or a fixture it reads. INFORMATIONAL (2026-11-01): not in `gate`,
   # so a busy single Mac runner never blocks a merge; release-suite.yml runs
   # it as a release blocker before every ios-v* build.
+  # Repo variable PR_MAC_LEGS=off skips the three informational Mac legs
+  # (ios-core, ios-app, eui-swift) so a release suite gets both Macs; the
+  # release shepherd sets it while a release-suite.yml run waits on a Mac.
   ios-core:
     needs: [pick, changes]
-    if: needs.changes.outputs.ios == 'true'
+    if: needs.changes.outputs.ios == 'true' && vars.PR_MAC_LEGS != 'off'
     uses: ./.github/workflows/ios-core.yml
     secrets: inherit
 
@@ -333,7 +336,7 @@ jobs:
   # never block a merge; it can join `gate` once it has proved reliable.
   ios-app:
     needs: [pick, changes]
-    if: needs.changes.outputs.ios_app == 'true'
+    if: needs.changes.outputs.ios_app == 'true' && vars.PR_MAC_LEGS != 'off'
     uses: ./.github/workflows/test-ios.yml
     with:
       compile_only: true
@@ -413,7 +416,7 @@ jobs:
   # stays a release blocker in release-suite.yml).
   eui-swift:
     needs: [pick, changes]
-    if: needs.changes.outputs.eui == 'true'
+    if: needs.changes.outputs.eui == 'true' && vars.PR_MAC_LEGS != 'off'
     uses: ./.github/workflows/exponential-ui.yml
     with:
       conformance_only: true
