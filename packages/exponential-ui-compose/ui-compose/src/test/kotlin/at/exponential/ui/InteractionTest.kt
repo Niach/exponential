@@ -400,4 +400,58 @@ class InteractionTest {
             assertEquals("$name: expanded after", c["after"]?.bool, m.node(m.idx("issues.head"))?.accessibility?.get("expanded")?.bool)
         }
     }
+
+    /**
+     * fixtures/interactions-round1.json `tree` (#VAPP-285): a press on a row
+     * (leaf = select, branch = fold, lazy = load), or a key through
+     * [handleKey] on the focused treeitem (the core's tree keys move the
+     * focus — its `focus` event lands in `focusRequest` — or fold, rtl-aware);
+     * the events the host sees, where the focus lands, /open and /picked.
+     */
+    @Test
+    fun treeCasesSelectFoldFetchAndMoveTheFocus() {
+        val t = Fixtures.json("interactions-round1.json")["tree"]!!
+        val rowIds = t["rowIds"]!!.obj!!.mapValues { it.value.string!! }
+        val cases = t["cases"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        val keys = mapOf("ArrowUp" to "up", "ArrowDown" to "down", "ArrowLeft" to "left", "ArrowRight" to "right", "Home" to "home", "End" to "end")
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val tree = buildMap<String, JsonValue> {
+                put("id", JsonValue.Str("root"))
+                put("component", JsonValue.Str("Box"))
+                put("children", JsonValue.Arr(listOf(t["surface"]!!)))
+                if (c["rtl"]?.bool == true) put("style", JsonValue.Obj(mapOf("direction" to JsonValue.Str("rtl"))))
+            }
+            val host = RecordingHost()
+            val m = SurfaceModel("tree", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(JsonValue.Obj(tree).json)
+            m.setViewport(390f, 800f)
+            m.setData("/open", c["open"] ?: JsonValue.Arr(emptyList()))
+            val step = c["step"]!!
+            val item = (step["press"] ?: step["on"])!!.string!!
+            val target = rowIds[item]!!
+            assertNotNull("$name: no $target", m.indexOf(target))
+            var moved: String? = null
+            if (step["press"] != null) {
+                m.press(target)
+            } else {
+                m.focus(target, true, fromKeyboard = true)
+                val key = keys[step["key"]?.string]!!
+                assertTrue("$name: $key is the tree's", handleKey(m, key))
+                val now = m.focusRequest
+                if (now != null && now != target) moved = rowIds.entries.firstOrNull { it.value == now }?.key ?: now
+            }
+            val after = c["after"]!!
+            assertEquals("$name: events", c["events"]?.array.orEmpty().map { it.string }, host.actions.map { it.name })
+            assertEquals("$name: focus", after["focus"]?.string, moved)
+            assertEquals("$name: /open", after["open"] ?: JsonValue.Null, m.data["open"] ?: JsonValue.Null)
+            assertEquals("$name: /picked", after["picked"] ?: JsonValue.Null, m.data["picked"] ?: JsonValue.Null)
+            after["visible"]?.array?.let { visible ->
+                val shown = rowIds.filter { m.indexOf(it.value) != null }.keys.sorted()
+                assertEquals("$name: visible rows", visible.map { it.string!! }.sorted(), shown)
+            }
+        }
+    }
 }

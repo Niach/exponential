@@ -623,4 +623,55 @@ final class Round1ModelTests: XCTestCase {
             XCTAssertEqual(m.node(id: "issues.head")?.accessibility?["expanded"]?.bool, c["after"]?.bool, "\(name): expanded after")
         }
     }
+
+    // MARK: - interactions-round1.json tree (#VAPP-285)
+
+    /// A Tree: a press on a row (leaf = select, branch = fold, lazy = load),
+    /// or a key through the model's keyboard on the focused treeitem (the
+    /// core's tree keys move the focus or fold, rtl-aware); the events the
+    /// host sees, where the focus lands, /open and /picked after.
+    func testTreeCasesSelectFoldFetchAndMoveTheFocusThroughTheModel() throws {
+        let t = try Fixtures.json("interactions-round1.json")["tree"]
+        let rowIds = t?["rowIds"]?.object ?? [:]
+        let cases = t?["cases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        let keys = ["ArrowUp": "up", "ArrowDown": "down", "ArrowLeft": "left", "ArrowRight": "right", "Home": "home", "End": "end"]
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            var tree: Props = ["id": .string("root"), "component": .string("Box"), "children": .array([t?["surface"] ?? .null])]
+            if c["rtl"]?.bool == true { tree["style"] = .object(["direction": .string("rtl")]) }
+            let host = Round1Host()
+            var options = SurfaceOptions()
+            options.theme = ThemeHandle.builtin("neutral")
+            options.mode = .light
+            let m = try SurfaceModel(id: "tree", options: options, host: host)
+            m.setViewport(width: 400, height: 800)
+            try m.setNested(json: JSONValue.object(tree).json)
+            m.setData(path: "/open", value: c["open"] ?? .array([]))
+            let step = c["step"]?.object ?? [:]
+            let item = (step["press"] ?? step["on"])?.string ?? "?"
+            let target = rowIds[item]?.string ?? "?"
+            XCTAssertNotNil(m.index(of: target), "\(name): no \(target)")
+            var moved: String?
+            if step["press"] != nil {
+                m.press(id: target)
+            } else {
+                m.requestFocus(target, keyboard: true)
+                XCTAssertEqual(m.focusedId, target, "\(name): \(target) takes focus")
+                let key = keys[step["key"]?.string ?? ""] ?? "?"
+                XCTAssertTrue(m.handleKey(key: key), "\(name): \(key) is the tree's")
+                if let now = m.focusedId, now != target {
+                    moved = rowIds.first(where: { $0.value.string == now })?.key ?? now
+                }
+            }
+            XCTAssertEqual(host.actions.map(\.name), c["events"]?.array?.compactMap(\.string), "\(name): events")
+            XCTAssertEqual(moved, c["after"]?["focus"]?.string, "\(name): focus")
+            XCTAssertEqual(m.data["open"] ?? .null, c["after"]?["open"] ?? .null, "\(name): /open")
+            XCTAssertEqual(m.data["picked"] ?? .null, c["after"]?["picked"] ?? .null, "\(name): /picked")
+            if let visible = c["after"]?["visible"]?.array?.compactMap(\.string) {
+                let shown = rowIds.filter { m.index(of: $0.value.string ?? "") != nil }.map(\.key).sorted()
+                XCTAssertEqual(shown, visible.sorted(), "\(name): visible rows")
+            }
+        }
+    }
 }

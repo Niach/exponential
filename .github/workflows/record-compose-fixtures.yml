@@ -28,6 +28,9 @@ name: record-compose-fixtures
 # VAPP-280 (2026-11-06): re-recorded for the core catalog's SettingsRow
 # (`SettingsRow.png`; the kitchen-sink goldens, the Compose ratchet and the
 # gpui budget came back unchanged).
+# VAPP-285 (2026-11-06): re-recorded for the kitchen sink's Tree (a
+# repository tree after the Outline: the Compose goldens + the web
+# baseline rewrite's gpui budget).
 
 on:
   workflow_dispatch: {}
