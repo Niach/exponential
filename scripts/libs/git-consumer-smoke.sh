@@ -78,7 +78,7 @@ cd "$tmp"
 cat "$tmp/Cargo.toml"
 # One copy of every crate of this repo: two sources of eui-gpui (the etalk
 # tag's checkout + the eui tag) would build, but their types never unify.
-ours="$(cd "$repo/apps/desktop/crates" && ls -d */ | tr -d / | paste -sd'|')"
+ours="$(cd "$repo/apps/desktop/crates" && ls -d */ | tr -d / | paste -sd'|' -)"
 cargo tree --manifest-path "$tmp/Cargo.toml" --config 'net.git-fetch-with-cli=true' \
   -d --depth 0 --target all -e normal,build > "$tmp/dupes.txt"
 dupes="$(grep -E "^($ours) v" "$tmp/dupes.txt" || true)"
