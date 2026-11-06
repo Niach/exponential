@@ -99,6 +99,7 @@ pub fn host_contract() -> Value {
             "optionKeys": MEDIA_OPTION_KEYS,
             "defaultSchemes": DEFAULT_MEDIA_SCHEMES,
             "limits": {"maxBytes": MEDIA_MAX_BYTES, "timeoutMs": MEDIA_TIMEOUT_MS, "maxPixels": MEDIA_MAX_PIXELS},
+            "appFile": {"scheme": super::policy::APP_FILE_SCHEME, "idPattern": super::policy::APP_FILE_ID_PATTERN},
         },
         "markdown": {"hooks": MARKDOWN_HOOKS, "chipKinds": MARKDOWN_CHIP_KINDS, "attachmentKinds": MARKDOWN_ATTACHMENT_KINDS, "imageMaxHeight": MARKDOWN_IMAGE_MAX_HEIGHT as u64, "options": {"breaks": {"values": MARKDOWN_BREAKS, "default": MARKDOWN_BREAKS[0]}, "density": {"values": MARKDOWN_DENSITIES, "default": MARKDOWN_DENSITIES[0]}, "selectable": {"default": null}, "streaming": {"default": false}, "imageMaxHeight": {"default": MARKDOWN_IMAGE_MAX_HEIGHT as u64}}, "lazyBlocks": MARKDOWN_LAZY_BLOCKS},
         "sources": {"pattern": SOURCE_PATTERN, "paramsEncoding": SOURCE_PARAMS_ENCODING},
@@ -122,6 +123,7 @@ pub fn host_contract() -> Value {
                 "stepKinds": act::ACTION_STEP_KINDS,
                 "callPrefix": act::ACTION_CALL_PREFIX,
                 "batchFunction": act::RECORDS_BATCH_FUNCTION,
+                "resultPattern": act::ACTION_RESULT_PATTERN,
             },
             "screens": {
                 "max": super::screens::MAX_SCREENS,

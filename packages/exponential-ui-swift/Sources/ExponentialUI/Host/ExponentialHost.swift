@@ -395,7 +395,9 @@ public final class ExponentialHost {
     /// data, `me`, the clock), every host call's gate and consent, then the
     /// record writes as ONE `records.batch`, then the sets, then the calls.
     /// A failure before the commit lands nothing: ACTION_FAILED +
-    /// `onActionFailed` (the toast), the outcome's `error`.
+    /// `onActionFailed` (the toast), the outcome's `error`. VAPP-271: a
+    /// result call (`call` + `result`) is gated and run before the commit
+    /// and the action re-runs over the same snapshot with its answer.
     private func runPackageAction(_ call: FunctionCallInfo, action: String) async -> FunctionOutcome {
         func failed(_ message: String) -> FunctionOutcome {
             send(errorMessageJson(code: "ACTION_FAILED", surfaceId: call.surfaceId, message: message, path: nil))
@@ -405,13 +407,32 @@ public final class ExponentialHost {
         guard let model = surfaces[call.surfaceId], let pkgId = router.packageIdOf(surfaceId: call.surfaceId), let pkg = packages[pkgId] else {
             return failed("no action \(action)")
         }
+        // VAPP-271: a `call` step with a `result` runs when the plan reaches
+        // it (its gate first, before the commit; a refusal or a failure =
+        // the action's failure); the action runs again over the SAME
+        // snapshot with its answer as `results.<name>`.
+        let data = model.data
+        let nowMs = options.now.map { $0().timeIntervalSince1970 * 1000 }
+        var results: [String: JSONValue] = [:]
+        func runAction() -> Actions.Outcome {
+            Actions.run(pkg, action: action, params: .object(call.args), data: data, me: options.me, nowMs: nowMs, zone: options.zone, results: results)
+        }
+        var outcome = runAction()
+        while case let .pending(pending) = outcome {
+            let c = SurfaceFunctionCall(surfaceId: call.surfaceId, componentId: call.componentId, name: pending.name, args: pending.args)
+            let verdict = await gate(c)
+            if verdict.decision != .allow { return failed(verdict.error ?? "\(c.name) was not allowed") }
+            let answer = await run(c)
+            if let error = answer.error { return failed(error) }
+            if answer.decision != .allow { return failed("\(c.name) was not allowed") }
+            results[pending.result] = answer.result.map { ($0 as? JSONValue) ?? JSONValue(any: $0) } ?? .null
+            outcome = runAction()
+        }
         let plan: Actions.Plan
-        switch Actions.run(
-            pkg, action: action, params: .object(call.args), data: model.data, me: options.me,
-            nowMs: options.now.map { $0().timeIntervalSince1970 * 1000 }, zone: options.zone
-        ) {
+        switch outcome {
         case let .error(message): return failed(message)
         case let .plan(p): plan = p
+        case .pending: return failed("no action \(action)")
         }
         let calls = plan.calls.map { SurfaceFunctionCall(surfaceId: call.surfaceId, componentId: call.componentId, name: $0.name, args: $0.args) }
         for c in calls {
@@ -606,6 +627,8 @@ final class HostBridge: HostPlugin {
     func resolveUrl(_ src: String) -> String { base?.resolveUrl(src) ?? src }
 
     func mediaRequest(_ src: String) -> URLRequest? { host?.mediaRequest(resolveUrl(src)) }
+
+    var appFile: AppFileLoader? { host?.options.policy.appFile ?? base?.appFile }
 
     func onUnknown(component: String, catalogId: String?, id: String) { base?.onUnknown(component: component, catalogId: catalogId, id: id) }
 

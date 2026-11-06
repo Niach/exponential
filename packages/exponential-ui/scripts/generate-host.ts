@@ -23,6 +23,7 @@ import {
   decideUrl,
   mcpActionCall,
   mediaRequest,
+  appFileId,
   messagesFromMcpResult,
   parseSource,
   sourceWithParams,
@@ -91,6 +92,7 @@ export function renderHost(): Record<string, string> {
   policy.combine = policy.combine.map((c: Case) => ({ ...c, expected: combineDecisions(c.a as FunctionDecision, c.b as FunctionDecision) }))
   policy.urls = policy.urls.map((c: Case) => ({ ...c, expected: decideUrl(c.policy as UrlPolicy | undefined, c.url as string) }))
   policy.media = policy.media.map((c: Case) => ({ ...c, expected: mediaRequest(c.url as string, c.options as MediaOptions) }))
+  policy.appFiles = policy.appFiles.map((c: Case) => ({ ...c, expected: appFileId(c.src) }))
   policy.sourceParams = policy.sourceParams.map((c: Case) => ({ ...c, expected: sourceWithParams(c.source as string, c.params as Record<string, unknown>) }))
   policy.sources = policy.sources.map((c: Case) => ({ ...c, expected: parseSource(c.uri as string) }))
   policy.negotiation = policy.negotiation.map((c: Case) => ({

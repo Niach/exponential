@@ -161,6 +161,11 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
   Markdown?: Markdown
   /** Rewrites a media src BEFORE the media policy (signed URLs). */
   resolveUrl?: (src: string) => string
+  /** VAPP-271 (catalog/host.json media.appFile): the bytes of an app file
+   *  for an `app-file:<fileId>` src (the Engine's runners: their BlobStore);
+   *  null = missing. Loaded once, under the image limits, shown as a blob
+   *  url. Unset = such a src loads nothing (the fallback paints). */
+  appFile?: (fileId: string) => Promise<Blob | null>
   /** `onPaintError` (`catalog/host.json` paint): a component's painter
    *  failed; it paints an empty box. `hostPlugin(host)` forwards it to the
    *  agent as an A2UI `RENDER_FAILED` error. */

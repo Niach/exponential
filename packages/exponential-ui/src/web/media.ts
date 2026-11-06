@@ -26,7 +26,7 @@
 // `openMediaSource` (one source's plan + load) are framework-free; a
 // renderer wraps them in its reactivity (React: `useMediaSource`).
 
-import { MEDIA_LIMITS, mediaImageWithinLimits } from "@exponential_app/eui"
+import { APP_FILE_SCHEME, MEDIA_LIMITS, appFileId, mediaImageWithinLimits } from "@exponential_app/eui"
 import type { AnyHostPlugin as HostPlugin } from "./host-types"
 import { mediaRequestOf, mediaUrlAllowed } from "./urls"
 
@@ -121,6 +121,8 @@ export interface MediaSourcePlan {
 }
 
 export function openMediaSource(host: HostPlugin, src: string, kind: MediaKind = `image`): MediaSourcePlan {
+  const file = appFileId(src)
+  if (file !== null) return appFileSource(host, file, kind)
   const req = mediaRequestOf(host, src)
   const headers = req?.headers ?? {}
   const fetched = req !== null && Object.keys(headers).length > 0
@@ -136,6 +138,34 @@ export function openMediaSource(host: HostPlugin, src: string, kind: MediaKind =
       const allowed = (url: string) => mediaUrlAllowed(host, url)
       const entry = hosted ? streamEntry(host, req) : acquireMedia(k, () => (kind === `stream` ? fetchStream(req.url, headers, MEDIA_LIMITS, allowed) : fetchLimited(req.url, headers, MEDIA_LIMITS, true, allowed)).then((b) => URL.createObjectURL(b)))
       return { promise: entry.promise, release: hosted ? () => {} : () => releaseMedia(k, entry) }
+    },
+  }
+}
+
+/** VAPP-271: an `app-file:<fileId>` src = the host's `appFile` bytes as a
+ *  cached blob url (an image under the pixel limits); no hook = nothing
+ *  loads, like a denied src (the fallback paints). */
+function appFileSource(host: HostPlugin, file: string, kind: MediaKind): MediaSourcePlan {
+  const k = `${kind}\n${APP_FILE_SCHEME}:${file}`
+  const load = host.appFile
+  if (!load) return { fetched: false, key: ``, direct: undefined, denied: true, open: () => ({ promise: Promise.resolve(``), release: () => {} }) }
+  return {
+    fetched: true,
+    key: k,
+    direct: undefined,
+    denied: false,
+    open: () => {
+      const entry = acquireMedia(k, async () => {
+        const blob = await load(file)
+        if (!blob) throw new Error(`app file ${file} not found`)
+        if (blob.size > MEDIA_LIMITS.maxBytes) throw new Error(`media is over ${MEDIA_LIMITS.maxBytes} bytes`)
+        if (kind === `image`) {
+          const refused = mediaImageWithinLimits(new Uint8Array(await blob.arrayBuffer()), MEDIA_LIMITS)
+          if (refused) throw new Error(refused)
+        }
+        return URL.createObjectURL(blob)
+      })
+      return { promise: entry.promise, release: () => releaseMedia(k, entry) }
     },
   }
 }

@@ -49,7 +49,7 @@ final class RunnerModel: RunnerPainter {
         host = ExponentialHost(HostOptions(
             functions: functions,
             sources: ["records": { source, emit in me.value?.bind(source.uri, emit) }],
-            settings: SurfaceSettings(mode: .system),
+            settings: SurfaceSettings(mode: .dark), // the runners paint dark ×5 (web, desktop, Android too)
             plugin: ClosureHost(
                 icons: { name, size in
                     guard let paths = LucideIcons.paths(name) else { return nil }
@@ -58,7 +58,9 @@ final class RunnerModel: RunnerPainter {
                 actions: { event in
                     // runner.navigate, runner.permissions, consent.toggle, consent.answer.
                     _ = session.handleEvent(name: event.name, context: event.context.any as? [String: Any] ?? [:])
-                }
+                },
+                // VAPP-271: `app-file:<fileId>` images are the app's own files.
+                appFile: { [session] fileId in await session.appFile(fileId) }
             ),
             // app.navigate from a component: the Engine opens it (WindowHost.present → open).
             navigate: { target in

@@ -33,7 +33,9 @@ member may not read is not found). It runs exactly one of:
 - `expr: {expr, vars?}`: the CEL value (or `{error}`); a var
   `{source: "records:<kind>?…"}` is that binding's value over the store.
 - `query: {name, params?}`: the package query's records value.
-- `action: {name, params?, data?}`: the action's plan applied to the store:
+- `action: {name, params?, data?, results?}`: the action's plan applied to the store
+  (`results` = the answers of its `result` calls; one left out is the error
+  `step <i>: <call> has no result in the test`):
   `{records: {<kind>: [{…data, id, author}]}, sets, calls}` (new ids
   `new-<n>`), or `{error}`.
 

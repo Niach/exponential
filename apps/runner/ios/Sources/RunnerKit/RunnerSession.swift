@@ -77,6 +77,10 @@ public final class RunnerSession: @unchecked Sendable {
     let capabilities: [Capability]
     let host: Host
     var engine: Engine?
+    /// VAPP-271: the app's files (the store the Engine writes) + its app id,
+    /// read off the queue (a picker may block it) under `lock`.
+    private var files: (app: String, blobs: RunnerBlobs)?
+    var blobs: RunnerBlobs? { lock.withLock { files?.blobs } }
     var formFactor: RunnerFormFactor
     /// The open screen (template id) + its params JSON (queue-owned).
     var screen: (id: String, params: String)?
@@ -115,13 +119,16 @@ public final class RunnerSession: @unchecked Sendable {
             do {
                 let dataDir = dataRoot.map { $0.appendingPathComponent(bundle.config.id, isDirectory: true) }
                 if let dataDir { try? FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true) }
+                let blobs = RunnerBlobs(root: dataDir?.appendingPathComponent("blobs", isDirectory: true))
                 let engine = try Engine(
                     host: EngineHost(kind: "exported", platform: host.platform, formFactor: host.formFactor, locale: host.locale,
                                      zone: host.zone, network: bundle.config.networkPolicy, dataDir: dataDir?.path),
                     identity: .local(deviceId: RunnerDevice.id(vault)),
-                    providers: EngineProviders(vault: vault, window: RunnerWindow(self), capabilities: capabilities))
+                    providers: EngineProviders(vault: vault, window: RunnerWindow(self), blobs: blobs, capabilities: capabilities))
                 let instance = try engine.load(fileJson: bundle.packageJson)
                 self.engine = engine
+                let app = instance.appId()
+                lock.withLock { files = (app, blobs) }
                 self.instance = instance
             } catch let EngineError.Load(kind, _) {
                 return paintFailure(RunnerFailureKind(rawValue: kind) ?? .invalid)
@@ -300,6 +307,18 @@ public final class RunnerSession: @unchecked Sendable {
         queue.async { [self] in
             let value = instance?.recordsValue(source: source)
             deliver { done(value) }
+        }
+    }
+
+    /// VAPP-271: an `app-file:<fileId>` src's bytes (catalog/host.json
+    /// media.appFile) from the running app's files; nil = missing or not
+    /// running. genUI's `appFile` hook.
+    public func appFile(_ fileId: String) async -> Data? {
+        guard let files = lock.withLock({ files }) else { return nil }
+        return await withCheckedContinuation { c in
+            DispatchQueue.global(qos: .userInitiated).async {
+                c.resume(returning: (try? files.blobs.get(app: files.app, id: fileId)) ?? nil)
+            }
         }
     }
 

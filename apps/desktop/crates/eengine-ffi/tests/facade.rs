@@ -228,7 +228,7 @@ fn the_consent_round_trip_crosses_the_facade() {
     let components: Value = serde_json::from_str(&sheet.components_json).unwrap();
     assert_eq!(components[0]["title"], json!("Allow Album to access your photos?"));
     let picked = value(app.answer_consent("photos.pick".into(), "{}".into(), verdict, ConsentAnswer::Allow).unwrap());
-    assert_eq!(picked, json!({"content": [{"type": "text", "text": r#"{"photos":[]}"#}], "structuredContent": {"photos": []}}));
+    assert_eq!(picked, json!({"photos": []}), "VAPP-271: app UI reads the structuredContent");
     assert_eq!(app.grants_json(), r#"{"photos.read":"granted"}"#);
     assert!(vault.read("eengine/grants/acme.album".into()).unwrap().contains("granted"));
     assert_eq!(audit.0.lock().unwrap().last().unwrap().tool, "photos__pick");
@@ -258,7 +258,7 @@ fn an_inline_consent_ui_answers_the_sheet() {
     p.consent = Some(Arc::new(AlwaysAllow));
     let app = Engine::new(host(None), local(), p).unwrap().load(package()).unwrap();
     app.event(r#"{"type":"launch"}"#.into()).unwrap();
-    assert_eq!(value(app.call("photos.pick".into(), "{}".into(), vec![]).unwrap())["structuredContent"], json!({"photos": []}));
+    assert_eq!(value(app.call("photos.pick".into(), "{}".into(), vec![]).unwrap()), json!({"photos": []}), "VAPP-271: app UI reads the structuredContent");
     assert_eq!(app.grants_json(), "{}", "once stores nothing");
 }
 

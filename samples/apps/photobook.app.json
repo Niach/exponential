@@ -1,0 +1,971 @@
+{
+  "package": {
+    "formatVersion": 5,
+    "id": "at.exponential.photobook",
+    "name": "Photobook",
+    "version": "1.0.0",
+    "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+    "description": "Albums of your photos, laid out as a PDF to save or share. Everything stays on this device: no account, no server, no network.",
+    "icon": {
+      "glyph": "ui-photos"
+    },
+    "sources": [
+      "records:album",
+      "records:page"
+    ],
+    "functions": [
+      "records.*",
+      "app.navigate",
+      "photos.pick",
+      "print.pdf",
+      "files.save",
+      "share.send"
+    ],
+    "records": {
+      "album": {
+        "title": "Album",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "cover": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "page": {
+        "title": "Page",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "album",
+            "photos"
+          ],
+          "properties": {
+            "album": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "photos": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "caption": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        }
+      }
+    },
+    "capabilities": [
+      {
+        "id": "photos.read",
+        "why": "Pick the photos for an album."
+      },
+      {
+        "id": "files.write",
+        "why": "Save the album's PDF where you pick."
+      },
+      {
+        "id": "print.pdf",
+        "why": "Lay out the album as a PDF."
+      },
+      {
+        "id": "share.send",
+        "why": "Share the album's PDF."
+      }
+    ],
+    "actions": {
+      "newAlbum": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          }
+        },
+        "steps": [
+          {
+            "require": "size(trim(orElse(params.title, ''))) > 0",
+            "message": "Name the album first"
+          },
+          {
+            "records.upsert": {
+              "kind": "album",
+              "data": {
+                "title": "trim(orElse(params.title, ''))"
+              }
+            }
+          },
+          {
+            "set": {
+              "path": "/draft",
+              "value": "''"
+            }
+          }
+        ]
+      },
+      "addPage": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "album": {
+              "type": "string"
+            },
+            "cover": {
+              "type": "string"
+            },
+            "caption": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "album"
+          ]
+        },
+        "steps": [
+          {
+            "call": "photos.pick",
+            "args": {
+              "limit": 4
+            },
+            "result": "picked"
+          },
+          {
+            "require": "size(orElse(results.picked.photos, [])) > 0",
+            "message": "No photos picked"
+          },
+          {
+            "records.upsert": {
+              "kind": "page",
+              "data": {
+                "album": "params.album",
+                "photos": "orElse(results.picked.photos, []).map(p, p.fileId)",
+                "caption": "params.caption"
+              }
+            }
+          },
+          {
+            "records.upsert": {
+              "kind": "album",
+              "id": "params.album",
+              "data": {
+                "cover": "has(params.cover) && params.cover != '' ? null : orElse(results.picked.photos, [])[0].fileId"
+              }
+            }
+          },
+          {
+            "set": {
+              "path": "/caption",
+              "value": "''"
+            }
+          }
+        ]
+      },
+      "addPhotos": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "page": {
+              "type": "string"
+            },
+            "photos": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "page",
+            "photos"
+          ]
+        },
+        "steps": [
+          {
+            "require": "size(params.photos) < 4",
+            "message": "A page holds 4 photos"
+          },
+          {
+            "call": "photos.pick",
+            "args": {
+              "limit": "4 - size(params.photos)"
+            },
+            "result": "picked"
+          },
+          {
+            "require": "size(orElse(results.picked.photos, [])) > 0",
+            "message": "No photos picked"
+          },
+          {
+            "records.upsert": {
+              "kind": "page",
+              "id": "params.page",
+              "data": {
+                "photos": "params.photos + orElse(results.picked.photos, []).map(p, p.fileId)"
+              }
+            }
+          }
+        ]
+      },
+      "exportPdf": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "cover": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ]
+        },
+        "steps": [
+          {
+            "require": "size(orElse(data.pages.rows, [])) > 0",
+            "message": "Add a page first"
+          },
+          {
+            "call": "print.pdf",
+            "args": {
+              "title": "params.title",
+              "blocks": "[{'heading': params.title}] + (has(params.cover) ? [{'image': params.cover}] : []) + sortBy(orElse(data.pages.rows, []).filter(p, size(p.photos) > 0).map(p, {'k': p.createdAt + p.id + '0', 'b': {'image': p.photos[0]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 1).map(p, {'k': p.createdAt + p.id + '1', 'b': {'image': p.photos[1]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 2).map(p, {'k': p.createdAt + p.id + '2', 'b': {'image': p.photos[2]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 3).map(p, {'k': p.createdAt + p.id + '3', 'b': {'image': p.photos[3]}}) + orElse(data.pages.rows, []).filter(p, has(p.caption)).map(p, {'k': p.createdAt + p.id + '4', 'b': {'text': p.caption}}) + orElse(data.pages.rows, []).map(p, {'k': p.createdAt + p.id + '/', 'b': {'pageBreak': true}}), 'k').map(x, x.b)"
+            },
+            "result": "pdf"
+          },
+          {
+            "set": {
+              "path": "/pdf",
+              "value": "results.pdf.file"
+            }
+          }
+        ]
+      }
+    },
+    "screens": [
+      {
+        "template": "albums",
+        "title": "Albums",
+        "icon": "ui-photos"
+      },
+      {
+        "template": "album",
+        "title": "Album",
+        "icon": "ui-photos",
+        "nav": false
+      }
+    ],
+    "templates": {
+      "albums": {
+        "data": {
+          "albums": {
+            "rows": [],
+            "count": 0
+          },
+          "draft": ""
+        },
+        "bindings": [
+          {
+            "path": "/albums",
+            "source": "records:album?sort=title&order=asc&limit=200"
+          }
+        ],
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "Albums",
+            "children": [
+              "add",
+              "list",
+              "empty"
+            ]
+          },
+          {
+            "id": "add",
+            "component": "Stack",
+            "direction": "horizontal",
+            "gap": "sm",
+            "align": "end",
+            "children": [
+              "title",
+              "create"
+            ]
+          },
+          {
+            "id": "title",
+            "component": "Input",
+            "name": "title",
+            "label": "New album",
+            "placeholder": "Summer 2026",
+            "value": {
+              "path": "/draft"
+            }
+          },
+          {
+            "id": "create",
+            "component": "Button",
+            "label": "New album",
+            "icon": "ui-add",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "actions.newAlbum",
+                  "args": {
+                    "title": {
+                      "path": "/draft"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "list",
+            "component": "List",
+            "divided": true,
+            "children": {
+              "componentId": "row",
+              "path": "/albums/rows",
+              "key": "id"
+            }
+          },
+          {
+            "id": "cover",
+            "component": "Image",
+            "alt": "Cover",
+            "width": 40,
+            "height": 40,
+            "fallback": "ui-photos",
+            "src": {
+              "call": "expr",
+              "args": {
+                "expr": "has(a.cover) ? 'app-file:' + a.cover : ''",
+                "vars": {
+                  "a": {
+                    "path": ""
+                  }
+                },
+                "default": ""
+              }
+            }
+          },
+          {
+            "id": "row",
+            "component": "Row",
+            "title": {
+              "path": "title"
+            },
+            "chevron": "right",
+            "pressable": true,
+            "slots": {
+              "leading": "cover"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "app.navigate",
+                  "args": {
+                    "screen": "album",
+                    "params": {
+                      "album": {
+                        "path": "id"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "empty",
+            "component": "EmptyState",
+            "size": "list",
+            "icon": "ui-photos",
+            "title": "No albums yet",
+            "visible": {
+              "call": "expr",
+              "args": {
+                "expr": "n == 0",
+                "vars": {
+                  "n": {
+                    "path": "/albums/count"
+                  }
+                },
+                "default": false
+              }
+            }
+          }
+        ]
+      },
+      "album": {
+        "data": {
+          "albums": {
+            "rows": [],
+            "count": 0
+          },
+          "pages": {
+            "rows": [],
+            "count": 0
+          },
+          "caption": "",
+          "pdf": null
+        },
+        "bindings": [
+          {
+            "path": "/albums",
+            "source": "records:album?limit=200"
+          },
+          {
+            "path": "/pages",
+            "source": "records:page?album=${params.album}&sort=createdAt&order=asc&limit=200"
+          }
+        ],
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "back": true,
+            "title": {
+              "call": "expr",
+              "args": {
+                "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].title, 'Album')",
+                "vars": {
+                  "albums": {
+                    "path": "/albums/rows"
+                  },
+                  "id": {
+                    "path": "/params/album"
+                  }
+                },
+                "default": "Album"
+              }
+            },
+            "slots": {
+              "trailing": "export"
+            },
+            "on": {
+              "back": {
+                "functionCall": {
+                  "call": "app.navigate",
+                  "args": {
+                    "screen": "albums"
+                  }
+                }
+              }
+            },
+            "children": [
+              "add",
+              "pdf",
+              "pages",
+              "empty"
+            ]
+          },
+          {
+            "id": "export",
+            "component": "Button",
+            "label": "Export PDF",
+            "icon": "ui-download",
+            "variant": "outline",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "actions.exportPdf",
+                  "args": {
+                    "title": {
+                      "call": "expr",
+                      "args": {
+                        "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].title, 'Album')",
+                        "vars": {
+                          "albums": {
+                            "path": "/albums/rows"
+                          },
+                          "id": {
+                            "path": "/params/album"
+                          }
+                        },
+                        "default": "Album"
+                      }
+                    },
+                    "cover": {
+                      "call": "expr",
+                      "args": {
+                        "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].cover, '')",
+                        "vars": {
+                          "albums": {
+                            "path": "/albums/rows"
+                          },
+                          "id": {
+                            "path": "/params/album"
+                          }
+                        },
+                        "default": ""
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "add",
+            "component": "Stack",
+            "direction": "horizontal",
+            "gap": "sm",
+            "align": "end",
+            "children": [
+              "caption",
+              "pick"
+            ]
+          },
+          {
+            "id": "caption",
+            "component": "Input",
+            "name": "caption",
+            "label": "Caption",
+            "placeholder": "At the lake",
+            "value": {
+              "path": "/caption"
+            }
+          },
+          {
+            "id": "pick",
+            "component": "Button",
+            "label": "Add photos",
+            "icon": "ui-photos",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "actions.addPage",
+                  "args": {
+                    "album": {
+                      "path": "/params/album"
+                    },
+                    "caption": {
+                      "path": "/caption"
+                    },
+                    "cover": {
+                      "call": "expr",
+                      "args": {
+                        "expr": "orElse(orElse(albums, []).filter(a, a.id == id)[0].cover, '')",
+                        "vars": {
+                          "albums": {
+                            "path": "/albums/rows"
+                          },
+                          "id": {
+                            "path": "/params/album"
+                          }
+                        },
+                        "default": ""
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "pdf",
+            "component": "Stack",
+            "direction": "horizontal",
+            "gap": "sm",
+            "align": "center",
+            "children": [
+              "pdfName",
+              "save",
+              "share"
+            ],
+            "visible": {
+              "call": "expr",
+              "args": {
+                "expr": "pdf != null",
+                "vars": {
+                  "pdf": {
+                    "path": "/pdf"
+                  }
+                },
+                "default": false
+              }
+            }
+          },
+          {
+            "id": "pdfName",
+            "component": "Text",
+            "text": {
+              "path": "/pdf/name"
+            }
+          },
+          {
+            "id": "save",
+            "component": "Button",
+            "label": "Save",
+            "icon": "ui-download",
+            "variant": "outline",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "files.save",
+                  "args": {
+                    "fileId": {
+                      "path": "/pdf/fileId"
+                    },
+                    "name": {
+                      "path": "/pdf/name"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "share",
+            "component": "Button",
+            "label": "Share",
+            "icon": "ui-share",
+            "variant": "outline",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "share.send",
+                  "args": {
+                    "fileId": {
+                      "path": "/pdf/fileId"
+                    },
+                    "name": {
+                      "path": "/pdf/name"
+                    },
+                    "mimeType": "application/pdf"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "pages",
+            "component": "List",
+            "gap": "md",
+            "children": {
+              "componentId": "page",
+              "path": "/pages/rows",
+              "key": "id"
+            }
+          },
+          {
+            "id": "page",
+            "component": "Card",
+            "padded": true,
+            "children": [
+              "photos",
+              "pageCaption",
+              "more"
+            ]
+          },
+          {
+            "id": "photos",
+            "component": "Grid",
+            "columns": 2,
+            "gap": "sm",
+            "children": {
+              "componentId": "photo",
+              "path": "photos"
+            }
+          },
+          {
+            "id": "photo",
+            "component": "Image",
+            "alt": "Photo",
+            "aspectRatio": 1,
+            "fallback": "ui-photos",
+            "src": {
+              "call": "expr",
+              "args": {
+                "expr": "'app-file:' + f",
+                "vars": {
+                  "f": {
+                    "path": ""
+                  }
+                },
+                "default": ""
+              }
+            }
+          },
+          {
+            "id": "pageCaption",
+            "component": "Text",
+            "text": {
+              "call": "expr",
+              "args": {
+                "expr": "orElse(c, '')",
+                "vars": {
+                  "c": {
+                    "path": "caption"
+                  }
+                },
+                "default": ""
+              }
+            }
+          },
+          {
+            "id": "more",
+            "component": "Button",
+            "label": "Add photos",
+            "icon": "ui-add",
+            "variant": "ghost",
+            "size": "sm",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "actions.addPhotos",
+                  "args": {
+                    "page": {
+                      "path": "id"
+                    },
+                    "photos": {
+                      "path": "photos"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "empty",
+            "component": "EmptyState",
+            "size": "list",
+            "icon": "ui-photos",
+            "title": "No pages yet",
+            "visible": {
+              "call": "expr",
+              "args": {
+                "expr": "n == 0",
+                "vars": {
+                  "n": {
+                    "path": "/pages/count"
+                  }
+                },
+                "default": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    "tests": [
+      {
+        "name": "a page from picked photos sets the cover",
+        "records": {
+          "album": [
+            {
+              "id": "a1",
+              "title": "Summer"
+            }
+          ]
+        },
+        "action": {
+          "name": "addPage",
+          "params": {
+            "album": "a1",
+            "caption": "At the lake"
+          },
+          "results": {
+            "picked": {
+              "photos": [
+                {
+                  "fileId": "f1"
+                },
+                {
+                  "fileId": "f2"
+                }
+              ]
+            }
+          }
+        },
+        "expect": {
+          "records": {
+            "album": [
+              {
+                "id": "a1",
+                "title": "Summer",
+                "cover": "f1"
+              }
+            ],
+            "page": [
+              {
+                "album": "a1",
+                "photos": [
+                  "f1",
+                  "f2"
+                ],
+                "caption": "At the lake"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "a cancelled pick adds nothing",
+        "records": {
+          "album": [
+            {
+              "id": "a1",
+              "title": "Summer"
+            }
+          ]
+        },
+        "action": {
+          "name": "addPage",
+          "params": {
+            "album": "a1"
+          },
+          "results": {
+            "picked": {
+              "photos": []
+            }
+          }
+        },
+        "expect": {
+          "error": "No photos picked"
+        }
+      },
+      {
+        "name": "photos onto a page, at most 4",
+        "records": {
+          "page": [
+            {
+              "id": "p1",
+              "album": "a1",
+              "photos": [
+                "f1"
+              ]
+            }
+          ]
+        },
+        "action": {
+          "name": "addPhotos",
+          "params": {
+            "page": "p1",
+            "photos": [
+              "f1"
+            ]
+          },
+          "results": {
+            "picked": {
+              "photos": [
+                {
+                  "fileId": "f2"
+                },
+                {
+                  "fileId": "f3"
+                }
+              ]
+            }
+          }
+        },
+        "expect": {
+          "records": {
+            "page": [
+              {
+                "id": "p1",
+                "photos": [
+                  "f1",
+                  "f2",
+                  "f3"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "the PDF: the title, the cover, each page's photos and caption, a break after each page",
+        "action": {
+          "name": "exportPdf",
+          "params": {
+            "title": "Summer",
+            "cover": "f1"
+          },
+          "data": {
+            "pages": {
+              "rows": [
+                {
+                  "id": "p2",
+                  "createdAt": "2026-11-02T10:00:00.000Z",
+                  "album": "a1",
+                  "photos": [
+                    "f3"
+                  ]
+                },
+                {
+                  "id": "p1",
+                  "createdAt": "2026-11-02T09:00:00.000Z",
+                  "album": "a1",
+                  "photos": [
+                    "f1",
+                    "f2"
+                  ],
+                  "caption": "At the lake"
+                }
+              ]
+            }
+          },
+          "results": {
+            "pdf": {
+              "file": {
+                "name": "Summer.pdf",
+                "mimeType": "application/pdf",
+                "size": 1,
+                "fileId": "b1"
+              },
+              "pages": 3
+            }
+          }
+        },
+        "expect": {
+          "sets": [
+            {
+              "path": "/pdf",
+              "value": {
+                "name": "Summer.pdf",
+                "mimeType": "application/pdf",
+                "size": 1,
+                "fileId": "b1"
+              }
+            }
+          ],
+          "calls": []
+        }
+      }
+    ]
+  },
+  "author": {
+    "name": "Exponential",
+    "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs"
+  },
+  "signature": {
+    "alg": "ed25519",
+    "value": "cD08-TzS3oSTSChdNYEs40ynHuc0ya7cLWenOO3LO958tjJacyONcYmab9-VcBo-rNrV-7-E7NCkZCQo9GpsAQ"
+  }
+}

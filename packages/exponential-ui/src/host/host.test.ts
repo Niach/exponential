@@ -21,6 +21,9 @@ import {
   decideUrl,
   mcpActionCall,
   mediaRequest,
+  appFileId,
+  APP_FILE_SCHEME,
+  APP_FILE_ID_PATTERN,
   messagesFromMcpResult,
   parseSource,
   sourceWithParams,
@@ -69,6 +72,8 @@ describe(`host-policy.json`, () => {
   })
   for (const c of policyFixture.urls) test(`url: ${c.name}`, () => expect(decideUrl((c as { policy?: UrlPolicy }).policy, c.url)).toEqual(c.expected as never))
   for (const c of policyFixture.media) test(`media: ${c.name}`, () => expect(mediaRequest(c.url, c.options as MediaOptions)).toEqual(c.expected as never))
+  for (const c of policyFixture.appFiles) test(`appFiles: ${c.name}`, () => expect(appFileId(c.src)).toBe(c.expected as never))
+  test(`appFile: the host contract`, () => expect([hostContract.media.appFile.scheme, hostContract.media.appFile.idPattern]).toEqual([APP_FILE_SCHEME, APP_FILE_ID_PATTERN.source]))
   for (const c of policyFixture.sources) test(`source: ${c.uri}`, () => expect(parseSource(c.uri)).toEqual(c.expected as never))
   for (const c of policyFixture.sourceParams) test(`sourceParams: ${c.expected}`, () => expect(sourceWithParams(c.source, c.params as Record<string, unknown>)).toBe(c.expected))
   for (const c of policyFixture.negotiation)

@@ -113,6 +113,21 @@ pub struct InputEvent {
     pub kind: InputKind,
 }
 
+/// VAPP-271 (`catalog/host.json` media.appFile): a host's own app files, the
+/// bytes an `app-file:<fileId>` src names (the Engine runner: its
+/// BlobStore). Asked OFF the main thread by the media loader (so `Send +
+/// Sync`), under the image limits; `None` = no such file (the fallback
+/// paints). A closure `Fn(&str) -> Option<Vec<u8>>` is one.
+pub trait AppFiles: Send + Sync + 'static {
+    fn read(&self, file_id: &str) -> Option<Vec<u8>>;
+}
+
+impl<F: Fn(&str) -> Option<Vec<u8>> + Send + Sync + 'static> AppFiles for F {
+    fn read(&self, file_id: &str) -> Option<Vec<u8>> {
+        self(file_id)
+    }
+}
+
 /// The embedding app's side of the painter.
 pub trait HostPlugin: 'static {
     /// An icon registry CONCEPT name (`ui-send`, `nav-inbox`…) → an SVG asset
@@ -295,6 +310,14 @@ pub trait HostPlugin: 'static {
     /// [`crate::view::SurfaceView::hosted_popup_element`] in its popup and
     /// dismisses through [`crate::view::SurfaceView::dismiss_hosted_popup`].
     fn on_hosted_popups(&self, _layers: &[eui_core::surface::Layer]) {}
+
+    /// VAPP-271: the app files an `app-file:<fileId>` src reads from,
+    /// resolved BEFORE the media policy (it is no URL). Default `None`: a
+    /// host without app files leaves such a src unresolved (nothing loads,
+    /// the missing-image fallback paints).
+    fn app_files(&self) -> Option<std::sync::Arc<dyn AppFiles>> {
+        None
+    }
 
     /// Rewrite a media `src` BEFORE the media policy (signed URLs).
     fn resolve_url(&self, src: &str) -> String {

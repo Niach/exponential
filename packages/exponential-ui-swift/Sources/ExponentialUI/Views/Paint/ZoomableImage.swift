@@ -73,7 +73,7 @@ struct ZoomableImageLeaf: View {
                 loadedKey = nil
                 return
             }
-            let got = await MediaLoader.shared.load(request, options: cx.model.mediaPolicy)
+            let got = await MediaLoader.shared.load(request, options: cx.model.mediaPolicy, appFile: cx.model.appFile)
             loaded = got
             loadedKey = key
         }

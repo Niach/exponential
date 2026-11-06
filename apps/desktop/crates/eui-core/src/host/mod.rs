@@ -37,7 +37,7 @@ pub mod tests;
 pub mod tools;
 
 pub use actions::{
-    action_call_name, action_var_types, apply_record_batch, apply_record_batch_as, function_effect, is_action_name, run_action, validate_package_actions, validate_package_effects, ActionContext, ACTION_CALL_PREFIX, ACTION_LIMIT_ACTIONS, ACTION_LIMIT_MAX_STEPS, ACTION_LIMIT_STEPS, ACTION_NAME_PATTERN,
+    action_call_name, action_var_types, apply_record_batch, apply_record_batch_as, function_effect, is_action_name, run_action, validate_package_actions, validate_package_effects, ActionContext, ActionRun, PendingCall, ACTION_CALL_PREFIX, ACTION_LIMIT_ACTIONS, ACTION_LIMIT_MAX_STEPS, ACTION_LIMIT_STEPS, ACTION_NAME_PATTERN, ACTION_RESULT_PATTERN,
     ACTION_STEP_KINDS, RECORDS_BATCH_FUNCTION,
 };
 pub use capabilities::{capability_origin_valid, validate_package_capabilities, CAPABILITY_ORIGIN_PATTERN, CAPABILITY_ORIGIN_SCOPES, CAPABILITY_SCOPES, MAX_CAPABILITIES, MAX_CAPABILITY_WHY};
@@ -51,8 +51,8 @@ pub use package::{
     PACKAGE_FORMAT_VERSION,
 };
 pub use policy::{
-    combine_decisions, decide_function, decide_url, expand_link_base, image_dimensions, image_frames, image_header, is_builtin_function, is_private_host, media_image_check, ImageHeader, matches_pattern, media_image_within_limits, media_request, media_within_limits, package_policy, svg_dimensions,
-    police_text_links, safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, TextLink, UrlDecision, UrlPolicy, BUILTIN_FUNCTIONS,
+    app_file_id, combine_decisions, decide_function, decide_url, expand_link_base, image_dimensions, image_frames, image_header, is_builtin_function, is_private_host, media_image_check, ImageHeader, matches_pattern, media_image_within_limits, media_request, media_within_limits, package_policy, svg_dimensions,
+    police_text_links, safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, TextLink, UrlDecision, UrlPolicy, APP_FILE_ID_PATTERN, APP_FILE_SCHEME, BUILTIN_FUNCTIONS,
 };
 pub use router::{normalize_path, HostRouter, SurfaceInfo};
 pub use screens::{cross_app_target, cross_app_target_value, fill_screen_params, nav_screens, navigate_target, navigate_target_value, package_screens, resolve_screen, screen_data, validate_package_screens, NavigateTarget, ResolvedScreen, MAX_SCREENS, MAX_SCREEN_TITLE, MAX_EXPOSED_DESCRIPTION, NAVIGATE_FUNCTION, SCREEN_PARAMS_KEY};

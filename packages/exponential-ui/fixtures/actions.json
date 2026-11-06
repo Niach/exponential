@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, records.upsert/delete) write; openUrl, bind, app.navigate (VAPP-218: always allowed, the package need not list it; host/screens.ts) and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields; one not in its `required` is T?, VAPP-195), data (dyn?) and me (string?: null when unknown); a value that may be missing fits only a field that may be; any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema, in words because the failure is the toast (VAPP-207): `<field> must be <reason>; …`, `<field> is required`, `<field> is not in the schema`, an enum `<field> must be one of a, b`. Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit). VAPP-204: a press's `actions.<name>` args are the action's params at install: a key that is not a param (`<k> is not a param of action <name>`, unless the params allow additional properties), a required param left out (`<f> is required by action <name>`, at the args) and a literal scalar of another type (`<k> is <T>, got <U>`); a dynamic arg is checked when it runs. A press of `bind` with a literal `source` is checked like a template binding (a URI, in `sources`, a declared kind, a package query). VAPP-205: `hostCalls` runs on every host: a `call` step reaches the SAME dispatcher as a press, so `bind` re-binds (`bound` = the params the source resolver saw) and `openUrl` opens through the URL policy (`opened`). A built-in that refuses after the commit is the outcome's `error` (`<name> was not allowed`), never a silent allow. VAPP-206: CREATE OR PATCH, and absent stays absent. An action's params may name a reserved record key (`id`): they are no record. `records.upsert`'s id may be `string?` (then the step may create, so its data names every required field): at run time null or \"\" = a create, a non-empty string = a patch, anything else `id is a string, got <T>`. Writing a field: an expression evaluating to null writes nothing (a param left out neither stores null nor clears the row's value); \"\" in a field the kind does not require (an unpicked Select, an emptied Input) writes nothing on a create and null on a patch (it clears); a literal JSON null (not an expression) writes nothing on a create and null on a patch. An optional param given as \"\" passes the params check as absent (its value stays readable as \"\"). `batch`: a create drops its null fields; a patch keeps them.",
+  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, records.upsert/delete) write; openUrl, bind, app.navigate (VAPP-218: always allowed, the package need not list it; host/screens.ts) and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields; one not in its `required` is T?, VAPP-195), data (dyn?) and me (string?: null when unknown); a value that may be missing fits only a field that may be; any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema, in words because the failure is the toast (VAPP-207): `<field> must be <reason>; …`, `<field> is required`, `<field> is not in the schema`, an enum `<field> must be one of a, b`. Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit). VAPP-204: a press's `actions.<name>` args are the action's params at install: a key that is not a param (`<k> is not a param of action <name>`, unless the params allow additional properties), a required param left out (`<f> is required by action <name>`, at the args) and a literal scalar of another type (`<k> is <T>, got <U>`); a dynamic arg is checked when it runs. A press of `bind` with a literal `source` is checked like a template binding (a URI, in `sources`, a declared kind, a package query). VAPP-205: `hostCalls` runs on every host: a `call` step reaches the SAME dispatcher as a press, so `bind` re-binds (`bound` = the params the source resolver saw) and `openUrl` opens through the URL policy (`opened`). A built-in that refuses after the commit is the outcome's `error` (`<name> was not allowed`), never a silent allow. VAPP-206: CREATE OR PATCH, and absent stays absent. An action's params may name a reserved record key (`id`): they are no record. `records.upsert`'s id may be `string?` (then the step may create, so its data names every required field): at run time null or \"\" = a create, a non-empty string = a patch, anything else `id is a string, got <T>`. Writing a field: an expression evaluating to null writes nothing (a param left out neither stores null nor clears the row's value); \"\" in a field the kind does not require (an unpicked Select, an emptied Input) writes nothing on a create and null on a patch (it clears); a literal JSON null (not an expression) writes nothing on a create and null on a patch. An optional param given as \"\" passes the params check as absent (its value stays readable as \"\"). `batch`: a create drops its null fields; a patch keeps them. VAPP-271: A CALL'S ANSWER (`results`): a `call` step may name its answer, `result: <name>` (host.json `package.actions.resultPattern`, at most once per action). Only a call step has one (`result names a call's answer: only a call step has one`); a bad name = `a result name is a letter, then letters, digits and underscores`; a second step naming it = `result <name> is already named by step <j>`. A step reads the answers of the steps BEFORE it as the var `results` (an object of those names, each dyn; a name no earlier step gives = `unknown field <name>`). A list of dyn items fits any list field at install (the kind's schema checks the items when it runs). runAction with `results` (`{<name>: answer}` so far): a result step whose name is answered binds it and adds no call to the plan; the first one that is not answers `{pending: {step, name, args, result}}` (the plan so far is dropped). THE HOST (`results.host`) runs a pending call when the plan reaches it, BEFORE the commit (the policy and consent first: a refusal is `<name> was not allowed`; a failure is the function's error; either discards the action, nothing lands, ACTION_FAILED), adds its answer to `results` and runs the action again over the SAME snapshot (the press's data, me, now); then the plan as always: the gates of its calls, the ONE batch, the sets, the calls. Every Engine capability name (`camera. clipboard. files. http. location. notifications. photos. print. share.`, the names of host.json `package.capabilities.scopes`) is a HOST function, so a template binding may not call one and an action step may (when the package lists it in `functions`). A package test's action gives the answers as `results`; a test that leaves one unanswered = `{error: \"step <i>: <call> has no result in the test\"}` (package-tests.json).",
   "limits": {
     "actions": 32,
     "steps": 64,
@@ -81,7 +81,12 @@
     {
       "name": "app.navigate",
       "effect": "host"
-    }
+    },
+    {"name": "photos.pick", "effect": "host"},
+    {"name": "print.pdf", "effect": "host"},
+    {"name": "share.send", "effect": "host"},
+    {"name": "files.save", "effect": "host"},
+    {"name": "notifications.post", "effect": "host"}
   ],
   "check": [
     {
@@ -2173,6 +2178,163 @@
       { "name": "a bind step outside the package's sources is the outcome's error", "action": "foreign", "args": {}, "opened": [], "error": "bind was not allowed" },
       { "name": "an openUrl step opens the url", "action": "open", "args": { "url": "https://docs.example.com/a" }, "opened": ["https://docs.example.com/a"] },
       { "name": "an openUrl step the URL policy refuses is the outcome's error", "action": "open", "args": { "url": "javascript:alert(1)" }, "opened": [], "error": "openUrl was not allowed" }
+    ]
+  },
+  "results": {
+    "$comment": "VAPP-271: a call's answer (the top-level $comment). `run` = runAction(package, action, params, {data, me, now = env.now, zone env.offset, results}) → {plan} | {error} | {pending}; `validate` = validatePackage of `package` with a case's `with` (as the top-level validate); `host` = the host's press of `actions.<action>` (args {}) on a surface of `package`'s template `main` (its data), the records in an empty store as member u1 at env.now: `answers` = what each host function answers (by name, every call), `throws` = the error a function fails with, `deny` = names the host's function policy denies; `called` = every host function the host ran, in order, with its args; `created` = the data of every row the store holds after; `data` = the surface data after; `error` = the outcome's error (absent = none).",
+    "package": {
+      "formatVersion": 5,
+      "id": "acme.snaps",
+      "name": "Snaps",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "functions": [
+        "photos.pick",
+        "print.pdf",
+        "harness.toast"
+      ],
+      "records": {
+        "entry": {
+          "title": "Entry",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "date",
+              "hours"
+            ]
+          }
+        }
+      },
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "add"
+              ]
+            },
+            {
+              "id": "add",
+              "component": "Button",
+              "label": "Add photos",
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "actions.addPhotos"
+                  }
+                }
+              }
+            }
+          ],
+          "data": {
+            "picked": 0
+          }
+        }
+      },
+      "actions": {
+        "addPhotos": {
+          "steps": [
+            {
+              "call": "photos.pick",
+              "args": {
+                "limit": 3
+              },
+              "result": "picked"
+            },
+            {
+              "require": "size(orElse(results.picked.photos, [])) > 0",
+              "message": "No photos picked"
+            },
+            {
+              "records.upsert": {
+                "kind": "entry",
+                "data": {
+                  "date": "today()",
+                  "hours": 1,
+                  "tags": "orElse(results.picked.photos, []).map(p, p.fileId)"
+                }
+              }
+            },
+            {
+              "set": {
+                "path": "/picked",
+                "value": "size(orElse(results.picked.photos, []))"
+              }
+            },
+            {
+              "call": "harness.toast",
+              "args": {
+                "message": "'Picked ' + string(size(orElse(results.picked.photos, [])))"
+              }
+            }
+          ]
+        },
+        "export": {
+          "steps": [
+            {
+              "call": "print.pdf",
+              "args": {
+                "title": "'Hours'",
+                "blocks": "[{'heading': 'Hours'}]"
+              },
+              "result": "pdf"
+            },
+            {
+              "call": "print.pdf",
+              "args": {
+                "title": "results.pdf.file.name",
+                "blocks": "[{'text': 'again'}]"
+              },
+              "result": "again"
+            },
+            {
+              "set": {
+                "path": "/pdf",
+                "value": "results.again.file"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "run": [
+      {"name": "a result call is pending until the host answers it", "action": "addPhotos", "pending": {"step": 0, "name": "photos.pick", "args": {"limit": 3}, "result": "picked"}},
+      {"name": "the answer is results.<name>: the record, the sets and the later calls read it; the result call is not in the plan's calls", "action": "addPhotos", "results": {"picked": {"photos": [{"fileId": "f1"}, {"fileId": "f2"}]}}, "plan": {"writes": [{"op": "upsert", "kind": "entry", "data": {"date": "2026-11-02", "hours": 1, "tags": ["f1", "f2"]}}], "sets": [{"path": "/picked", "value": 2}], "calls": [{"name": "harness.toast", "args": {"message": "Picked 2"}}]}},
+      {"name": "a later require reads the answer", "action": "addPhotos", "results": {"picked": {"photos": []}}, "error": "No photos picked"},
+      {"name": "the next result call is pending, its args read the first answer", "action": "export", "results": {"pdf": {"file": {"name": "Hours.pdf", "fileId": "b1"}}}, "pending": {"step": 1, "name": "print.pdf", "args": {"blocks": [{"text": "again"}], "title": "Hours.pdf"}, "result": "again"}},
+      {"name": "every answer given: the plan", "action": "export", "results": {"pdf": {"file": {"name": "Hours.pdf", "fileId": "b1"}}, "again": {"file": {"name": "Hours.pdf", "fileId": "b2"}}}, "plan": {"writes": [], "sets": [{"path": "/pdf", "value": {"name": "Hours.pdf", "fileId": "b2"}}], "calls": []}}
+    ],
+    "validate": [
+      {"name": "the base package is valid", "with": {}, "issues": []},
+      {"name": "only a call step has a result", "with": {"addActions": {"bad": {"steps": [{"set": {"path": "/x", "value": 1}, "result": "x"}]}}}, "issues": [{"path": "/actions/bad/steps/0/result", "message": "result names a call's answer: only a call step has one"}]},
+      {"name": "a result name", "with": {"addActions": {"bad": {"steps": [{"call": "photos.pick", "result": "Picked"}]}}}, "issues": [{"path": "/actions/bad/steps/0/result", "message": "a result name is a letter, then letters, digits and underscores"}]},
+      {"name": "a result is named once", "with": {"addActions": {"bad": {"steps": [{"call": "photos.pick", "result": "p"}, {"call": "photos.pick", "result": "p"}]}}}, "issues": [{"path": "/actions/bad/steps/1/result", "message": "result p is already named by step 0"}]},
+      {"name": "a step reads only the results before it", "with": {"addActions": {"bad": {"steps": [{"set": {"path": "/x", "value": "results.p"}}, {"call": "photos.pick", "result": "p"}]}}}, "issues": [{"path": "/actions/bad/steps/0/set/value", "message": "unknown field p"}]},
+      {"name": "a capability is a host function the package lists", "with": {"addActions": {"bad": {"steps": [{"call": "share.send", "args": {"text": "'x'"}}]}}}, "issues": [{"path": "/actions/bad/steps/0/call", "message": "share.send is not in the package's functions"}]},
+      {"name": "a capability in a binding is a host function", "with": {"templates": {"main": {"components": [{"id": "root", "component": "Stack", "children": ["t"]}, {"id": "t", "component": "Text", "text": {"call": "photos.pick", "args": {}}}]}}}, "issues": [{"path": "/templates/main/components/1/text/call", "message": "photos.pick is a host function: a binding is pure, name an action in on.press"}]}
+    ],
+    "host": [
+      {"name": "the answer lands in the record, the sets and the later calls", "action": "addPhotos", "answers": {"photos.pick": {"photos": [{"fileId": "f1"}]}}, "called": [{"name": "photos.pick", "args": {"limit": 3}}, {"name": "harness.toast", "args": {"message": "Picked 1"}}], "created": [{"date": "2026-11-02", "hours": 1, "tags": ["f1"]}], "data": {"picked": 1}},
+      {"name": "a result call that fails lands nothing", "action": "addPhotos", "throws": {"photos.pick": "cancelled"}, "called": [{"name": "photos.pick", "args": {"limit": 3}}], "created": [], "data": {"picked": 0}, "error": "cancelled"},
+      {"name": "a result call the policy refuses lands nothing", "action": "addPhotos", "deny": ["photos.pick"], "called": [], "created": [], "data": {"picked": 0}, "error": "photos.pick was not allowed"},
+      {"name": "chained results: each answer feeds the next call", "action": "export", "answers": {"print.pdf": {"file": {"name": "Hours.pdf", "fileId": "b1"}}}, "called": [{"name": "print.pdf", "args": {"blocks": [{"heading": "Hours"}], "title": "Hours"}}, {"name": "print.pdf", "args": {"blocks": [{"text": "again"}], "title": "Hours.pdf"}}], "created": [], "data": {"picked": 0, "pdf": {"name": "Hours.pdf", "fileId": "b1"}}}
     ]
   }
 }

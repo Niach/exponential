@@ -248,7 +248,7 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
                 out.push(json!({"id": "runner-tabs", "component": "Tabs", "tabs": tab_list, "value": {"path": "/runner/screen"}, "fill": true, "on": {"change": event("runner.navigate", Some(json!({"screen": {"path": "/runner/screen"}})))}}));
             }
             if permissions {
-                out.push(json!({"id": "runner-permissions", "component": "Button", "icon": icon, "size": "icon", "variant": "ghost", "on": {"press": event("runner.permissions", None)}}));
+                out.push(json!({"id": "runner-permissions", "component": "Button", "label": copy("permissions"), "icon": icon, "size": "icon", "variant": "ghost", "on": {"press": event("runner.permissions", None)}}));
             }
             out.extend(page);
             Some((out, tabs.then(|| json!({"runner": {"screen": screen}}))))

@@ -1,0 +1,6 @@
+# `exponential bundle samples/apps/photobook.app.json --icon samples/apps/photobook.icon.svg
+#   --config samples/apps/photobook.bundle.toml --target <targets>` (#VAPP-271)
+id = "at.exponential.samples.photobook"
+name = "Photobook"
+version = "1.0.0"
+network = "off"

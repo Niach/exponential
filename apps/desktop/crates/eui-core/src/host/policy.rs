@@ -335,6 +335,23 @@ pub fn decide_url(policy: Option<&UrlPolicy>, url: &str) -> UrlDecision {
     UrlDecision { allowed: true, url: Some(href), reason: None }
 }
 
+/// VAPP-271 (`catalog/host.json` media.appFile): an app's own file as a src,
+/// `app-file:<fileId>`. No URL scheme and no media scheme: a host with app
+/// files resolves it from its BlobStore BEFORE the media policy; any other
+/// host leaves it unresolved (nothing loads, the fallback paints).
+pub const APP_FILE_SCHEME: &str = "app-file";
+/// The file id an `app-file:` src carries (checked by [`app_file_id`]).
+pub const APP_FILE_ID_PATTERN: &str = "^[A-Za-z0-9._-]{1,200}$";
+const APP_FILE_ID_MAX: usize = 200;
+
+/// The file id of an `app-file:<fileId>` src, else `None` (case-sensitive
+/// scheme, the id = [`APP_FILE_ID_PATTERN`]).
+pub fn app_file_id(src: &str) -> Option<&str> {
+    let id = src.strip_prefix(APP_FILE_SCHEME)?.strip_prefix(':')?;
+    let valid = !id.is_empty() && id.len() <= APP_FILE_ID_MAX && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    valid.then_some(id)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MediaRule {
     pub prefix: String,

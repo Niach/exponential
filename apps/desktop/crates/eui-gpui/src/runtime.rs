@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use eui_core::host::{
     action_message, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
-    action_call_name, navigate_target, run_action, ActionContext, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
+    action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
     FUNCTION_NOT_FOUND, NAVIGATE_FUNCTION, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
 use eui_core::measure::TextStyle;
@@ -944,7 +944,10 @@ impl ExponentialHost {
     /// args = params, the surface data, `me`, the clock), every host call's
     /// gate and consent, then the record writes as ONE `records.batch`,
     /// then the sets, then the calls. A failure before the commit lands
-    /// nothing.
+    /// nothing. VAPP-271: a `call` step with a `result` runs when the plan
+    /// reaches it (its gate first, before the commit; a refusal or a
+    /// failure = the action's failure) and the action runs again over the
+    /// SAME snapshot with its answer as `results.<name>`.
     pub fn run_package_action(&mut self, call: FunctionCallInfo, action: String, cx: &mut Context<Self>) -> Task<FunctionOutcome> {
         let view = self.entry(&call.surface_id).map(|s| s.view.clone());
         let pkg = self.package_id_of(&call.surface_id).and_then(|id| self.router.package(id)).cloned();
@@ -956,22 +959,51 @@ impl ExponentialHost {
         let now = self.now.as_ref().map(|f| f());
         let zone = self.zone.clone();
         let offset = move |ms: f64| zone.as_ref().map_or(0, |z| z(ms));
-        let ctx = ActionContext { data: Some(&data), me: self.me.as_deref(), now, offset: Some(&offset), max_steps: None };
-        let plan = match run_action(&pkg, &action, &call.args, &ctx) {
-            Ok(plan) => plan,
+        let me = self.me.clone();
+        let run = move |results: &serde_json::Map<String, Value>, action: &str, args: &Value| {
+            let ctx = ActionContext { data: Some(&data), me: me.as_deref(), now, offset: Some(&offset), max_steps: None, results: Some(results) };
+            run_action(&pkg, action, args, &ctx)
+        };
+        let mut results = serde_json::Map::new();
+        let mut outcome = match run(&results, &action, &call.args) {
+            Ok(outcome) => outcome,
             Err(message) => return Task::ready(self.action_failed(&call.surface_id, &action, message, cx)),
         };
-        let list = |key: &str| plan.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
-        let (writes, sets) = (list("writes"), list("sets"));
-        let calls: Vec<FunctionCallInfo> = list("calls")
-            .into_iter()
-            .map(|c| FunctionCallInfo { surface_id: call.surface_id.clone(), component_id: call.component_id.clone(), name: c["name"].as_str().unwrap_or("").to_string(), args: c["args"].clone() })
-            .collect();
         cx.spawn(async move |this, cx| {
             let fail = |message: String, cx: &mut gpui::AsyncApp| {
                 this.update(cx, |host, cx| host.action_failed(&call.surface_id, &action, message.clone(), cx))
                     .unwrap_or(FunctionOutcome { decision: FunctionDecision::Allow, result: None, error: Some(message) })
             };
+            let plan = loop {
+                let pending = match outcome {
+                    ActionRun::Plan(plan) => break plan,
+                    ActionRun::Pending(pending) => pending,
+                };
+                let c = FunctionCallInfo { surface_id: call.surface_id.clone(), component_id: call.component_id.clone(), name: pending.name.clone(), args: Value::Object(pending.args) };
+                let Ok(gate) = this.update(cx, |host, cx| host.gate(&c, cx)) else { return FunctionOutcome::of(FunctionDecision::Allow) };
+                let gate = gate.await;
+                if gate.decision != FunctionDecision::Allow {
+                    return fail(gate.error.unwrap_or_else(|| format!("{} was not allowed", c.name)), cx);
+                }
+                let answer = run_function(this.clone(), c, cx).await;
+                if let Some(error) = answer.error {
+                    return fail(error, cx);
+                }
+                if answer.decision != FunctionDecision::Allow {
+                    return fail(format!("{} was not allowed", pending.name), cx);
+                }
+                results.insert(pending.result, answer.result.unwrap_or(Value::Null));
+                outcome = match run(&results, &action, &call.args) {
+                    Ok(outcome) => outcome,
+                    Err(message) => return fail(message, cx),
+                };
+            };
+            let list = |key: &str| plan.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+            let (writes, sets) = (list("writes"), list("sets"));
+            let calls: Vec<FunctionCallInfo> = list("calls")
+                .into_iter()
+                .map(|c| FunctionCallInfo { surface_id: call.surface_id.clone(), component_id: call.component_id.clone(), name: c["name"].as_str().unwrap_or("").to_string(), args: c["args"].clone() })
+                .collect();
             for c in &calls {
                 let Ok(gate) = this.update(cx, |host, cx| host.gate(c, cx)) else { return FunctionOutcome::of(FunctionDecision::Allow) };
                 let gate = gate.await;
@@ -1269,6 +1301,10 @@ impl HostPlugin for HostAdapter {
 
     fn resolve_url(&self, src: &str) -> String {
         self.base.resolve_url(src)
+    }
+
+    fn app_files(&self) -> Option<std::sync::Arc<dyn crate::host::AppFiles>> {
+        self.base.app_files()
     }
 
     fn font_family(&self, family: &str) -> gpui::SharedString {

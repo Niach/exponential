@@ -239,3 +239,15 @@ describe(`holdLock`, () => {
     })
   })
 })
+
+// VAPP-271: an `app-file:<fileId>` image reads the app's own files.
+describe(`app files`, () => {
+  test(`appFile answers the stored bytes, null for a missing id`, async () => {
+    const blobs = new MemoryBlobStore()
+    const { runner } = setup({}, { openStorage: async () => ({ records: new MemoryRecordStore(), vault: new MemoryVault(), blobs }) })
+    await runner.start()
+    const id = await blobs.put(`acme.album`, `a.png`, `image/png`, new Uint8Array([1, 2, 3]))
+    expect(new Uint8Array(await (await runner.appFile(id))!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+    expect(await runner.appFile(`nope`)).toBeNull()
+  })
+})

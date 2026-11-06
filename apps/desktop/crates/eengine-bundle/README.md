@@ -53,7 +53,7 @@ Size (gzip -9, the album sample): main JS 542,219 → 392,945 bytes (+ 1,004 for
 cargo test -p eengine-bundle --test linux_windows    # stub kits; EENGINE_BUNDLE_RUNNERS=<kits> for real ones
 ```
 
-Without `mksquashfs` or `makensis` the test checks the refusal names the tool; `EENGINE_BUNDLE_REQUIRE=linux,windows` makes them required. `check-eengine-runner-windows.yml` builds the real Windows kit, bundles the sample, lists the setup.exe with `7z l`, installs it silently, checks the files and the protocol key, runs the app 20 s and uninstalls it.
+Without `mksquashfs` or `makensis` the test checks the refusal names the tool; `EENGINE_BUNDLE_REQUIRE=linux,windows` makes them required. `check-eengine-runner-windows.yml` builds the real Windows kit, bundles the signed Photobook (`samples/apps/photobook.{app.json,icon.svg,bundle.toml}`, `tests/photobook.rs`), lists the setup.exe with `7z l`, installs it silently, checks the files and the protocol key, runs the app 20 s with a screenshot of its window and uninstalls it (the setup.exe and the screenshot are artifacts). `check-photobook-bundle.yml` does the same for linux and web on the real kits; the gate runs `tests/photobook.rs` on stub kits.
 
 ## Signing
 

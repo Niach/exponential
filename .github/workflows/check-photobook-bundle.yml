@@ -1,0 +1,68 @@
+name: check-photobook-bundle
+
+# #VAPP-271 (E8): "Photobook builds". The real linux and web runner kits
+# (scripts/runner-kits.sh), then the SIGNED samples/apps/photobook.app.json
+# with its committed icon + bundle.toml bundled for linux (.deb + AppImage) and
+# web (the PWA directory), without --allow-unsigned (eengine-bundle's
+# tests/photobook.rs; the gate runs the same test on stub kits). The outputs
+# are artifacts for 7 days. Informational: not part of `gate` (the runner's
+# gpui build is ~15 min cold); Windows = check-eengine-runner-windows.yml.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/check-photobook-bundle.yml"
+      - "apps/desktop/crates/eengine-bundle/**"
+      - "apps/desktop/crates/eengine-runner/**"
+      - "apps/desktop/crates/eengine-desktop/**"
+      - "apps/runner/web/**"
+      - "scripts/runner-kits.sh"
+      - "scripts/runner-kits/linux.sh"
+      - "scripts/runner-kits/web.sh"
+      - "samples/apps/photobook*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-photobook-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (gpui, mksquashfs)
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang squashfs-tools
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+          key: photobook-runner
+      - uses: ./.github/actions/cargo-fetch
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: The linux and web kits
+        run: scripts/runner-kits.sh --out "$RUNNER_TEMP/kits" linux web
+      - name: The signed Photobook for linux and web
+        run: |
+          EENGINE_BUNDLE_RUNNERS="$RUNNER_TEMP/kits" EENGINE_BUNDLE_REQUIRE=linux EENGINE_BUNDLE_OUT="$RUNNER_TEMP/dist" \
+            cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eengine-bundle --test photobook the_signed_photobook_bundles_for_linux_and_web
+          dpkg-deb -I "$RUNNER_TEMP/dist/linux/at.exponential.samples.photobook_1.0.0_amd64.deb"
+          "$RUNNER_TEMP/dist/linux/Photobook-1.0.0-x86_64.AppImage" --appimage-offset
+          ls -la "$RUNNER_TEMP/dist/linux" && du -sh "$RUNNER_TEMP/dist/web/Photobook-1.0.0-web"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: photobook-linux-web
+          path: |
+            ${{ runner.temp }}/dist/linux/*.deb
+            ${{ runner.temp }}/dist/linux/*.AppImage
+            ${{ runner.temp }}/dist/web/
+          retention-days: 7

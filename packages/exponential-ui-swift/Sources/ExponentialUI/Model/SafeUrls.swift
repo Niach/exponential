@@ -37,10 +37,17 @@ extension SurfaceModel {
     /// The request a src loads with: the host's `mediaRequest` (resolveUrl
     /// rewrite + the media policy), re-checked against the media schemes /
     /// hosts so a host hook cannot widen them. nil = nothing loads.
+    /// VAPP-271: an `app-file:<fileId>` src is resolved BEFORE the media
+    /// policy: an `app-file:` request the loader answers from the host's
+    /// `appFile`, nil (the fallback) when the host has no app files.
     public func mediaRequest(_ src: String) -> URLRequest? {
+        if let id = appFileId(src) { return host.appFile == nil ? nil : MediaLoader.appFileRequest(id) }
         guard !src.isEmpty, let request = host.mediaRequest(src), mediaAllowed(request, options: host.mediaOptions) else { return nil }
         return request
     }
+
+    /// VAPP-271: the host's app files (`HostPlugin.appFile`), for the loader.
+    public var appFile: AppFileLoader? { host.appFile }
 
     /// The media policy a redirect of a src's request passes (the host's).
     public var mediaPolicy: MediaOptions? { host.mediaOptions }

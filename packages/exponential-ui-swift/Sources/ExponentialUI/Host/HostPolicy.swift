@@ -139,6 +139,28 @@ public func policyMediaRequest(_ src: String, options: MediaOptions?) -> URLRequ
     return request
 }
 
+/// VAPP-271 (catalog/host.json `media.appFile`): an app's own file as a src
+/// is `app-file:<fileId>`. It is no URL and no media scheme: a host with app
+/// files (the Engine's runners: their BlobStore) answers its bytes through
+/// `HostPlugin.appFile`; any other host leaves it unresolved (nothing loads,
+/// the missing-image fallback paints).
+public let appFileScheme = "app-file"
+
+/// The file id of an `app-file:<fileId>` src (`^[A-Za-z0-9._-]{1,200}$`,
+/// case-sensitive scheme), else nil. Mirrors the TS `appFileId`.
+public func appFileId(_ src: String) -> String? {
+    let prefix = appFileScheme + ":"
+    guard src.hasPrefix(prefix) else { return nil }
+    let id = src.dropFirst(prefix.count)
+    guard (1...200).contains(id.unicodeScalars.count), id.unicodeScalars.allSatisfy({ s in
+        (s >= "A" && s <= "Z") || (s >= "a" && s <= "z") || (s >= "0" && s <= "9") || s == "." || s == "_" || s == "-"
+    }) else { return nil }
+    return String(id)
+}
+
+/// The bytes of one app file (nil = missing). Called off the main actor.
+public typealias AppFileLoader = @Sendable (_ fileId: String) async -> Data?
+
 /// Whether an already-built request's url passes the media schemes, hosts
 /// and private opt-ins (a host hook can rewrite, never widen).
 func mediaAllowed(_ request: URLRequest, options: MediaOptions?) -> Bool {
@@ -202,8 +224,12 @@ public struct HostPolicy {
     public var attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)?
     /// #VAPP-258 step 5: the Markdown render options (nil = the plugin's).
     public var markdownOptions: MarkdownOptions?
+    /// VAPP-271: an app file's bytes for an `app-file:<fileId>` src (nil =
+    /// the plugin's; neither = such a src loads nothing).
+    public var appFile: AppFileLoader?
 
-    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil, textLinks: (@MainActor (String) -> [TextLinkSegment]?)? = nil, imageSize: (@MainActor (String) -> CGSize?)? = nil, onImagePress: (@MainActor (String) -> Void)? = nil, attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)? = nil, markdownOptions: MarkdownOptions? = nil) {
+    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil, textLinks: (@MainActor (String) -> [TextLinkSegment]?)? = nil, imageSize: (@MainActor (String) -> CGSize?)? = nil, onImagePress: (@MainActor (String) -> Void)? = nil, attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)? = nil, markdownOptions: MarkdownOptions? = nil, appFile: AppFileLoader? = nil) {
+        self.appFile = appFile
         self.markdownOptions = markdownOptions
         self.imageSize = imageSize
         self.onImagePress = onImagePress

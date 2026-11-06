@@ -2885,10 +2885,15 @@ pub fn check_expression_json(expr: String, types_json: String) -> Result<String,
 /// `package_json` with `params_json` against one snapshot: `data_json` (the
 /// surface data), `me` (the member; `None` = null), `now_ms` (`None` = the
 /// wall clock), `zone` (`None` = UTC), `max_steps` (the run's budget; `None`
-/// = 100 000) → `{"plan": {writes, sets, calls}}` or `{"error": "…"}`
-/// (`fixtures/actions.json` `run`). Named `run_package_action_json`
-/// because `run_action_json` is the bind-time press.
-#[uniffi::export(default(max_steps = None))]
+/// = 100 000), `results_json` (VAPP-271: the answers of the `call` steps
+/// with a `result` so far, `{<name>: answer}`; `None` or empty = none) →
+/// `{"plan": {writes, sets, calls}}`, `{"pending": {step, name, args,
+/// result}}` (the first result call still unanswered: the host gates and
+/// runs it, then calls again with its answer added, same snapshot) or
+/// `{"error": "…"}` (`fixtures/actions.json` `run` and `results.run`).
+/// Named `run_package_action_json` because `run_action_json` is the
+/// bind-time press.
+#[uniffi::export(default(max_steps = None, results_json = None))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_package_action_json(
     package_json: String,
@@ -2899,15 +2904,20 @@ pub fn run_package_action_json(
     now_ms: Option<f64>,
     zone: Option<Arc<dyn HostZone>>,
     max_steps: Option<u32>,
+    results_json: Option<String>,
 ) -> Result<String, UiError> {
     guarded("run_package_action_json", || {
         let pkg: Value = parse(&package_json)?;
         let params: Value = if params_json.trim().is_empty() { Value::Null } else { parse(&params_json)? };
         let data: Value = if data_json.trim().is_empty() { Value::Null } else { parse(&data_json)? };
         let offset = move |ms: f64| zone.as_ref().map_or(0, |z| z.offset_minutes(ms));
-        let ctx = eui_core::host::ActionContext { data: Some(&data), me: me.as_deref(), now: now_ms, offset: Some(&offset), max_steps: max_steps.map(|s| s as usize) };
+        let results: serde_json::Map<String, Value> = match results_json.as_deref().map(str::trim) {
+            Some(r) if !r.is_empty() => parse(r)?,
+            _ => serde_json::Map::new(),
+        };
+        let ctx = eui_core::host::ActionContext { data: Some(&data), me: me.as_deref(), now: now_ms, offset: Some(&offset), max_steps: max_steps.map(|s| s as usize), results: Some(&results) };
         Ok(match eui_core::host::run_action(&pkg, &name, &params, &ctx) {
-            Ok(plan) => serde_json::json!({ "plan": plan }),
+            Ok(run) => run.to_value(),
             Err(error) => serde_json::json!({ "error": error }),
         }
         .to_string())

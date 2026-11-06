@@ -120,6 +120,7 @@ pub struct Runner {
     instance: AppInstance,
     opens: Arc<Opens>,
     storage: Arc<dyn RecordStore>,
+    blobs: Arc<dyn BlobStore>,
     config: RunnerConfig,
     form: FormFactor,
     pending: Option<PendingAsk>,
@@ -135,7 +136,7 @@ impl Runner {
         let host_config = HostConfig {
             host,
             storage: providers.storage.clone(),
-            blobs: providers.blobs,
+            blobs: providers.blobs.clone(),
             identity: Arc::new(eengine::LocalIdentity { device_id: device }),
             vault: providers.vault,
             window: opens.clone(),
@@ -152,7 +153,7 @@ impl Runner {
             LoadError::Signature(_) => RunnerFailure::Signature,
             LoadError::Invalid(_) => RunnerFailure::Invalid,
         })?;
-        Ok(Runner { instance, opens, storage: providers.storage, config, form, pending: None })
+        Ok(Runner { instance, opens, storage: providers.storage, blobs: providers.blobs, config, form, pending: None })
     }
 
     pub fn config(&self) -> &RunnerConfig {
@@ -169,6 +170,16 @@ impl Runner {
 
     pub fn storage(&self) -> &Arc<dyn RecordStore> {
         &self.storage
+    }
+
+    /// VAPP-271 (`catalog/host.json` media.appFile): the app's own files for
+    /// an `app-file:<fileId>` src, read from this instance's BlobStore under
+    /// its app id (the media loader asks off the main thread; a missing
+    /// file or a store failure = `None`, the fallback paints).
+    pub fn app_files(&self) -> Arc<dyn eui_gpui::host::AppFiles> {
+        let blobs = self.blobs.clone();
+        let app = self.app_id().to_string();
+        Arc::new(move |file_id: &str| blobs.get(&app, file_id).ok().flatten())
     }
 
     pub fn form(&self) -> FormFactor {
@@ -352,13 +363,13 @@ pub fn function_names(pkg: &Value) -> Vec<String> {
     names
 }
 
-/// The broker's answer as a `CallResult` (what `AppInstance::call` answers).
+/// The broker's answer as a `CallResult` (what `AppInstance::call` answers,
+/// VAPP-271): the app reads a capability's `structuredContent` (an action
+/// step's `results.<name>`); an `isError` result is a refusal, its text the toast.
 pub fn brokered(answer: eengine::BrokerAnswer) -> CallResult {
-    match answer {
-        eengine::BrokerAnswer::Result(v) => CallResult::Value(v),
-        eengine::BrokerAnswer::Ask(verdict, sheet) => CallResult::Ask(verdict, sheet),
-        eengine::BrokerAnswer::Refused(f) => CallResult::Refused(f),
-    }
+    // VAPP-271: the Engine's mapping (an action's `results.<name>` = the
+    // answer's `structuredContent`, `isError` = a refusal), never the raw MCP result.
+    eengine::brokered(answer)
 }
 
 #[cfg(test)]

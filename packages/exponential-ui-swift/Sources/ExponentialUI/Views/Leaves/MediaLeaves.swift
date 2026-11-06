@@ -48,7 +48,7 @@ struct AvatarLeaf: View {
         Group {
             if let request {
                 AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: seed.isEmpty ? fallback.style.background : nil, ink: seed.isEmpty ? fallback.color : nil, fontSize: fs) {
-                    MediaImage(request: request, options: cx.model.mediaPolicy) { image in
+                    MediaImage(request: request, options: cx.model.mediaPolicy, appFile: cx.model.appFile) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fontSize: fs)
@@ -131,7 +131,7 @@ struct ImageLeaf: View {
         let w = cx.size.width, h = cx.size.height
         Group {
             if let request {
-                MediaImage(request: request, options: cx.model.mediaPolicy) { image in
+                MediaImage(request: request, options: cx.model.mediaPolicy, appFile: cx.model.appFile) { image in
                     Self.fitted(image, fit: fit)
                         .alignmentGuide(HorizontalAlignment.leading) { d in fx * (d.width - w) }
                         .alignmentGuide(VerticalAlignment.top) { d in fy * (d.height - h) }
@@ -201,7 +201,7 @@ struct VideoFace: View {
                 VideoPlayer(player: player)
             } else {
                 if let posterRequest {
-                    MediaImage(request: posterRequest, options: model.mediaPolicy) { image in
+                    MediaImage(request: posterRequest, options: model.mediaPolicy, appFile: model.appFile) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         Color.clear

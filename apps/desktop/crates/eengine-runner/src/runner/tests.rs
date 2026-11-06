@@ -19,7 +19,7 @@ impl Capability for Photos {
         vec![]
     }
     fn call(&self, _tool: &str, _arguments: &Value) -> Result<Value, Failure> {
-        Ok(json!({"structuredContent": {"photos": []}}))
+        Ok(json!({"content": [{"type": "text", "text": "{}"}], "structuredContent": {"photos": []}}))
     }
 }
 
@@ -157,7 +157,8 @@ fn an_ask_paints_consent_and_its_answer_settles_the_call() {
     assert_eq!(pending.ticket, 7);
     let result = brokered(broker.answer(CallFrom::Ui, None, &pending.name, &pending.args, &pending.verdict, answer));
     let (answer, _) = r.finish(pending.ticket, &pending.name, &pending.args, result);
-    assert!(answer.unwrap().is_ok());
+    // VAPP-271: genUI gets the structuredContent (an action's `results.picked.photos`).
+    assert_eq!(answer.unwrap().unwrap(), json!({"photos": []}));
     assert_eq!(r.instance().grants().get("photos.read"), Some(&GrantValue::Granted));
     assert!(r.pending().is_none());
 }
@@ -194,4 +195,134 @@ fn the_functions_a_package_reaches() {
     for n in ["records.upsert", "records.delete", "records.batch", "photos.get", "photos.list", "photos.pick"] {
         assert!(names.contains(&n.to_string()), "{n}: {names:?}");
     }
+}
+
+/// VAPP-271: an `app-file:<fileId>` src reads the instance's BlobStore under
+/// its app id, through eui-gpui's media loader (the image limits); a missing
+/// file is none (the fallback paints).
+#[test]
+fn an_app_file_src_reads_the_instances_blob_store() {
+    struct Host(Arc<dyn eui_gpui::host::AppFiles>);
+    impl eui_gpui::host::HostPlugin for Host {
+        fn app_files(&self) -> Option<Arc<dyn eui_gpui::host::AppFiles>> {
+            Some(self.0.clone())
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("eengine-runner-app-files-{}", std::process::id()));
+    let store = Arc::new(FsBlobStore::new(&dir));
+    let r = Runner::boot(config(), &package(), Providers { blobs: store.clone(), ..providers() }, FormFactor::Wide).expect("boots");
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89".to_vec();
+    let id = store.put(r.app_id(), "a.png", "image/png", &png).unwrap();
+    let files = r.app_files();
+    assert_eq!(files.read(&id), Some(png.clone()));
+    assert_eq!(files.read("3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f"), None);
+    let host = Host(files);
+    let key = eui_gpui::media::image_key(&host, &format!("app-file:{id}")).expect("an app file loads");
+    assert_eq!(eui_gpui::media::fetch(&key).unwrap(), png);
+    let gone = eui_gpui::media::image_key(&host, "app-file:3f2c9a1e-8b7d-4c1e-9f00-1a2b3c4d5e6f").unwrap();
+    assert!(eui_gpui::media::fetch(&gone).is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// VAPP-271: the signed Photobook sample end to end on the runner, headless:
+/// what its `addPage` and `exportPdf` actions call, in order, through the
+/// real desktop `photos` capability (the picker = a fake `Dialogs`, the one
+/// seam a real NSOpenPanel sits behind) and the Engine's `print.pdf`.
+/// `photos.read` asks first and Allow settles it; the app reads each answer's
+/// `structuredContent`. The picked photos land in the BlobStore as fileIds,
+/// and the PDF too.
+#[test]
+fn the_photobook_sample_picks_photos_and_exports_a_pdf() {
+    use eengine_desktop::{Dialogs, NamedBytes, NativeResult, OpenRequest, PhotosCapability, PrintCapability, Printer, SaveRequest};
+    use std::path::PathBuf;
+
+    struct Picker(Vec<PathBuf>);
+    impl Dialogs for Picker {
+        fn open(&self, _request: &OpenRequest) -> NativeResult<Option<Vec<PathBuf>>> {
+            Ok(Some(self.0.clone()))
+        }
+        fn save(&self, _request: &SaveRequest) -> NativeResult<Option<PathBuf>> {
+            Ok(None)
+        }
+    }
+    /// print.pdf is the Engine's own layout: the print sheet is never reached.
+    struct NoPrinter;
+    impl Printer for NoPrinter {
+        fn print(&self, _job: &NamedBytes) -> NativeResult<bool> {
+            Ok(false)
+        }
+    }
+    fn b64(text: &str) -> Vec<u8> {
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let (mut out, mut acc, mut bits) = (Vec::new(), 0u32, 0);
+        for c in text.bytes().filter(|c| *c != b'=') {
+            acc = (acc << 6) | alphabet.iter().position(|a| *a == c).expect("base64") as u32;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((acc >> bits) as u8);
+            }
+        }
+        out
+    }
+    /// A capability call (an Ask answered Allow): its value, and whether it asked.
+    fn allowed(r: &mut Runner, ticket: u64, name: &str, args: &Value) -> (Value, bool) {
+        let Dispatch::Broker(broker) = r.dispatch(name, args) else { panic!("{name} goes to the broker") };
+        let (answer, paints) = r.finish(ticket, name, args, brokered(broker.call(CallFrom::Ui, None, name, args)));
+        if let Some(answer) = answer {
+            return (answer.unwrap_or_else(|e| panic!("{name}: {e}")), false);
+        }
+        assert_eq!(surface_of(messages(&paints)[0]), Some(CONSENT));
+        let (_, pending) = r.runner_event(RunnerEvent::ConsentAnswer { answer: ConsentAnswer::Allow });
+        let (pending, answer) = pending.expect("the pending call");
+        let result = brokered(broker.answer(CallFrom::Ui, None, &pending.name, &pending.args, &pending.verdict, answer));
+        let (answer, _) = r.finish(pending.ticket, &pending.name, &pending.args, result);
+        (answer.expect("settled").unwrap_or_else(|e| panic!("{name}: {e}")), true)
+    }
+
+    let file: Value = serde_json::from_slice(include_bytes!("../../../../../../samples/apps/photobook.app.json")).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let blobs: Arc<FsBlobStore> = Arc::new(FsBlobStore::new(tmp.path().join("files")));
+    let jpg = b64(eengine::contract::CAPABILITIES["pdfCases"][3]["blobs"]["jpg1"].as_str().unwrap());
+    let photos: Vec<PathBuf> = ["lake.jpg", "jetty.jpg"].iter().map(|n| tmp.path().join(n)).collect();
+    for p in &photos {
+        std::fs::write(p, &jpg).unwrap();
+    }
+    let providers = Providers {
+        platform: "macos".into(),
+        blobs: blobs.clone(),
+        capabilities: vec![Arc::new(PhotosCapability::new(None, Some(Arc::new(Picker(photos))))), Arc::new(PrintCapability::new(Arc::new(NoPrinter)))],
+        ..providers()
+    };
+    let config = RunnerConfig { id: "at.exponential.samples.photobook".into(), name: "Photobook".into(), version: "1.0.0".into(), network: NetworkPolicy::Off };
+    let mut r = Runner::boot(config, &file, providers, FormFactor::Wide).expect("the signed sample boots");
+    let paints = r.launch(Vec::new());
+    assert_eq!(messages(&paints)[0]["applyTemplate"]["templateId"], "albums");
+
+    // newAlbum
+    let Dispatch::Done(result) = r.dispatch("records.upsert", &json!({"kind": "album", "data": {"title": "Summer 2026"}})) else { panic!() };
+    let album = r.finish(1, "records.upsert", &Value::Null, result).0.unwrap().unwrap();
+    let album = album["record"]["id"].as_str().or_else(|| album["id"].as_str()).map(str::to_string).unwrap_or_else(|| panic!("an album id: {album}"));
+
+    // addPage: photos.pick {limit: 4} → fileIds in the BlobStore → the page.
+    let (picked, asked) = allowed(&mut r, 2, "photos.pick", &json!({"limit": 4}));
+    assert!(asked, "photos.read asks");
+    let ids: Vec<String> = picked["photos"].as_array().unwrap_or_else(|| panic!("picked: {picked}")).iter().map(|p| p["fileId"].as_str().expect("a fileId").to_string()).collect();
+    assert_eq!(ids.len(), 2);
+    for id in &ids {
+        assert_eq!(blobs.get(r.app_id(), id).unwrap(), Some(jpg.clone()));
+    }
+    let Dispatch::Done(result) = r.dispatch("records.upsert", &json!({"kind": "page", "data": {"album": album, "photos": ids, "caption": "At the lake"}})) else { panic!() };
+    r.finish(3, "records.upsert", &Value::Null, result).0.unwrap().unwrap();
+    let pages = r.records(&format!("records:page?album={album}")).unwrap();
+    assert_eq!(pages["count"], 1, "{pages}");
+
+    // exportPdf: print.pdf → a PDF in the BlobStore.
+    let blocks = json!([{"heading": "Summer 2026"}, {"image": ids[0]}, {"image": ids[1]}, {"text": "At the lake"}, {"pageBreak": true}]);
+    let (pdf, _) = allowed(&mut r, 4, "print.pdf", &json!({"title": "Summer 2026", "blocks": blocks}));
+    let pdf_id = pdf["file"]["fileId"].as_str().unwrap_or_else(|| panic!("a PDF fileId: {pdf}"));
+    assert_eq!(pdf["file"]["name"], "Summer 2026.pdf");
+    let bytes = blobs.get(r.app_id(), pdf_id).unwrap().expect("the PDF in the BlobStore");
+    assert!(bytes.starts_with(b"%PDF-"), "a PDF");
+    assert_eq!(r.instance().grants().get("photos.read"), Some(&GrantValue::Granted));
 }

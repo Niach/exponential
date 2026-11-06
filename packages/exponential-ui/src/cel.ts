@@ -36,7 +36,8 @@ export type FunctionEffect = `pure` | `write` | `host`
 export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`]
 /** The built-in host functions; every name under a host prefix is one too. */
 export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`, `app.navigate`]
-export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`]
+// VAPP-271: every Engine capability (catalog/host.json `package.capabilities.scopes`' names) is a host function too.
+export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`, `camera.`, `clipboard.`, `files.`, `http.`, `location.`, `notifications.`, `photos.`, `print.`, `share.`]
 
 /** The effect of a function by name: the signature table's (every
  *  expression function, every bind-time function) is `pure`. */
