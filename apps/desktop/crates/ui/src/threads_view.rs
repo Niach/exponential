@@ -652,6 +652,7 @@ impl Render for ThreadsView {
                 actions,
                 false,
                 labels,
+                false,
                 move |_, _, cx| {
                     clear.update(cx, |view, cx| view.clear_selection(cx)).ok();
                 },

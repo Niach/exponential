@@ -329,19 +329,28 @@ pub(crate) fn chat_bar_label_min_width(actions: &[ChatSelectionAction]) -> Pixel
 /// ([`crate::issue_list::bulk_bar_button`], labels only while `labels`:
 /// [`chat_bar_label_min_width`]), the hairline before the destructive
 /// Delete. The caller docks it ([`crate::issue_list::bulk_bar_dock`]).
+/// EXP-1676: `fill` = web's `iconOnly` capsule at `w-full` (the styleguide
+/// specimen, the natives' bottom bar): the bar spans its dock, close + count
+/// lead, a spacer pushes the bare glyphs to the trailing edge, and no
+/// hairline (web `BulkBarSeparator iconOnly` draws none).
 pub(crate) fn chat_selection_bar(
     count: usize,
     actions: Vec<(ChatSelectionAction, Vec<String>)>,
     busy: bool,
     labels: bool,
+    fill: bool,
     on_clear: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     on_action: Option<OnSelectionAction>,
     cx: &App,
 ) -> AnyElement {
     use gpui_component::Disableable as _;
+    let labels = labels && !fill;
     let mut bar = crate::issue_list::bulk_bar_capsule(chat_selection_count(count).into(), on_clear, cx);
+    if fill {
+        bar = bar.w_full().child(div().flex_1().min_w_0());
+    }
     for (action, ids) in actions {
-        if action.destructive() {
+        if action.destructive() && !fill {
             bar = bar.child(crate::issue_list::bulk_bar_rule());
         }
         let mut button = crate::issue_list::bulk_bar_button(
