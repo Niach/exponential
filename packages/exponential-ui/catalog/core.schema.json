@@ -870,7 +870,7 @@
     },
     "Sidebar": {
       "type": "object",
-      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden narrow or `collapsed`.",
+      "description": "A shell: a nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
       "allOf": [
         {
           "$ref": "#/$defs/ComponentCommon"
@@ -886,12 +886,12 @@
                 "left",
                 "right"
               ],
-              "description": "Which edge the column sits on.",
+              "description": "The column's edge.",
               "default": "left"
             },
             "width": {
               "type": "number",
-              "description": "The column width in px.",
+              "description": "Column width, px.",
               "default": 240
             },
             "collapseBelow": {
@@ -902,7 +902,7 @@
                 "lg",
                 "xl"
               ],
-              "description": "Hides the column below this breakpoint.",
+              "description": "Hides it below this breakpoint.",
               "default": "md"
             },
             "collapsed": {
@@ -917,7 +917,12 @@
                   "$ref": "#/$defs/FunctionCall"
                 }
               ],
-              "description": "Hides the column at any width; bind it to a toggle.",
+              "description": "Hides the column; bind it to a toggle.",
+              "default": false
+            },
+            "rail": {
+              "type": "boolean",
+              "description": "Collapsed = icon rail.",
               "default": false
             },
             "children": {

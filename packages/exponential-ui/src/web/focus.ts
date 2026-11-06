@@ -57,3 +57,23 @@ export function overlayOpenFocus(e: Event): void {
   }
   target.focus()
 }
+
+/** #VAPP-277: the focusable element AROUND a tooltip's anchor (a pressable
+ *  Row, a button), inside the same surface, when nothing inside the anchor
+ *  takes focus itself. Such a tooltip adds no tab stop
+ *  of its own: its anchor is not focusable and the host's keyboard focus
+ *  opens it (one tab stop per rail row). `null` = the anchor is its own stop. */
+export function tooltipFocusHost(anchor: HTMLElement): HTMLElement | null {
+  // A Tooltip around a Button keeps the Button's own focus.
+  if (anchor.querySelector(`button,input,textarea,select,a[href],[tabindex]:not([tabindex="-1"])`)) return null
+  const host = anchor.parentElement?.closest<HTMLElement>(`button,a[href],[tabindex]:not([tabindex="-1"])`) ?? null
+  return host && host.closest(`[data-xui-surface]`) === anchor.closest(`[data-xui-surface]`) ? host : null
+}
+
+/** #VAPP-277: a tooltip `side` as a physical side: `start` / `end` are the
+ *  inline start / end (left / right in LTR, mirrored in RTL). */
+export function tooltipPhysicalSide(side: string, direction: string | undefined): `top` | `right` | `bottom` | `left` {
+  if (side === `end`) return direction === `rtl` ? `left` : `right`
+  if (side === `start`) return direction === `rtl` ? `right` : `left`
+  return side === `right` || side === `bottom` || side === `left` ? side : `top`
+}

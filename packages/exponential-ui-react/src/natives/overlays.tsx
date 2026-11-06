@@ -15,7 +15,7 @@ import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { holdDialogBottom, isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
+import { holdDialogBottom, isBinding, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "@exponential_app/eui/web"
 import { absolutePath } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -266,20 +266,47 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   )
 }
 
-/** Tooltip: shows on hover AND keyboard focus (a11y.json), Escape hides. */
+/** Tooltip: shows on hover AND keyboard focus (a11y.json), Escape hides.
+ *  #VAPP-277: `side` may be logical (`start`/`end`, mirrored under RTL);
+ *  inside a focusable host (a pressable rail Row) the anchor adds no tab
+ *  stop and the host's keyboard focus opens it. */
 export function TooltipNative({ node, props, rootProps, children }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const side = str(props.side, `top`) as `top` | `right` | `bottom` | `left`
+  const side = tooltipPhysicalSide(str(props.side, `top`), ctx.direction)
   const content = str(props.content) || str(props.text)
+  const anchorRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [hosted, setHosted] = useState(false)
+  useEffect(() => {
+    const anchor = anchorRef.current
+    const host = anchor ? tooltipFocusHost(anchor) : null
+    setHosted(Boolean(host))
+    if (!host) return
+    let pointer = false
+    const onDown = () => (pointer = true)
+    const onFocus = () => {
+      if (!pointer) setOpen(true)
+      pointer = false
+    }
+    const onBlur = () => setOpen(false)
+    host.addEventListener(`pointerdown`, onDown)
+    host.addEventListener(`focus`, onFocus)
+    host.addEventListener(`blur`, onBlur)
+    return () => {
+      host.removeEventListener(`pointerdown`, onDown)
+      host.removeEventListener(`focus`, onFocus)
+      host.removeEventListener(`blur`, onBlur)
+    }
+  }, [])
   // The tooltip wraps its children in the ANCHOR (`<id>.anchor`), the frame
   // it shows against; the root is layout-transparent around it.
   return (
     <TooltipPrimitive.Provider delayDuration={300}>
-      <TooltipPrimitive.Root open={ctx.inlineOverlays || undefined}>
+      <TooltipPrimitive.Root open={ctx.inlineOverlays || open} onOpenChange={setOpen}>
         <div {...(rootProps as Record<string, unknown>)} data-xui-overlay-root="">
           <TooltipPrimitive.Trigger asChild>
-            <div {...(part(`anchor`) as Record<string, string>)} tabIndex={0}>
+            <div ref={anchorRef} {...(part(`anchor`) as Record<string, string>)} tabIndex={hosted ? undefined : 0}>
               {children}
             </div>
           </TooltipPrimitive.Trigger>

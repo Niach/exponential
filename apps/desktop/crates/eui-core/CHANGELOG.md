@@ -7,6 +7,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## 0.17.0 (2026-11-06)
 
+- Sidebar `rail` (#VAPP-277): the macro table's `$pass` (`MacroDef.pass`) runs before a macro's slots expand, and a template child may be a conditional slot splice (`TemplateChild::Slot`); a Tooltip `side` of `start`/`end` is logical (mirrored under RTL); a pressable node's `focus-visible` opens the tooltips it hosts (no tab stop of their own). Locked by `tests/painter_asks.rs` `sidebar_rail_*`.
 - **Package format 5** (#VAPP-260, breaking: a host reads exactly 5): `capabilities: [{id, why, origins?}]`, the capability manifest the Engine's broker and the bundler read (`catalog/host.json` `package.capabilities`, `validatePackageCapabilities` / Rust `host::capabilities`, `docs/package-format.md` "Capabilities"); `fixtures/host-router.json` gains `acme.capabilities` and four invalid packages.
 
 ## 0.16.3 (2026-11-06)

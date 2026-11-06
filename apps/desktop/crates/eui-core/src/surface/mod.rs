@@ -993,8 +993,60 @@ impl Surface {
                     self.pending.push(OutEvent::HoverTimer { owner: target, delay_ms: self.settings.hover_close_ms });
                 }
             }
+            // #VAPP-277: a pressable node's keyboard focus opens the tooltips
+            // it HOSTS (a rail Row's: its anchor is no focus stop of its own).
+            let focused = self.states.get(id).is_some_and(|st| st.iter().any(|s| s == "focus-visible"));
+            for target in self.hosted_tooltips(slot) {
+                let open = self.local.open.get(&target).copied().unwrap_or(false);
+                if focused && !open {
+                    self.hover_closing.remove(&target);
+                    let events = self.set_open(&target, true);
+                    self.pending.extend(events.into_iter().filter(|e| !matches!(e, OutEvent::Relayout)));
+                } else if !focused && open && !self.hover_active(&target) {
+                    let events = self.set_open(&target, false);
+                    self.pending.extend(events.into_iter().filter(|e| !matches!(e, OutEvent::Relayout)));
+                }
+            }
         }
         true
+    }
+
+    /// sits inside it with no other pressable between them and only
+    /// presentational nodes inside the anchor (a Tooltip around a Button keeps the Button's own focus).
+    /// the anchor (a Tooltip around a Button keeps the Button's own focus).
+    fn hosted_tooltips(&self, slot: u32) -> Vec<String> {
+        let Some(host) = self.nodes.get(slot as usize).filter(|n| n.pressable) else { return vec![] };
+        let takes_focus = |from: u32| {
+            let mut stack = vec![from];
+            while let Some(c) = stack.pop() {
+                let n = &self.nodes[c as usize];
+                if n.pressable || !matches!(n.component.as_str(), "Box" | "Text" | "Icon" | "Image" | "Avatar" | "Spinner") {
+                    return true;
+                }
+                stack.extend(n.children.iter().copied());
+            }
+            false
+        };
+        let mut out = Vec::new();
+        let mut stack: Vec<u32> = host.children.clone();
+        while let Some(c) = stack.pop() {
+            if !self.live.get(c as usize).copied().unwrap_or(false) {
+                continue;
+            }
+            let n = &self.nodes[c as usize];
+            if n.pressable {
+                continue;
+            }
+            if let Some(t) = n.trigger_for.as_ref() {
+                let tooltip = self.slot_of.get(t).is_some_and(|&o| self.nodes[o as usize].component == "Tooltip");
+                if tooltip && !n.children.iter().any(|&k| takes_focus(k)) && !out.contains(t) {
+                    out.push(t.clone());
+                }
+                continue;
+            }
+            stack.extend(n.children.iter().copied());
+        }
+        out
     }
 
     /// A [`OutEvent::HoverTimer`] fired: close the hover overlay `owner`
@@ -1047,7 +1099,9 @@ impl Surface {
 
     /// Is any live node that keeps `target` open hovered or focused?
     fn hover_active(&self, target: &str) -> bool {
-        self.states.iter().any(|(id, st)| {
+        // #VAPP-277: a host's keyboard focus holds the tooltips it hosts.
+        let hosted = self.states.iter().any(|(id, st)| st.iter().any(|s| s == "focus-visible") && self.slot_of.get(id).is_some_and(|&slot| self.live[slot as usize] && self.hosted_tooltips(slot).iter().any(|t| t == target)));
+        hosted || self.states.iter().any(|(id, st)| {
             st.iter().any(|s| s == "hover" || s == "focus-visible" || s == "focus")
                 && self.slot_of.get(id).is_some_and(|&slot| self.live[slot as usize] && self.hover_targets(slot).iter().any(|t| t == target))
                 // A plain `focus` keeps it open only inside its layer (focus

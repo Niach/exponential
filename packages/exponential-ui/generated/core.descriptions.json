@@ -172,19 +172,22 @@
     "Sidebar": {
       "props": {
         "side": {
-          "description": "Which edge the column sits on."
+          "description": "The column's edge."
         },
         "width": {
-          "description": "The column width in px."
+          "description": "Column width, px."
         },
         "collapseBelow": {
-          "description": "Hides the column below this breakpoint."
+          "description": "Hides it below this breakpoint."
         },
         "collapsed": {
-          "description": "Hides the column at any width; bind it to a toggle."
+          "description": "Hides the column; bind it to a toggle."
+        },
+        "rail": {
+          "description": "Collapsed = icon rail."
         }
       },
-      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden narrow or `collapsed`.",
+      "description": "A shell: a nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
       "example": {
         "side": "left",
         "width": 240,

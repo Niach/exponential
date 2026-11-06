@@ -205,7 +205,7 @@ export interface ComponentProps {
   List: { direction?: ListDirectionValue; gap?: GapValue; divided?: boolean; sectionBy?: string; stickyHeaders?: boolean; style?: Style }
   Resizable: { direction?: OrientationValue | Responsive<OrientationValue>; sizes?: number[] | Dynamic; panels?: Shapes["panel"][]; handle?: boolean; style?: Style }
   ScrollArea: { direction?: ScrollDirectionValue; maxHeight?: number; style?: Style }
-  Sidebar: { side?: "left" | "right"; width?: number; collapseBelow?: CollapseBelowValue; collapsed?: boolean | Dynamic }
+  Sidebar: { side?: "left" | "right"; width?: number; collapseBelow?: CollapseBelowValue; collapsed?: boolean | Dynamic; rail?: boolean }
   SplitView: { open?: boolean | Dynamic; width?: number }
   AppBar: { title: string | Dynamic; subtitle?: string | Dynamic; back?: boolean }
   Page: { title: string | Dynamic; subtitle?: string | Dynamic; back?: boolean; padded?: boolean }

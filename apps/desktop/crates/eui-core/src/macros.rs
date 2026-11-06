@@ -187,8 +187,13 @@ fn combine(mut conditions: Vec<Value>, op: &str) -> Value {
 /// The part's `$if`/`$any`: `Bool(false)` = leave it out, `Bool(true)` =
 /// emit it, a dynamic value = emit it with that as `visible`.
 fn decide_conditions(tpl: &MacroTemplate, ctx: &ExprContext) -> Decided {
+    decide(tpl.if_.as_ref(), tpl.any.as_deref(), ctx)
+}
+
+/// `$if` / `$any` decided (a part's, or a conditional slot splice's).
+fn decide(if_: Option<&Value>, any: Option<&[Value]>, ctx: &ExprContext) -> Decided {
     let mut bound: Vec<Value> = Vec::new();
-    if let Some(cond) = &tpl.if_ {
+    if let Some(cond) = if_ {
         let conds: Vec<&Value> = match cond {
             Value::Array(list) => list.iter().collect(),
             single => vec![single],
@@ -201,7 +206,7 @@ fn decide_conditions(tpl: &MacroTemplate, ctx: &ExprContext) -> Decided {
             }
         }
     }
-    if let Some(any) = &tpl.any {
+    if let Some(any) = any {
         let mut decided = false;
         let mut dynamic: Vec<Value> = Vec::new();
         for c in any {
@@ -371,6 +376,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                         node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), built);
                     }
                 }
+                TemplateChild::Slot(_) => {}
             }
         }
     }
@@ -402,6 +408,24 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                 if let Some(name) = s.strip_prefix("$slot:") {
                     if let Some(value) = exp.source.slots.as_ref().and_then(|slots| slots.get(name)) {
                         node.children.push(value.clone());
+                    }
+                }
+            }
+            TemplateChild::Slot(splice) => {
+                // #VAPP-277: a CONDITIONAL slot splice: left out when its
+                // `$if`/`$any` fails, spliced with `visible` (and-ed with the
+                // slot's own) when bound.
+                let Some(value) = exp.source.slots.as_ref().and_then(|slots| slots.get(&splice.slot)) else { continue };
+                match decide(splice.if_.as_ref(), splice.any.as_deref(), ctx) {
+                    Decided::Bool(false) => {}
+                    Decided::Bool(true) => node.children.push(value.clone()),
+                    Decided::Dynamic(cond) => {
+                        let mut value = value.clone();
+                        value.visible = Some(match value.visible.take() {
+                            Some(own) => combine(vec![own, cond], "and"),
+                            None => cond,
+                        });
+                        node.children.push(value);
                     }
                 }
             }
@@ -504,7 +528,56 @@ fn expand_tree(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut
     crate::deep(|| expand_node(node, view, depth, issues, templates))
 }
 
+/// #VAPP-277: hand `props` to every `component` node under `node` (a nested
+/// `macro_` node ends the walk), never over an author-set prop.
+fn pass_down(node: &mut UiNode, macro_: &str, component: &str, props: &Props) {
+    if node.component == macro_ {
+        return;
+    }
+    for child in &mut node.children {
+        crate::deep(|| pass_down(child, macro_, component, props));
+    }
+    for child in node.slots.iter_mut().flat_map(|s| s.values_mut()) {
+        crate::deep(|| pass_down(child, macro_, component, props));
+    }
+    if node.component == component {
+        for (k, v) in props {
+            if !v.is_null() && !node.props.contains_key(k) {
+                node.props.insert(k.clone(), v.clone());
+            }
+        }
+    }
+}
+
+/// The macro's `$pass` entries applied to its author slots (before they expand).
+fn apply_passes(node: &mut UiNode, def: &MacroDef) {
+    if def.pass.is_empty() || node.slots.is_none() {
+        return;
+    }
+    let base = props_at(&node.props, None);
+    let ctx = ExprContext { id: &node.id, props: &base, vars: IndexMap::new() };
+    let mut handed = Vec::new();
+    for pass in &def.pass {
+        if pass.if_.is_some() && !matches!(eval_condition_value(pass.if_.as_ref(), &ctx), Decided::Bool(true)) {
+            continue;
+        }
+        let Some(Value::Object(props)) = eval_value(&Value::Object(pass.props.clone()), &ctx) else { continue };
+        handed.push((pass.slot.clone(), pass.component.clone(), props));
+    }
+    let macro_ = node.component.clone();
+    for (slot, component, props) in handed {
+        if let Some(target) = node.slots.as_mut().and_then(|s| s.get_mut(&slot)) {
+            pass_down(target, &macro_, &component, &props);
+        }
+    }
+}
+
 fn expand_node(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>, templates: &mut Vec<UiNode>) -> Result<(), String> {
+    if let Some(def) = view.macros.get(&node.component) {
+        if view.components.get(&node.component).is_some_and(|d| d.is_macro()) {
+            apply_passes(node, def);
+        }
+    }
     for child in &mut node.children {
         expand_tree(child, view, depth, issues, templates)?;
     }

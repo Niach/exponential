@@ -28600,6 +28600,98 @@
       }
     ]
   },
+  "Sidebar\/rail=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/rail=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
   "Sidebar\/side=left" : {
     "height" : 20,
     "nodes" : [

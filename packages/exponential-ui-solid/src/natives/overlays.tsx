@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, holdDialogBottom, isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
+import { absolutePath, holdDialogBottom, isBinding, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -392,11 +392,15 @@ const TOOLTIP_OPEN = `tooltip.open`
 const TOOLTIP_DELAY_MS = 300
 const TOOLTIP_SKIP_DELAY_MS = 300
 
-/** Tooltip: shows on hover AND keyboard focus (a11y.json), Escape hides. */
+/** Tooltip: shows on hover AND keyboard focus (a11y.json), Escape hides.
+ *  #VAPP-277: `side` may be logical (`start`/`end`, mirrored under RTL);
+ *  inside a focusable host (a pressable rail Row) the anchor adds no tab
+ *  stop and the host's keyboard focus opens it. */
 export function TooltipNative(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
-  const side = () => str(props.props.side, `top`) as Side
+  const side = () => tooltipPhysicalSide(str(props.props.side, `top`), ctx.direction) as Side
+  const [hosted, setHosted] = createSignal(false)
   const content = () => str(props.props.content) || str(props.props.text)
   const contentId = createUniqueId()
   const [open, setOpenState] = createSignal(false)
@@ -438,6 +442,25 @@ export function TooltipNative(props: NativeProps): JSX.Element {
   onCleanup(() => {
     clearTimeout(openTimer)
     clearTimeout(skipTimer)
+  })
+  onMount(() => {
+    const host = anchorEl ? tooltipFocusHost(anchorEl) : null
+    setHosted(Boolean(host))
+    if (!host) return
+    let pointer = false
+    const onDown = () => (pointer = true)
+    const onFocus = () => {
+      if (!pointer) handleOpen()
+      pointer = false
+    }
+    host.addEventListener(`pointerdown`, onDown)
+    host.addEventListener(`focus`, onFocus)
+    host.addEventListener(`blur`, handleClose)
+    onCleanup(() => {
+      host.removeEventListener(`pointerdown`, onDown)
+      host.removeEventListener(`focus`, onFocus)
+      host.removeEventListener(`blur`, handleClose)
+    })
   })
   const stateAttribute = () => (open() ? (delayed() ? `delayed-open` : `instant-open`) : `closed`)
   // Hoverable content: leaving the trigger toward the content keeps it open.
@@ -511,7 +534,7 @@ export function TooltipNative(props: NativeProps): JSX.Element {
         <div
           ref={anchorEl}
           {...part(`anchor`)}
-          tabindex="0"
+          tabindex={hosted() ? undefined : `0`}
           aria-describedby={open() ? contentId : undefined}
           data-state={stateAttribute()}
           onPointerMove={(e) => {

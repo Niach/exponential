@@ -650,7 +650,7 @@
     },
     "Sidebar": {
       "role": "none",
-      "notes": "navigation landmark (the sidebar slot) beside main. Layout only; its `sidebar` part is a navigation landmark, its `main` part the main landmark ($a11y).",
+      "notes": "navigation landmark (the sidebar slot) beside main. Layout only; its `sidebar` part is a navigation landmark, its `main` part the main landmark ($a11y). #VAPP-277: on the icon rail (`rail` + `collapsed`) each nav Row's accessible name is its title (`, <meta>` with a count), the same text as its tooltip; the drawn tile is hidden; the Row is the ONE tab stop (the tooltip anchor adds none; the Row's keyboard focus opens the tooltip).",
       "keys": []
     },
     "AppBar": {

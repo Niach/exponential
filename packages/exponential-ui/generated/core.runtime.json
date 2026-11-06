@@ -1424,6 +1424,10 @@
           "type": "boolean",
           "default": false,
           "bindable": true
+        },
+        "rail": {
+          "type": "boolean",
+          "default": false
         }
       }
     },

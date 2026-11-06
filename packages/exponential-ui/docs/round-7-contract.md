@@ -231,3 +231,51 @@ Renderers (a macro over Box/Text: no painter code anywhere):
 - [x] SwiftUI / Compose: paint the core's frames; component snapshots
   (`components.json`) re-recorded for the new catalog cases.
 - [x] FFI: no new API.
+
+## Sidebar rail (#VAPP-277)
+
+The old IDE rail (removed in EXP-723/1192) as a Sidebar mode: `collapsed`
+narrows the column to an icon rail instead of hiding it.
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| prop | Sidebar `rail` (boolean, default false; "Collapsed = icon rail."). The Sidebar's descriptions were trimmed to pay for it: no budget change (9,292) | `core.catalog.json` | `catalog-components.json` (`Sidebar/rail=true|false`), `prompt-budget.json` |
+| macro table: `$pass` | `$pass: [{slot, component, $if?, props}]` on a macro def: runs BEFORE the macro's author slots expand (expansion is bottom-up, so no template can restyle its slot's nodes). When `$if` holds (literal, in the macro's context) every `component` node of the author's `slot` subtree takes `props` (evaluated like any template value: a bound `collapsed` passes the binding itself), never over a prop its author set; a nested node of the same macro ends the walk. Sidebar hands Rows `{rail: "{props.collapsed|false}", railSide: end (start for side right)}` and Sections `{rail}` | `macros.json` (`$comment`), `src/macros.ts` `applyPasses`, `eui-core/src/macros.rs` `apply_passes` | `catalog-macros.json` `Sidebar/rail:{collapsed,expanded,bound,right}`, `src/sidebar-rail.test.ts` |
+| macro table: conditional slot splice | a template child `{"$slot": name, "$if"?, "$any"?}` splices the author's slot only while the conditions hold; a bound condition splices it with `visible` (and-ed with the slot's own `visible`) | `src/macros.ts`, `eui-core` `TemplateChild::Slot` / `MacroSlotSplice` | `src/sidebar-rail.test.ts` (literal + bound), `catalog-macros.json` |
+| Sidebar | the `sidebar` part shows when `!collapsed` OR `rail` (`$any`); width = `$spacing.xl3` (48) when rail + collapsed, else `width`. Without `rail` nothing moves | `macros.json` | `catalog-macros.json` (every older Sidebar case unchanged) |
+| Row | INTERNAL `rail` + `railSide` props (not in the catalog: only the pass sets them). Rail: the root is a `$control.buttonIcon` square (width, minHeight, no padding, no gap, centred, `alignSelf: center`); `icon`, `identifier`, `body`, `meta`, `value`, `chevron` and the `leading`/`trailing` slots drop (`$if: !props.rail`); new parts `tip` (Tooltip, `content` = title, `side` = `railSide`) > `tile` (Box, the buttonIcon square, flex-centred, `position: relative`, `$a11y.hidden`) > `tileIcon` (Icon sm) + `badge` (Box, only with `meta`: absolute, flush in the top-end corner (insets `$spacing.none`, over the glyph's top-end corner like the Segmented rail badge), min width and height `$control.iconSm`, padding-x `$spacing.xxs`, radius full, flex-centred) > `count` (Text caption, one line). The root's accessible name = the title, `, <meta>` with a count ("Inbox, 3"). A literal unset `rail` decides every condition at expansion, so no existing Row expansion changes; a bound one emits `visible` and `cond` style calls the bind pass resolves | `macros.json` | `catalog-macros.json`, `bind-time.json` extra `Sidebar/rail:bound-collapsed` (rail / plain Rows / path missing) |
+| Section | INTERNAL `rail` (from the pass). Rail: both header variants drop (title, caption, count, slots, chevron); a `rule` part (a horizontal Separator: a full-width hairline, the old IDE rail's section rule) takes its place; the body shows even when the Section is closed (`$any: [open, rail]`, a rail has no header to open it) and is undivided | `macros.json` | `catalog-macros.json`, `src/sidebar-rail.test.ts` |
+| Tooltip side | a rail tip's `side` is LOGICAL: `end` (a left Sidebar) / `start` (a right one) = the inline end / start, so the tooltip points into the content and mirrors under RTL. Internal values, not in the `side` enum: the core places them as right / left with the layer's `mirror` flag (`layout_tree/overlays.rs`); the web resolves them with `tooltipPhysicalSide(side, direction)` (`@exponential_app/eui/web`) | `overlays.rs`, `web/focus.ts` | `painter_asks.rs` (4 side × direction combos), React + Solid `sidebar-rail.test.tsx` |
+| one tab stop | a Tooltip whose anchor sits inside a focusable host (the pressable rail Row) and holds nothing focusable itself adds NO tab stop: web: `tooltipFocusHost(anchor)` → the anchor drops `tabindex` and the host's keyboard focus (not a pointer press) opens it, blur closes it; core: the anchor was never a stop (not pressable), and `Surface::set_states(host, focus-visible)` opens the tooltips the host hosts (`hosted_tooltips`: no pressable between, only Box/Text/Icon/Image/Avatar/Spinner inside the anchor), so the natives' keyboard focus shows it too. A Tooltip around a Button inside a pressable Row keeps the Button's own behaviour | `web/focus.ts`, React + Solid `TooltipNative`, `eui-core/src/surface/mod.rs` | `painter_asks.rs` `sidebar_rail_tooltip_side_focus_slots_and_sections`, React + Solid `sidebar-rail.test.tsx` |
+| recipes | neutral `Row/badge` = `$color.primary` fill; `Row/count` = primaryForeground, xs / lineHeight xs, medium (the Segmented badge's look); the selected tile keeps `Row/root {selected}` | `themes/neutral.theme.json` | `theme-resolved.json` |
+| a11y | Sidebar notes: on the rail the Row's name is its title (+ count), the same text as its tooltip; the drawn tile is hidden; one stop per row | `catalog/a11y.json` | `painter_asks.rs` (below) |
+| specimen | Sidebar cases `rail · expanded` and `rail · collapsed` (Inbox with count 3 selected, Issues, a `More` Section holding Search with count 12) | `scripts/generate.ts` `SPECIMEN_EXTRA` | `specimens.json` |
+
+Geometry (the Rust core lays it out; `eui-core/tests/painter_asks.rs`
+`sidebar_rail_squares_icons_badges_and_tooltips` and
+`sidebar_rail_tooltip_side_focus_slots_and_sections`, neutral theme): the
+column is 48 wide; each Row is a 36 × 36 square centred in it (in the
+content box: the theme's hairline sits on the inner edge); the icon is
+centred in the square; the badge is 16 tall, at least 16 wide, its top and
+end edges flush with the square's; primary fill and ink; a Section's rule is
+1 tall across the rail's content box; hovering `<row>.tip.anchor` (or the
+Row's keyboard focus) opens the Tooltip layer whose label is the title, on
+the content's side (left rail: right, right rail: left; RTL mirrors); a
+bound `collapsed` flips between the rail (48, squares, no body) and the
+plain Rows (240, titles).
+
+Renderers:
+
+- [x] TS core (`src/macros.ts`) and Rust core (`eui-core/src/macros.rs`,
+  `types.rs` `MacroDef.pass` / `MacroPass`, `TemplateChild::Slot`): the pass
+  and the conditional slot splice; the core's logical tooltip side and
+  hosted-tooltip focus (`overlays.rs`, `surface/mod.rs`).
+- [x] React / Solid / element: `TooltipNative` resolves `start`/`end` and
+  drops the anchor's tab stop inside a focus host (`tooltipFocusHost`);
+  fixtures snapshot + conformance + parity green.
+- [x] SwiftUI, Compose, gpui: paint the core's frames and layers (no painter
+  change); the Swift and Compose component snapshots re-recorded for the new
+  cases; gpui `tests/interaction.rs`
+  `a_rail_row_is_one_tab_stop_whose_focus_opens_its_tooltip` +
+  `hovering_a_rail_tile_opens_its_tooltip`; store shots
+  `exponential-ui-sidebar` re-taken on iOS and Android.

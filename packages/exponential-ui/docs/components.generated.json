@@ -516,7 +516,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-sidebar",
-      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden narrow or `collapsed`.",
+      "description": "A shell: a nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
       "children": "many",
       "slots": [
         "sidebar"
@@ -531,7 +531,7 @@
           "bindable": false,
           "responsive": false,
           "default": "left",
-          "description": "Which edge the column sits on."
+          "description": "The column's edge."
         },
         {
           "name": "width",
@@ -540,7 +540,7 @@
           "bindable": false,
           "responsive": false,
           "default": 240,
-          "description": "The column width in px."
+          "description": "Column width, px."
         },
         {
           "name": "collapseBelow",
@@ -549,7 +549,7 @@
           "bindable": false,
           "responsive": false,
           "default": "md",
-          "description": "Hides the column below this breakpoint."
+          "description": "Hides it below this breakpoint."
         },
         {
           "name": "collapsed",
@@ -558,12 +558,21 @@
           "bindable": true,
           "responsive": false,
           "default": false,
-          "description": "Hides the column at any width; bind it to a toggle."
+          "description": "Hides the column; bind it to a toggle."
+        },
+        {
+          "name": "rail",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Collapsed = icon rail."
         }
       ],
       "accessibility": {
         "role": "none",
-        "notes": "navigation landmark (the sidebar slot) beside main. Layout only; its `sidebar` part is a navigation landmark, its `main` part the main landmark ($a11y).",
+        "notes": "navigation landmark (the sidebar slot) beside main. Layout only; its `sidebar` part is a navigation landmark, its `main` part the main landmark ($a11y). #VAPP-277: on the icon rail (`rail` + `collapsed`) each nav Row's accessible name is its title (`, <meta>` with a count), the same text as its tooltip; the drawn tile is hidden; the Row is the ONE tab stop (the tooltip anchor adds none; the Row's keyboard focus opens the tooltip).",
         "keys": []
       },
       "example": {

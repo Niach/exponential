@@ -337,6 +337,46 @@ fn a_tooltip_opens_on_keyboard_focus_and_after_the_hover_delay(cx: &mut TestAppC
     assert!(view.read_with(cx, |v, _| v.layers().iter().any(|l| l.kind == "Tooltip")), "keyboard focus opened it");
 }
 
+/// #VAPP-277: on the Sidebar rail each Row is ONE tab stop (its tooltip
+/// anchor adds none) and the Row's keyboard focus opens its tooltip, on
+/// the content's side; hovering the tile opens it too.
+#[gpui::test]
+fn a_rail_row_is_one_tab_stop_whose_focus_opens_its_tooltip(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "height": 300}, "children": [
+        {"id": "shell", "component": "Sidebar", "props": {"rail": true, "collapsed": true, "collapseBelow": "never"},
+         "slots": {"sidebar": {"id": "nav", "component": "Stack", "props": {"gap": "xs"}, "children": [
+            {"id": "inbox", "component": "Row", "props": {"title": "Inbox", "icon": "nav-inbox", "meta": "3", "pressable": true}},
+            {"id": "issues", "component": "Row", "props": {"title": "Issues", "icon": "nav-issues", "pressable": true}}
+         ]}},
+         "children": [{"id": "main", "component": "Text", "props": {"text": "Pick a board."}}]}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    assert_eq!(tab(&view, cx).as_deref(), Some("inbox"));
+    draw(cx);
+    let open = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.layers().iter().filter(|l| l.kind == "Tooltip").map(|l| (l.owner.clone(), l.position.clone())).collect::<Vec<_>>());
+    assert_eq!(open(&view, cx), [("inbox.tip".to_string(), "right".to_string())], "the Row's keyboard focus opens its tooltip, into the content");
+    assert_eq!(tab(&view, cx).as_deref(), Some("issues"), "the anchor is no stop of its own");
+    draw(cx);
+    assert_eq!(open(&view, cx), [("issues.tip".to_string(), "right".to_string())], "focus moved: the first closed, the second opened");
+}
+
+#[gpui::test]
+fn hovering_a_rail_tile_opens_its_tooltip(cx: &mut TestAppContext) {
+    let (view, _log, cx) = surface(cx, json!({"id": "root", "component": "Box", "style": {"height": 200}, "children": [
+        {"id": "shell", "component": "Sidebar", "props": {"rail": true, "collapsed": true, "collapseBelow": "never"},
+         "slots": {"sidebar": {"id": "inbox", "component": "Row", "props": {"title": "Inbox", "icon": "nav-inbox", "pressable": true}}}, "children": []}
+    ]}), false);
+    view.update(cx, |v, _| v.record_bounds(true));
+    draw(cx);
+    let b = view.read_with(cx, |v, _| v.painted_bounds("inbox.tip.tile")).expect("painted");
+    cx.simulate_mouse_move(b.center(), None, Modifiers::default());
+    draw(cx);
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    draw(cx);
+    assert!(view.read_with(cx, |v, _| v.layers().iter().any(|l| l.kind == "Tooltip" && l.owner == "inbox.tip")), "hovering the tile opened the tooltip");
+}
+
 #[gpui::test]
 fn scroll_containers_scroll_their_content_and_draw_it_translated(cx: &mut TestAppContext) {
     let rows: Vec<Value> = (0..12).map(|i| json!({"id": format!("row{i}"), "component": "Box", "style": {"height": 40, "flexShrink": 0}, "children": [{"id": format!("label{i}"), "component": "Text", "props": {"text": format!("Row {i}")}}]})).collect();

@@ -1612,7 +1612,7 @@
       "slots": [
         "sidebar"
       ],
-      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden narrow or `collapsed`.",
+      "description": "A shell: a nav column (`sidebar` slot) beside the children, hidden narrow or collapsed.",
       "props": {
         "side": {
           "type": "enum",
@@ -1621,24 +1621,29 @@
             "right"
           ],
           "default": "left",
-          "description": "Which edge the column sits on."
+          "description": "The column's edge."
         },
         "width": {
           "type": "number",
           "default": 240,
-          "description": "The column width in px."
+          "description": "Column width, px."
         },
         "collapseBelow": {
           "type": "enum",
           "enum": "collapseBelow",
           "default": "md",
-          "description": "Hides the column below this breakpoint."
+          "description": "Hides it below this breakpoint."
         },
         "collapsed": {
           "type": "boolean",
           "default": false,
           "bindable": true,
-          "description": "Hides the column at any width; bind it to a toggle."
+          "description": "Hides the column; bind it to a toggle."
+        },
+        "rail": {
+          "type": "boolean",
+          "default": false,
+          "description": "Collapsed = icon rail."
         }
       },
       "example": {

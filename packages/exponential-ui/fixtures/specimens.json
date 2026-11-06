@@ -1165,6 +1165,182 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-sidebar-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-sidebar-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "rail · expanded",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-sidebar",
+                "component": "Sidebar",
+                "props": {
+                  "rail": true,
+                  "collapsed": false,
+                  "collapseBelow": "never"
+                },
+                "slots": {
+                  "sidebar": {
+                    "id": "c1-nav",
+                    "component": "Stack",
+                    "props": {
+                      "gap": "xs"
+                    },
+                    "children": [
+                      {
+                        "id": "c1-n1",
+                        "component": "Row",
+                        "props": {
+                          "title": "Inbox",
+                          "icon": "nav-inbox",
+                          "meta": "3",
+                          "selected": true,
+                          "pressable": true
+                        }
+                      },
+                      {
+                        "id": "c1-n2",
+                        "component": "Row",
+                        "props": {
+                          "title": "Issues",
+                          "icon": "nav-issues",
+                          "pressable": true
+                        }
+                      },
+                      {
+                        "id": "c1-more",
+                        "component": "Section",
+                        "props": {
+                          "title": "More"
+                        },
+                        "children": [
+                          {
+                            "id": "c1-n3",
+                            "component": "Row",
+                            "props": {
+                              "title": "Search",
+                              "icon": "nav-search",
+                              "meta": "12",
+                              "pressable": true
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "children": [
+                  {
+                    "id": "c1-main",
+                    "component": "Text",
+                    "props": {
+                      "text": "Pick a board on the left.",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-sidebar-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-sidebar-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "rail · collapsed",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-sidebar",
+                "component": "Sidebar",
+                "props": {
+                  "rail": true,
+                  "collapsed": true,
+                  "collapseBelow": "never"
+                },
+                "slots": {
+                  "sidebar": {
+                    "id": "c2-nav",
+                    "component": "Stack",
+                    "props": {
+                      "gap": "xs"
+                    },
+                    "children": [
+                      {
+                        "id": "c2-n1",
+                        "component": "Row",
+                        "props": {
+                          "title": "Inbox",
+                          "icon": "nav-inbox",
+                          "meta": "3",
+                          "selected": true,
+                          "pressable": true
+                        }
+                      },
+                      {
+                        "id": "c2-n2",
+                        "component": "Row",
+                        "props": {
+                          "title": "Issues",
+                          "icon": "nav-issues",
+                          "pressable": true
+                        }
+                      },
+                      {
+                        "id": "c2-more",
+                        "component": "Section",
+                        "props": {
+                          "title": "More"
+                        },
+                        "children": [
+                          {
+                            "id": "c2-n3",
+                            "component": "Row",
+                            "props": {
+                              "title": "Search",
+                              "icon": "nav-search",
+                              "meta": "12",
+                              "pressable": true
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "children": [
+                  {
+                    "id": "c2-main",
+                    "component": "Text",
+                    "props": {
+                      "text": "Pick a board on the left.",
+                      "variant": "body"
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }

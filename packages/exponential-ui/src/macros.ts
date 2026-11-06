@@ -132,7 +132,7 @@ function andOf(conditions: unknown[], op: `and` | `or`): Visible {
 
 /** The part's `$if`/`$any`: `false` = leave it out, `true` = emit it, a
  *  dynamic value = emit it with that as `visible`. */
-function decideConditions(tpl: MacroTemplate, ctx: ExprContext): boolean | Visible {
+function decideConditions(tpl: Pick<MacroTemplate, `$if` | `$any`>, ctx: ExprContext): boolean | Visible {
   const bound: unknown[] = []
   if (tpl.$if !== undefined) {
     const conds = Array.isArray(tpl.$if) ? tpl.$if : [tpl.$if]
@@ -287,7 +287,17 @@ function buildNode(
       }
       continue
     }
-    node.children.push(...expandTemplate(child as MacroTemplate, exp, ctx, id))
+    if (`$slot` in child) {
+      // #VAPP-277: a CONDITIONAL slot splice: left out when its `$if`/`$any`
+      // fails, spliced with `visible` (and-ed with the slot's own) when bound.
+      const value = exp.source.slots?.[child.$slot]
+      const decided = decideConditions(child, ctx)
+      if (!value || decided === false) continue
+      if (decided === true) node.children.push(value)
+      else node.children.push({ ...value, visible: value.visible === undefined ? decided : andOf([value.visible, decided], `and`) })
+      continue
+    }
+    node.children.push(...expandTemplate(child, exp, ctx, id))
   }
   return node
 }
@@ -327,7 +337,38 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
   return expanded
 }
 
-function expandTree(node: UiNode, view: CatalogView, depth: number, issues: ReduceIssue[] | undefined, templates: UiNode[]): UiNode {
+/** #VAPP-277: hand `props` to every `component` node under `node` (a nested
+ *  `macro` node ends the walk), never over an author-set prop. */
+function passDown(node: UiNode, macro: string, component: string, props: Record<string, unknown>): UiNode {
+  if (node.component === macro) return node
+  const out: UiNode = { ...node, children: node.children.map((c) => passDown(c, macro, component, props)) }
+  if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, passDown(v, macro, component, props)]))
+  if (node.component === component) {
+    const merged = { ...node.props }
+    for (const [k, v] of Object.entries(props)) if (merged[k] === undefined && v !== undefined) merged[k] = v
+    out.props = merged
+  }
+  return out
+}
+
+/** The macro's `$pass` entries applied to its author slots (before they expand). */
+function applyPasses(node: UiNode, def: MacroDef): UiNode {
+  if (!def.$pass || !node.slots) return node
+  const ctx: ExprContext = { id: node.id, props: propsAt(node.props, null), vars: {} }
+  let slots = node.slots
+  for (const pass of def.$pass) {
+    const target = slots[pass.slot]
+    if (!target) continue
+    if (pass.$if !== undefined && evalConditionValue(pass.$if, ctx) !== true) continue
+    const props = (evalValue(pass.props, ctx) as Record<string, unknown>) ?? {}
+    slots = { ...slots, [pass.slot]: passDown(target, node.component, pass.component, props) }
+  }
+  return { ...node, slots }
+}
+
+function expandTree(input: UiNode, view: CatalogView, depth: number, issues: ReduceIssue[] | undefined, templates: UiNode[]): UiNode {
+  const passing = view.macros[input.component]
+  const node = passing && view.components[input.component]?.kind === `macro` ? applyPasses(input, passing) : input
   const out: UiNode = { ...node, children: node.children.map((c) => expandTree(c, view, depth, issues, templates)) }
   if (node.slots) {
     out.slots = {}

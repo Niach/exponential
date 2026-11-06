@@ -4904,6 +4904,23 @@
                 "color": "$color.foreground"
               }
             }
+          ],
+          "badge": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
           ]
         },
         "Table": {
@@ -12866,6 +12883,23 @@
             {
               "style": {
                 "color": "$color.foreground"
+              }
+            }
+          ],
+          "badge": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium"
               }
             }
           ]
@@ -20862,6 +20896,23 @@
             {
               "style": {
                 "color": "$color.foreground"
+              }
+            }
+          ],
+          "badge": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium"
               }
             }
           ],
@@ -28982,6 +29033,23 @@
             {
               "style": {
                 "color": "$color.foreground"
+              }
+            }
+          ],
+          "badge": [
+            {
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "fontWeight": "$type.weight.medium"
               }
             }
           ]

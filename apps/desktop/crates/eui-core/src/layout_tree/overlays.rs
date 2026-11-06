@@ -99,7 +99,16 @@ impl Builder<'_, '_> {
         if !open {
             return;
         }
-        let side = self.responsive_prop(&owner.props, "side").and_then(|v| v.as_str().and_then(OverlaySide::parse));
+        let raw_side = self.responsive_prop(&owner.props, "side");
+        // #VAPP-277: `start` / `end` = a LOGICAL side (inline start / end:
+        // left / right in LTR, mirrored in RTL); the Sidebar rail's tooltips
+        // point into the content this way (never authored: not in the enum).
+        let logical = matches!(raw_side.as_ref().and_then(Value::as_str), Some("start" | "end"));
+        let side = match raw_side.as_ref().and_then(Value::as_str) {
+            Some("end") => Some(OverlaySide::Right),
+            Some("start") => Some(OverlaySide::Left),
+            other => other.and_then(OverlaySide::parse),
+        };
         let point = self.ctx.local.context_point.get(&owner.id).copied();
         let placement = match kind.as_str() {
             "Dialog" => LayerPlacement::Centered,
@@ -176,6 +185,11 @@ impl Builder<'_, '_> {
         }
         let modal = kind == "Dialog" || kind == "Drawer";
         self.push_layer(layer, root, &owner_now, placement, modal, dismissible, false, scroll_body);
+        if logical {
+            if let Some(spec) = self.layers.last_mut() {
+                spec.mirror = true;
+            }
+        }
     }
 
     /// Menu entries (`menuItem.kind`): an action or checkbox ROW (check,

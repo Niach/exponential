@@ -306,7 +306,22 @@ pub struct CatalogSource {
 #[serde(untagged)]
 pub enum TemplateChild {
     Splice(String),
+    /// #VAPP-277: `{"$slot": name, "$if"?, "$any"?}`, an author slot spliced
+    /// only while the conditions hold (`MacroSlotSplice` in types.ts).
+    Slot(MacroSlotSplice),
     Node(Box<MacroTemplate>),
+}
+
+/// #VAPP-277: a conditional slot splice.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MacroSlotSplice {
+    #[serde(rename = "$slot")]
+    pub slot: String,
+    #[serde(default, rename = "$if", skip_serializing_if = "Option::is_none")]
+    pub if_: Option<Value>,
+    #[serde(default, rename = "$any", skip_serializing_if = "Option::is_none")]
+    pub any: Option<Vec<Value>>,
 }
 
 /// A template `slots` entry: `"$slot:name"` copies the author's slot; a
@@ -374,6 +389,24 @@ pub struct MacroDef {
     #[serde(rename = "recipeProps", default)]
     pub recipe_props: Vec<String>,
     pub root: MacroTemplate,
+    /// #VAPP-277: props handed to nodes in an author slot BEFORE it expands
+    /// (`MacroDef.$pass` in types.ts).
+    #[serde(default, rename = "$pass", skip_serializing_if = "Vec::is_empty")]
+    pub pass: Vec<MacroPass>,
+}
+
+/// #VAPP-277: one `$pass` entry: when `$if` holds (literal, in the macro's
+/// context) every `component` node in the author's `slot` subtree (a nested
+/// node of the same macro ends the walk) takes `props` (evaluated like any
+/// template value), never over a prop its author set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MacroPass {
+    pub slot: String,
+    pub component: String,
+    #[serde(default, rename = "$if", skip_serializing_if = "Option::is_none")]
+    pub if_: Option<Value>,
+    #[serde(default)]
+    pub props: Props,
 }
 
 /// An extension catalog: its own id, extending the core, with components and
