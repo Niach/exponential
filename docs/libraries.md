@@ -171,7 +171,7 @@ release after that removes the shim crate and the old tag pattern.
 | Computer Use | 0.1.0 | GitHub release (git dependencies on the tag) | `epilot-v0.1.0` |
 | P2P | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | genUI (old `ui` packages) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
-| Agents | 0.1.0 (`exponential-agent-runtime` = its one-release re-export shim) | GitHub release (git dependency on the tag) | `eagent-v0.1.0` |
+| Agents | 0.2.0 (`exponential-agent-runtime` = its one-release re-export shim) | GitHub release (git dependency on the tag) | `eagent-v0.2.0` |
 | agent-runtime (old name of Agents) | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
 | MCP Proxy | 0.2.0 | GitHub release (git dependency on the tag) | `emcp-v0.2.0` |
 | Core | unreleased | none (built: `ecore` + the generated TS/Swift/Kotlin) | none |

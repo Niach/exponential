@@ -11,7 +11,7 @@ A git dependency on a release tag: the contract is compiled in from the repo's f
 
 ```toml
 [dependencies]
-eagent = { git = "https://github.com/Niach/exponential", tag = "eagent-v0.1.0" }
+eagent = { git = "https://github.com/Niach/exponential", tag = "eagent-v0.2.0" }
 ```
 
 Coming from `exponential-agent-runtime`: [Migrating](/docs/sdk/agents/reference/migrating/).

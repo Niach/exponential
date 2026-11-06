@@ -12,7 +12,7 @@ depend on a release tag, `eagent-v<version>`, per the git-tag policy in
 `docs/libraries.md` ("Consuming from another repo"):
 
 ```toml
-eagent = { git = "https://github.com/Niach/exponential", tag = "eagent-v0.1.0" }
+eagent = { git = "https://github.com/Niach/exponential", tag = "eagent-v0.2.0" }
 ```
 
 Renamed from `exponential-agent-runtime` (#EXP-1505). For one release a shim crate under the
