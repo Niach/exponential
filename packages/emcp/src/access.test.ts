@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/access.json" with { type: "json" }
-import { effectiveAccess, grantErrors, memberPolicy, toolVisible, type AccessInput, type Grant, type Level } from "./access"
+import { assistantScope, effectiveAccess, grantErrors, memberPolicy, toolVisible, type AccessInput, type Grant, type Level } from "./access"
 
 describe(`grantErrors`, () => {
   for (const entry of fixture.grantCases) {
@@ -25,5 +25,11 @@ describe(`effectiveAccess`, () => {
 describe(`toolVisible`, () => {
   for (const entry of fixture.visibleCases) {
     test(`${entry.level} sees ${entry.access}`, () => expect(toolVisible(entry.level as Level, entry.access as `read`)).toBe(entry.expected))
+  }
+})
+
+describe(`assistantScope`, () => {
+  for (const entry of fixture.assistantScopeCases) {
+    test(entry.name, () => expect(assistantScope(entry.input)).toEqual(entry.expected))
   }
 })

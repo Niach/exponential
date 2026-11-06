@@ -1,5 +1,5 @@
 {
-  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per thread: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED thread root REVIVES the same row (idle, nothing flagged, message pending); to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead.",
+  "$comment": "THE TREE (lib/sessions/send.ts startRoot/startChild/reviveRoot/continueSession, lifecycle.ts, trpc sessions.claim/report). ONE tree per thread: a root (depth 0, rootId = its id) and children (parentId, rootId inherited, depth + 1). Every new session is `queued` on a device with its first message PENDING: a caller session's message is agent-authored (`authorSessionId` = the caller), a person's is user-authored; a blank text posts nothing. A child posts a `session` card on its parent (informational). A root started from inside a session is WATCHED by it (wakeOn) and posts `thread_started` on it; its device defaults to the caller root's when that tree has an acting agent, else none = refused (`invalid`). CAPS (rules.caps): a child deeper than treeMaxDepth = `invalid`, a tree already at treeMaxSessions LIVE sessions = `limit`; an ended branch frees its slot. CLAIM: only the named device (`conflict`), never an ended row; queued → running, startedAt stamped once, an `unclaimed` flag clears; the FIRST claim delivers the first input as the brief's Request (consumed, the `brief` effect names it, sealed or not: #FEED-178) and says `session_claimed` to the listeners (non-waking, no self fallback). A message to an ENDED thread root REVIVES the same row (idle, nothing flagged, message pending); to an ENDED child it CONTINUES as a new sibling (`freshId`; same parent and depth; `continuedFromId` = the ended row, the lineage a logical session walks (#EXP-1402); the caps apply; a `session` card on the parent); with no text it is refused. END: a root's End ends its whole live tree, a child's its subtree, deepest first then oldest first; each row flips ended (busy/needsInput/blocked cleared), its open ask mirrors close, it says `session_ended` on itself and REPORTS into its parent and watchers (bus.json); then each is killed. An agent's conversation never ends (its children do). A device report `status: ended` (the process is gone) ends a child and a root that never finished a turn (a refused launch); a root that finished one and an agent's conversation go idle instead. #EXP-1720 TEAMS OF A TREE (`treeTeams`): a root's own team, then its `scopeTeamIds` (the Assistant's conversation root: the teams picked for the turn ∩ the member's, emcp access.json `assistantScope`; null on every other root = its own team only). A new session of a tree (a child, or a root an acting-agent caller starts) takes `teamId` when given: one of its tree's teams, else refused (`forbidden`, copy.teamOutOfScope); none = the parent's / the caller's team. So a team agent's tree stays in its team and the Assistant's children spawn in their target team. A message's `scopeTeamIds` is the Assistant's turn pick: only into its conversation ROOT (an `assistant` agent's), else refused (`invalid`, copy.scopeAssistantOnly); it replaces the root's scope (deduplicated, its own team dropped).",
   "cases": [
     {
       "name": "a person starts a root: queued, its first message pending",
@@ -1516,6 +1516,411 @@
           },
           "r2": {
             "busy": false
+          }
+        }
+      }
+    },
+    {
+      "name": "#EXP-1720: an Assistant's child starts in a team of its scope; its root stays in the personal team",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "teamId": "p1",
+            "deviceId": "d7",
+            "scopeTeamIds": [
+              "t1",
+              "t2"
+            ]
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "teamId": "p1",
+            "role": "assistant",
+            "conversationId": "as1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c1",
+              "parentId": "as1",
+              "callerId": "as1",
+              "teamId": "t2",
+              "text": "Fix EXP-12."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "as1",
+              "body": "Fix EXP-12.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "as1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c1"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "parentId": "as1",
+            "rootId": "as1",
+            "depth": 1,
+            "teamId": "t2"
+          }
+        }
+      }
+    },
+    {
+      "name": "#EXP-1720: an Assistant's new thread starts in a team of its scope, watched by it",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "teamId": "p1",
+            "deviceId": "d7",
+            "scopeTeamIds": [
+              "t1",
+              "t2"
+            ]
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "teamId": "p1",
+            "role": "assistant",
+            "conversationId": "as1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r2",
+              "callerId": "as1",
+              "teamId": "t1",
+              "text": "Plan the release."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "as1",
+              "body": "Plan the release.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "as1",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "thread_started",
+                "sessionId": "r2"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "r2": {
+            "teamId": "t1",
+            "deviceId": "d7",
+            "startedByAgentId": "ag1"
+          },
+          "as1": {
+            "wakeOn": [
+              "r2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "#EXP-1720: a team outside the tree's scope is refused; a team agent's tree stays in its own team",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "teamId": "p1",
+            "deviceId": "d7",
+            "scopeTeamIds": [
+              "t1",
+              "t2"
+            ]
+          },
+          {
+            "id": "a2",
+            "agentId": "ag2"
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "teamId": "p1",
+            "role": "assistant",
+            "conversationId": "as1"
+          },
+          {
+            "id": "ag2",
+            "ownerId": "u1",
+            "conversationId": "a2"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c1",
+              "parentId": "as1",
+              "callerId": "as1",
+              "teamId": "t3",
+              "text": "Fix EXP-12."
+            }
+          },
+          "failure": {
+            "code": "forbidden",
+            "message": "This tree doesn't work in that team: start it in one of the teams picked for this turn",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "r2",
+              "callerId": "as1",
+              "teamId": "t3",
+              "text": "Fix EXP-12."
+            }
+          },
+          "failure": {
+            "code": "forbidden",
+            "message": "This tree doesn't work in that team: start it in one of the teams picked for this turn",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c2",
+              "parentId": "a2",
+              "callerId": "a2",
+              "teamId": "t2",
+              "text": "Fix EXP-12."
+            }
+          },
+          "failure": {
+            "code": "forbidden",
+            "message": "This tree doesn't work in that team: start it in one of the teams picked for this turn",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c3",
+              "parentId": "a2",
+              "callerId": "a2",
+              "teamId": "t1",
+              "text": "Fix EXP-12."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c3",
+              "authorKind": "agent",
+              "authorSessionId": "a2",
+              "body": "Fix EXP-12.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            },
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "a2",
+              "authorKind": "system",
+              "authorSessionId": null,
+              "body": "",
+              "card": {
+                "kind": "session",
+                "sessionId": "c3"
+              },
+              "sealed": false,
+              "waking": false
+            }
+          ],
+          "result": {
+            "sessionId": "c3",
+            "messageId": "m1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": null,
+          "r2": null,
+          "c2": null,
+          "c3": {
+            "teamId": "t1"
+          }
+        }
+      }
+    },
+    {
+      "name": "#EXP-1720: a turn's teams become the Assistant root's scope (its own team dropped); any other session refuses them",
+      "given": {
+        "sessions": [
+          {
+            "id": "as1",
+            "agentId": "ag1",
+            "teamId": "p1",
+            "deviceId": "d7",
+            "scopeTeamIds": [
+              "t1",
+              "t2"
+            ]
+          },
+          {
+            "id": "r1"
+          }
+        ],
+        "agents": [
+          {
+            "id": "ag1",
+            "ownerId": "u1",
+            "teamId": "p1",
+            "role": "assistant",
+            "conversationId": "as1"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "as1",
+              "text": "Only t2 today.",
+              "scopeTeamIds": [
+                "t2",
+                "p1",
+                "t2"
+              ]
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "as1",
+              "authorKind": "user",
+              "authorSessionId": null,
+              "body": "Only t2 today.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "as1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "r1",
+              "text": "Hi.",
+              "scopeTeamIds": [
+                "t2"
+              ]
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "Only your Assistant's conversation takes teams for a turn",
+            "retryable": false
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "as1": {
+            "scopeTeamIds": [
+              "t2"
+            ],
+            "updatedAt": 60000
+          },
+          "r1": {
+            "scopeTeamIds": null
           }
         }
       }

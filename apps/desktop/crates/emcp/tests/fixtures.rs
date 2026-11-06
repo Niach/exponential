@@ -192,6 +192,10 @@ fn access_cases() {
         let tool = if case["access"] == "read" { ToolAccess::Read } else { ToolAccess::Write };
         assert_eq!(access::tool_visible(level(&case["level"]), tool), case["expected"] == true, "{case}");
     }
+    for case in f["assistantScopeCases"].as_array().unwrap() {
+        let input: access::AssistantScopeInput = serde_json::from_value(case["input"].clone()).unwrap();
+        assert_eq!(access::assistant_scope(&input), strings(&case["expected"]), "{}", case["name"]);
+    }
 }
 
 // ---------------------------------------------------------------- upstream
@@ -512,7 +516,7 @@ fn every_case_list_is_replayed() {
     let replayed: &[(&Value, &[&str])] = &[
         (fixture::vault(), &["keyringCases", "aadCases", "sealVectors", "openCases", "malformedCases", "rotationCases"]),
         (fixture::audit(), &["canonicalCases", "hashCases", "statusCases", "retentionCases"]),
-        (fixture::access(), &["grantCases", "policyCases", "accessCases", "visibleCases"]),
+        (fixture::access(), &["grantCases", "policyCases", "accessCases", "visibleCases", "assistantScopeCases"]),
         (fixture::upstream(), &["flowCases", "callableCases", "missingCases"]),
         (fixture::automations(), &["validateCases", "tooManyCase", "matchCases", "sponsorCases", "rateCases", "resolveCases", "auditCases"]),
         (

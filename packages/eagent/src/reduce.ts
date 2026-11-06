@@ -69,6 +69,12 @@ const isWorking = (session: Pick<HubSession, `status`>) => session.status === `r
 export const treeAgentId = (root: Pick<HubSession, `agentId` | `startedByAgentId`>) =>
   root.agentId ?? root.startedByAgentId ?? null
 
+/** #EXP-1720: the teams `row`'s tree works in: its root's own team, then the root's scope teams. */
+export function treeTeams(state: HubState, row: Pick<HubSession, `rootId` | `teamId`>): string[] {
+  const root = state.sessions[row.rootId] ?? row
+  return [...new Set([root.teamId, ...((root as HubSession).scopeTeamIds ?? [])])]
+}
+
 /** A reader of `listener` may not see `origin` (a private session mirrored into a shared one or another member's). */
 export const askHidden = (
   listener: Pick<HubSession, `shared` | `userId`>,
@@ -308,16 +314,17 @@ function busReport(ctx: Ctx, child: HubSession, summary: string | null, summaryS
   for (const row of Object.values(ctx.state.sessions)) row.wakeOn = row.wakeOn.filter((id) => id !== child.id)
 }
 
-/** `watcher` watches `ids`: live sessions of its team its account may see, never itself. */
+/** `watcher` watches `ids`: live sessions of its tree's teams its account may see, never itself. */
 function watchSessions(ctx: Ctx, watcherId: string, ids: readonly string[]): string[] {
   const watcher = ctx.state.sessions[watcherId]
   if (!watcher) return []
+  const teams = treeTeams(ctx.state, watcher)
   const live = [...new Set(ids)]
     .filter((id) => id !== watcherId)
     .map((id) => ctx.state.sessions[id])
     .filter(
       (row): row is HubSession =>
-        !!row && isLive(row) && row.teamId === watcher.teamId && (row.shared || row.userId === watcher.userId)
+        !!row && isLive(row) && teams.includes(row.teamId) && (row.shared || row.userId === watcher.userId)
     )
     .map((row) => row.id)
   watcher.wakeOn = [...new Set([...watcher.wakeOn, ...live])]
@@ -346,6 +353,7 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
     blocked: null,
     wakeOn: [],
     sealEpoch: null,
+    scopeTeamIds: null,
     createdAt: ctx.now,
     startedAt: null,
     endedAt: null,
@@ -393,6 +401,17 @@ interface SendData {
   attachmentIds?: string[]
   /** The id a fresh thread or a continuation takes. */
   freshId?: string
+  /** #EXP-1720: the team a new session starts in (one of the caller's / parent's tree teams). */
+  teamId?: string
+  /** #EXP-1720: the Assistant's teams for this turn (a message to its conversation root): the root's new scope. */
+  scopeTeamIds?: string[]
+}
+
+/** #EXP-1720: the team a new session of a tree starts in: the named one when the tree works there, else refused. */
+function startTeam(state: HubState, tree: HubSession | null, teamId: string | undefined, fallback: string): string {
+  if (!teamId || teamId === fallback) return fallback
+  if (tree && !treeTeams(state, tree).includes(teamId)) refuse(`forbidden`, copy.teamOutOfScope)
+  return teamId
 }
 
 function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepResult {
@@ -408,7 +427,10 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
     parentId: null,
     rootId: id,
     depth: 0,
-    teamId: caller?.teamId ?? rules.defaults.session.teamId,
+    teamId:
+      caller && callerTreeAgent(ctx.state, caller)
+        ? startTeam(ctx.state, caller, data.teamId, caller.teamId)
+        : (data.teamId ?? caller?.teamId ?? rules.defaults.session.teamId),
     userId: data.userId ?? caller?.userId ?? rules.defaults.session.userId,
     shared: data.shared ?? true,
     deviceId: deviceId!,
@@ -433,7 +455,7 @@ function startChild(ctx: Ctx, data: SendData, caller: HubSession | null): StepRe
     parentId: parent.id,
     rootId: parent.rootId,
     depth: parent.depth + 1,
-    teamId: parent.teamId,
+    teamId: startTeam(ctx.state, parent, data.teamId, parent.teamId),
     userId: data.userId ?? caller?.userId ?? parent.userId,
     shared: root.shared,
     deviceId: data.deviceId ?? parent.deviceId,
@@ -471,6 +493,13 @@ function agentFreshThread(ctx: Ctx, data: SendData, caller: HubSession | null, t
 
 function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepResult {
   const target = session(ctx.state, data.sessionId)
+  if (data.scopeTeamIds) {
+    // #EXP-1720: a turn's teams are the Assistant's alone: they become its conversation root's scope.
+    const assistant = target.agentId ? ctx.state.agents[target.agentId] : undefined
+    if (target.parentId !== null || assistant?.role !== `assistant`) refuse(`invalid`, copy.scopeAssistantOnly)
+    target.scopeTeamIds = [...new Set(data.scopeTeamIds.filter((id) => id !== target.teamId))]
+    target.updatedAt = ctx.now
+  }
   if (caller) {
     const fresh = agentFreshThread(ctx, data, caller, target)
     if (fresh) return fresh
@@ -836,7 +865,10 @@ function tick(ctx: Ctx): StepResult {
 
 function treesMoved(ctx: Ctx, agentId: string, since: number): boolean {
   const agent = ctx.state.agents[agentId]!
-  const rows = Object.values(ctx.state.sessions).filter((row) => row.teamId === agent.teamId)
+  // #EXP-1720: an Assistant's chats span its conversation's teams.
+  const conversation = ctx.state.sessions[agent.conversationId]
+  const teams = agent.role === `assistant` && conversation ? treeTeams(ctx.state, conversation) : [agent.teamId]
+  const rows = Object.values(ctx.state.sessions).filter((row) => teams.includes(row.teamId))
   const moved = (row: HubSession) => row.lastActivityAt !== null && row.lastActivityAt > since
   if (agent.role === `assistant`) {
     // An Assistant watches all its member's chats; its own conversation's turns are not news, its children are.

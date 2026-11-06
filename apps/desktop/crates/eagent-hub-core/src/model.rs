@@ -133,6 +133,10 @@ pub struct HubSession {
     /// A ROOT's tree key epoch (EXP-1458): `Some` = keyed, its tree takes sealed text only (#FEED-185).
     #[serde(default)]
     pub seal_epoch: Option<i64>,
+    /// #EXP-1720: a ROOT's OTHER teams its tree may work in besides its own (the Assistant's picked teams ∩ the
+    /// member's, emcp access.json `assistantScope`); `None` = its own team only.
+    #[serde(default)]
+    pub scope_team_ids: Option<Vec<String>>,
     pub created_at: i64,
     pub started_at: Option<i64>,
     pub ended_at: Option<i64>,
