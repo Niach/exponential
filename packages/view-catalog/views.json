@@ -8361,7 +8361,7 @@
       "group": "ede",
       "title": "Exponential Desktop · icon rail",
       "blurb": "The sidebar folded to the 56 px icon rail (sidebar.json with /shell/rail: Sidebar's rail mode draws every row as a tile with a tooltip; the ground's panel follows), the taskbar unchanged.",
-      "order": 10,
+      "order": 9,
       "ede": {
         "size": "1280x720",
         "env": {
@@ -8382,7 +8382,7 @@
       "group": "ede",
       "title": "Exponential Desktop · chat",
       "blurb": "The chat button's surface (apps/ede/ui/chat.json): the Assistant's composer in the middle of the screen; until the desktop is connected to an account the text goes to the Exponential app.",
-      "order": 11,
+      "order": 10,
       "ede": {
         "size": "1280x720",
         "open": [
