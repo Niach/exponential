@@ -987,6 +987,9 @@ export const fcmTokens = pgTable(
     // this table.
     relayCapability: text(`relay_capability`),
     pushPublicKey: text(`push_public_key`),
+    // #EXP-1639 (live-activity.json): the build draws Live Activities / Live
+    // Updates (iOS: it set its push-to-start token on the relay install).
+    liveActivities: boolean(`live_activities`).notNull().default(false),
     ...timestamps,
   },
   (table) => [
@@ -995,6 +998,28 @@ export const fcmTokens = pgTable(
     // the (token, user_id) unique can't serve them.
     index(`idx_fcm_tokens_user`).on(table.userId),
   ]
+)
+
+// #EXP-1639 (live-activity.json): one followed session on one push
+// registration: what was last sent, so the sync pushes only a change, and
+// the relay's per-activity id the phone registered (iOS; null until then and
+// on Android). Server-only: no shape syncs this table.
+export const liveActivityFollows = pgTable(
+  `live_activity_follows`,
+  {
+    id: uuidPk(),
+    sessionId: uuid(`session_id`)
+      .notNull()
+      .references(() => sessions.id, { onDelete: `cascade` }),
+    fcmTokenId: uuid(`fcm_token_id`)
+      .notNull()
+      .references(() => fcmTokens.id, { onDelete: `cascade` }),
+    relayActivityId: text(`relay_activity_id`),
+    content: text().notNull(),
+    sentAt: timestamp(`sent_at`, { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [unique().on(table.sessionId, table.fcmTokenId), index(`idx_live_activity_follows_token`).on(table.fcmTokenId)]
 )
 
 // EXP-481: a device's SERVER-AUTHORITATIVE per-agent launch defaults. The

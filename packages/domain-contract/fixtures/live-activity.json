@@ -1,0 +1,352 @@
+{
+  "$comment": "#EXP-1639 (owner 2026-11-06, drafts approved; start = automatic for every running root session the member started): A RUNNING SESSION ON THE LOCK SCREEN ×2 (iOS ActivityKit Live Activity on the Lock Screen + Dynamic Island, a widget-extension target; Android an ongoing notification, on Android 16 a promoted `Notification.ProgressStyle` Live Update with a status-bar chip; web and desktop have none). Model = pure `liveActivityFollows` + `liveActivityContent` (src/live-activity.ts; iOS ExpPush `LiveActivityModel.swift`, linked by the widget extension, Android `data/push/LiveActivity.kt`), every mirror replays the `*Cases`. WHICH SESSIONS (`liveActivityFollows`): a ROOT session (no parent) the member STARTED by hand (its `userId`, no `startedByAgentId`), not an agent conversation (no `agentId`), whose phase is not `done`; at most `maxActivities` at once, the newest started first. PHASES: `needsInput` = `needsYou`, else `blocked` = `blocked`, else `queued` = `starting`, `running` = `working`, `idle` or `ended` = `done`. A follow STARTS when a session enters a non-done phase and ENDS at `done` (the last content stays `dismissMinutes`, then the OS removes it); the next turn starts a new one. THE CONTENT (`liveActivityContent`): `title` = the session's display title, or `copy.encryptedTitle` when the title is sealed (the phone fills the real one in locally from its own store when it can open it, never the server); `subtitle` = `copy.phases[phase]`, plus ` · ` + the device label when known; `detail` = for `needsYou` the question-push.json preview of a PLAINTEXT ask (null for a sealed one: the phone may fill it in locally), for `blocked` the blocked badge label, else null; `badge` = `needs-you` for `needsYou`, else `PR #<n>` when the session has an open PR, else `timer` (the OS counts up from `startedAt`); `segment` (Android ProgressStyle, `segments` in order) = 1 for starting/working/blocked, 2 needsYou, 3 when a PR is open and not done, 4 done. TRANSPORT, end to end like every push: the server SEALS the content (with `sessionId`, `phase`, `startedAt`) to the phone's push key (push-seal.json) and hands it to push-relay's `POST /activity` (`start` / `update` / `end`); iOS: the relay sends APNs `liveactivity` pushes whose content-state is ONLY that sealed blob (push-to-start with the install's start token, updates with the per-activity token the phone registered), and the widget extension opens it with the push key in the shared keychain, so neither the relay nor Apple ever read a title or a question; Android: a data-only FCM message the app opens and draws. The server sends only on a change of the content, at most once per `minUpdateSeconds` (a `needsYou` or `done` change goes out at once, high priority). Tapping it opens the session (inbox-route.json). OS-drawn: styleguide entry `os-live-activity`, not an Exponential UI primitive.",
+  "copy": {
+    "encryptedTitle": "Encrypted session",
+    "phases": {
+      "starting": "Starting",
+      "working": "Working",
+      "needsYou": "Needs you",
+      "blocked": "Blocked",
+      "done": "Done"
+    },
+    "prBadge": "PR #{n}"
+  },
+  "segments": [
+    "Working",
+    "Needs you",
+    "PR opened",
+    "Done"
+  ],
+  "maxActivities": 3,
+  "dismissMinutes": 15,
+  "minUpdateSeconds": 30,
+  "followCases": [
+    {
+      "name": "running roots the member started, newest first, capped",
+      "input": {
+        "me": "u1",
+        "sessions": [
+          {
+            "parentId": null,
+            "userId": "u1",
+            "agentId": null,
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s1",
+            "startedAt": "2026-11-06T08:00:00.000Z"
+          },
+          {
+            "parentId": null,
+            "userId": "u1",
+            "agentId": null,
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s2",
+            "startedAt": "2026-11-06T09:00:00.000Z"
+          },
+          {
+            "parentId": null,
+            "userId": "u1",
+            "agentId": null,
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "queued",
+            "busy": false,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s3",
+            "startedAt": "2026-11-06T09:30:00.000Z"
+          },
+          {
+            "parentId": null,
+            "userId": "u1",
+            "agentId": null,
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": false,
+            "id": "s4",
+            "startedAt": "2026-11-06T07:00:00.000Z"
+          },
+          {
+            "parentId": null,
+            "userId": "u1",
+            "agentId": null,
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s5",
+            "startedAt": "2026-11-06T10:00:00.000Z"
+          },
+          {
+            "parentId": "s1",
+            "userId": "u1",
+            "agentId": null,
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s6",
+            "startedAt": "2026-11-06T10:00:00.000Z"
+          },
+          {
+            "parentId": null,
+            "userId": "u1",
+            "agentId": null,
+            "startedByAgentId": "a",
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s7",
+            "startedAt": "2026-11-06T10:00:00.000Z"
+          },
+          {
+            "parentId": null,
+            "userId": "u1",
+            "agentId": "a",
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s8",
+            "startedAt": "2026-11-06T10:00:00.000Z"
+          },
+          {
+            "parentId": null,
+            "userId": "u2",
+            "agentId": null,
+            "startedByAgentId": null,
+            "title": "Reduce cold start",
+            "sealedTitle": false,
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": false,
+            "id": "s9",
+            "startedAt": "2026-11-06T10:00:00.000Z"
+          }
+        ]
+      },
+      "expected": [
+        "s3",
+        "s2",
+        "s1"
+      ]
+    }
+  ],
+  "contentCases": [
+    {
+      "name": "working on a device",
+      "input": {
+        "session": {
+          "parentId": null,
+          "userId": "u1",
+          "agentId": null,
+          "startedByAgentId": null,
+          "title": "Reduce cold start",
+          "sealedTitle": false,
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": false,
+          "id": "s1",
+          "startedAt": "2026-11-06T08:00:00.000Z"
+        },
+        "deviceLabel": "Mira's MacBook",
+        "prNumber": null,
+        "askPreview": null,
+        "blockedLabel": null
+      },
+      "expected": {
+        "phase": "working",
+        "title": "Reduce cold start",
+        "subtitle": "Working · Mira's MacBook",
+        "detail": null,
+        "badge": "timer",
+        "segment": 1
+      }
+    },
+    {
+      "name": "needs you with a plaintext ask",
+      "input": {
+        "session": {
+          "parentId": null,
+          "userId": "u1",
+          "agentId": null,
+          "startedByAgentId": null,
+          "title": "Reduce cold start",
+          "sealedTitle": false,
+          "status": "idle",
+          "busy": false,
+          "needsInput": true,
+          "blocked": false,
+          "id": "s1",
+          "startedAt": "2026-11-06T08:00:00.000Z"
+        },
+        "deviceLabel": null,
+        "prNumber": null,
+        "askPreview": "Question: Which database should we use for the cache?",
+        "blockedLabel": null
+      },
+      "expected": {
+        "phase": "needsYou",
+        "title": "Reduce cold start",
+        "subtitle": "Needs you",
+        "detail": "Question: Which database should we use for the cache?",
+        "badge": "needs-you",
+        "segment": 2
+      }
+    },
+    {
+      "name": "a sealed title: generic, never the ciphertext",
+      "input": {
+        "session": {
+          "parentId": null,
+          "userId": "u1",
+          "agentId": null,
+          "startedByAgentId": null,
+          "title": "exp-sealed:abc",
+          "sealedTitle": true,
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": false,
+          "id": "s1",
+          "startedAt": "2026-11-06T08:00:00.000Z"
+        },
+        "deviceLabel": "Mira's MacBook",
+        "prNumber": null,
+        "askPreview": null,
+        "blockedLabel": null
+      },
+      "expected": {
+        "phase": "working",
+        "title": "Encrypted session",
+        "subtitle": "Working · Mira's MacBook",
+        "detail": null,
+        "badge": "timer",
+        "segment": 1
+      }
+    },
+    {
+      "name": "a PR open while working",
+      "input": {
+        "session": {
+          "parentId": null,
+          "userId": "u1",
+          "agentId": null,
+          "startedByAgentId": null,
+          "title": "Reduce cold start",
+          "sealedTitle": false,
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": false,
+          "id": "s1",
+          "startedAt": "2026-11-06T08:00:00.000Z"
+        },
+        "deviceLabel": null,
+        "prNumber": 2041,
+        "askPreview": null,
+        "blockedLabel": null
+      },
+      "expected": {
+        "phase": "working",
+        "title": "Reduce cold start",
+        "subtitle": "Working",
+        "detail": null,
+        "badge": "PR #2041",
+        "segment": 3
+      }
+    },
+    {
+      "name": "blocked",
+      "input": {
+        "session": {
+          "parentId": null,
+          "userId": "u1",
+          "agentId": null,
+          "startedByAgentId": null,
+          "title": "Reduce cold start",
+          "sealedTitle": false,
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": true,
+          "id": "s1",
+          "startedAt": "2026-11-06T08:00:00.000Z"
+        },
+        "deviceLabel": null,
+        "prNumber": null,
+        "askPreview": null,
+        "blockedLabel": "Rate limited"
+      },
+      "expected": {
+        "phase": "blocked",
+        "title": "Reduce cold start",
+        "subtitle": "Blocked",
+        "detail": "Rate limited",
+        "badge": "timer",
+        "segment": 1
+      }
+    },
+    {
+      "name": "done with a PR",
+      "input": {
+        "session": {
+          "parentId": null,
+          "userId": "u1",
+          "agentId": null,
+          "startedByAgentId": null,
+          "title": "Reduce cold start",
+          "sealedTitle": false,
+          "status": "idle",
+          "busy": false,
+          "needsInput": false,
+          "blocked": false,
+          "id": "s1",
+          "startedAt": "2026-11-06T08:00:00.000Z"
+        },
+        "deviceLabel": null,
+        "prNumber": 2041,
+        "askPreview": null,
+        "blockedLabel": null
+      },
+      "expected": {
+        "phase": "done",
+        "title": "Reduce cold start",
+        "subtitle": "Done",
+        "detail": null,
+        "badge": "PR #2041",
+        "segment": 4
+      }
+    }
+  ]
+}

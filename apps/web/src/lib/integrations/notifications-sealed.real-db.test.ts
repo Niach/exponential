@@ -12,6 +12,7 @@ import { generateTreeKey, sealBody, sealCard } from "@exp/domain-contract/sealed
 
 const pushes = vi.hoisted(() => [] as { title: string; body?: string; data: Record<string, string> }[])
 vi.mock(`@/lib/integrations/fcm`, () => ({
+  getRelayUrl: () => null,
   sendToUsers: async (_targets: unknown, payload: { title: string; body?: string; data: Record<string, string> }) => {
     pushes.push(payload)
   },

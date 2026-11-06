@@ -53,6 +53,7 @@ import { resolveMentions } from "@/lib/integrations/mentions"
 import { isSealedBody, isSealedCard, isSealedMessage } from "@/lib/sessions/sealed"
 import { askText as busAskText } from "@/lib/sessions/bus"
 import { NOTIFICATION_ACTIONS } from "@exp/domain-contract/notification-actions"
+import { kickLiveActivities } from "@/lib/integrations/live-activities"
 import { reporterFacingText } from "@/lib/reporter/report-text"
 import type { CodingSessionBlocked, MessageCard } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
@@ -1088,6 +1089,8 @@ export async function notifySessionAsk(args: {
       },
       sessionId: session.id,
     })
+    // #EXP-1639: the Live Activity says "Needs you" now, not on the next tick.
+    kickLiveActivities(recipientIds)
   } catch (err) {
     console.error(`[notify] session ask failed:`, err)
   }
