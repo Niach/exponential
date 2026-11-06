@@ -5,14 +5,13 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.16.3 (2026-11-06)
+
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception). Compose paints the core's parts (no painter change); the example maps media-volume-up.
 - `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` (`MarkdownOptions`): hard breaks, the chat rhythm, selection (`SelectionContainer` / `DisableSelection`) and streamed text, measured as painted; a document of 24+ blocks composes only the blocks in its visible window.
 - #VAPP-258: Markdown host hooks (`fixtures/markdown-host.json`): `TextLinkSegment.chip` paints an inline Chip, `HostPlugin.imageSize` sizes block images, `onImagePress` makes them pressable, `attachment` paints a one-link paragraph as a Video, AudioPlayer or file row. All optional; also on `HostPolicy`. `MarkdownView` takes them as parameters.
 - An inline DatePicker paints the core's in-flow month grid; a marked day draws its event dot (VAPP-282).
-
-## 0.16.3 (2026-11-06)
-
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - `brand-exponential` (#VAPP-283): the Exponential logo as an icon concept (icons.json `custom`, a filled 24-unit glyph in currentColor), in the Icon vocabulary of every renderer; the Icon specimen's non-Lucide case shows it. The example host maps it in SinkIcons.
 - `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` (`MarkdownOptions`): hard breaks, the chat rhythm, selection (`SelectionContainer` / `DisableSelection`) and streamed text, measured as painted; a document of 24+ blocks composes only the blocks in its visible window.
