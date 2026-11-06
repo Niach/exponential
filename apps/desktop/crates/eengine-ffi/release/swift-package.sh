@@ -10,7 +10,9 @@
 #   <outdir>/package/                             (the tree the distribution repo commits and tags <version>)
 # and prints `checksum <64 hex>` last. The package: the binary target
 # `ExponentialEngineFFI` (`url:` + `checksum:`, SwiftPM refuses file URLs) and
-# the target `ExponentialEngine` = the COMMITTED UniFFI binding, product `ExponentialEngine`.
+# the target `ExponentialEngine` = the COMMITTED UniFFI binding, product `ExponentialEngine`;
+# #VAPP-265: the target + product `ExponentialEngineCapabilities` = swift/ExponentialEngineCapabilities
+# (photos, files, share, print, notifications on UIKit/PhotoKit), depending on `ExponentialEngine`.
 set -euo pipefail
 
 [ $# -ge 2 ] || { echo "usage: $0 <version> <outdir> [--local]" >&2; exit 2; }
@@ -31,6 +33,8 @@ ditto -c -k --sequesterRsrc --keepParent "$xcf" "$zip"
 
 mkdir -p "$pkg/Sources/ExponentialEngine"
 cp "$crate/bindings/swift/ExponentialEngineFFI.swift" "$pkg/Sources/ExponentialEngine/"
+mkdir -p "$pkg/Sources/ExponentialEngineCapabilities"
+cp "$crate"/swift/ExponentialEngineCapabilities/*.swift "$pkg/Sources/ExponentialEngineCapabilities/"
 cp "$repo/LICENSE" "$repo/NOTICE" "$pkg/"
 checksum="$(cd "$pkg" && swift package compute-checksum "$zip")"
 if [ "$local" = "--local" ]; then
@@ -54,11 +58,14 @@ let package = Package(
     platforms: [.iOS(.v15), .macOS(.v12)],
     products: [
         .library(name: "ExponentialEngine", targets: ["ExponentialEngine"]),
+        // The native capabilities (photos, files, share, print, notifications) for EngineProviders.
+        .library(name: "ExponentialEngineCapabilities", targets: ["ExponentialEngineCapabilities"]),
     ],
     targets: [
         // eengine-ffi (iOS device + simulator + macOS, static).
         $binary,
         .target(name: "ExponentialEngine", dependencies: ["ExponentialEngineFFI"]),
+        .target(name: "ExponentialEngineCapabilities", dependencies: ["ExponentialEngine"]),
     ]
 )
 SWIFT
@@ -91,6 +98,19 @@ let engine = try Engine(
 )
 let app = try engine.load(fileJson: packageFile)
 _ = try app.event(eventJson: #"{"type":"launch"}"#)
+\`\`\`
+
+The platform's capabilities, product \`ExponentialEngineCapabilities\` (photos,
+files, share, print, notifications on UIKit, PhotoKit and UserNotifications).
+Their calls block: the Engine makes them from a worker thread, never the main one.
+
+\`\`\`swift
+import ExponentialEngineCapabilities
+
+let providers = EngineProviders(vault: keychain, window: navigator,
+                                capabilities: EngineCapabilities.ios())
+// UNUserNotificationCenterDelegate didReceive:
+if let tap = NotificationTaps.tapJson(response: response) { _ = try app.event(eventJson: tap) }
 \`\`\`
 
 Kotlin: \`at.exponential:engine:$version\` on Maven Central. Licence: see
