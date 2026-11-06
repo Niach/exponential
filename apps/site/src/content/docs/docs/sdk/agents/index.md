@@ -12,7 +12,7 @@ The core runs every coding session of the Exponential desktop app and the CLI da
 | Part | What | State |
 |---|---|---|
 | **The runtime** | Spawn, the Agent Client Protocol, events, login, history, MCP wiring | in the app |
-| **The module** | `eagent`, a git dependency on `eagent-v*` | 0.1.0 |
+| **The module** | `eagent`, a git dependency on `eagent-v*` | 0.2.0 |
 | **Orchestration spec** | Session trees, the bus, wake-ups, reports, caps and the watchdog as fixtures (`@exp/eagent`) and a Rust reducer (`eagent-hub-core`) | built |
 | **Local orchestration** | Session trees for one person, without a server | planned |
 
