@@ -20,6 +20,7 @@
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm"
 import {
   composeBatch,
+  MERGE_TRAIN_LIMITS,
   conflictText,
   failingText,
   heldText,
@@ -81,6 +82,13 @@ export function mergeTrainOn(repoFullName?: string | null): boolean {
 /** The switch is on for SOME repositories only (yolo still runs elsewhere). */
 export function mergeTrainScoped(): boolean {
   return process.env[MERGE_TRAIN_ENV] === `true` && trainRepos() !== null
+}
+/** #EXP-1711: `MERGE_TRAIN_BATCH_MAX` caps a batch below merge-train.json
+ *  `limits.batchMax` (8); unset or invalid = the limit. */
+export const MERGE_TRAIN_BATCH_MAX_ENV = `MERGE_TRAIN_BATCH_MAX`
+export function mergeTrainBatchMax(): number {
+  const value = Number.parseInt(process.env[MERGE_TRAIN_BATCH_MAX_ENV] ?? ``, 10)
+  return Number.isFinite(value) && value >= 1 ? Math.min(value, MERGE_TRAIN_LIMITS.batchMax) : MERGE_TRAIN_LIMITS.batchMax
 }
 /** `mergeTrainOn` for a pull request's repository. */
 export async function mergeTrainOnForPullRequest(pullRequestId: string): Promise<boolean> {
@@ -702,7 +710,7 @@ export async function advanceRepository(repositoryId: string, now: Date = new Da
       const bottom = byNumber.get(first.members[0]!.number)!
       const base = bottom.base
       const sameBase = train.filter((_, i) => units[i]![0]!.base === base)
-      const batch = composeBatch(sameBase)
+      const batch = composeBatch(sameBase, mergeTrainBatchMax())
       if (batch.length > 0) {
         const ids = batch.map((unit) => unit.map((n) => byNumber.get(n)!.id))
         await startRun(repo, forge, { units: ids, attempt: 0, bisect: false, pending: [] }, {

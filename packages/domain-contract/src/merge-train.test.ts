@@ -34,8 +34,10 @@ describe(`merge-train fixture`, () => {
   it.each(fixture.steps)(`step: $name`, ({ pr, event, expected }) => {
     expect(mergeStep(pr as never, event as never)).toEqual(expected as never)
   })
-  it.each(fixture.batches)(`batch: $name`, ({ units, expected }) => {
-    expect(composeBatch(units as never)).toEqual(expected)
+  it.each(fixture.batches)(`batch: $name`, (c) => {
+    const { units, expected } = c
+    const batchMax = (c as { batchMax?: number }).batchMax
+    expect(batchMax === undefined ? composeBatch(units as never) : composeBatch(units as never, batchMax)).toEqual(expected)
   })
   it.each(fixture.bisect)(`bisect: $name`, ({ input, expected }) => {
     expect(trainRun(input)).toEqual(expected)
