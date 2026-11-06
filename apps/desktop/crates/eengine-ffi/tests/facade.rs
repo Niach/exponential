@@ -258,7 +258,7 @@ fn an_inline_consent_ui_answers_the_sheet() {
     p.consent = Some(Arc::new(AlwaysAllow));
     let app = Engine::new(host(None), local(), p).unwrap().load(package()).unwrap();
     app.event(r#"{"type":"launch"}"#.into()).unwrap();
-    assert_eq!(value(app.call("photos.pick".into(), "{}".into(), vec![]).unwrap())["structuredContent"], json!({"photos": []}));
+    assert_eq!(value(app.call("photos.pick".into(), "{}".into(), vec![]).unwrap()), json!({"photos": []}), "VAPP-271: app UI reads the structuredContent");
     assert_eq!(app.grants_json(), "{}", "once stores nothing");
 }
 
