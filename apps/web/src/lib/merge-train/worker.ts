@@ -675,12 +675,18 @@ async function landDirect(
 
 function unitsOf(prs: PrRow[]): { units: PrRow[][]; train: TrainUnit[] } {
   const units = buildUnits(prs)
+  const numberOf = new Map(prs.map((pr) => [pr.id, pr.number]))
   const train = units.map((unit) => ({
-    members: unit.map((pr) => ({
-      number: pr.number,
-      ready: pr.mergeState === `queued`,
-      readyAt: pr.mergeReadyAt?.toISOString() ?? null,
-    })),
+    members: unit.map((pr) => {
+      // #EXP-1711: a tree-shaped stack's ready prefix follows parents.
+      const parent = pr.basePullRequestId ? numberOf.get(pr.basePullRequestId) : undefined
+      return {
+        number: pr.number,
+        ready: pr.mergeState === `queued`,
+        readyAt: pr.mergeReadyAt?.toISOString() ?? null,
+        ...(parent !== undefined ? { parent } : {}),
+      }
+    }),
     mergeNow: unit.some((pr) => pr.mergeNow),
   }))
   return { units, train }
