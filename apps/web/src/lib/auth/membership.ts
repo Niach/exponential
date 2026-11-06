@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { boardVisible } from "@/lib/board-visibility"
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import {
   attachments,
   issueDrafts,
@@ -13,6 +13,7 @@ import {
 import type { TeamMember } from "@/db/schema"
 import type { TeamRole } from "@/lib/domain"
 import {
+  memberTeamIdsCache,
   readableUserIdsCache,
   userTeamIdsCache,
 } from "@/lib/auth/membership-cache"
@@ -98,7 +99,33 @@ export async function getUserTeamIds(userId: string): Promise<string[]> {
   return userTeamIdsCache.get(userId, () => queryUserTeamIds(userId))
 }
 
+// #EXP-1720: the joined teams + the personal team, in ONE query (every
+// shape renewal resolves this list).
 async function queryUserTeamIds(userId: string): Promise<string[]> {
+  const db = await getDb()
+  const rows = await db
+    .select({ teamId: teams.id })
+    .from(teams)
+    .leftJoin(teamMembers, and(eq(teamMembers.teamId, teams.id), eq(teamMembers.userId, userId)))
+    .where(
+      or(
+        eq(teamMembers.userId, userId),
+        and(eq(teams.ownerId, userId), eq(teams.kind, `personal`))
+      )
+    )
+
+  return rows.map((row) => row.teamId)
+}
+
+/** #EXP-1720: the teams the user JOINED (team_members), never their hidden
+ *  personal team: what a person sees as "their teams" (the teams shape, the
+ *  Assistant's scope). `getUserTeamIds` = these + the personal team (every
+ *  other shape: its Assistant, conversation and messages sync). */
+export async function getMemberTeamIds(userId: string): Promise<string[]> {
+  return memberTeamIdsCache.get(userId, () => queryMemberTeamIds(userId))
+}
+
+async function queryMemberTeamIds(userId: string): Promise<string[]> {
   const db = await getDb()
   const rows = await db
     .select({ teamId: teamMembers.teamId })
@@ -106,6 +133,18 @@ async function queryUserTeamIds(userId: string): Promise<string[]> {
     .where(eq(teamMembers.userId, userId))
 
   return rows.map((row) => row.teamId)
+}
+
+/** #EXP-1720: the user's hidden personal team (`teams.kind = personal`,
+ *  their global Assistant's), if it exists. */
+export async function getPersonalTeamId(userId: string): Promise<string | null> {
+  const db = await getDb()
+  const [row] = await db
+    .select({ id: teams.id })
+    .from(teams)
+    .where(and(eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
+    .limit(1)
+  return row?.id ?? null
 }
 
 export async function getTeamMember(userId: string, teamId: string) {
@@ -124,8 +163,15 @@ export async function getTeamMember(userId: string, teamId: string) {
       )
     )
     .limit(1)
-
-  return member
+  if (member) return member
+  // #EXP-1720: a personal team has no team_members row; its owner is its one
+  // member, never its owner role (no settings, invites or billing there).
+  const [personal] = await db
+    .select({ id: teams.id })
+    .from(teams)
+    .where(and(eq(teams.id, teamId), eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
+    .limit(1)
+  return personal ? { userId, teamId, role: `member` as TeamRole } : undefined
 }
 
 export async function assertTeamMember(

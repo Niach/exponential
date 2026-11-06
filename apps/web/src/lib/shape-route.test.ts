@@ -47,6 +47,7 @@ const membership = vi.hoisted(() => ({
   getUserTeamIds: vi.fn(),
   getReadableUserIdsInTeams: vi.fn(),
   getReadableTeamIds: vi.fn(),
+  getMemberTeamIds: vi.fn(),
 }))
 
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({
@@ -75,6 +76,7 @@ vi.mock(`@/lib/team-membership`, async (importOriginal) => {
     getUserTeamIds: membership.getUserTeamIds,
     getReadableUserIdsInTeams: membership.getReadableUserIdsInTeams,
     getReadableTeamIds: membership.getReadableTeamIds,
+    getMemberTeamIds: membership.getMemberTeamIds,
   }
 })
 
@@ -929,6 +931,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     membership.getUserTeamIds.mockReset()
     membership.getReadableUserIdsInTeams.mockReset()
     membership.getReadableTeamIds.mockReset()
+    membership.getMemberTeamIds.mockReset()
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
@@ -976,6 +979,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
       membership.getUserTeamIds.mockResolvedValue([`w-1`])
       membership.getReadableUserIdsInTeams.mockResolvedValue([`user-1`])
       membership.getReadableTeamIds.mockResolvedValue([`w-1`])
+      membership.getMemberTeamIds.mockResolvedValue([`w-1`])
 
       await shapeHandler(route)({
         request: new Request(`https://example.com/api/shapes/${name}`, {

@@ -28,6 +28,12 @@ describe(`apiKeyKindOf`, () => {
 
 // FEED-76: the same metadata carries a scoped key's team/board selection.
 describe(`parseApiKeyMetadata`, () => {
+  it(`#EXP-1720: keeps the Assistant's live all-teams scope (MCP-only, never a full key)`, () => {
+    expect(
+      parseApiKeyMetadata(JSON.stringify({ kind: `agent`, scope: { allTeams: false, teamIds: [], boardIds: [], assistant: true } }))
+    ).toEqual({ kind: `agent`, scope: { allTeams: false, teamIds: [], boardIds: [], assistant: true } })
+  })
+
   it(`reads kind and scope, unscoped when absent`, () => {
     expect(parseApiKeyMetadata(null)).toEqual({ kind: `personal`, scope: null })
     expect(parseApiKeyMetadata(`not json`)).toEqual({ kind: `personal`, scope: null })

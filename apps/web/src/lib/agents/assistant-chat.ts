@@ -4,6 +4,7 @@ import type { MessageCard } from "@exp/db-schema/domain"
 import { agents, messages, sessions } from "@/db/schema"
 import { pendingInput, inSession } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
+import { treeTeamsOfRoot } from "@/lib/sessions/tree-teams"
 
 // #EXP-1439 (agent-settings.json `assistant.chat`, the spec): the Assistant's
 // conversation stays quiet. Between two of the member's messages it holds
@@ -108,19 +109,26 @@ export async function statusCardTarget(
 }
 
 /** A scheduled check-in has something to look at: any of the member's
- *  OTHER sessions in the team (their threads, their agents' conversations
- *  and every child) moved since `since`. */
+ *  OTHER sessions in its conversation's teams (#EXP-1720: the Assistant's
+ *  scope; their threads, their agents' conversations and every child)
+ *  moved since `since`. */
 export async function memberChatsChanged(
   tx: Pick<Tx, `select`>,
   agent: { id: string; teamId: string; ownerId: string },
   since: Date
 ): Promise<boolean> {
+  const [conversation] = await tx
+    .select({ teamId: sessions.teamId, userId: sessions.userId, agentId: sessions.agentId, scopeTeamIds: sessions.scopeTeamIds })
+    .from(sessions)
+    .where(and(eq(sessions.agentId, agent.id), eq(sessions.userId, agent.ownerId), isNull(sessions.parentId)))
+    .limit(1)
+  const teams = conversation ? await treeTeamsOfRoot(conversation, tx) : [agent.teamId]
   const [moved] = await tx
     .select({ id: sessions.id })
     .from(sessions)
     .where(
       and(
-        eq(sessions.teamId, agent.teamId),
+        inArray(sessions.teamId, teams),
         eq(sessions.userId, agent.ownerId),
         // Its own conversation's turns are not news; its children are.
         or(isNull(sessions.agentId), ne(sessions.agentId, agent.id), ne(sessions.id, sessions.rootId)),

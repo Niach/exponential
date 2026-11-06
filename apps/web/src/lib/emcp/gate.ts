@@ -13,6 +13,7 @@ import { and, eq, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { sessions } from "@/db/schema"
+import { getPersonalTeamId, getUserTeamIds } from "@/lib/auth/membership"
 import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/emcp/helpers"
 import { auditRows, recordMcpCalls, toolCallsOf, type AuditOptions } from "@/lib/emcp/audit"
@@ -25,7 +26,7 @@ import {
   resolveMcpTokenAccess,
   type McpAccess,
 } from "@/lib/emcp/scope"
-import { confineMcpAccessToActingSession } from "@/lib/sessions/acting"
+import { actingSessionForRequest, confineMcpAccessToActingSession } from "@/lib/sessions/acting"
 import { hostedByCondition } from "@/lib/sessions/host"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { runAsSession } from "@/lib/apps/automation-scope"
@@ -79,11 +80,16 @@ async function resolveCredential(
   if (session?.user) {
     const userId = session.user.id
     if (!keyScope) return { userId, clientId: null, access: FULL_ACCESS }
+    // #EXP-1720: the Assistant's key reaches the member's teams of the moment
+    // (the acting session's clamp narrows it to the turn's pick).
+    const grant = keyScope.assistant
+      ? { allTeams: false, teamIds: await getUserTeamIds(userId), boardIds: [] }
+      : keyScope
     // #EXP-1383: a team agent's key (one team) words its denials as such.
     return {
       userId,
       clientId: null,
-      access: await resolveMcpAccessForGrant(keyScope, keyKind === `agent` ? `agent` : `apiKey`),
+      access: await resolveMcpAccessForGrant(grant, keyKind === `agent` ? `agent` : `apiKey`),
     }
   }
 
@@ -164,6 +170,13 @@ export function auditTeamId(access: McpAccess): string | null {
   return [...access.visibleTeamIds][0]!
 }
 
+async function actingAuditTeam(request: Request, caller: EmcpCaller): Promise<string | null> {
+  if (!caller.gates.inSession || !caller.sessionId) return null
+  const acting = await actingSessionForRequest(request, caller.user.id, caller.sessionId)
+  if (!acting?.rootAgentId || !caller.access.visibleTeamIds.has(acting.teamId)) return null
+  return acting.teamId === (await getPersonalTeamId(caller.user.id)) ? null : acting.teamId
+}
+
 /** Gate a POST, serve it through `provider`, audit its tool calls. */
 export async function serveMcp(
   request: Request,
@@ -189,6 +202,10 @@ export async function serveMcp(
     enableJsonResponse: true,
   })
   const started = performance.now()
+  // #EXP-1720: an Assistant tree's request reaches several teams; its rows
+  // name the team its session works in (a child in its target team), never
+  // the personal team (null there: a cross-team read).
+  const actingTeam = audited ? await actingAuditTeam(request, caller) : null
   try {
     await server.connect(transport)
     // #VAPP-236: what this call writes or emits names the caller's own
@@ -206,7 +223,7 @@ export async function serveMcp(
               {
                 userId: caller.user.id,
                 clientId: caller.clientId,
-                teamId: audit.teamId !== undefined ? audit.teamId : auditTeamId(caller.access),
+                teamId: audit.teamId !== undefined ? audit.teamId : (auditTeamId(caller.access) ?? actingTeam),
                 appId: null,
               },
               body,

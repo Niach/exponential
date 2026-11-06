@@ -1821,6 +1821,13 @@
       "when": 1794003823755,
       "tag": "0259_team_import",
       "breakpoints": true
+    },
+    {
+      "idx": 260,
+      "version": "7",
+      "when": 1794006658334,
+      "tag": "0260_global_assistant_scope",
+      "breakpoints": true
     }
   ]
 }
