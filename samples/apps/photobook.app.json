@@ -252,7 +252,7 @@
             "call": "print.pdf",
             "args": {
               "title": "params.title",
-              "blocks": "[{'heading': params.title}] + (has(params.cover) ? [{'image': params.cover}] : []) + sortBy(orElse(data.pages.rows, []).filter(p, size(p.photos) > 0).map(p, {'k': p.createdAt + p.id + '0', 'b': {'image': p.photos[0]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 1).map(p, {'k': p.createdAt + p.id + '1', 'b': {'image': p.photos[1]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 2).map(p, {'k': p.createdAt + p.id + '2', 'b': {'image': p.photos[2]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 3).map(p, {'k': p.createdAt + p.id + '3', 'b': {'image': p.photos[3]}}) + orElse(data.pages.rows, []).filter(p, has(p.caption)).map(p, {'k': p.createdAt + p.id + '4', 'b': {'text': p.caption}}) + orElse(data.pages.rows, []).map(p, {'k': p.createdAt + p.id + '5', 'b': {'pageBreak': true}}), 'k').map(x, x.b)"
+              "blocks": "[{'heading': params.title}] + (has(params.cover) ? [{'image': params.cover}] : []) + sortBy(orElse(data.pages.rows, []).filter(p, size(p.photos) > 0).map(p, {'k': p.createdAt + p.id + '0', 'b': {'image': p.photos[0]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 1).map(p, {'k': p.createdAt + p.id + '1', 'b': {'image': p.photos[1]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 2).map(p, {'k': p.createdAt + p.id + '2', 'b': {'image': p.photos[2]}}) + orElse(data.pages.rows, []).filter(p, size(p.photos) > 3).map(p, {'k': p.createdAt + p.id + '3', 'b': {'image': p.photos[3]}}) + orElse(data.pages.rows, []).filter(p, has(p.caption)).map(p, {'k': p.createdAt + p.id + '4', 'b': {'text': p.caption}}) + orElse(data.pages.rows, []).map(p, {'k': p.createdAt + p.id + '/', 'b': {'pageBreak': true}}), 'k').map(x, x.b)"
             },
             "result": "pdf"
           },
@@ -966,6 +966,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "3TQcioEuSXh5BgUfzAoLAMEShQsvqPVpX2Ne0MbYeukjPr0DOnR4Jnsse9lnSN5H4WjWSA829gj3avO9tXF2Bg"
+    "value": "cD08-TzS3oSTSChdNYEs40ynHuc0ya7cLWenOO3LO958tjJacyONcYmab9-VcBo-rNrV-7-E7NCkZCQo9GpsAQ"
   }
 }

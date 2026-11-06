@@ -171,6 +171,8 @@ describe(`the Photobook on the Engine (VAPP-271)`, () => {
     expect(body.match(/\/Subtype \/Image/g)?.length).toBe(3)
     expect(body.match(/\/Im\d+ Do/g)?.length).toBe(4)
     expect(body).toContain(`/DCTDecode`)
+    // The cover alone on the first sheet, then one sheet per page: each page opens with its break, so none is blank.
+    expect(body.match(/\/Type \/Page(?!s)/g)?.length).toBe(2)
     expect(body).toContain(`/FlateDecode`)
     // Every startxref offset points at the xref table.
     const at = Number(body.match(/startxref\n(\d+)\n%%EOF/)![1])
