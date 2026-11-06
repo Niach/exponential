@@ -37,11 +37,11 @@ impl Service for Bluetooth {
             }
         }
         if adapters.is_empty() {
-            return json!({"available": true, "adapters": [], "devices": [], "powered": false, "reason": "no Bluetooth adapter"});
+            return json!({"available": true, "adapters": [], "devices": [], "powered": false, "discovering": false, "reason": "no Bluetooth adapter"});
         }
         devices.sort_by(|a, b| b["connected"].as_bool().cmp(&a["connected"].as_bool()).then(b["paired"].as_bool().cmp(&a["paired"].as_bool())));
-        let powered = adapters.iter().any(|a| a["powered"].as_bool() == Some(true));
-        json!({"available": true, "powered": powered, "adapters": adapters, "devices": devices})
+        let (powered, discovering) = adapter_flags(&adapters);
+        json!({"available": true, "powered": powered, "discovering": discovering, "adapters": adapters, "devices": devices})
     }
 
     fn actions(&self) -> Vec<ActionSpec> {
@@ -75,5 +75,23 @@ impl Service for Bluetooth {
             }
             other => Err(format!("no action {other}")),
         }
+    }
+}
+
+/// The snapshot's top-level `powered` and `discovering`: any adapter.
+pub fn adapter_flags(adapters: &[Value]) -> (bool, bool) {
+    (adapters.iter().any(|a| a["powered"].as_bool() == Some(true)), adapters.iter().any(|a| a["discovering"].as_bool() == Some(true)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovering_follows_any_adapter() {
+        let adapters = vec![json!({"path": "/org/bluez/hci0", "powered": true, "discovering": false}), json!({"path": "/org/bluez/hci1", "powered": false, "discovering": true})];
+        assert_eq!(adapter_flags(&adapters), (true, true));
+        assert_eq!(adapter_flags(&adapters[..1]), (true, false));
+        assert_eq!(adapter_flags(&[]), (false, false));
     }
 }
