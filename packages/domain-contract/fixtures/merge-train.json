@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1707 (epic #EXP-1704, Danny 2026-11-06): THE MERGE TRAIN, server-side, replaces yolo mode (session-thread.json EXP-1413) and the person's Merge pill. TS reference src/merge-train.ts; the server worker (#EXP-1709) and the pipeline (#EXP-1708) apply it; the clients (#EXP-1710, one PR per platform) replay `statusPill`, `menu`, `stuckRow` ×4 (natives replay this file by path like every fixture: registering it breaks no leg). MODE: `teams.merge_mode` (contract teamMergeMode) replaces `teams.yolo_mode`: `auto` = DEFAULT for every team, self-hosted included; `approval` = a ready PR waits for a person's Needs approval, then queues. Settings: the yolo switch becomes ONE select row `copy.settings` (Automatic | After approval), owners only. STATE: `pull_requests.merge_state` (contract prMergeState) + `merge_attempts` (train bounces) + `merge_hold` (the hold reason, null = none) + the 24 h clock (`queuedSince`, first entry to queued) + `mergeNow`. draft | checks | queued | testing | merged | conflict | failing | held. READINESS (`readiness`, `mergeWait`, first blocker wins): draft → `draft`; its OWN head checks red (prChecksState failure) → `failing`; running → `checks`; the OPENER or any descendant of it not idle (queued, running/busy: today yolo waits for the whole thread, the train only for the opener's subtree) → `session`; `approval` mode and nobody pressed Needs approval → `approval`; else READY (checks green or none). `preTrainState`: ready = queued; draft = draft; failing = failing; any other wait = checks. Every lifecycle edge (turn end, session end, pr open/update, a checks change, a push) re-evaluates readiness; the watchdog tick too. STATE MACHINE (`steps`, `mergeStep(pr, event)` → {pr, post}; merged is final): readiness moves only draft/checks/queued/conflict/failing (testing, held never; a Merge now PR is queued unless it is a draft); `push` (a new head) = checks again (a testing unit is pulled from its run: the worker recomposes the batch without it), held stays held; `train_start` queued → testing; `train_landed` testing → merged (post merged); `train_requeued` testing → queued (an innocent unit of a red batch, a cancelled run); `train_conflict` / `train_failing` testing → conflict / failing and attempts + 1 (a BOUNCE: the PR goes back to its agent, post conflict / failing); the bounce that reaches `limits.bounces` (3) lands in held (holdReason bounces, post held, never conflict/failing); `tick` = held (timeout, post held) once `limits.hours` (24) passed since queuedSince in checks/queued/conflict/failing (testing finishes first; a Merge now is exempt); `hold` (a person, any state but draft/held/merged) = held (person, post held; a testing unit is pulled from its run); `resume` (= Needs you Retry) held → checks with attempts 0, the clock and the hold cleared; `merge_now` (owners) = queued at the FRONT, alone, UNTESTED: the train composes it on the base (resolvers run; any other conflict bounces as usual) and fast-forwards without CI; it clears a hold, keeps attempts. A pre-train red (own checks) is `failing` without a bounce and without pr_merge: the pr_checks wake (pr-checks.json) already told the agent. LANDING: fast-forward the base (master) to the EXACT tested train commit (expected old sha; base moved = recompose); the App sits on the base ruleset's bypass list. Each landed PR is closed on GitHub with a comment naming the commit (GitHub shows Closed) and is `merged` in Exponential: the worker applies pr_merged itself (issue-lifecycle.json: a landing IS pr_merged). Self-hosted without CI: no checks = lands untested, still serialized and resolved. Merging needs no device; a FIX does: a conflict/failing PR whose opener's device is offline waits, and after `limits.offlineHours` (2) shows in Needs you. UNITS + BATCHES (`batches`, `composeBatch`): a UNIT = a lone PR or a whole stack (bottom first), eligible only when EVERY member is ready, readyAt = its latest member's; queue = Merge now units first, then readyAt, ties by the lowest PR number; a batch = whole units in queue order while ≤ `limits.batchMax` (8) PRs; a unit never splits (an oversized stack rides alone); the first unit that does not fit ends the batch (no skipping ahead); a Merge now unit rides alone. Stacks land as one unit, bottom first. Queue position (the pill's `Queued · 2nd`) = the unit's 1-based place in this queue, every member of a stack sharing it. BISECT (`bisect`, `trainRun` over a red oracle: a run is red when it holds a culprit, or while `flaky` runs remain): a red batch is re-run ONCE (`limits.reruns`); red again = bisect by units (left = the first ceil(n/2) units), each half tested on the base as it is then (a landed left half moved it): a green half lands; a red half of one unit = that unit failing (no re-run); a red half of more units bisects again. A batch of one unit red twice = failing. The innocent units of a red batch stay `testing` through the bisect and land with their half. RESOLVER POLICY (`resolver`, `resolveConflicts`): the engine is GENERIC; the repo declares its generated paths in `.exponential/merge-train.json` {`generated`: [{name, paths (repo globs: ** any segments, * within one), strategy, command?}]}. Strategies: `prepend-union` (both sides' prepended entries, newer unit's first: changelogs), `renumber` (the later unit's migration takes the next number, then `command` regenerates the snapshot), `regenerate` (take the base side, run `command`, never compile: bindings, lockfiles, licence inventories), `json-union` (object/array union, the later unit wins a key), `take-later` (binary: the later unit's file). Every conflicted path matched (first rule wins) = resolved, one step per rule in policy order; ANY unmatched path = `conflict` naming only the unmatched files (the unit bounces). A conflict in a SOURCE (contract.json, icons.json) is unmatched: only generated outputs resolve. `repoPolicy` = this repo's file. pr_merge (`texts`, `routing`): ONE waking message type, kind = merged | conflict | failing | held (session-thread.json copy.events `pr_merge`); the PR's line goes to its OPENER while live, else the thread's ROOT (an ended root keeps it for display only, pre-consumed, never woken). merged and a held by the limits (bounces/timeout; never a person's Hold) ALSO reach the root starter's Assistant conversation (agent-settings.json role assistant: 'the main agent that manages every ... pull request they have'), as ONE line per landed batch per Assistant (`assistantBatch`: `Merged #A, #B into master (issues: EXP-1, …)`, its PRs in landing order, issues deduplicated, five then +N; no Assistant = no line, never created for this), and never twice when that conversation already is the PR's target. Agents never poll: after `pr open` they end their turn. NEEDS YOU (`stuckRow`): a PR held by the limits, or conflict/failing with the opener's device offline 2 h+, is ONE needs-you.json row kind `pr` (opens `results`): title `Auto-merge stuck on #N`, meta = the reason (`3 bounces`, `24 hours`, `Device offline`), its actions as THE Button sm row: Retry (= resume), Merge now (owners: the `mergeNowPrompt` alert card), Close PR (close-pr.json). A person's Hold is never a row. In `auto` mode the EXP-1699 ready-to-merge PR rows go away (no PR waits for a person); in `approval` mode they stay and their tap is Needs approval (needs-you.json prCases gain `mergeMode` with #EXP-1710). STATUS PILL (`statusPill`, replaces pr-checks.json MERGE PILL `mergePill`): THE header pill (session-thread.json guidePullRequest; phones: the bottom Merge capsule shows the same) = THE Pill md, mode action, NOT primary, a STATUS: its tap opens the existing Checks submenu (pr-checks.json CHECKS LIST; no rows = mode readonly, tap null). Glyph by icons.json concept, `spinner` = THE Spinner, tone red tints the glyph only. draft `Draft` pr-draft; checks `Checks running` spinner (or `Session working` spinner while only the opener's subtree is busy); queued `Queued · 2nd` ci-queued (ordinal: 1st 2nd 3rd 4th 11th 12th 13th 21st); testing `Testing with 3` spinner (3 = the OTHER PRs of its batch; alone = `Testing`); merged `Merged` pr-merged; conflict `Conflict` pr-conflict red; failing `Checks failing` ci-failed red; held `On hold` pr-hold (a person's) | `Auto-merge stuck` pr-hold red (the limits). THE ONLY ACTION: `approval` mode, ready but not approved = `Needs approval`, PRIMARY, pr-merged, tap approve = the plain or stack confirm (prompts.json merge-issue-pr / merge-run-pr / the stack confirm, as the Merge pill asked), and Merge queues it (never merges directly). The person's merge is otherwise gone from the pill. MENU (`menu`, `mergeMenuEntries`, amends session-thread.json guideMenuEntries): `checks` (any viewer, the PR has rows), `merge-now` (OWNERS; a live PR not draft, merged or conflict; THE shared alert card `mergeNowPrompt`, Merge destructive, Cancel focused; a stack member lands its whole stack), `hold` | `resume` (members; a live PR not draft or merged; `resume` while held: label `Resume auto-merge`, = Retry), `close-pr` (members, live PR); in that order, icons ui-more submenu rows: checks summary glyph, pr-merged, pr-hold | pr-resume, pr-closed. Merged = checks only. `mergeNowPrompt` joins prompts.json as `merge-now-pr` in ONE PR together with the iOS and Android constants (their tests compare the id set).",
+  "$comment": "EXP-1707 (epic #EXP-1704, Danny 2026-11-06): THE MERGE TRAIN, server-side, replaces yolo mode (session-thread.json EXP-1413) and the person's Merge pill. TS reference src/merge-train.ts; the server worker (#EXP-1709) and the pipeline (#EXP-1708) apply it; the clients (#EXP-1710, one PR per platform) replay `statusPill`, `menu`, `stuckRow` ×4 (natives replay this file by path like every fixture: registering it breaks no leg). MODE: `teams.merge_mode` (contract teamMergeMode) replaces `teams.yolo_mode`: `auto` = DEFAULT for every team, self-hosted included; `approval` = a ready PR waits for a person's Needs approval, then queues. Settings: the yolo switch becomes ONE select row `copy.settings` (Automatic | After approval), owners only. STATE: `pull_requests.merge_state` (contract prMergeState) + `merge_attempts` (train bounces) + `merge_hold` (the hold reason, null = none) + the 24 h clock (`queuedSince`, first entry to queued) + `mergeNow`. draft | checks | queued | testing | merged | conflict | failing | held. READINESS (`readiness`, `mergeWait`, first blocker wins): draft → `draft`; its OWN head checks red (prChecksState failure) → `failing`; running → `checks`; the OPENER or any descendant of it not idle (queued, running/busy: today yolo waits for the whole thread, the train only for the opener's subtree) → `session`; `approval` mode and nobody pressed Needs approval → `approval`; else READY (checks green or none). `preTrainState`: ready = queued; draft = draft; failing = failing; any other wait = checks. Every lifecycle edge (turn end, session end, pr open/update, a checks change, a push) re-evaluates readiness; the watchdog tick too. STATE MACHINE (`steps`, `mergeStep(pr, event)` → {pr, post}; merged is final): readiness moves only draft/checks/queued/conflict/failing (testing, held never; a Merge now PR is queued unless it is a draft); `push` (a new head) = checks again (a testing unit is pulled from its run: the worker recomposes the batch without it), held stays held; `train_start` queued → testing; `train_landed` testing → merged (post merged); `train_requeued` testing → queued (an innocent unit of a red batch, a cancelled run); `train_conflict` / `train_failing` testing → conflict / failing and attempts + 1 (a BOUNCE: the PR goes back to its agent, post conflict / failing); the bounce that reaches `limits.bounces` (3) lands in held (holdReason bounces, post held, never conflict/failing); `tick` = held (timeout, post held) once `limits.hours` (24) passed since queuedSince in checks/queued/conflict/failing (testing finishes first; a Merge now is exempt); `hold` (a person, any state but draft/held/merged) = held (person, post held; a testing unit is pulled from its run); `resume` (= Needs you Retry) held → checks with attempts 0, the clock and the hold cleared; `merge_now` (owners) = queued at the FRONT, alone, UNTESTED: the train composes it on the base (resolvers run; any other conflict bounces as usual) and fast-forwards without CI; it clears a hold, keeps attempts. A pre-train red (own checks) is `failing` without a bounce and without pr_merge: the pr_checks wake (pr-checks.json) already told the agent. LANDING: fast-forward the base (master) to the EXACT tested train commit (expected old sha; base moved = recompose); the App sits on the base ruleset's bypass list. Each landed PR is closed on GitHub with a comment naming the commit (GitHub shows Closed) and is `merged` in Exponential: the worker applies pr_merged itself (issue-lifecycle.json: a landing IS pr_merged). Self-hosted without CI: no checks = lands untested, still serialized and resolved. Merging needs no device; a FIX does: a conflict/failing PR whose opener's device is offline waits, and after `limits.offlineHours` (2) shows in Needs you. UNITS + BATCHES (`batches`, `composeBatch`): a UNIT = a lone PR or a whole stack (bottom first), eligible only when EVERY member is ready, readyAt = its latest member's; queue = Merge now units first, then readyAt, ties by the lowest PR number; a batch = whole units in queue order while ≤ `limits.batchMax` (8) PRs; a unit never splits (an oversized stack rides alone); the first unit that does not fit ends the batch (no skipping ahead); a Merge now unit rides alone. Stacks land as one unit, bottom first. Queue position (the pill's `Queued · 2nd`) = the unit's 1-based place in this queue, every member of a stack sharing it. BISECT (`bisect`, `trainRun` over a red oracle: a run is red when it holds a culprit, or while `flaky` runs remain): a red batch is re-run ONCE (`limits.reruns`); red again = bisect by units (left = the first ceil(n/2) units), each half tested on the base as it is then (a landed left half moved it): a green half lands; a red half of one unit = that unit failing (no re-run); a red half of more units bisects again. A batch of one unit red twice = failing. The innocent units of a red batch stay `testing` through the bisect and land with their half. RESOLVER POLICY (`resolver`, `resolveConflicts`): the engine is GENERIC; the repo declares its generated paths in `.exponential/merge-train.json` {`generated`: [{name, paths (repo globs: ** any segments, * within one), strategy, command?}]}. Strategies: `prepend-union` (both sides' prepended entries, newer unit's first: changelogs), `renumber` (the later unit's migration takes the next number, then `command` regenerates the snapshot), `regenerate` (take the base side, run `command`, never compile: bindings, lockfiles, licence inventories), `json-union` (object/array union, the later unit wins a key), `take-later` (binary: the later unit's file). Every conflicted path matched (first rule wins) = resolved, one step per rule in policy order; ANY unmatched path = `conflict` naming only the unmatched files (the unit bounces). A conflict in a SOURCE (contract.json, icons.json) is unmatched: only generated outputs resolve. `repoPolicy` = this repo's file (`.exponential/merge-train.json`, test-locked equal). PIPELINE (`pipeline`, #EXP-1708, provider-neutral; its own `$comment` is the spec): the worker dispatches it per batch attempt, it composes `exp-train/<train_id>` and reports ONE `exp-train` result; `trainVerdict` folds that result with the forge's checks at the composed sha and the base branch's required set. pr_merge (`texts`, `routing`): ONE waking message type, kind = merged | conflict | failing | held (session-thread.json copy.events `pr_merge`); the PR's line goes to its OPENER while live, else the thread's ROOT (an ended root keeps it for display only, pre-consumed, never woken). merged and a held by the limits (bounces/timeout; never a person's Hold) ALSO reach the root starter's Assistant conversation (agent-settings.json role assistant: 'the main agent that manages every ... pull request they have'), as ONE line per landed batch per Assistant (`assistantBatch`: `Merged #A, #B into master (issues: EXP-1, …)`, its PRs in landing order, issues deduplicated, five then +N; no Assistant = no line, never created for this), and never twice when that conversation already is the PR's target. Agents never poll: after `pr open` they end their turn. NEEDS YOU (`stuckRow`): a PR held by the limits, or conflict/failing with the opener's device offline 2 h+, is ONE needs-you.json row kind `pr` (opens `results`): title `Auto-merge stuck on #N`, meta = the reason (`3 bounces`, `24 hours`, `Device offline`), its actions as THE Button sm row: Retry (= resume), Merge now (owners: the `mergeNowPrompt` alert card), Close PR (close-pr.json). A person's Hold is never a row. In `auto` mode the EXP-1699 ready-to-merge PR rows go away (no PR waits for a person); in `approval` mode they stay and their tap is Needs approval (needs-you.json prCases gain `mergeMode` with #EXP-1710). STATUS PILL (`statusPill`, replaces pr-checks.json MERGE PILL `mergePill`): THE header pill (session-thread.json guidePullRequest; phones: the bottom Merge capsule shows the same) = THE Pill md, mode action, NOT primary, a STATUS: its tap opens the existing Checks submenu (pr-checks.json CHECKS LIST; no rows = mode readonly, tap null). Glyph by icons.json concept, `spinner` = THE Spinner, tone red tints the glyph only. draft `Draft` pr-draft; checks `Checks running` spinner (or `Session working` spinner while only the opener's subtree is busy); queued `Queued · 2nd` ci-queued (ordinal: 1st 2nd 3rd 4th 11th 12th 13th 21st); testing `Testing with 3` spinner (3 = the OTHER PRs of its batch; alone = `Testing`); merged `Merged` pr-merged; conflict `Conflict` pr-conflict red; failing `Checks failing` ci-failed red; held `On hold` pr-hold (a person's) | `Auto-merge stuck` pr-hold red (the limits). THE ONLY ACTION: `approval` mode, ready but not approved = `Needs approval`, PRIMARY, pr-merged, tap approve = the plain or stack confirm (prompts.json merge-issue-pr / merge-run-pr / the stack confirm, as the Merge pill asked), and Merge queues it (never merges directly). The person's merge is otherwise gone from the pill. MENU (`menu`, `mergeMenuEntries`, amends session-thread.json guideMenuEntries): `checks` (any viewer, the PR has rows), `merge-now` (OWNERS; a live PR not draft, merged or conflict; THE shared alert card `mergeNowPrompt`, Merge destructive, Cancel focused; a stack member lands its whole stack), `hold` | `resume` (members; a live PR not draft or merged; `resume` while held: label `Resume auto-merge`, = Retry), `close-pr` (members, live PR); in that order, icons ui-more submenu rows: checks summary glyph, pr-merged, pr-hold | pr-resume, pr-closed. Merged = checks only. `mergeNowPrompt` joins prompts.json as `merge-now-pr` in ONE PR together with the iOS and Android constants (their tests compare the id set).",
   "limits": {
     "batchMax": 8,
     "reruns": 1,
@@ -1466,6 +1466,12 @@
     }
   ],
   "repoPolicy": {
+    "setup": "bun install --ignore-scripts",
+    "ci": {
+      "workflows": [
+        "test.yml"
+      ]
+    },
     "generated": [
       {
         "name": "changelog",
@@ -1482,7 +1488,10 @@
           "apps/web/src/db/out/meta/**"
         ],
         "strategy": "renumber",
-        "command": "bun run migrate:generate"
+        "command": "bun run migrate:generate",
+        "verify": [
+          "apps/web/src/db/out/*.sql"
+        ]
       },
       {
         "name": "contract bindings",
@@ -1514,7 +1523,7 @@
           "**/Cargo.lock"
         ],
         "strategy": "regenerate",
-        "command": "bun install --lockfile-only && cargo update --workspace --offline --manifest-path apps/desktop/Cargo.toml"
+        "command": "bun install --lockfile-only --ignore-scripts && cargo update --workspace --manifest-path apps/desktop/Cargo.toml"
       },
       {
         "name": "shots index",
@@ -1615,7 +1624,7 @@
               "apps/desktop/Cargo.lock",
               "bun.lock"
             ],
-            "command": "bun install --lockfile-only && cargo update --workspace --offline --manifest-path apps/desktop/Cargo.toml"
+            "command": "bun install --lockfile-only --ignore-scripts && cargo update --workspace --manifest-path apps/desktop/Cargo.toml"
           },
           {
             "name": "shots index",
@@ -1668,6 +1677,663 @@
       }
     }
   ],
+  "pipeline": {
+    "$comment": "EXP-1708: THE TRAIN PIPELINE, provider-neutral (GitHub: `.github/workflows/train.yml` via workflow_dispatch; eCode later runs the same contract). The engine is GENERIC: nothing here names this repo; the repo speaks only through `.exponential/merge-train.json` (`setup`, `ci.workflows`, `generated`). DISPATCH: the worker starts ONE run per batch attempt (a re-run or a bisect half = a NEW train_id) with the string inputs `inputs`: `train_id` (the merge_trains row id, [A-Za-z0-9._-]), `base` (the base branch name), `base_sha` (the base the batch composes on = the fast-forward's expected old sha), `mode` (`test` | `untested`: Merge now and teams without CI compose without CI), `units` (JSON, the batch in queue order: [{prs: [{number, head_sha, title, author?}] bottom first, tested_sha?}]; `title` = the final squash title, used once as `{title} (#{number})`; `author` = `Name <email>`; `tested_sha` = a commit whose REQUIRED checks the worker saw green, sent for a lone unit only (GitHub: the PR head)). COMPOSE (runner with git; no build): from base_sha, each PR of each unit in order = a squash merge of head_sha onto the train tip, committed with that title and author. Conflicted paths go through `resolveConflicts` with the repo's `generated`; resolved = every rule's file picks first (prepend-union: both sides' prepended entries, the later unit's first; renumber: the base side kept, the later unit's added numbered files under the rule dropped; regenerate: the base side; json-union: deep union, the later unit wins a key, arrays union in order; take-later: the later unit's file, its deletion included), then `setup` once, then each step's `command` in policy order; a renumber's regenerated files matching its `verify` globs must equal the dropped ones' contents (only the name may change), else conflict. Unmatched paths, a failing command or a failed verify = that WHOLE unit is `conflict` with its files (unmatched ones, else the rule's paths): the tip resets to before the unit and composing goes on with the next unit. REF: `exp-train/<train_id>` is force-pushed: its head = the composed sha; no unit composed = ONE empty marker commit on base_sha (never lands). The batch diff travels as `base_sha`: CI computes `git diff base_sha head` and runs only the jobs its own path filters hit. CI: mode test and ≥ 1 unit composed: `proven` when the batch is ONE unit with tested_sha and the composed tree equals tested_sha's tree (no run); else every `ci.workflows` entry is started on the ref with input `base_sha` = `dispatched` (no workflows = `none`); mode untested = `skipped`; nothing composed = `none`. The pipeline never waits for CI. REPORT: ONE result named `check` (`exp-train`) on the ref's head (GitHub: a check run, external_id = train_id, its output.text = the `outcome` JSON; conclusion success when ≥ 1 unit composed, else failure; infra trouble = `error` set, `head` null, conclusion failure, posted on the marker commit when it could still push, else the run fails without one: the worker sees the run completed with no result = error). THE VERDICT (`trainVerdict`, `verdicts`): the worker reads the forge's checks at `head` and the base branch's REQUIRED check names from the forge (GitHub: the branch rules' required_status_checks; NOTHING hard-coded), then: no result yet = pending; error = error; nothing composed = conflict; checks proven/skipped/none or no required checks = green; dispatched: any required check completed with a conclusion other than success/neutral/skipped = red (at once, the rest may still run), any missing or unfinished = pending, else green. `composed` = the units that ride (green = land them by fast-forwarding base to head; red = re-run/bisect per `bisect`), `conflicts` = the units that bounce (`train_conflict`) whatever the state.",
+    "ref": "exp-train/<train_id>",
+    "check": "exp-train",
+    "inputs": [
+      "train_id",
+      "base",
+      "base_sha",
+      "mode",
+      "units"
+    ],
+    "example": {
+      "inputs": {
+        "train_id": "t42",
+        "base": "master",
+        "base_sha": "aaa111",
+        "mode": "test",
+        "units": [
+          {
+            "prs": [
+              {
+                "number": 12,
+                "head_sha": "b12",
+                "title": "EXP-1: one",
+                "author": "Ada <ada@example.com>"
+              }
+            ]
+          },
+          {
+            "prs": [
+              {
+                "number": 14,
+                "head_sha": "b14",
+                "title": "EXP-2: stack bottom"
+              },
+              {
+                "number": 15,
+                "head_sha": "b15",
+                "title": "EXP-3: stack top"
+              }
+            ]
+          }
+        ]
+      },
+      "outcome": {
+        "train": "t42",
+        "base_sha": "aaa111",
+        "head": "ccc333",
+        "checks": "dispatched",
+        "units": [
+          {
+            "prs": [
+              12
+            ],
+            "outcome": "composed",
+            "files": [],
+            "resolved": [
+              "changelog"
+            ]
+          },
+          {
+            "prs": [
+              14,
+              15
+            ],
+            "outcome": "conflict",
+            "files": [
+              "apps/web/src/lib/sessions/send.ts"
+            ],
+            "resolved": []
+          }
+        ],
+        "error": null
+      }
+    },
+    "verdicts": [
+      {
+        "name": "no result yet",
+        "outcome": null,
+        "checks": [],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "pending",
+          "head": null,
+          "composed": [],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "required checks green",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            },
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "gate",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "ios-core",
+            "status": "completed",
+            "conclusion": "failure"
+          }
+        ],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "green",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "a required check still running",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            },
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "gate",
+            "status": "in_progress",
+            "conclusion": null
+          }
+        ],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "pending",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "a required check not reported yet",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            },
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "web",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "pending",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "a required check red ends it at once",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            },
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "gate",
+            "status": "completed",
+            "conclusion": "failure"
+          },
+          {
+            "name": "lint",
+            "status": "queued",
+            "conclusion": null
+          }
+        ],
+        "required": [
+          "gate",
+          "lint"
+        ],
+        "expected": {
+          "state": "red",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "skipped and neutral pass",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            },
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "gate",
+            "status": "completed",
+            "conclusion": "skipped"
+          },
+          {
+            "name": "lint",
+            "status": "completed",
+            "conclusion": "neutral"
+          }
+        ],
+        "required": [
+          "gate",
+          "lint"
+        ],
+        "expected": {
+          "state": "green",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "proven lone unit lands without a run",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "proven",
+          "units": [
+            {
+              "prs": [
+                7
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "green",
+          "head": "h1",
+          "composed": [
+            [
+              7
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "merge now composes untested",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "skipped",
+          "units": [
+            {
+              "prs": [
+                7
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "green",
+          "head": "h1",
+          "composed": [
+            [
+              7
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "no required checks = lands untested",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            },
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [],
+        "required": [],
+        "expected": {
+          "state": "green",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "a conflicting unit bounces, the rest rides",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            },
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "outcome": "conflict",
+              "files": [
+                "src/a.ts"
+              ],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "gate",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "green",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ]
+          ],
+          "conflicts": [
+            {
+              "prs": [
+                2,
+                3
+              ],
+              "files": [
+                "src/a.ts"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "nothing composed",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "m1",
+          "checks": "none",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "conflict",
+              "files": [
+                "src/a.ts",
+                "src/b.ts"
+              ],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "conflict",
+          "head": "m1",
+          "composed": [],
+          "conflicts": [
+            {
+              "prs": [
+                1
+              ],
+              "files": [
+                "src/a.ts",
+                "src/b.ts"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "pipeline error",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": null,
+          "checks": "none",
+          "units": [],
+          "error": "fetch b12: not found"
+        },
+        "checks": [],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "error",
+          "head": null,
+          "composed": [],
+          "conflicts": []
+        }
+      },
+      {
+        "name": "the newest run of a check wins",
+        "outcome": {
+          "train": "t1",
+          "base_sha": "aaa",
+          "head": "h1",
+          "checks": "dispatched",
+          "units": [
+            {
+              "prs": [
+                1
+              ],
+              "outcome": "composed",
+              "files": [],
+              "resolved": []
+            }
+          ],
+          "error": null
+        },
+        "checks": [
+          {
+            "name": "gate",
+            "status": "completed",
+            "conclusion": "failure"
+          },
+          {
+            "name": "gate",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "required": [
+          "gate"
+        ],
+        "expected": {
+          "state": "green",
+          "head": "h1",
+          "composed": [
+            [
+              1
+            ]
+          ],
+          "conflicts": []
+        }
+      }
+    ]
+  },
   "texts": [
     {
       "kind": "merged",
