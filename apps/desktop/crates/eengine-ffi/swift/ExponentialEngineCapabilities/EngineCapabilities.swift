@@ -1,4 +1,14 @@
 // #VAPP-265: the platform's set, ready for `EngineProviders(capabilities:)`.
+// #VAPP-268: the umbrella over the five capability modules. An iOS app that
+// ships to the App Store links only the modules it declares instead
+// (ITMS-90683: every linked privacy API needs its purpose string), as the
+// runner does (apps/runner/ios).
+@_exported import ExponentialEngineCapabilityCore
+@_exported import ExponentialEngineFiles
+@_exported import ExponentialEngineNotifications
+@_exported import ExponentialEnginePhotos
+@_exported import ExponentialEnginePrint
+@_exported import ExponentialEngineShare
 import Foundation
 import ExponentialEngine
 

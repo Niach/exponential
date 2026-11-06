@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, holdDialogBottom, isBinding, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -244,6 +244,71 @@ function ModalHead(props: { part: PartFn; title: string; description: string; ti
 }
 
 // ---------------------------------------------------------------------------
+// VAPP-276: anchor by id
+// ---------------------------------------------------------------------------
+
+/** The element of the overlay's `anchor` node (looked up on mount, when the
+ *  id changes and on every open change, so a node painted later in the
+ *  tree is picked up), wired as the overlay's trigger (`linkAnchor`), its
+ *  open state mirrored (`markAnchor`). `null` without an `anchor` prop. */
+function createAnchor(id: Accessor<string>, from: Accessor<Element | undefined>, link: AnchorLink, open: Accessor<boolean>, contentId: string): Accessor<HTMLElement | null> {
+  const ctx = useSurfaceContext()
+  const [el, setEl] = createSignal<HTMLElement | null>(null)
+  const find = () => {
+    const found = id() ? findAnchor(from() ?? ctx.portal, ctx.surfaceId, id()) : null
+    if (found !== untrack(el)) setEl(found)
+  }
+  onMount(find)
+  createEffect(on([id, open], find, { defer: true }))
+  createEffect(() => {
+    const e = el()
+    if (!e) return
+    const off = linkAnchor(e, link)
+    onCleanup(off)
+  })
+  createEffect(() => {
+    const e = el()
+    if (e) markAnchor(e, open(), contentId)
+  })
+  return el
+}
+
+/** VAPP-281: where an open popup's content goes: the host's element, null
+ *  (the in-surface overlay), or `pending` while the host is asked. */
+type HostedContainer = HTMLElement | null | `pending`
+
+/** VAPP-281: with `host.popupHost`, ask it for a container when the popup
+ *  opens (its anchor's box in surface coordinates, side, align); tell it
+ *  when it closes. */
+function createHostedPopup(owner: Accessor<string>, kind: HostedPopup[`kind`], open: Accessor<boolean>, anchorOf: () => Element | null | undefined, side: Accessor<Side>, align: Accessor<`start` | `center` | `end`>): Accessor<HostedContainer> {
+  const ctx = useSurfaceContext()
+  const [asked, setAsked] = createSignal<{ el: HTMLElement | null } | null>(null)
+  createEffect(() => {
+    const host = ctx.host.popupHost
+    if (!host || !open()) return
+    // Asked again when the anchor's element changes (an `anchor` node is
+    // found after the first pass).
+    const el = anchorOf()
+    const popup = untrack(() => hostedPopupOf(owner(), kind, el, side(), align(), ctx.direction))
+    setAsked({ el: mountHostedPopup(host, popup, el) })
+    onCleanup(() => {
+      host.unmount?.(popup)
+      setAsked(null)
+    })
+  })
+  return () => {
+    if (!ctx.host.popupHost || !open()) return null
+    const a = asked()
+    return a ? a.el : `pending`
+  }
+}
+
+/** The overlay layer, or the host's container (VAPP-281). */
+function popupMount(hosted: HostedContainer, portal: HTMLElement | null): HTMLElement | null {
+  return hosted === `pending` ? null : (hosted ?? portal)
+}
+
+// ---------------------------------------------------------------------------
 // Popover
 // ---------------------------------------------------------------------------
 
@@ -274,7 +339,16 @@ export function PopoverNative(props: NativeProps): JSX.Element {
     )
   }
   onCleanup(() => timer && clearTimeout(timer))
-  const [anchor, setAnchor] = createSignal<HTMLElement>()
+  const [own, setAnchor] = createSignal<HTMLElement>()
+  // VAPP-276: `anchor` = a node elsewhere opens it and places it; `align`
+  // along the side.
+  const align = () => str(props.props.align, `center`) as `start` | `center` | `end`
+  const anchorId = () => str(props.props.anchor)
+  const anchored = () => Boolean(anchorId())
+  const [wrapper, setWrapper] = createSignal<HTMLElement>()
+  const linked = createAnchor(anchorId, wrapper, { haspopup: `dialog`, toggle: () => setOpen(!untrack(open)), hover: { active: hoverMode, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
+  const anchor = () => (anchored() ? (linked() ?? undefined) : own())
+  const hosted = createHostedPopup(() => props.node.id, `Popover`, open, anchor, side, align)
   const state = () => (open() ? `open` : `closed`)
   const presence = createPresence(open)
 
@@ -287,8 +361,10 @@ export function PopoverNative(props: NativeProps): JSX.Element {
           hasInteractedOutside = true
           if (e.detail.originalEvent.type === `pointerdown`) hasPointerDownOutside = true
         }
-        const target = e.target as Node | null
-        if (target && anchor()?.contains(target) && hasTrigger()) e.preventDefault()
+        if (withinAnchor(anchor(), e.target) && (hasTrigger() || anchored())) e.preventDefault()
+        // VAPP-276: a press or focus in ANOTHER open overlay (a second panel
+        // applet) dismisses nothing (the core's rule).
+        if (withinOtherOverlay(contentEl, e.target)) e.preventDefault()
         if (e.detail.originalEvent.type === `focusin` && hasPointerDownOutside) e.preventDefault()
       },
       onDismiss: () => setOpen(false),
@@ -300,7 +376,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
         if (untrack(hoverMode)) e.preventDefault()
       },
       onUnmountAutoFocus: (e) => {
-        if (!hasInteractedOutside && hasTrigger()) anchor()?.focus()
+        if (!hasInteractedOutside && (hasTrigger() || anchored()) && !untrack(hoverMode)) anchor()?.focus()
         e.preventDefault()
         hasInteractedOutside = false
         hasPointerDownOutside = false
@@ -308,7 +384,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
     })
     const [registered, setRegistered] = createSignal(false)
     return (
-      <Popper anchor={anchor()} side={side()} align="center" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} dir={ctx.direction}>
+      <Popper anchor={anchor()} side={side()} align={align()} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} dir={ctx.direction}>
         {(popper) => {
           const el = (
             <div
@@ -351,8 +427,8 @@ export function PopoverNative(props: NativeProps): JSX.Element {
 
   return (
     <>
-      <div {...overlayRootProps(props.rootProps, hasTrigger(), props.node.slots?.trigger)}>
-        <Show when={hasTrigger()} fallback={<span ref={setAnchor} style={css({ display: `inline-flex` })} />}>
+      <div ref={setWrapper} {...overlayRootProps(props.rootProps, hasTrigger(), props.node.slots?.trigger)}>
+        <Show when={hasTrigger()} fallback={<Show when={!anchored()}><span ref={setAnchor} style={css({ display: `inline-flex` })} /></Show>}>
           <span
             ref={setAnchor}
             class="xui-trigger"
@@ -375,7 +451,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
           </span>
         </Show>
       </div>
-      <LayerPortal mount={ctx.portal}>
+      <LayerPortal mount={popupMount(hosted(), ctx.portal)}>
         <Show when={presence.mounted()}>
           <Content />
         </Show>
@@ -946,6 +1022,13 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
   const icon = () => str(props.props.icon)
   const [open, setOpen] = createSignal(false)
   const hasChild = () => props.node.children.length > 0
+  // VAPP-276: `side` + `align`; `anchor` = a node elsewhere is the trigger
+  // the popper measures (its child, when given, still toggles it).
+  const anchorId = () => str(props.props.anchor)
+  const anchored = () => Boolean(anchorId())
+  const [wrapper, setWrapper] = createSignal<HTMLElement>()
+  const contentId = createUniqueId()
+  const linked = createAnchor(anchorId, wrapper, { haspopup: `menu`, toggle: () => setOpen(!untrack(open)), open: () => setOpen(true) }, open, contentId)
   return (
     <PressMenu
       part={part}
@@ -955,8 +1038,25 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
       raws={objects<Record<string, unknown>>(props.node.props.items)}
       open={open}
       setOpen={setOpen}
+      side={str(props.props.side, `bottom`) as Side}
+      align={str(props.props.align, `start`) as `start` | `center` | `end`}
+      anchor={() => (anchored() ? linked() : null)}
+      hostAs={props.node.id}
+      contentId={contentId}
       trigger={(t) => (
-        <div {...overlayRootProps(props.rootProps, true, props.node.children[0] ?? null)}>
+        <Show
+          when={!anchored()}
+          fallback={
+            <div ref={setWrapper} {...overlayRootProps(props.rootProps, hasChild(), props.node.children[0] ?? null)}>
+              <Show when={hasChild()}>
+                <span class="xui-trigger" oncapture:click={() => setOpen(!untrack(open))}>
+                  {props.children}
+                </span>
+              </Show>
+            </div>
+          }
+        >
+        <div ref={setWrapper} {...overlayRootProps(props.rootProps, true, props.node.children[0] ?? null)}>
           <Show
             when={hasChild()}
             fallback={
@@ -974,6 +1074,7 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
             </span>
           </Show>
         </div>
+        </Show>
       )}
     />
   )
@@ -1003,14 +1104,22 @@ export function PressMenu(props: {
   setOpen: (open: boolean) => void
   side?: Side
   align?: `start` | `center` | `end`
+  /** VAPP-276: the anchor node's element (`anchor` prop): placed against it,
+   *  focus returns to it. */
+  anchor?: Accessor<HTMLElement | null>
+  contentId?: string
+  /** VAPP-281: the Menu's id: `host.popupHost` may host it outside the surface. */
+  hostAs?: string
   trigger: (t: PressMenuTrigger) => JSX.Element
 }): JSX.Element {
   const ctx = useSurfaceContext()
   const open = () => props.open()
   const setOpen = (next: boolean) => props.setOpen(next)
   const triggerId = createUniqueId()
-  const contentId = createUniqueId()
-  const [trigger, setTrigger] = createSignal<HTMLElement>()
+  const contentId = props.contentId ?? createUniqueId()
+  const [own, setTrigger] = createSignal<HTMLElement>()
+  const trigger = () => props.anchor?.() ?? own()
+  const hosted = createHostedPopup(() => props.hostAs ?? ``, `Menu`, () => !!props.hostAs && open(), trigger, () => props.side ?? `bottom`, () => props.align ?? `start`)
   useKeyboardTracking()
   const root: MenuRoot = { close: () => setOpen(false), dir: () => ctx.direction, overlay: `Menu`, openOn: `press`, part: props.part, emit: props.emit, scope: () => props.scope }
   const presence = createPresence(open)
@@ -1038,7 +1147,7 @@ export function PressMenu(props: {
   return (
     <MenuRootContext.Provider value={root}>
       {props.trigger({ ref: setTrigger, attrs: triggerAttrs, onPointerDown, onKeyDown })}
-      <LayerPortal mount={ctx.portal}>
+      <LayerPortal mount={popupMount(hosted(), ctx.portal)}>
         <Show when={presence.mounted()}>
           <MenuContent
             anchor={trigger()}

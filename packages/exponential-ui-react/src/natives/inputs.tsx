@@ -13,7 +13,7 @@ import { useSurfaceContext } from "../context"
 import { boundPath, hostPath, switchTravel } from "@exponential_app/eui/web"
 import { FieldErrors, joinIds, useField } from "../form"
 import { CHROME, IconGlyph } from "../icons"
-import { useHostOwnedValue } from "../inputs"
+import { useHostOwnedValue, useWriteEpoch } from "../inputs"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { useBoundState } from "./bound"
@@ -63,7 +63,8 @@ function TextFieldNative({ node, props, rootProps, emit, scope, domId, multiline
   const id = useId()
   const { send, writeLocal } = useInputSender(node, scope, `value`, domId)
   const external = str(props.value)
-  const field = useHostOwnedValue<string>({ external, send, writeLocal })
+  const epoch = useWriteEpoch(ctx)
+  const field = useHostOwnedValue<string>({ external, send, writeLocal, epoch })
   const focusRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
   const f = useField({ node, domId, props, value: field.value, focusRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
@@ -493,7 +494,8 @@ export function ComposerNative({ node, props, rootProps, emit, scope, domId }: N
   const ctx = useSurfaceContext()
   const { send, writeLocal } = useInputSender(node, scope, `value`, domId)
   const external = str(props.value)
-  const field = useHostOwnedValue<string>({ external, send, writeLocal })
+  const epoch = useWriteEpoch(ctx)
+  const field = useHostOwnedValue<string>({ external, send, writeLocal, epoch })
   const busy = bool(props.busy)
   const ref = useRef<HTMLTextAreaElement>(null)
   const grow = () => {

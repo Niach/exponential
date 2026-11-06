@@ -326,3 +326,219 @@ Renderers:
   `expanded` to `nodeKey` (the core decides); the macro paints with no other
   change. `Round1ModelTests` / `InteractionTest` replay `foldRow` through
   the model (`press`, `handleKey`); `Row/open=*` snapshots recorded.
+
+## Tree (#VAPP-285)
+
+A first-class tree for Files and Version history: expand/collapse, lazy
+children, selection, the WAI-ARIA tree keyboard. It replaces hand-built
+`Row.depth` runs + TreeGuides: the Tree is a MACRO over Rows, so the rows
+are today's Rows (depth → the tree guides pass) and every renderer gets it
+from the core.
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| catalog | `Tree` (macro, list, lite): `items` ([`treeItem`] = {id, title, icon?, meta?, children?, hasChildren?}, literal), `expanded` (string ids, bindable, two-way), `value` (selected leaf id, bindable, two-way), `label`; events `select {id}`, `toggle {id, open}`, `load {id, open}`; string `tree` | `core.catalog.json`, `strings.json` | `catalog-components.json`, generated drift |
+| rows | `treeRows(items, expanded)` (src/tree.ts, Rust `tree::tree_rows`): depth-first; a node with `children` (an array, even empty) or `hasChildren: true` = a branch; `hasChildren` and no `children` = LAZY (folds through `load`; while open a `loading` row with a Spinner and `$string.loading` sits under it); default glyphs `ui-folder` / `ui-folder-open` / `ui-file`. A LITERAL `expanded` keeps only the shown rows; a BOUND one keeps every row, `shown` / `open` / `next` = `expr` calls over it (CEL `e.exists(x, x == id)`), `toggled` = the list a fold writes back (`e.filter(…)` or `e + [id]`) | `src/tree.ts` | `fixtures/tree.json` `rows` |
+| macro | root Box (role tree, `label` else `$string.tree`) → `row` = a Row per `{treeRows(props)}` (`$each`, `$as: node`; compact, `depth`, `selected` = `id == value`, a11y treeitem + aria-level + aria-expanded on a branch + aria-selected; the loading row is role none and not pressable) whose `leading` slot `lead` (16 × 16, decorative) holds `foldIcon` (`ui-chevron-right`, the `open` recipe turns it 90°) on a branch or `spinner` on the loading row. A leaf press = `select {id}` + `value` written back; a branch press and its `toggle` = `toggle {id, open}` (`load` on a lazy branch) + `expanded` written back | `macros.json` | `catalog-macros.json` `Tree/*`, `bind-time.json` `Tree/bound` |
+| macro table | `{treeRows(props)}` joins `len`/`range`; under `$each` a part's `$if`/`$any` are decided PER ITEM (they see the item; ids keep the item index); `$on`/`$set` keys and a routed `event` may interpolate (empty = route/write nothing) | `macros.json` `$comment`, `src/macros.ts`, `src/expr.ts`, Rust `macros.rs`/`expr.rs` | `catalog-macros.json` |
+| keys | `treeKey(rows, index, key, rtl)` over the VISIBLE treeitems: Down/Up, Home/End move the focus; the open key (ArrowRight, ArrowLeft in rtl) opens a closed branch (the fold keys' `toggle`) or enters an open one; the close key closes an open branch or goes to the parent; Enter/Space = the row's press | `src/tree.ts`, Rust `tree::tree_key`, `Surface::event(i, "key")` (→ a `Focus` event), `a11y.json` Tree | `fixtures/tree.json` `keys`, `interactions-round1.json` `tree` |
+| look | the neutral theme: `Tree/foldIcon` muted, rotate(90deg) when `open`; `Tree/spinner` muted. Rows look like Rows (the Files tree's compact rows + the guides) | `themes/neutral.theme.json` | `theme-recipes.json` |
+| kitchen sink | + a Tree (src open with main.ts selected, a lazy `lib`, README.md) after the Outline | `kitchen-sink.json` | `kitchen-sink.expanded.json`, the renderers' kitchen-sink snapshots |
+| styleguide | entry `tree` on all five sites (sections.json General, entries/index.ts, entries/tree.tsx, page.ts `Lists & rows`, desktop `styleguide/entries/tree.rs`) painting specimen `exponential-ui-tree`; view `exponential-ui-tree` | `apps/styleguide`, `packages/view-catalog/views.json` | `shots/exponential-ui-tree` |
+
+`items` is literal: a bound tree of unknown depth cannot expand into rows
+(`$each` over a bound array emits nothing); the host passes the items it has
+and answers `load` by filling `children`. `expanded` and `value` bind.
+
+Prompt budget 9,235 → 9,326 tokens (a named exception: the Tree).
+
+On a rail (#VAPP-277: a collapsed rail Sidebar's `$pass` also hands a
+Tree `rail` + `railSide`) every row is a rail tile, like an authored Row
+and the foldable parent: `treeRows(props)` reads `rail` (true = every row
+whatever `expanded`, no loading row; bound = every row, `shown` =
+`cond(rail, true, <shown without it>)`), the rows take `rail`/`railSide`,
+depth 0, role `button` and no `level`/`expanded` (so no tree keys: one tab
+stop per tile, its keyboard focus opening the title's tooltip), the fold
+glyph (the leading slot) drops, the root is a `group`. Locked by
+`catalog-macros.json` `Sidebar/rail:tree`, `tree.json` `rail*` cases, the
+React + Solid `sidebar-rail.test.tsx` Tree case.
+
+Renderers:
+
+- [x] TS + Rust core: `treeRows` / `tree_rows`, `treeKey` / `tree_key`,
+  the expander changes; `Surface::event(index, "key", {key})` on a
+  treeitem moves the focus (`OutEvent::Focus`) or falls through to the fold
+  keys. `catalog_fixtures.rs` 637 → 638 cases; `tests/tree_fixture.rs`,
+  `interactions_fixture.rs` `tree`.
+- [x] React / Solid / element: a pressable Box keeps `role=treeitem`;
+  `treeKeyTarget` (`@exponential_app/eui/web`) moves the DOM focus; the fold
+  keys fold. `interactions-fixture.test.tsx` replays `tree`.
+- [x] gpui: ↑ ↓ Home End ← → on a treeitem go to the core (`event(i,
+  "key")`), the `Focus` it answers moves the focus; `tests/interaction.rs`
+  replays `tree`.
+- [x] SwiftUI / Compose: the same keys on a treeitem go to `nodeKey`; the
+  macro paints with no other change.
+
+## Popover / Menu anchored to any element (#VAPP-276)
+
+The eDE panel is a bottom taskbar: its start button opens the start menu and
+its applets (calendar, volume, network) open popovers ABOVE themselves,
+aligned to the button's start or end edge. Before this round a Popover only
+opened from its own `trigger` slot (centred on its `side`) and a Menu only
+from its child (bottom-start), so a panel hand-positioned absolute boxes.
+
+### What moved
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| enum | NEW `overlayAlign` = `start \| center \| end` | `core.catalog.json` | generated ×4 |
+| `Popover` | `align` (`overlayAlign`, default `center`), `anchor` (string, a node id) | `core.catalog.json` | `catalog-components.json`, `overlay-geometry.json` |
+| `Menu` | `side` (default `bottom`), `align` (default `start`), `anchor` | `core.catalog.json` | `catalog-components.json`, the core + renderer tests |
+| placement | `overlay-geometry.json` + 11 cases: every placement (top-start, top-end, bottom-start, bottom-end, right-start, left-end), the flip at the bottom edge, the shift at both side edges, two anchor-by-id cases (`byId`) | `src/overlay.ts` `placeOverlay` (unchanged: it already took `align`) | `overlay.test.ts`, eui-core `layout_fixtures.rs` + `conformance.rs`, the FFI facade (Rust, Swift, Kotlin), gpui `suites.rs`, Swift + Compose geometry/conformance, React/Solid/element Chromium |
+| FFI | NEW `place_overlay_aligned(..., side, align)` (the side-only `place_overlay` = centre) | `exponential-ui-ffi/src/lib.rs` | `tests/facade.rs`, the Swift + Kotlin binding tests |
+| web | NEW `findAnchor`, `linkAnchor`, `markAnchor`, `virtualAnchor`, `withinAnchor` (`@exponential_app/eui/web`, `src/web/anchor.ts`) | the shared half of the React + Solid natives | `round7.test.tsx` (React + Solid) |
+| specimen | Popover + `anchor · top-start + top-end (a bottom panel)` | `scripts/generate.ts` `SPECIMEN_EXTRA` | `specimens.json` |
+| budget | 9,216 → 9,278 tokens (a named exception: +62 after trimming the new descriptions) | `scripts/generate.ts` | `prompt-budget.json` |
+
+### Placement
+
+`side` + `align` = the placement: `top` + `start` = top-start (the overlay's
+start edge flush with the anchor's start edge, `OVERLAY_OFFSET` 4 px above
+it), `top` + `end` = top-end (end edges flush), `center` centres it on the
+cross axis. On a `left`/`right` side, `start`/`end` align the top/bottom
+edges. Then, unchanged from VAPP-87: FLIP to the opposite side when the
+preferred side has less room than the overlay needs and the opposite has
+more (a bottom-start Menu at the screen's bottom edge opens top-start), and
+SHIFT along the cross axis to stay `OVERLAY_PADDING` (8 px) inside the
+surface (a top-end popover from a button at the start edge moves right).
+The core mirrors `start`/`end` under RTL (`anchor_place`), like the web's
+floating-ui.
+
+### `anchor`: open against any node
+
+`anchor` names a node id anywhere in the surface. The overlay then opens
+against THAT node's frame instead of its own trigger, and that node becomes
+its TRIGGER, on every renderer:
+
+- a press on it toggles the overlay (`open` writes through when bound; a
+  Menu, which has no `open` prop, toggles its local state);
+- it carries the trigger's semantics (web: `aria-haspopup` dialog | menu,
+  `aria-expanded`, `aria-controls` = the content's id while open,
+  `data-state`; natives: the node's `triggerFor` = the overlay's id);
+- a press on it is never an "outside" press of a non-modal overlay (the
+  press closes it as a toggle instead of dismissing and reopening);
+- Escape (a `dismiss` on the layer root) closes the overlay and returns focus
+  to the anchor (the natives' focus return reads `trigger(of:)` / the layer
+  return, which the anchor now is).
+
+The overlay itself lays out nothing (`data-xui-overlay-root="none"` on web,
+the zero-size wrapper in the core). A Menu with an `anchor` and no child
+draws NO default trigger; with a child, the child toggles it too. An id that
+names no painted node leaves the overlay against its own wrapper. Only the
+FIRST node with that id that is not already a trigger is linked.
+
+Core: `Builder::link_anchors` runs after the whole tree is built (so the
+anchor may come after the overlay in tree order): it sets the node's
+`trigger_for`, makes it pressable (not for `openOn: hover`), and points the
+open layer's `Anchored { anchor }` at it. A subtree rebuild over an anchored
+node rebuilds fully (`Surface::anchor_ids`).
+
+### Per-renderer checklist
+
+- [x] TS reference: `overlay.test.ts` replays every case with its `align`.
+- [x] Rust core (`eui-core`): Popover/Menu `side` + `align`, `link_anchors`,
+      the subtree-rebuild guard; `layout_fixtures.rs` (every aligned case as a
+      surface, the anchor-by-id trigger + toggle + dismiss), `conformance.rs`.
+- [x] FFI: `place_overlay_aligned` + regenerated Swift/Kotlin bindings;
+      `facade.rs`, `tests/swift/main.swift`, `tests/kotlin/FacadeTest.kt`.
+- [x] gpui: paints the core's layers (no own geometry); `suites.rs` overlay
+      suite builds the `byId` cases with the anchor as a sibling.
+- [x] React: Radix Popover `align` + `PopoverPrimitive.Anchor virtualRef`
+      for `anchor`; DropdownMenu `side` + `align`, the anchor as a virtual
+      trigger (`AnchorProxy`); focus return + inside-press via the shared
+      `linkAnchor`; `round7.test.tsx`, `browser/overlay.test.ts`.
+- [x] Solid: the Popper `align`, `createAnchor` (the found element is the
+      popper anchor); `round7.test.tsx`, `browser/overlay.test.ts`
+      (`data-align` checked).
+- [x] element: paints through Solid; the harness builds the `byId` cases.
+- [x] SwiftUI + Compose: paint the core's frames; geometry + conformance
+      replays call `placeOverlayAligned`; a model test per SDK (anchored
+      Popover + Menu: trigger, frame, Escape, toggle).
+
+## Hosted popups: a popover that leaves its surface (#VAPP-281)
+
+A RENDER option, not a catalog prop (the prompt is unchanged): a host may
+show an anchored Popover / Menu OUTSIDE its surface. eDE's bottom panel is a
+44 px surface; its start menu and applets must open above it as
+`xdg_popup`s (the compositor flips and slides them on screen), a desktop
+host as popup windows, a web host as a box positioned over the page. Off
+(every default) = today's in-surface overlay.
+
+### What moved
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| placement | NEW `anchorPosition(anchor, size, side, align, offset)` (TS) / `anchor_position` (Rust): the placement WITHOUT flip and shift; `placeOverlay` uses it | `src/overlay.ts`, eui-core `overlay.rs` | `overlay-geometry.json` `hosted` (6 cases: a bottom-panel surface 800 x 44, every popup outside it), `overlay.test.ts`, `layout_fixtures.rs` |
+| core | `SurfaceSettings.hosted_popups`; `Layer.hosted`, `Layer.align` (physical) | eui-core `surface/mod.rs`, `pass.rs` | `layout_fixtures.rs` `hosted_popups_leave_the_surface_unclipped_and_still_route_events` |
+| FFI | `FfiSettings.hosted_popups`, `FfiLayer.hosted`, `FfiLayer.align` (all defaulted) | `exponential-ui-ffi/src/lib.rs` + bindings | the binding tests |
+| web | `HostPlugin.popupHost` {`mount(popup) => HTMLElement \| null`, `unmount?`}, `HostedPopup`, `hostedPopupOf`, `mountHostedPopup`, `HOSTED_POPUP_ATTR`; base CSS `[data-xui-hosted]>[data-radix-popper-content-wrapper]` lays out in flow | `src/web/popup-host.ts`, `host-types.ts`, `base-css.ts` | React + Solid `round7.test.tsx` |
+| gpui | `HostPlugin::on_hosted_popups(&[Layer])`, `SurfaceView::hosted_popup_element(owner)`, `dismiss_hosted_popup(owner)` | `eui-gpui/src/host.rs`, `view/paint.rs` | `tests/round7.rs` |
+| SwiftUI | `SurfaceSettings.hostedPopups`, `.exponentialPopupHost(PopupHost { popups in … })`, `HostedPopup` (anchor, side, align, size, `content: AnyView`, `dismiss`), `LayerInfo.hosted/align` | `Views/Overlays/PopupHost.swift` | `GeometryTests.testHostedPopupsReachThePopupHost` |
+| Compose | `SurfaceSettings.hostedPopups`, `LocalPopupHost` (`PopupHost.Popups(popups, dismiss)`), `HostedPopup`, `LayerInfo.hosted/align` | `compose/Overlays.kt` | `Round7Test` |
+
+### The rule
+
+With `hosted_popups` on, every layer of a Popover or a Menu (its submenus
+too) placed against an anchor or a point is HOSTED:
+
+- it lays out at its natural size, NOT clamped to the surface's width;
+- it sits against its anchor by `anchor_position`: the side and the
+  (physical) alignment, `OVERLAY_OFFSET` away, NO flip and NO shift, so
+  its frames (surface coordinates) may lie outside the surface (a top-start
+  menu over a 44 px panel has a negative y);
+- `Layer.hosted` = true, `Layer.anchor_frame` = the anchor's frame,
+  `placement.side` + `align` = the placement, the root frame = the
+  popup's unclipped size: what an `xdg_positioner` takes (anchor rect,
+  anchor edge + gravity from side/align, size; constraint adjustment =
+  flip + slide, the compositor's);
+- events are unchanged: they target node indices, so a host forwards a
+  press at popup coordinates + the root's origin, and `dismiss` on the
+  layer root closes it (the compositor's `popup_done`).
+
+Dialogs, Drawers, Tooltips, toasts and the picker popups (Select, DatePicker)
+are never hosted.
+
+### Per SDK
+
+- **web (React, Solid; element through Solid)**: `host.popupHost.mount`
+  is asked when the popup opens (again when its anchor's element resolves)
+  with `{owner, kind, anchor (the anchor's box in surface coordinates),
+  side, align (physical)}`; the returned element receives the content
+  through the renderer's portal (presses, Escape, outside presses and focus
+  return still route through the surface's tree) and takes the surface's
+  theme scope (`xui-surface` classes, `data-xui-mode`, `dir`);
+  the popper wrapper lays out in flow inside it, the HOST positions it
+  (e.g. at `anchorPosition`). `null` keeps the in-surface overlay;
+  `unmount` hears it close. Web needs no core setting (its renderers place
+  overlays themselves).
+- **gpui**: turn on `SurfaceSettings::hosted_popups`; the view paints no
+  hosted layer, `HostPlugin::on_hosted_popups` hears the set whenever it
+  changes; the host renders `hosted_popup_element(owner)` (the layer at
+  (0, 0), any window: its listeners update the surface's view) and calls
+  `dismiss_hosted_popup`. A press in the surface's window never counts as
+  inside a hosted popup.
+- **SwiftUI / Compose**: turn on `hostedPopups` and provide the host
+  (`.exponentialPopupHost` / `LocalPopupHost`): it receives
+  `HostedPopup`s with the layer's geometry and a `content` view /
+  composable wired to the model; the surface paints none of them (without a
+  host they paint as the default popups).
+
+### Per-renderer checklist
+
+- [x] TS reference: `anchorPosition` + the `hosted` cases.
+- [x] Rust core: the setting, the unclipped no-flip placement, `Layer.hosted/align`.
+- [x] FFI: defaulted fields + regenerated bindings.
+- [x] React, Solid: `popupHost`; tests (layer received, content in the host's element, a press + Escape route back, `null` = in-surface).
+- [x] element: through Solid.
+- [x] gpui: the hook, the element, the dismiss; test (heard, not painted in-surface, a click in the host's window routes back, dismissed).
+- [x] SwiftUI, Compose: the hooks; tests.

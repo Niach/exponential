@@ -5,7 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tree (#VAPP-285) through the Solid painter.
 - A foldable Row (#VAPP-284) through the Solid painter: the fold keys and the nested fold button.
+- `host.popupHost` (VAPP-281) through the Solid renderer.
+- Popover `align` + `anchor`, Menu `side` + `align` + `anchor` through the Solid renderer (VAPP-276); the harness's overlay view builds the anchor-by-id cases.
 
 ## 0.17.0 (2026-11-06)
 

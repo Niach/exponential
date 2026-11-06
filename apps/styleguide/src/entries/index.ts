@@ -79,6 +79,7 @@ import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
 import { entry as qrCode } from "./qr-code.tsx"
 import { entry as outline } from "./outline.tsx"
+import { entry as tree } from "./tree.tsx"
 import { entry as recordForm } from "./record-form.tsx"
 import { entry as recordTable } from "./record-table.tsx"
 import { entry as settingsRow } from "./settings-row.tsx"
@@ -127,6 +128,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   voiceLevel,
   sidebarRows,
   outline,
+  tree,
   mosaic,
   zoomableImage,
   motion,

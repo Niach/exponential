@@ -171,7 +171,7 @@ export type { ThemeImport } from "./builder"
 export { CONTROL_PARTS, GEOMETRY_KEYS, controlGeometry, checkGeometry, verifyPainterGeometry } from "./geometry"
 export type { ControlGeometry, GeometryKey, MeasuredBox, PainterOverride, GeometryIssue } from "./geometry"
 // VAPP-87: the overlay placement contract (renderers + the Rust core).
-export { OVERLAY_OFFSET, OVERLAY_PADDING, placeOverlay } from "./overlay"
+export { OVERLAY_OFFSET, OVERLAY_PADDING, anchorPosition, placeOverlay } from "./overlay"
 export type { OverlaySide, OverlayAlign, OverlayPlacement, Rect, Size } from "./overlay"
 // VAPP-91: the host API (transport, functions, bindings, negotiation, policy, packages).
 export * from "./host"
@@ -179,3 +179,6 @@ export * from "./host"
 export * from "./connector"
 // #VAPP-284: the fold keys (a foldable Row's head and fold button).
 export { foldKey } from "./fold"
+// #VAPP-285: the Tree rules (flat rows, the WAI-ARIA tree keys).
+export { treeRows, treeKey } from "./tree"
+export type { TreeRow, TreeRowKind, TreeKeyRow, TreeKeyResult } from "./tree"

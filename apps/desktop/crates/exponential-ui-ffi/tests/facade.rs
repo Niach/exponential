@@ -154,7 +154,12 @@ fn the_layout_and_overlay_fixtures_replay_through_the_facade() {
         let a = &c["anchor"];
         let s = &c["size"];
         let v = &c["viewport"];
-        let p = place_overlay(a["x"].as_f64().unwrap(), a["y"].as_f64().unwrap(), a["width"].as_f64().unwrap(), a["height"].as_f64().unwrap(), s["width"].as_f64().unwrap(), s["height"].as_f64().unwrap(), v["width"].as_f64().unwrap(), v["height"].as_f64().unwrap(), c["side"].as_str().unwrap().into()).unwrap();
+        let p = place_overlay_aligned(a["x"].as_f64().unwrap(), a["y"].as_f64().unwrap(), a["width"].as_f64().unwrap(), a["height"].as_f64().unwrap(), s["width"].as_f64().unwrap(), s["height"].as_f64().unwrap(), v["width"].as_f64().unwrap(), v["height"].as_f64().unwrap(), c["side"].as_str().unwrap().into(), c["align"].as_str().unwrap_or("center").into()).unwrap();
+        if c.get("align").is_none() {
+            // The side-only entry point = centre alignment.
+            let q = place_overlay(a["x"].as_f64().unwrap(), a["y"].as_f64().unwrap(), a["width"].as_f64().unwrap(), a["height"].as_f64().unwrap(), s["width"].as_f64().unwrap(), s["height"].as_f64().unwrap(), v["width"].as_f64().unwrap(), v["height"].as_f64().unwrap(), c["side"].as_str().unwrap().into()).unwrap();
+            assert_eq!((q.x, q.y), (p.x, p.y));
+        }
         assert_eq!((p.x, p.y, p.side.as_str(), p.flipped), (c["expected"]["x"].as_f64().unwrap(), c["expected"]["y"].as_f64().unwrap(), c["expected"]["side"].as_str().unwrap(), c["expected"]["flipped"].as_bool().unwrap()), "{}", c["name"]);
     }
     let layout = fixture("layout-geometry.json");
@@ -1154,6 +1159,21 @@ fn the_facade_refuses_oversized_messages_and_bad_writes() {
     surface.set_data("/a".into(), Some("[]".into())).unwrap();
     assert!(surface.set_data("/a/4000000000".into(), Some("1".into())).is_err());
     assert_eq!(surface.data_json(), r#"{"a":[]}"#);
+}
+
+/// #VAPP-288: `assign_data` is a programmatic write (it bumps `write_epoch`),
+/// `set_data` is not; a refused `assign_data` bumps nothing.
+#[test]
+fn assign_data_moves_the_write_epoch_and_set_data_does_not() {
+    let surface = Surface::new("s".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface.set_data("/draft".into(), Some("\"abc\"".into())).unwrap();
+    assert_eq!(surface.write_epoch(), 0);
+    surface.assign_data("/draft".into(), Some("\"\"".into())).unwrap();
+    assert_eq!(surface.write_epoch(), 1);
+    assert_eq!(surface.data_json(), r#"{"draft":""}"#);
+    surface.set_data("/a".into(), Some("[]".into())).unwrap();
+    assert!(surface.assign_data("/a/9".into(), Some("1".into())).is_err());
+    assert_eq!(surface.write_epoch(), 1);
 }
 
 /// R8 F53: a Swift/Kotlin measurer answering NaN or infinity is sanitised

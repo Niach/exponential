@@ -2684,6 +2684,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func apply(messageJson: String) throws  -> FfiApplyOutcome
     
     /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+    func assignData(path: String, valueJson: String?) throws 
+    
+    /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
      * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
      * "align"?}}` (round 2).
@@ -2981,6 +2988,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     
     func visuals()  -> [FfiVisual]
     
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */
+    func writeEpoch()  -> UInt64
+    
 }
 /**
  * ONE surface. Every method locks it briefly; the host calls from any
@@ -3078,6 +3092,20 @@ open func apply(messageJson: String)throws  -> FfiApplyOutcome  {
         FfiConverterString.lower(messageJson),$0
     )
 })
+}
+    
+    /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+open func assignData(path: String, valueJson: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_assign_data(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),
+        FfiConverterOptionString.lower(valueJson),$0
+    )
+}
 }
     
     /**
@@ -3807,6 +3835,19 @@ open func visual(index: UInt32) -> FfiVisual?  {
 open func visuals() -> [FfiVisual]  {
     return try!  FfiConverterSequenceTypeFfiVisual.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_visuals(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */
+open func writeEpoch() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -4714,6 +4755,17 @@ public struct FfiLayer: Equatable, Hashable {
      */
     public var dismissible: Bool
     public var frames: [FfiFrame]
+    /**
+     * VAPP-281: an anchored layer's alignment along its side, physical
+     * (`start | center | end`).
+     */
+    public var align: String?
+    /**
+     * VAPP-281: hosted OUTSIDE the surface (`FfiSettings.hosted_popups`): the
+     * host shows a popup of the root frame's size against `anchor_frame`,
+     * paints the frames minus the root's origin, routes input back.
+     */
+    public var hosted: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -4730,7 +4782,16 @@ public struct FfiLayer: Equatable, Hashable {
          */modal: Bool, 
         /**
          * Escape / a scrim press / a drag closes it (`event(root, "dismiss")`).
-         */dismissible: Bool, frames: [FfiFrame]) {
+         */dismissible: Bool, frames: [FfiFrame], 
+        /**
+         * VAPP-281: an anchored layer's alignment along its side, physical
+         * (`start | center | end`).
+         */align: String? = nil, 
+        /**
+         * VAPP-281: hosted OUTSIDE the surface (`FfiSettings.hosted_popups`): the
+         * host shows a popup of the root frame's size against `anchor_frame`,
+         * paints the frames minus the root's origin, routes input back.
+         */hosted: Bool = false) {
         self.layer = layer
         self.kind = kind
         self.owner = owner
@@ -4742,6 +4803,8 @@ public struct FfiLayer: Equatable, Hashable {
         self.modal = modal
         self.dismissible = dismissible
         self.frames = frames
+        self.align = align
+        self.hosted = hosted
     }
 
     
@@ -4770,7 +4833,9 @@ public struct FfiConverterTypeFfiLayer: FfiConverterRustBuffer {
                 class: FfiConverterString.read(from: &buf), 
                 modal: FfiConverterBool.read(from: &buf), 
                 dismissible: FfiConverterBool.read(from: &buf), 
-                frames: FfiConverterSequenceTypeFfiFrame.read(from: &buf)
+                frames: FfiConverterSequenceTypeFfiFrame.read(from: &buf), 
+                align: FfiConverterOptionString.read(from: &buf), 
+                hosted: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -4786,6 +4851,8 @@ public struct FfiConverterTypeFfiLayer: FfiConverterRustBuffer {
         FfiConverterBool.write(value.modal, into: &buf)
         FfiConverterBool.write(value.dismissible, into: &buf)
         FfiConverterSequenceTypeFfiFrame.write(value.frames, into: &buf)
+        FfiConverterOptionString.write(value.align, into: &buf)
+        FfiConverterBool.write(value.hosted, into: &buf)
     }
 }
 
@@ -5709,6 +5776,11 @@ public struct FfiSettings: Equatable, Hashable {
      * width (`phone` below the theme's `$breakpoint.md`).
      */
     public var formFactor: String?
+    /**
+     * VAPP-281: the host hosts anchored Popover / Menu layers OUTSIDE the
+     * surface (unclipped, no flip / shift; `FfiLayer.hosted`).
+     */
+    public var hostedPopups: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5734,7 +5806,11 @@ public struct FfiSettings: Equatable, Hashable {
          * VAPP-218: the HOST's form factor, `phone` or `wide`: what
          * `@media (form-factor: …)` matches. `None` = derived from the surface
          * width (`phone` below the theme's `$breakpoint.md`).
-         */formFactor: String? = nil) {
+         */formFactor: String? = nil, 
+        /**
+         * VAPP-281: the host hosts anchored Popover / Menu layers OUTSIDE the
+         * surface (unclipped, no flip / shift; `FfiLayer.hosted`).
+         */hostedPopups: Bool = false) {
         self.locale = locale
         self.stringsJson = stringsJson
         self.mode = mode
@@ -5754,6 +5830,7 @@ public struct FfiSettings: Equatable, Hashable {
         self.timeZone = timeZone
         self.readOnly = readOnly
         self.formFactor = formFactor
+        self.hostedPopups = hostedPopups
     }
 
     
@@ -5790,7 +5867,8 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
                 hoverCloseMs: FfiConverterUInt32.read(from: &buf), 
                 timeZone: FfiConverterOptionString.read(from: &buf), 
                 readOnly: FfiConverterBool.read(from: &buf), 
-                formFactor: FfiConverterOptionString.read(from: &buf)
+                formFactor: FfiConverterOptionString.read(from: &buf), 
+                hostedPopups: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -5814,6 +5892,7 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.timeZone, into: &buf)
         FfiConverterBool.write(value.readOnly, into: &buf)
         FfiConverterOptionString.write(value.formFactor, into: &buf)
+        FfiConverterBool.write(value.hostedPopups, into: &buf)
     }
 }
 
@@ -8011,6 +8090,26 @@ public func placeOverlay(anchorX: Double, anchorY: Double, anchorW: Double, anch
 })
 }
 /**
+ * VAPP-276: the overlay placement rule with an alignment along the side
+ * (`align` = `start|center|end`: top-start, top-end, bottom-start…).
+ */
+public func placeOverlayAligned(anchorX: Double, anchorY: Double, anchorW: Double, anchorH: Double, sizeW: Double, sizeH: Double, viewportW: Double, viewportH: Double, side: String, align: String)throws  -> FfiPlacement  {
+    return try  FfiConverterTypeFfiPlacement_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(
+        FfiConverterDouble.lower(anchorX),
+        FfiConverterDouble.lower(anchorY),
+        FfiConverterDouble.lower(anchorW),
+        FfiConverterDouble.lower(anchorH),
+        FfiConverterDouble.lower(sizeW),
+        FfiConverterDouble.lower(sizeH),
+        FfiConverterDouble.lower(viewportW),
+        FfiConverterDouble.lower(viewportH),
+        FfiConverterString.lower(side),
+        FfiConverterString.lower(align),$0
+    )
+})
+}
+/**
  * VAPP-162: the QrCode matrix (the core's port of Nayuki's generator,
  * `fixtures/qr-code.json`). `level` = `L`|`M`|`Q`|`H` (anything else is
  * `M`); the result is `{size, version, mask, rows}` (`rows` = `size`
@@ -8626,6 +8725,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 44395) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned() != 13167) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 21220) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8807,6 +8909,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_assign_data() != 62677) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 27523) {
@@ -8999,6 +9104,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_visuals() != 48935) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch() != 6275) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_theme_color() != 46286) {

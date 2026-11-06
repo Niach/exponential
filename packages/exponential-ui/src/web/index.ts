@@ -15,6 +15,10 @@ export { nodeSheet, compileNodeSheet, nodeSheetBatches, dynamicStyleEntries, que
 export type { NodeSheet, NodeSheetBatch, DynamicStyleEntry } from "./box-css"
 export { BASE_CSS } from "./base-css"
 export { QUIET_FOCUS_ATTR, openFocusTarget, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "./focus"
+export { findAnchor, linkAnchor, markAnchor, virtualAnchor, withinAnchor, withinOtherOverlay } from "./anchor"
+export type { AnchorLink, VirtualAnchor } from "./anchor"
+export { HOSTED_POPUP_ATTR, hostedPopupOf, mountHostedPopup } from "./popup-host"
+export type { HostedPopup, PopupHost } from "./popup-host"
 export { DIALOG_HOLD_ATTR, DIALOG_HOLD_VAR, holdDialogBottom } from "./dialog-hold"
 export { getPointer, setPointer, pointerTokens, absolutePath, resolveValue, resolveProps, resolveNodeProps, resolveVisible, resolveAccessibility, ariaAttributes, bindTree, boundPath, hostPath, isBinding, isCall, hasDynamic, memoFormatter, formatterOf, viewOf, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT } from "./data"
 export type { DataModel, DataBinding, FunctionCall, ClientFunction, ResolveContext } from "./data"
@@ -56,3 +60,5 @@ export type { MotionEnv, MotionEmit, MotionEvent, MotionMachinePlayer, MotionFit
 // VAPP-162: the round-5 natives' shared halves (QrCode paint, the QrScanner host hook, the count badge, the Button hold machine).
 export { qrPaint, qrScanReporter, qrScanFormats, qrCornerPath, qrFeedColour, QR_CORNERS, QR_SCANNER, segmentedBadge, ButtonHold, HOLD_SLOP, withinSlop } from "./round5"
 export type { QrPaint, QrScannerHost, QrCorner, HoldEvent, HoldRect } from "./round5"
+// #VAPP-285: the Tree keys in the DOM (React + Solid Box).
+export { treeKeyTarget } from "./tree-keys"

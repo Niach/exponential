@@ -26,6 +26,7 @@ import { browserPlatform } from "./platform"
 
 export * from "./mcp"
 export * from "./platform"
+export * from "./stores"
 
 import type { NativeCapability } from "../tools"
 

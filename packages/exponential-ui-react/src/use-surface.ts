@@ -48,6 +48,12 @@ export interface SurfaceState {
   extensions: readonly ExtensionDef[]
   apply: (message: A2uiMessage) => void
   setData: (pointer: string, value: unknown) => void
+  /** #VAPP-288: the count of PROGRAMMATIC writes (`assign`); absent = 0. */
+  writeEpoch?: number
+  /** #VAPP-288: a PROGRAMMATIC write (an action's `set` step): `setData`
+   *  plus a `writeEpoch` bump, so a focused field bound to `pointer` adopts
+   *  it. Absent = the surface counts its own (`setData` + its epoch). */
+  assign?: (pointer: string, value: unknown) => void
   /** Replace the tree with a nested authoring tree. */
   setNested: (tree: NestedNode) => void
   reset: () => void
@@ -59,6 +65,7 @@ interface Inner {
   nested: NestedNode | null
   data: DataModel
   deleted: boolean
+  writeEpoch: number
 }
 
 /** One empty list: a fresh `[]` per render would re-reduce on every render. */
@@ -73,6 +80,7 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
     nested: options.initial ?? null,
     data: options.data ?? {},
     deleted: false,
+    writeEpoch: 0,
   })
   const [inner, setInner] = useState<Inner>(initialRef.current)
 
@@ -109,6 +117,10 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
     setInner((cur) => ({ ...cur, data: setPointer(cur.data, pointer, value) }))
   }, [])
 
+  const assign = useCallback((pointer: string, value: unknown) => {
+    setInner((cur) => ({ ...cur, data: setPointer(cur.data, pointer, value), writeEpoch: cur.writeEpoch + 1 }))
+  }, [])
+
   const setNested = useCallback((tree: NestedNode) => {
     setInner((cur) => ({ ...cur, nested: tree, components: [], deleted: false }))
   }, [])
@@ -136,6 +148,8 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
     extensions,
     apply,
     setData,
+    writeEpoch: inner.writeEpoch,
+    assign,
     setNested,
     reset,
   }

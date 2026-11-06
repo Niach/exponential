@@ -260,8 +260,13 @@ their values; the painter draws each part and routes the platform input
 back. Every host text field (Input / Textarea `.field`, the Composer, the
 NumberField / ChipInput `input`, a searchable Select's `search`) is ONE
 UIKit/AppKit-owned view (`OwnedTextField`): the view owns the string,
-every edit carries a revision, an echo is written in only while the field
-is idle and unfocused; Up / Down step a NumberField, Backspace in an empty
+every edit carries a revision, an echo of its own edits (or any host
+write: updateDataModel, a bind) is written in only while the field is idle
+and unfocused, while a PROGRAMMATIC write (an action's `set`: a press's
+`functionCall set`, a package action's sets = `SurfaceModel.assignData`;
+the core's write epoch moves) lands even while focused, the outstanding
+edit dropped and the cursor at the end (a press sends the focused field's
+pending edit first, #VAPP-288); Up / Down step a NumberField, Backspace in an empty
 ChipInput removes the last chip. Switch and Slider are platform controls
 unless the recipe sets `native: false` (the drawn ones are rtl-aware).
 FileUpload takes `.fileImporter` picks and drops (`dragover` meanwhile);
@@ -391,3 +396,12 @@ against the web baseline, ratcheted: [`conformance/`](conformance/README.md)).
 - `ImageRenderer` renders the text leaves blank (they are UIKit/AppKit
   views); capture a real window instead.
 - The real-font layout gaps left are core-side (`conformance/README.md`).
+
+## Hosted popups (VAPP-281)
+
+`SurfaceSettings(hostedPopups: true)` + `.exponentialPopupHost(PopupHost { popups in … })`
+around `ExponentialSurface`: anchored Popover / Menu layers leave the surface
+(unclipped, no flip / shift, `LayerInfo.hosted`); the host hears every change as
+`[HostedPopup]` (`anchor` in surface coordinates, `side`, `align`, `size`,
+`content` = the layer wired to the model, `dismiss`) and shows them where it
+wants (an `NSPanel`, a popover). The surface paints none of them.

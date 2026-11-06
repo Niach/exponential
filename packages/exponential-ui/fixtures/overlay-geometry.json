@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-87: the OVERLAY placement contract (src/overlay.ts placeOverlay): an anchor box, the overlay's size and the viewport, a preferred side → where it lands. OVERLAY_OFFSET (4 px) from the anchor, centred on the cross axis; FLIP to the opposite side when the preferred side has less room than the overlay needs and the opposite has more; SHIFT on the cross axis to stay OVERLAY_PADDING (8 px) inside the viewport. `expected` is what the TS rule returns (src/overlay.test.ts replays it); the React renderer checks that Radix's popper lands within `tolerancePx` of it in headless Chromium (browser/overlay.test.ts), the Rust core's layer manager (VAPP-86) reproduces it exactly.",
+  "$comment": "VAPP-87: the OVERLAY placement contract (src/overlay.ts placeOverlay): an anchor box, the overlay's size and the viewport, a preferred side → where it lands. OVERLAY_OFFSET (4 px) from the anchor, centred on the cross axis, or (VAPP-276 `align`, default centre) flush with the anchor's START or END edge along it (top-start, top-end, bottom-start…; the core mirrors start/end under RTL); FLIP to the opposite side when the preferred side has less room than the overlay needs and the opposite has more; SHIFT on the cross axis to stay OVERLAY_PADDING (8 px) inside the viewport. `expected` is what the TS rule returns (src/overlay.test.ts replays it); the React renderer checks that Radix's popper lands within `tolerancePx` of it in headless Chromium (browser/overlay.test.ts), the Rust core's layer manager (VAPP-86) reproduces it exactly. VAPP-276: `byId` cases open a Popover with NO trigger whose `anchor` prop names a node elsewhere in the tree (a bottom-panel button): the layer is placed against THAT node's frame, the painters replay them with the anchor as a sibling. VAPP-281: `hosted` = a popup hosted OUTSIDE its surface (the surface's `hostedPopups` setting; eDE maps it to an xdg_popup): `anchorPosition` places it against the anchor in SURFACE coordinates at its unclipped size with NO flip and NO shift (the host's window system constrains it), so it may land outside `surface`.",
   "offset": 4,
   "padding": 8,
   "tolerancePx": 2,
@@ -266,6 +266,423 @@
         "y": 556,
         "side": "top",
         "flipped": true
+      }
+    },
+    {
+      "name": "top-start above a bottom-panel button",
+      "anchor": {
+        "x": 8,
+        "y": 556,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 300
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "align": "start",
+      "expected": {
+        "x": 8,
+        "y": 252,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "top-end above the panel's end button",
+      "anchor": {
+        "x": 752,
+        "y": 556,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 280,
+        "height": 320
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "align": "end",
+      "expected": {
+        "x": 512,
+        "y": 232,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "bottom-start",
+      "anchor": {
+        "x": 300,
+        "y": 100,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 120
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "align": "start",
+      "expected": {
+        "x": 300,
+        "y": 140,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "bottom-end",
+      "anchor": {
+        "x": 300,
+        "y": 100,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 120
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "align": "end",
+      "expected": {
+        "x": 220,
+        "y": 140,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "bottom-start at the bottom edge → flips to top-start",
+      "anchor": {
+        "x": 40,
+        "y": 556,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 300
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "align": "start",
+      "expected": {
+        "x": 40,
+        "y": 252,
+        "side": "top",
+        "flipped": true
+      }
+    },
+    {
+      "name": "top-end at the start edge → shifted right",
+      "anchor": {
+        "x": 8,
+        "y": 556,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 300
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "align": "end",
+      "expected": {
+        "x": 8,
+        "y": 252,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "top-start at the end edge → shifted left",
+      "anchor": {
+        "x": 752,
+        "y": 556,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 300
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "align": "start",
+      "expected": {
+        "x": 552,
+        "y": 252,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "right-start",
+      "anchor": {
+        "x": 100,
+        "y": 250,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 160,
+        "height": 80
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "right",
+      "align": "start",
+      "expected": {
+        "x": 224,
+        "y": 250,
+        "side": "right",
+        "flipped": false
+      }
+    },
+    {
+      "name": "left-end",
+      "anchor": {
+        "x": 600,
+        "y": 250,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 160,
+        "height": 80
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "left",
+      "align": "end",
+      "expected": {
+        "x": 436,
+        "y": 206,
+        "side": "left",
+        "flipped": false
+      }
+    },
+    {
+      "name": "anchor by id: top-start from a panel button elsewhere in the tree",
+      "anchor": {
+        "x": 56,
+        "y": 556,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 160
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "align": "start",
+      "byId": true,
+      "expected": {
+        "x": 56,
+        "y": 392,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "anchor by id: top-end at the panel's end edge",
+      "anchor": {
+        "x": 680,
+        "y": 556,
+        "width": 112,
+        "height": 36
+      },
+      "size": {
+        "width": 260,
+        "height": 200
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "align": "end",
+      "byId": true,
+      "expected": {
+        "x": 532,
+        "y": 352,
+        "side": "top",
+        "flipped": false
+      }
+    }
+  ],
+  "hosted": [
+    {
+      "name": "top-start above the panel's start button (outside the surface)",
+      "anchor": {
+        "x": 8,
+        "y": 4,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 300
+      },
+      "side": "top",
+      "align": "start",
+      "surface": {
+        "width": 800,
+        "height": 44
+      },
+      "expected": {
+        "x": 8,
+        "y": -300
+      }
+    },
+    {
+      "name": "top-end above the panel's end button",
+      "anchor": {
+        "x": 752,
+        "y": 4,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 280,
+        "height": 320
+      },
+      "side": "top",
+      "align": "end",
+      "surface": {
+        "width": 800,
+        "height": 44
+      },
+      "expected": {
+        "x": 512,
+        "y": -320
+      }
+    },
+    {
+      "name": "bottom-start never flips (the host constrains it)",
+      "anchor": {
+        "x": 40,
+        "y": 4,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 120
+      },
+      "side": "bottom",
+      "align": "start",
+      "surface": {
+        "width": 800,
+        "height": 44
+      },
+      "expected": {
+        "x": 40,
+        "y": 44
+      }
+    },
+    {
+      "name": "top-end at the start edge never shifts",
+      "anchor": {
+        "x": 8,
+        "y": 4,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 300
+      },
+      "side": "top",
+      "align": "end",
+      "surface": {
+        "width": 800,
+        "height": 44
+      },
+      "expected": {
+        "x": -192,
+        "y": -300
+      }
+    },
+    {
+      "name": "top centre, wider than the surface is tall",
+      "anchor": {
+        "x": 380,
+        "y": 4,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 900,
+        "height": 200
+      },
+      "side": "top",
+      "align": "center",
+      "surface": {
+        "width": 800,
+        "height": 44
+      },
+      "expected": {
+        "x": -50,
+        "y": -200
+      }
+    },
+    {
+      "name": "right-start of a vertical dock button",
+      "anchor": {
+        "x": 0,
+        "y": 4,
+        "width": 44,
+        "height": 36
+      },
+      "size": {
+        "width": 160,
+        "height": 80
+      },
+      "side": "right",
+      "align": "start",
+      "surface": {
+        "width": 800,
+        "height": 44
+      },
+      "expected": {
+        "x": 48,
+        "y": 4
       }
     }
   ]

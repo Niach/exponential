@@ -67,6 +67,13 @@ describe(`bind pass: fixtures/bind-time.json through the React resolver`, () => 
             const node = find(c.expanded, press.id)!
             let data: unknown = ds.data
             const events: SurfaceActionEvent[] = []
+            const setData = (p: string, v: unknown) => {
+              data = structuredClone(data) as Record<string, unknown>
+              const tokens = p.slice(1).split(`/`)
+              let cur = data as Record<string, unknown>
+              for (const t of tokens.slice(0, -1)) cur = (cur[t] ??= {}) as Record<string, unknown>
+              cur[tokens[tokens.length - 1]] = v
+            }
             const ctx = {
               surfaceId: `b`,
               data,
@@ -74,13 +81,9 @@ describe(`bind pass: fixtures/bind-time.json through the React resolver`, () => 
               openUrl: () => {},
               locale: `en-US`,
               strings: DEFAULT_STRINGS,
-              setData: (p: string, v: unknown) => {
-                data = structuredClone(data) as Record<string, unknown>
-                const tokens = p.slice(1).split(`/`)
-                let cur = data as Record<string, unknown>
-                for (const t of tokens.slice(0, -1)) cur = (cur[t] ??= {}) as Record<string, unknown>
-                cur[tokens[tokens.length - 1]] = v
-              },
+              setData,
+              // #VAPP-288: an action `set` is a programmatic write.
+              assignData: setData,
               host: { onAction: (e: SurfaceActionEvent) => void events.push(e) },
             } as unknown as SurfaceContextValue
             runNodeAction(ctx, node, node.id, ``, `press`)

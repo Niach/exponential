@@ -160,6 +160,8 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
   - the view owns its `TextFieldValue`;
   - every edit carries a revision;
   - a model write (an echo, the composer clearing) reloads the view only when `FieldState.writeGeneration` moves.
+  - the echo of the host's data (`updateDataModel`, a bind, the echo of the field's own edits = `setData`) is adopted only while the field is idle and unfocused;
+  - a programmatic write (an action's `set`: a press's `functionCall set`, a package action's `sets` = `SurfaceModel.assignData`) bumps the surface's write epoch and is adopted even while focused: the outstanding edit is dropped and the cursor goes to the end (#VAPP-288, `interactions-round1.json fieldWrites`); a press sends the focused field's pending edit first.
 - **Interaction states.** Press, focus and hover reach the core as the node's states (`setStates`), so recipes' `hover` / `pressed` and `:hover` styles restyle it. A mouse hovers pressables, the nodes the core marks `hoverStyled` (a `:hover` style block or a hover recipe rule), triggers, text fields and nodes with a transition (gpui's set).
 - **Unbound values.** The core keeps every unbound control's value (round 1) and restyles its parts; the painter's mirror only bridges the press until the next pass.
 
@@ -397,3 +399,11 @@ The TalkBack walk (real TalkBack, swipes on the emulator's virtual touchscreen) 
 - TalkBack has no heading levels and no role descriptions in Compose: a heading is a heading, a Carousel page a group.
 - A FileUpload takes files only through `HostPlugin.pickFiles` (no drag and drop).
 - The real-font conformance dump runs on Robolectric's text stack, not a device's (`src/test/conformance-known.json` counts every divergence; most origins are shared with gpui and decided in `fixtures/conformance-known.json`).
+
+## Hosted popups (VAPP-281)
+
+`SurfaceSettings(hostedPopups = true)` + `CompositionLocalProvider(LocalPopupHost provides host)`:
+anchored Popover / Menu layers leave the surface (unclipped, no flip / shift,
+`LayerInfo.hosted`); `PopupHost.Popups(popups, dismiss)` composes inside the
+surface's composition and places each `HostedPopup` (`anchor`, `side`, `align`,
+`size`, `content`) where it wants. Without a host they paint as the default popups.

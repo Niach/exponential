@@ -55,6 +55,7 @@ jobs:
       ede_shell: ${{ steps.f.outputs.ede_shell }}
       ios: ${{ steps.f.outputs.ios }}
       ios_app: ${{ steps.f.outputs.ios_app }}
+      ios_runner: ${{ steps.f.outputs.ios_runner }}
       android: ${{ steps.f.outputs.android }}
       site: ${{ steps.f.outputs.site }}
       web_build: ${{ steps.f.outputs.web_build }}
@@ -63,6 +64,7 @@ jobs:
       workflows: ${{ steps.f.outputs.workflows }}
       gaps: ${{ steps.f.outputs.gaps }}
       merge_train: ${{ steps.f.outputs.merge_train }}
+      engine_ts: ${{ steps.f.outputs.engine_ts }}
     steps:
       # The train's diff: two shallow commits are enough for a name-only tree diff.
       - uses: actions/checkout@v4
@@ -81,7 +83,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nios_runner=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           desktop='^(apps/desktop/|packages/(domain-contract|ecore|eengine|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
@@ -101,6 +103,9 @@ jobs:
           # edit must not take a Mac for this.
           ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
           echo "ios_app=$(grep -qE "$ios_app" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #VAPP-268: the iOS runner, the Engine's Swift facade + capabilities, what it paints with.
+          ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|\.github/workflows/ios-runner\.yml$)'
+          echo "ios_runner=$(grep -qE "$ios_runner" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1544: the app, the Compose eUI modules it includes, every
           # generator that writes Kotlin into it, the fixtures and vectors its
           # unit tests read, the eNet / eUI facades (committed Kotlin bindings +
@@ -131,6 +136,9 @@ jobs:
           echo "gaps=$(grep -qE "$gaps" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           merge_train='^(scripts/merge-train/|packages/domain-contract/(src/merge-train|fixtures/merge-train)|\.exponential/|\.github/workflows/(test|train)\.yml$)'
           echo "merge_train=$(grep -qE "$merge_train" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #VAPP-269: the Engine's TS twin and the web runner, with what they import.
+          engine_ts='^(packages/(eengine|emcp|domain-contract|exponential-ui|exponential-ui-react|icons)/|apps/runner/|package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          echo "engine_ts=$(grep -qE "$engine_ts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -345,6 +353,15 @@ jobs:
       compile_only: true
     secrets: inherit
 
+  # #VAPP-268: the iOS runner (ios-runner.yml: the Swift capabilities, RunnerKit's
+  # swift test, the generated project's simulator build). INFORMATIONAL like
+  # ios-core: `gate` does not wait; release-suite.yml blocks on it.
+  ios-runner:
+    needs: [pick, changes]
+    if: needs.changes.outputs.ios_runner == 'true' && vars.PR_MAC_LEGS != 'off'
+    uses: ./.github/workflows/ios-runner.yml
+    secrets: inherit
+
   # eDE (#NEW-101): the compositor's own workspace. Its tests are headless
   # (pixman renders into memory, real Wayland clients over a socketpair), so
   # they run here in full: ~20 s warm.
@@ -530,11 +547,27 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun run test:merge-train
 
+  # #VAPP-269: the Engine's TS twin (packages/eengine: the reducers, the
+  # AppInstance, the web stores with fakes) and the web runner (its
+  # controller's suite, its typecheck and its static export), ~1 min.
+  engine-ts:
+    needs: [pick, changes]
+    if: needs.changes.outputs.engine_ts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test ./src
+        working-directory: packages/eengine
+      - run: bun test ./src && bunx tsc --noEmit && bunx vite build
+        working-directory: apps/runner/web
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train, engine-ts]
     if: always()
     runs-on: ubuntu-latest
     steps:

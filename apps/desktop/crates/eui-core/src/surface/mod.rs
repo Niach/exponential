@@ -138,6 +138,17 @@ pub struct Layer {
     pub anchor_frame: Option<Frame>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placement: Option<OverlayPlacement>,
+    /// VAPP-281: an anchored layer's alignment along its side, PHYSICAL
+    /// (`start` = left / top; the core mirrors the author's under RTL).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<crate::overlay::OverlayAlign>,
+    /// VAPP-281: hosted OUTSIDE the surface (`SurfaceSettings::hosted_popups`):
+    /// the host places a popup of the root frame's size against
+    /// `anchor_frame` (`placement.side` + `align`), paints the frames
+    /// translated by minus the root's origin, and routes input back in
+    /// surface coordinates; the in-surface painter skips it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hosted: bool,
     /// Drawer: the viewport edge; Dialog: `centered`; anchored: the side it
     /// landed on; a context menu: `point`; a toast: `toast`.
     pub position: String,
@@ -370,6 +381,14 @@ pub struct SurfaceSettings {
     /// matches (an editor preview's phone frame, a phone). `None` (default)
     /// = derived from the surface width against the theme's `$breakpoint.md`.
     pub form_factor: Option<crate::conditions::FormFactor>,
+    /// VAPP-281: the HOST hosts every anchored Popover / Menu layer OUTSIDE
+    /// the surface (eDE: an `xdg_popup`; a desktop host: a popup window):
+    /// such a layer lays out at its unclipped natural size and sits against
+    /// its anchor with NO flip and NO shift ([`crate::overlay::anchor_position`],
+    /// `overlay-geometry.json` `hosted`), its frames in surface coordinates
+    /// even past the surface's bounds; [`Layer::hosted`] marks it. Off
+    /// (default) = the in-surface overlay.
+    pub hosted_popups: bool,
 }
 
 impl Default for SurfaceSettings {
@@ -390,6 +409,7 @@ impl Default for SurfaceSettings {
             hover_close_ms: 0,
             read_only: false,
             form_factor: None,
+            hosted_popups: false,
         }
     }
 }
@@ -502,6 +522,8 @@ pub struct Surface {
     free: Vec<u32>,
     main_root: Option<u32>,
     layers: Vec<LayerSpec>,
+    /// VAPP-276: the node ids overlays are anchored to (the last full build's).
+    anchor_ids: HashSet<String>,
     lists: Vec<ListSpec>,
     toasts: Vec<ToastSpec>,
     node_state: Vec<NodeState>,
@@ -568,6 +590,10 @@ pub struct Surface {
     clock: Option<f64>,
     /// Bumped on every write to `data` (template key caches).
     data_version: u64,
+    /// #VAPP-288: bumped on every PROGRAMMATIC write (an action's `set`, a
+    /// host's [`Surface::assign_data`]); a painter's focused field adopts a
+    /// changed bound value when this moved since it last looked.
+    write_epoch: u64,
 }
 
 // SAFETY: taffy's `CompactLength` carries a `*const ()` slot for `calc()`
@@ -612,6 +638,7 @@ impl Surface {
             free: Vec::new(),
             main_root: None,
             layers: Vec::new(),
+            anchor_ids: HashSet::new(),
             lists: Vec::new(),
             toasts: Vec::new(),
             node_state: Vec::new(),
@@ -654,6 +681,7 @@ impl Surface {
             formatter: Arc::new(crate::format::EnglishFormatter),
             clock: None,
             data_version: 0,
+            write_epoch: 0,
         };
         s.refresh_theme();
         s
@@ -1399,6 +1427,23 @@ impl Surface {
         self.data_version += 1;
         self.needs_build = true;
         Ok(())
+    }
+
+    /// #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+    /// [`Surface::set_data`], and it bumps [`Surface::write_epoch`], so a
+    /// focused field bound to `path` adopts the value (the form that clears
+    /// itself after Save). A refused write bumps nothing.
+    pub fn assign_data(&mut self, path: &str, value: Option<Value>) -> Result<(), String> {
+        self.set_data(path, value)?;
+        self.write_epoch += 1;
+        Ok(())
+    }
+
+    /// #VAPP-288: the programmatic-write epoch (an action's `set`,
+    /// [`Surface::assign_data`]). A field's own edit and a plain
+    /// [`Surface::set_data`] (updateDataModel, a bind, an echo) leave it.
+    pub fn write_epoch(&self) -> u64 {
+        self.write_epoch
     }
 
     pub fn data(&self) -> &Value {

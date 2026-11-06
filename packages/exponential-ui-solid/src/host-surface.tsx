@@ -123,6 +123,8 @@ function stateOf(host: ExponentialHost, store: SurfaceStore): SurfaceState {
       host.receive(message)
     },
     setData: (pointer, value) => store.setData(pointer, value),
+    writeEpoch: store.writeEpoch,
+    assign: (pointer, value) => void store.assign(pointer, value),
     setNested: () => {
       throw new Error(`exponential-ui: a host surface is fed by its transport, not setNested`)
     },

@@ -284,6 +284,18 @@ pub trait HostPlugin: 'static {
     /// An `Unknown` placeholder was painted (once per structure version).
     fn on_unknown(&self, _node: &PlacedNode) {}
 
+    /// VAPP-281 (round-7 contract): with `SurfaceSettings::hosted_popups`,
+    /// the anchored Popover / Menu layers the HOST shows outside the surface
+    /// (eDE: an `xdg_popup` per layer; a desktop: a popup window), heard
+    /// whenever the set or its geometry changes (empty = all closed). Each
+    /// [`eui_core::surface::Layer`] carries `anchor_frame` (surface
+    /// coordinates), `placement.side` + `align`, and its root frame (the
+    /// popup's unclipped size, its origin where the core would put it). The
+    /// view paints none of them; the host renders
+    /// [`crate::view::SurfaceView::hosted_popup_element`] in its popup and
+    /// dismisses through [`crate::view::SurfaceView::dismiss_hosted_popup`].
+    fn on_hosted_popups(&self, _layers: &[eui_core::surface::Layer]) {}
+
     /// Rewrite a media `src` BEFORE the media policy (signed URLs).
     fn resolve_url(&self, src: &str) -> String {
         src.to_string()

@@ -5,12 +5,14 @@
 // and the natives (through the FFI) behave like this renderer.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render } from "@testing-library/react"
+import { act, cleanup, fireEvent, render } from "@testing-library/react"
 import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
 import type { NestedNode } from "@exponential_app/eui"
 import fixture from "@exponential_app/eui/fixtures/interactions-round1.json"
 import stripFixture from "@exponential_app/eui/fixtures/tabs-strip.json"
+import { useEffect } from "react"
 import { ExponentialSurface } from "./surface"
+import { useSurface, type SurfaceState } from "./use-surface"
 import { sortRows, type TableColumn } from "./natives/table"
 import type { SurfaceActionEvent } from "./host"
 
@@ -321,5 +323,120 @@ describe(`fixtures/interactions-round1.json foldRow`, () => {
       for (const a of actions.filter((x) => x.name === `fold`)) expect(a.context.open).toBe(c.after)
       expect(part(`head`).getAttribute(`aria-expanded`)).toBe(String(c.after))
     })
+  }
+})
+
+interface TreeCase {
+  name: string
+  open: string[]
+  rtl: boolean
+  step: { press: string } | { key: string; on: string }
+  events: string[]
+  after: { open: string[]; picked: string | null; focus: string | null; visible?: string[] }
+}
+
+// #VAPP-285: the Tree: a leaf press selects, a branch press folds, a lazy
+// branch fetches, the arrows follow treeKey over the visible rows.
+describe(`fixtures/interactions-round1.json tree`, () => {
+  const t = (fixture as unknown as { tree: { surface: NestedNode; rowIds: Record<string, string>; cases: TreeCase[] } }).tree
+  const itemOf = (nodeId: string | null | undefined) => Object.entries(t.rowIds).find(([, id]) => id === nodeId)?.[0] ?? null
+  for (const c of t.cases) {
+    it(`tree: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const data: Record<string, unknown> = { open: c.open }
+      const root = tree(c.rtl ? { id: `rtl`, component: `Box`, style: { direction: `rtl` }, children: [t.surface] } : t.surface)
+      const { container } = render(
+        <ExponentialSurface root={root} data={data} theme="neutral" id={`tree`} host={{ onAction: (e) => void actions.push(e) }} />
+      )
+      const row = (item: string) => container.querySelector(`[data-xui-id="${t.rowIds[item]}"]`) as HTMLElement
+      if (`press` in c.step) fireEvent.click(row(c.step.press))
+      else {
+        row(c.step.on).focus()
+        fireEvent.keyDown(row(c.step.on), { key: c.step.key })
+      }
+      expect(actions.map((a) => a.name)).toEqual(c.events)
+      const focused = (document.activeElement as HTMLElement | null)?.getAttribute(`data-xui-id`)
+      const start = `press` in c.step ? null : t.rowIds[c.step.on]
+      expect(focused === start ? null : itemOf(focused)).toBe(c.after.focus)
+      const open = [...container.querySelectorAll(`[role="treeitem"][aria-expanded="true"]`)].map((el) => itemOf(el.getAttribute(`data-xui-id`)))
+      // /open as the DOM shows it: the open rows that are visible (a hidden row paints nothing).
+      expect(open.sort()).toEqual(c.after.open.filter((item) => row(item)).sort())
+      const selected = container.querySelector(`[role="treeitem"][aria-selected="true"]`)
+      expect(itemOf(selected?.getAttribute(`data-xui-id`))).toBe(c.after.picked)
+      if (c.after.visible) {
+        const visible = [...container.querySelectorAll(`[data-xui-id^="files.row."]`)].filter((el) => /^files\.row\.\d+$/.test(el.getAttribute(`data-xui-id`) ?? ``)).map((el) => itemOf(el.getAttribute(`data-xui-id`)))
+        expect(visible).toEqual(c.after.visible)
+      }
+    })
+  }
+})
+
+interface FieldWriteCase {
+  name: string
+  seed: string
+  pressPath?: string
+  pressValue?: unknown
+  steps: { op: `focus` | `type` | `hostWrite` | `press` | `blur`; text?: string; path?: string; value?: unknown }[]
+  expect: { text: string; data?: unknown }
+}
+
+/** #VAPP-288: an Input bound to /draft and a Button whose press `set`s,
+ *  on a `useSurface` state (so a host write is a real updateDataModel). */
+function FieldWrites({ c, onState }: { c: FieldWriteCase; onState: (s: SurfaceState) => void }) {
+  const surface = useSurface({
+    surfaceId: `fw`,
+    data: { draft: c.seed },
+    initial: {
+      id: `root`,
+      component: `Stack`,
+      children: [
+        { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { path: `/draft` } } },
+        { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { call: `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
+      ],
+    } as NestedNode,
+  })
+  useEffect(() => {
+    onState(surface)
+  })
+  return <ExponentialSurface surface={surface} theme="neutral" id="fw" />
+}
+
+describe(`fixtures/interactions-round1.json fieldWrites`, () => {
+  for (const c of (fixture as unknown as { fieldWrites: FieldWriteCase[] }).fieldWrites) {
+    it(`fieldWrites: ${c.name}`, () => {
+      let state!: SurfaceState
+      const { container } = render(<FieldWrites c={c} onState={(s) => (state = s)} />)
+      const input = () => container.querySelector(`[data-xui-id="draft"] input`) as HTMLInputElement
+      for (const step of c.steps) {
+        if (step.op === `focus`) fireEvent.focus(input())
+        else if (step.op === `type`) fireEvent.change(input(), { target: { value: step.text } })
+        else if (step.op === `hostWrite`) act(() => state.apply({ updateDataModel: { surfaceId: `fw`, path: step.path, value: step.value } }))
+        else if (step.op === `press`) fireEvent.click(container.querySelector(`[data-xui-id="save"]`)!)
+        else fireEvent.blur(input())
+      }
+      expect(input().value).toBe(c.expect.text)
+      if (`data` in c.expect) expect((state.data as Record<string, unknown>).draft).toBe(c.expect.data)
+    })
+    // The same on a surface over local data (a `data` prop, no state).
+    if (c.steps.every((s) => s.op !== `hostWrite`))
+      it(`fieldWrites (local data): ${c.name}`, () => {
+        const root = tree({
+          id: `root`,
+          component: `Stack`,
+          children: [
+            { id: `draft`, component: `Input`, props: { label: `Draft`, name: `draft`, value: { path: `/draft` } } },
+            { id: `save`, component: `Button`, props: { label: `Save` }, ...(c.pressPath !== undefined ? { on: { press: { functionCall: { call: `set`, args: { path: c.pressPath, value: c.pressValue } } } } } : {}) },
+          ],
+        } as NestedNode)
+        const { container } = render(<ExponentialSurface root={root} data={{ draft: c.seed }} theme="neutral" id="fwl" />)
+        const input = () => container.querySelector(`[data-xui-id="draft"] input`) as HTMLInputElement
+        for (const step of c.steps) {
+          if (step.op === `focus`) fireEvent.focus(input())
+          else if (step.op === `type`) fireEvent.change(input(), { target: { value: step.text } })
+          else if (step.op === `press`) fireEvent.click(container.querySelector(`[data-xui-id="save"]`)!)
+          else fireEvent.blur(input())
+        }
+        expect(input().value).toBe(c.expect.text)
+      })
   }
 })

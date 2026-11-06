@@ -12,6 +12,8 @@ import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.checked
 import at.exponential.ui.model.escape
+import at.exponential.ui.model.INPUT_DEBOUNCE_MS
+import at.exponential.ui.model.field
 import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.fieldText
@@ -399,5 +401,145 @@ class InteractionTest {
             for (a in host.actions.filter { it.name == "fold" }) assertEquals("$name: fold context", c["after"]?.bool, a.context["open"]?.bool)
             assertEquals("$name: expanded after", c["after"]?.bool, m.node(m.idx("issues.head"))?.accessibility?.get("expanded")?.bool)
         }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `tree` (#VAPP-285): a press on a row
+     * (leaf = select, branch = fold, lazy = load), or a key through
+     * [handleKey] on the focused treeitem (the core's tree keys move the
+     * focus — its `focus` event lands in `focusRequest` — or fold, rtl-aware);
+     * the events the host sees, where the focus lands, /open and /picked.
+     */
+    @Test
+    fun treeCasesSelectFoldFetchAndMoveTheFocus() {
+        val t = Fixtures.json("interactions-round1.json")["tree"]!!
+        val rowIds = t["rowIds"]!!.obj!!.mapValues { it.value.string!! }
+        val cases = t["cases"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        val keys = mapOf("ArrowUp" to "up", "ArrowDown" to "down", "ArrowLeft" to "left", "ArrowRight" to "right", "Home" to "home", "End" to "end")
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val tree = buildMap<String, JsonValue> {
+                put("id", JsonValue.Str("root"))
+                put("component", JsonValue.Str("Box"))
+                put("children", JsonValue.Arr(listOf(t["surface"]!!)))
+                if (c["rtl"]?.bool == true) put("style", JsonValue.Obj(mapOf("direction" to JsonValue.Str("rtl"))))
+            }
+            val host = RecordingHost()
+            val m = SurfaceModel("tree", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined), noShaper)
+            m.fixedMeasure = true
+            m.setNested(JsonValue.Obj(tree).json)
+            m.setViewport(390f, 800f)
+            m.setData("/open", c["open"] ?: JsonValue.Arr(emptyList()))
+            val step = c["step"]!!
+            val item = (step["press"] ?: step["on"])!!.string!!
+            val target = rowIds[item]!!
+            assertNotNull("$name: no $target", m.indexOf(target))
+            var moved: String? = null
+            if (step["press"] != null) {
+                m.press(target)
+            } else {
+                m.focus(target, true, fromKeyboard = true)
+                val key = keys[step["key"]?.string]!!
+                assertTrue("$name: $key is the tree's", handleKey(m, key))
+                val now = m.focusRequest
+                if (now != null && now != target) moved = rowIds.entries.firstOrNull { it.value == now }?.key ?: now
+            }
+            val after = c["after"]!!
+            assertEquals("$name: events", c["events"]?.array.orEmpty().map { it.string }, host.actions.map { it.name })
+            assertEquals("$name: focus", after["focus"]?.string, moved)
+            assertEquals("$name: /open", after["open"] ?: JsonValue.Null, m.data["open"] ?: JsonValue.Null)
+            assertEquals("$name: /picked", after["picked"] ?: JsonValue.Null, m.data["picked"] ?: JsonValue.Null)
+            after["visible"]?.array?.let { visible ->
+                val shown = rowIds.filter { m.indexOf(it.value) != null }.keys.sorted()
+                assertEquals("$name: visible rows", visible.map { it.string!! }.sorted(), shown)
+            }
+        }
+    }
+
+    /**
+     * fixtures/interactions-round1.json `fieldWrites` (#VAPP-288): an Input
+     * `draft` bound to /draft and a Button `save` whose press is
+     * `functionCall set`. A host write (setData) is an echo a focused field
+     * ignores; an action's `set` (a programmatic write: the write epoch
+     * moves) lands even while focused, the outstanding edit dropped.
+     */
+    @Test
+    fun fieldWritesCasesAdoptProgrammaticSetsWhileFocused() = runTest {
+        val cases = Fixtures.json("interactions-round1.json")["fieldWrites"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c["name"]?.string ?: "?"
+            val children = ArrayList<JsonValue>()
+            children.add(JsonValue.parse("""{"id":"draft","component":"Input","props":{"label":"Draft","value":{"path":"/draft"}}}"""))
+            c["pressPath"]?.string?.let { path ->
+                val set = JsonValue.Obj(mapOf("call" to JsonValue.Str("set"), "args" to JsonValue.Obj(mapOf("path" to JsonValue.Str(path), "value" to c["pressValue"]!!))))
+                children.add(
+                    JsonValue.Obj(
+                        mapOf(
+                            "id" to JsonValue.Str("save"),
+                            "component" to JsonValue.Str("Button"),
+                            "props" to JsonValue.Obj(mapOf("label" to JsonValue.Str("Save"))),
+                            "on" to JsonValue.Obj(mapOf("press" to JsonValue.Obj(mapOf("functionCall" to set)))),
+                        ),
+                    ),
+                )
+            }
+            val tree = JsonValue.Obj(mapOf("id" to JsonValue.Str("root"), "component" to JsonValue.Str("Box"), "children" to JsonValue.Arr(children)))
+            val m = SurfaceModel("fw", SurfaceOptions(), RecordingHost(), backgroundScope, noShaper)
+            m.fixedMeasure = true
+            m.setNested(tree.json)
+            m.setData("/draft", c["seed"]!!)
+            m.setViewport(390f, 800f)
+            val field = m.idx("draft.field")
+            assertNotNull("$name: field state", m.field(field))
+            for (step in c["steps"]?.array.orEmpty()) {
+                when (step["op"]?.string) {
+                    "focus" -> m.fieldFocused(field, true)
+                    "blur" -> m.fieldFocused(field, false)
+                    "type" -> {
+                        m.fieldEdited(field, step["text"]!!.string!!)
+                        advanceTimeBy(INPUT_DEBOUNCE_MS + 10)
+                        runCurrent()
+                    }
+                    "hostWrite" -> m.setData(step["path"]!!.string!!, step["value"])
+                    "press" -> m.press("save")
+                    else -> error("$name: unknown step $step")
+                }
+            }
+            val expect = c["expect"]!!
+            assertEquals("$name: text", expect["text"]?.string, m.fieldText(field))
+            expect["data"]?.let { assertEquals("$name: /draft", it, m.data["draft"] ?: JsonValue.Null) }
+        }
+    }
+
+    /**
+     * #VAPP-288: an action's `set` lands while the edit is still inside the
+     * debounce: the press sends the edit first, then the set (back to the
+     * pre-edit value) wins, the late `change` never fires.
+     */
+    @Test
+    fun aSetBackToThePreEditValueLandsMidDebounce() = runTest {
+        val host = RecordingHost()
+        val m = SurfaceModel("fw", SurfaceOptions(), host, backgroundScope, noShaper)
+        m.fixedMeasure = true
+        m.setNested(
+            """{"id":"root","component":"Box","children":[{"id":"draft","component":"Input","props":{"label":"Draft","value":{"path":"/draft"}}},{"id":"save","component":"Button","props":{"label":"Save"},"on":{"press":{"functionCall":{"call":"set","args":{"path":"/draft","value":"x"}}}}}]}""",
+        )
+        m.setData("/draft", JsonValue.Str("x"))
+        m.setViewport(390f, 800f)
+        val field = m.idx("draft.field")
+        m.fieldFocused(field, true)
+        m.fieldEdited(field, "xyz")
+        val gen = m.field(field)!!.writeGeneration
+        m.press("save")
+        assertEquals("x", m.fieldText(field))
+        assertEquals(JsonValue.Str("x"), m.data["draft"])
+        assertTrue("the view reloads its value", m.field(field)!!.writeGeneration > gen)
+        assertFalse(m.field(field)!!.pendingChange)
+        val sent = host.inputs.size
+        advanceTimeBy(500)
+        assertEquals("no late change", sent, host.inputs.size)
+        assertEquals(JsonValue.Str("x"), m.data["draft"])
     }
 }

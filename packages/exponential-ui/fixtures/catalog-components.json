@@ -5604,6 +5604,66 @@
       }
     },
     {
+      "name": "Popover/align=start",
+      "node": {
+        "id": "popover",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "popover-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Popover/align=center",
+      "node": {
+        "id": "popover",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "popover-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Popover/align=end",
+      "node": {
+        "id": "popover",
+        "component": "Popover",
+        "props": {
+          "side": "bottom",
+          "align": "end"
+        },
+        "children": [
+          {
+            "id": "popover-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Popover/openOn=press",
       "node": {
         "id": "popover",
@@ -5760,6 +5820,223 @@
               "destructive": true
             }
           ]
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/side=top",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "side": "top"
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/side=right",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "side": "right"
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/side=bottom",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "side": "bottom"
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/side=left",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "side": "left"
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/align=start",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "align": "start"
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/align=center",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "align": "center"
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/align=end",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "align": "end"
         },
         "children": [
           {
@@ -10846,6 +11123,42 @@
           "meta": "312 posts",
           "pressable": true,
           "href": "https://ui.exponential.at"
+        }
+      }
+    },
+    {
+      "name": "Tree/example",
+      "node": {
+        "id": "tree",
+        "component": "Tree",
+        "props": {
+          "label": "Files",
+          "expanded": [
+            "src"
+          ],
+          "value": "src/main.ts",
+          "items": [
+            {
+              "id": "src",
+              "title": "src",
+              "children": [
+                {
+                  "id": "src/main.ts",
+                  "title": "main.ts"
+                },
+                {
+                  "id": "src/lib",
+                  "title": "lib",
+                  "hasChildren": true
+                }
+              ]
+            },
+            {
+              "id": "README.md",
+              "title": "README.md",
+              "meta": "M"
+            }
+          ]
         }
       }
     },

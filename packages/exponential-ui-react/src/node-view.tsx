@@ -119,7 +119,8 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   let pending: unknown
   if (fn && args) {
     if (fn.call === `set`) {
-      if (typeof args.path === `string`) ctx.setData(absolutePath(args.path, scope), args.value)
+      // #VAPP-288: a PROGRAMMATIC write (bumps the write epoch).
+      if (typeof args.path === `string`) ctx.assignData(absolutePath(args.path, scope), args.value)
     } else {
       const f = ctx.functions[fn.call]
       // A name outside the client functions is a HOST function (VAPP-91):

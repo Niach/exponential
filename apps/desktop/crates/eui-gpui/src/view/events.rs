@@ -368,7 +368,8 @@ impl SurfaceView {
     pub(crate) fn outside_press(&mut self, root: u32, position: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let (px_, py) = (f32::from(position.x - self.origin.x), f32::from(position.y - self.origin.y));
         for l in &self.layers {
-            if l.root == root {
+            // VAPP-281: a hosted popup is in another window.
+            if l.root == root || l.hosted {
                 continue;
             }
             let (shift_x, shift) = self.layer_offset(l);
@@ -931,6 +932,20 @@ impl SurfaceView {
                     "end" => "End",
                     "enter" => "Enter",
                     _ => return false,
+                };
+                self.fire(n.index, "key", Some(json!({"key": dom})), cx);
+                return true;
+            }
+            // #VAPP-285: a Tree row (`treeitem`): the core's tree keys move
+            // the focus (a `Focus` event) or fold it.
+            _ if matches!(key, "up" | "down" | "home" | "end" | "left" | "right") && n.accessibility.as_ref().and_then(|a| a.get("role")).and_then(Value::as_str) == Some("treeitem") => {
+                let dom = match key {
+                    "up" => "ArrowUp",
+                    "down" => "ArrowDown",
+                    "home" => "Home",
+                    "end" => "End",
+                    "left" => "ArrowLeft",
+                    _ => "ArrowRight",
                 };
                 self.fire(n.index, "key", Some(json!({"key": dom})), cx);
                 return true;

@@ -166,8 +166,14 @@ interface HostPlugin {
   `change` with the latest value; `commit` goes out on blur/Enter. A value
   the host pushes (the data model, a new prop) is adopted only when the
   field is not focused and every sent revision is acknowledged (the promise
-  settled). A bound `value` (`{path}`) is also written through to the
-  surface's data model. `browser/typing.test.ts`: 40 keys at 150 ms RTT,
+  settled). A PROGRAMMATIC write (an action's `set` step: a press's
+  `functionCall set`, a package action's `sets`; `ctx.assignData`) bumps the
+  surface's write epoch (`ctx.writeEpoch`, `useWriteEpoch`), and a field
+  whose bound value changed with it adopts it even while focused (the
+  outstanding edit dropped), so a form clears itself after Save; host data
+  writes (`updateDataModel`, a bind, an echo) never bump it
+  (`fixtures/interactions-round1.json` `fieldWrites`). A bound `value`
+  (`{path}`) is also written through to the surface's data model. `browser/typing.test.ts`: 40 keys at 150 ms RTT,
   none dropped, three runs.
 - **Bindings**: `{path}` is a JSON pointer into `surface.data` (relative
   inside a template item); `{call, args}` runs a client function (the bind
@@ -373,3 +379,13 @@ The app's `/exponential-ui-kitchen-sink` route (view `exponential-ui-kitchen-sin
 renders the same fixture with the app's icon registry; the theme builder
 (`packages/exponential-ui/builder`) previews its recipe sheet and the sink
 through this renderer.
+
+## Hosted popups (VAPP-281)
+
+`host.popupHost = { mount(popup), unmount?(popup) }` shows anchored Popovers and
+Menus outside the surface: `mount` gets `{owner, kind, anchor, side, align}`
+(the anchor's box in surface coordinates) when one opens and returns the element
+its content renders into (`null` = the usual overlay layer). The element takes
+the surface's theme scope; the content lays out in flow inside it, the host
+places it (e.g. at `anchorPosition`). Presses, Escape and focus return still
+route through the surface. Harness: `?view=hosted`.

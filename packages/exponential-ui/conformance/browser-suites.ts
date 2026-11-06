@@ -70,13 +70,15 @@ import { launchChromium, openPage, pageUrl, type Query, type WebHarness } from "
  *  the runner hands it a STUB carrying only what these functions read:
  *  `templateItems` gets `{ data, templateNode }`, `runNodeAction` gets
  *  `{ surfaceId, data, functions, openUrl, locale, strings, formatter,
- *  setData(pointer, value), host: { onAction, onFunctionCall } }`. */
+ *  setData(pointer, value), assignData(pointer, value), host: { onAction,
+ *  onFunctionCall } }`. */
 export interface BrowserSuiteLogic<Ctx = never> {
   /** A templated node's items in `scope` (`null` = no template / no list). */
   templateItems(ctx: Ctx, node: UiNode, scope: string): { items: { key: string; path: string; index: number }[] } | null | undefined
   /** A template item's instance suffix (`${instance}.<segment of key>`). */
   itemInstance(instance: string, key: string): string
-  /** Runs the node's `event` action (`set` writes through `ctx.setData`, any
+  /** Runs the node's `event` action (`set` writes through `ctx.assignData`, a
+   *  programmatic write (#VAPP-288); any
    *  other function reaches `ctx.host.onFunctionCall` / `onAction`). */
   runNodeAction(ctx: Ctx, node: UiNode, domId: string, scope: string, event: string): unknown
 }
@@ -267,7 +269,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
 
     await block(`overlay: placement, side and flip`, async () => {
       const overlays = fixture(`overlay-geometry.json`)
-      const cases = overlays.cases as { name: string; viewport: { width: number; height: number }; anchor: { x: number; y: number; width: number; height: number }; side: `top`; expected: { side: string } }[]
+      const cases = overlays.cases as { name: string; viewport: { width: number; height: number }; anchor: { x: number; y: number; width: number; height: number }; side: `top`; align?: `start` | `center` | `end`; expected: { side: string } }[]
       for (const [i, c] of cases.entries()) {
         const page = await open({ view: `overlay`, case: i }, { width: c.viewport.width, height: c.viewport.height })
         await page.waitForSelector(`[data-xui-overlay="Popover"]`)
@@ -276,7 +278,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         await page.context().close()
         record(`overlay`, c.name, () => {
           if (!got) return `not painted`
-          const want = placeOverlay(c.anchor, { width: got.w, height: got.h }, c.viewport, { side: c.side })
+          const want = placeOverlay(c.anchor, { width: got.w, height: got.h }, c.viewport, { side: c.side, align: c.align })
           return got.side === c.expected.side && want.side === c.expected.side && Math.abs(got.x - want.x) <= overlays.tolerancePx && Math.abs(got.y - want.y) <= overlays.tolerancePx
         })
       }
@@ -373,7 +375,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
           if (k === name) call = { call: k, args }
           return f(args, { ...c, openUrl: () => {} })
         }]))
-        const ctx = { surfaceId: `s`, data, functions, openUrl: () => {}, locale: `en-US`, strings, formatter, setData: (p: string, v: unknown) => (out = setPointer(out, p, v)), host: { onAction: () => undefined, onFunctionCall: (e: { name: string; args: Record<string, unknown> }) => void (call = { call: e.name, args: e.args }) } } as unknown as Ctx
+        const write = (p: string, v: unknown) => void (out = setPointer(out, p, v))
+        const ctx = { surfaceId: `s`, data, functions, openUrl: () => {}, locale: `en-US`, strings, formatter, setData: write, assignData: write, host: { onAction: () => undefined, onFunctionCall: (e: { name: string; args: Record<string, unknown> }) => void (call = { call: e.name, args: e.args }) } } as unknown as Ctx
         logic.runNodeAction(ctx, node, node.id, ``, `press`)
         return call ? { data: out, call } : { data: out }
       }

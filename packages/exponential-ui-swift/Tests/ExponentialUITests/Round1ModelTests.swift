@@ -578,6 +578,86 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertEqual(m.node(m.rootIndex!)?.children.compactMap { m.node($0)?.id }, ["b", "c"], "children in paint order")
     }
 
+    // MARK: - interactions-round1.json fieldWrites (#VAPP-288)
+
+    /// An Input `draft` bound to /draft and a Button `save` whose press is
+    /// `functionCall set`: a host write (setData) is an echo a focused field
+    /// ignores; an action's `set` (a programmatic write: the write epoch
+    /// moves) lands even while focused, the outstanding edit dropped.
+    private func fieldWritesModel(pressPath: String?, pressValue: JSONValue?, seed: JSONValue, host: HostPlugin? = nil) throws -> SurfaceModel {
+        var save: J = ["id": "save", "component": "Button", "props": obj(["label": "Save"])]
+        if let pressPath {
+            save["on"] = obj(["press": obj(["functionCall": obj(["call": "set", "args": obj(["path": pressPath, "value": pressValue?.any ?? NSNull()])])])])
+        }
+        let m = try model(root([obj(["id": "draft", "component": "Input", "props": obj(["label": "Draft", "name": "draft", "value": obj(["path": "/draft"])])]), save]), host: host)
+        m.setData(path: "/draft", value: seed)
+        return m
+    }
+
+    func testFieldWritesCasesKeepTheEchoRuleAndAdoptProgrammaticSets() async throws {
+        let cases = try Fixtures.json("interactions-round1.json")["fieldWrites"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            let m = try fieldWritesModel(pressPath: c["pressPath"]?.string, pressValue: c["pressValue"], seed: c["seed"] ?? .string(""), host: Round1Host())
+            let field = try XCTUnwrap(m.index(of: "draft.field"), name)
+            XCTAssertNotNil(m.field(field), "\(name): field state")
+            for step in c["steps"]?.array ?? [] {
+                switch step["op"]?.string {
+                case "focus"?:
+                    m.fieldFocused(field, true)
+                case "blur"?:
+                    m.fieldFocused(field, false)
+                case "type"?:
+                    m.fieldEdited(field, text: step["text"]?.string ?? "")
+                    try await eventually { m.field(field)?.pendingChange == false }
+                case "hostWrite"?:
+                    m.setData(path: step["path"]?.string ?? "", value: step["value"])
+                case "press"?:
+                    m.press(id: "save")
+                default:
+                    XCTFail("\(name): unknown step \(step.json)")
+                }
+            }
+            let expect = c["expect"] ?? .null
+            XCTAssertEqual(m.fieldText(field), expect["text"]?.string, "\(name): text")
+            if let data = expect["data"] {
+                XCTAssertEqual(m.data["draft"] ?? .null, data, "\(name): /draft")
+            }
+        }
+    }
+
+    /// An action's `set` lands while the edit is still inside the debounce:
+    /// the press sends the edit first, then the set (back to the pre-edit
+    /// value) wins, the late `change` never fires.
+    func testASetBackToThePreEditValueLandsMidDebounce() async throws {
+        let host = Round1Host()
+        let m = try fieldWritesModel(pressPath: "/draft", pressValue: .string("x"), seed: .string("x"), host: host)
+        let field = try XCTUnwrap(m.index(of: "draft.field"))
+        m.fieldFocused(field, true)
+        m.fieldEdited(field, text: "xyz")
+        let generation = try XCTUnwrap(m.field(field)).writeGeneration
+        m.press(id: "save")
+        XCTAssertEqual(m.fieldText(field), "x")
+        XCTAssertEqual(m.data["draft"], .string("x"))
+        XCTAssertGreaterThan(try XCTUnwrap(m.field(field)).writeGeneration, generation, "the view reloads its text")
+        XCTAssertFalse(try XCTUnwrap(m.field(field)).pendingChange)
+        let sent = host.inputs.count
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(host.inputs.count, sent, "no late change")
+        XCTAssertEqual(m.data["draft"], .string("x"))
+    }
+
+    func testOnlyProgrammaticWritesBumpTheWriteEpoch() throws {
+        let m = try fieldWritesModel(pressPath: nil, pressValue: nil, seed: .string(""))
+        let epoch = m.surface.writeEpoch()
+        m.setData(path: "/draft", value: .string("host"))
+        XCTAssertEqual(m.surface.writeEpoch(), epoch, "setData is host data")
+        m.assignData(path: "/draft", value: .string("set"))
+        XCTAssertGreaterThan(m.surface.writeEpoch(), epoch, "assignData is a programmatic write")
+        XCTAssertEqual(m.data["draft"], .string("set"))
+    }
+
     // MARK: - interactions-round1.json foldRow (#VAPP-284)
 
     /// A foldable Row (children): a press on the head or its fold button, or
@@ -621,6 +701,57 @@ final class Round1ModelTests: XCTestCase {
                 XCTAssertEqual(a.context["open"]?.bool, c["after"]?.bool, "\(name): fold context")
             }
             XCTAssertEqual(m.node(id: "issues.head")?.accessibility?["expanded"]?.bool, c["after"]?.bool, "\(name): expanded after")
+        }
+    }
+
+    // MARK: - interactions-round1.json tree (#VAPP-285)
+
+    /// A Tree: a press on a row (leaf = select, branch = fold, lazy = load),
+    /// or a key through the model's keyboard on the focused treeitem (the
+    /// core's tree keys move the focus or fold, rtl-aware); the events the
+    /// host sees, where the focus lands, /open and /picked after.
+    func testTreeCasesSelectFoldFetchAndMoveTheFocusThroughTheModel() throws {
+        let t = try Fixtures.json("interactions-round1.json")["tree"]
+        let rowIds = t?["rowIds"]?.object ?? [:]
+        let cases = t?["cases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        let keys = ["ArrowUp": "up", "ArrowDown": "down", "ArrowLeft": "left", "ArrowRight": "right", "Home": "home", "End": "end"]
+        for c in cases {
+            let name = c["name"]?.string ?? "?"
+            var tree: Props = ["id": .string("root"), "component": .string("Box"), "children": .array([t?["surface"] ?? .null])]
+            if c["rtl"]?.bool == true { tree["style"] = .object(["direction": .string("rtl")]) }
+            let host = Round1Host()
+            var options = SurfaceOptions()
+            options.theme = ThemeHandle.builtin("neutral")
+            options.mode = .light
+            let m = try SurfaceModel(id: "tree", options: options, host: host)
+            m.setViewport(width: 400, height: 800)
+            try m.setNested(json: JSONValue.object(tree).json)
+            m.setData(path: "/open", value: c["open"] ?? .array([]))
+            let step = c["step"]?.object ?? [:]
+            let item = (step["press"] ?? step["on"])?.string ?? "?"
+            let target = rowIds[item]?.string ?? "?"
+            XCTAssertNotNil(m.index(of: target), "\(name): no \(target)")
+            var moved: String?
+            if step["press"] != nil {
+                m.press(id: target)
+            } else {
+                m.requestFocus(target, keyboard: true)
+                XCTAssertEqual(m.focusedId, target, "\(name): \(target) takes focus")
+                let key = keys[step["key"]?.string ?? ""] ?? "?"
+                XCTAssertTrue(m.handleKey(key: key), "\(name): \(key) is the tree's")
+                if let now = m.focusedId, now != target {
+                    moved = rowIds.first(where: { $0.value.string == now })?.key ?? now
+                }
+            }
+            XCTAssertEqual(host.actions.map(\.name), c["events"]?.array?.compactMap(\.string), "\(name): events")
+            XCTAssertEqual(moved, c["after"]?["focus"]?.string, "\(name): focus")
+            XCTAssertEqual(m.data["open"] ?? .null, c["after"]?["open"] ?? .null, "\(name): /open")
+            XCTAssertEqual(m.data["picked"] ?? .null, c["after"]?["picked"] ?? .null, "\(name): /picked")
+            if let visible = c["after"]?["visible"]?.array?.compactMap(\.string) {
+                let shown = rowIds.filter { m.index(of: $0.value.string ?? "") != nil }.map(\.key).sorted()
+                XCTAssertEqual(shown, visible.sorted(), "\(name): visible rows")
+            }
         }
     }
 }

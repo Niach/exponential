@@ -287,6 +287,8 @@ impl Surface {
         if let Some((path, value)) = outcome.written {
             self.data = outcome.data;
             self.data_version += 1;
+            // #VAPP-288: an action's `set` is a programmatic write.
+            self.write_epoch += 1;
             self.needs_build = true;
             out.push(OutEvent::DataChanged { path, value });
         }
@@ -344,8 +346,12 @@ impl Surface {
         if event == "press" && n.component == "Button" && n.part.is_none() && n.props.get("hold").and_then(Value::as_bool) == Some(true) {
             return vec![];
         }
+        // #VAPP-285: the tree keys on a treeitem (focus moves), then
         // #VAPP-284: ArrowRight / ArrowLeft on a node that folds.
         if event == "key" {
+            if let Some(out) = self.tree_key_event(&n, index, payload.as_ref()) {
+                return out;
+            }
             if let Some(out) = self.fold_key_event(&n, index, payload.as_ref()) {
                 return out;
             }
@@ -1200,6 +1206,59 @@ impl Surface {
     // ------------------------------------------------------------------
     // Resizable (round 2 §1)
     // ------------------------------------------------------------------
+
+    /// #VAPP-285: a key on a `treeitem` (a Tree row): `crate::tree::tree_key`
+    /// over the tree's visible treeitems (pre-order under the nearest
+    /// `tree`): a move = a `Focus` event; a fold falls through to the fold
+    /// keys (`None`); nothing = handled, no events.
+    fn tree_key_event(&mut self, n: &LNode, index: u32, payload: Option<&Value>) -> Option<Vec<OutEvent>> {
+        let role = |node: &LNode| node.accessibility.as_ref().and_then(|a| a.get("role")).and_then(Value::as_str).map(str::to_string);
+        if role(n).as_deref() != Some("treeitem") {
+            return None;
+        }
+        let mut container = n.parent;
+        while let Some(p) = container {
+            let node = &self.nodes[p as usize];
+            if role(node).as_deref() == Some("tree") {
+                break;
+            }
+            container = node.parent;
+        }
+        let container = container?;
+        let mut items: Vec<u32> = Vec::new();
+        let mut stack: Vec<u32> = self.nodes[container as usize].children.iter().rev().copied().collect();
+        while let Some(i) = stack.pop() {
+            let Some(node) = self.nodes.get(i as usize) else { continue };
+            if !self.live.get(i as usize).copied().unwrap_or(false) || node.hidden {
+                continue;
+            }
+            if role(node).as_deref() == Some("treeitem") {
+                items.push(i);
+            }
+            stack.extend(node.children.iter().rev().copied());
+        }
+        let rows: Vec<crate::tree::TreeKeyRow> = items
+            .iter()
+            .map(|&i| {
+                let a = self.nodes[i as usize].accessibility.as_ref();
+                crate::tree::TreeKeyRow {
+                    level: a.and_then(|a| a.get("level")).and_then(Value::as_f64).unwrap_or(1.0) as u32,
+                    expanded: a.and_then(|a| a.get("expanded")).and_then(Value::as_bool),
+                }
+            })
+            .collect();
+        let at = items.iter().position(|&i| i == index)?;
+        let key = payload.and_then(|p| p.get("key")).and_then(Value::as_str).unwrap_or_default();
+        let rtl = self.node_state.get(index as usize).is_some_and(|s| s.direction == taffy::style::Direction::Rtl);
+        match crate::tree::tree_key(&rows, at, key, rtl) {
+            Some(crate::tree::TreeKeyResult::Focus(to)) => {
+                let slot = items[to];
+                Some(vec![OutEvent::Focus { id: self.nodes[slot as usize].id.clone(), index: slot }])
+            }
+            Some(crate::tree::TreeKeyResult::Toggle) => None,
+            None => Some(vec![]),
+        }
+    }
 
     /// #VAPP-284: a key on a node with an `on.toggle` and a boolean
     /// `expanded` (a foldable Row's head or fold button): `toggle` when the

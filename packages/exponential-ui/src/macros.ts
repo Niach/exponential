@@ -125,6 +125,14 @@ function recipeProps(exp: Expansion, ctx: ExprContext, extra: unknown): Record<s
   return props
 }
 
+/** #VAPP-285: an event name of `$on` / `$set` (a key or a routed name):
+ *  literal, or interpolated (`{node.press}`); not a string = none. */
+function eventName(name: string, ctx: ExprContext): string {
+  if (!name.includes(`{`)) return name
+  const value = evalValue(name, ctx)
+  return typeof value === `string` ? value : ``
+}
+
 function andOf(conditions: unknown[], op: `and` | `or`): Visible {
   if (conditions.length === 1) return conditions[0] as Visible
   return { call: op, args: { values: conditions } }
@@ -167,17 +175,24 @@ function expandTemplate(
   ctx: ExprContext,
   parentId: string
 ): UiNode[] {
-  const decided = decideConditions(tpl, ctx)
-  if (decided === false) return []
-  const visible = decided === true ? undefined : decided
   if (tpl.$each !== undefined) {
     const items = evalValue(`{${tpl.$each}}`, ctx)
     if (!Array.isArray(items)) return []
     const as = tpl.$as ?? `item`
-    return items.map((item, index) =>
-      buildNode(tpl, exp, { ...ctx, vars: { ...ctx.vars, [as]: item, index } }, `${parentId}.${tpl.part}.${index}`, visible)
-    )
+    // #VAPP-285: under `$each` the part's `$if`/`$any` are decided PER ITEM
+    // (they see the item; a Tree row's `{node.shown}`); ids keep the index.
+    const out: UiNode[] = []
+    items.forEach((item, index) => {
+      const itemCtx = { ...ctx, vars: { ...ctx.vars, [as]: item, index } }
+      const decided = decideConditions(tpl, itemCtx)
+      if (decided === false) return
+      out.push(buildNode(tpl, exp, itemCtx, `${parentId}.${tpl.part}.${index}`, decided === true ? undefined : decided))
+    })
+    return out
   }
+  const decided = decideConditions(tpl, ctx)
+  if (decided === false) return []
+  const visible = decided === true ? undefined : decided
   const id = tpl.part === `root` ? exp.source.id : `${parentId}.${tpl.part}`
   return [buildNode(tpl, exp, ctx, id, visible)]
 }
@@ -218,9 +233,13 @@ function buildNode(
   node.recipe = { macro: exp.macro, part: tpl.part, props: recipeProps(exp, ctx, tpl.$recipe) }
   if (tpl.$on) {
     const on: Record<string, Action> = {}
-    for (const [partEvent, route] of Object.entries(tpl.$on)) {
+    for (const [key, route] of Object.entries(tpl.$on)) {
+      // #VAPP-285: a part event (key) or a routed event name may interpolate
+      // (a Tree row's `{node.press}`); an empty one routes nothing.
+      const partEvent = eventName(key, ctx)
       // #VAPP-284: `{event, context}` routes with its own context.
-      const macroEvent = typeof route === `string` ? route : route.event
+      const macroEvent = eventName(typeof route === `string` ? route : route.event, ctx)
+      if (!partEvent || !macroEvent) continue
       const action = exp.source.on?.[macroEvent]
       if (!action) continue
       exp.claimed.add(macroEvent)
@@ -231,7 +250,9 @@ function buildNode(
     if (Object.keys(on).length > 0) node.on = on
   }
   if (tpl.$set) {
-    for (const [partEvent, spec] of Object.entries(tpl.$set)) {
+    for (const [key, spec] of Object.entries(tpl.$set)) {
+      const partEvent = eventName(key, ctx)
+      if (!partEvent) continue
       const bound = exp.baseProps[spec.prop]
       if (!isBinding(bound)) continue
       const on = (node.on ??= {})
@@ -239,8 +260,8 @@ function buildNode(
         // An Action carries ONE `functionCall`: the author's routed function call
         // wins and the bound prop is not written back (reported, never lost
         // silently). Route an `event` to keep the two-way write.
-        const route = tpl.$on?.[partEvent]
-        const macroEvent = route === undefined ? partEvent : typeof route === `string` ? route : route.event
+        const route = tpl.$on?.[key]
+        const macroEvent = route === undefined ? partEvent : eventName(typeof route === `string` ? route : route.event, ctx)
         const message = `on.${macroEvent}: a function action replaces the two-way set of props.${spec.prop}; write it in that function's handler or use an event`
         if (!exp.issues?.some((i) => i.id === exp.source.id && i.message === message)) exp.issues?.push({ id: exp.source.id, message })
         continue

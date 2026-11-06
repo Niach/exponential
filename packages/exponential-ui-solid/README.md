@@ -58,6 +58,9 @@ differences:
   `useField` is `createField`, `useMediaSource` is `createMediaSource`,
   `useHostSurface` is `createHostSurface`, and `defineReactExtension` is
   `defineSolidExtension`.
+- React's `useWriteEpoch(ctx)` is the live getter `ctx.writeEpoch`: hand
+  `createHostOwnedValue` `epoch: () => ctx.writeEpoch` so a programmatic
+  write (an action `set`, `ctx.assignData`) wins over a focused field.
 
 ## The QrScanner camera (`qrScanner` host option)
 
@@ -161,3 +164,8 @@ bun run --filter @exponential_app/eui-solid test:browser      # every headless-C
 bun run --filter @exponential_app/eui-solid build:css         # dist/exponential-ui-solid.css (after ui-react's build:css)
 bun run --filter @exponential_app/eui-solid shots             # the kitchen sink → /tmp/feed128/solid-shots/ (--theme, --mode, --out)
 ```
+
+## Hosted popups (VAPP-281)
+
+As React: `host.popupHost = { mount(popup), unmount?(popup) }` hosts anchored
+Popovers and Menus outside the surface (`docs/round-7-contract.md`).

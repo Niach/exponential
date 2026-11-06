@@ -5,7 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tree (#VAPP-285): `tree::tree_rows` / `tree_key`, `{treeRows(props)}`, per-item `$each` conditions, interpolated `$on`/`$set` event names; `Surface::event(index, "key")` on a treeitem answers a `Focus` event. `tree_rows` takes the rail Sidebar's `rail` (every row a tile, #VAPP-277).
 - A foldable Row (#VAPP-284): macro `alternatives` + `{childCount}`, `$on` routes with their own context (`MacroRoute`), `fold::fold_key` and `Surface::event(index, "key", {key})` firing `toggle` on a node that folds.
+- `SurfaceSettings::hosted_popups` (VAPP-281): anchored Popover / Menu layers unclipped, no flip / shift (`overlay::anchor_position`), `Layer.hosted` + `Layer.align`.
 
 ## 0.17.0 (2026-11-06)
 
@@ -20,6 +22,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 - `brand-exponential` (#VAPP-283): the Exponential logo as an icon concept (icons.json `custom`, a filled 24-unit glyph in currentColor), in the Icon vocabulary of every renderer; the Icon specimen's non-Lucide case shows it.
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception).
 - `SettingsRow` (#VAPP-280, round 7): one line of a settings page as a catalog macro: the label (+ a muted description) on the start column, the control (its children) on the end column, 16 px in, 12 px top and bottom, at least 44 px tall; below `stackBelow` (default `sm`; `never` keeps it inline) the control goes under the label and stretches. A group named by the label. Every renderer paints it through the core's expansion; prompt budget 9,292 → 9,359 tokens (a named exception). A Switch with `label: ""` lays out the web's empty `body` column (it grows; the track ends the row) instead of an empty `label` part.
+- Popover `align` + `anchor`, Menu `side` + `align` + `anchor` (VAPP-276): `OverlayAlign::parse`, `PlaceOptions::placement`; an `anchor`ed overlay's node becomes its trigger (`trigger_for`, pressable) and its open layer is placed against that node's frame (linked after the whole build; a subtree rebuild over an anchor rebuilds fully).
 
 ## 0.16.3 (2026-11-06)
 

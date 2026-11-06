@@ -339,3 +339,120 @@ fn fold_row_cases_press_fold_and_take_the_arrows_like_the_reference() {
         assert_eq!(expanded, Some(c["after"].clone()), "{name}: expanded after");
     }
 }
+
+/// #VAPP-285: the Tree: a leaf press selects, a branch press folds, a lazy
+/// branch fetches, the arrows (`event(index, "key")`) follow `tree_key` over
+/// the visible rows and answer with a `Focus` event.
+#[test]
+fn tree_cases_select_fold_fetch_and_move_like_the_reference() {
+    let f = fixture();
+    let t = &f["tree"];
+    let row_ids = t["rowIds"].as_object().unwrap();
+    let item_of = |node: &str| row_ids.iter().find(|(_, id)| id.as_str() == Some(node)).map(|(item, _)| item.clone());
+    for c in t["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let tree = if c["rtl"] == json!(true) { json!({"id": "rtl", "component": "Box", "style": {"direction": "rtl"}, "children": [t["surface"].clone()]}) } else { t["surface"].clone() };
+        let mut s = surface(tree);
+        s.set_data("/open", Some(c["open"].clone())).unwrap();
+        let mut m = fixed();
+        s.layout(&mut m);
+        let step = &c["step"];
+        let (item, event, payload) = match step.get("press") {
+            Some(p) => (p.as_str().unwrap(), "press", None),
+            None => (step["on"].as_str().unwrap(), "key", Some(json!({"key": step["key"]}))),
+        };
+        let target = row_ids[item].as_str().unwrap();
+        let index = s.nodes().iter().position(|n| n.id == target).unwrap_or_else(|| panic!("{name}: no {target}"));
+        let out = s.event(index as _, event, payload);
+        let names: Vec<String> = out.iter().filter_map(|e| if let OutEvent::Action { name, .. } = e { Some(name.clone()) } else { None }).collect();
+        assert_eq!(json!(names), c["events"], "{name}: events");
+        let focus = out.iter().find_map(|e| if let OutEvent::Focus { id, .. } = e { item_of(id) } else { None });
+        assert_eq!(json!(focus), c["after"]["focus"], "{name}: focus");
+        assert_eq!(s.get_data("/open"), Some(&c["after"]["open"]), "{name}: /open");
+        assert_eq!(s.get_data("/picked").cloned().unwrap_or(Value::Null), c["after"]["picked"], "{name}: /picked");
+        if let Some(visible) = c["after"].get("visible") {
+            s.layout(&mut m);
+            // Slots are not tree order: sort the shown rows by their index.
+            let mut rows: Vec<(usize, String)> = s
+                .nodes()
+                .into_iter()
+                .filter(|n| !n.hidden && n.id.starts_with("files.row.") && n.id["files.row.".len()..].chars().all(|ch| ch.is_ascii_digit()))
+                .filter_map(|n| Some((n.id["files.row.".len()..].parse().ok()?, item_of(&n.id)?)))
+                .collect();
+            rows.sort();
+            let shown: Vec<String> = rows.into_iter().map(|(_, item)| item).collect();
+            assert_eq!(json!(shown), *visible, "{name}: visible");
+        }
+    }
+}
+
+/// #VAPP-288 fieldWrites at the core (it has no focus): the value at /draft
+/// after each case's steps, and the write epoch: an action's `set` (the
+/// press) moves it, the field's own edit (`type` = its `change`) and a
+/// host's plain `set_data` (`hostWrite`) never do. The focus half (what a
+/// focused field shows) replays in each painter.
+#[test]
+fn field_write_cases_move_the_write_epoch_only_on_a_programmatic_write() {
+    let f = fixture();
+    for c in f["fieldWrites"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut save = json!({"id": "save", "component": "Button", "props": {"label": "Save"}});
+        if let Some(path) = c.get("pressPath") {
+            save["on"] = json!({"press": {"functionCall": {"call": "set", "args": {"path": path, "value": c["pressValue"]}}}});
+        }
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "draft", "component": "Input", "props": {"label": "Draft", "name": "draft", "value": {"path": "/draft"}}}, save]}));
+        s.set_data("/draft", Some(c["seed"].clone())).unwrap();
+        let mut m = fixed();
+        s.layout(&mut m);
+        let mut draft = c["seed"].clone();
+        for step in c["steps"].as_array().unwrap() {
+            let before = s.write_epoch();
+            let index = |s: &mut Surface, pick: &dyn Fn(&eui_core::surface::PlacedNode) -> bool| s.nodes().iter().position(|n| pick(n)).unwrap_or_else(|| panic!("{name}: no node")) as u32;
+            let moves = match step["op"].as_str().unwrap() {
+                "type" => {
+                    let i = index(&mut s, &|n| n.component == "Input" && n.part.as_deref() == Some("field"));
+                    s.event(i as _, "change", Some(json!({"value": step["text"]})));
+                    draft = step["text"].clone();
+                    false
+                }
+                "hostWrite" => {
+                    s.set_data(step["path"].as_str().unwrap(), Some(step["value"].clone())).unwrap();
+                    if step["path"] == json!("/draft") {
+                        draft = step["value"].clone();
+                    }
+                    false
+                }
+                "press" => {
+                    let i = index(&mut s, &|n| n.id == "save");
+                    s.event(i as _, "press", None);
+                    if c["pressPath"] == json!("/draft") {
+                        draft = c["pressValue"].clone();
+                    }
+                    c.get("pressPath").is_some()
+                }
+                _ => false, // focus / blur: the painter's half.
+            };
+            assert_eq!(s.write_epoch() != before, moves, "{name}: epoch after {step}");
+            s.layout(&mut m);
+        }
+        assert_eq!(s.get_data("/draft"), Some(&draft), "{name}: /draft");
+        if let Some(data) = c["expect"].get("data") {
+            assert_eq!(s.get_data("/draft"), Some(data), "{name}: expect.data");
+        }
+    }
+}
+
+/// #VAPP-288: [`Surface::assign_data`] is a programmatic write, a refused
+/// one bumps nothing.
+#[test]
+fn assign_data_bumps_the_write_epoch_and_set_data_does_not() {
+    let mut s = surface(json!({"id": "root", "component": "Box"}));
+    assert_eq!(s.write_epoch(), 0);
+    s.set_data("/a", Some(json!(1))).unwrap();
+    assert_eq!(s.write_epoch(), 0);
+    s.assign_data("/a", Some(json!(2))).unwrap();
+    assert_eq!((s.write_epoch(), s.get_data("/a")), (1, Some(&json!(2))));
+    s.set_data("/list", Some(json!([]))).unwrap();
+    assert!(s.assign_data("/list/9", Some(json!(1))).is_err());
+    assert_eq!(s.write_epoch(), 1);
+}

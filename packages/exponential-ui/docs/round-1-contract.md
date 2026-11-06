@@ -133,6 +133,26 @@ when the prop is a binding, the renderer writes the user's change to that
 path itself AND fires `change` (this is the two-way binding the macros now
 reach through `set`).
 
+**Host-owned text fields and programmatic writes** (#VAPP-288, locked by
+`interactions-round1.json` `fieldWrites`): Input, Textarea and Composer own
+their text while the person types. Every edit carries a revision and writes
+through to its bound path. A value from outside reaches the field under ONE
+of two rules:
+- **An echo** (the host's `updateDataModel`, a `bind`, a server's echo of the
+  field's own edit) is adopted only while the field is unfocused and no edit
+  is outstanding (the VAPP-4 typing rule: a stale echo never clobbers a key
+  in flight).
+- **A programmatic write** (an action's `set` step: a press's
+  `functionCall set`, a package action's `sets`) bumps the surface's write
+  epoch. A field whose bound value changed adopts it even while focused: the
+  cursor goes to the end and an outstanding edit is dropped. That is the form
+  that clears itself after Save. A programmatic write to another path leaves
+  the field alone.
+
+Hosts write a package action's sets with the programmatic call (TS
+`SurfaceStore.assign`, core `Surface::assign_data`, FFI `assignData`) and
+everything else with `setData`.
+
 ### The bind pass (reference: `src/dynamic.ts`)
 After expansion, per data model: `bindTree(node, data, {scope?, strings?,
 extensions?})`:

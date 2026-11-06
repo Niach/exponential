@@ -627,6 +627,11 @@ uint64_t uniffi_exponential_ui_ffi_fn_constructor_surface_with_theme(RustBuffer 
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_apply(uint64_t ptr, RustBuffer message_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_ASSIGN_DATA
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_ASSIGN_DATA
+void uniffi_exponential_ui_ffi_fn_method_surface_assign_data(uint64_t ptr, RustBuffer path, RustBuffer value_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_COMMAND_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_COMMAND_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_command_json(uint64_t ptr, RustBuffer command_json, RustCallStatus *_Nonnull out_status
@@ -945,6 +950,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_visual(uint64_t ptr, uint
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_VISUALS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_VISUALS
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_visuals(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_WRITE_EPOCH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_WRITE_EPOCH
+uint64_t uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_CLONE_THEME
@@ -1375,6 +1385,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_parse_source_json(RustBuffer uri, R
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PLACE_OVERLAY
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PLACE_OVERLAY
 RustBuffer uniffi_exponential_ui_ffi_fn_func_place_overlay(double anchor_x, double anchor_y, double anchor_w, double anchor_h, double size_w, double size_h, double viewport_w, double viewport_h, RustBuffer side, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PLACE_OVERLAY_ALIGNED
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PLACE_OVERLAY_ALIGNED
+RustBuffer uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(double anchor_x, double anchor_y, double anchor_w, double anchor_h, double size_w, double size_h, double viewport_w, double viewport_h, RustBuffer side, RustBuffer align, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_QR_MATRIX_JSON
@@ -2119,6 +2134,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_place_overlay(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PLACE_OVERLAY_ALIGNED
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PLACE_OVERLAY_ALIGNED
+uint16_t uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_QR_MATRIX_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_QR_MATRIX_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(void
@@ -2482,6 +2503,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_APPLY
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_APPLY
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_apply(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_ASSIGN_DATA
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_ASSIGN_DATA
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_assign_data(void
     
 );
 #endif
@@ -2866,6 +2893,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_visual(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_VISUALS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_VISUALS
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_visuals(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_WRITE_EPOCH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_WRITE_EPOCH
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch(void
     
 );
 #endif

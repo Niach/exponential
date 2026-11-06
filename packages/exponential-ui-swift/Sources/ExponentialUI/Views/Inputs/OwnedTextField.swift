@@ -173,7 +173,11 @@ extension OwnedTextField: UIViewRepresentable {
             Self.apply(InputTraits(type: inputType, kind: kind), to: field)
             let coordinator = context.coordinator
             field.onKey = { name, shift in coordinator.parent.key(name, shift: shift) }
-            if wantsWrite, field.text != text { field.text = text }
+            if wantsWrite, field.text != text {
+                field.text = text
+                // A model write (an echo, an action's `set`) leaves the cursor at the END.
+                field.selectedTextRange = field.textRange(from: field.endOfDocument, to: field.endOfDocument)
+            }
         } else if let tv = view as? PlaceholderTextView {
             tv.font = font
             tv.textColor = color
@@ -183,7 +187,10 @@ extension OwnedTextField: UIViewRepresentable {
             tv.placeholderLabel.text = placeholder
             tv.placeholderLabel.textColor = placeholderColor
             tv.placeholderLabel.font = font
-            if wantsWrite, tv.text != text { tv.text = text }
+            if wantsWrite, tv.text != text {
+                tv.text = text
+                tv.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            }
             tv.placeholderLabel.isHidden = !(tv.text ?? "").isEmpty
             tv.placeholderLabel.frame = CGRect(x: 0, y: 0, width: tv.bounds.width, height: lineHeight)
         }
@@ -394,12 +401,19 @@ extension OwnedTextField: NSViewRepresentable {
             (field as? CenteredTextField)?.selectsOnPress = InputTraits(type: inputType, kind: kind).selectsOnFocus
             field.setAccessibilityLabel(accessibilityLabel)
             field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
-            if wantsWrite, field.stringValue != text { field.stringValue = text }
+            if wantsWrite, field.stringValue != text {
+                field.stringValue = text
+                // A model write (an echo, an action's `set`) leaves the cursor at the END.
+                field.currentEditor()?.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            }
         } else if let scroll = view as? NSScrollView, let tv = scroll.documentView as? NSTextView {
             tv.font = font
             tv.textColor = color
             tv.isEditable = !disabled
-            if wantsWrite, tv.string != text { tv.string = text }
+            if wantsWrite, tv.string != text {
+                tv.string = text
+                tv.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+            }
             if let ptv = tv as? PlaceholderTextView {
                 ptv.placeholder = placeholder.isEmpty ? nil : NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
                 ptv.placeholderLineHeight = lineHeight

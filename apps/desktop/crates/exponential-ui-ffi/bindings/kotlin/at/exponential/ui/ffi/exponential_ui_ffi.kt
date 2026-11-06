@@ -857,6 +857,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_parse_source_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
@@ -978,6 +980,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end(
 external fun uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_apply(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_assign_data(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_command_json(
 ): Short
@@ -1106,6 +1110,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock(
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_visual(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_visuals(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_theme_color(
 ): Short
@@ -1306,6 +1312,8 @@ external fun uniffi_exponential_ui_ffi_fn_constructor_surface_with_theme(`surfac
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_method_surface_apply(`ptr`: Long,`messageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_assign_data(`ptr`: Long,`path`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_command_json(`ptr`: Long,`commandJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_data_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1434,6 +1442,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_visual(`ptr`: Long,`ind
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_visuals(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
 external fun uniffi_exponential_ui_ffi_fn_clone_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_free_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1603,6 +1613,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(`source
 external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,`align`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(`value`: RustBuffer.ByValue,`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -5436,6 +5448,13 @@ public interface SurfaceInterface {
     fun `apply`(`messageJson`: kotlin.String): FfiApplyOutcome
     
     /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+    fun `assignData`(`path`: kotlin.String, `valueJson`: kotlin.String?)
+    
+    /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
      * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
      * "align"?}}` (round 2).
@@ -5733,6 +5752,13 @@ public interface SurfaceInterface {
     
     fun `visuals`(): List<FfiVisual>
     
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */
+    fun `writeEpoch`(): kotlin.ULong
+    
     companion object
 }
 
@@ -5863,6 +5889,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     )
     }
+    
+
+    
+    /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+    @Throws(UiException::class)override fun `assignData`(`path`: kotlin.String, `valueJson`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_assign_data(
+        it,
+        FfiConverterString.lower(`path`),FfiConverterOptionalString.lower(`valueJson`),_status)
+}
+    }
+    
     
 
     
@@ -6854,6 +6898,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_visuals(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */override fun `writeEpoch`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(
         it,
         _status)
 }
@@ -7868,6 +7930,19 @@ data class FfiLayer (
     var `dismissible`: kotlin.Boolean
     , 
     var `frames`: List<FfiFrame>
+    , 
+    /**
+     * VAPP-281: an anchored layer's alignment along its side, physical
+     * (`start | center | end`).
+     */
+    var `align`: kotlin.String? = null 
+    , 
+    /**
+     * VAPP-281: hosted OUTSIDE the surface (`FfiSettings.hosted_popups`): the
+     * host shows a popup of the root frame's size against `anchor_frame`,
+     * paints the frames minus the root's origin, routes input back.
+     */
+    var `hosted`: kotlin.Boolean = false 
     
 ){
     
@@ -7895,6 +7970,8 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterSequenceTypeFfiFrame.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -7909,7 +7986,9 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterString.allocationSize(value.`class`) +
             FfiConverterBoolean.allocationSize(value.`modal`) +
             FfiConverterBoolean.allocationSize(value.`dismissible`) +
-            FfiConverterSequenceTypeFfiFrame.allocationSize(value.`frames`)
+            FfiConverterSequenceTypeFfiFrame.allocationSize(value.`frames`) +
+            FfiConverterOptionalString.allocationSize(value.`align`) +
+            FfiConverterBoolean.allocationSize(value.`hosted`)
     )
 
     override fun write(value: FfiLayer, buf: ByteBuffer) {
@@ -7924,6 +8003,8 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterBoolean.write(value.`modal`, buf)
             FfiConverterBoolean.write(value.`dismissible`, buf)
             FfiConverterSequenceTypeFfiFrame.write(value.`frames`, buf)
+            FfiConverterOptionalString.write(value.`align`, buf)
+            FfiConverterBoolean.write(value.`hosted`, buf)
     }
 }
 
@@ -8721,6 +8802,12 @@ data class FfiSettings (
      * width (`phone` below the theme's `$breakpoint.md`).
      */
     var `formFactor`: kotlin.String? = null 
+    , 
+    /**
+     * VAPP-281: the host hosts anchored Popover / Menu layers OUTSIDE the
+     * surface (unclipped, no flip / shift; `FfiLayer.hosted`).
+     */
+    var `hostedPopups`: kotlin.Boolean = false 
     
 ){
     
@@ -8756,6 +8843,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -8778,7 +8866,8 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterUInt.allocationSize(value.`hoverCloseMs`) +
             FfiConverterOptionalString.allocationSize(value.`timeZone`) +
             FfiConverterBoolean.allocationSize(value.`readOnly`) +
-            FfiConverterOptionalString.allocationSize(value.`formFactor`)
+            FfiConverterOptionalString.allocationSize(value.`formFactor`) +
+            FfiConverterBoolean.allocationSize(value.`hostedPopups`)
     )
 
     override fun write(value: FfiSettings, buf: ByteBuffer) {
@@ -8801,6 +8890,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterOptionalString.write(value.`timeZone`, buf)
             FfiConverterBoolean.write(value.`readOnly`, buf)
             FfiConverterOptionalString.write(value.`formFactor`, buf)
+            FfiConverterBoolean.write(value.`hostedPopups`, buf)
     }
 }
 
@@ -11205,6 +11295,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_place_overlay(
     
         FfiConverterDouble.lower(`anchorX`),FfiConverterDouble.lower(`anchorY`),FfiConverterDouble.lower(`anchorW`),FfiConverterDouble.lower(`anchorH`),FfiConverterDouble.lower(`sizeW`),FfiConverterDouble.lower(`sizeH`),FfiConverterDouble.lower(`viewportW`),FfiConverterDouble.lower(`viewportH`),FfiConverterString.lower(`side`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-276: the overlay placement rule with an alignment along the side
+         * (`align` = `start|center|end`: top-start, top-end, bottom-start…).
+         */
+    @Throws(UiException::class) fun `placeOverlayAligned`(`anchorX`: kotlin.Double, `anchorY`: kotlin.Double, `anchorW`: kotlin.Double, `anchorH`: kotlin.Double, `sizeW`: kotlin.Double, `sizeH`: kotlin.Double, `viewportW`: kotlin.Double, `viewportH`: kotlin.Double, `side`: kotlin.String, `align`: kotlin.String): FfiPlacement {
+            return FfiConverterTypeFfiPlacement.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(
+    
+        FfiConverterDouble.lower(`anchorX`),FfiConverterDouble.lower(`anchorY`),FfiConverterDouble.lower(`anchorW`),FfiConverterDouble.lower(`anchorH`),FfiConverterDouble.lower(`sizeW`),FfiConverterDouble.lower(`sizeH`),FfiConverterDouble.lower(`viewportW`),FfiConverterDouble.lower(`viewportH`),FfiConverterString.lower(`side`),FfiConverterString.lower(`align`),_status)
 }
     )
     }

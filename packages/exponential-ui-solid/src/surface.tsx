@@ -8,7 +8,7 @@
 // the theme, the sheets, the layout facts; the context is an object of
 // getters over them, so a node re-binds only on what it reads.
 
-import { For, Show, createComputed, createEffect, createMemo, createSignal, createUniqueId, mergeProps, on, onCleanup, onMount, untrack, type JSX } from "solid-js"
+import { For, Show, batch, createComputed, createEffect, createMemo, createSignal, createUniqueId, mergeProps, on, onCleanup, onMount, untrack, type JSX } from "solid-js"
 import {
   activeBreakpoint,
   applyContrast,
@@ -309,6 +309,19 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
     if (props.surface) props.surface.setData(pointer, value)
     else setLocalData((cur) => setPointer(cur, pointer, value))
   }
+  // #VAPP-288: the write epoch = the surface state's (a host store's, whose
+  // package actions write programmatically too) + this surface's own count
+  // (a programmatic write on a state without `assign`, or local data).
+  const [ownEpoch, setOwnEpoch] = createSignal(0)
+  const writeEpoch = () => (props.surface?.writeEpoch ?? 0) + ownEpoch()
+  const assignData = (pointer: string, value: unknown) => {
+    const surface = props.surface
+    if (surface?.assign) return surface.assign(pointer, value)
+    batch(() => {
+      setData(pointer, value)
+      setOwnEpoch((n) => n + 1)
+    })
+  }
 
   // VAPP-152: a new tree shares every unchanged node with the last one
   // (`share`), so a streamed `updateComponents` re-binds only the nodes it
@@ -478,6 +491,10 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
       return data()
     },
     setData,
+    assignData,
+    get writeEpoch() {
+      return writeEpoch()
+    },
     templateNode,
     nodeCell,
     get templateBudget() {

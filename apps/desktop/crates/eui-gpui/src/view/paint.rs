@@ -1711,6 +1711,12 @@ impl SurfaceView {
     /// the region the host shows; #VAPP-252 under `lift_layers` a modal at
     /// its place in the window, a popup anchored inside a modal with it.
     pub(crate) fn layer_offset(&self, layer: &Layer) -> (f32, f32) {
+        // VAPP-281: a hosted popup paints with its root at (0, 0) of the
+        // host's popup.
+        if layer.hosted {
+            let f = self.frames.get(layer.root as usize).copied().unwrap_or_default();
+            return (-f.x, -f.y);
+        }
         if self.lift_layers && layer.class == LayerClass::Overlay {
             let modal = if layer.modal { Some(layer) } else { self.layers.iter().take_while(|l| l.root != layer.root).filter(|l| l.modal).last() };
             if let Some(modal) = modal {
@@ -1720,6 +1726,27 @@ impl SurfaceView {
             }
         }
         (0.0, if Self::viewport_layer(layer) { self.visible.top } else { 0.0 })
+    }
+
+    /// VAPP-281: the hosted popup layer `owner` as an element with its root
+    /// at (0, 0), sized to the root frame, for the HOST to render in its
+    /// own popup (any window: presses, hover and keys route back to this
+    /// view, which owns the surface). `None` when no such layer is open.
+    pub fn hosted_popup_element(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let k = self.layers.iter().position(|l| l.hosted && l.owner == owner)?;
+        let layer = self.layers[k].clone();
+        let f = self.frames.get(layer.root as usize).copied().unwrap_or_default();
+        let el = self.paint_layer_at(k, &layer, None, window, cx);
+        Some(div().relative().w(px(f.w)).h(px(f.h)).child(el).into_any_element())
+    }
+
+    /// VAPP-281: the host closes a hosted popup (its compositor dismissed
+    /// it: a press outside, `xdg_popup.popup_done`); a non-dismissible one
+    /// stays.
+    pub fn dismiss_hosted_popup(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(root) = self.layers.iter().find(|l| l.hosted && l.owner == owner).map(|l| l.root) {
+            self.dismiss_layer_at(root, window, cx);
+        }
     }
 
     /// An open layer: the scrim (modal ones), the content root at its

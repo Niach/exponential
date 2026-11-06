@@ -1,7 +1,9 @@
 // FEED-128: HOST-OWNED inputs on Solid (React's inputs.ts). The rules
 // (revision counter, debounce, echo acceptance: a host push is adopted only
 // when the field is not focused AND every revision was acknowledged, the
-// VAPP-4 typing rule) are the web layer's `HostOwnedController`; this keeps
+// VAPP-4 typing rule; #VAPP-288: or when it comes with a moved write epoch,
+// a programmatic write such as an action `set`, which wins even while
+// focused) are the web layer's `HostOwnedController`; this keeps
 // one per field and exposes its state as live getters.
 
 import { createEffect, createSignal, on, onCleanup, untrack, type Accessor } from "solid-js"
@@ -18,6 +20,9 @@ export interface HostOwnedOptions<T> {
   /** Optional local write-through (the bound data model path). */
   writeLocal?: (value: T) => void
   debounceMs?: number
+  /** #VAPP-288: the surface's write epoch (`() => ctx.writeEpoch`); a push
+   *  with a moved epoch is a programmatic write. */
+  epoch?: Accessor<number>
 }
 
 export interface HostOwnedValue<T> {
@@ -42,11 +47,14 @@ export function createHostOwnedValue<T>(options: HostOwnedOptions<T>): HostOwned
     writeLocal: (value) => options.writeLocal?.(value),
     debounceMs: options.debounceMs ?? DEBOUNCE_MS,
     onChange: () => bump(0),
+    epoch: options.epoch ? untrack(options.epoch) : undefined,
   })
   c.attach()
   onCleanup(() => c.dispose())
-  // The host's push: adopted only when idle and fully acknowledged.
-  createEffect(on(options.external, (external) => void c.push(external), { defer: true }))
+  // The host's push: adopted only when idle and fully acknowledged, or
+  // with a moved write epoch (a programmatic write).
+  const epoch = options.epoch ?? (() => undefined)
+  createEffect(on([options.external, epoch], ([external, at]) => void c.push(external, at), { defer: true }))
   return {
     get value() {
       version()

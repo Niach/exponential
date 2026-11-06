@@ -261,6 +261,11 @@ public struct LayerInfo: Identifiable, Sendable, Equatable {
     public let frame: CGRect
     /// The layer's nodes in paint order (root first).
     public let order: [Int]
+    /// VAPP-281: an anchored layer's alignment along its side, physical
+    /// (`start | center | end`).
+    public let align: String?
+    /// VAPP-281: hosted OUTSIDE the surface (`SurfaceSettings.hostedPopups`).
+    public let hosted: Bool
 
     init(_ l: FfiLayer) {
         layer = Int(l.layer)
@@ -276,6 +281,8 @@ public struct LayerInfo: Identifiable, Sendable, Equatable {
         dismissible = l.dismissible
         frame = l.frames.first { $0.index == l.root }.map { CGRect($0) } ?? .zero
         order = l.frames.map { Int($0.index) }
+        align = l.align
+        hosted = l.hosted
     }
 
     /// Scrim + focus trap (the core's `modal`: Dialog, Drawer…).

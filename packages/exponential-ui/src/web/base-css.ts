@@ -209,6 +209,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Dialog-close{position:absolute;top:var(--xui-spacing-sm);inset-inline-end:var(--xui-spacing-sm);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .xui-Dialog-close>svg{width:16px;height:16px}
 .xui-Popover-content,.xui-Tooltip-content,.xui-Menu-content,.xui-Select-content,.xui-TimePicker-list{z-index:52;display:flex;flex-direction:column;outline:none;max-height:var(--radix-popper-available-height,320px);overflow:auto}
+.xui-Popover-content{gap:var(--xui-spacing-md)}
 .xui-Tooltip-content{max-width:280px}
 .xui-Menu-item,.xui-Select-item,.xui-TimePicker-item{display:flex;align-items:center;cursor:pointer;user-select:none;white-space:nowrap;outline:none}
 .xui-Menu-item[data-disabled],.xui-Select-item[data-disabled],.xui-Select-item[aria-disabled="true"]{pointer-events:none}
@@ -219,6 +220,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-overlay-root].xui-el{flex-direction:row;align-self:auto;align-items:flex-start}
 [data-xui-overlay-root="stretch"].xui-el{align-items:stretch}
 [data-xui-overlay-root="none"].xui-el{display:contents}
+[data-xui-hosted]>[data-radix-popper-content-wrapper]{position:static!important;transform:none!important;min-width:0!important}
 .xui-trigger{display:flex;flex-direction:row;align-items:stretch;flex:1 1 auto;min-width:0}
 .xui-Tooltip-anchor{display:flex;flex-direction:row;flex:1 1 auto;min-width:0}
 .xui-field-column{display:flex;flex-direction:column;gap:var(--xui-spacing-xs);min-width:0}
