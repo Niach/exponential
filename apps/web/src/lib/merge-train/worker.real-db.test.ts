@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, sql } from "drizzle-orm"
 import type { TrainCheck, TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
 import { agents, boards, devices, mergeTrains, messages, pullRequestChecks, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
@@ -416,6 +416,23 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect((await prRow(bottom)).mergeState).toBe(`merged`)
     expect((await prRow(top)).mergeState).toBe(`merged`)
     expect(fake.closed.map((c) => c.number)).toEqual([501, 502])
+  })
+
+  it(`a tree-shaped stack lands its ready bottom while a branch above still waits (#EXP-1711)`, async () => {
+    const w = await world()
+    const bottom = await w.pr(511)
+    const ready = await w.pr(512, { base: `exp/511` })
+    const waiting = await w.pr(513, { base: `exp/511` })
+    await db.update(pullRequests).set({ basePullRequestId: bottom }).where(inArray(pullRequests.id, [ready, waiting]))
+    await db.update(pullRequests).set({ checksState: `pending` }).where(eq(pullRequests.id, waiting))
+    await w.idle()
+    await pass(w.repoId)
+    expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[511, 512]])
+    await pass(w.repoId)
+    expect((await prRow(bottom)).mergeState).toBe(`merged`)
+    expect((await prRow(ready)).mergeState).toBe(`merged`)
+    expect((await prRow(waiting)).mergeState).toBe(`checks`)
+    expect(fake.closed.map((c) => c.number)).toEqual([511, 512])
   })
 
   it(`a push pulls a testing unit from its run; a repo without the pipeline lands directly`, async () => {

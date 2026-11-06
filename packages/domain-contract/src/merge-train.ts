@@ -159,6 +159,8 @@ export interface TrainMember {
   number: number
   ready: boolean
   readyAt: string | null
+  /** The member it is based on (a tree-shaped stack); none = the one before. */
+  parent?: number
 }
 
 export interface TrainUnit {
@@ -171,12 +173,31 @@ function unitReadyAt(unit: TrainUnit): string {
   return unit.members.reduce((latest, m) => ((m.readyAt ?? ``) > latest ? (m.readyAt ?? ``) : latest), ``)
 }
 
-/** The queue in train order: a unit is eligible only when EVERY member is
- *  ready; Merge now units first; then by when the unit became ready (its
- *  latest member), ties by the lowest PR number. */
+/** #EXP-1711: a stack's READY PREFIX: every ready member whose parent
+ *  (`parent`; none = the member before it) is in the prefix too. A lone PR
+ *  is its own prefix when ready. Members keep their bottom-first order. */
+export function readyPrefix(unit: TrainUnit): TrainUnit {
+  const numbers = new Set(unit.members.map((m) => m.number))
+  const inPrefix = new Set<number>()
+  const members: TrainMember[] = []
+  unit.members.forEach((m, i) => {
+    const parent = m.parent ?? (i > 0 ? unit.members[i - 1]!.number : undefined)
+    const rooted = parent === undefined || !numbers.has(parent) || inPrefix.has(parent)
+    if (m.ready && rooted) {
+      inPrefix.add(m.number)
+      members.push(m)
+    }
+  })
+  return { ...unit, members }
+}
+
+/** The queue in train order: a unit's eligible part is its ready prefix
+ *  (none = not eligible); Merge now units first; then by when the prefix
+ *  became ready (its latest member), ties by the lowest PR number. */
 export function trainQueue(units: readonly TrainUnit[]): TrainUnit[] {
   return units
-    .filter((unit) => unit.members.length > 0 && unit.members.every((m) => m.ready))
+    .map(readyPrefix)
+    .filter((unit) => unit.members.length > 0)
     .map((unit) => ({ unit, at: unitReadyAt(unit), first: Math.min(...unit.members.map((m) => m.number)) }))
     .sort((a, b) => {
       const now = Number(Boolean(b.unit.mergeNow)) - Number(Boolean(a.unit.mergeNow))
