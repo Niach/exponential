@@ -21,6 +21,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
@@ -46,6 +47,8 @@ fun PersonalScreen(
     inboxViewModel: InboxViewModel = hiltViewModel(),
 ) {
     val inboxState by inboxViewModel.state.collectAsStateWithLifecycle()
+    val markAllFailure by inboxViewModel.failure.collectAsStateWithLifecycle()
+    FailedActionToast(markAllFailure, onShown = inboxViewModel::clearFailure)
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().testTag("inbox-page")) {
             Box(

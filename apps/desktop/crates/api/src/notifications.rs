@@ -142,12 +142,15 @@ mod tests {
     }
 
     #[test]
-    fn mark_all_read_posts_no_body() {
+    fn mark_all_read_posts_an_empty_object() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":32}}}"#);
         let out = notifications_mark_all_read(&client(&base)).unwrap();
         assert_eq!(out.tx_id, Some(32));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/notifications.markAllRead HTTP/1.1"));
+        // The route takes an optional `{teamId}`: an EMPTY body is a tRPC
+        // parse error (400), so the input-less call must send `{}`.
+        assert!(request.ends_with("\r\n\r\n{}"), "body must be `{{}}`: {request:?}");
     }
 
     #[test]

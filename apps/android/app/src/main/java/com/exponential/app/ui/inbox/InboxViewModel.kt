@@ -3,6 +3,7 @@ package com.exponential.app.ui.inbox
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.NotificationsApi
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -12,9 +13,12 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.InboxRoute
+import com.exponential.app.ui.components.FailedAction
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -273,7 +277,21 @@ class InboxViewModel @Inject constructor(
     fun markAllRead() {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            runCatching { notificationsApi.markAllRead(accountId, activeTeam.value) }
+            try {
+                notificationsApi.markAllRead(accountId, activeTeam.value)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                // FEED-79: the failed-action toast; Retry re-runs it (idempotent).
+                _failure.value = FailedAction("mark", "all read", trpcErrorMessage(t, ""), retry = ::markAllRead)
+            }
         }
+    }
+
+    private val _failure = MutableStateFlow<FailedAction?>(null)
+    /** A failed Mark all read, raised once as an error toast. */
+    val failure: StateFlow<FailedAction?> = _failure
+
+    fun clearFailure() {
+        _failure.value = null
     }
 }

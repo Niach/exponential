@@ -1,6 +1,8 @@
 import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { boardCollection, issueCollection, notificationCollection } from "@/lib/collections"
+import { trpc } from "@/lib/trpc-client"
 
 // Unread inbox count shared by the sidebar badge and the mobile topbar badge.
 // Only call from components rendered when authed — the notifications shape is
@@ -30,4 +32,14 @@ export function useUnreadNotificationCount(teamId?: string | null): number {
     const issueTeam = new Map((issues ?? []).map((i) => [i.id, boardTeam.get(i.boardId)]))
     return unread.filter((n) => (n.teamId ?? (n.issueId ? issueTeam.get(n.issueId) : null)) === teamId).length
   }, [notifs, issues, boards, teamId])
+}
+
+/** Mark all read ×4 (`teamId` = only that team's rows, absent = every team);
+ *  a failure is the failed-action toast with Retry (the call is idempotent). */
+export function markAllNotificationsRead(teamId?: string | null): void {
+  trpc.notifications.markAllRead
+    .mutate(teamId ? { teamId } : undefined, SKIP_ERROR_TOAST)
+    .catch((error: unknown) => {
+      failedAction(`mark`, `all read`, error, { retry: () => markAllNotificationsRead(teamId) })
+    })
 }

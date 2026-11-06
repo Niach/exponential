@@ -7,9 +7,8 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 import { Pill, useIsMobile } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoardsWithReady, useTeamBySlug } from "@/hooks/use-team-data"
-import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
+import { markAllNotificationsRead, useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { setInboxPopoverOpen } from "@/hooks/use-inbox-popover"
-import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
 
 // #FEED-191: `/inbox` is the PHONES' pushed page (`PhoneInboxPage`, chats.json).
@@ -116,7 +115,7 @@ function PhoneInboxPage() {
               mode="action"
               size="md"
               className="shrink-0"
-              onClick={() => void trpc.notifications.markAllRead.mutate(team ? { teamId: team.id } : undefined)}
+              onClick={() => markAllNotificationsRead(team?.id)}
             >
               Mark all read
             </Pill>

@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 import GRDB
 
@@ -287,7 +288,22 @@ final class InboxViewModel {
 
     func markAllRead() {
         // EXP-1373: one team in view — the server clears that team's rows.
+        // A failure is the failed-action toast; Retry re-runs it (idempotent).
         let teamId = teamId
-        Task { try? await notificationsApi.markAllRead(accountId: accountId, teamId: teamId) }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await notificationsApi.markAllRead(accountId: accountId, teamId: teamId)
+            } catch {
+                Toaster.shared.show(ToastItem(
+                    kind: .error,
+                    title: FeedbackStates.Errors.title(verb: "mark", thing: "all read"),
+                    description: error.userFacingMessage,
+                    action: ToastAction(label: FeedbackStates.Errors.retry) { [weak self] in
+                        Task { @MainActor in self?.markAllRead() }
+                    }
+                ))
+            }
+        }
     }
 }
