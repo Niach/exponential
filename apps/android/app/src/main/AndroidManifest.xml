@@ -148,10 +148,11 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
 
-            <!-- EXP-1635: the sharing shortcuts' <share-target> (DirectShareShortcuts). -->
+            <!-- #EXP-1638: the long-press statics; EXP-1635: the sharing
+                 shortcuts' <share-target> (DirectShareShortcuts). -->
             <meta-data
                 android:name="android.app.shortcuts"
-                android:resource="@xml/share_shortcuts" />
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- EXP-297: hands cached issue attachments to external viewers and

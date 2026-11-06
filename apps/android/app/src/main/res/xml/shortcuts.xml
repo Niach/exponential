@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher activity's ONE shortcuts resource:
+     - #EXP-1638 (app-shortcuts.json): the app icon's long-press statics, in
+       fixture order. A tap launches MainActivity with the shortcut id in
+       EXTRA_APP_SHORTCUT; the recent chats are dynamic (DirectShareShortcuts).
+     - EXP-1635 (share-targets.json): the system share sheet's direct rows, the
+       dynamic sharing shortcuts DirectShareShortcuts publishes under this
+       category. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new-issue"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new_issue"
+        android:shortcutShortLabel="@string/shortcut_new_issue">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="@string/shortcut_target_package"
+            android:targetClass="com.exponential.app.MainActivity">
+            <extra android:name="com.exponential.app.extra.APP_SHORTCUT" android:value="new-issue" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="new-chat"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_chat"
+        android:shortcutShortLabel="@string/shortcut_new_chat">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="@string/shortcut_target_package"
+            android:targetClass="com.exponential.app.MainActivity">
+            <extra android:name="com.exponential.app.extra.APP_SHORTCUT" android:value="new-chat" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="search"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_search"
+        android:shortcutShortLabel="@string/shortcut_search">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="@string/shortcut_target_package"
+            android:targetClass="com.exponential.app.MainActivity">
+            <extra android:name="com.exponential.app.extra.APP_SHORTCUT" android:value="search" />
+        </intent>
+    </shortcut>
+
+    <share-target android:targetClass="com.exponential.app.MainActivity">
+        <data android:mimeType="*/*" />
+        <category android:name="com.exponential.app.category.SHARE_TARGET" />
+    </share-target>
+</shortcuts>

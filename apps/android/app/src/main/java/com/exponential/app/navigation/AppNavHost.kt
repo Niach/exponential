@@ -41,7 +41,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +72,7 @@ import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
+import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.data.push.WebLinkResolver
 import com.exponential.app.domain.AGENT_ROUTE
 import com.exponential.app.domain.AGENT_ROUTE_ARGS
@@ -191,6 +195,26 @@ fun AppNavHost() {
     // nav bar or keyboard ever covers it.
     val toaster = remember { Toaster() }
 
+    // EXP-980 / #EXP-1456: a session push tap or inbox row (a wall, an
+    // agent's decision, an @mention) opens where that session lives
+    // (fixtures/inbox-route.json): my agent conversation = its channel, a
+    // thread root = the thread, else the session view. Same snapshot hazard
+    // as the issue route — the screens read their id from SavedStateHandle
+    // once. #EXP-1638: a recent-chat app shortcut rides the same open.
+    suspend fun openSession(id: String) {
+        // #EXP-1662: a session with a waiting plan of its own = its
+        // thread's plan tab, on that plan.
+        val planRoot = webLinkResolver.planThread(id)
+        val route = planRoot?.let { root ->
+            webLinkResolver.planPageTarget(id)?.let { Routes.threadPlan(root, it) }
+        } ?: sessionTargetRoute(id, webLinkResolver.sessionTarget(id))
+        val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(id))
+        guarded {
+            teamSwitch?.let(viewModel::applyTeamSwitch)
+            navController.navigateDeepLink(route)
+        }
+    }
+
     LaunchedEffect(pendingTarget, state.token) {
         val target = pendingTarget ?: return@LaunchedEffect
         // Leave the target in the bus while unauthenticated so a share/deep-link
@@ -222,23 +246,26 @@ fun AppNavHost() {
                 navController.selectTab(MainTabs.THREADS, tabSwitch, restore = false)
                 navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
-            // EXP-980 / #EXP-1456: a session push tap or inbox row (a wall,
-            // an agent's decision, an @mention) opens where that session
-            // lives (fixtures/inbox-route.json): my agent conversation = its
-            // channel, a thread root = the thread, else the session view.
-            // Same snapshot hazard as the issue route — the screens read
-            // their id from SavedStateHandle once.
-            is DeepLinkBus.Target.Session -> {
-                // #EXP-1662: a session with a waiting plan of its own = its
-                // thread's plan tab, on that plan.
-                val planRoot = webLinkResolver.planThread(target.id)
-                val route = planRoot?.let { root ->
-                    webLinkResolver.planPageTarget(target.id)?.let { Routes.threadPlan(root, it) }
-                } ?: sessionTargetRoute(target.id, webLinkResolver.sessionTarget(target.id))
-                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(target.id))
-                guarded {
-                    teamSwitch?.let(viewModel::applyTeamSwitch)
-                    navController.navigateDeepLink(route)
+            is DeepLinkBus.Target.Session -> openSession(target.id)
+            // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu,
+            // onto the pages the app already has.
+            is DeepLinkBus.Target.AppShortcut -> when (val shortcut = target.target) {
+                // A chat that is gone (or another account's): the start screen.
+                is AppShortcuts.Target.Chat ->
+                    if (webLinkResolver.sessionTarget(shortcut.id) != null) openSession(shortcut.id)
+                // THE New issue page, on the current board (its picker
+                // switches); a cold start waits a beat for the board to load.
+                AppShortcuts.Target.NewIssue -> {
+                    val boardId = viewModel.currentBoardId.value
+                        ?: withTimeoutOrNull(BOARD_WAIT_MS) { viewModel.currentBoardId.filterNotNull().first() }
+                    if (boardId != null) guarded { navController.openIssueDraft(boardId) }
+                }
+                // THE composer: the Agent tab root, its default agent row.
+                AppShortcuts.Target.NewChat -> guarded {
+                    navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
+                }
+                AppShortcuts.Target.Search -> guarded {
+                    navController.navigate("search") { launchSingleTop = true }
                 }
             }
             // #EXP-1534: an agent_signed_out push tap or inbox row = the
@@ -1454,6 +1481,9 @@ private fun NavHostController.landOnThread(threadId: String, replaceCurrent: Boo
  * Open the New issue page. The draft id is minted HERE, at tap time, so the
  * page and its autosave own one stable id from the first frame (EXP-1170).
  */
+/** #EXP-1638: how long a New issue app shortcut waits for a cold start's board. */
+private const val BOARD_WAIT_MS = 3_000L
+
 private fun NavHostController.openIssueDraft(
     boardId: String,
     statusId: String? = null,

@@ -225,6 +225,9 @@ android {
         create("production") {
             dimension = "env"
             resValue("string", "app_name", "Exponential")
+            // #EXP-1638: res/xml/shortcuts.xml's intents name the package (no
+            // placeholders in resources), so it follows applicationIdSuffix.
+            resValue("string", "shortcut_target_package", "at.exponential")
             buildConfigField("String", "DEFAULT_CLOUD_URL", "\"https://app.exponential.at\"")
             buildConfigField("boolean", "IS_STAGING", "false")
             // Host of the autoVerify https intent-filter (EXP-92 App Links);
@@ -236,6 +239,7 @@ android {
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
             resValue("string", "app_name", "Exp Staging")
+            resValue("string", "shortcut_target_package", "at.exponential.staging")
             buildConfigField("String", "DEFAULT_CLOUD_URL", "\"https://next.exponential.at\"")
             buildConfigField("boolean", "IS_STAGING", "true")
             manifestPlaceholders["appLinkHost"] = "next.exponential.at"

@@ -1,0 +1,68 @@
+{
+  "$comment": "#EXP-1638 (owner 2026-11-06): LONG-PRESS THE APP ICON ×2 (iOS `UIApplicationShortcutItem`s, Android launcher shortcuts; web and desktop have no app icon menu). Model = pure `appShortcuts` + `parseAppShortcut` (src/app-shortcuts.ts; iOS ExpCore `AppShortcuts.swift`, Android `domain/AppShortcuts.kt`), every mirror replays the `*Cases`. THE LIST: the three `statics` in order (`new-issue` = THE New issue page with its board picker, `new-chat` = THE composer on the Agent tab with the composer's own default agent row, `search` = THE Search page), then the most recent chats, newest first, with the share-targets.json direct-share filter (no chat that is an agent's own conversation, NO ENCRYPTED chat: a tree key or a sealed title never reaches the OS), so the list never exceeds `maxEntries` (the iOS Home Screen shows 4). A chat entry's title is the chat's display title, its icon `icons.chat`, its id `recentChatPrefix` + session id, and it opens that session (inbox-route.json session target). iOS sets the static ones in Info.plist (`UIApplicationShortcutItems`) and the recent ones as `shortcutItems` whenever the chats store changes; Android declares the static ones in `res/xml/shortcuts.xml` and publishes the recent ones as dynamic shortcuts (rank 0 first), next to the direct-share shortcuts it already publishes (share-targets.json; those keep their own ids, ranked after). Signed out, or an entry whose chat is gone: the app opens on its normal start screen. Multi-account: the shortcuts follow the ACTIVE account; switching accounts republishes them. Copy and icons are the app's own; no new component.",
+  "copy": {
+    "newIssue": "New issue",
+    "newChat": "New chat",
+    "search": "Search"
+  },
+  "icons": {
+    "newIssue": "nav-create-issue",
+    "newChat": "action-chat",
+    "search": "nav-search",
+    "chat": "action-chat"
+  },
+  "statics": ["new-issue", "new-chat", "search"],
+  "recentChatPrefix": "recent-chat:",
+  "maxEntries": 4,
+  "listCases": [
+    {
+      "name": "statics, then the newest plain chat, capped at maxEntries",
+      "input": {
+        "chats": [
+          { "id": "s1", "title": "Older", "updatedAt": "2026-11-01T10:00:00.000Z", "agentId": null },
+          { "id": "s2", "title": "Fix login crash", "updatedAt": "2026-11-03T10:00:00.000Z", "agentId": null },
+          { "id": "s3", "title": "Agent conversation", "updatedAt": "2026-11-05T10:00:00.000Z", "agentId": "a" },
+          { "id": "s4", "title": "Encrypted", "updatedAt": "2026-11-05T12:00:00.000Z", "agentId": null, "sealed": true }
+        ]
+      },
+      "expected": [
+        { "id": "new-issue", "title": "New issue", "icon": "nav-create-issue" },
+        { "id": "new-chat", "title": "New chat", "icon": "action-chat" },
+        { "id": "search", "title": "Search", "icon": "nav-search" },
+        { "id": "recent-chat:s2", "title": "Fix login crash", "icon": "action-chat" }
+      ]
+    },
+    {
+      "name": "no chats: the statics alone",
+      "input": { "chats": [] },
+      "expected": [
+        { "id": "new-issue", "title": "New issue", "icon": "nav-create-issue" },
+        { "id": "new-chat", "title": "New chat", "icon": "action-chat" },
+        { "id": "search", "title": "Search", "icon": "nav-search" }
+      ]
+    },
+    {
+      "name": "only encrypted and agent chats: no recent entry",
+      "input": {
+        "chats": [
+          { "id": "s3", "title": "Agent conversation", "updatedAt": "2026-11-05T10:00:00.000Z", "agentId": "a" },
+          { "id": "s4", "title": "Encrypted", "updatedAt": "2026-11-05T12:00:00.000Z", "agentId": null, "sealed": true }
+        ]
+      },
+      "expected": [
+        { "id": "new-issue", "title": "New issue", "icon": "nav-create-issue" },
+        { "id": "new-chat", "title": "New chat", "icon": "action-chat" },
+        { "id": "search", "title": "Search", "icon": "nav-search" }
+      ]
+    }
+  ],
+  "parseCases": [
+    { "name": "new issue", "input": "new-issue", "expected": { "kind": "new-issue" } },
+    { "name": "new chat", "input": "new-chat", "expected": { "kind": "new-chat" } },
+    { "name": "search", "input": "search", "expected": { "kind": "search" } },
+    { "name": "a recent chat", "input": "recent-chat:s2", "expected": { "kind": "chat", "id": "s2" } },
+    { "name": "a recent chat without an id", "input": "recent-chat:", "expected": null },
+    { "name": "a direct-share id is not an app shortcut", "input": "share-chat:s2", "expected": null },
+    { "name": "unknown", "input": "inbox", "expected": null }
+  ]
+}

@@ -24,6 +24,7 @@ import com.exponential.app.data.auth.OauthReturn
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.data.share.ShareIntentParser
+import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.domain.AppLink
 import com.exponential.app.domain.classifyAppLink
@@ -121,6 +122,12 @@ class MainActivity : ComponentActivity() {
                     bus.openShare(payload)
                 }
             }
+            return
+        }
+        // #EXP-1638 (app-shortcuts.json): an app icon long-press shortcut,
+        // static (res/xml/shortcuts.xml) or a recent chat (DirectShareShortcuts).
+        intent.getStringExtra(EXTRA_APP_SHORTCUT)?.let { id ->
+            handleAppShortcut(intent, id)
             return
         }
         val data = intent.data
@@ -230,6 +237,16 @@ class MainActivity : ComponentActivity() {
                 deepLinkBus.openInbox()
             }
         }
+    }
+
+    // Signed out, or an id this build does not know: the normal start screen.
+    // The shortcuts follow the ACTIVE account (DirectShareShortcuts republishes
+    // them on a switch), so no account resolution here.
+    private fun handleAppShortcut(intent: Intent, id: String) {
+        intent.removeExtra(EXTRA_APP_SHORTCUT)
+        if (authRepository.token.value == null) return
+        val target = AppShortcuts.parseAppShortcut(id) ?: return
+        deepLinkBus.openAppShortcut(target)
     }
 
     /**
@@ -354,5 +371,10 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    companion object {
+        /** #EXP-1638: the app shortcut id a long-press shortcut's intent carries. */
+        const val EXTRA_APP_SHORTCUT = "com.exponential.app.extra.APP_SHORTCUT"
     }
 }

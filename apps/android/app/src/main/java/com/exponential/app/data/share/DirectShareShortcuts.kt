@@ -32,6 +32,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.AppShortcuts
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionTitle
@@ -50,14 +51,22 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
  * EXP-1635 (share-targets.json DIRECT SHARE): the OS-drawn rows of the system
  * share sheet. The active team's [ShareTargets.directShareEntries] as long-lived
- * sharing shortcuts (`res/xml/share_shortcuts.xml`); a share on one arrives at
+ * sharing shortcuts (`res/xml/shortcuts.xml`); a share on one arrives at
  * MainActivity with `EXTRA_SHORTCUT_ID`. Debounced behind the sync's bursts, and
  * a row is only re-pushed when it changed.
+ *
+ * #EXP-1638 (app-shortcuts.json): beside them, the long-press menu's recent
+ * chat ([AppShortcuts.appShortcuts] past the statics, which live in the same
+ * XML) as a plain dynamic shortcut at rank 0, the sharing ones ranked after.
+ * The same store and filter (never an agent's conversation, never an
+ * encrypted chat), so it follows the active account and team; signed out =
+ * none. A tap launches MainActivity with [MainActivity.EXTRA_APP_SHORTCUT].
  */
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @Singleton
@@ -70,7 +79,13 @@ class DirectShareShortcuts @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private data class Row(val entry: ShareTargets.Entry, val rank: Int, val agent: SessionTree.AgentRow?)
+    /** [recent] = the long-press menu's recent chat, not a sharing shortcut. */
+    private data class Row(
+        val entry: ShareTargets.Entry,
+        val rank: Int,
+        val agent: SessionTree.AgentRow?,
+        val recent: Boolean = false,
+    )
 
     fun start() {
         scope.launch {
@@ -88,7 +103,8 @@ class DirectShareShortcuts @Inject constructor(
                 chats,
                 selection.selectedId,
                 auth.userId,
-            ) { agents, sessions, team, me -> rows(agents, sessions, team, me) }
+                auth.token.map { it != null }.distinctUntilChanged(),
+            ) { agents, sessions, team, me, signedIn -> rows(agents, sessions, team, me, signedIn) }
                 .debounce(DEBOUNCE_MS)
                 .distinctUntilChanged()
                 .collect(::publish)
@@ -100,6 +116,7 @@ class DirectShareShortcuts @Inject constructor(
         sessions: List<SessionEntity>,
         team: String?,
         me: String?,
+        signedIn: Boolean,
     ): List<Row> {
         if (team == null) return emptyList()
         val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), team, me)
@@ -117,7 +134,14 @@ class DirectShareShortcuts @Inject constructor(
             )
         }
         val byId = listed.associateBy { "${ShareTargets.AGENT_PREFIX}${it.agentId}" }
-        return entries.mapIndexed { rank, entry -> Row(entry, rank, byId[entry.id]) }
+        val recent = if (signedIn) {
+            AppShortcuts.appShortcuts(chats)
+                .filter { it.id.startsWith(AppShortcuts.RECENT_CHAT_PREFIX) }
+                .map { Row(ShareTargets.Entry(it.id, it.title), 0, null, recent = true) }
+        } else {
+            emptyList()
+        }
+        return recent + entries.mapIndexed { rank, entry -> Row(entry, recent.size + rank, byId[entry.id]) }
     }
 
     /** This process's last pushes, for what the shortcut service cannot report back (an agent's look). */
@@ -129,6 +153,9 @@ class DirectShareShortcuts @Inject constructor(
             val live = ShortcutManagerCompat.getDynamicShortcuts(context).associateBy { it.id }
             val stale = live.keys.filter { it !in next }
             if (stale.isNotEmpty()) ShortcutManagerCompat.removeLongLivedShortcuts(context, stale)
+            // #EXP-1638: a recent chat is a plain dynamic shortcut, not long-lived.
+            val staleRecent = stale.filter { it.startsWith(AppShortcuts.RECENT_CHAT_PREFIX) }
+            if (staleRecent.isNotEmpty()) ShortcutManagerCompat.removeDynamicShortcuts(context, staleRecent)
             rows.filter { row ->
                 val held = live[row.entry.id]
                 held == null || held.shortLabel != row.entry.title || held.rank != row.rank ||
@@ -139,6 +166,7 @@ class DirectShareShortcuts @Inject constructor(
     }
 
     private fun shortcut(row: Row): ShortcutInfoCompat {
+        if (row.recent) return recentChatShortcut(row)
         val icon = row.agent?.takeUnless { it.assistant }?.let(::agentIcon)
             ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher)
         val person = Person.Builder()
@@ -158,6 +186,19 @@ class DirectShareShortcuts @Inject constructor(
             .setIntent(Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW))
             .build()
     }
+
+    /** #EXP-1638: a recent chat on the long-press menu, never in the share sheet. */
+    private fun recentChatShortcut(row: Row): ShortcutInfoCompat =
+        ShortcutInfoCompat.Builder(context, row.entry.id)
+            .setShortLabel(row.entry.title)
+            .setIcon(IconCompat.createWithResource(context, R.drawable.ic_shortcut_chat))
+            .setRank(row.rank)
+            .setIntent(
+                Intent(context, MainActivity::class.java)
+                    .setAction(Intent.ACTION_VIEW)
+                    .putExtra(MainActivity.EXTRA_APP_SHORTCUT, row.entry.id),
+            )
+            .build()
 
     /** The agent's glyph in its colour on the bubble's fill, an adaptive bitmap. */
     private fun agentIcon(agent: SessionTree.AgentRow): IconCompat? = runCatching {

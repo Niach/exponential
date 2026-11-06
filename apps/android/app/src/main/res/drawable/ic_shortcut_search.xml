@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- #EXP-1638 (app-shortcuts.json): the launcher shortcut icon of the concept
+     `nav-search` (Lucide `search`, the geometry ExpIcons.generated.kt draws),
+     the glyph on the app's zinc disc. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#27272A"
+        android:pathData="M24,2A22,22 0 1,0 24,46A22,22 0 1,0 24,2Z" />
+    <group
+        android:translateX="12"
+        android:translateY="12">
+        <path
+            android:pathData="m21 21-4.34-4.34"
+            android:strokeColor="#FAFAFA"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M3 11A8 8 0 1 0 19 11A8 8 0 1 0 3 11Z"
+            android:strokeColor="#FAFAFA"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>
