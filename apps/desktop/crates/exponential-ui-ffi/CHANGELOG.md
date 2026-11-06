@@ -6,6 +6,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - A call's answer (#VAPP-271): `run_package_action_json` takes a trailing `results_json` (`{<name>: answer}`, defaulted to none) and may answer `{"pending": {step, name, args, result}}`. Bindings regenerated.
+
+## 0.18.0 (2026-11-06)
+
 - #VAPP-288: `Surface.assign_data(path, value_json)` (a programmatic write: a package action's `sets`) and `Surface.write_epoch()`; an action's `set` bumps the epoch too, and a painter's focused field adopts a changed bound value when the epoch moved (the form that clears itself after Save). Bindings regenerated.
 - Tree (#VAPP-285): `event(index, "key", {key})` on a treeitem moves the focus (no new API).
 - A foldable Row (#VAPP-284): `event(index, "key", {key})` takes the fold keys on a node with `expanded` (no new API).
