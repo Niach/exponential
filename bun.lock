@@ -32,6 +32,30 @@
         "typescript": "^5.7.2",
       },
     },
+    "apps/runner/web": {
+      "name": "@exp/runner-web",
+      "version": "0.0.0",
+      "dependencies": {
+        "@exp/eengine": "workspace:*",
+        "@exp/icons": "workspace:*",
+        "@exponential_app/eui": "workspace:*",
+        "@exponential_app/eui-react": "workspace:*",
+        "@noble/hashes": "^2.2.0",
+        "@sqlite.org/sqlite-wasm": "3.54.1-build1",
+        "lucide-react": "^0.544.0",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "@vitejs/plugin-react": "^5.0.4",
+        "fake-indexeddb": "6.2.7",
+        "typescript": "^5.7.2",
+        "vite": "7.3.3",
+      },
+    },
     "apps/site": {
       "name": "@exp/site",
       "version": "0.0.0",
@@ -952,6 +976,8 @@
 
     "@exp/push-relay": ["@exp/push-relay@workspace:apps/push-relay"],
 
+    "@exp/runner-web": ["@exp/runner-web@workspace:apps/runner/web"],
+
     "@exp/shots": ["@exp/shots@workspace:packages/shots"],
 
     "@exp/site": ["@exp/site@workspace:apps/site"],
@@ -1695,6 +1721,8 @@
     "@smithy/util-waiter": ["@smithy/util-waiter@4.4.0", "", { "dependencies": { "@smithy/core": "^3.24.0", "tslib": "^2.6.2" } }, "sha512-7kAlrB3n7/BHyw+uLq83d5jdadPUcDkdMOUSGxvpXjrJ++G0hTedTnoNChjybIxhZ/Gk7sCrfIOLkMAB0LhRBA=="],
 
     "@solidjs/testing-library": ["@solidjs/testing-library@0.8.10", "", { "dependencies": { "@testing-library/dom": "^10.4.0" }, "peerDependencies": { "@solidjs/router": ">=0.9.0", "solid-js": ">=1.0.0" }, "optionalPeers": ["@solidjs/router"] }, "sha512-qdeuIerwyq7oQTIrrKvV0aL9aFeuwTd86VYD3afdq5HYEwoox1OBTJy4y8A3TFZr8oAR0nujYgCzY/8wgHGfeQ=="],
+
+    "@sqlite.org/sqlite-wasm": ["@sqlite.org/sqlite-wasm@3.54.1-build1", "", {}, "sha512-foW427VBLJ3G87bsnvQTZCc9zYe0Fq1wH0pz1I6BlKLKXcArIAyTkHtq0iT2llmhcMQt9T/p6l5PpQQh+6O8uQ=="],
 
     "@stablelib/base64": ["@stablelib/base64@1.0.1", "", {}, "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ=="],
 

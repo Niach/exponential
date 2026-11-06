@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en" style="height: 100%; color-scheme: dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#09090b" />
+    <title>App</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <!-- The viewport is the app surface's box: its container and its root fill it (no chrome of the runner's own). -->
+    <style>
+      .xui-s-app > .xui-container, .xui-s-app > .xui-container > .xui-el { height: 100%; }
+    </style>
+  </head>
+  <body style="height: 100%; margin: 0; background: #09090b">
+    <div id="root" style="height: 100%"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
