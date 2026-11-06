@@ -88,7 +88,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
             .bg(background)
             .child(entry_row(rows.len(), cx))
-            .child(crate::needs_you::needs_you_list(&rows, cx)),
+            .child(crate::needs_you::needs_you_list(&rows, &Default::default(), cx)),
     )
 }
 

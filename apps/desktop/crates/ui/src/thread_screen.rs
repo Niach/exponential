@@ -872,23 +872,33 @@ fn thread_member(model: &ThreadModel, cx: &App) -> bool {
         .is_some_and(|team_id| crate::settings::is_member(cx, team_id))
 }
 
-/// EXP-1307 — the Guide `…` (`guide_menu_entries` over the Guide PR):
-/// Close PR while it is open (members only, the web's
-/// `canClose={permissions.isMember}`; EXP-1338: no GitHub entry). No
-/// entries = none.
+/// EXP-1307 — the Guide `…` over the Guide PR (#EXP-1710: merge-train.json
+/// `menu`, `merge_menu_entries`): the Checks submenu (any viewer, the PR has
+/// rows), Merge now (owners: THE shared alert card `merge-now-pr`), Hold |
+/// Resume auto-merge (members), Close PR (members, a live PR; EXP-1338: no
+/// GitHub entry). No entries = none.
 ///
 /// Thread 58cb32df (chats.json): the same `…` leads with the chat's own
 /// entries (`threadMenuEntries`: Stop, Stop and delete | Delete), the Guide
-/// PR's Close after a rule.
+/// PR's rows after a rule.
 fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
-    use domain::session_tree::{guide_menu_entries, GuideMenuEntry};
+    use domain::merge_train::{merge_menu_entries, pr_merge_state, MergeMenuEntry, MERGE_TRAIN};
     let root_id = model.root.id.clone();
     let chat = !crate::chat_actions::chat_entries(&root_id, cx).is_empty();
     let pull = model.pull();
     // #EXP-1611: the PR's synced check rows lead the menu (any viewer).
     let checks = pull.map(|pull| crate::pr_checks::checks_of(&pull.id, cx)).unwrap_or_default();
+    let member = thread_member(model, cx);
+    let owner = member
+        && model
+            .root
+            .team_id
+            .as_deref()
+            .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
     let entries = pull
-        .map(|pull| guide_menu_entries(pull.state.as_deref(), thread_member(model, cx), checks.len()))
+        .map(|pull| {
+            merge_menu_entries(pull.state.as_deref(), member, owner, checks.len(), Some(pr_merge_state(pull)))
+        })
         .unwrap_or_default();
     if entries.is_empty() && !chat {
         return None;
@@ -921,27 +931,43 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
                 if chat && !entries.is_empty() {
                     menu = menu.separator();
                 }
+                let copy = &MERGE_TRAIN.copy.menu;
                 for entry in &entries {
+                    let id = pull_request_id.clone();
                     menu = match entry {
-                        GuideMenuEntry::Checks => crate::pr_checks::checks_submenu(menu, &checks, window, cx),
-                        GuideMenuEntry::ClosePr => {
-                            let pull_request_id = pull_request_id.clone();
-                            menu.item(
-                                crate::controls::danger_menu_item(
-                                    domain::contract::DIFF_UI_CLOSE_PR,
-                                    Icon::new(registry::PR_CLOSED),
-                                    cx,
-                                )
-                                .on_click(move |_, window, cx| {
-                                    crate::issue_header::prompt_close_pr(
-                                        pull_request_id.clone(),
-                                        crate::issue_header::close_pr_description(others),
-                                        window,
-                                        cx,
-                                    );
-                                }),
-                            )
+                        MergeMenuEntry::Checks => crate::pr_checks::checks_submenu(menu, &checks, window, cx),
+                        MergeMenuEntry::MergeNow => menu.item(crate::controls::pointer_menu_item(
+                            Some(registry::PR_MERGED),
+                            copy.merge_now.clone(),
+                            |_| None,
+                            move |window, cx| crate::pr_merge::ask_merge_now(&id, window, cx),
+                        )),
+                        MergeMenuEntry::Hold | MergeMenuEntry::Resume => {
+                            let hold = *entry == MergeMenuEntry::Hold;
+                            let (icon, label) = if hold {
+                                (registry::PR_HOLD, copy.hold.clone())
+                            } else {
+                                (registry::PR_RESUME, copy.resume.clone())
+                            };
+                            menu.item(crate::controls::pointer_menu_item(Some(icon), label, |_| None, move |_, cx| {
+                                crate::pr_merge::run_train_op(id.clone(), crate::pr_merge::TrainOp::Hold(hold), cx)
+                            }))
                         }
+                        MergeMenuEntry::ClosePr => menu.item(
+                            crate::controls::danger_menu_item(
+                                domain::contract::DIFF_UI_CLOSE_PR,
+                                Icon::new(registry::PR_CLOSED),
+                                cx,
+                            )
+                            .on_click(move |_, window, cx| {
+                                crate::issue_header::prompt_close_pr(
+                                    id.clone(),
+                                    crate::issue_header::close_pr_description(others),
+                                    window,
+                                    cx,
+                                );
+                            }),
+                        ),
                     };
                 }
                 menu
@@ -3490,17 +3516,18 @@ impl ThreadScreenView {
     }
 
     fn render_header(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        // EXP-1316: the trailing slot on EVERY tab — the Merge pill while the
-        // Guide's PR is open (`Merge PR` | `Merge stack`), then the Guide `…`.
-        // #EXP-1611: the pill wears the PR's `checks_state` (pr-checks.json
-        // MERGE PILL).
-        let merge = model.pull().filter(|pull| pull.is_open()).map(|pull| {
-            crate::work_header::merge_pill_with_checks(
-                SharedString::from(THREAD.test_ids.guide_merge.clone()),
-                &pull.id,
-                true,
+        // EXP-1316: the trailing slot on EVERY tab — the PR's pill, then the
+        // Guide `…`. #EXP-1710 (merge-train.json STATUS PILL): the pill is
+        // the PR's merge STATUS (any viewer; a closed PR has none), its tap
+        // the Checks list; approval mode's `Needs approval` is its only
+        // action (members).
+        let member = thread_member(model, cx);
+        let merge = model.pull().cloned().and_then(|pull| {
+            crate::work_header::merge_status_pill(
+                SharedString::from(domain::merge_train::MERGE_TRAIN.test_ids.status_pill.clone()),
+                &pull,
+                member,
                 crate::surface::PillSize::Md,
-                pull.checks_state.as_deref(),
                 cx,
             )
         });

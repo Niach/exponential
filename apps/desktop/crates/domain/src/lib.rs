@@ -165,6 +165,8 @@ pub mod options;
 // EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
 pub mod plan_card;
 pub mod plan_page;
+// #EXP-1710: the merge train's status pill, `…` rows, stuck row and pr_merge lines (merge-train.json).
+pub mod merge_train;
 // #FEED-191: every plan and question waiting on the viewer, fixture-locked ×4.
 pub mod needs_you;
 // #FEED-191: a chat tree's results (the session screen's last tab), fixture-locked ×4.

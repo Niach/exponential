@@ -5,7 +5,7 @@
 //! `team-invites.ts`:
 //!
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
-//! - `teams.update({teamId, name?, iconUrl?, estimationType?, agentPrompt?, yoloMode?})` → `{team, txId}` (EXP-707, EXP-1025, EXP-1105)
+//! - `teams.update({teamId, name?, iconUrl?, estimationType?, agentPrompt?, yoloMode?, mergeMode?})` → `{team, txId}` (EXP-707, EXP-1025, EXP-1105, EXP-1710)
 //! - `teams.getAgentPrompt({teamId})` → `{agentPrompt, agentPromptUpdatedAt, maxBytes}` (query, EXP-1025)
 //! - `teams.delete({teamId})` → `{ok, txId}`
 //! - `teams.inviteCapacity({teamId})` → `{remaining}` (query, EXP-725)
@@ -94,6 +94,10 @@ pub struct TeamsUpdateInput {
     /// every member and auto-merges every PR an agent opens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub yolo_mode: Option<bool>,
+    /// #EXP-1710: the merge train's mode (contract `teamMergeMode`: `auto` |
+    /// `approval`), owner-set from Settings → General's Merge row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_mode: Option<String>,
     /// VAPP-201: the team time zone (`Patch::Null` = each device's own).
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub time_zone: Patch<String>,
@@ -108,6 +112,7 @@ impl TeamsUpdateInput {
             estimation_type: None,
             agent_prompt: None,
             yolo_mode: None,
+            merge_mode: None,
             time_zone: Patch::Omit,
         }
     }
@@ -499,6 +504,13 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
             r#"{"teamId":"w-1","yoloMode":true}"#
+        );
+        // #EXP-1710: the Merge row writes `mergeMode`.
+        let mut input = TeamsUpdateInput::new("w-1");
+        input.merge_mode = Some("approval".to_string());
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"teamId":"w-1","mergeMode":"approval"}"#
         );
     }
 

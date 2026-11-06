@@ -22,6 +22,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, S
 use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::centered_column;
 use crate::surface::{glass_pill_button, glass_pill_button_primary, PillSize};
+use domain::merge_train::{PillGlyph, PillTap, PillTone, StatusPillInput, StatusPillView};
 
 /// The shared work column width — web `max-w-4xl` (896px): header, issue
 /// body, transcript and the full-page diff all cap to it.
@@ -68,97 +69,166 @@ pub(crate) fn header_action_size(in_tray: bool) -> PillSize {
 // Merge
 // ---------------------------------------------------------------------------
 
-/// The ONE Merge look: a pill (primary or glass) with the merge glyph,
-/// two-click armed (`Merge PR` → `Confirm merge`, then `Merging…` until the
-/// Electric echo settles) through [`crate::pr_merge::two_click`]. EXP-1294:
-/// it merges ONE pull request (`pullRequests.merge`); a member of an open
-/// stack asks its one confirm first (EXP-1248). A refusal is the error toast.
-/// #EXP-1611 — over the PR's `checks_state` (pr-checks.json
-/// MERGE PILL, `domain::pr_checks::merge_pill`): none / success = the pill
-/// as ever; pending = THE spinner in place of the glyph, still enabled, the
-/// same confirms; failure = the PLAIN pill, the `ci-failed` glyph in the
-/// semantic red, `Checks failing`, whose click asks prompts.json
-/// `merge-failing-pr` INSTEAD of the plain / stack confirm. The thread
-/// header is the one surface that passes a state.
-pub(crate) fn merge_pill_with_checks(
-    id: impl Into<gpui::ElementId>,
-    pull_request_id: &str,
-    primary: bool,
-    size: PillSize,
-    checks_state: Option<&str>,
-    cx: &mut App,
-) -> AnyElement {
-    use domain::pr_checks::{MergeConfirm, MergePillGlyph};
-    let (armed, merging) = {
-        let state = crate::pr_merge::MergeState::global(cx);
-        let state = state.read(cx);
-        (state.armed(pull_request_id), state.merging(pull_request_id))
-    };
-    // EXP-1248: ONE control, renamed on a member of an open stack.
-    let stacked = crate::pr_merge::is_stacked(pull_request_id, cx);
-    let view = domain::pr_checks::merge_pill(checks_state, stacked);
-    let failing = view.confirm == MergeConfirm::Failing;
-    let primary = primary && view.primary;
-    let glyph = if failing {
-        theme::tokens::RED.to_hsla()
-    } else if armed {
-        cx.theme().danger
-    } else if primary {
+/// #EXP-1710 (merge-train.json STATUS PILL, replaces the Merge pill): THE
+/// header pill is the PR's merge STATUS over
+/// [`domain::merge_train::status_pill`]: THE Pill, not primary but `Needs
+/// approval`; the glyph by icon concept, `spinner` = THE spinner, tone red
+/// tints the glyph only. `busy` = the approval in flight (THE spinner).
+fn status_pill_glyph(view: &StatusPillView, busy: bool, size: PillSize, cx: &App) -> AnyElement {
+    let color = if view.primary {
         cx.theme().primary_foreground
+    } else if view.tone == PillTone::Red {
+        theme::tokens::RED.to_hsla()
     } else {
         cx.theme().muted_foreground
     };
-    let pull_request_id = pull_request_id.to_string();
-    let button = if primary {
+    match status_pill_icon(view.glyph).filter(|_| !busy) {
+        Some(icon) => Icon::from(icon)
+            .with_size(px(size.glyph()))
+            .flex_shrink_0()
+            .text_color(color)
+            .into_any_element(),
+        None => crate::feedback::arc_spinner_colored(size.glyph(), color, cx),
+    }
+}
+
+/// A pill glyph's concept icon; `None` = THE spinner.
+pub(crate) fn status_pill_icon(glyph: PillGlyph) -> Option<ExpIcon> {
+    match glyph {
+        PillGlyph::Spinner => None,
+        PillGlyph::PrDraft => Some(registry::PR_DRAFT),
+        PillGlyph::CiQueued => Some(registry::CI_QUEUED),
+        PillGlyph::PrMerged => Some(registry::PR_MERGED),
+        PillGlyph::PrConflict => Some(registry::PR_CONFLICT),
+        PillGlyph::CiFailed => Some(registry::CI_FAILED),
+        PillGlyph::PrHold => Some(registry::PR_HOLD),
+    }
+}
+
+/// The status pill as THE Pill button (mode action: its tap opens the
+/// Checks list or, primary, asks the approval). The caller hangs the tap.
+pub(crate) fn status_pill_button(
+    id: impl Into<gpui::ElementId>,
+    view: &StatusPillView,
+    busy: bool,
+    size: PillSize,
+    cx: &App,
+) -> gpui_component::button::Button {
+    let button = if view.primary {
         glass_pill_button_primary(id, size)
     } else {
         glass_pill_button(id, size, cx)
     };
-    // EXP-916: the settled label is the CONTRACT's, so the pill reads the
-    // same word on all four clients.
-    let label = if merging {
-        "Merging…"
-    } else if armed {
-        "Confirm merge"
+    // THE glyph leads the label (the crate's icon slot only takes an Icon,
+    // so both ride as children in the slot's order).
+    button
+        .child(status_pill_glyph(view, busy, size, cx))
+        .child(div().flex_none().line_height(gpui::relative(1.)).child(view.label.clone()))
+        .disabled(busy)
+}
+
+/// The status pill with no tap (no check rows): THE Pill, mode readonly.
+pub(crate) fn status_pill_readonly(
+    id: impl Into<gpui::ElementId>,
+    view: &StatusPillView,
+    size: PillSize,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    crate::surface::glass_pill(id, size, crate::surface::PillMode::Readonly, cx)
+        .child(status_pill_glyph(view, false, size, cx))
+        .child(view.label.clone())
+}
+
+/// The status pill's face alone (the styleguide, the size probes): a button
+/// for a tappable view, else the readonly pill.
+pub(crate) fn status_pill_face(
+    id: impl Into<gpui::ElementId>,
+    view: &StatusPillView,
+    size: PillSize,
+    cx: &App,
+) -> AnyElement {
+    if view.tap.is_some() {
+        status_pill_button(id, view, false, size, cx).into_any_element()
     } else {
-        view.label
-    };
-    let mut button = match view.glyph {
-        // THE spinner leads the label (the crate's icon slot only takes an
-        // Icon, so both ride as children in the slot's order).
-        MergePillGlyph::Spinner if !merging && !armed => button
-            .child(crate::feedback::arc_spinner_colored(size.glyph(), glyph, cx))
-            .child(div().flex_none().line_height(gpui::relative(1.)).child(label)),
-        MergePillGlyph::CiFailed => button
-            .icon(
-                Icon::new(registry::CI_FAILED)
-                    .with_size(px(size.glyph()))
-                    .text_color(glyph),
-            )
-            .label(label),
-        _ => button
-            .icon(
-                Icon::from(ExpIcon::GitMerge)
-                    .with_size(px(size.glyph()))
-                    .text_color(glyph),
-            )
-            .label(label),
+        status_pill_readonly(id, view, size, cx).into_any_element()
     }
-    .tooltip("Merge: completes every linked issue")
-    .on_click(move |_, window, cx| {
-        if failing {
-            crate::pr_checks::ask_merge_failing(&pull_request_id, window, cx);
-            return;
-        }
-        if crate::pr_merge::ask_stack_merge(&pull_request_id, window, cx) {
-            return;
-        }
-        crate::pr_merge::two_click(crate::pr_merge::MergeOp::merge(pull_request_id.clone()), cx);
+}
+
+/// The PRs a train run tests together (`Testing with N`): every synced PR
+/// sharing `merge_train_id`, at least this one.
+fn train_size(train_id: &str, cx: &App) -> i64 {
+    let count = sync::Store::try_global(cx)
+        .map(|store| {
+            store
+                .collections()
+                .pull_requests
+                .read(cx)
+                .iter()
+                .filter(|pull| pull.merge_train_id.as_deref() == Some(train_id))
+                .count()
+        })
+        .unwrap_or(0);
+    i64::try_from(count.max(1)).unwrap_or(1)
+}
+
+/// The live status pill of `pull` (THE thread header, every viewer; a
+/// closed PR has none). `member` approves in `approval` mode; a viewer's
+/// `Needs approval` is a plain status. Its tap opens the PR's check rows as
+/// a menu (no rows = readonly).
+pub(crate) fn merge_status_pill(
+    id: impl Into<gpui::ElementId>,
+    pull: &domain::rows::PullRequestRow,
+    member: bool,
+    size: PillSize,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    use domain::contract::{PR_MERGE_STATE_CHECKS, PR_MERGE_STATE_TESTING};
+    if pull.is_closed() {
+        return None;
+    }
+    let state = domain::merge_train::pr_merge_state(pull).to_string();
+    let approval =
+        pull.is_open() && member && state == PR_MERGE_STATE_CHECKS && pull.merge_wait.as_deref() == Some("approval");
+    let checks = crate::pr_checks::checks_of(&pull.id, cx);
+    let batch_size = (state == PR_MERGE_STATE_TESTING)
+        .then(|| pull.merge_train_id.as_deref().map(|train| train_size(train, cx)))
+        .flatten();
+    let mut view = domain::merge_train::status_pill(StatusPillInput {
+        state: &state,
+        wait: pull.merge_wait.as_deref(),
+        position: pull.merge_position,
+        batch_size,
+        hold_reason: pull.merge_hold.as_deref(),
+        stack: approval && crate::pr_merge::is_stacked(&pull.id, cx),
+        checks: checks.len(),
     });
-    if merging {
-        button = button.disabled(true);
+    // A viewer's `Needs approval` is a status they cannot act on.
+    if view.tap == Some(PillTap::Approve) && !approval {
+        view.primary = false;
+        view.tap = (!checks.is_empty()).then_some(PillTap::Checks);
+        view.confirm = None;
     }
-    button.into_any_element()
+    let busy = view.tap == Some(PillTap::Approve)
+        && crate::pr_merge::MergeState::global(cx).read(cx).merging(&pull.id);
+    let pull_request_id = pull.id.clone();
+    Some(match view.tap {
+        None => status_pill_readonly(id, &view, size, cx).into_any_element(),
+        Some(PillTap::Approve) => status_pill_button(id, &view, busy, size, cx)
+            .on_click(move |_, window, cx| crate::pr_merge::ask_approve(&pull_request_id, window, cx))
+            .into_any_element(),
+        Some(PillTap::Checks) => {
+            let list = domain::pr_checks::checks_list(&checks, crate::session_data::now_ms());
+            crate::controls::PointerMenu::for_button(status_pill_button(id, &view, false, size, cx), move |mut menu, _, _| {
+                menu = menu.min_w(px(theme::tokens::menu::pointer::MIN_WIDTH + 60.));
+                for (index, row) in list.iter().cloned().enumerate() {
+                    menu = menu.item(crate::pr_checks::check_menu_item(index, row));
+                }
+                menu
+            })
+            .anchor(gpui::Anchor::TopRight)
+            .into_any_element()
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +734,35 @@ pub(crate) fn property_tray(chips: Vec<AnyElement>, actions: Vec<AnyElement>) ->
 mod tests {
     use super::*;
 
+    /// A tappable status pill (`Queued · 2nd`, three check rows).
+    fn test_view() -> StatusPillView {
+        domain::merge_train::status_pill(StatusPillInput {
+            state: "queued",
+            position: Some(2),
+            checks: 3,
+            ..Default::default()
+        })
+    }
+
+    /// #EXP-1710: every pill glyph is its icons.json concept; `spinner` =
+    /// THE spinner (no icon).
+    #[test]
+    fn every_status_glyph_is_its_concept_icon() {
+        use gpui_component::IconNamed as _;
+        for glyph in [
+            PillGlyph::PrDraft,
+            PillGlyph::CiQueued,
+            PillGlyph::PrMerged,
+            PillGlyph::PrConflict,
+            PillGlyph::CiFailed,
+            PillGlyph::PrHold,
+        ] {
+            let concept = registry::concept_by_name(glyph.id()).map(|icon| icon.path());
+            assert_eq!(concept, status_pill_icon(glyph).map(|icon| icon.path()), "{}", glyph.id());
+        }
+        assert!(status_pill_icon(PillGlyph::Spinner).is_none());
+    }
+
     /// EXP-926 / FEED-45 — ONE size rule per placement, pinned as a rule
     /// rather than as a pixel: in the bar the actions wear the bar's own
     /// rung, in the tray they wear the chips'.
@@ -745,12 +844,10 @@ mod tests {
                             .gap_1()
                             .child(probe(
                                 self.0.merge.clone(),
-                                merge_pill_with_checks(
+                                status_pill_face(
                                     "header-merge-pr",
-                                    "pr-1",
-                                    true,
+                                    &test_view(),
                                     header_action_size(true),
-                                    None,
                                     cx,
                                 ),
                             ))
@@ -844,7 +941,7 @@ mod tests {
                     .gap_1()
                     .child(probe(
                         self.0.merge.clone(),
-                        merge_pill_with_checks("session-merge", "pr-1", true, header_action_size(false), None, cx),
+                        status_pill_face("session-merge", &test_view(), header_action_size(false), cx),
                     ))
                     .child(probe(
                         self.0.stop.clone(),

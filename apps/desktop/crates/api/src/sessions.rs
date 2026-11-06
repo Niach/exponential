@@ -507,6 +507,24 @@ pub fn pr_close(trpc: &TrpcClient, pull_request_id: &str) -> Result<TxOutput, Ap
     trpc.mutation("pullRequests.close", &PullRequestIdInput { pull_request_id })
 }
 
+/// #EXP-1710 (merge-train.json `menu`): an owner's Merge now: the train
+/// lands the PR next, alone, untested (a stack member lands its stack).
+pub fn pr_merge_now(trpc: &TrpcClient, pull_request_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("pullRequests.mergeNow", &PullRequestIdInput { pull_request_id })
+}
+
+/// #EXP-1710: a member's Hold auto-merge (`hold: true`) or Resume
+/// auto-merge / Needs you Retry (`hold: false`).
+pub fn pr_hold(trpc: &TrpcClient, pull_request_id: &str, hold: bool) -> Result<serde::de::IgnoredAny, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        pull_request_id: &'a str,
+        hold: bool,
+    }
+    trpc.mutation("pullRequests.hold", &Input { pull_request_id, hold })
+}
+
 /// One changed file of a pull request (`patch` = the GitHub patch, `None`
 /// for binaries / oversized files).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]

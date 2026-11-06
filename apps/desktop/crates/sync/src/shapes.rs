@@ -110,6 +110,8 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "end_sessions_on_merge",
             // EXP-1105: yolo mode (hides Files/Source Control).
             "yolo_mode",
+            // #EXP-1709: the merge train's mode (auto | approval).
+            "merge_mode",
             // EXP-630: the estimate scale (Settings → Issues).
             "estimation_type",
             // VAPP-201: the team time zone (app hosts read dates in it).
@@ -548,6 +550,16 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "merged_at",
             // #EXP-1610: the aggregate CI state (contract prChecksState).
             "checks_state",
+            // #EXP-1709 (merge-train.json STATE): the train's state of the
+            // PR; server-only: `merge_ready_at`, `merge_approved_at`.
+            "merge_state",
+            "merge_wait",
+            "merge_attempts",
+            "merge_hold",
+            "merge_queued_since",
+            "merge_now",
+            "merge_position",
+            "merge_train_id",
             "created_at",
             "updated_at",
         ],
@@ -1333,6 +1345,23 @@ mod tests {
     fn the_pr_checks_columns_match_the_proxies() {
         let pulls = shape_by_name("pull_requests").unwrap();
         assert!(pulls.columns.contains(&"checks_state"));
+        // #EXP-1710: the merge train's columns (the status pill, the `…`,
+        // Needs you), and the team's merge mode.
+        for column in [
+            "merge_state",
+            "merge_wait",
+            "merge_attempts",
+            "merge_hold",
+            "merge_queued_since",
+            "merge_now",
+            "merge_position",
+            "merge_train_id",
+        ] {
+            assert!(pulls.columns.contains(&column), "{column}");
+        }
+        assert!(!pulls.columns.contains(&"merge_ready_at"));
+        assert!(!pulls.columns.contains(&"merge_approved_at"));
+        assert!(shape_by_name("teams").unwrap().columns.contains(&"merge_mode"));
         let checks = shape_by_name("pull_request_checks").unwrap();
         assert_eq!(checks.path, "/api/shapes/pull-request-checks");
         assert_eq!(checks.pk, PkKind::Id);

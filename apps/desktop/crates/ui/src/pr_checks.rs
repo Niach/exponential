@@ -1,8 +1,8 @@
-//! #EXP-1611 — CI on the thread's PR (pr-checks.json MERGE PILL / CHECKS
-//! LIST, `domain::pr_checks`): the glyphs and tints, the Checks submenu of
-//! the thread header's `…` (one menu row per check, a pick opens its logs),
-//! the static panel the styleguide entry draws, and the failing-merge
-//! confirm (prompts.json `merge-failing-pr`) the red Merge pill opens.
+//! #EXP-1611 — CI on the thread's PR (pr-checks.json CHECKS LIST,
+//! `domain::pr_checks`): the glyphs and tints, the Checks submenu of the
+//! thread header's `…` (one menu row per check, a pick opens its logs) and
+//! the static panel the styleguide entry draws. #EXP-1710: the header's merge
+//! STATUS pill (`work_header::merge_status_pill`) opens the same rows.
 
 use gpui::{div, px, AnyElement, App, Hsla, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{menu::PopupMenuItem, ActiveTheme as _, Icon};
@@ -164,43 +164,6 @@ pub(crate) fn checks_panel(rows: &[PullRequestCheckRow], now_ms: i64, cx: &App) 
         flyout = flyout.child(check_row_body(&row, cx).px_2());
     }
     div().flex().flex_row().items_start().gap_1().child(parent).child(flyout)
-}
-
-/// The red Merge pill's click: prompts.json `merge-failing-pr` (Cancel
-/// focused, Merge destructive; `titleStack` on a stack member). Merge merges
-/// exactly as the pill would have: a stack member lands the stack through
-/// its top, else the plain merge. It REPLACES the plain / stack confirm.
-pub(crate) fn ask_merge_failing(pull_request_id: &str, window: &mut Window, cx: &mut App) {
-    let stack = crate::pr_merge::stack_merge_confirm_for(
-        pull_request_id,
-        domain::pr_stack::StackConfirmMode::Stack,
-        cx,
-    );
-    let number = Store::try_global(cx).and_then(|store| {
-        store
-            .collections()
-            .pull_requests
-            .read(cx)
-            .get(pull_request_id)
-            .and_then(|pull| pull.number)
-    });
-    let names = domain::pr_checks::failing_check_names(&checks_of(pull_request_id, cx));
-    let prompt = domain::prompts::merge_failing_pr(
-        number.and_then(|n| u64::try_from(n).ok()),
-        &names,
-        stack.is_some(),
-    );
-    let op = match &stack {
-        Some(confirm) => crate::pr_merge::stack_confirm_op(pull_request_id, confirm),
-        None => crate::pr_merge::MergeOp::merge(pull_request_id),
-    };
-    crate::pr_merge::MergeState::disarm(cx);
-    let spec = crate::native_dialog::AlertSpec::from_prompt(domain::contract::DIFF_UI_MERGE_PR, &prompt)
-        .on_ok(move |_, cx| {
-            crate::pr_merge::fire_confirmed(op.clone(), cx);
-            true
-        });
-    crate::native_dialog::open_alert(window, cx, spec);
 }
 
 #[cfg(test)]

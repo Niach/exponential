@@ -1888,7 +1888,7 @@ impl Render for RailView {
         // #FEED-191 (needs-you.json): Needs you lists only while a row exists
         // (or its page is up: it stays reachable after the last answer).
         let needs_you_count = active_team_id(&self.nav, cx)
-            .map(|id| crate::needs_you::rows_in_team(&id, cx).len())
+            .map(|id| crate::needs_you::rows_in_team(&id, cx).rows.len())
             .unwrap_or(0);
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
