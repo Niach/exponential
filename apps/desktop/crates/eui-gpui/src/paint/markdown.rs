@@ -1420,4 +1420,75 @@ mod tests {
         assert_eq!(min_content_width(&parse("short loooooong"), &s, &mut Fixed), 72.0);
         assert_eq!(max_content_width(&parse("- ab"), &s, &mut Fixed), 16.0 + s.list_indent);
     }
+
+    /// #VAPP-258: `fixtures/markdown-render.json`, the golden render fixture:
+    /// this parser's blocks in the shared normal form. A pending case must
+    /// still differ (the list only shrinks).
+    #[test]
+    fn markdown_render_fixture() {
+        use serde_json::{json, Map, Value};
+        let path = format!("{}/../../../../packages/exponential-ui/fixtures/markdown-render.json", env!("CARGO_MANIFEST_DIR"));
+        let f: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("fixture")).expect("json");
+        let pending: Vec<&str> = f["pending"]["gpui"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        fn runs(inlines: &[Inline]) -> Value {
+            let mut out: Vec<Map<String, Value>> = Vec::new();
+            let mut last: Option<(bool, bool, bool, bool, Option<String>)> = None;
+            for run in inlines.iter().filter(|r| !r.text.is_empty()) {
+                let key = (run.bold, run.italic, run.code, run.strike, run.link.clone());
+                if last.as_ref() == Some(&key) {
+                    let prev = out.last_mut().unwrap();
+                    let text = format!("{}{}", prev["text"].as_str().unwrap(), run.text);
+                    prev.insert("text".into(), json!(text));
+                    continue;
+                }
+                let mut r = Map::new();
+                r.insert("text".into(), json!(run.text));
+                if run.bold { r.insert("bold".into(), json!(true)); }
+                if run.italic { r.insert("italic".into(), json!(true)); }
+                if run.code { r.insert("code".into(), json!(true)); }
+                if run.strike { r.insert("strike".into(), json!(true)); }
+                if let Some(link) = &run.link { r.insert("link".into(), json!(link)); }
+                out.push(r);
+                last = Some(key);
+            }
+            Value::Array(out.into_iter().map(Value::Object).collect())
+        }
+        let normal = |blocks: Vec<Block>| -> Value {
+            Value::Array(
+                blocks
+                    .into_iter()
+                    .map(|b| match &b.kind {
+                        BlockKind::Paragraph => json!({ "kind": "paragraph", "runs": runs(&b.inlines) }),
+                        BlockKind::Quote => json!({ "kind": "quote", "runs": runs(&b.inlines) }),
+                        BlockKind::Heading(level) => json!({ "kind": "heading", "level": level, "runs": runs(&b.inlines) }),
+                        BlockKind::ListItem { marker, task, depth } => {
+                            let mut o = json!({ "kind": "listItem", "marker": marker, "depth": depth, "runs": runs(&b.inlines) });
+                            if let Some(task) = task { o["task"] = json!(task); }
+                            o
+                        }
+                        BlockKind::CodeBlock => json!({ "kind": "codeBlock", "text": b.inlines.iter().map(|i| i.text.as_str()).collect::<String>() }),
+                        BlockKind::Table { header, rows } => json!({
+                            "kind": "table",
+                            "header": header.iter().map(|c| runs(c)).collect::<Vec<_>>(),
+                            "rows": rows.iter().map(|r| r.iter().map(|c| runs(c)).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                        }),
+                        BlockKind::Rule => json!({ "kind": "rule" }),
+                        BlockKind::Image { src, alt } => json!({ "kind": "image", "src": src, "alt": alt }),
+                    })
+                    .collect(),
+            )
+        };
+        let mut failures = Vec::new();
+        for case in f["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap();
+            let actual = normal(parse(case["text"].as_str().unwrap()));
+            let same = actual == case["blocks"];
+            if pending.contains(&name) {
+                if same { failures.push(format!("{name} passes now: drop it from pending.gpui")); }
+            } else if !same {
+                failures.push(format!("{name}\n  expected {}\n  actual   {actual}", case["blocks"]));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 }

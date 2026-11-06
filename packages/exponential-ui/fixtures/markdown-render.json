@@ -1,0 +1,1741 @@
+{
+ "$comment": "#VAPP-258 (owner 2026-11-06: genUI's renderer becomes THE Markdown of every client, the app moves onto it; code blocks highlighted everywhere). THE GOLDEN RENDER FIXTURE: markdown text → the block model in ONE normal form, replayed by every renderer's parser (web `src/web/markdown.ts` via `src/web/markdown-normal.ts` for React and Solid, Swift `ExponentialUIPrimitives/Markdown.swift`, Compose `primitives/Markdown.kt`, gpui `paint/markdown.rs`). THE NORMAL FORM: a flat list of blocks; `paragraph` / `quote` / `heading` (`level`) / `listItem` (`marker` = `•` or the item's own number + `.`, `task` only on a task item, `depth` 0 = top) carry `runs`; `codeBlock` its `text`; `table` `header` (cells of runs) and `rows`; `rule`; `image` (`src`, `alt`) = a paragraph that is exactly one image. A run is `{text}` plus only the TRUE flags of `bold`, `italic`, `code`, `strike` and `link` (the raw destination); adjacent runs with the same flags merge, empty runs drop. A quote's paragraphs join with one space into one quote block; a soft line break inside a paragraph is one space; a hard break (a trailing backslash) is a newline in the run. Entities and backslash escapes are decoded (`&nbsp;` = U+00A0). SEEDS: every `CONTRACT_FIXTURES` string (apps/desktop crates/ui markdown/serialize.rs, the stored-bytes contract ×4) by its name, so what the editors store is what the reader paints, then chat and plan samples. `pending` = the cases a renderer does not meet YET (the parser-fidelity step fixes them, then the list empties); a renderer skips exactly its own pending cases and FAILS on any other mismatch, or when a pending case starts to pass (the list must shrink).",
+ "pending": {
+  "web": [
+   "bold_italic",
+   "blank_line_between_paragraphs",
+   "two_blank_lines_between_paragraphs",
+   "snake_case_identifier",
+   "ordered_from_three",
+   "nested_marks",
+   "strike_with_link",
+   "tilde_fence",
+   "hard_break_backslash",
+   "list_continuation",
+   "escaped_star",
+   "entity"
+  ],
+  "swift": [
+   "bold_italic",
+   "blank_line_between_paragraphs",
+   "two_blank_lines_between_paragraphs",
+   "tilde_fence",
+   "hard_break_backslash",
+   "list_continuation",
+   "escaped_star",
+   "entity"
+  ],
+  "compose": [
+   "bold_italic",
+   "blank_line_between_paragraphs",
+   "two_blank_lines_between_paragraphs",
+   "tilde_fence",
+   "hard_break_backslash",
+   "list_continuation",
+   "escaped_star",
+   "entity"
+  ],
+  "gpui": [
+   "bold_italic",
+   "blank_line_between_paragraphs",
+   "two_blank_lines_between_paragraphs",
+   "tilde_fence",
+   "hard_break_backslash",
+   "list_continuation",
+   "escaped_star",
+   "entity"
+  ]
+ },
+ "cases": [
+  {
+   "name": "plain_paragraph",
+   "text": "Hello world",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Hello world"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bold",
+   "text": "This is **bold** text",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "This is "
+      },
+      {
+       "text": "bold",
+       "bold": true
+      },
+      {
+       "text": " text"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "italic",
+   "text": "This is *italic* text",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "This is "
+      },
+      {
+       "text": "italic",
+       "italic": true
+      },
+      {
+       "text": " text"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bold_italic",
+   "text": "This is ***both*** text",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "This is "
+      },
+      {
+       "text": "both",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " text"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "strikethrough",
+   "text": "This is ~~struck~~ text",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "This is "
+      },
+      {
+       "text": "struck",
+       "strike": true
+      },
+      {
+       "text": " text"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "inline_code",
+   "text": "This is `code` text",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "This is "
+      },
+      {
+       "text": "code",
+       "code": true
+      },
+      {
+       "text": " text"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link",
+   "text": "A [link](https://example.com) here",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "A "
+      },
+      {
+       "text": "link",
+       "link": "https://example.com"
+      },
+      {
+       "text": " here"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "relative_link",
+   "text": "See [docs](/help/page) now",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "See "
+      },
+      {
+       "text": "docs",
+       "link": "/help/page"
+      },
+      {
+       "text": " now"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "team_link",
+   "text": "See [x](~/settings/members) now",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "See "
+      },
+      {
+       "text": "x",
+       "link": "~/settings/members"
+      },
+      {
+       "text": " now"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "heading1",
+   "text": "# Heading 1",
+   "blocks": [
+    {
+     "kind": "heading",
+     "level": 1,
+     "runs": [
+      {
+       "text": "Heading 1"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "heading2",
+   "text": "## Heading 2",
+   "blocks": [
+    {
+     "kind": "heading",
+     "level": 2,
+     "runs": [
+      {
+       "text": "Heading 2"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "heading3",
+   "text": "### Heading 3",
+   "blocks": [
+    {
+     "kind": "heading",
+     "level": 3,
+     "runs": [
+      {
+       "text": "Heading 3"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "heading_then_paragraph",
+   "text": "# Title\n\nSome body text",
+   "blocks": [
+    {
+     "kind": "heading",
+     "level": 1,
+     "runs": [
+      {
+       "text": "Title"
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Some body text"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bullet_list",
+   "text": "- one\n- two\n- three",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "one"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "two"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "three"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ordered_list",
+   "text": "1. one\n2. two\n3. three",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "1.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "one"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "2.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "two"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "3.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "three"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "task_list",
+   "text": "- [ ] todo\n- [x] done",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "task": false,
+     "depth": 0,
+     "runs": [
+      {
+       "text": "todo"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "task": true,
+     "depth": 0,
+     "runs": [
+      {
+       "text": "done"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "blockquote",
+   "text": "> quoted text",
+   "blocks": [
+    {
+     "kind": "quote",
+     "runs": [
+      {
+       "text": "quoted text"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "code_block_with_lang",
+   "text": "```js\nconst x = 1\n```",
+   "blocks": [
+    {
+     "kind": "codeBlock",
+     "text": "const x = 1"
+    }
+   ]
+  },
+  {
+   "name": "code_block_no_lang",
+   "text": "```\nplain code\n```",
+   "blocks": [
+    {
+     "kind": "codeBlock",
+     "text": "plain code"
+    }
+   ]
+  },
+  {
+   "name": "multi_line_code_block",
+   "text": "```kotlin\nval a = 1\nval b = 2\n```",
+   "blocks": [
+    {
+     "kind": "codeBlock",
+     "text": "val a = 1\nval b = 2"
+    }
+   ]
+  },
+  {
+   "name": "block_image",
+   "text": "![diagram](/api/attachments/abc123)",
+   "blocks": [
+    {
+     "kind": "image",
+     "src": "/api/attachments/abc123",
+     "alt": "diagram"
+    }
+   ]
+  },
+  {
+   "name": "text_image_text",
+   "text": "before\n\n![alt](/api/attachments/abc)\n\nafter",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "before"
+      }
+     ]
+    },
+    {
+     "kind": "image",
+     "src": "/api/attachments/abc",
+     "alt": "alt"
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "after"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "video_link",
+   "text": "[clip.mp4](/api/attachments/abc123)",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "clip.mp4",
+       "link": "/api/attachments/abc123"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "text_video_text",
+   "text": "before\n\n[clip.mp4](/api/attachments/abc)\n\nafter",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "before"
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "clip.mp4",
+       "link": "/api/attachments/abc"
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "after"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "nested_bullet_list",
+   "text": "- parent\n  - child",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "parent"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 1,
+     "runs": [
+      {
+       "text": "child"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "mixed_document",
+   "text": "# Title\n\nA paragraph with **bold**.\n\n- item 1\n- item 2\n\n> a quote",
+   "blocks": [
+    {
+     "kind": "heading",
+     "level": 1,
+     "runs": [
+      {
+       "text": "Title"
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "A paragraph with "
+      },
+      {
+       "text": "bold",
+       "bold": true
+      },
+      {
+       "text": "."
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "item 1"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "item 2"
+      }
+     ]
+    },
+    {
+     "kind": "quote",
+     "runs": [
+      {
+       "text": "a quote"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "multiple_paragraphs",
+   "text": "First paragraph.\n\nSecond paragraph.",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "First paragraph."
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Second paragraph."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "blank_line_between_paragraphs",
+   "text": "First\n\n&nbsp;\n\nSecond",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "First"
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": " "
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Second"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "two_blank_lines_between_paragraphs",
+   "text": "First\n\n&nbsp;\n\n&nbsp;\n\nSecond",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "First"
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": " "
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": " "
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Second"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bold_at_start",
+   "text": "**Bold** start",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Bold",
+       "bold": true
+      },
+      {
+       "text": " start"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "multiple_marks_one_line",
+   "text": "A **bold** and *italic* and `code` mix",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "A "
+      },
+      {
+       "text": "bold",
+       "bold": true
+      },
+      {
+       "text": " and "
+      },
+      {
+       "text": "italic",
+       "italic": true
+      },
+      {
+       "text": " and "
+      },
+      {
+       "text": "code",
+       "code": true
+      },
+      {
+       "text": " mix"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "mention_and_issue_ref",
+   "text": "cc @jane@example.com see #EXP-42",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "cc @jane@example.com see #EXP-42"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bare_url_stays_bare",
+   "text": "see https://example.com here",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "see https://example.com here"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "thematic_break",
+   "text": "---",
+   "blocks": [
+    {
+     "kind": "rule"
+    }
+   ]
+  },
+  {
+   "name": "thematic_break_between_paragraphs",
+   "text": "before\n\n---\n\nafter",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "before"
+      }
+     ]
+    },
+    {
+     "kind": "rule"
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "after"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "unicode",
+   "text": "Grüße **münchen** 🚀 *ünïcodé*",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Grüße "
+      },
+      {
+       "text": "münchen",
+       "bold": true
+      },
+      {
+       "text": " 🚀 "
+      },
+      {
+       "text": "ünïcodé",
+       "italic": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "literal_asterisk_in_math",
+   "text": "2 * 3 = 6",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "2 * 3 = 6"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "literal_tilde_in_prose",
+   "text": "approx ~5 items",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "approx ~5 items"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "snake_case_identifier",
+   "text": "snake_case_name here",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "snake_case_name here"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "literal_backslash",
+   "text": "back\\slash",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "back\\slash"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "space_flanked_underscore",
+   "text": "underscore _ alone",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "underscore _ alone"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tilde_at_word_end",
+   "text": "tilde~end",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "tilde~end"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "dollar_amount",
+   "text": "price is $5",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "price is $5"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "angle_brackets",
+   "text": "5 < 6 > 4",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "5 < 6 > 4"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "brackets_without_url",
+   "text": "1 + 1 = 2 [not a link]",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "1 + 1 = 2 [not a link]"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_basic",
+   "text": "| a | b |\n| --- | --- |\n| 1 | 2 |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "a"
+       }
+      ],
+      [
+       {
+        "text": "b"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "1"
+        }
+       ],
+       [
+        {
+         "text": "2"
+        }
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_alignments",
+   "text": "| l | c | r | n |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "l"
+       }
+      ],
+      [
+       {
+        "text": "c"
+       }
+      ],
+      [
+       {
+        "text": "r"
+       }
+      ],
+      [
+       {
+        "text": "n"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "1"
+        }
+       ],
+       [
+        {
+         "text": "2"
+        }
+       ],
+       [
+        {
+         "text": "3"
+        }
+       ],
+       [
+        {
+         "text": "4"
+        }
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_inline_marks",
+   "text": "| **bold** | [link](https://example.com) |\n| --- | --- |\n| `code` | *em* |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "bold",
+        "bold": true
+       }
+      ],
+      [
+       {
+        "text": "link",
+        "link": "https://example.com"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "code",
+         "code": true
+        }
+       ],
+       [
+        {
+         "text": "em",
+         "italic": true
+        }
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_escaped_pipe",
+   "text": "| a \\| b | c |\n| --- | --- |\n| 1 | 2 |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "a | b"
+       }
+      ],
+      [
+       {
+        "text": "c"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "1"
+        }
+       ],
+       [
+        {
+         "text": "2"
+        }
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_empty_cell",
+   "text": "| a | b |\n| --- | --- |\n| 1 |  |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "a"
+       }
+      ],
+      [
+       {
+        "text": "b"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "1"
+        }
+       ],
+       []
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_header_only",
+   "text": "| a | b |\n| --- | --- |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "a"
+       }
+      ],
+      [
+       {
+        "text": "b"
+       }
+      ]
+     ],
+     "rows": []
+    }
+   ]
+  },
+  {
+   "name": "table_between_paragraphs",
+   "text": "before\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\nafter",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "before"
+      }
+     ]
+    },
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "a"
+       }
+      ],
+      [
+       {
+        "text": "b"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "1"
+        }
+       ],
+       [
+        {
+         "text": "2"
+        }
+       ]
+      ]
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "after"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_chip_cells",
+   "text": "| @jane@example.com | #EXP-42 |\n| --- | --- |\n| x | y |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "@jane@example.com"
+       }
+      ],
+      [
+       {
+        "text": "#EXP-42"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "x"
+        }
+       ],
+       [
+        {
+         "text": "y"
+        }
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "table_unicode",
+   "text": "| Grüße | 🚀 |\n| --- | --- |\n| ü | é |",
+   "blocks": [
+    {
+     "kind": "table",
+     "header": [
+      [
+       {
+        "text": "Grüße"
+       }
+      ],
+      [
+       {
+        "text": "🚀"
+       }
+      ]
+     ],
+     "rows": [
+      [
+       [
+        {
+         "text": "ü"
+        }
+       ],
+       [
+        {
+         "text": "é"
+        }
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "chat_reply",
+   "text": "Done. The fix is in **PR #2041**:\n\n1. Parse the token\n2. Retry once\n\nSee [the docs](https://example.com/docs) or ask `@jane@example.com`.",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "Done. The fix is in "
+      },
+      {
+       "text": "PR #2041",
+       "bold": true
+      },
+      {
+       "text": ":"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "1.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "Parse the token"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "2.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "Retry once"
+      }
+     ]
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "See "
+      },
+      {
+       "text": "the docs",
+       "link": "https://example.com/docs"
+      },
+      {
+       "text": " or ask "
+      },
+      {
+       "text": "@jane@example.com",
+       "code": true
+      },
+      {
+       "text": "."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "plan_page",
+   "text": "## Migrate the auth tables\n\n1. Add the column\n2. Backfill\n   - in batches\n3. Drop the old one\n\n> Needs a maintenance window",
+   "blocks": [
+    {
+     "kind": "heading",
+     "level": 2,
+     "runs": [
+      {
+       "text": "Migrate the auth tables"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "1.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "Add the column"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "2.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "Backfill"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 1,
+     "runs": [
+      {
+       "text": "in batches"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "3.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "Drop the old one"
+      }
+     ]
+    },
+    {
+     "kind": "quote",
+     "runs": [
+      {
+       "text": "Needs a maintenance window"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "soft_break_joins",
+   "text": "first line\nsecond line",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "first line second line"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "two_level_bullets",
+   "text": "- a\n  - b\n    - c\n- d",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "a"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 1,
+     "runs": [
+      {
+       "text": "b"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 2,
+     "runs": [
+      {
+       "text": "c"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "d"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ordered_from_three",
+   "text": "3. three\n4. four",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "3.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "three"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "4.",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "four"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "code_then_text",
+   "text": "```ts\nconst a = 1\n```\nafter",
+   "blocks": [
+    {
+     "kind": "codeBlock",
+     "text": "const a = 1"
+    },
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "after"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "quote_two_lines",
+   "text": "> one\n> two",
+   "blocks": [
+    {
+     "kind": "quote",
+     "runs": [
+      {
+       "text": "one two"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "heading_with_marks",
+   "text": "## **Bold** and `code`",
+   "blocks": [
+    {
+     "kind": "heading",
+     "level": 2,
+     "runs": [
+      {
+       "text": "Bold",
+       "bold": true
+      },
+      {
+       "text": " and "
+      },
+      {
+       "text": "code",
+       "code": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "link_with_parens",
+   "text": "[wiki](https://en.wikipedia.org/wiki/Foo_(bar)) end",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "wiki",
+       "link": "https://en.wikipedia.org/wiki/Foo_(bar)"
+      },
+      {
+       "text": " end"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "image_in_text",
+   "text": "see ![alt](/api/attachments/x) here",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "see alt here"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "rule_variants",
+   "text": "***\n\n___",
+   "blocks": [
+    {
+     "kind": "rule"
+    },
+    {
+     "kind": "rule"
+    }
+   ]
+  },
+  {
+   "name": "nested_marks",
+   "text": "**bold *and italic* text**",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "bold ",
+       "bold": true
+      },
+      {
+       "text": "and italic",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " text",
+       "bold": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "strike_with_link",
+   "text": "~~old [link](https://a.example)~~",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "old ",
+       "strike": true
+      },
+      {
+       "text": "link",
+       "strike": true,
+       "link": "https://a.example"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "tilde_fence",
+   "text": "~~~\ncode\n~~~",
+   "blocks": [
+    {
+     "kind": "codeBlock",
+     "text": "code"
+    }
+   ]
+  },
+  {
+   "name": "hard_break_backslash",
+   "text": "line one\\\nline two",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "line one\nline two"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "list_continuation",
+   "text": "- item one\n  continues here\n- item two",
+   "blocks": [
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "item one continues here"
+      }
+     ]
+    },
+    {
+     "kind": "listItem",
+     "marker": "•",
+     "depth": 0,
+     "runs": [
+      {
+       "text": "item two"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "escaped_star",
+   "text": "not \\*emphasis\\*",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "not *emphasis*"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "entity",
+   "text": "AT&amp;T &lt;b&gt;",
+   "blocks": [
+    {
+     "kind": "paragraph",
+     "runs": [
+      {
+       "text": "AT&T <b>"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
