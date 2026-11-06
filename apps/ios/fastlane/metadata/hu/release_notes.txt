@@ -44,3 +44,4 @@
 - A futó munkamenetek élő tevékenységként a zárolási képernyőn és a Dynamic Islandben
 - Feladatok és csevegések a Spotlightban; a Siri és a Parancsok feladatot vagy csevegést hoznak létre
 - A pull requestek mutatják az egyesítési állapotot, Egyesítés most és Visszatartás gombbal
+- A Markdown a feladatokban, megjegyzésekben és csevegésekben minden appban ugyanúgy néz ki

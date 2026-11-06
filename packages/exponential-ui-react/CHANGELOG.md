@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.17.0 (2026-11-06)
+
 - DatePicker `inline` (the month grid in place), `marks` event dots, `today`, the `month` event; days carry the `isToday` / `outside` recipe props (VAPP-282).
 - Tabs `variant: strip` (#VAPP-279): the strip DOM (items, folded tabs out of flow, the `+N` button), the fit on every render and resize, the pointer / long-press drag with a live preview, Ctrl/Cmd+Shift+Arrow; replays `tabsReorder`.
 - `host.markdownOptions` (`breaks`, `density`, `selectable`, `streaming`): hard breaks, the chat rhythm (`data-r-density` on the Markdown root), selection off, and streamed text whose finished blocks are memoized (each top-level block re-renders only when its block changes).

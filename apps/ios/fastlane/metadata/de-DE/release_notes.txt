@@ -44,3 +44,4 @@
 - Laufende Sitzungen als Live-Aktivität auf dem Sperrbildschirm und in der Dynamic Island
 - Issues und Chats in Spotlight; Siri und Kurzbefehle legen ein Issue oder einen Chat an
 - Pull Requests zeigen ihren Merge-Status mit Jetzt mergen und Halten
+- Markdown in Issues, Kommentaren und Chats sieht in allen Apps gleich aus

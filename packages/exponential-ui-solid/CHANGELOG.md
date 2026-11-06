@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.17.0 (2026-11-06)
+
 - DatePicker `inline` (the month grid in place), `marks` event dots, `today`, the `month` event; days carry the `isToday` / `outside` recipe props, parity-gated against React (VAPP-282).
 - Tabs `variant: strip` (#VAPP-279), DOM parity with React; replays `tabsReorder`.
 - `host.markdownOptions` (`breaks`, `density`, `selectable`, `streaming`), as React: the blocks render keyed by object, so a streamed text keeps its finished blocks' DOM.
