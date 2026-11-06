@@ -9,8 +9,11 @@ use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
-use crate::broker::{broker_decide, BrokerCall, CallFrom, Grants, ManifestEntry, Verdict};
-use crate::consent::grants_on_package;
+use std::sync::Arc;
+
+use crate::broker::{CallFrom, GrantValue, Grants, ManifestEntry, Verdict};
+use crate::capability::{Broker, BrokerAnswer, BrokerSetup, ConsentSheet};
+use crate::consent::{grants_on_package, ConsentAnswer, GrantVia};
 use crate::lifecycle::{lifecycle_step, Effect, LifecycleContext, LifecycleEvent, LifecycleState, Phase};
 use crate::outbox::{outbox_flush, outbox_outcome, outbox_request, outbox_writes, OutboxCall, OutboxEntry, OutboxMode, OutboxOutcome, OutboxState, OutboxWrite};
 use crate::package::{package_of, signer_of, validate, verify_package_file, Issue, Verification};
@@ -30,13 +33,11 @@ pub enum LoadError {
 pub enum CallResult {
     /// The call's value.
     Value(Value),
-    /// The broker needs the person's answer first (consent.json): the host
-    /// shows the sheet and answers through E2's consent flow.
-    Ask(Verdict),
+    /// The person decides first (consent.json): paint the sheet, then
+    /// [`AppInstance::answer_consent`] with the same call.
+    Ask(Verdict, ConsentSheet),
     /// Refused (the failed-action toast's reason).
     Refused(Failure),
-    /// A capability call the broker allowed: the host's provider runs it.
-    Capability(Verdict),
 }
 
 /// Where the instance keeps its last screen (lifecycle.json `persist`).
@@ -50,8 +51,7 @@ pub struct AppInstance {
     pkg: Value,
     app_id: String,
     signer: Option<String>,
-    manifest: Vec<ManifestEntry>,
-    grants: Grants,
+    broker: Arc<Broker>,
     state: LifecycleState,
     outbox: Vec<OutboxEntry>,
 }
@@ -74,7 +74,18 @@ impl AppInstance {
         let manifest = ManifestEntry::of_package(&pkg);
         let key = crate::consent::grants_record(&app_id, signer.as_deref().unwrap_or(""), &manifest, &Grants::new()).0;
         let grants = grants_on_package(config.vault.read(&key).as_deref(), signer.as_deref().unwrap_or(""), &manifest);
-        Ok(AppInstance { config, pkg, app_id, signer, manifest, grants, state: LifecycleState::default(), outbox: Vec::new() })
+        let broker = Arc::new(Broker::new(BrokerSetup {
+            app_id: app_id.clone(),
+            app_name: pkg.get("name").and_then(Value::as_str).unwrap_or(&app_id).to_string(),
+            signer: signer.clone().unwrap_or_default(),
+            manifest,
+            grants,
+            capabilities: config.capabilities.clone(),
+            vault: config.vault.clone(),
+            consent: config.consent.clone(),
+            audit: config.audit.clone(),
+        }));
+        Ok(AppInstance { config, pkg, app_id, signer, broker, state: LifecycleState::default(), outbox: Vec::new() })
     }
 
     pub fn app_id(&self) -> &str {
@@ -90,11 +101,31 @@ impl AppInstance {
     }
 
     pub fn manifest(&self) -> &[ManifestEntry] {
-        &self.manifest
+        self.broker.manifest()
     }
 
-    pub fn grants(&self) -> &Grants {
-        &self.grants
+    pub fn grants(&self) -> Grants {
+        self.broker.grants()
+    }
+
+    /// The instance's broker (the hub mounts its capabilities through it, `hub`).
+    pub fn broker(&self) -> &Arc<Broker> {
+        &self.broker
+    }
+
+    /// The person answered the sheet of an `Ask` for this call (the answer is the gesture).
+    pub fn answer_consent(&mut self, name: &str, args: &Value, verdict: &Verdict, answer: ConsentAnswer) -> CallResult {
+        brokered(self.broker.answer(CallFrom::Ui, None, name, args, verdict, answer))
+    }
+
+    /// The Permissions sheet's Switch: only the ConsentUi, after a gesture.
+    pub fn set_grant(&mut self, via: GrantVia, gesture: bool, scope: &str, value: Option<GrantValue>) -> Result<(), &'static str> {
+        self.broker.set_grant(via, gesture, scope, value)
+    }
+
+    /// The Permissions sheet (a genUI surface).
+    pub fn permissions_sheet(&self) -> Vec<Value> {
+        self.broker.permissions_sheet()
     }
 
     pub fn state(&self) -> &LifecycleState {
@@ -123,6 +154,7 @@ impl AppInstance {
         let cx = LifecycleContext { pkg: &self.pkg, last_screen: last };
         let (next, effects) = lifecycle_step(&self.state, event, &cx);
         self.state = next;
+        self.broker.set_foreground(self.state.phase == Phase::Foreground);
         for effect in &effects {
             match effect {
                 Effect::Open { screen, params } => self.config.window.open(&self.app_id, screen, params, Presentation::Replace),
@@ -188,15 +220,7 @@ impl AppInstance {
                 }
                 Err(e) => CallResult::Refused(Failure::new("BAD_REQUEST", e)),
             },
-            _ => {
-                let call = BrokerCall { from: CallFrom::Ui, name: name.to_string(), arguments: args.clone() };
-                let verdict = broker_decide(&self.manifest, &self.grants, &self.config.capabilities, self.state.phase == Phase::Foreground, &call);
-                match verdict.verdict {
-                    crate::broker::VerdictKind::Call => CallResult::Capability(verdict),
-                    crate::broker::VerdictKind::Ask => CallResult::Ask(verdict),
-                    _ => CallResult::Refused(Failure::new("FORBIDDEN", verdict.reason.clone().unwrap_or_default())),
-                }
-            }
+            _ => brokered(self.broker.call(CallFrom::Ui, None, name, args)),
         }
     }
 
@@ -271,6 +295,14 @@ impl AppInstance {
         // Acked entries keep overlaying until the store reflects them (outboxPrune).
         let rows: Vec<crate::outbox::OutboxRow> = self.config.storage.rows(&self.app_id).unwrap_or_default().into_iter().map(outbox_row).collect();
         self.outbox = crate::outbox::outbox_prune(&self.outbox, &rows, &now);
+    }
+}
+
+fn brokered(answer: BrokerAnswer) -> CallResult {
+    match answer {
+        BrokerAnswer::Result(result) => CallResult::Value(result),
+        BrokerAnswer::Ask(verdict, sheet) => CallResult::Ask(verdict, sheet),
+        BrokerAnswer::Refused(failure) => CallResult::Refused(failure),
     }
 }
 
