@@ -244,6 +244,20 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(await lines(w.children[202]!)).toEqual([])
   })
 
+  it(`a conflict only the switch-off display pass saw is tried by the train once it is on (#EXP-1711)`, async () => {
+    delete process.env.MERGE_TRAIN
+    const w = await world()
+    const a = await w.pr(241)
+    await w.idle()
+    fake.prs.get(241)!.mergeable = false
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `conflict`, mergeHeadSha: null })
+    process.env.MERGE_TRAIN = `true`
+    await pass(w.repoId)
+    expect(fake.dispatches.map((d) => d.units.map((u) => u.prs.map((p) => p.number)))).toEqual([[[241]]])
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+  })
+
   it(`MERGE_TRAIN off: an approval team's ready PR waits on Needs approval; Hold is a flag (no post), Resume re-reads`, async () => {
     delete process.env.MERGE_TRAIN
     const w = await world()
