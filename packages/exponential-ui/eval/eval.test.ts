@@ -245,6 +245,6 @@ describe(`the VAPP-128 baseline (eval/baseline-1181)`, () => {
     const { rows, missing } = scoreAll(join(import.meta.dir, `baseline-1181`))
     expect(missing).toEqual([])
     const a = aggregate(rows)
-    expect([a.validatorClean, a.issuesTotal, a.components.total]).toEqual([10, 42, 469]) // VAPP-162: `check-check` is an icon name now (ui-read), one issue fewer
+    expect([a.validatorClean, a.issuesTotal, a.components.total]).toEqual([11, 41, 469]) // VAPP-162: `check-check` is an icon name now (ui-read), one issue fewer; EDE-43: the battery/wifi/bluetooth glyphs are icon names now, one more clean surface
   })
 })

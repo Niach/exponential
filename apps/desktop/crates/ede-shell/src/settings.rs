@@ -226,7 +226,8 @@ mod tests {
 
     #[test]
     fn pages_get_their_texts() {
-        assert_eq!(decorate("power", json!({"battery": {"present": false}}))["batteryText"], "No battery");
+        // `power` carries its own `batteryText` since #EDE-43: passed through.
+        assert_eq!(decorate("power", json!({"batteryText": "No battery"}))["batteryText"], "No battery");
         assert_eq!(decorate("updates", json!({"count": 0}))["countText"], "Up to date");
         assert_eq!(decorate("about", json!({"memoryMb": 7423}))["memoryText"], "7.2 GB");
     }
