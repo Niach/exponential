@@ -41,6 +41,8 @@ struct InputTraits: Equatable {
     var content: Content?
     var autocorrect = true
     var secure = false
+    /// VAPP-208: focus selects a seeded value, so typing replaces it.
+    var selectsOnFocus = false
 
     init(type: String, kind: FieldKind?) {
         switch type {
@@ -53,7 +55,7 @@ struct InputTraits: Equatable {
         default: break
         }
         switch kind {
-        case .number?: keyboard = .number; autocorrect = false
+        case .number?: keyboard = .number; autocorrect = false; selectsOnFocus = true
         case .search?: keyboard = .search
         default: break
         }
@@ -103,7 +105,14 @@ extension OwnedTextField: UIViewRepresentable {
             parent.edited(field.text ?? "")
         }
 
-        func textFieldDidBeginEditing(_ textField: UITextField) { parent.focused(true) }
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            parent.focused(true)
+            // After this turn: the tap that focused the field places its caret
+            // once this returns.
+            if InputTraits(type: parent.inputType, kind: parent.kind).selectsOnFocus {
+                DispatchQueue.main.async { if textField.isFirstResponder { textField.selectAll(nil) } }
+            }
+        }
         func textFieldDidEndEditing(_ textField: UITextField) { parent.focused(false) }
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
             parent.returned()
@@ -382,6 +391,7 @@ extension OwnedTextField: NSViewRepresentable {
             field.font = font
             field.textColor = color
             field.isEnabled = !disabled
+            (field as? CenteredTextField)?.selectsOnPress = InputTraits(type: inputType, kind: kind).selectsOnFocus
             field.setAccessibilityLabel(accessibilityLabel)
             field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
             if wantsWrite, field.stringValue != text { field.stringValue = text }
@@ -446,9 +456,20 @@ extension OwnedTextField: NSViewRepresentable {
     /// editor) sit vertically CENTRED in the field box, as UITextField and
     /// the web's input do; AppKit's cell draws at the top.
     final class CenteredTextField: NSTextField {
+        /// VAPP-208: the press that focuses the field selects its value (Tab
+        /// already does on AppKit).
+        var selectsOnPress = false
+
         override class var cellClass: AnyClass? {
             get { CenteredTextFieldCell.self }
             set {}
+        }
+
+        // The field editor's press tracking runs inside `super` until release.
+        override func mouseDown(with event: NSEvent) {
+            let focusing = currentEditor() == nil
+            super.mouseDown(with: event)
+            if selectsOnPress, focusing, let editor = currentEditor(), editor.selectedRange.length == 0 { editor.selectAll(nil) }
         }
     }
 

@@ -73,6 +73,8 @@ final class NativeHardeningTests: XCTestCase {
     // MARK: - Input types
 
     func testInputTypesMapToKeyboardAutofillAndAutocorrection() {
+        XCTAssertTrue(InputTraits(type: "", kind: .number).selectsOnFocus, "VAPP-208: typing replaces a seeded number")
+        XCTAssertFalse(InputTraits(type: "number", kind: .input).selectsOnFocus)
         let email = InputTraits(type: "email", kind: .input)
         XCTAssertEqual(email.keyboard, .email)
         XCTAssertEqual(email.content, .email)

@@ -399,6 +399,13 @@ struct AppNavigator: View {
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToIssue(String(issueId))
         }
+        // exponential://session/<sessionId>[?userId=<id>]: Android's session
+        // link, the same route as a session push tap.
+        if url.host == "session", let sessionId = url.pathComponents.dropFirst().first {
+            let userId = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "userId" }?.value
+            deps.deepLinkBus.navigateToSession(String(sessionId), userId: userId)
+        }
         // exponential://invite/<token>
         if url.host == "invite", let token = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToInvite(String(token))
@@ -678,13 +685,15 @@ struct MainNavigator: View {
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
             if deps.deepLinkBus.pendingLinkLanding != nil { openLinkLanding() }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        // A stack, not a safeAreaInset: an inset never moves the pushed pages'
+        // navigation bars, so a banner covered their headers.
+        .modifier(TopBannerStack {
             syncBanner
                 // EXP-1031: the top-hung toast stack sits below the banner.
                 .background(GeometryReader { proxy in
                     Color.clear.preference(key: ToastTopInsetKey.self, value: proxy.size.height)
                 })
-        }
+        })
         // Attached as an OVERLAY, not a safeAreaInset (EXP-36): an ancestor
         // inset outside the NavigationStack never reliably reaches the pushed
         // scrollables' content insets, so each bar-visible scrollable reserves
@@ -1030,6 +1039,19 @@ struct MainNavigator: View {
     /// this banner alone, never the navigator around it.
     private var healthBanner: some View {
         SyncHealthBanner(accountId: deps.auth.activeAccountId)
+    }
+}
+
+/// A banner above the screen: everything under it, its navigation bars too,
+/// lays out below it.
+private struct TopBannerStack<Banner: View>: ViewModifier {
+    @ViewBuilder let banner: () -> Banner
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            banner()
+            content.frame(maxHeight: .infinity)
+        }
     }
 }
 

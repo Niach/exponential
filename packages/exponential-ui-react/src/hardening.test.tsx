@@ -343,6 +343,46 @@ describe(`locale`, () => {
   })
 })
 
+describe(`Table dateTime column`, () => {
+  it(`a date-time cell reads the date and the short time; an unreadable one is empty`, () => {
+    const root = tree({
+      id: `t`,
+      component: `Table`,
+      props: { columns: [{ key: `at`, label: `At`, type: `dateTime` }], rows: [{ at: `2026-11-12T03:30:00.000Z` }, { at: `` }] },
+    })
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="dt" locale="en-US" timeZone="UTC" />)
+    const cells = [...container.querySelectorAll(`[data-xui-part="Table/cell"]`)].map((c) => c.textContent)
+    expect(cells[0]).toMatch(/^Nov 12, 2026,? 3:30\sAM$/)
+    expect(cells[1]).toBe(``)
+  })
+})
+
+describe(`NumberField focus (VAPP-208)`, () => {
+  it(`focus selects the seeded value; a press selects again on release, a drag keeps its range`, () => {
+    const root = tree({ id: `n`, component: `NumberField`, props: { label: `Hours`, name: `hours`, step: 0.25, value: 12.5 } })
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="nf" />)
+    const input = container.querySelector(`input`) as HTMLInputElement
+    fireEvent.mouseDown(input)
+    fireEvent.focus(input)
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, input.value.length])
+    // The press's own caret, then the release.
+    input.setSelectionRange(1, 1)
+    fireEvent.mouseUp(input)
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, input.value.length])
+    // Pressing inside the focused field is the caret's.
+    input.setSelectionRange(1, 1)
+    fireEvent.mouseDown(input)
+    fireEvent.mouseUp(input)
+    expect([input.selectionStart, input.selectionEnd]).toEqual([1, 1])
+    fireEvent.blur(input)
+    fireEvent.mouseDown(input)
+    fireEvent.focus(input)
+    input.setSelectionRange(0, 2)
+    fireEvent.mouseUp(input)
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 2])
+  })
+})
+
 describe(`async and platform honesty`, () => {
   it(`Select optionSource: an older answer resolving LAST is dropped`, async () => {
     vi.useFakeTimers()

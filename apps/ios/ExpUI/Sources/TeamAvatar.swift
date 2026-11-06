@@ -72,7 +72,13 @@ public struct TeamAvatar: View {
         .frame(width: size, height: size)
         .accessibilityHidden(true)
         .task(id: "\(accountId)/\(src ?? "")") {
-            guard let src, let loader, image == nil else { return }
+            guard let src, let loader, loaded?.src != src else { return }
+            // Another mark's fetch may have filled the cache since this body
+            // ran: nothing would redraw it, so the hit is state too.
+            if let hit = loader.cached(src, accountId) {
+                loaded = (src, hit)
+                return
+            }
             if let fetched = await loader.load(src, accountId) {
                 loaded = (src, fetched)
             }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -354,6 +355,8 @@ private fun SelectMenu(cx: LeafContext) {
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = close,
+        // Web's `min-width: var(--radix-select-trigger-width)`.
+        modifier = Modifier.widthIn(min = cx.size.width.dp),
         containerColor = content.style.background ?: cx.themeColor("popover") ?: MenuDefaults.containerColor,
         shape = RoundedCornerShape((content.style.radius.takeIf { it > 0f } ?: 6f).dp),
     ) {

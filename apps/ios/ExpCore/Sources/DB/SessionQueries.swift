@@ -138,8 +138,14 @@ public enum SessionQueries {
 
     /// A root's issue links in display order (`sort_order`, creation, id).
     public static func sessionIssues(db: Database, rootId: String) throws -> [SessionIssueEntity] {
-        try SessionIssueEntity
-            .filter(Column("session_id") == rootId)
+        // The whole tree's links (session-thread.json: a child's linked issue
+        // is the thread's too), as web and Android read them.
+        let treeIds = try SessionEntity
+            .filter(Column("root_id") == rootId)
+            .select(Column("id"), as: String.self)
+            .fetchAll(db)
+        return try SessionIssueEntity
+            .filter((treeIds + [rootId]).contains(Column("session_id")))
             .order(Column("sort_order").asc, Column("created_at").asc, Column("id").asc)
             .fetchAll(db)
     }
@@ -147,7 +153,8 @@ public enum SessionQueries {
     /// A root's issues in link order; a link whose issue has not synced is
     /// skipped.
     public static func issues(db: Database, rootId: String) throws -> [IssueEntity] {
-        let ids = try sessionIssues(db: db, rootId: rootId).map(\.issueId)
+        var seen = Set<String>()
+        let ids = try sessionIssues(db: db, rootId: rootId).map(\.issueId).filter { seen.insert($0).inserted }
         guard !ids.isEmpty else { return [] }
         let byId = Dictionary(
             try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db).map { ($0.id, $0) },

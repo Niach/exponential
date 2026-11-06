@@ -424,6 +424,42 @@ fn a_press_right_after_typing_submits_what_was_typed(cx: &mut TestAppContext) {
     assert!(!log.0.borrow().actions.iter().any(|a| a.name == "bad"), "the check read what was typed");
 }
 
+/// VAPP-208: focusing a seeded NumberField selects its text, so a keystroke
+/// replaces it: `0.00` + `1.5` = `1.5`, never `0.001.5`; the first Save passes.
+#[gpui::test]
+fn a_focused_number_field_selects_its_seed_and_typing_replaces_it(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "children": [
+        {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
+            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "step": 0.25, "value": {"path": "/hours"}, "checks": [{"condition": {"call": "lt", "args": {"a": 0, "b": {"path": "/hours"}}}, "message": "More than 0"}]}},
+            {"id": "note", "component": "Input", "props": {"label": "Note", "name": "note", "value": "seeded"}},
+            {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
+        ]}
+    ]});
+    let (view, log, cx) = surface(cx, tree, false);
+    view.update(cx, |v, cx| v.set_data("/hours", Some(json!(0)), cx).unwrap());
+    draw(cx);
+    assert_eq!(view.read_with(cx, |v, cx| v.field_text("hours.input", cx)).as_deref(), Some("0.00"));
+    cx.update(|window, cx| view.update(cx, |v, cx| {
+        v.field_gained_focus("hours.input", window, cx);
+        assert!(v.type_over_selection("hours.input", "1.5", window, cx));
+    }));
+    assert_eq!(view.read_with(cx, |v, cx| v.field_text("hours.input", cx)).as_deref(), Some("1.5"));
+    cx.update(|window, cx| view.update(cx, |v, cx| {
+        let i = v.index_of("go").unwrap();
+        v.press(i, window, cx);
+    }));
+    draw(cx);
+    assert!(log.0.borrow().actions.iter().any(|a| a.name == "ok"), "the first press submitted");
+    assert!(!log.0.borrow().actions.iter().any(|a| a.name == "bad"), "the check read what was typed");
+    // Only a NumberField: an Input's focus keeps its caret.
+    cx.update(|window, cx| view.update(cx, |v, cx| {
+        v.field_gained_focus("note.field", window, cx);
+        assert!(v.type_over_selection("note.field", "!", window, cx));
+    }));
+    let note = view.read_with(cx, |v, cx| v.field_text("note.field", cx)).unwrap();
+    assert!(note.contains("seeded"), "an Input keeps its text: {note}");
+}
+
 #[gpui::test]
 fn picked_files_reach_the_host_and_the_upload_event(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [

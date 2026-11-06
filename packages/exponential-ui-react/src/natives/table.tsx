@@ -140,6 +140,8 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
         return Number.isFinite(n) ? ctx.formatter.percent(n, { decimals }) : ``
       case `date`:
         return missing ? `` : ctx.formatter.date(v)
+      case `dateTime`:
+        return missing ? `` : ctx.formatter.date(v, { time: true })
       case `relativeTime`:
         return missing ? `` : ctx.formatter.relativeTime(v, ctx.now())
       case `boolean`:

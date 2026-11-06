@@ -5439,7 +5439,8 @@
           "ArrowUp/ArrowDown: ± step (Shift: ×10)",
           "PageUp/PageDown: ± 10 steps",
           "Home/End: min/max",
-          "Enter or blur: commit and clamp"
+          "Enter or blur: commit and clamp",
+          "Focus: selects the value, so typing replaces it"
         ]
       },
       "example": {

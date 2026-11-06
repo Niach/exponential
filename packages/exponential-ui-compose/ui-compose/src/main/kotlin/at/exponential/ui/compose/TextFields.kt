@@ -62,6 +62,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import at.exponential.ui.json.flag
 import at.exponential.ui.json.list
 import at.exponential.ui.json.str
@@ -116,6 +117,20 @@ fun OwnedTextField(
         mutableStateOf(TextFieldValue(t, TextRange(t.length)))
     }
     var focused by remember(id) { mutableStateOf(false) }
+    // VAPP-208: focus selects a seeded value, so typing replaces it. The tap
+    // that focuses the field places its caret after the focus change: while
+    // the window is open, a selection-only change keeps everything selected.
+    val selectsOnFocus = keyboardType == KeyboardType.Decimal
+    var selectingAll by remember(id) { mutableStateOf(false) }
+    if (selectsOnFocus) {
+        LaunchedEffect(focused) {
+            if (!focused) return@LaunchedEffect
+            selectingAll = true
+            value = value.copy(selection = TextRange(0, value.text.length))
+            delay(SELECT_ON_FOCUS_WINDOW_MS)
+            selectingAll = false
+        }
+    }
     val generation = state?.writeGeneration ?: 0
     LaunchedEffect(id, generation) {
         val t = state?.text ?: return@LaunchedEffect
@@ -144,7 +159,8 @@ fun OwnedTextField(
                 model.composerSubmit(index)
                 return@BasicTextField
             }
-            value = next
+            value = if (selectingAll && next.text == prev.text) next.copy(selection = TextRange(0, next.text.length)) else next
+            if (next.text != prev.text) selectingAll = false
             if (next.text != prev.text) model.fieldEdited(index, next.text)
         },
         modifier = modifier
@@ -225,6 +241,9 @@ fun OwnedTextField(
         },
     )
 }
+
+/** How long after a NumberField's focus the focusing tap's caret still lands. */
+private const val SELECT_ON_FOCUS_WINDOW_MS = 300L
 
 /** Autocorrection: off for addresses, numbers and secrets (iOS `InputTraits` too). */
 internal fun autoCorrectOf(type: String): Boolean = type !in setOf("email", "url", "tel", "password", "number")

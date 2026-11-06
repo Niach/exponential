@@ -439,6 +439,7 @@ class SurfaceModel(
         val env = environment
         val locale = st.locale ?: env.locale
         val zone = st.timeZone ?: env.timeZone
+        val insets = st.insets ?: env.insets
         val wanted = FfiSettings(
             locale = locale,
             stringsJson = JsonValue.Obj(st.strings.mapValues { JsonValue.Str(it.value) }).json,
@@ -450,10 +451,10 @@ class SurfaceModel(
             fontScale = st.fontScale ?: env.fontScale,
             hover = st.hover ?: env.hover,
             reducedMotion = st.reducedMotion ?: env.reducedMotion,
-            insetTop = (st.insets ?: env.insets).top,
-            insetRight = (st.insets ?: env.insets).right,
-            insetBottom = (st.insets ?: env.insets).bottom,
-            insetLeft = (st.insets ?: env.insets).left,
+            insetTop = insets.top,
+            insetRight = insets.right,
+            insetBottom = insets.bottom,
+            insetLeft = insets.left,
             today = st.today,
             hoverCloseMs = st.hoverCloseMs.coerceAtLeast(0).toUInt(),
             timeZone = zone,
@@ -701,12 +702,17 @@ class SurfaceModel(
     private var viewportBeforeOverlay: Float? = null
 
     /**
-     * A side Drawer hangs from the whole window: its height for the layout
-     * while it is up, null = back to the height it replaced.
+     * A side Drawer hangs from the whole window, a Dialog lands in it
+     * (#VAPP-252: the core subtracts the window's insets, the keyboard's among
+     * them, so the surface's own visible height would shrink a Dialog that
+     * fits): its height for the layout while it is up, null = back to the
+     * height it replaced.
      */
     internal fun overlayViewportHeight(height: Float?) {
         if (height != null) {
             if (viewportBeforeOverlay == null) viewportBeforeOverlay = viewportHeight
+            viewportJob?.cancel()
+            viewportJob = null
             applyViewport(width, height, maxHeight)
         } else {
             val before = viewportBeforeOverlay ?: return
@@ -743,9 +749,15 @@ class SurfaceModel(
      * few more rows.
      */
     internal fun autoViewportHeight(height: Float) {
-        if (hostViewport || viewportBeforeOverlay != null) return
+        if (hostViewport) return
         viewportJob?.cancel()
         viewportJob = null
+        // The window's overlay holds the viewport: this is what it gives back
+        // (the keyboard came or went meanwhile, nothing measures again after).
+        if (viewportBeforeOverlay != null) {
+            viewportBeforeOverlay = height
+            return
+        }
         val d = height - viewportHeight
         if (abs(d) < 0.5f) return
         if (viewportHeight <= 0f || d >= VIEWPORT_STEP) {

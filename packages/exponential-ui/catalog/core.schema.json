@@ -25714,7 +25714,8 @@
             "slot",
             "currency",
             "percent",
-            "relativeTime"
+            "relativeTime",
+            "dateTime"
           ],
           "description": "How cells render: text, a locale number/currency/percent, a date, a relative time, a tick, a badge, or the named slot's component once per row.",
           "default": "text"

@@ -11,7 +11,7 @@ export interface TableColumn {
   key: string
   /** The header text (a slot or checkbox column may have none). */
   label?: string
-  type?: `text` | `number` | `date` | `boolean` | `badge` | `slot` | `currency` | `percent` | `relativeTime`
+  type?: `text` | `number` | `date` | `boolean` | `badge` | `slot` | `currency` | `percent` | `relativeTime` | `dateTime`
   slot?: string
   /** ISO 4217 code of a `currency` column. */
   currency?: string
@@ -61,7 +61,7 @@ export function sortRows(rows: readonly Record<string, unknown>[], sort: TableSo
     let c: number
     if (typeof va === `number` && typeof vb === `number`) c = va - vb
     else if (column.type === `number`) c = num(va) - num(vb)
-    else if (column.type === `date`) c = new Date(String(va)).getTime() - new Date(String(vb)).getTime()
+    else if (column.type === `date` || column.type === `dateTime`) c = new Date(String(va)).getTime() - new Date(String(vb)).getTime()
     else if (typeof va === `boolean` || typeof vb === `boolean`) c = Number(Boolean(va)) - Number(Boolean(vb))
     else c = collator.compare(String(va), String(vb))
     return c === 0 ? a - b : c * dir

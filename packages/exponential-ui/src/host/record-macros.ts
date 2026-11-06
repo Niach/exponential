@@ -42,6 +42,8 @@ export interface RecordFormField {
  *  `dataTab.columns`). */
 export const RECORD_COLUMN_WIDTHS: Readonly<Record<string, number>> = { date: 104, time: 64, "date-time": 152, number: 64, integer: 64, boolean: 56 }
 export const RECORD_UPDATED_WIDTH = 136
+/** A date-time cell's formatted `Nov 12, 2026, 3:30 AM` (the Data tab's raw editor keeps 152). */
+export const RECORD_DATE_TIME_WIDTH = 188
 export const RECORD_MENU_WIDTH = 80
 /** A string longer than this (its `maxLength`) is a Textarea. */
 export const RECORD_LONG_TEXT = 200
@@ -140,6 +142,10 @@ export function recordFormFields(kind: RecordKind, path: string): RecordFormFiel
   })
 }
 
+/** A fixed column never truncates its own header: the label at the header's
+ *  8 px a letter, its 8 + 8 padding and the 16 + 4 sort arrow. */
+const recordHeaderWidth = (label: string) => label.length * 8 + 36
+
 /** The table columns: the chosen fields (default every one, files left
  *  out), typed and sized like the Data tab, then `updatedAt`, then the
  *  row menu (when editable). */
@@ -151,8 +157,9 @@ export function recordTableColumns(kind: RecordKind, columns: readonly string[] 
     if (f.type === `number` || f.type === `integer`) Object.assign(col, { type: `number`, align: `end` })
     else if (f.type === `boolean`) col.type = `boolean`
     else if (f.format === `date`) col.type = `date`
-    const width = f.type === `string` ? (f.format ? RECORD_COLUMN_WIDTHS[f.format] : undefined) : RECORD_COLUMN_WIDTHS[f.type]
-    if (width !== undefined) col.width = width
+    else if (f.format === `date-time`) col.type = `dateTime`
+    const width = f.format === `date-time` ? RECORD_DATE_TIME_WIDTH : f.type === `string` ? (f.format ? RECORD_COLUMN_WIDTHS[f.format] : undefined) : RECORD_COLUMN_WIDTHS[f.type]
+    if (width !== undefined) col.width = Math.max(width, recordHeaderWidth(col.label as string))
     else col.truncate = true
     return col
   })
@@ -289,7 +296,7 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
     node.title = kind.title ?? fieldLabel(kindName)
     node.cols = recordTableColumns(kind, columns, editable)
     node.rows = { path: `${base}/rows/rows` }
-    node.count = { call: `fill`, args: { template: `$string.recordCount`, params: { count: { call: `coalesce`, args: { values: [{ path: `${base}/rows/count` }, 0] } } } } }
+    node.count = { call: `pluralize`, args: { value: { call: `coalesce`, args: { values: [{ path: `${base}/rows/count` }, 0] } }, one: `$string.recordCountOne`, other: `$string.recordCount` } }
     node.loading = { call: `not`, args: { value: { path: `${base}/rows` } } }
     if (options.readOnly) node.add = false
     node.editable = editable

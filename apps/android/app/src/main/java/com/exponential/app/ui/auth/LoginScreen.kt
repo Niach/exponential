@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -261,7 +263,11 @@ fun LoginScreen(
                                 placeholder = EmailCodeSignUpCopy.PLACEHOLDER,
                                 keyboardOptions = KeyboardOptions(
                                     capitalization = KeyboardCapitalization.Words,
+                                    imeAction = ImeAction.Done,
                                 ),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (!state.loading) viewModel.submitName(name)
+                                }),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("login-name-field"),
@@ -305,7 +311,13 @@ fun LoginScreen(
                                 onValueChange = { code = it },
                                 singleLine = true,
                                 placeholder = "Code",
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.NumberPassword,
+                                    imeAction = ImeAction.Done,
+                                ),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (!state.loading && code.isNotBlank()) viewModel.verifyCode(code)
+                                }),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("login-code-field"),
@@ -349,7 +361,13 @@ fun LoginScreen(
                                 onValueChange = { email = it },
                                 singleLine = true,
                                 placeholder = "Email",
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Email,
+                                    imeAction = ImeAction.Done,
+                                ),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    if (!state.loading && email.isNotBlank()) viewModel.sendCode(email.trim())
+                                }),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("login-email-field"),
@@ -387,7 +405,10 @@ fun LoginScreen(
                             onValueChange = { email = it },
                             singleLine = true,
                             placeholder = "Email",
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Next,
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("login-email-field"),
@@ -399,7 +420,13 @@ fun LoginScreen(
                             singleLine = true,
                             placeholder = "Password",
                             visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done,
+                            ),
+                            keyboardActions = KeyboardActions(onDone = {
+                                if (!state.loading && email.isNotBlank() && password.isNotBlank()) viewModel.signIn(email = email, password = password)
+                            }),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("login-password-field"),

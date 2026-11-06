@@ -150,6 +150,16 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
   const [value, setValue] = useBoundState<number | null>(node, scope, `value`, external)
   const [text, setText] = useState<string | null>(null)
   const focusRef = useRef<HTMLInputElement | null>(null)
+  // VAPP-208: focus selects the seeded value, so typing replaces it. Selected
+  // once the raw text is in; a press selects again on release, because the
+  // press itself places the caret after focus (a drag keeps its own range).
+  const selectNext = useRef(false)
+  const pressFocused = useRef(false)
+  useEffect(() => {
+    if (!selectNext.current) return
+    selectNext.current = false
+    focusRef.current?.select()
+  }, [text])
   const f = useField({ node, domId, props, value, focusRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
   // Display through the surface Formatter (round 2 §3); the typed text is
@@ -199,8 +209,17 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
           disabled={disabled}
           value={shown}
           onFocus={() => {
+            selectNext.current = true
             setText(value === null ? `` : String(value).replace(`.`, decimalSep))
             void emit(`focus`)
+          }}
+          onMouseDown={() => {
+            pressFocused.current = text === null
+          }}
+          onMouseUp={(e) => {
+            if (!pressFocused.current) return
+            pressFocused.current = false
+            if (e.currentTarget.selectionStart === e.currentTarget.selectionEnd) e.currentTarget.select()
           }}
           onChange={(e) => {
             setText(e.target.value)
@@ -209,6 +228,7 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
           }}
           onBlur={() => {
             if (value !== null && clamp(value) !== value) commit(clamp(value))
+            pressFocused.current = false
             setText(null)
             f.touch()
             void emit(`blur`)

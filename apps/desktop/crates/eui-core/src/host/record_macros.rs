@@ -24,6 +24,8 @@ fn column_width(field: &Map<String, Value>) -> Option<i64> {
 }
 
 pub const RECORD_UPDATED_WIDTH: i64 = 136;
+/// A date-time cell's formatted `Nov 12, 2026, 3:30 AM` (the Data tab's raw editor keeps 152).
+pub const RECORD_DATE_TIME_WIDTH: i64 = 188;
 pub const RECORD_MENU_WIDTH: i64 = 80;
 /// A string longer than this (its `maxLength`) is a Textarea.
 pub const RECORD_LONG_TEXT: f64 = 200.0;
@@ -222,9 +224,15 @@ pub fn record_table_columns(kind: &Value, columns: Option<&[String]>, editable: 
                 col.insert("type".into(), json!("boolean"));
             } else if f.get("format").and_then(Value::as_str) == Some("date") {
                 col.insert("type".into(), json!("date"));
+            } else if f.get("format").and_then(Value::as_str) == Some("date-time") {
+                col.insert("type".into(), json!("dateTime"));
             }
-            match column_width(&f) {
-                Some(w) => col.insert("width".into(), json!(w)),
+            let width = if f.get("format").and_then(Value::as_str) == Some("date-time") { Some(RECORD_DATE_TIME_WIDTH) } else { column_width(&f) };
+            match width {
+                // A fixed column never truncates its own header: the label at
+                // the header's 8 px a letter, its 8 + 8 padding and the 16 + 4
+                // sort arrow.
+                Some(w) => col.insert("width".into(), json!(w.max(field_label(&key).chars().count() as i64 * 8 + 36))),
                 None => col.insert("truncate".into(), json!(true)),
             };
             Value::Object(col)
@@ -391,7 +399,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         node.insert("title".into(), json!(title));
         node.insert("cols".into(), Value::Array(record_table_columns(kind, columns.as_deref(), editable)));
         node.insert("rows".into(), json!({"path": format!("{base}/rows/rows")}));
-        node.insert("count".into(), json!({"call": "fill", "args": {"template": "$string.recordCount", "params": {"count": {"call": "coalesce", "args": {"values": [{"path": format!("{base}/rows/count")}, 0]}}}}}));
+        node.insert("count".into(), json!({"call": "pluralize", "args": {"value": {"call": "coalesce", "args": {"values": [{"path": format!("{base}/rows/count")}, 0]}}, "one": "$string.recordCountOne", "other": "$string.recordCount"}}));
         node.insert("loading".into(), json!({"call": "not", "args": {"value": {"path": format!("{base}/rows")}}}));
         if read_only {
             node.insert("add".into(), json!(false));

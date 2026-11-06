@@ -198,12 +198,13 @@ struct ServerDetailView: View {
                 UserAvatar(user: identityUser, id: account?.userId, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     let name = memberDisplayName(identityUser, id: account?.userId)
+                    // Web's 16 / 14.
                     Text(name)
-                        .font(.title3.weight(.medium))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.white)
                     if let email = account?.userEmail, !email.isEmpty, email != name {
                         Text(email)
-                            .font(.body)
+                            .font(.system(size: 14))
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
                 }

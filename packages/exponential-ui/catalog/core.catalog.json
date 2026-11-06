@@ -200,7 +200,8 @@
       "slot",
       "currency",
       "percent",
-      "relativeTime"
+      "relativeTime",
+      "dateTime"
     ],
     "sortDirection": [
       "asc",

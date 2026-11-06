@@ -2,6 +2,8 @@ package at.exponential.ui
 
 import at.exponential.ui.ffi.placeOverlay
 import at.exponential.ui.json.JsonValue
+import at.exponential.ui.model.Insets
+import at.exponential.ui.model.SurfaceEnvironment
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
 import at.exponential.ui.model.dismissLayer
@@ -73,6 +75,45 @@ class GeometryTest {
             m.overlayLayerWidth(null)
             assertEquals(358f, m.layers.single().frame.width, 0.001f)
         }
+    }
+
+    /**
+     * #VAPP-252: with the keyboard up a Dialog's cap is the window less its insets
+     * (the safe area above the keyboard), not the surface below the app's header
+     * less those insets; it fits there whole, and only a truly short window
+     * scrolls its body. Closing gives back the height the surface has by then.
+     */
+    @Test
+    fun aDialogIsCappedByTheWindowNotTheSurfacesViewport() {
+        val fields = (0 until 8).joinToString(",") { """{"id":"f$it","component":"Box","props":{"style":{"height":50,"flexShrink":0}}}""" }
+        val tree = JsonValue.parse("""{"id":"root","component":"Box","children":[{"id":"d","component":"Dialog","props":{"open":true,"title":"Log hours"},"children":[$fields]}]}""")
+        val m = SurfaceModel("dialog", SurfaceOptions(theme = null, mode = Mode.Light), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+        m.fixedMeasure = true
+        m.setNested(tree.json)
+        // The phone: 914 dp, the surface starts below a 129 dp header, status bar 24, keyboard 336.
+        val keyboard = SurfaceEnvironment(locale = "en-US", timeZone = "UTC", insets = Insets(top = 24f, bottom = 336f))
+        m.setEnvironment(keyboard)
+        m.setSurfaceWidth(412f)
+        m.autoViewportHeight(785f)
+        assertEquals("the surface's viewport: 785 - 24 - 336 - 16", 409f, m.layers.single().frame.height, 0.001f)
+
+        m.overlayViewportHeight(914f)
+        val whole = m.layers.single().frame.height
+        assertTrue("the whole Dialog fits the safe area above the keyboard: $whole", whole > 409f && whole < 538f)
+        val body = m.nodes.first { it.part == "body" && it.ownerComponent == "Dialog" }
+        assertEquals("nothing hides in the body", m.scrolls[body.index]?.contentHeight ?: m.frame(body.index).height, m.frame(body.index).height, 0.5f)
+
+        // A taller keyboard: the body shrinks, the rest stays reachable by scrolling.
+        m.setEnvironment(keyboard.copy(insets = Insets(top = 24f, bottom = 674f)))
+        assertEquals(914f - 24f - 674f - 16f, m.layers.single().frame.height, 0.001f)
+        val scroll = m.scrolls[body.index]!!
+        assertTrue(scroll.scrollY)
+        assertTrue(scroll.contentHeight >= 8 * 50f)
+
+        // The keyboard went while it was up: closing gives back the surface's height now.
+        m.autoViewportHeight(900f)
+        m.overlayViewportHeight(null)
+        assertEquals(900f, m.viewportHeight, 0.001f)
     }
 
     @Test
