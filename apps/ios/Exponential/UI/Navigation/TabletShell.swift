@@ -303,7 +303,10 @@ struct TabletSidebar: View {
     }
 
     private var agentRows: [AnyView] {
-        lists.agents.filter { $0.teamId == teamState.activeTeamId }.map { agent in
+        // #EXP-1714: the viewer's global Assistant lists in every team.
+        AgentSettings.agentsInTeam(
+            lists.agents, teamId: teamState.activeTeamId, teamIds: teamState.teams.map(\.id)
+        ).map { agent in
             AnyView(row(.agentChannel(agent.agentId), title: agent.name) {
                 if agent.assistant {
                     ExpLogoMark(size: 18, color: .white)

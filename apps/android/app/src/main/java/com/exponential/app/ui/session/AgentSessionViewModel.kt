@@ -173,6 +173,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val promptsApi: com.exponential.app.data.api.PromptsApi,
     private val store: SteerConnectionStore,
     stats: SyncStats,
+    selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
 
     @AssistedFactory
@@ -194,6 +195,17 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  the connection, which needs it eagerly for its redial loop. */
     val session: StateFlow<SessionEntity?> = connection.session
 
+    /** #EXP-1714: the team the composer's `/` prompts, `#` issues and `@`
+     *  members read — the session's team unless that is the unsynced
+     *  personal team (the global Assistant's chat), then the selected team.
+     *  Uploads, MCP and sends keep the session's team. */
+    private val browseTeamId: StateFlow<String?> =
+        com.exponential.app.data.browseTeamIdFlow(
+            dbFlow,
+            session.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } },
+            selection.selectedId,
+        ).flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     /** #EXP-1383 (chats.json `agentHint`): an agent chat ROOT's definition
      *  row, whose `instructions_updated_at` the "Instructions changed" Dock
      *  banner compares with the session's `agent_instructions_at`. */
@@ -211,6 +223,37 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
             }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // ── #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams pick
+    /** The conversation is the viewer's own Assistant's (its root). */
+    private val toAssistant: StateFlow<Boolean> =
+        combine(agentDefinition, auth.userId) { agent, me -> agent != null && agent.isAssistant && agent.ownerId == me }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val _teamsPick = MutableStateFlow<List<String>?>(null)
+
+    fun setTeamsPick(next: List<String>?) {
+        _teamsPick.value = next
+    }
+
+    /** The pick's rows + value while the conversation is the viewer's
+     *  Assistant's; null anywhere else. Seeded from the root's synced
+     *  `scope_team_ids` (a pick made elsewhere re-seeds it). */
+    data class TeamsPickState(val teams: List<com.exponential.app.ui.agent.PickTeam>, val picked: List<String>?)
+
+    val teamsPick: StateFlow<TeamsPickState?> = combine(
+        toAssistant,
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() },
+        _teamsPick,
+    ) { assistant, teams, picked ->
+        if (assistant) TeamsPickState(com.exponential.app.ui.agent.pickTeams(teams), picked) else null
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    init {
+        viewModelScope.launch {
+            session.map { it?.scopeTeamIdList }.distinctUntilChanged().collect { _teamsPick.value = it }
+        }
+    }
 
     /** EXP-656: when our own `devices` shape last completed a poll — presence
      *  derived from an unrefreshed cursor is unknown, never offline. */
@@ -508,9 +551,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      * precomputed here too (EXP-423).
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = session
-        .map { it?.teamId }
-        .distinctUntilChanged()
+    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = browseTeamId
         .flatMapLatest { teamId ->
             if (teamId == null) {
                 flowOf(emptyList())
@@ -546,7 +587,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
         val accountId = auth.activeAccountId.value ?: return emptyList()
-        val teamId = session.value?.teamId ?: return emptyList()
+        val teamId = browseTeamId.value ?: return emptyList()
         return try {
             issuesApi.search(accountId, teamId, query).map(::issueRefTarget)
         } catch (e: CancellationException) {
@@ -566,9 +607,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      * display name only ever labels the row.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val mentionMembers: StateFlow<List<MentionMember>> = session
-        .map { it?.teamId }
-        .distinctUntilChanged()
+    val mentionMembers: StateFlow<List<MentionMember>> = browseTeamId
         .flatMapLatest { teamId ->
             if (teamId == null) {
                 flowOf(emptyList())
@@ -945,8 +984,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  builtins (the synced, body-less `prompts`). */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val teamPrompts: Flow<List<com.exponential.app.domain.SlashPrompt>> =
-        session.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }
-            .distinctUntilChanged()
+        browseTeamId
             .flatMapLatest { team ->
                 if (team == null) {
                     flowOf(emptyList())
@@ -1211,7 +1249,14 @@ class AgentSessionViewModel @AssistedInject constructor(
                 try {
                     sessionsApi.send(
                         accountId,
-                        SessionsSendInput.message(codingSessionId, text, ids.takeIf { it.isNotEmpty() }),
+                        SessionsSendInput.message(
+                            codingSessionId,
+                            text,
+                            ids.takeIf { it.isNotEmpty() },
+                            // #EXP-1715: every send to the viewer's Assistant
+                            // carries its Teams pick (null = every team).
+                            scopeTeamIds = if (toAssistant.value) SessionsSendInput.scope(_teamsPick.value) else null,
+                        ),
                     )
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t

@@ -130,6 +130,7 @@ mod device_sync;
 mod machines;
 mod media_tile;
 mod tall_image;
+mod teams_pick;
 #[cfg(target_os = "macos")]
 pub mod macos_blur;
 mod macos_window;

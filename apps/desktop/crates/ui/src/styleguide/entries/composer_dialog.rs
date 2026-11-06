@@ -255,6 +255,8 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
             skills: true,
             computer_use: true,
             prompts: true,
+            assistant: false,
+            teams: false,
         },
     )
     .into_iter()
@@ -323,6 +325,8 @@ fn plus_menu(
                 |sub, _, _| sub,
             ),
             ComposerMenuRow::Subagents => menu,
+            // #EXP-1715: the Assistant's Teams › (never in this specimen).
+            ComposerMenuRow::Teams => menu,
             ComposerMenuRow::Ultracode => menu.item(
                 pointer_toggle_item(format!("{prefix}-ultracode"), None, MENU_ULTRACODE, false, |_, _, _| {})
                     .icon(menu_icon(row)),

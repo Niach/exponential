@@ -52,7 +52,10 @@ struct ComposerPlusMenu: View {
             mcp: !mcpServers.isEmpty,
             skills: !skills.isEmpty,
             computerUse: model.device?.canToggleComputerUse == true,
-            prompts: !model.prompts.isEmpty
+            prompts: !model.prompts.isEmpty,
+            // #EXP-1715: the agent row picks the viewer's own Assistant.
+            assistant: model.teamsPick != nil,
+            teams: (model.teamsPick?.teams.count ?? 0) > 1
         )
     }
 
@@ -136,7 +139,7 @@ struct ComposerPlusMenu: View {
     /// The rows whose submenu is a page of this sheet (the rest hand off).
     static func pushes(_ id: ComposerMenu.RowId) -> Bool {
         switch id {
-        case .implementIssue, .prompts, .device, .account, .model, .subagents, .repository: true
+        case .implementIssue, .prompts, .teams, .device, .account, .model, .subagents, .repository: true
         default: false
         }
     }
@@ -196,6 +199,11 @@ struct ComposerPlusMenu: View {
                 searchPlaceholder: "Search repositories…",
                 renderItem: { item in byId[item.value].map { AnyView(RepositoryPickerRowBody(row: $0)) } }
             )
+        case .teams:
+            // #EXP-1715: THE multi picker rows over the viewer's teams.
+            if let teamsPick = model.teamsPick {
+                TeamsPickPage(binding: teamsPick)
+            }
         case .prompts:
             // #EXP-1434: the `/` menu's pick — the prompt becomes the new
             // session's subject.
@@ -243,6 +251,8 @@ struct ComposerPlusMenu: View {
             McpServers.pickedValue(launch.mcpServerIds)
         case .skills:
             Skills.skillMenuValue(launch.skillIds.count)
+        case .teams:
+            model.teamsPick?.value
         default:
             nil
         }

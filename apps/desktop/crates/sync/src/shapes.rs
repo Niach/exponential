@@ -459,6 +459,9 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "seal_rotate_epoch",
             "sealed_title",
             "guide",
+            // #EXP-1720: the Assistant conversation root's Teams pick (null =
+            // every team). `heal_missing_columns` ALTERs it on.
+            "scope_team_ids",
             // #VAPP-229: the app that started it ("via <app>", via-app.json;
             // NOT `app_id`, an editor session's app). `heal_missing_columns`
             // ALTERs it onto existing store tables.
@@ -1297,8 +1300,9 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 38);
-        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title"] {
+        assert_eq!(sessions.columns.len(), 39);
+        // #EXP-1720: the Assistant conversation root's Teams pick.
+        for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title", "scope_team_ids"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
         // NEW-8: the legacy columns are never read (the server drops them).

@@ -267,6 +267,9 @@ struct FirstComposer {
     sending: bool,
     notice: Option<SharedString>,
     mention_team: Option<String>,
+    /// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams
+    /// pick for the first message (`None` = every team).
+    teams_picked: crate::teams_pick::TeamsPick,
 }
 
 pub struct AgentScreenView {
@@ -314,6 +317,9 @@ pub struct AgentScreenView {
     /// S-3: the in-window call panel over the conversation's body (empty
     /// unless THIS client runs a call with the agent).
     call_panel: Entity<etalk_gpui::voice_call::CallPanel>,
+    /// #EXP-1714: the window's navigation, whose ACTIVE team scopes a global
+    /// Assistant's prompts, issue refs and mentions.
+    nav: Entity<crate::navigation::Navigation>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -392,6 +398,7 @@ impl AgentScreenView {
                 sending: false,
                 notice: None,
                 mention_team: None,
+                teams_picked: None,
             },
             dock: cx.new(|_| crate::dock::DockState::default()),
             placeholder_name: None,
@@ -406,6 +413,7 @@ impl AgentScreenView {
             opened_at: Instant::now(),
             focus_handle: cx.focus_handle(),
             call_panel: cx.new(etalk_gpui::voice_call::CallPanel::new),
+            nav: crate::navigation::nav_for_window(window, cx),
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
@@ -425,10 +433,44 @@ impl AgentScreenView {
         }
     }
 
-    fn subject_team_id(&self) -> Option<String> {
+    /// #EXP-1715: an agent chat with the viewer's own Assistant (the Teams
+    /// pick rides its sends).
+    fn to_assistant(&self, cx: &App) -> bool {
+        matches!(self.subject, ChannelSubject::Agent(_))
+            && self.agent.as_ref().is_some_and(|agent| crate::teams_pick::is_my_assistant(agent, cx))
+    }
+
+    /// #EXP-1715: a changed Teams pick lands on the first composer.
+    fn teams_change(&self, cx: &gpui::Context<Self>) -> crate::teams_pick::OnTeamsPick {
+        let view = cx.entity().downgrade();
+        std::rc::Rc::new(move |next, _window, cx| {
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| {
+                    this.first.teams_picked = next;
+                    cx.notify();
+                });
+            }
+        })
+    }
+
+    /// The team the subject's `/` prompts, issue refs, mentions and template
+    /// starter read. #EXP-1714: a global Assistant (its team is none of the
+    /// synced teams: the hidden personal team) borrows the window's ACTIVE
+    /// team; `send_first` keeps the agent's own team.
+    fn subject_team_id(&self, cx: &App) -> Option<String> {
         match &self.app {
             Some(app) => app.team_id.clone(),
-            None => self.agent.as_ref().and_then(|agent| agent.team_id.clone()),
+            None => {
+                let team_id = self.agent.as_ref().and_then(|agent| agent.team_id.clone());
+                let synced = team_id.as_deref().is_some_and(|team_id| {
+                    Store::try_global(cx).is_some_and(|store| store.collections().teams.read(cx).get(team_id).is_some())
+                });
+                if synced || self.agent.is_none() || Store::try_global(cx).is_none() {
+                    team_id
+                } else {
+                    crate::navigation::active_team_id(&self.nav, cx)
+                }
+            }
         }
     }
 
@@ -481,7 +523,7 @@ impl AgentScreenView {
         });
         // VAPP-234: one more pill opens the import dialog's templates step
         // (an import needs no device: never disabled).
-        let team_id = self.subject_team_id();
+        let team_id = self.subject_team_id(cx);
         let from_template = team_id.map(|team_id| {
             crate::surface::glass_pill_button(
                 SharedString::from(domain::app_templates::APP_TEMPLATES_TEST_IDS.from_template.clone()),
@@ -599,7 +641,7 @@ impl AgentScreenView {
             });
             self.placeholder_name = Some(placeholder);
         }
-        let team_id = self.subject_team_id();
+        let team_id = self.subject_team_id(cx);
         if team_id != self.first.mention_team {
             self.first.mention_team = team_id.clone();
             self.first.mention.update(cx, |mention, _| {
@@ -630,7 +672,14 @@ impl AgentScreenView {
             (ChannelSubject::App(_), _, Some(app)) => app.id.clone(),
             _ => return,
         };
-        let Some(team_id) = self.subject_team_id() else {
+        // #EXP-1714: the send and its uploads go to the SUBJECT's own team
+        // (a global Assistant's = the personal team; the server refuses any
+        // other), never the active team `subject_team_id` borrows.
+        let team_id = match &self.app {
+            Some(app) => app.team_id.clone(),
+            None => self.agent.as_ref().and_then(|agent| agent.team_id.clone()),
+        };
+        let Some(team_id) = team_id else {
             return;
         };
         let app_device = matches!(self.subject, ChannelSubject::App(_)).then(|| self.device_id.clone());
@@ -656,11 +705,17 @@ impl AgentScreenView {
             return;
         };
         let upload_team = team_id.clone();
+        // #EXP-1715: the Assistant's first turn carries its Teams pick.
+        let scope = self.to_assistant(cx).then(|| self.first.teams_picked.clone());
         let send_input = move |text: &str, attachment_ids: Vec<String>| match &app_device {
             Some(device_id) => {
                 crate::chat_launch::app_send_input(&team_id, &subject_id, device_id.as_deref(), text, attachment_ids)
             }
-            None => crate::chat_launch::agent_send_input(&team_id, &subject_id, text, attachment_ids),
+            None => {
+                let mut input = crate::chat_launch::agent_send_input(&team_id, &subject_id, text, attachment_ids);
+                input.scope_team_ids = scope.clone();
+                input
+            }
         };
         // The sealing facts are the text's and the subject's (the uploads
         // name no one): read now, so the send needs nothing of the screen
@@ -752,6 +807,24 @@ impl AgentScreenView {
                 .images
                 .render_strip("agent-pending-remove", self.first.sending, Self::remove_first_file, cx)
         });
+        // #EXP-1715: the Assistant's picked teams lead the strip.
+        let chips = self.to_assistant(cx).then(|| {
+            let teams = crate::teams_pick::pick_teams(cx);
+            crate::teams_pick::chips_row(
+                "agent-composer-chip",
+                &teams,
+                self.first.teams_picked.as_deref(),
+                self.first.sending,
+                self.teams_change(cx),
+                cx,
+            )
+        });
+        let strip = match (chips.flatten(), strip) {
+            (None, strip) => strip,
+            (Some(chips), strip) => {
+                Some(v_flex().w_full().min_w_0().gap_1p5().child(chips).children(strip).into_any_element())
+            }
+        };
         let notice = self.first.notice.clone();
         let composer = crate::composer::session_composer_card(
             crate::composer::SessionComposerBox::new(self.first.mention.clone(), submit)
@@ -784,7 +857,7 @@ impl AgentScreenView {
         use crate::chat_screen::{composer_menu_rows, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
         let view = cx.entity().downgrade();
         let input = self.first.input.clone();
-        let team_id = self.subject_team_id();
+        let team_id = self.subject_team_id(cx);
         // #EXP-1434: the team's prompts, the `/` menu's list.
         let prompts: Vec<crate::slash_commands::SlashPrompt> = team_id
             .as_deref()
@@ -797,7 +870,16 @@ impl AgentScreenView {
                     .collect()
             })
             .unwrap_or_default();
-        let conditions = ComposerMenuConditions { prompts: !prompts.is_empty(), ..ComposerMenuConditions::default() };
+        let assistant = self.to_assistant(cx);
+        let conditions = ComposerMenuConditions {
+            prompts: !prompts.is_empty(),
+            // #EXP-1715: the viewer's Assistant in more than one team.
+            assistant,
+            teams: assistant && crate::teams_pick::several_teams(cx),
+            ..ComposerMenuConditions::default()
+        };
+        let teams_view = view.clone();
+        let teams_change = self.teams_change(cx);
         let trigger = crate::composer::composer_tool("agent-plus", registry::UI_ADD, cx)
             .tooltip(crate::chat_screen::PLUS_TOOLTIP)
             .disabled(self.first.sending);
@@ -807,6 +889,23 @@ impl AgentScreenView {
             for row in composer_menu_rows(ComposerSurface::Agent, conditions) {
                 menu = match row {
                     Row::Separator => menu.separator(),
+                    // #EXP-1715: THE multi picker rows over the viewer's teams.
+                    Row::Teams => {
+                        let state_view = teams_view.clone();
+                        crate::teams_pick::teams_submenu(
+                            menu,
+                            "agent-teams",
+                            std::rc::Rc::new(move |cx: &App| {
+                                let picked =
+                                    state_view.upgrade().and_then(|view| view.read(cx).first.teams_picked.clone());
+                                (crate::teams_pick::pick_teams(cx), picked)
+                            }),
+                            teams_change.clone(),
+                            root.clone(),
+                            window,
+                            cx,
+                        )
+                    }
                     Row::AddFile => {
                         let view = view.clone();
                         menu.item(crate::controls::pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {
@@ -878,7 +977,7 @@ impl AgentScreenView {
     }
 
     fn render_row(&self, row: &SessionThreadRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let team_id = self.subject_team_id();
+        let team_id = self.subject_team_id(cx);
         let conversation_id = self.conversation.as_ref().map(|row| row.id.clone()).unwrap_or_default();
         // FEED-140: the inline cards answer while the reader may reply.
         let answer = self.composer.as_ref().is_some_and(|(_, composer)| composer.read(cx).may_message());
@@ -1016,7 +1115,7 @@ impl Render for AgentScreenView {
         // and banners, then THE composer; a reader who may not reply keeps
         // the cards inline. No conversation yet = the same composer, whose
         // send opens it.
-        let team_id = self.subject_team_id();
+        let team_id = self.subject_team_id(cx);
         let composer_view = self.composer.as_ref().map(|(_, composer)| composer.clone());
         let text = crate::thread_screen::ThreadText::team(team_id.as_deref());
         let rows_snapshot = self.rows.clone();

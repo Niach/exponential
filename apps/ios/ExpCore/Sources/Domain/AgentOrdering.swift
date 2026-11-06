@@ -35,6 +35,38 @@ public enum AgentOrdering {
             }
             .map(\.element)
     }
+
+    /// #EXP-1714 (`assistant.teamAgentsCases`): the agents a team lists: its
+    /// own rows (input order), plus the viewer's global Assistant (its team
+    /// is none of `teamIds`, the synced teams: a personal team never syncs)
+    /// first, while the team holds no Assistant of theirs. `visibleAgent`
+    /// still applies.
+    public static func agentsInTeam<T>(
+        _ agents: [T], teamId: String, teamIds: [String],
+        teamOf: (T) -> String, isMyAssistant: (T) -> Bool
+    ) -> [T] {
+        let own = agents.filter { teamOf($0) == teamId }
+        if own.contains(where: isMyAssistant) { return own }
+        let synced = Set(teamIds)
+        guard let global = agents.first(where: { isMyAssistant($0) && !synced.contains(teamOf($0)) })
+        else { return own }
+        return [global] + own
+    }
+
+    public static func agentsInTeam<T: AgentTeamScoped>(
+        _ agents: [T], teamId: String, teamIds: [String], me: String?
+    ) -> [T] {
+        agentsInTeam(
+            agents, teamId: teamId, teamIds: teamIds,
+            teamOf: \.agentTeamId,
+            isMyAssistant: { me != nil && isAssistant(role: $0.agentRole) && $0.agentOwnerId == me }
+        )
+    }
+}
+
+/// #EXP-1714: an agent row with its team (`agentsInTeam`).
+public protocol AgentTeamScoped: AgentRoleOrdered {
+    var agentTeamId: String { get }
 }
 
 /// S-3: what `AgentOrdering.orderedAgents` / `visibleAgent` /

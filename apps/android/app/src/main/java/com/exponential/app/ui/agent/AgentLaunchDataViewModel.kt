@@ -153,14 +153,16 @@ class AgentLaunchDataViewModel @Inject constructor(
                 if (db == null || teamId == null) {
                     flowOf(emptyList())
                 } else {
-                    db.agentDefinitionDao().observeByTeam(teamId).map { rows ->
+                    combine(db.agentDefinitionDao().observeAll(), db.teamDao().observeAll()) { rows, teams ->
                         // S-3: `me` keeps the viewer's own Assistant (first)
-                        // and drops other members'.
+                        // and drops other members'; #EXP-1714: `teamIds` brings
+                        // their global Assistant along.
                         com.exponential.app.domain.SessionTree.listAgents(
                             rows.map(com.exponential.app.domain.SessionTree::agentDefinition),
                             emptyList(),
                             teamId,
                             me,
+                            teams.map { it.id },
                         )
                     }
                 }

@@ -91,8 +91,10 @@ class AgentSettingsViewModel @Inject constructor(
         sessionRows,
         teamId,
         auth.userId,
-    ) { defs, sessions, team, me ->
-        if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me)
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+    ) { defs, sessions, team, me, teams ->
+        // #EXP-1714: `teamIds` brings the viewer's global Assistant along.
+        if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me, teams.map { it.id })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**

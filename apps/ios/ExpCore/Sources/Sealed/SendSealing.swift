@@ -80,10 +80,10 @@ extension SessionsSendInput {
     public var text: String? {
         switch self {
         case let .newThread(_, _, _, text, _, _, _, _): text
-        case let .agent(_, text, _, _): text
+        case let .agent(_, text, _, _, _): text
         case let .app(_, _, text, _): text
         case let .child(_, _, _, text): text
-        case let .message(_, text, _): text
+        case let .message(_, text, _, _): text
         case .switchAccount, .moveDevice: nil
         }
     }
@@ -92,9 +92,9 @@ extension SessionsSendInput {
     public var attachmentIds: [String] {
         switch self {
         case let .newThread(_, _, _, _, ids, _, _, _): ids ?? []
-        case let .agent(_, _, ids, _): ids ?? []
+        case let .agent(_, _, ids, _, _): ids ?? []
         case let .app(_, _, _, ids): ids ?? []
-        case let .message(_, _, ids): ids ?? []
+        case let .message(_, _, ids, _): ids ?? []
         case .child, .switchAccount, .moveDevice: []
         }
     }
@@ -104,14 +104,14 @@ extension SessionsSendInput {
         switch self {
         case let .newThread(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId):
             .newThread(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
-        case let .agent(agentId, _, attachmentIds, issueIds):
-            .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds)
+        case let .agent(agentId, _, attachmentIds, issueIds, scope):
+            .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope)
         case let .app(appId, deviceId, _, attachmentIds):
             .app(appId: appId, deviceId: deviceId, text: text, attachmentIds: attachmentIds)
         case let .child(parentId, deviceId, options, _):
             .child(parentId: parentId, deviceId: deviceId, options: options, text: text)
-        case let .message(sessionId, _, attachmentIds):
-            .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds)
+        case let .message(sessionId, _, attachmentIds, scope):
+            .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds, scope: scope)
         case .switchAccount, .moveDevice:
             self
         }

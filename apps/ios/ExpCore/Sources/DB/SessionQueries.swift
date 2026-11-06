@@ -58,6 +58,17 @@ public enum SessionQueries {
             .fetchAll(db)
     }
 
+    /// #EXP-1714 (agent-settings.json `assistant.teamAgentsCases`): the
+    /// agents a team lists: its own rows plus the viewer's global Assistant
+    /// (stored in a personal team that never syncs) while the team holds no
+    /// Assistant of theirs. The synced teams = this account's `teams` rows.
+    public static func teamAgents(db: Database, teamId: String, me: String?) throws -> [AgentDefinitionEntity] {
+        let teamIds = try String.fetchAll(db, sql: "SELECT id FROM teams")
+        return AgentSettings.agentsInTeam(
+            try agents(db: db, teamId: nil), teamId: teamId, teamIds: teamIds, me: me
+        )
+    }
+
     /// NEW-2: my conversation session with an agent (a root with its
     /// `agent_id` that I started); nil = none yet (the first message makes it).
     public static func conversation(db: Database, agentId: String, userId: String) throws -> SessionEntity? {

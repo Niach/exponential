@@ -82,6 +82,11 @@ class ThreadsViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    /** #EXP-1714: the synced teams' ids — a session or conversation in none of
+     *  them sits in the viewer's personal team (the global Assistant's chat). */
+    private val syncedTeamIds: Flow<List<String>> =
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }.map { rows -> rows.map { it.id } }
+
     // One shared query per table: the list, rowMeta, the nav dots and the
     // PR rows all read these, so they must not each re-run them (and the
     // digest parsing) on every sync tick.
@@ -109,9 +114,15 @@ class ThreadsViewModel @Inject constructor(
         // and bubble ring reads the server-kept digest turned back into
         // messages (`Chats.digestMessages`, chats.json `digestCases`), so no
         // transcript loads here and a new message re-reads one row.
+        // #EXP-1714: plus the personal team's (the viewer's Assistant chat):
+        // only its owner syncs it, so any conversation outside the synced teams is theirs.
         activeTeam.flatMapLatest { team ->
-            dbFlow.scopedQuery(emptyList()) {
-                if (team == null) it.conversationDao().observeAll() else it.conversationDao().observeByTeam(team)
+            if (team == null) {
+                dbFlow.scopedQuery(emptyList()) { it.conversationDao().observeAll() }
+            } else {
+                combine(dbFlow.scopedQuery(emptyList()) { it.conversationDao().observeAll() }, syncedTeamIds) { rows, ids ->
+                    rows.filter { it.teamId == team || (ids.isNotEmpty() && it.teamId !in ids) }
+                }
             }
         }.map { rows ->
             rows.flatMap { row ->
@@ -229,8 +240,16 @@ class ThreadsViewModel @Inject constructor(
 
     /** NEW-2: every member team's agent DEFINITIONS (rail / Settings order);
      *  busy / needs-you off the viewer's own conversation session. */
-    val agents: StateFlow<List<SessionTree.AgentRow>> = combine(agentDefinitions, sessions, auth.userId, activeTeam) { defs, s, me, team ->
-        SessionTree.listAgents(defs, s, teamId = team, me = me)
+    val agents: StateFlow<List<SessionTree.AgentRow>> = combine(
+        agentDefinitions,
+        sessions,
+        auth.userId,
+        activeTeam,
+        // Its own query: `teams` below is initialised after this property.
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+    ) { defs, s, me, team, teamRows ->
+        // #EXP-1714: `teamIds` brings the viewer's global Assistant along.
+        SessionTree.listAgents(defs, s, teamId = team, me = me, teamIds = teamRows.map { it.id })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _view = MutableStateFlow(Chats.ChatListView.List)
@@ -268,6 +287,7 @@ class ThreadsViewModel @Inject constructor(
     ) { (input, team, facts), definitions, prs, me, now ->
         needsYouFold(
             input.sessions, input.links, input.issues, input.messages, definitions, prs, team, me, now,
+            teamIds = facts.teamIds,
             mergeMode = facts.mergeMode,
             owner = facts.owner,
             devices = facts.devices,
@@ -275,7 +295,13 @@ class ThreadsViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** #EXP-1710: what the Needs you fold reads beyond the list's inputs. */
-    private data class NeedsYouTeamFacts(val mergeMode: String, val owner: Boolean, val devices: List<DeviceEntity>)
+    private data class NeedsYouTeamFacts(
+        val mergeMode: String,
+        val owner: Boolean,
+        val devices: List<DeviceEntity>,
+        /** #EXP-1714: the synced teams' ids. */
+        val teamIds: List<String> = emptyList(),
+    )
 
     /** The ACTIVE team's merge mode (no active team = `auto`), whether the
      *  viewer owns it, and the synced devices (a stuck row's offline clock). */
@@ -290,6 +316,7 @@ class ThreadsViewModel @Inject constructor(
                     mergeMode = teams.firstOrNull { it.id == team }?.mergeMode ?: MergeTrain.MODE_AUTO,
                     owner = me != null && members.any { it.userId == me && it.role == "owner" },
                     devices = devices,
+                    teamIds = teams.map { it.id },
                 )
             }
         }
@@ -497,13 +524,18 @@ internal fun needsYouFold(
     team: String?,
     me: String?,
     now: Long,
+    /** #EXP-1714: the synced teams' ids — the viewer's own sessions in none
+     *  of them (their personal team: the global Assistant) count in every team. */
+    teamIds: Collection<String> = emptyList(),
     /** #EXP-1710: the team's contract teamMergeMode. */
     mergeMode: String = MergeTrain.MODE_AUTO,
     owner: Boolean = false,
     /** #EXP-1710: the synced devices (a stuck row's `Device offline`). */
     devices: List<DeviceEntity> = emptyList(),
 ): List<NeedsYou.Row> {
-    val inTeam = sessions.filter { team == null || it.teamId == team }
+    val inTeam = sessions.filter {
+        team == null || com.exponential.app.domain.AgentSettings.Assistant.inTeamOrPersonal(it.teamId, it.userId, team, teamIds, me)
+    }
     val ids = inTeam.mapTo(HashSet()) { it.id }
     val titles = SessionTree.sessionTitles(sessions, links, issues, messages)
     val agentNames = definitions.associate { it.id to it.name }

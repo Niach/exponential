@@ -2405,11 +2405,13 @@ fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 /// icon/color fall back to the fixture defaults. The spinner / needs-you
 /// dot read the VIEWER's own conversation session with the agent (a root
 /// with `agent_id` and `user_id == me`); a member without one sees a quiet
-/// row.
+/// row. #EXP-1714: a team lists `agent_settings::agents_in_team` (the
+/// viewer's global Assistant rides along; `team_ids` = the synced teams).
 pub fn list_agents(
     agents: &[&AgentDefRow],
     sessions: &[&SessionRow],
     team_id: Option<&str>,
+    team_ids: &[&str],
     me: Option<&str>,
 ) -> Vec<AgentRow> {
     let mut mine: HashMap<&str, &SessionRow> = HashMap::new();
@@ -2420,10 +2422,12 @@ pub fn list_agents(
             }
         }
     }
-    let mut agents: Vec<&AgentDefRow> = agents
-        .iter()
-        .copied()
-        .filter(|agent| team_id.is_none_or(|team| agent.team_id.as_deref() == Some(team)))
+    let in_team: Vec<&AgentDefRow> = match team_id {
+        Some(team) => crate::agent_settings::agents_in_team(agents.iter().copied(), team, team_ids, me),
+        None => agents.to_vec(),
+    };
+    let mut agents: Vec<&AgentDefRow> = in_team
+        .into_iter()
         // S-3: another member's Assistant is never listed (agent-settings
         // `assistant.visibleCases`); the viewer's own comes first.
         .filter(|agent| !agent.is_assistant() || (me.is_some() && agent.owner_id.as_deref() == me))
@@ -2948,8 +2952,12 @@ mod tests {
             let agents: Vec<&AgentDefRow> = agents.iter().collect();
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
+            let mut team_ids: Vec<&str> = agents.iter().filter_map(|agent| agent.team_id.as_deref()).collect();
+            if let Some(team) = input["teamId"].as_str() {
+                team_ids.push(team);
+            }
             assert_whole(
-                list_agents(&agents, &sessions, input["teamId"].as_str(), input["me"].as_str()),
+                list_agents(&agents, &sessions, input["teamId"].as_str(), &team_ids, input["me"].as_str()),
                 &case["expected"],
                 name,
             );

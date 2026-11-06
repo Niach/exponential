@@ -721,7 +721,15 @@ data class SessionEntity(
     // #VAPP-229 (via-app.json): the app whose tool started this session
     // ("via <app>" under the header); NOT [appId] (an editor session's app).
     @ColumnInfo(name = "via_app_id") @SerialName("via_app_id") @JsonNames("viaAppId") val viaAppId: String? = null,
+    // #EXP-1715 ([MIGRATION_119_120], composer-menu.json `teamsPick`): the
+    // Assistant conversation root's Teams pick, a Postgres uuid[] kept as the
+    // wire text (Electric's `{a,b}` or a JSON array); NULL = every team. Read
+    // [scopeTeamIdList].
+    @ColumnInfo(name = "scope_team_ids") @SerialName("scope_team_ids") @JsonNames("scopeTeamIds")
+    @Serializable(with = JsonAsStringSerializer::class) val scopeTeamIds: String? = null,
 ) {
+    /** #EXP-1715: [scopeTeamIds] as ids; null (or empty) = every team. */
+    val scopeTeamIdList: List<String>? get() = scopeTeamIds?.let(PgUuidArraySerializer::parseText)?.takeIf { it.isNotEmpty() }
     val isRoot: Boolean get() = parentId == null
     /** NEW-2: an agent's conversation session ([SessionKind.sessionKindOf]). */
     val isAgent: Boolean get() = !agentId.isNullOrEmpty()

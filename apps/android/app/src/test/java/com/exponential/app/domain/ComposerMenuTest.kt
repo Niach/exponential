@@ -71,7 +71,8 @@ class ComposerMenuTest {
             val case = element.jsonObject
             val c = case.getValue("conditions").jsonObject
             val surface = ComposerMenuSurface.entries.single { it.wire == case.string("surface") }
-            fun b(key: String) = c.getValue(key).jsonPrimitive.boolean
+            // #EXP-1715: a case names only the conditions it needs (absent = false).
+            fun b(key: String) = c[key]?.jsonPrimitive?.boolean ?: false
             val layout = ComposerMenu.composerMenuLayout(
                 surface,
                 ComposerMenuConditions(
@@ -86,6 +87,8 @@ class ComposerMenuTest {
                     skills = b("skills"),
                     computerUse = b("computerUse"),
                     prompts = b("prompts"),
+                    assistant = b("assistant"),
+                    teams = b("teams"),
                 ),
             )
             assertEquals(
@@ -133,5 +136,33 @@ class ComposerMenuTest {
         assertEquals(fixture.string("plusLabel"), ComposerMenu.PLUS_LABEL)
         assertEquals(fixture.getValue("submenuRowHeight").jsonPrimitive.int, ComposerMenu.SUBMENU_ROW_HEIGHT)
         assertEquals(fixture.getValue("submenuMaxRows").jsonPrimitive.int, ComposerMenu.SUBMENU_MAX_ROWS)
+    }
+
+    @Test
+    fun `teamsPick copy and valueCases match the fixture (EXP-1715)`() {
+        val block = fixture.getValue("teamsPick").jsonObject
+        val copy = block.getValue("copy").jsonObject
+        assertEquals(copy.string("all"), TeamsPick.ALL)
+        assertEquals(copy.string("many"), TeamsPick.MANY)
+        val cases = block.getValue("valueCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val picked = (case["picked"] as? JsonArray)?.map { it.jsonPrimitive.content }
+            val teams = case.getValue("teams").jsonArray.map { it.jsonObject }.map { TeamsPick.Team(it.string("id"), it.string("name")) }
+            assertEquals(case.string("name"), case.string("expected"), TeamsPick.value(picked, teams))
+        }
+    }
+
+    @Test
+    fun `the teams pick never empties and every team reads as null (EXP-1715)`() {
+        val ids = listOf("t1", "t2", "t3")
+        assertEquals(null, TeamsPick.next(listOf("t3", "t1", "t2"), ids))
+        assertEquals(null, TeamsPick.next(emptyList(), ids))
+        assertEquals(listOf("t1", "t3"), TeamsPick.next(listOf("t3", "t1"), ids))
+        assertEquals(listOf("t2"), TeamsPick.remove(listOf("t1", "t2"), ids, "t1"))
+        assertEquals(null, TeamsPick.remove(listOf("t2"), ids, "t2"))
+        assertEquals(emptyList<String>(), TeamsPick.chips(null, ids) { it })
+        assertEquals(emptyList<String>(), TeamsPick.chips(ids, ids) { it })
+        assertEquals(listOf("t2"), TeamsPick.chips(listOf("t2", "t9"), ids) { it })
     }
 }

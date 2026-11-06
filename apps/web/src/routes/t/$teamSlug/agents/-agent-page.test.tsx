@@ -63,6 +63,7 @@ vi.mock(`@/hooks/use-agent-row`, () => ({
     isReady: true,
   }),
   useAllAgentRows: () => [],
+  useMyAgentConversation: () => mocks.conversation.current,
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useTeamSessions: () => ({ rows: mocks.conversation.current ? [mocks.conversation.current] : [] }),

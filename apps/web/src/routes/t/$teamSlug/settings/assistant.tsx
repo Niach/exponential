@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import { EmptyState, SkeletonRows, conceptIcon } from "@exp/ui"
 import { useAgentRow } from "@/hooks/use-agent-row"
+import { useSession } from "@/hooks/use-session"
 import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { AgentSettingsPage } from "@/components/team/agents-section"
 import {
@@ -27,9 +28,12 @@ const DevicesIcon = conceptIcon(`nav-devices`)
 function SettingsAssistant() {
   const { teamSlug } = Route.useParams()
   const { team, permissions, resolved } = useSettingsPage(teamSlug)
+  const { data: auth } = useSession()
+  const me = auth?.user?.id ?? null
   const assistantId = useEnsureAssistant(team?.id)
   const { agent: row } = useAgentRow(assistantId ?? null)
-  const agent = row && row.teamId === team?.id && row.role === `assistant` ? row : null
+  // #EXP-1714: the global Assistant lives in the member's personal team.
+  const agent = row && row.role === `assistant` && row.ownerId === me ? row : null
 
   return (
     <SettingsSectionGuard resolved={resolved} allowed={permissions.isMember}>

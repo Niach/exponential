@@ -11,6 +11,7 @@ export type ComposerMenuRowId =
   | `add-file`
   | `implement-issue`
   | `prompts`
+  | `teams`
   | `device`
   | `account`
   | `model`
@@ -119,4 +120,17 @@ export function implementButtonLabel(count: number): string {
   return count === 1
     ? fixture.implementButton.one
     : fixture.implementButton.many.replace(`{n}`, String(count))
+}
+
+/** #EXP-1715 (`teamsPick.valueCases`): the Teams row's value: every team
+ *  (nothing picked, or all of them) = "All teams", one = its name, else
+ *  "{n} teams"; a picked team the viewer left no longer counts. */
+export function teamsPickValue(
+  picked: readonly string[] | null,
+  teams: readonly { id: string; name: string }[]
+): string {
+  const chosen = picked === null ? teams : teams.filter((team) => picked.includes(team.id))
+  if (chosen.length === 0 || chosen.length === teams.length) return fixture.teamsPick.copy.all
+  if (chosen.length === 1) return chosen[0]!.name
+  return fixture.teamsPick.copy.many.replace(`{n}`, String(chosen.length))
 }

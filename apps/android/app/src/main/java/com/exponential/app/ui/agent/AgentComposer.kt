@@ -106,6 +106,8 @@ internal fun AgentComposer(
     canSubmit: Boolean,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
+    /** #EXP-1715: the Assistant's Teams pick (its chips lead the strip). */
+    teams: TeamsPickBinding? = null,
 ) {
     // Each newly picked image inserts its own `[Image #k]` marker at the
     // caret, so the writer can say "crop [Image #2]" without typing the
@@ -135,6 +137,7 @@ internal fun AgentComposer(
         strip = {
             val startingShown = rememberDelayedFlag(starting != null)
             if (starting != null && startingShown) StartingRow(starting)
+            if (teams != null) TeamPickChips(teams, enabled = !sending)
             PendingAttachmentStrip(
                 items = pendingImages,
                 enabled = !sending,
@@ -202,7 +205,7 @@ internal fun AgentComposer(
 }
 
 @Composable
-private fun ChipClose(
+internal fun ChipClose(
     contentDescription: String,
     testTag: String,
     onClick: () -> Unit,

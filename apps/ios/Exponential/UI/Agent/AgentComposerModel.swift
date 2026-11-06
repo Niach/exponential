@@ -114,6 +114,12 @@ final class AgentComposerModel {
     private var boardRows: [BoardEntity] = []
     private var promptRows: [PromptEntity] = []
     private var agentRows: [AgentDefinitionEntity] = []
+    /// #EXP-1714: the synced teams' ids (`agentsInTeam`).
+    private var syncedTeamIds: [String] = []
+    /// #EXP-1715: the viewer's synced teams (the Teams pick's rows) and the
+    /// pick itself (nil = every team).
+    private var teamRows: [TeamEntity] = []
+    var teamsPicked: [String]?
     private var pullRequestRows: [StartPullRequestOption.Candidate] = []
     @ObservationIgnored private var poolTask: Task<Void, Never>?
 
@@ -220,11 +226,12 @@ final class AgentComposerModel {
             // NEW-2: the saved prompts and the agent definitions.
             let prompts = try PromptEntity.fetchAll(db)
             let agents = try AgentDefinitionEntity.fetchAll(db)
+            let teams = try TeamEntity.fetchAll(db)
             let pulls = try PullRequestEntity
                 .filter(Column("state") == DomainContract.prStateOpen)
                 .fetchAll(db)
             let links = try PullRequestIssueEntity.fetchAll(db)
-            return (issues, boards, prompts, agents, pulls, links)
+            return (issues, boards, prompts, (agents, teams), pulls, links)
         }
         poolTask = Task { [weak self] in
             do {
@@ -234,7 +241,9 @@ final class AgentComposerModel {
                     self.boardRows = boards
                     self.rebuildIssueOptions()
                     self.promptRows = prompts
-                    self.agentRows = agents
+                    self.agentRows = agents.0
+                    self.syncedTeamIds = agents.1.map(\.id)
+                    self.teamRows = agents.1
                     let identifierById = Dictionary(
                         issues.map { ($0.id, $0.identifier ?? "") }, uniquingKeysWith: { a, _ in a }
                     )
@@ -341,12 +350,28 @@ final class AgentComposerModel {
     }
 
     /// The team's agents in their order (`SessionQueries.agents`: sortOrder,
-    /// then name) — what `agentId` must name.
+    /// then name) — what `agentId` must name. #EXP-1714: plus the viewer's
+    /// global Assistant (`agentsInTeam`).
     var agents: [AgentDefinitionEntity] {
         guard let teamId else { return [] }
-        return agentRows
-            .filter { $0.teamId == teamId }
-            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+        return AgentSettings.agentsInTeam(
+            agentRows.sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) },
+            teamId: teamId, teamIds: syncedTeamIds, me: deps.auth.userId
+        )
+    }
+
+    /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while the
+    /// agent row picks the viewer's OWN Assistant; nil for anyone else (no
+    /// `scopeTeamIds` on the wire then).
+    var teamsPick: ComposerTeamsBinding? {
+        guard let agentId, let agent = agentRows.first(where: { $0.id == agentId }),
+              AgentSettings.isMyAssistant(agent, me: deps.auth.userId)
+        else { return nil }
+        return ComposerTeamsBinding(
+            teams: ComposerTeamsBinding.teams(teamRows),
+            picked: teamsPicked,
+            onChange: { [weak self] next in self?.teamsPicked = next }
+        )
     }
 
     /// The `/` menu over the draft: the team's prompts alone (no session
@@ -727,6 +752,9 @@ final class AgentComposerModel {
         // EXP-1537: what Send saw (the UNTRIMMED text, the picks); the
         // field stays editable while the send is out.
         let sentText = draftText
+        // #EXP-1714: a message to an agent uploads through the AGENT's team
+        // (the global Assistant's personal one); the pools stay this team's.
+        let uploadTeamId = messagedAgentId.flatMap { id in agentRows.first { $0.id == id }?.teamId } ?? teamId
         var images = pendingImages
         var files = pendingFiles
         Task {
@@ -738,7 +766,7 @@ final class AgentComposerModel {
                 do {
                     let uploaded = try await deps.attachmentsApi.uploadTeamSessionImage(
                         accountId: accountId,
-                        teamId: teamId,
+                        teamId: uploadTeamId,
                         data: images[index].data,
                         filename: images[index].filename,
                         contentType: images[index].contentType
@@ -756,7 +784,7 @@ final class AgentComposerModel {
                 do {
                     let uploaded = try await deps.attachmentsApi.uploadTeamSessionImage(
                         accountId: accountId,
-                        teamId: teamId,
+                        teamId: uploadTeamId,
                         data: files[index].data,
                         filename: files[index].filename,
                         contentType: files[index].contentType
@@ -821,7 +849,9 @@ final class AgentComposerModel {
                     text: text,
                     attachmentIds: attachmentIds,
                     issueIds: issueIds,
-                    identifiers: identifiers
+                    identifiers: identifiers,
+                    // #EXP-1715: the Assistant's Teams pick, every send.
+                    scope: teamsPick?.scope
                 )
             )
             settleDraft(sent: sent)

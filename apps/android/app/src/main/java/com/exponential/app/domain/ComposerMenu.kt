@@ -17,6 +17,8 @@ enum class ComposerMenuRowId(val wire: String) {
     ImplementIssue("implement-issue"),
     /** #EXP-1434: the team's prompts (the `/` menu's list) as a submenu. */
     Prompts("prompts"),
+    /** #EXP-1715: the viewer's Assistant's Teams pick (`teamsPick`), multi. */
+    Teams("teams"),
     Device("device"),
     Account("account"),
     Model("model"),
@@ -49,6 +51,10 @@ enum class ComposerMenuCondition(val wire: String) {
     Skills("skills"),
     ComputerUse("computerUse"),
     Prompts("prompts"),
+    /** #EXP-1715: the message goes to the viewer's Assistant. */
+    Assistant("assistant"),
+    /** #EXP-1715: the viewer belongs to more than one team. */
+    Teams("teams"),
 }
 
 data class ComposerMenuConditions(
@@ -67,6 +73,10 @@ data class ComposerMenuConditions(
     val computerUse: Boolean = false,
     /** #EXP-1434: the team has at least one prompt. */
     val prompts: Boolean = false,
+    /** #EXP-1715: the message goes to the viewer's Assistant. */
+    val assistant: Boolean = false,
+    /** #EXP-1715: the viewer belongs to more than one team. */
+    val teams: Boolean = false,
 ) {
     fun holds(condition: ComposerMenuCondition): Boolean = when (condition) {
         ComposerMenuCondition.Temporary -> temporary
@@ -80,6 +90,8 @@ data class ComposerMenuConditions(
         ComposerMenuCondition.Skills -> skills
         ComposerMenuCondition.ComputerUse -> computerUse
         ComposerMenuCondition.Prompts -> prompts
+        ComposerMenuCondition.Assistant -> assistant
+        ComposerMenuCondition.Teams -> teams
     }
 }
 
@@ -150,6 +162,7 @@ object ComposerMenu {
     val COMPUTER_USE_RUN_CAP: String = DomainContract.codingSessionComputerUseCap
 
     private val LAUNCH = setOf(ComposerMenuSurface.Launch)
+    private val LAUNCH_AND_AGENT = setOf(ComposerMenuSurface.Launch, ComposerMenuSurface.Agent)
     private val ALL = ComposerMenuSurface.entries.toSet()
 
     /** Every row in fixture order (`rows`). */
@@ -159,6 +172,11 @@ object ComposerMenu {
         ComposerMenuEntry.Row(
             ComposerMenuRowId.Prompts, ComposerMenuRowKind.Submenu, "Prompts",
             icon = "coding-command", surfaces = ALL, conditions = listOf(ComposerMenuCondition.Prompts),
+        ),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Teams, ComposerMenuRowKind.Submenu, "Teams",
+            icon = "ui-team", surfaces = LAUNCH_AND_AGENT,
+            conditions = listOf(ComposerMenuCondition.Assistant, ComposerMenuCondition.Teams),
         ),
         ComposerMenuEntry.Separator,
         ComposerMenuEntry.Row(
@@ -238,4 +256,52 @@ object ComposerMenu {
     /** The Implement submenu's footer button once something is picked. */
     fun implementButtonLabel(count: Int): String =
         if (count == 1) "Implement 1 issue" else "Implement $count issues"
+}
+
+/**
+ * #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's Teams
+ * pick, which teams a turn may touch (`sessions.send` `scopeTeamIds`). null =
+ * EVERY team; the last checked team cannot be unchecked; every team checked
+ * again = null. Web `composer-menu.ts` `teamsPickValue` + `team-pick.tsx`.
+ */
+object TeamsPick {
+    const val ALL = "All teams"
+    const val MANY = "{n} teams"
+
+    data class Team(val id: String, val name: String)
+
+    /** The Teams row's value: every team = [ALL], one = its name, else
+     *  "{n} teams"; a picked team the viewer left no longer counts. */
+    fun value(picked: List<String>?, teams: List<Team>): String {
+        val chosen = if (picked == null) teams else teams.filter { it.id in picked }
+        if (chosen.isEmpty() || chosen.size == teams.size) return ALL
+        if (chosen.size == 1) return chosen[0].name
+        return MANY.replace("{n}", chosen.size.toString())
+    }
+
+    /** The teams a pick holds (null = every team), in the teams' order. */
+    fun pickedIds(picked: List<String>?, teamIds: List<String>): List<String> =
+        teamIds.filter { picked == null || it in picked }
+
+    /** A changed set back to the stored pick: every team = null; none = no
+     *  change (the caller keeps the last team checked). */
+    fun next(next: Collection<String>, teamIds: List<String>): List<String>? {
+        val kept = teamIds.filter { it in next }
+        if (kept.isEmpty() || kept.size == teamIds.size) return null
+        return kept
+    }
+
+    /** The chips: the picked teams while the pick is a SUBSET, else none. */
+    fun <T> chips(picked: List<String>?, teams: List<T>, id: (T) -> String): List<T> {
+        if (picked == null) return emptyList()
+        val chosen = teams.filter { id(it) in picked }
+        return if (chosen.isEmpty() || chosen.size == teams.size) emptyList() else chosen
+    }
+
+    /** A chip's remove: the last one goes = every team again. */
+    fun remove(picked: List<String>?, teamIds: List<String>, removed: String): List<String>? {
+        val chosen = pickedIds(picked, teamIds)
+        if (chosen.size <= 1) return null
+        return next(chosen - removed, teamIds)
+    }
 }

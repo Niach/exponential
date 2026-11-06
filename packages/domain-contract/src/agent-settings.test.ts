@@ -3,6 +3,7 @@ import { describe, expect, it, test } from "bun:test"
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
 import {
+  agentsInTeam,
   assistantModelValue,
   agentAccountValue,
   ASSISTANT_SCHEDULES,
@@ -72,6 +73,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.visibleCases) {
     it(`visibleCases: ${c.name}`, () => {
       expect(visibleAgent(c.agent as AgentRoleLike, c.me)).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.teamAgentsCases) {
+    it(`teamAgentsCases: ${c.name}`, () => {
+      expect(agentsInTeam(c.agents, c.teamId, c.teamIds, c.me).map((agent) => agent.id)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.orderCases) {

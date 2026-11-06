@@ -187,6 +187,7 @@ internal fun ComposerPlusMenuSheet(
 internal fun composerMenuGlyph(id: ComposerMenuRowId): ImageVector = when (id) {
     ComposerMenuRowId.ImplementIssue -> ExpIcons.editorIssueRef
     ComposerMenuRowId.Prompts -> ExpIcons.codingCommand
+    ComposerMenuRowId.Teams -> ExpIcons.uiTeam
     ComposerMenuRowId.AddFile -> ExpIcons.uiAttach
     ComposerMenuRowId.Device -> ExpIcons.navDevices
     ComposerMenuRowId.Account -> ExpIcons.settingsAccount

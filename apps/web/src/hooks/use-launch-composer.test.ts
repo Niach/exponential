@@ -42,6 +42,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => mockState.navigate }))
 vi.mock(`@/lib/collections`, () => ({
   agentCollection: {},
+  teamCollection: {},
   promptCollection: {},
   skillCollection: {},
   issueCollection: {},
@@ -50,6 +51,7 @@ vi.mock(`@/lib/collections`, () => ({
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamBoards: () => mockState.boards,
   useTeamById: () => ({ id: `t1`, slug: `acme` }),
+  useTeamMemberships: () => ({ memberships: [], myTeams: [] }),
 }))
 vi.mock(`@/hooks/use-team-repos`, () => ({
   useTeamRepos: () => mockState.repos,

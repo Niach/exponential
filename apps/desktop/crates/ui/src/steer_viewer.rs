@@ -416,6 +416,12 @@ pub(crate) struct SteerSessionView {
     session_id: String,
     /// The synced row, re-snapshotted whenever `sessions` notifies.
     row: Option<domain::rows::SessionRow>,
+    /// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant
+    /// conversation's Teams pick (`None` = every team), seeded from the
+    /// root's synced `scope_team_ids`; `teams_seed` = the stored pick it was
+    /// last seeded from (a pick made elsewhere re-seeds it).
+    teams_picked: crate::teams_pick::TeamsPick,
+    teams_seed: crate::teams_pick::TeamsPick,
     /// EXP-1294: whether the signed-in person may message (and Stop) this
     /// session — a SHARED session any team member, a private one only its
     /// starter. Re-read with the row.
@@ -833,6 +839,8 @@ impl SteerSessionView {
         let mut this = Self {
             session_id: session_id.clone(),
             row: None,
+            teams_picked: None,
+            teams_seed: None,
             may_message: false,
             guide_results: None,
             feed: SteerFeed::new(),
@@ -1118,6 +1126,42 @@ impl SteerSessionView {
             SessionAgent::Codex => Some(coding::CodingAgent::Codex),
             SessionAgent::External => None,
         }
+    }
+
+    /// #EXP-1715: this is the viewer's own Assistant conversation (its ROOT;
+    /// the Teams pick rides its sends).
+    fn to_assistant(&self, cx: &App) -> bool {
+        self.row.as_ref().is_some_and(|row| {
+            row.is_root()
+                && row
+                    .agent_id
+                    .as_deref()
+                    .and_then(|agent_id| crate::session_data::agent_def(agent_id, cx))
+                    .is_some_and(|agent| crate::teams_pick::is_my_assistant(&agent, cx))
+        })
+    }
+
+    /// #EXP-1715: a changed Teams pick lands on this composer.
+    fn teams_change(&self, cx: &gpui::Context<Self>) -> crate::teams_pick::OnTeamsPick {
+        let view = cx.entity().downgrade();
+        std::rc::Rc::new(move |next, _window, cx| {
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| {
+                    this.teams_picked = next;
+                    cx.notify();
+                });
+            }
+        })
+    }
+
+    /// #EXP-1715: the picked teams as the strip's chips (a subset only).
+    fn render_team_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.to_assistant(cx) {
+            return None;
+        }
+        let teams = crate::teams_pick::pick_teams(cx);
+        let on_change = self.teams_change(cx);
+        crate::teams_pick::chips_row("steer-composer-chip", &teams, self.teams_picked.as_deref(), self.sending, on_change, cx)
     }
 
     /// The synced `sessions` row behind this viewer — what the header names
@@ -1782,6 +1826,13 @@ impl SteerSessionView {
             .as_ref()
             .is_some_and(|row| may_steer(row, me.as_deref()));
         if self.row != row || self.may_message != may_message {
+            // #EXP-1715: the stored pick changed (this send or another
+            // client's): the composer follows it.
+            let stored = row.as_ref().and_then(|row| row.scope_team_ids.clone());
+            if stored != self.teams_seed {
+                self.teams_picked = stored.clone();
+                self.teams_seed = stored;
+            }
             self.row = row;
             self.may_message = may_message;
             // EXP-1334: the synced row now says what a pick asked for — the
@@ -3629,8 +3680,12 @@ impl SteerSessionView {
             crate::action_error::failed_action("send", "the message", None, cx);
             return;
         };
+        // #EXP-1715: every turn to the viewer's Assistant carries its Teams
+        // pick (null = every team); never another session's.
+        let scope = self.to_assistant(cx).then(|| self.teams_picked.clone());
         if self.pending_images.is_empty() {
-            let input = api::sessions::SendInput::message(&self.session_id, &text, Vec::new());
+            let mut input = api::sessions::SendInput::message(&self.session_id, &text, Vec::new());
+            input.scope_team_ids = scope;
             self.post_message(input, sent, window, cx);
             return;
         }
@@ -3665,7 +3720,8 @@ impl SteerSessionView {
                     .map_err(|(resolved, error)| composer_images::UploadSendError::Upload(resolved, error))?;
                     let message = composer_images::uploaded_message(&text, &file_keys, &resolved);
                     let ids = resolved.iter().map(|(_, id, _)| id.clone()).collect();
-                    let input = api::sessions::SendInput::message(&session_id, &message, ids);
+                    let mut input = api::sessions::SendInput::message(&session_id, &message, ids);
+                    input.scope_team_ids = scope;
                     match crate::sealing::send_blocking(&trpc, &input, &plan) {
                         Ok(_) => Ok(()),
                         Err(err) => Err(composer_images::UploadSendError::Send(resolved, err)),
@@ -7825,7 +7881,17 @@ impl SteerSessionView {
                         .capture_action(enter)
                         .capture_action(tab)
                 })
-                .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
+                .strip({
+                    // #EXP-1715: the Assistant's picked teams lead the strip.
+                    let chips = self.render_team_chips(cx);
+                    let files = (!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx));
+                    match (chips, files) {
+                        (None, files) => files,
+                        (Some(chips), files) => Some(
+                            v_flex().w_full().min_w_0().gap_1p5().child(chips).children(files).into_any_element(),
+                        ),
+                    }
+                })
                 // N-12: the "+" options menu is the only tool (no inline
                 // image / file / # / emoji tools).
                 .tool(self.render_plus_menu(cx))
@@ -8309,15 +8375,21 @@ impl SteerSessionView {
             })
             .unwrap_or_default();
         let account_switch = self.composer_account_switch(cx);
+        let to_assistant = self.to_assistant(cx);
         let rows = composer_menu_rows(
             surface,
             ComposerMenuConditions {
                 account: account_switch.is_some(),
                 model: self.configurable(),
                 prompts: !prompts.is_empty(),
+                // #EXP-1715: the viewer's Assistant in more than one team.
+                assistant: to_assistant,
+                teams: to_assistant && crate::teams_pick::several_teams(cx),
                 ..ComposerMenuConditions::default()
             },
         );
+        let teams_view = view.clone();
+        let teams_change = self.teams_change(cx);
         let (models, model_picked): (&'static [(&'static str, &'static str)], String) = {
             let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
                 .map(|chip| chip.value)
@@ -8354,6 +8426,22 @@ impl SteerSessionView {
             for row in rows.iter().copied() {
                 menu = match row {
                     Row::Separator => menu.separator(),
+                    // #EXP-1715: THE multi picker rows over the viewer's teams.
+                    Row::Teams => {
+                        let state_view = teams_view.clone();
+                        crate::teams_pick::teams_submenu(
+                            menu,
+                            "steer-teams",
+                            std::rc::Rc::new(move |cx: &App| {
+                                let picked = state_view.upgrade().and_then(|view| view.read(cx).teams_picked.clone());
+                                (crate::teams_pick::pick_teams(cx), picked)
+                            }),
+                            teams_change.clone(),
+                            root.clone(),
+                            window,
+                            cx,
+                        )
+                    }
                     Row::AddFile => {
                         let view = view.clone();
                         menu.item(pointer_menu_item(row.icon(), row.label(), |_| None, move |window, cx| {

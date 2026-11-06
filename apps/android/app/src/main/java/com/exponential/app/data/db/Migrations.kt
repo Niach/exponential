@@ -266,3 +266,18 @@ val MIGRATION_118_119: Migration = object : Migration(118, 119) {
         )
     }
 }
+
+/**
+ * v120 (#EXP-1715, composer-menu.json `teamsPick`): `sessions.scope_team_ids`,
+ * the Assistant conversation root's Teams pick (NULL = every team). Only the
+ * sessions shape refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_119_120: Migration = object : Migration(119, 120) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `scope_team_ids` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}

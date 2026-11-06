@@ -38,6 +38,7 @@ import {
 } from "@/components/launch-dialog/launch-options-pane"
 import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
 import { SkillSearchList, type SkillPickerRow } from "@/components/launch-dialog/skill-picker"
+import { TeamPickSearchList, type PickTeam } from "@/components/launch-dialog/team-pick"
 import { skillsMenuValue } from "@exp/domain-contract/skills"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
@@ -51,6 +52,7 @@ import {
   composerMenuLayout,
   composerMenuRowTestId,
   implementButtonLabel,
+  teamsPickValue,
   type ComposerFileChoiceId,
   type ComposerMenuRow,
   type ComposerMenuSurface,
@@ -156,6 +158,14 @@ export interface ComposerPromptsBinding {
   onPick: (prompt: SlashPrompt) => void
 }
 
+/** Teams › (#EXP-1715, composer-menu.json `teamsPick`): the viewer's
+ *  Assistant only; null = every team. */
+export interface ComposerTeamsBinding {
+  teams: readonly PickTeam[]
+  picked: readonly string[] | null
+  onChange: (next: string[] | null) => void
+}
+
 /** THE "+" of every composer ×4. */
 export function ComposerOptionsMenu({
   surface,
@@ -165,6 +175,7 @@ export function ComposerOptionsMenu({
   runner = {},
   issues,
   prompts,
+  teams,
   onAttach,
   disabled,
   rowsDisabled,
@@ -181,6 +192,8 @@ export function ComposerOptionsMenu({
   issues?: ComposerIssueBinding
   /** Prompts ›, shown while the team has a prompt. */
   prompts?: ComposerPromptsBinding
+  /** Teams ›, the viewer's Assistant only. */
+  teams?: ComposerTeamsBinding
   /** Opens a file chooser (the composer owns the hidden inputs); no
    *  choice = any file. */
   onAttach: (choice?: ComposerFileChoiceId) => void
@@ -221,6 +234,8 @@ export function ComposerOptionsMenu({
     skills: work && options.skills.length > 0,
     computerUse: work && options.computerUseAvailable,
     prompts: (prompts?.prompts.length ?? 0) > 0,
+    assistant: teams !== undefined,
+    teams: (teams?.teams.length ?? 0) > 1,
   })
 
   const pick =
@@ -302,6 +317,16 @@ export function ComposerOptionsMenu({
           disabled: rowsDisabled,
           contentClassName: SUBMENU_PICKER_CLASS,
           body: <PromptList prompts={prompts.prompts} onPick={pick(prompts.onPick)} />,
+        }
+      case `teams`:
+        if (!teams) return null
+        return {
+          ...base,
+          kind: `submenu`,
+          value: teamsPickValue(teams.picked, teams.teams),
+          disabled: rowsDisabled,
+          contentClassName: SUBMENU_PICKER_CLASS,
+          body: <TeamPickSearchList teams={teams.teams} picked={teams.picked} onChange={teams.onChange} />,
         }
       case `device`: {
         const binding = runner.device
@@ -748,6 +773,7 @@ export function ComposerPlusMenu({
       issues={issues}
       // The `/` menu's pick: the prompt becomes the new session's subject.
       prompts={{ prompts: model.prompts, onPick: (prompt) => model.pickPrompt(prompt.id) }}
+      teams={model.teams ?? undefined}
       onAttach={onAttach}
       disabled={disabled}
       highlighted={subject !== null || model.images.length > 0}

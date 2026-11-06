@@ -82,6 +82,12 @@ struct AgentComposerCard: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("agent-composer-field")
         } strip: {
+            // #EXP-1715: the Assistant's picked teams (a subset only).
+            if let teamsPick = model.teamsPick {
+                TeamsPickChips(binding: teamsPick, disabled: model.sending)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+            }
             if !model.pendingImages.isEmpty || !model.pendingFiles.isEmpty {
                 PendingAttachmentStrip(
                     items: PendingStripItem.steer(images: model.pendingImages, files: model.pendingFiles)
@@ -212,7 +218,7 @@ struct AgentComposerCard: View {
         case .mcpServers: showMcpPicker = true
         case .skills: showSkillsPicker = true
         // Issue and the runner submenus are pages of the sheet itself.
-        case .implementIssue, .prompts, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
+        case .implementIssue, .prompts, .teams, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
         }
     }
 

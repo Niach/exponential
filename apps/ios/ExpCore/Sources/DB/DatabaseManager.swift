@@ -3186,6 +3186,26 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v102 (#EXP-1715): `sessions.scope_team_ids` (uuid[] on the wire,
+        // JSON text here like `messages.attachment_ids`): the Assistant
+        // conversation root's Teams pick (null = every team) the composer
+        // seeds from. The sessions cursor resets only when the column was
+        // added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v102_session_scope_team_ids") { db in
+            guard try db.tableExists("sessions") else { return }
+            guard try db.columns(in: "sessions").contains(where: { $0.name == "scope_team_ids" }) == false else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "scope_team_ids", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

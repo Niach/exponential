@@ -902,7 +902,8 @@ function ConversationBody({
   }, [dockHeight])
   const composer = canReply ? (
     <SessionComposer
-      teamId={teamId}
+      teamId={root.teamId}
+      browseTeamId={teamId}
       sessionId={view.composer.sessionId}
       placeholder={view.composer.placeholder}
       users={users}

@@ -673,6 +673,21 @@ async function recipeOpenComposerSkillsMenu(page: Page): Promise<void> {
   await page.getByText(`incident-triage`).filter({ visible: true }).first().waitFor({ timeout: 15_000 })
 }
 
+/** #EXP-1715: the + menu's Teams submenu on the Assistant (the agent row's
+ *  default pick), the last team unchecked so the chips show. */
+async function recipeOpenComposerTeamsMenu(page: Page): Promise<void> {
+  const plus = page.getByTestId(`agent-composer-plus-button`).filter({ visible: true }).first()
+  await plus.waitFor({ timeout: 30_000 })
+  await plus.click()
+  const row = page.getByTestId(`agent-composer-menu-teams`).filter({ visible: true }).first()
+  await row.waitFor({ timeout: 15_000 })
+  await row.hover()
+  await row.click()
+  const last = page.getByRole(`option`).filter({ visible: true }).last()
+  await last.waitFor({ timeout: 15_000 })
+  await last.click()
+}
+
 /** EXP-1635: on a phone, Photo or file pushes Camera | Photos | File. */
 async function recipeOpenComposerAddFile(page: Page): Promise<void> {
   const plus = page.getByTestId(`agent-composer-plus-button`).filter({ visible: true }).first()
@@ -1008,7 +1023,7 @@ async function recipeWaitForMcpActivity(page: Page): Promise<void> {
 /** EXP-1558: recipes whose photographed state IS a hover; the capturer
  *  parks the pointer after every other recipe. */
 // #EXP-1659: openComposerSkillsMenu: a hover holds the Skills submenu open.
-export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`, `openComposerSkillsMenu`])
+export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`, `openComposerSkillsMenu`, `openComposerTeamsMenu`])
 
 /**
  * The registry itself. Keys are the names `views.json` uses; the view-catalog
@@ -1046,6 +1061,7 @@ export const RECIPES: Record<string, Recipe> = {
   typeIssueRef: recipeTypeIssueRef,
   openComposerMenuTemporary: recipeOpenComposerMenuTemporary,
   openComposerSkillsMenu: recipeOpenComposerSkillsMenu,
+  openComposerTeamsMenu: recipeOpenComposerTeamsMenu,
   openComposerAddFile: recipeOpenComposerAddFile,
   openShareTargets: recipeOpenShareTargets,
   typeSlashInComposer: recipeTypeSlashInComposer,

@@ -44,6 +44,9 @@ struct SessionComposerFooter: View {
         /// #EXP-1535: the "+" Account page
         /// (`AgentSessionModel.composerAccountMenu`); nil = no Account row.
         var account: AccountMenu?
+        /// #EXP-1715: the Teams pick of the viewer's Assistant chat; nil =
+        /// any other session or agent (no Teams row, no `scopeTeamIds`).
+        var teams: ComposerTeamsBinding?
 
         /// composer-menu.json `model`: a session or an agent chat whose
         /// agent switches models (always for claude and codex), never ended.
@@ -52,7 +55,8 @@ struct SessionComposerFooter: View {
         /// The "+" conditions of this composer.
         var menuConditions: ComposerMenu.Conditions {
             ComposerMenu.Conditions(
-                account: !ended && account != nil, model: canPickModel, prompts: !prompts.isEmpty
+                account: !ended && account != nil, model: canPickModel, prompts: !prompts.isEmpty,
+                assistant: teams != nil, teams: (teams?.teams.count ?? 0) > 1
             )
         }
     }

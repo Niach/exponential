@@ -131,6 +131,12 @@ describe.skipIf(!ready.ok)(`#EXP-1720 the Assistant's teams`, () => {
     expect((await treeTeams(w.conv)).sort()).toEqual([w.personal, w.a, w.b].sort())
   })
 
+  it(`#EXP-1714: a message to the Assistant naming any team of the member lands in its conversation`, async () => {
+    const w = await world()
+    const sent = await sendSession({ userId: w.me, input: { teamId: w.a, agentId: w.assistant.id, text: `From A.` } })
+    expect(sent.sessionId).toBe(w.conv)
+  })
+
   it(`a Teams pick into anything but the Assistant's conversation is refused`, async () => {
     const w = await world()
     const thread = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.` } })

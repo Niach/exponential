@@ -94,6 +94,7 @@ class AgentConversationViewModel @Inject constructor(
     private val imagesApi: com.exponential.app.data.api.IssueImagesApi,
     private val promptsApi: com.exponential.app.data.api.PromptsApi,
     private val store: com.exponential.app.data.steer.SteerConnectionStore,
+    selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
 
     val agentId: String = savedStateHandle["agentId"] ?: ""
@@ -104,6 +105,28 @@ class AgentConversationViewModel @Inject constructor(
     val agent: StateFlow<AgentDefinitionEntity?> =
         dbFlow.scopedQuery<AgentDefinitionEntity?>(null) { it.agentDefinitionDao().observeById(agentId) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // ── #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams pick
+    private val _teamsPick = MutableStateFlow<List<String>?>(null)
+
+    fun setTeamsPick(next: List<String>?) {
+        _teamsPick.value = next
+    }
+
+    /** The pick's rows + value while the agent is the viewer's Assistant;
+     *  null for any other agent. No conversation yet = every team. */
+    val teamsPick: StateFlow<com.exponential.app.ui.session.AgentSessionViewModel.TeamsPickState?> = combine(
+        agent,
+        auth.userId,
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() },
+        _teamsPick,
+    ) { row, me, teams, picked ->
+        if (row != null && row.isAssistant && row.ownerId == me) {
+            com.exponential.app.ui.session.AgentSessionViewModel.TeamsPickState(com.exponential.app.ui.agent.pickTeams(teams), picked)
+        } else {
+            null
+        }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** My conversation session with the agent, once it exists. */
     val conversationId: StateFlow<String?> = combine(
@@ -117,8 +140,13 @@ class AgentConversationViewModel @Inject constructor(
      *  order (the agent session composer's source). */
     @OptIn(ExperimentalCoroutinesApi::class)
     val promptRows: StateFlow<List<com.exponential.app.domain.SlashPrompt>> =
-        agent.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }
-            .distinctUntilChanged()
+        // #EXP-1714: the global Assistant's personal team never syncs: the
+        // active team's prompts then (uploads keep the agent's own team).
+        com.exponential.app.data.browseTeamIdFlow(
+            dbFlow,
+            agent.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } },
+            selection.selectedId,
+        )
             .flatMapLatest { team ->
                 if (team == null) {
                     flowOf(emptyList())
@@ -237,8 +265,15 @@ class AgentConversationViewModel @Inject constructor(
                     sent.uploadedImageIds(),
                     sent.uploadedSteerFiles(),
                 ).orEmpty()
+                // #EXP-1715: the viewer's Assistant gets the turn's teams.
+                val assistant = agent.value?.let { it.isAssistant && it.ownerId == auth.userId.value } == true
                 val result = sender.send(
-                    SessionsSendInput.toAgent(agentId, body, sent.mapNotNull { it.uploadedId }),
+                    SessionsSendInput.toAgent(
+                        agentId,
+                        body,
+                        sent.mapNotNull { it.uploadedId },
+                        scopeTeamIds = if (assistant) SessionsSendInput.scope(_teamsPick.value) else null,
+                    ),
                 )
                 onSent(text)
                 // Exactly the files that went out leave (composer-send.json).
@@ -279,6 +314,7 @@ fun AgentConversationScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
+    val teamsPickState by viewModel.teamsPick.collectAsStateWithLifecycle()
     val promptFailure by viewModel.promptFailure.collectAsStateWithLifecycle()
     FailedActionToast(promptFailure, onShown = viewModel::clearPromptFailure)
 
@@ -411,6 +447,9 @@ fun AgentConversationScreen(
                                 prompts = promptRows,
                                 onPickPrompt = { prompt ->
                                     viewModel.loadPrompt(prompt.id) { body -> field = insertAtCaret(field, body) }
+                                },
+                                teams = teamsPickState?.let { state ->
+                                    com.exponential.app.ui.agent.TeamsPickBinding(state.teams, state.picked, viewModel::setTeamsPick)
                                 },
                             ),
                             onRemoveImage = viewModel::removeImage,

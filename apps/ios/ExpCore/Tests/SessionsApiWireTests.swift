@@ -55,6 +55,29 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(noSkills.keys.sorted(), ["deviceId", "teamId", "text"])
     }
 
+    /// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams
+    /// pick rides as `scopeTeamIds`: every team = an explicit null, a subset
+    /// = the ids; no scope = no key (any other agent, any other session).
+    func testTeamsScopeRidesAsScopeTeamIds() throws {
+        let all = try json(SessionsSendInput.agent(agentId: "as-1", text: "Hi", scope: .allTeams))
+        XCTAssertEqual(all.keys.sorted(), ["agentId", "scopeTeamIds", "text"])
+        XCTAssertTrue(all["scopeTeamIds"] is NSNull)
+        let some = try json(SessionsSendInput.message(sessionId: "s-1", text: "Hi", scope: .teams(["t-2"])))
+        XCTAssertEqual(some.keys.sorted(), ["scopeTeamIds", "sessionId", "text"])
+        XCTAssertEqual(some["scopeTeamIds"] as? [String], ["t-2"])
+        let none = try json(SessionsSendInput.message(sessionId: "s-1", text: "Hi"))
+        XCTAssertEqual(none.keys.sorted(), ["sessionId", "text"])
+        XCTAssertEqual(TeamsScope(nil), .allTeams)
+        XCTAssertEqual(TeamsScope(["t-1"]).picked, ["t-1"])
+        // A sealed send keeps the scope (`with(text:)`).
+        let sealed = SessionsSendInput.agent(agentId: "as-1", text: "x", scope: .teams(["t-1"])).with(text: "y")
+        XCTAssertEqual(sealed, .agent(agentId: "as-1", text: "y", scope: .teams(["t-1"])))
+        let forward = try json(SessionBrief.agentForwardInput(
+            agentId: "as-1", text: "Hi", attachmentIds: [], issueIds: [], identifiers: [], scope: .allTeams
+        ))
+        XCTAssertTrue(forward["scopeTeamIds"] is NSNull)
+    }
+
     /// NEW-2: a message to an agent names the agent and nothing of a runner
     /// (it runs on the agent's own device); `agents.create` carries the
     /// definition with its WHOLE trigger array.

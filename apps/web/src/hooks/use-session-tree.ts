@@ -1,7 +1,8 @@
 import { useMemo, useSyncExternalStore } from "react"
 import { openDigestMessages } from "@/lib/enet/sealed-open"
 import { useKeyVersion } from "@/lib/enet/use-key-holder"
-import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { useTeamAgentRows } from "@/hooks/use-agent-row"
 import {
   conversationCollection,
   issueCollection,
@@ -373,21 +374,34 @@ export function useAgents(
 } {
   const teamIds = teamScopeIds(teamId ?? undefined)
   const key = teamIds.join(`,`)
-  const { data: agentRows, isReady: agentsReady } = useLiveQuery(
+  const { isReady: agentsReady } = useLiveQuery((query) => query.from({ agents: agentCollection }))
+  // #EXP-1714: the team's agents + the viewer's global Assistant.
+  const agentRows = useTeamAgentRows(teamIds, me)
+  const outside = agentRows.filter((agent) => !teamIds.includes(agent.teamId)).map((agent) => agent.id)
+  const outsideKey = outside.join(`,`)
+  // The global Assistant's conversation lives outside the team's sessions.
+  const { data: outsideRoots } = useLiveQuery(
     (query) =>
-      teamIds.length > 0
-        ? query.from({ agents: agentCollection }).where(({ agents }) => inArray(agents.teamId, teamIds))
+      outside.length > 0 && me
+        ? query
+            .from({ sessions: sessionCollection })
+            .where(({ sessions }) => and(inArray(sessions.agentId, outside), eq(sessions.userId, me)))
         : undefined,
-    [key]
+    [outsideKey, me]
   )
   const { tree, isReady } = useTeamSessions(teamId)
   return useMemo(
     () => ({
-      agents: listAgents((agentRows ?? []) as AgentLike[], tree, null, me ?? null),
+      agents: listAgents(
+        agentRows as AgentLike[],
+        [...tree, ...(outsideRoots ?? []).map((row) => toTreeSession(row as never))],
+        null,
+        me ?? null
+      ),
       isReady: isReady && (teamIds.length === 0 || agentsReady),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [agentRows, tree, isReady, agentsReady, key, me]
+    [agentRows, tree, outsideRoots, isReady, agentsReady, key, me]
   )
 }
 

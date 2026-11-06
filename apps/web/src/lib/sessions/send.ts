@@ -1485,7 +1485,9 @@ async function messageAgent(
   viaMcp: boolean
 ): Promise<SendOutcome> {
   const agent = await loadAgentForUser(userId, input.agentId!)
-  if (input.teamId && input.teamId !== agent.teamId) {
+  // #EXP-1714: the member's Assistant answers from every team (clients send
+  // the team they are in; the global one lives in their personal team).
+  if (input.teamId && input.teamId !== agent.teamId && agent.role !== `assistant`) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The agent is in another team` })
   }
   return db.transaction(async (tx) => {

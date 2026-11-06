@@ -113,6 +113,8 @@ pub(crate) const PLUS_TOOLTIP: &str = "Add";
 pub(crate) const MENU_IMPLEMENT_ISSUE: &str = "Issue";
 /// #EXP-1434: the team's prompts (the `/` menu's, also a "+" row).
 pub(crate) const MENU_PROMPTS: &str = "Prompts";
+/// #EXP-1715: the Assistant's Teams pick.
+pub(crate) const MENU_TEAMS: &str = "Teams";
 pub(crate) const MENU_ADD_FILE: &str = "Photo or file";
 pub(crate) const MENU_DEVICE: &str = "Device";
 pub(crate) const MENU_ACCOUNT: &str = "Account";
@@ -354,6 +356,9 @@ pub(crate) struct ChatScreenView {
     /// S-3: the agent row's last tap (`None` = the default: the Assistant,
     /// else Temporary session; a page mount starts on it again).
     agent_pick: Option<String>,
+    /// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams
+    /// pick while it is the row's pick (`None` = every team).
+    teams_picked: crate::teams_pick::TeamsPick,
     /// Stale-probe guard (old results must not land after a subject swap).
     probe_generation: u64,
     /// The team's saved prompts — live off the synced `prompts` shape;
@@ -528,6 +533,7 @@ impl ChatScreenView {
             mention,
             subject: Subject::None,
             agent_pick: None,
+            teams_picked: None,
             probe_generation: 0,
             actions: Vec::new(),
             actions_ready: false,
@@ -1130,17 +1136,11 @@ impl ChatScreenView {
     /// the viewer's Assistant first, the team agents they see, then the
     /// dotted Temporary session; `agent_pick` = the last tap.
     fn team_agent_defs(&self, cx: &App) -> Vec<domain::rows::AgentDefRow> {
+        // #EXP-1714: the team's own rows plus the viewer's global Assistant.
         let Some(team_id) = self.team_id.as_deref() else {
             return Vec::new();
         };
-        Store::global(cx)
-            .collections()
-            .agents
-            .read(cx)
-            .iter()
-            .filter(|agent| agent.team_id.as_deref() == Some(team_id))
-            .cloned()
-            .collect()
+        crate::session_data::team_agent_defs(team_id, cx)
     }
 
     /// The agent the row picks (`None` = Temporary session).
@@ -1154,6 +1154,29 @@ impl ChatScreenView {
     /// Whether the send goes to an agent (no device, no runner rows).
     fn to_agent(&self, cx: &App) -> bool {
         self.selected_agent(cx).is_some()
+    }
+
+    /// #EXP-1715: the row picks the viewer's own Assistant (the Teams pick).
+    fn to_assistant(&self, cx: &App) -> bool {
+        self.selected_agent(cx).is_some_and(|agent| crate::teams_pick::is_my_assistant(&agent, cx))
+    }
+
+    /// #EXP-1715: the picked teams as the strip's chips (a subset only).
+    fn render_team_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.to_assistant(cx) {
+            return None;
+        }
+        let teams = crate::teams_pick::pick_teams(cx);
+        let view = cx.entity().downgrade();
+        let on_change: crate::teams_pick::OnTeamsPick = Rc::new(move |next, _window, cx| {
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| {
+                    this.teams_picked = next;
+                    cx.notify();
+                });
+            }
+        });
+        crate::teams_pick::chips_row("chat-chip", &teams, self.teams_picked.as_deref(), self.sending, on_change, cx)
     }
 
     /// A tap on the agent row (tapping the selected circle keeps it).
@@ -1610,7 +1633,13 @@ impl ChatScreenView {
             self.start(text, Vec::new(), window, cx);
             return;
         }
-        let Some(team_id) = self.team_id.clone() else {
+        // #EXP-1714: a message to an agent uploads into ITS team (the global
+        // Assistant's personal team, where its chat claims them).
+        let Some(team_id) = self
+            .selected_agent(cx)
+            .and_then(|agent| agent.team_id)
+            .or_else(|| self.team_id.clone())
+        else {
             return;
         };
         let Some(transport) = queries::attachment_transport(cx) else {
@@ -1733,7 +1762,12 @@ impl ChatScreenView {
         // into the viewer's conversation with it; EXP-1450: the chipped
         // issues are forwarded as its `issueIds` (web `buildSendInput`).
         if let Some(agent) = self.selected_agent(cx) {
-            let input = agent_forward_input(&team_id, &agent.id, &self.subject, text, attachment_ids);
+            let mut input = agent_forward_input(&team_id, &agent.id, &self.subject, text, attachment_ids);
+            // #EXP-1715: the Assistant's turn carries its Teams pick (null =
+            // every team); never another agent's.
+            if crate::teams_pick::is_my_assistant(&agent, cx) {
+                input.scope_team_ids = Some(self.teams_picked.clone());
+            }
             return Ok((input, StartRoute::Agent(agent.id)));
         }
         let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
@@ -2341,10 +2375,27 @@ impl ChatScreenView {
         // MCP servers row (web's capture hovers after the page settled).
         // N-6: `dialog-implement-issue` is the dialog's turn (its menu opens
         // in a menu window over the dialog, `composer-dialog-menu`).
+        // #EXP-1715 (`teams`): the open waits for the Teams row and lights it.
+        let teams_step = crate::screens::dev_composer_menu_teams()
+            .then(|| {
+                let conditions = ComposerMenuConditions {
+                    assistant: runner.teams.is_some(),
+                    teams: runner.teams.as_ref().is_some_and(|teams| teams.len() > 1),
+                    ..options.as_ref().map_or_else(ComposerMenuConditions::default, |options| {
+                        ComposerMenuConditions::launch(options, temporary, runner.repos.len(), !runner.prompts.is_empty())
+                    })
+                };
+                composer_menu_rows(ComposerSurface::Launch, conditions)
+                    .into_iter()
+                    .filter(|row| *row != ComposerMenuRow::Separator)
+                    .position(|row| row == ComposerMenuRow::Teams)
+                    .map(|at| at + 1)
+            });
         let dev_open = options.is_some()
             && bounds.size.width > px(0.)
             && crate::navigation::shapes_ready(cx)
             && self.mcp.is_some()
+            && teams_step.is_none_or(|step| step.is_some())
             && crate::screens::take_dev_composer_menu(matches!(self.presentation, Presentation::Dialog));
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
@@ -2359,7 +2410,11 @@ impl ChatScreenView {
         .wanted_height(PLUS_MENU_WANTED_HEIGHT)
         .dev_open(dev_open)
         // EXP-1551: `temporary` opens at the root, no row lit.
-        .dev_steps(usize::from(!crate::screens::dev_composer_menu_temporary()));
+        .dev_steps(
+            teams_step
+                .flatten()
+                .unwrap_or_else(|| usize::from(!crate::screens::dev_composer_menu_temporary())),
+        );
 
         // The picker's anchor: as tall as the + (the fit measures the room
         // above from it), no width, nothing to hit. N-6: the dialog mounts
@@ -2428,6 +2483,7 @@ impl ChatScreenView {
             repos: self.team_repos.clone(),
             repo_picked: self.chat_repo.as_ref().map(|repo| repo.id.clone()),
             prompts: self.actions.iter().map(crate::slash_commands::SlashPrompt::from).collect(),
+            teams: self.to_assistant(cx).then(|| crate::teams_pick::pick_teams(cx)),
             ..RunnerMenu::default()
         };
         if let Some(launch) = self.launch.as_ref() {
@@ -2571,6 +2627,13 @@ impl ChatScreenView {
             self.images
                 .render_strip("chat-pending-remove", self.sending, Self::remove_image, cx)
         });
+        // #EXP-1715: the Assistant's picked teams lead the strip.
+        let strip = match (self.render_team_chips(cx), strip) {
+            (None, strip) => strip,
+            (Some(chips), strip) => {
+                Some(v_flex().w_full().min_w_0().gap_1p5().child(chips).children(strip).into_any_element())
+            }
+        };
         // N-6: in the DIALOG the "+" menu's MCP servers picker opens INLINE
         // in the card, above the tools (the host rule: a dialog's pickers
         // open in its flow and the window follows its content, EXP-1155),
@@ -2867,6 +2930,8 @@ pub(crate) enum ComposerMenuRow {
     AddFile,
     ImplementIssue,
     Prompts,
+    /// #EXP-1715 (`teamsPick`): the Assistant's Teams pick, after Prompts.
+    Teams,
     Separator,
     Device,
     Account,
@@ -2888,6 +2953,7 @@ impl ComposerMenuRow {
             Self::AddFile => registry::UI_ATTACH,
             Self::ImplementIssue => registry::EDITOR_ISSUE_REF,
             Self::Prompts => registry::CODING_COMMAND,
+            Self::Teams => registry::UI_TEAM,
             Self::Separator => return None,
             Self::Device => registry::NAV_DEVICES,
             Self::Account => registry::SETTINGS_ACCOUNT,
@@ -2913,6 +2979,7 @@ impl ComposerMenuRow {
             Self::AddFile => MENU_ADD_FILE,
             Self::ImplementIssue => MENU_IMPLEMENT_ISSUE,
             Self::Prompts => MENU_PROMPTS,
+            Self::Teams => MENU_TEAMS,
             Self::Separator => "",
             Self::Device => MENU_DEVICE,
             Self::Account => MENU_ACCOUNT,
@@ -2940,6 +3007,7 @@ impl ComposerMenuRow {
             | Self::Model => {
                 &[Launch, Session, Agent]
             }
+            Self::Teams => &[Launch, Agent],
             _ => &[Launch],
         }
     }
@@ -2949,6 +3017,7 @@ impl ComposerMenuRow {
         match self {
             Self::AddFile | Self::ImplementIssue | Self::Separator => true,
             Self::Prompts => c.prompts,
+            Self::Teams => c.assistant && c.teams,
             Self::Device => c.device,
             Self::Account => c.account,
             Self::Model => c.model,
@@ -2989,6 +3058,10 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) computer_use: bool,
     /// #EXP-1434: the team has at least one prompt.
     pub(crate) prompts: bool,
+    /// #EXP-1715: the message goes to the viewer's Assistant.
+    pub(crate) assistant: bool,
+    /// #EXP-1715: the viewer belongs to more than one team.
+    pub(crate) teams: bool,
 }
 
 impl ComposerMenuConditions {
@@ -3013,6 +3086,8 @@ impl ComposerMenuConditions {
             skills: options.skills_count > 0,
             computer_use: options.computer_use.is_some(),
             prompts,
+            assistant: false,
+            teams: false,
         }
     }
 }
@@ -3022,10 +3097,11 @@ impl ComposerMenuConditions {
 /// the separators TIDIED (never leading, trailing or doubled). Pure.
 pub(crate) fn composer_menu_rows(surface: ComposerSurface, conditions: ComposerMenuConditions) -> Vec<ComposerMenuRow> {
     use ComposerMenuRow::*;
-    const ALL: [ComposerMenuRow; 17] = [
+    const ALL: [ComposerMenuRow; 18] = [
         AddFile,
         ImplementIssue,
         Prompts,
+        Teams,
         Separator,
         Device,
         Account,
@@ -3072,6 +3148,9 @@ pub(crate) struct RunnerMenu {
     pub(crate) repo_picked: Option<String>,
     /// #EXP-1434: the team's prompts (the `/` menu's, in its order).
     pub(crate) prompts: Vec<crate::slash_commands::SlashPrompt>,
+    /// #EXP-1715: the viewer's teams while the row picks their Assistant
+    /// (`None` = another recipient: no Teams row).
+    pub(crate) teams: Option<Vec<crate::teams_pick::PickTeam>>,
 }
 
 impl RunnerMenu {
@@ -3134,17 +3213,46 @@ pub(crate) fn plus_menu(
     };
     let root = cx.entity().downgrade();
     menu = search_list::search_submenu_parent(menu.min_w(px(260.)));
-    let rows = match options {
-        Some(options) => composer_menu_rows(
-            ComposerSurface::Launch,
-            ComposerMenuConditions::launch(options, temporary, runner.repos.len(), !runner.prompts.is_empty()),
-        ),
-        None if runner.prompts.is_empty() => vec![ComposerMenuRow::AddFile, ComposerMenuRow::ImplementIssue],
-        None => vec![ComposerMenuRow::AddFile, ComposerMenuRow::ImplementIssue, ComposerMenuRow::Prompts],
+    let conditions = match options {
+        Some(options) => {
+            ComposerMenuConditions::launch(options, temporary, runner.repos.len(), !runner.prompts.is_empty())
+        }
+        None => ComposerMenuConditions { prompts: !runner.prompts.is_empty(), ..ComposerMenuConditions::default() },
     };
+    // #EXP-1715: the Assistant picked, in more than one team = Teams ›.
+    let conditions = ComposerMenuConditions {
+        assistant: runner.teams.is_some(),
+        teams: runner.teams.as_ref().is_some_and(|teams| teams.len() > 1),
+        ..conditions
+    };
+    let rows = composer_menu_rows(ComposerSurface::Launch, conditions);
     for row in rows {
         menu = match (row, options) {
             (ComposerMenuRow::Separator, _) => menu.separator(),
+            // #EXP-1715: THE multi picker rows over the viewer's teams.
+            (ComposerMenuRow::Teams, _) => {
+                let state_view = view.clone();
+                let change_view = view.clone();
+                crate::teams_pick::teams_submenu(
+                    menu,
+                    "chat-teams",
+                    Rc::new(move |cx: &App| {
+                        let picked = state_view.upgrade().and_then(|view| view.read(cx).teams_picked.clone());
+                        (crate::teams_pick::pick_teams(cx), picked)
+                    }),
+                    Rc::new(move |next, _window, cx| {
+                        if let Some(view) = change_view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                this.teams_picked = next;
+                                cx.notify();
+                            });
+                        }
+                    }),
+                    root.clone(),
+                    window,
+                    cx,
+                )
+            }
             // SLOP-28 (EXP-1259 D5): THE search list as a submenu — hover
             // or Right opens it, Left/Escape hand the keys back.
             (ComposerMenuRow::ImplementIssue, _) => {
@@ -3690,6 +3798,7 @@ mod tests {
             "add-file" => R::AddFile,
             "implement-issue" => R::ImplementIssue,
             "prompts" => R::Prompts,
+            "teams" => R::Teams,
             "device" => R::Device,
             "account" => R::Account,
             "model" => R::Model,
@@ -3750,11 +3859,14 @@ mod tests {
             skills: true,
             computer_use: true,
             prompts: true,
+            assistant: true,
+            teams: true,
         };
         assert_eq!(composer_menu_rows(ComposerSurface::Launch, all), every, "rows order");
         for case in fixture["cases"].as_array().unwrap() {
             let when = &case["conditions"];
-            let flag = |key: &str| when[key].as_bool().unwrap();
+            // #EXP-1715: a case names only the conditions it holds.
+            let flag = |key: &str| when[key].as_bool().unwrap_or(false);
             let conditions = ComposerMenuConditions {
                 temporary: flag("temporary"),
                 device: flag("device"),
@@ -3767,6 +3879,8 @@ mod tests {
                 skills: flag("skills"),
                 computer_use: flag("computerUse"),
                 prompts: flag("prompts"),
+                assistant: flag("assistant"),
+                teams: flag("teams"),
             };
             let expected: Vec<ComposerMenuRow> = case["expected"]
                 .as_array()
@@ -3776,7 +3890,7 @@ mod tests {
                 .collect();
             let surface = surface_of(case["surface"].as_str().unwrap());
             assert_eq!(composer_menu_rows(surface, conditions), expected, "{}", case["name"]);
-            if surface != ComposerSurface::Launch {
+            if surface != ComposerSurface::Launch || conditions.assistant {
                 continue;
             }
             // The same launch case off a REAL launch-menu state.

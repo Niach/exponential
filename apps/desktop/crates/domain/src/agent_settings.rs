@@ -271,7 +271,8 @@ pub fn assignee_options(member_ids: &[String], agents: &[(String, String, f64)])
 
 // ---------------------------------------------------------------------------
 // S-3 (owner 2026-10-28): THE ASSISTANT (`assistant` in the fixture; contract
-// `agentRole`). Replays `scheduleCases`, `visibleCases`, `orderCases`.
+// `agentRole`). Replays `scheduleCases`, `visibleCases`, `orderCases`,
+// `teamAgentsCases`.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -431,16 +432,44 @@ pub fn ordered_agents<'a>(
     visible
 }
 
-/// The viewer's own Assistant among synced rows (one per team).
+/// #EXP-1714 (TS `agentsInTeam`, `assistant.teamAgentsCases`): the agents a
+/// team lists = its own rows (input order), plus the viewer's Assistant whose
+/// team is none of `team_ids` (the synced teams; a personal team never syncs)
+/// while the team holds no Assistant row of the viewer's.
+pub fn agents_in_team<'a>(
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+    team_id: &str,
+    team_ids: &[&str],
+    me: Option<&str>,
+) -> Vec<&'a crate::rows::AgentDefRow> {
+    let agents: Vec<&crate::rows::AgentDefRow> = agents.into_iter().collect();
+    let mine = |agent: &&crate::rows::AgentDefRow| agent.is_assistant() && agent.owner_id.as_deref() == me;
+    let own: Vec<&crate::rows::AgentDefRow> =
+        agents.iter().copied().filter(|agent| agent.team_id.as_deref() == Some(team_id)).collect();
+    if own.iter().any(mine) {
+        return own;
+    }
+    let global = agents.iter().copied().find(|agent| {
+        mine(agent) && agent.team_id.as_deref().is_none_or(|team| !team_ids.contains(&team))
+    });
+    match global {
+        Some(global) => std::iter::once(global).chain(own).collect(),
+        None => own,
+    }
+}
+
+/// The viewer's own Assistant as `team_id` lists it (`agents_in_team`: the
+/// team's own row, else the global one).
 pub fn my_assistant<'a>(
     agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
     team_id: &str,
+    team_ids: &[&str],
     me: Option<&str>,
 ) -> Option<&'a crate::rows::AgentDefRow> {
     let me = me?;
-    agents.into_iter().find(|agent| {
-        agent.is_assistant() && agent.team_id.as_deref() == Some(team_id) && agent.owner_id.as_deref() == Some(me)
-    })
+    agents_in_team(agents, team_id, team_ids, Some(me))
+        .into_iter()
+        .find(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
 }
 
 #[cfg(test)]
@@ -667,7 +696,35 @@ mod tests {
             let ids: Vec<&str> = ordered_agents(&rows, case["me"].as_str()).iter().map(|row| row.id.as_str()).collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
             assert_eq!(ids, expected, "{}", case["name"]);
-            assert_eq!(my_assistant(&rows, "t", case["me"].as_str()).map(|row| row.id.as_str()), Some("me"));
+            assert_eq!(my_assistant(&rows, "t", &["t"], case["me"].as_str()).map(|row| row.id.as_str()), Some("me"));
+        }
+    }
+
+    #[test]
+    fn assistant_team_agents_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["teamAgentsCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<crate::rows::AgentDefRow> = case["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|agent| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": agent["id"], "role": agent["role"], "owner_id": agent["ownerId"],
+                        "team_id": agent["teamId"],
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            let team_ids: Vec<&str> = case["teamIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            let ids: Vec<&str> = agents_in_team(&rows, case["teamId"].as_str().unwrap(), &team_ids, case["me"].as_str())
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
         }
     }
 

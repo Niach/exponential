@@ -674,9 +674,12 @@ struct ThreadScreen: View {
     }
 
     /// A member may link and file here (`resolveTeamAccess`: every member
-    /// comments and creates issues).
+    /// comments and creates issues). #EXP-1714: the viewer's own Assistant
+    /// conversation stays editable while its team (the personal one) never
+    /// syncs.
     private var canEdit: Bool {
         guard let rows else { return false }
+        if AgentSettings.isMyAssistant(rows.agent, me: deps.auth.userId) { return true }
         return teamState.teams.contains { $0.id == rows.root.teamId }
     }
 
@@ -858,6 +861,7 @@ struct ThreadScreen: View {
                                 busySessionIds: rows.sessions
                                     .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
                                     .map(\.id),
+                                agentRow: rows.agent,
                                 onExpand: {
                                     // Remember the pin BEFORE the inset moves it.
                                     pinOnInset = atBottom
@@ -1749,6 +1753,9 @@ final class ThreadComposerDraft: SessionComposerDraft {
     var steerSending = false
     /// A refused send: the host toasts it (the draft stays put).
     var sendError: String?
+    /// #EXP-1715: the Assistant's Teams pick every send carries
+    /// (`scopeTeamIds`); nil = not the viewer's Assistant root (never sent).
+    var scope: TeamsScope?
 
     @ObservationIgnored private let accountId: String
     @ObservationIgnored private let sessionsApi: SessionsApi
@@ -1798,12 +1805,12 @@ final class ThreadComposerDraft: SessionComposerDraft {
             if let agentId {
                 _ = try await sessionsApi.send(
                     accountId: accountId,
-                    .agent(agentId: agentId, text: text, attachmentIds: attachmentIds)
+                    .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, scope: scope)
                 )
             } else {
                 try await sessionsApi.send(
                     accountId: accountId,
-                    .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds)
+                    .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds, scope: scope)
                 )
             }
             return true
@@ -1840,6 +1847,10 @@ struct ThreadComposer: View {
     /// (`sessionId` is empty then), `teamId` = the agent's team.
     var agentId: String?
     var teamId: String?
+    /// #EXP-1715: the conversation's agent DEFINITION (the root's, or
+    /// `agentId`'s before the first send): the viewer's own Assistant gets
+    /// the Teams pick.
+    var agentRow: AgentDefinitionEntity?
     /// The capsule was tapped open (the host keeps its feed pinned).
     var onExpand: () -> Void = {}
 
@@ -1865,8 +1876,37 @@ struct ThreadComposer: View {
     @State private var slashConfirm: SlashCommand?
     /// NEW-2: the team's prompts, after the builtins in the `/` menu.
     @State private var slashPrompts = TeamSlashPrompts()
+    /// #EXP-1714: optional, a specimen may mount the composer without one.
+    @Environment(TeamState.self) private var teamState: TeamState?
+    /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
+    /// synced `scope_team_ids` and re-seeded when another client moves it.
+    @State private var teamsPicked: [String]?
 
+    /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while this
+    /// composer writes into the viewer's OWN Assistant conversation ROOT (or
+    /// opens it); nil anywhere else, a child included (the server refuses a
+    /// scope there).
+    private var teamsPick: ComposerTeamsBinding? {
+        guard AgentSettings.isMyAssistant(agentRow, me: deps.auth.userId),
+              sessionId.isEmpty || sessionId == root?.id
+        else { return nil }
+        return ComposerTeamsBinding(
+            teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
+            picked: teamsPicked,
+            onChange: { teamsPicked = $0 }
+        )
+    }
+
+    /// The upload / send team: the root's (the agent's before the first send).
     private var draftTeamId: String? { root?.teamId ?? teamId }
+    /// #EXP-1714 (`lookupTeamId`): what the `/` prompts and the "+" issue
+    /// search read: the draft's team while synced, else the active team
+    /// (the global Assistant's personal team never syncs).
+    private var lookupTeamId: String? {
+        AgentSettings.lookupTeamId(
+            draftTeamId, teamIds: teamState?.teams.map(\.id) ?? [], activeTeamId: teamState?.activeTeam?.id
+        )
+    }
 
     var body: some View {
         Group {
@@ -1970,9 +2010,12 @@ struct ThreadComposer: View {
                 )
             }
             draft?.teamId = draftTeamId
+            draft?.scope = teamsPick?.scope
         }
-        .task(id: draftTeamId) {
-            slashPrompts.bind(accountId: accountId, teamId: draftTeamId, db: deps.db)
+        .task(id: root?.scopeTeamIds) { teamsPicked = root?.scopeTeamIds }
+        .onChange(of: teamsPick?.scope) { _, scope in draft?.scope = scope }
+        .task(id: lookupTeamId) {
+            slashPrompts.bind(accountId: accountId, teamId: lookupTeamId, db: deps.db)
         }
         .onAppear { claimRootModel() }
         .onChange(of: root?.id) { _, _ in claimRootModel() }
@@ -2036,7 +2079,7 @@ struct ThreadComposer: View {
             onUsage: { showUsageSheet = true },
             ended: ended,
             surface: (root?.agentId ?? agentId).map { $0.isEmpty ? .session : .agent } ?? .session,
-            teamId: draftTeamId,
+            teamId: lookupTeamId,
             // #EXP-1434: the "+" Prompts page = the `/` menu's prompts; a
             // pick inserts the body at the caret.
             prompts: slashPrompts.prompts,
@@ -2051,7 +2094,9 @@ struct ThreadComposer: View {
             },
             // #EXP-1535: the "+" Account page = the usage wall's session
             // account switch on the root (its live model's rules).
-            account: steerModel?.composerAccountMenu
+            account: steerModel?.composerAccountMenu,
+            // #EXP-1715: the viewer's Assistant chat's Teams pick.
+            teams: teamsPick
         )
     }
 

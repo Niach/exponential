@@ -20,8 +20,8 @@ import {
 } from "@exp/ui"
 import { useLongPressSelects, type IssueMenuSelection } from "@/components/issue-context-menu/selection"
 import { useSession } from "@/hooks/use-session"
-import { useAgentRow } from "@/hooks/use-agent-row"
-import { useSessionRow, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
+import { useAgentRow, useMyAgentConversation } from "@/hooks/use-agent-row"
+import { useSessionRow, useSessionTitles } from "@/hooks/use-session-tree"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import type { Team } from "@/db/schema"
@@ -220,19 +220,6 @@ export function ChatHeaderMenu({
   )
 }
 
-/** The viewer's conversation with an agent (a root with its `agentId`). */
-function useAgentConversation(teamId: string | undefined, agentId: string | null): SessionRow | null {
-  const { data: auth } = useSession()
-  const me = auth?.user?.id ?? null
-  const { rows } = useTeamSessions(teamId)
-  return useMemo(
-    () =>
-      agentId
-        ? (rows.find((row) => row.agentId === agentId && row.userId === me && row.parentId === null) ?? null)
-        : null,
-    [rows, agentId, me]
-  )
-}
 
 /** An agent menu line (`AGENT_MENU_SENDS`: `/compact`, `/new`) into the
  *  viewer's conversation with the agent (or a fresh one), the failure as a
@@ -270,9 +257,13 @@ export function useAgentMenuEntries({
 }): MenuEntry[] {
   const navigate = useNavigate()
   const permissions = useTeamPermissions(team ?? null)
-  const conversation = useAgentConversation(team?.id, agentId)
+  const { data: auth } = useSession()
+  const me = auth?.user?.id ?? null
+  const conversation = useMyAgentConversation(agentId, me)
   const { agent } = useAgentRow(agentId)
-  if (!team || !agentId || !agent || agent.teamId !== team.id || !permissions.isMember) return []
+  // #EXP-1714: the viewer's global Assistant lives outside the team.
+  const inTeam = agent?.teamId === team?.id || (agent?.role === `assistant` && agent.ownerId === me)
+  if (!team || !agentId || !agent || !inTeam || !permissions.isMember) return []
   const busy = conversation?.busy ?? false
 
   const send = (text: string) =>

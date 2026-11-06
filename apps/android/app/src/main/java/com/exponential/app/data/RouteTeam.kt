@@ -71,3 +71,22 @@ fun routeTeamIdFlow(
     return combine(subjectTeam, selectedId) { own, selected -> own ?: selected }
         .distinctUntilChanged()
 }
+
+/**
+ * #EXP-1714: [own] when it is a synced team, else [selectedId]
+ * (`AgentSettings.Assistant.browseTeam`) — the `/` prompts, `#` issues and
+ * `@` members of a composer whose team is the hidden personal team.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun browseTeamIdFlow(
+    dbFlow: Flow<ExponentialDatabase?>,
+    own: Flow<String?>,
+    selectedId: Flow<String?>,
+): Flow<String?> {
+    val teamIds: Flow<List<String>> = dbFlow.flatMapLatest { db ->
+        db?.teamDao()?.observeAll()?.map { rows -> rows.map { it.id } } ?: flowOf(emptyList())
+    }
+    return combine(own, teamIds, selectedId) { o, ids, selected ->
+        com.exponential.app.domain.AgentSettings.Assistant.browseTeam(o, ids, selected)
+    }.distinctUntilChanged()
+}

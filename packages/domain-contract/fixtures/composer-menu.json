@@ -44,6 +44,20 @@
       "when": "prompts"
     },
     {
+      "id": "teams",
+      "kind": "submenu",
+      "label": "Teams",
+      "icon": "ui-team",
+      "surfaces": [
+        "launch",
+        "agent"
+      ],
+      "when": [
+        "assistant",
+        "teams"
+      ]
+    },
+    {
       "kind": "separator"
     },
     {
@@ -189,7 +203,9 @@
     "mcp": "the team has at least one MCP server",
     "skills": "the team has at least one skill (skills.json `menuRow`)",
     "computerUse": "the picked device advertises the `computerUse.cap` capability",
-    "prompts": "the team has at least one prompt (the `/` menu lists it)"
+    "prompts": "the team has at least one prompt (the `/` menu lists it)",
+    "assistant": "the message goes to the viewer's Assistant (launch: the agent row picks it; agent: its chat)",
+    "teams": "the viewer belongs to more than one team"
   },
   "addFile": {
     "phoneChoices": [
@@ -208,6 +224,8 @@
     "cap": "computer-use-run"
   },
   "cases": [
+    {"name": "#EXP-1715: the viewer's Assistant chat in several teams: Teams after Prompts", "surface": "agent", "conditions": {"assistant": true, "teams": true, "model": true, "prompts": true}, "expected": ["add-file", "implement-issue", "prompts", "teams", "-", "model"]},
+    {"name": "#EXP-1715: one team only = no Teams row", "surface": "agent", "conditions": {"assistant": true, "teams": false, "model": true}, "expected": ["add-file", "implement-issue", "-", "model"]},
     {
       "name": "launch, temporary, claude on a computer-use device with MCP servers and two repos: every row",
       "surface": "launch",
@@ -495,5 +513,108 @@
     }
   ],
   "submenuRowHeight": 32,
-  "submenuMaxRows": 8
+  "submenuMaxRows": 8,
+  "teamsPick": {
+    "$comment": "#EXP-1715 (owner 2026-11-06, ×4 the same): the Assistant's TEAMS pick, which teams a turn may touch (server: sessions.send `scopeTeamIds`, emcp access.json `assistantScope`). The `teams` row = THE search list (search-list.json) of MULTI picker rows over the teams the viewer belongs to, in their team switcher order: the team's own avatar (the switcher's team image or initials) + its name, the check TRAILING. Nothing picked yet = EVERY team (null; all rows checked); unchecking narrows the pick; the last checked team cannot be unchecked; checking every team again = null. The row's value = `teamsPickValue`. While the pick is a SUBSET, the picked teams ride as CHIPS in the composer's chip row (THE removable pill chip the composer's prompt subject uses: the team avatar + its name + the remove ×); removing a chip unchecks it, removing the last one = every team again. The pick is the next send's `scopeTeamIds` (null = every team) and every later turn's until changed; the composer seeds it from the conversation root's synced `scope_team_ids` (null = every team).",
+    "copy": {
+      "all": "All teams",
+      "many": "{n} teams"
+    },
+    "valueCases": [
+      {
+        "name": "nothing picked = every team",
+        "picked": null,
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          }
+        ],
+        "expected": "All teams"
+      },
+      {
+        "name": "every team picked reads the same",
+        "picked": [
+          "t2",
+          "t1"
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          }
+        ],
+        "expected": "All teams"
+      },
+      {
+        "name": "one team = its name",
+        "picked": [
+          "t2"
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": "Feedback"
+      },
+      {
+        "name": "several = the count",
+        "picked": [
+          "t1",
+          "t3"
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          },
+          {
+            "id": "t3",
+            "name": "Ops"
+          }
+        ],
+        "expected": "2 teams"
+      },
+      {
+        "name": "a picked team the viewer left no longer counts",
+        "picked": [
+          "t1",
+          "t9"
+        ],
+        "teams": [
+          {
+            "id": "t1",
+            "name": "Acme"
+          },
+          {
+            "id": "t2",
+            "name": "Feedback"
+          }
+        ],
+        "expected": "Acme"
+      }
+    ]
+  }
 }

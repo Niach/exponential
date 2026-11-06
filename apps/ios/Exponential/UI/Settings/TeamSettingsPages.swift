@@ -875,7 +875,8 @@ private struct TeamAgentsPage: View {
                 let sessions = sessionIds.isEmpty
                     ? []
                     : try SessionEntity.filter(sessionIds.contains(Column("id"))).fetchAll(db)
-                let agents = try SessionQueries.agents(db: db, teamId: teamId)
+                // #EXP-1714: the viewer's global Assistant lists in every team.
+                let agents = try SessionQueries.teamAgents(db: db, teamId: teamId, me: userId)
                 return Data(
                     // S-3: the team agents only (role agent); the viewer's
                     // own Assistant is the `@assistant` row.
