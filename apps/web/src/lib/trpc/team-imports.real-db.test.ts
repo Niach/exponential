@@ -12,6 +12,10 @@ import { probeRealDb } from "@/test/real-db"
 // builtins, rewrites the identity and its mentions, lands sessions ended and
 // private with their conversations and messages, and flips the team live.
 
+// The chunk mints signed upload tokens: the HMAC key is whatever the
+// environment holds (the release suite's Postgres job sets no auth secret).
+process.env.BETTER_AUTH_SECRET ??= `team-imports-test-secret`
+
 const ready = await probeRealDb(`
   SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'import_rows') AS ok
 `)
@@ -56,7 +60,7 @@ describe.skipIf(!ready.ok)(`team import (real db)`, () => {
     const takenLabel = uuid()
     await db.insert(labels).values({ id: takenLabel, teamId: other!.id, name: `Taken` })
 
-    const ids = { b1: uuid(), i1: uuid(), c1: uuid(), c2: uuid(), ag: uuid(), s1: uuid(), s2: uuid(), cv1: uuid(), m1: uuid(), a1: uuid(), stBacklog: uuid(), stProgress: uuid(), stBlocked: uuid() }
+    const ids = { b1: uuid(), i1: uuid(), c1: uuid(), c2: uuid(), ag: uuid(), s1: uuid(), s2: uuid(), cv1: uuid(), m1: uuid(), a1: uuid(), stBacklog: uuid(), stProgress: uuid(), stBlocked: uuid(), stDone: uuid(), stShipped: uuid() }
     const created = await caller(owner).create({
       name: `Local`,
       manifest: { version: 1, desktopId: uuid(), name: `Local`, identity: { userId: LOCAL_USER, email: LOCAL_EMAIL }, deviceId: `dev-${id8()}`, counts: { issues: 1 }, attachmentBytes: 3 },
@@ -71,6 +75,8 @@ describe.skipIf(!ready.ok)(`team import (real db)`, () => {
       { table: `issue_statuses`, id: ids.stBacklog, row: { id: ids.stBacklog, team_id: `t-local`, category: `backlog`, name: `Backlog`, color: `#A1A1AA`, sort_order: 1, builtin_key: `backlog` } },
       { table: `issue_statuses`, id: ids.stProgress, row: { id: ids.stProgress, team_id: `t-local`, category: `started`, name: `Doing`, color: `#EAB308`, sort_order: 1, builtin_key: `in_progress` } },
       { table: `issue_statuses`, id: ids.stBlocked, row: { id: ids.stBlocked, team_id: `t-local`, category: `started`, name: `Blocked`, color: `#FF0000`, sort_order: 3, builtin_key: null } },
+      { table: `issue_statuses`, id: ids.stDone, row: { id: ids.stDone, team_id: `t-local`, category: `completed`, name: `Done`, color: `#3B82F6`, sort_order: 1, builtin_key: `done` } },
+      { table: `issue_statuses`, id: ids.stShipped, row: { id: ids.stShipped, team_id: `t-local`, category: `completed`, name: `Shipped`, color: `#00FF00`, sort_order: 2, builtin_key: null } },
       { table: `labels`, id: takenLabel, row: { id: takenLabel, team_id: `t-local`, name: `Bug`, color: `#FF0000` } },
       { table: `agents`, id: ids.ag, row: { id: ids.ag, team_id: `t-local`, name: `Assistant`, device_id: `dev-local`, owner_id: LOCAL_USER, role: `assistant`, instructions: `ask @${LOCAL_EMAIL}` } },
       {
@@ -121,11 +127,15 @@ describe.skipIf(!ready.ok)(`team import (real db)`, () => {
     const [team] = await db.select({ importedFrom: teams.importedFrom }).from(teams).where(eq(teams.id, created.teamId))
     expect(team?.importedFrom).toMatchObject({ importId: created.importId, name: `Local` })
 
-    // Statuses: the builtins stay single, Doing maps onto In Progress by key, Blocked is new.
+    // Statuses: the builtins stay single, Doing maps onto In Progress by key,
+    // Blocked onto In Review by ordinal, Shipped (nothing left in completed) is new.
     const statuses = await db.select({ id: issueStatuses.id, name: issueStatuses.name, builtinKey: issueStatuses.builtinKey, category: issueStatuses.category }).from(issueStatuses).where(eq(issueStatuses.teamId, created.teamId))
     expect(statuses.filter((s) => s.builtinKey === `in_progress`)).toHaveLength(1)
-    expect(statuses.find((s) => s.name === `Blocked`)).toMatchObject({ category: `started`, builtinKey: null })
+    expect(statuses.filter((s) => s.category === `started`)).toHaveLength(2)
+    expect(statuses.find((s) => s.name === `Blocked`)).toBeUndefined()
     expect(statuses.find((s) => s.name === `Doing`)).toBeUndefined()
+    expect(statuses.find((s) => s.name === `Shipped`)).toMatchObject({ id: ids.stShipped, category: `completed`, builtinKey: null })
+    expect(result.idMap.find((e) => e.tableName === `issue_statuses` && e.localId === ids.stBlocked)?.serverId).toBe(statuses.find((s) => s.builtinKey === `in_review`)!.id)
     const inProgress = statuses.find((s) => s.builtinKey === `in_progress`)!
 
     // The issue: id and number kept, identifier from the prefix, identity and mentions rewritten.

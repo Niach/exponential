@@ -60,6 +60,12 @@ export const DROPPED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   app_records: [`app_deleted_at`],
 }
 
+/** Self references that must be in place at insert time (a CHECK names
+ *  them): the rows are inserted parents first, so the reference resolves. */
+export const IMMEDIATE_SELF_REFERENCES: Readonly<Record<string, readonly string[]>> = {
+  sessions: [`parent_id`],
+}
+
 /** Array columns of ids (no FK in the schema) that follow a remap. */
 export const ARRAY_REFERENCES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   messages: { attachment_ids: `attachments`, ref_issue_ids: `issues`, mention_user_ids: `users` },
@@ -110,7 +116,7 @@ function buildMeta(name: string, table: PgTable): TableMeta {
     if (target === `users`) userColumns.push(column.name)
     else if (target === `teams`) teamColumns.push(column.name)
     else if (target === name) {
-      if (column.notNull) references[column.name] = target
+      if (column.notNull || (IMMEDIATE_SELF_REFERENCES[name] ?? []).includes(column.name)) references[column.name] = target
       else selfReferences.push(column.name)
     } else if (target in IMPORT_TABLES) references[column.name] = target
   }

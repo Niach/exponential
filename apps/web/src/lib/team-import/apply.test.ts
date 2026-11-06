@@ -19,8 +19,9 @@ describe(`team import tables`, () => {
     expect(comments.userColumns).toEqual([`author_id`])
     expect(comments.teamColumns).toEqual([`team_id`])
     const sessions = tableMeta(`sessions`)
-    expect(sessions.references).toMatchObject({ root_id: `sessions`, agent_id: `agents` })
-    expect(sessions.selfReferences.sort()).toEqual([`continued_from_id`, `parent_id`])
+    // `parent_id` is named by sessions_root_check: it is written at insert (parents first).
+    expect(sessions.references).toMatchObject({ root_id: `sessions`, parent_id: `sessions`, agent_id: `agents` })
+    expect(sessions.selfReferences).toEqual([`continued_from_id`])
     expect(sessions.userColumns).toEqual([`user_id`])
     expect(tableMeta(`issue_labels`).hasId).toBe(false)
   })
