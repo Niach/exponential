@@ -32,6 +32,8 @@ pub enum RunnerFailure {
     Signature,
     /// genUI refuses the package.
     Invalid,
+    /// The web only: another tab of the origin holds the app.
+    Busy,
 }
 
 /// The bundle directory and its two files (`bundle`).

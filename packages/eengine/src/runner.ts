@@ -19,7 +19,7 @@ export const RUNNER_BUNDLE = fixture.bundle
 export const RUNNER_SHELL = fixture.shell
 
 export type FormFactor = `wide` | `compact`
-export type RunnerFailure = `missing` | `config` | `signature` | `invalid`
+export type RunnerFailure = `missing` | `config` | `signature` | `invalid` | `busy`
 
 // ---------------------------------------------------------------- config
 
