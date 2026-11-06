@@ -5717,15 +5717,15 @@
         "file": "shots/pr-checks/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 33206,
-        "sha256": "5a952a985b11f107f28e90a515b209b7464b60ca9f19104c4be7e8bd14137248"
+        "bytes": 38124,
+        "sha256": "5b048a5aa99dbb1ce3fa60e1b3c7af9393ec19db92287702c5836eae83a53d89"
       },
       "web-mobile": {
         "file": "shots/pr-checks/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 15318,
-        "sha256": "cacad9b7e31ef60868f1b0befcda78b9f7e872f1cf1cabc2e4dc55fd56495fc6"
+        "bytes": 33352,
+        "sha256": "a225178bf32197e77356bafad84060ce6e59bd34dad3562842e081f38c3d4e95"
       }
     },
     "pr-row": {
@@ -6366,15 +6366,15 @@
         "file": "shots/settings-general/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 37062,
-        "sha256": "9623f1a46f3a0c40a3f0909971524a82be55e1d3129cfc2a6d26d9ff2c278e00"
+        "bytes": 37518,
+        "sha256": "b443fd61288715258a89857dafcdf1be10aab0b16f0a27dc14c3a0d96fcdb3bd"
       },
       "web-mobile": {
         "file": "shots/settings-general/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 27840,
-        "sha256": "35b15b53f2413ce1b4e4b6b82fdac6429e0d497bcc97d42eb342b681429ac898"
+        "bytes": 24662,
+        "sha256": "ffc687cb5c23490a00c982b109c04077c8cf6f170b4d72a51974a912e384c647"
       }
     },
     "settings-import": {
@@ -7112,15 +7112,15 @@
         "file": "shots/thread/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 63892,
-        "sha256": "112abfbbd08cdf1b2d4c1fd762203650f84a0bb47402e759ac1907afad50e582"
+        "bytes": 56600,
+        "sha256": "5a4d6ee1410d4769c7a92b6ecce4b4b57e45046b867810ff3eac5c06bdf4ec6c"
       },
       "web-mobile": {
         "file": "shots/thread/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 72108,
-        "sha256": "5dc6e0f93e488cc8400198c132ad514045a8a1d6f1993b6b87ea39f80863c96e"
+        "bytes": 76942,
+        "sha256": "4910aced9c7f8e86867206954e9c7acdff50a0c5d7da95ac406d3f50d69b40ef"
       }
     },
     "thread-replies": {
