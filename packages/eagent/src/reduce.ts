@@ -353,6 +353,7 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
     blocked: null,
     wakeOn: [],
     sealEpoch: null,
+    scopeTeamIds: null,
     createdAt: ctx.now,
     startedAt: null,
     endedAt: null,
