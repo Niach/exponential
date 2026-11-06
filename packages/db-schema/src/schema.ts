@@ -260,6 +260,10 @@ export const teams = pgTable(`teams`, {
   // caption.
   agentPrompt: text(`agent_prompt`).notNull().default(``),
   agentPromptUpdatedAt: timestamp(`agent_prompt_updated_at`, { withTimezone: true }),
+  // #EXP-1713 — set by `imports.commit`: where this team came from (`{importId,
+  // desktopId, name, importedAt}`, a Local desktop shared as a team). NULL for
+  // every team made in the app. SERVER-ONLY: behind the teams shape allowlist.
+  importedFrom: jsonb(`imported_from`),
   ...timestamps,
 })
 
@@ -4170,6 +4174,79 @@ export const importEntityMap = pgTable(
     ),
     index(`idx_import_entity_map_job`).on(table.jobId),
   ]
+)
+
+// #EXP-1713: TEAM IMPORTS (Share a Local desktop as a team, #EDE-57): one row
+// per `imports.create`, SERVER-ONLY, tRPC-managed, never a shape. The team
+// is made in the same transaction and stays INVISIBLE until the commit: it
+// has no member row until then, so no shape, list or access check sees it
+// (and the slug is reserved). `status` is a documented varchar (importing |
+// committed | failed). `manifest` is what the client declared (the local
+// identity, its device, the counts); `counts` is what arrived per table.
+// The sweep purges an import (with its team) that is still `importing` or
+// `failed` after fixtures/team-import.json `abandonedAfterHours`.
+export const teamImports = pgTable(
+  `imports`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    createdByUserId: text(`created_by_user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    status: varchar({ length: 16 }).notNull().default(`importing`),
+    manifest: jsonb().notNull(),
+    counts: jsonb().notNull().default({}),
+    error: text(),
+    committedAt: timestamp(`committed_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_imports_team`).on(table.teamId),
+    index(`idx_imports_live`)
+      .on(table.status, table.createdAt)
+      .where(sql`status in ('importing', 'failed')`),
+  ]
+)
+
+// #EXP-1713: the staged rows of an import, exactly as the client sent them
+// (`imports.chunk`): (import, seq, ordinal) is the key, so a repeated seq
+// changes nothing. Read back in that order by the commit and deleted with
+// the import row (or by the commit once applied).
+export const importRows = pgTable(
+  `import_rows`,
+  {
+    importId: uuid(`import_id`)
+      .notNull()
+      .references(() => teamImports.id, { onDelete: `cascade` }),
+    seq: integer().notNull(),
+    ordinal: integer().notNull(),
+    tableName: varchar(`table_name`, { length: 32 }).notNull(),
+    localId: text(`local_id`).notNull(),
+    row: jsonb().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.importId, table.seq, table.ordinal] }),
+    index(`idx_import_rows_table`).on(table.importId, table.tableName),
+  ]
+)
+
+// #EXP-1713: a local id the commit had to replace (a primary key that
+// already existed on the server), per table. Ids are otherwise kept, so this
+// holds only the collisions; a client reconciling its local file after a
+// share reads it through `imports.commit`'s answer.
+export const importIdMap = pgTable(
+  `import_id_map`,
+  {
+    importId: uuid(`import_id`)
+      .notNull()
+      .references(() => teamImports.id, { onDelete: `cascade` }),
+    tableName: varchar(`table_name`, { length: 32 }).notNull(),
+    localId: text(`local_id`).notNull(),
+    serverId: text(`server_id`).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.importId, table.tableName, table.localId] })]
 )
 
 // ---------------------------------------------------------------------------
