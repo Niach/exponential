@@ -1,15 +1,16 @@
 // The runner's whole page: its genUI surfaces and nothing else (no chrome of
 // its own). `app` fills the viewport; the sheets and the toast are overlays.
 
-import { HostSurface, useHostSurfaceIds, type HostPlugin } from "@exponential_app/eui-react"
+import { useMemo } from "react"
+import { HostSurface, useHostSurfaceIds, type HostPlugin, type IconMap } from "@exponential_app/eui-react"
 
-import { runnerIcons } from "./icons"
 import type { Runner } from "./runner"
 
-const plugin: HostPlugin = { icons: runnerIcons }
 const OVERLAYS = [`consent`, `permissions`, `toast`]
 
-export function App({ runner }: { runner: Runner }) {
+/** `icons`: the export's glyphs (src/glyphs.ts). */
+export function App({ runner, icons }: { runner: Runner; icons: IconMap }) {
+  const plugin: HostPlugin = useMemo(() => ({ icons }), [icons])
   const ids = useHostSurfaceIds(runner.host)
   return (
     <>
