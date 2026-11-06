@@ -1,0 +1,75 @@
+---
+/* Exponential Desktop's product page (apps/ede). The docs: /docs/desktop/. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import { Code, LinkButton } from "@astrojs/starlight/components"
+import Duo from "../../components/landing/Duo.astro"
+import Feature from "../../components/landing/Feature.astro"
+import { shot } from "../../components/landing/shots.ts"
+
+const HISTORY = `$ exponential-ui log
+4be1c0a2 Undo: Edit panel.json, rolled back
+9f31d7e5 Edit panel.json
+1c02aa94 Set panel
+7e8d5b10 Factory panel`
+
+const TOOLS = `network_get        network_connect      network_wifi_enable
+sound_get          sound_set_volume     sound_mute
+bluetooth_get      bluetooth_connect    bluetooth_power
+power_get          power_set_profile    power_suspend
+disks_get          disks_mount          updates_upgrade`
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Exponential Desktop`,
+    description: `A Linux desktop made of genUI documents: agents read it, change it and undo it. Wayland, Xwayland, on Ubuntu, Mint, Debian, Fedora and Arch.`,
+    template: `splash`,
+    hero: {
+      tagline: `A Linux desktop your agents can read, change and undo.`,
+      actions: [
+        { text: `Install`, link: `/docs/desktop/install/`, icon: `right-arrow` },
+        { text: `Docs`, link: `/docs/desktop/features/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <div class="exp-landing">
+    <Duo eager desktop={shot(`ede-panel-menu`, `ede`, `The panel and its menu: search, apps and the power row`)} />
+
+    <Feature title="The desktop is data" link={{ href: `/docs/desktop/features/`, label: `Features` }}>
+      Panel, menu, switcher, notifications and settings are genUI documents in your home folder.
+      <Duo slot="visual" desktop={shot(`ede-settings`, `ede`, `Settings: a page per domain, Displays open`)} />
+    </Feature>
+
+    <Feature title="Edit it live">
+      Save a file and the shell redraws it. A broken file is refused and the last good version stays on screen.
+      <Duo slot="visual" desktop={shot(`ede-switcher`, `ede`, `The Alt+Tab switcher with live thumbnails`)} />
+    </Feature>
+
+    <Feature title="Every edit is a commit" link={{ href: `/docs/desktop/features/#history-and-rollback`, label: `History` }}>
+      <div slot="visual"><Code code={HISTORY} lang="sh" /></div>
+    </Feature>
+
+    <Feature title="Agents run the machine" link={{ href: `/docs/desktop/reference/#services-mcp`, label: `MCP tools` }}>
+      Network, sound, Bluetooth, power, disks and updates as MCP tools, each behind a grant.
+      <div slot="visual"><Code code={TOOLS} lang="txt" /></div>
+    </Feature>
+
+    <Feature title="Notifications and the tray">
+      <Duo slot="visual" desktop={shot(`ede-notification-center`, `ede`, `The notification centre under the panel's bell`)} />
+    </Feature>
+
+    <Feature title="On the machine you have" link={{ href: `/docs/desktop/install/`, label: `Install` }}>
+      Ubuntu 26.04 after the update, Alt+Tab over three GNOME apps.
+      <img slot="visual" src="/desktop/vm-switcher.webp" width="1600" height="900" alt="Exponential Desktop on Ubuntu 26.04: the Alt+Tab switcher over Files, Calculator and Text Editor" loading="lazy" decoding="async" />
+    </Feature>
+
+    <section class="exp-section exp-price-line not-content">
+      <h2>Ubuntu, Mint, Debian, Fedora, Arch</h2>
+      <p>Pick Exponential on the login screen.</p>
+      <div class="exp-actions">
+        <LinkButton href="/docs/desktop/install/" icon="right-arrow">Install</LinkButton>
+      </div>
+    </section>
+  </div>
+</StarlightPage>

@@ -1,0 +1,105 @@
+---
+title: Install Exponential Desktop
+description: "Install Exponential Desktop from its package repository on Ubuntu, Linux Mint, Debian, Fedora and Arch, then pick Exponential on the login screen."
+---
+
+import { Aside, Code, Steps, Tabs, TabItem } from "@astrojs/starlight/components"
+import { DESKTOP_REPO, SIGNING_KEY, debSources, setupScriptUrl } from "../../../../lib/desktop-repo.ts"
+
+export const setup = `curl -fsSL ${setupScriptUrl(import.meta.env.SITE)} | sudo sh`
+export const debKey = `sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL ${SIGNING_KEY.url} | sudo tee /etc/apt/keyrings/exponential.asc > /dev/null`
+export const debInstall = `sudo apt update && sudo apt install exponential-desktop exponential-repo`
+export const fedora = `sudo dnf config-manager addrepo --from-repofile=${DESKTOP_REPO.fedora.repofile}
+sudo dnf install exponential-desktop exponential-repo`
+export const archMirror = `echo 'Server = ${DESKTOP_REPO.arch.server}' | sudo tee ${DESKTOP_REPO.arch.mirrorlist}`
+export const archConf = `[exponential]
+Include = ${DESKTOP_REPO.arch.mirrorlist}`
+export const archKey = `curl -fsSL ${SIGNING_KEY.url} | sudo pacman-key --add -
+sudo pacman-key --lsign-key ${SIGNING_KEY.id}`
+export const archInstall = `sudo pacman -Sy exponential-desktop exponential-repo`
+
+
+## Supported systems
+
+| Distribution | Version | Suite | Xwayland |
+|---|---|---|---|
+| Ubuntu | 24.04 | `noble` | bundled 24.1 |
+| Linux Mint | 22 | `noble` | bundled 24.1 |
+| Ubuntu | 26.04 | `resolute` | the distribution's |
+| Debian | 13 | `trixie` | the distribution's |
+| Fedora | 44, 45 | | the distribution's |
+| Arch Linux | rolling | | the distribution's |
+
+Ubuntu 24.04 and Mint 22 ship Xwayland 23.2, which has no explicit sync, so the package brings its own 24.1.
+
+## Install
+
+Every repository is signed with one key, <a href={SIGNING_KEY.url}><code>exponential.asc</code></a>:
+
+<Code code={SIGNING_KEY.fingerprint} lang="txt" title="Fingerprint" />
+
+<Tabs syncKey="distro">
+  <TabItem label="Ubuntu, Mint">
+    <Code code={setup} lang="sh" />
+    Or add the repository by hand: the key, then `/etc/apt/sources.list.d/exponential.sources`.
+    <Code code={debKey} lang="sh" />
+    <Code code={debSources(`noble`)} lang="ini" title="Ubuntu 24.04, Mint 22" />
+    <Code code={debSources(`resolute`)} lang="ini" title="Ubuntu 26.04" />
+    <Code code={debInstall} lang="sh" />
+  </TabItem>
+  <TabItem label="Debian">
+    <Code code={setup} lang="sh" />
+    Or add the repository by hand: the key, then `/etc/apt/sources.list.d/exponential.sources`.
+    <Code code={debKey} lang="sh" />
+    <Code code={debSources(`trixie`)} lang="ini" title="Debian 13" />
+    <Code code={debInstall} lang="sh" />
+  </TabItem>
+  <TabItem label="Fedora">
+    <Code code={setup} lang="sh" />
+    Or by hand:
+    <Code code={fedora} lang="sh" />
+  </TabItem>
+  <TabItem label="Arch">
+    <Code code={setup} lang="sh" />
+    Or by hand:
+    <Steps>
+    1. Add the repository: its mirrorlist, then a section in `/etc/pacman.conf`.
+       <Code code={archMirror} lang="sh" />
+       <Code code={archConf} lang="ini" title="/etc/pacman.conf" />
+    2. Import the key and sign it locally.
+       <Code code={archKey} lang="sh" />
+    3. Install.
+       <Code code={archInstall} lang="sh" />
+    </Steps>
+  </TabItem>
+</Tabs>
+
+## First login
+
+Log out and pick **Exponential** in the login screen's session menu.
+
+![Exponential Desktop on Ubuntu 26.04: the menu under the panel](/desktop/vm-menu.webp)
+ **Exponential (safe mode)** starts with the factory settings and leaves your configuration untouched.
+
+Updates arrive through your package manager. A running session keeps running; the new version starts at the next login. `exponential-repo` keeps the repository entry and key current.
+
+## Check the machine
+
+```sh
+exponential-compositor doctor
+```
+
+Settings shows the same checks under **About**:
+
+![Settings, About: the system check on Ubuntu 26.04 in a VM](/desktop/vm-settings-about.webp)
+
+It runs from any desktop and checks the GPU and its render node, the displays, the seat, what EGL renders with, the keyboard layout, Xwayland and its version, and on NVIDIA that `nvidia-drm.modeset` is on, the driver's GBM library is installed and the driver has explicit sync.
+
+<Aside title="NVIDIA">
+  The session needs `nvidia-drm.modeset=1` (the driver's default from 560 on) and the driver's GBM library (Ubuntu, Mint: `libnvidia-egl-gbm1`; Arch: `egl-gbm`). Driver 555 or newer has explicit sync, so X11 games don't flicker.
+</Aside>
+
+## If it does not start
+
+The screen says why and what happens next. A crash restarts the compositor; three quick crashes in a row bring the session back in safe mode. **Ctrl+Alt+F3** gives a text login; `journalctl --user -b` has the session's logs.

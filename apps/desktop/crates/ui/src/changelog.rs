@@ -46,16 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-06-lock-screen-and-notification-answers",
+    id: "2026-11-06-exponential-desktop-packages",
     date: "2026-11-06",
-    title: "Lock screen sessions and answers from notifications",
-    summary: "On Android, running sessions show on the lock screen and you can answer a plan or question straight from its notification; Mark all read works on desktop again.",
-    body: r#"- **Lock screen (Android)**: a session that is running shows on the lock screen as a live update.
-- **Answer from the notification (Android)**: approve a plan or ask for changes, pick a question's option, or reply to a mention without opening the app.
-- **App icon shortcuts (Android)**: long-press the app icon for New issue, New chat, Search and your newest chat.
-- **Mark all read**: works on desktop again, and if it fails on any app you get a message with Retry instead of nothing.
-- **App forms**: a number field that starts with a value selects it when you tap in, so the first Save works; date-times in record tables read as dates.
-- **Markdown in apps**: app text renders the same on the web, desktop, iPhone and Android."#,
+    title: "Exponential Desktop: install and update it from our package repositories",
+    summary: "The Linux desktop environment is now Exponential Desktop, with signed repositories for Ubuntu, Mint, Debian, Fedora and Arch.",
+    body: r#"- **Install with one line**: `curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh` adds the repository and installs it; updates arrive with your system's own updates.
+- **Seven systems tested**: Ubuntu 24.04 and 26.04, Linux Mint 22, Debian 13, Fedora 44 and 45, and Arch install it on every release.
+- **System check in Settings**: About lists what the machine needs (GPU, displays, Xwayland, NVIDIA) with the fix for anything missing.
+- **New name**: Exponential Desktop replaces eDE; an installed `ede` package upgrades in place and keeps your documents and history."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.
