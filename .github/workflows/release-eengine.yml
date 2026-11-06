@@ -265,6 +265,12 @@ jobs:
             cp "${bins[0]}" "../../dist-runner/${{ matrix.asset }}"
           fi
           ls -l ../../dist-runner
+      - name: E7 smoke (bundle the album sample on this runner, codesign --verify)
+        if: runner.os == 'macOS'
+        working-directory: apps/desktop
+        env:
+          EXP_BUNDLE_MACOS_RUNNER: ${{ github.workspace }}/dist-runner/${{ matrix.asset }}
+        run: cargo test --locked -p eengine-bundle --lib targets::macos
       - uses: actions/upload-artifact@v4
         with:
           name: runner-${{ matrix.asset }}
