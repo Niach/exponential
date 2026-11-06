@@ -21,7 +21,7 @@ use eengine_runner::{assets, storage, vault::RunnerVault};
 use eui_core::theme::{Mode, ResolvedTheme};
 use eui_gpui::host::HostPlugin;
 use eui_gpui::runtime::{Emit, ExponentialHost, HostFunction, HostOptions, SourceResolver};
-use gpui::{div, prelude::*, px, size, App, Bounds, Context, Entity, Hsla, SharedString, TitlebarOptions, Window, WindowAppearance, WindowBounds, WindowOptions};
+use gpui::{div, prelude::*, px, size, AnyWindowHandle, App, Bounds, Context, Entity, Hsla, SharedString, TitlebarOptions, Window, WindowAppearance, WindowBounds, WindowOptions};
 use serde_json::{json, Map, Value};
 
 type Reply = flume::Sender<Result<Value, String>>;
@@ -40,6 +40,8 @@ enum Inbound {
     Toast(String),
     Resize(f32),
     Activation(bool),
+    /// A later start without a link (Linux, Windows): come to the front.
+    Activate,
 }
 
 struct Binding {
@@ -57,6 +59,7 @@ struct Ctx {
     live: Cell<bool>,
     next: Cell<u64>,
     tx: flume::Sender<Inbound>,
+    window: Cell<Option<AnyWindowHandle>>,
 }
 
 impl Ctx {
@@ -162,7 +165,14 @@ impl Ctx {
                 };
                 self.finish(0, "app.navigate", &args, result)
             }
-            Inbound::Link(link) => self.lifecycle(|r| events::deep_link(&r.config().id, &link)),
+            Inbound::Link(link) => {
+                self.front(cx);
+                self.lifecycle(|r| events::deep_link(&r.config().id, &link))
+            }
+            Inbound::Activate => {
+                self.front(cx);
+                return;
+            }
             Inbound::Tap(tap) => self.lifecycle(|_| events::notification_tap(&tap)),
             Inbound::Activation(active) => self.lifecycle(|_| Some(events::activation(active))),
             Inbound::StoreChanged => {
@@ -178,6 +188,14 @@ impl Ctx {
             },
         };
         self.apply(paints, cx);
+    }
+
+    /// The window to the front (its activation drives `foreground`).
+    fn front(&self, cx: &mut App) {
+        if let Some(window) = self.window.get() {
+            let _ = window.update(cx, |_, window, _| window.activate_window());
+        }
+        cx.activate(true);
     }
 
     fn lifecycle(&self, event: impl FnOnce(&Runner) -> Option<LifecycleEvent>) -> Vec<Paint> {
@@ -272,7 +290,39 @@ fn main() {
     let exe = std::env::current_exe().unwrap_or_default();
     let platform = Platform::current();
     let bundle = read_bundle(find_bundle(platform, &exe).as_deref());
+    // Linux and Windows: one running instance per app id. A later start
+    // hands it its links (or asks it to the front) and exits 0.
+    #[cfg(not(target_os = "macos"))]
+    let primary = bundle.as_ref().ok().and_then(|b| {
+        use eengine_runner::single::{claim, Claim, Endpoint, Message};
+        let endpoint = Endpoint::for_app(&b.config.id)?;
+        let mut messages: Vec<Message> = events::link_args(&b.config.id, std::env::args()).into_iter().map(Message::Open).collect();
+        if messages.is_empty() {
+            messages.push(Message::Activate);
+        }
+        match claim(&endpoint, &messages[0]) {
+            Ok(Claim::First(primary)) => Some(primary),
+            Ok(Claim::Forwarded) => {
+                for message in &messages[1..] {
+                    let _ = claim(&endpoint, message);
+                }
+                std::process::exit(0)
+            }
+            // Nowhere to listen: this start runs on its own.
+            Err(_) => None,
+        }
+    });
     let (tx, rx) = flume::unbounded::<Inbound>();
+    #[cfg(not(target_os = "macos"))]
+    let _serving = primary.map(|primary| {
+        let tx = tx.clone();
+        primary.serve(move |message| {
+            let _ = tx.send(match message {
+                eengine_runner::single::Message::Open(link) => Inbound::Link(link),
+                eengine_runner::single::Message::Activate => Inbound::Activate,
+            });
+        })
+    });
     let application = gpui_platform::application().with_assets(assets::Assets);
     {
         // macOS hands a URL-scheme launch its link as an event.
@@ -391,6 +441,7 @@ fn main() {
             live: Cell::new(false),
             next: Cell::new(0),
             tx: tx.clone(),
+            window: Cell::new(None),
         });
         *ctx_slot.borrow_mut() = Some(ctx.clone());
 
@@ -438,7 +489,7 @@ fn main() {
             app_id,
             ..Default::default()
         };
-        cx.open_window(window, |window, cx| {
+        let window = cx.open_window(window, |window, cx| {
             cx.new(|cx| {
                 let mut subs = vec![cx.observe(&host, |_, _, cx| cx.notify())];
                 let tx = ctx.tx.clone();
@@ -454,6 +505,7 @@ fn main() {
             })
         })
         .expect("a window");
+        ctx.window.set(Some(window.into()));
         cx.activate(true);
     });
 }

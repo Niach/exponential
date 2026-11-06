@@ -60,7 +60,13 @@ pub fn deep_link(id: &str, link: &str) -> Option<LifecycleEvent> {
 /// The deep links among the process arguments (Linux and Windows hand a
 /// URL-scheme launch its link as an argument; macOS sends it as an event).
 pub fn links_in_args(id: &str, args: impl IntoIterator<Item = String>) -> Vec<LifecycleEvent> {
-    args.into_iter().skip(1).filter_map(|a| deep_link(id, &a)).collect()
+    link_args(id, args).iter().filter_map(|a| deep_link(id, a)).collect()
+}
+
+/// The arguments that are this app's deep links, as given (what a later
+/// start forwards to the running instance, `single`).
+pub fn link_args(id: &str, args: impl IntoIterator<Item = String>) -> Vec<String> {
+    args.into_iter().skip(1).filter(|a| deep_link(id, a).is_some()).collect()
 }
 
 /// A notification's `tap` (the bridge stores the lifecycle event itself).
@@ -121,7 +127,8 @@ mod tests {
         assert_eq!(deep_link("at.acme.album", "at.acme.other://album"), None);
         assert_eq!(deep_link("at.acme.album", "not a link"), None);
         let args = ["runner", "--flag", "at.acme.album://albums"].map(String::from);
-        assert_eq!(links_in_args("at.acme.album", args).len(), 1);
+        assert_eq!(links_in_args("at.acme.album", args.clone()).len(), 1);
+        assert_eq!(link_args("at.acme.album", args), vec!["at.acme.album://albums".to_string()]);
     }
 
     #[test]

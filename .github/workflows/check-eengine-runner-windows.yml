@@ -1,7 +1,8 @@
 name: check-eengine-runner-windows
 
 # #VAPP-266: the desktop runner on Windows, the spike for eui-gpui's first
-# Windows run (gpui at our pin, fonts, the Credential Manager Vault). The
+# Windows run (gpui at our pin, fonts, the Credential Manager Vault, the
+# single-instance named pipe). The
 # gate is Linux-only, so this builds the runner on windows-latest, runs its
 # tests, then starts the release binary without a bundle (it paints the
 # `missing` failure surface) and checks it is still up after 20 s.
@@ -36,7 +37,7 @@ jobs:
           workspaces: apps/desktop
           key: windows-runner
       - uses: ./.github/actions/cargo-fetch
-      - name: The runner's tests (bundle, vault, events, the Engine instance, the dependency gate)
+      - name: The runner's tests (bundle, vault, events, the Engine instance, the named pipe, the dependency gate)
         shell: bash
         run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eengine-runner -p eengine-desktop
       - name: The release binary

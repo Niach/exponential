@@ -26,6 +26,8 @@ The runner has no chrome of its own. It paints four genUI surfaces with eui-gpui
    - notification taps
 
    A plain launch that opens nothing opens the derived package's first screen.
+
+   **One instance per app id** (`single.rs`, Linux and Windows; macOS delivers links to the running app itself). The first instance listens on a local endpoint only its user can reach: a Unix socket `<config id>.sock` (0600) under `$XDG_RUNTIME_DIR`, else in the app-data directory, or the named pipe `\\.\pipe\<config id>.runner.<user>` with the default ACL. A later start sends its links there, or asks the first to come to the front when it has none, and exits 0 without a window or a store. The running instance takes a link the same way as at launch (a refused one = the toast) and comes to the front. An endpoint nobody answers within 2 s (a crashed or hung first instance's socket) is replaced, never waited on.
 5. **Calls**. `records.*` and `app.navigate` run on the main thread. Every capability tool of the manifest goes through the broker on a worker thread, because the natives block on their dialogs. The answer is applied as follows:
    - `Ask` paints `consent`, and `consent.answer` answers it.
    - `Refused` paints `toast`.
@@ -50,7 +52,7 @@ The theme is the package's `theme` (a built-in id or a theme JSON), else Exponen
 ## Tests
 
 ```bash
-cargo test -p eengine-runner      # headless: bundle, vault, events, the instance, the dependency gate
+cargo test -p eengine-runner      # headless: bundle, vault, events, the instance, single instance, the dependency gate
 ```
 
 `tests/dependency_gate.rs` walks Cargo.lock from the runner. It fails on:
