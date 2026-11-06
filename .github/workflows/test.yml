@@ -2,8 +2,9 @@ name: test
 
 # The ONE pull-request gate (2026-10-26: speed first, target < 5 min wall).
 # Only the cheap checks that catch real breakage run here: the typecheck, the
-# web unit tests (four shards), actionlint over every workflow, the migration chain against a real Postgres
-# (order, drift, custom triggers), the styleguide suite, the web production build when the PR touches web or a
+# web unit tests (four shards), the styleguide suite, and behind path filters
+# (#EXP-1708: run less): actionlint when workflows change, the migration chain against a real Postgres
+# (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
 # plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests when it touches apps/ede, the Android
 # compile + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
@@ -15,12 +16,21 @@ name: test
 # runs in release-suite.yml: on release tags and on workflow_dispatch.
 #
 # Runs ONCE per change: on the pull request, never again on the squash push
-# to master. `workflow_dispatch` runs this gate on demand.
+# to master. `workflow_dispatch` runs this gate on demand: without `base_sha`
+# every job runs; WITH it (#EXP-1708: the merge train's pipeline, train.yml,
+# on `exp-train/<id>`) the path filters below take the diff base_sha..HEAD,
+# exactly as they take a PR's files, so a batch runs only what it touches.
 
 on:
   pull_request:
     branches: [master]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Run only the jobs the diff from this commit touches (the merge train)
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: test-${{ github.workflow }}-${{ github.ref }}
@@ -33,8 +43,8 @@ jobs:
     uses: ./.github/workflows/pick-runner.yml
     secrets: inherit
 
-  # The desktop check and the eUI conformance pass run only when the PR
-  # touches what they build; workflow_dispatch runs them always.
+  # The path-filtered jobs run only when the PR (or the train's diff from
+  # base_sha) touches what they build; a bare workflow_dispatch runs them all.
   changes:
     needs: pick
     runs-on: ubuntu-latest
@@ -48,15 +58,32 @@ jobs:
       android: ${{ steps.f.outputs.android }}
       site: ${{ steps.f.outputs.site }}
       web_build: ${{ steps.f.outputs.web_build }}
+      db: ${{ steps.f.outputs.db }}
+      real_db: ${{ steps.f.outputs.real_db }}
+      workflows: ${{ steps.f.outputs.workflows }}
+      gaps: ${{ steps.f.outputs.gaps }}
+      merge_train: ${{ steps.f.outputs.merge_train }}
     steps:
+      # The train's diff: two shallow commits are enough for a name-only tree diff.
+      - uses: actions/checkout@v4
+        if: inputs.base_sha != ''
       - id: f
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ inputs.base_sha }}
         run: |
           set -euo pipefail
-          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
-          files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
+          if [ -n "$PR" ]; then
+            files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
+          elif [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --quiet --depth=1 origin "$BASE_SHA"
+            files="$(git diff --name-only "$BASE_SHA" HEAD)"
+            printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
+          else
+            printf 'desktop=true\neui=true\nede=true\nede_shell=true\nios=true\nios_app=true\nandroid=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           desktop='^(apps/desktop/|packages/(domain-contract|ecore|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/actions/cargo-fetch/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The catalog, the six renderers, the facade, what they bundle (tokens, icons), the desktop lockfile (gpui revs).
@@ -88,6 +115,22 @@ jobs:
           # then builds here by default, and a stray run costs ~2 min in parallel.
           web_build='^(apps/web/|packages/|package\.json$|bun\.lock$|bunfig\.toml$|Dockerfile$|\.github/workflows/test\.yml$)'
           echo "web_build=$(grep -qE "$web_build" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #EXP-1708: the migration chain: the schema, the SQL, drizzle and its config.
+          db='^(packages/db-schema/|apps/web/src/db/|apps/web/drizzle\.config\.ts$|apps/web/package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          echo "db=$(grep -qE "$db" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #EXP-1708: the real-DB suites (`*.real-db.test.ts`) on the hosted
+          # runner's Postgres: what they import (the server, the schema, the
+          # packages the sessions and eMCP servers replay).
+          real_db='^(packages/(db-schema|eagent|emcp)/|apps/web/src/(db|lib)/|apps/web/package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
+          echo "real_db=$(grep -qE "$real_db" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          workflows='^\.github/'
+          echo "workflows=$(grep -qE "$workflows" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # The rewrite-gap list against the view catalog (the train serializes
+          # merges, so a merge race can no longer double a row behind a PR's back).
+          gaps='^(packages/(view-catalog|exponential-ui)/|\.github/workflows/test\.yml$)'
+          echo "gaps=$(grep -qE "$gaps" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          merge_train='^(scripts/merge-train/|packages/domain-contract/(src/merge-train|fixtures/merge-train)|\.exponential/|\.github/workflows/(test|train)\.yml$)'
+          echo "merge_train=$(grep -qE "$merge_train" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -112,7 +155,8 @@ jobs:
         run: bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
 
   migrations:
-    needs: pick
+    needs: [pick, changes]
+    if: needs.changes.outputs.db == 'true' || needs.changes.outputs.real_db == 'true'
     # EXP-112 / EXP-137: run the full chain from scratch against a real
     # Postgres (catches SQL that fails on every real DB), assert `drizzle-kit
     # push` is a no-op afterwards (catches silent drift between the SQL and
@@ -161,6 +205,14 @@ jobs:
           fi
       - name: Apply custom triggers
         run: docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
+      # #EXP-1708: the real-DB suites join the gate behind their path filter,
+      # on this hosted runner's Postgres (release-suite.yml keeps the full run).
+      - name: Real-DB tests
+        if: needs.changes.outputs.real_db == 'true'
+        env:
+          BETTER_AUTH_SECRET: ci-only-real-db-secret
+          REAL_DB_REQUIRED: '1'
+        run: cd apps/web && bunx vitest run real-db.test
 
   desktop:
     needs: [pick, changes]
@@ -373,7 +425,8 @@ jobs:
   # painter's README, the gpui guide app and its install snippet. Text only,
   # well under a second.
   gpui-revs:
-    needs: pick
+    needs: [pick, changes]
+    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.eui == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -430,7 +483,8 @@ jobs:
   # without its rewrite-gaps.json row, and a merge race that doubles a row
   # reddens the next PR instead of only eUI ones.
   rewrite-gaps:
-    needs: pick
+    needs: [pick, changes]
+    if: needs.changes.outputs.gaps == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -444,7 +498,8 @@ jobs:
   # actionlint is a pinned, checksummed binary (~1 s). ShellCheck and pyflakes
   # stay off: this gate catches broken workflows, not script style.
   actionlint:
-    needs: pick
+    needs: [pick, changes]
+    if: needs.changes.outputs.workflows == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -458,11 +513,22 @@ jobs:
           tar xzf /tmp/actionlint.tgz -C /tmp actionlint
           /tmp/actionlint -color -shellcheck= -pyflakes=
 
+  # #EXP-1708: the merge train's engine against real git repos and its
+  # contract (no install, ~2 s).
+  merge-train:
+    needs: [pick, changes]
+    if: needs.changes.outputs.merge_train == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun run test:merge-train
+
   # EXP-1364: the ONE required status check on master (the "master: test
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site]
+    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-shell, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site, merge-train]
     if: always()
     runs-on: ubuntu-latest
     steps:
