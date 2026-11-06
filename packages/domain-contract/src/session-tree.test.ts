@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import card from "../fixtures/session-card.json" with { type: "json" }
 import thread from "../fixtures/session-thread.json" with { type: "json" }
 import list from "../fixtures/threads-list.json" with { type: "json" }
+import mergeTrain from "../fixtures/merge-train.json" with { type: "json" }
 import {
   buildSessionThread,
   composerReplies,
@@ -53,6 +54,23 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       )
     })
   }
+  // #EXP-1710: a `pr_merge` line reads by its `mergeOutcome` (merge-train.json
+  // copy.events); none or an unknown outcome = session-thread's fallback.
+  test(`thread: pr_merge lines by mergeOutcome`, () => {
+    const base = thread.cases.find((entry) => JSON.stringify(entry.input).includes(`"pr_opened"`))!
+    const lineOf = (card: Record<string, unknown>) => {
+      const input = structuredClone(base.input) as { messages: Array<{ id: string; card: unknown }> }
+      const message = input.messages.find((m) => (m.card as { event?: string } | null)?.event === `pr_opened`)!
+      message.card = { kind: `event`, event: `pr_merge`, pullRequestId: (message.card as { pullRequestId: string }).pullRequestId, ...card }
+      const rows = buildSessionThread(input as never).rows as Array<{ id: string; text?: string }>
+      return rows.find((row) => row.id === message.id)?.text
+    }
+    for (const [outcome, text] of Object.entries(mergeTrain.copy.events)) {
+      expect(lineOf({ mergeOutcome: outcome })).toMatch(new RegExp(`^${text.replace(`{pr}`, `#\\d+`)}$`))
+    }
+    expect(lineOf({ mergeOutcome: `future` })).toMatch(/^Auto-merge of PR #\d+$/)
+    expect(lineOf({})).toMatch(/^Auto-merge of PR #\d+$/)
+  })
   for (const entry of thread.cases) {
     test(`thread: ${entry.name}`, () => {
       expect(buildSessionThread(entry.input as never, (entry as { options?: never }).options)).toEqual(entry.expected as never)

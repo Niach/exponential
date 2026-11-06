@@ -11,6 +11,7 @@ import cardFixture from "../fixtures/session-card.json" with { type: "json" }
 import threadFixture from "../fixtures/session-thread.json" with { type: "json" }
 import listFixture from "../fixtures/threads-list.json" with { type: "json" }
 import chats from "../fixtures/chats.json" with { type: "json" }
+import mergeTrainFixture from "../fixtures/merge-train.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
 import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { commandDivider } from "./chats"
@@ -747,6 +748,9 @@ export interface SessionThreadView {
   origin: SessionXref | null
 }
 
+/** #EXP-1710: the `pr_merge` lines by outcome (merged | conflict | failing | held). */
+const MERGE_TRAIN_EVENTS = mergeTrainFixture.copy.events
+
 function eventText(
   card: Record<string, unknown>,
   issues: ReadonlyMap<string, TreeIssue>,
@@ -754,7 +758,12 @@ function eventText(
   sessionName: (id: string) => string | null = () => null
 ): string | null {
   const event = String(card.event ?? ``)
-  const template = (THREAD_COPY.events as Record<string, string>)[event]
+  // #EXP-1710: a `pr_merge` line reads by its `mergeOutcome`
+  // (merge-train.json copy.events); an unknown outcome keeps the fallback.
+  const outcome = event === `pr_merge` && typeof card.mergeOutcome === `string` ? card.mergeOutcome : null
+  const template =
+    (outcome ? (MERGE_TRAIN_EVENTS as Record<string, string>)[outcome] : undefined) ??
+    (THREAD_COPY.events as Record<string, string>)[event]
   if (!template) return null
   const issue = typeof card.issueId === `string` ? issues.get(card.issueId) : undefined
   const pr = typeof card.pullRequestId === `string` ? prs.get(card.pullRequestId) : undefined

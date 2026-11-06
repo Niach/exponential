@@ -2,24 +2,25 @@ import { PrChecksSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// #EXP-1611 (fixtures/pr-checks.json): CI on the thread's PR ×4, the
-// `pr-checks` specimen (`packages/ui/src/pr-checks.tsx`), case for case with
-// the desktop twin (`styleguide/entries/pr_checks.rs`): THE header Merge pill
-// in its four check states, then the `…` menu's Checks submenu drawn open as
-// a static panel over the fixture's `specimen`.
+// #EXP-1611 / #EXP-1710 (fixtures/pr-checks.json, merge-train.json): CI and
+// the merge train on the thread's PR ×4, the `pr-checks` specimen
+// (`packages/ui/src/pr-checks.tsx`), case for case with the desktop twin
+// (`styleguide/entries/pr_checks.rs`): THE header merge STATUS pill in every
+// merge-train `statusPill` case, then the `…` menu's Checks submenu drawn
+// open as a static panel over pr-checks.json `specimen`.
 
 export const entry: StyleguideEntry = {
   id: `pr-checks`,
   section: `special`,
   owner: `EXP-1611`,
   title: `PR checks`,
-  blurb: `The thread header's PR carries its CI, identical on all four clients and read only from the synced \`pull_request_checks\` rows (no client calls GitHub). THE Merge pill over \`pull_requests.checks_state\` (\`mergePill\`): none and success = the primary \`Merge PR\` | \`Merge stack\` with the pr-merged glyph; pending = the same pill with THE Spinner, still enabled; failure = the plain pill \`Checks failing\` with the red ci-failed glyph, whose tap asks prompts.json \`merge-failing-pr\` (Cancel focused, Merge destructive, body = the failing names, five then +N) instead of the plain or stack confirm. The \`…\` menu leads with the Checks submenu whenever the PR has rows (any viewer): the summary glyph and \`{n} failing\` | \`{n} running\` | \`{n} passed\`, then one row per check (failed, running, queued, passed, skipped; ties by name) with its tinted glyph, name and duration; a pick opens the logs, a row without a url is disabled. Model = \`checksList\` / \`checksSummary\` (fixture \`pr-checks.json\` ×4).`,
+  blurb: `The thread header's PR carries its merge status and CI, identical on all four clients and read only from the synced rows (no client calls GitHub). THE header pill is the merge STATUS pill over \`pull_requests.merge_*\` (merge-train.json \`statusPill\`): THE Pill md, not primary, its glyph by concept and a red tone tinting the glyph only: Draft, Checks running | Session working (THE Spinner), Queued · 2nd, Testing with 3 | Testing (THE Spinner), Merged, Conflict (red pr-conflict), Checks failing (red ci-failed), On hold | Auto-merge stuck (pr-hold, red for the limits). Its tap opens the Checks list; no rows = readonly. THE ONLY action: \`approval\` mode, a ready PR = the primary \`Needs approval\`, whose tap asks the plain or stack merge confirm and queues it. The \`…\` menu (\`mergeMenuEntries\`): the Checks submenu whenever the PR has rows (any viewer; the summary glyph and \`{n} failing\` | \`{n} running\` | \`{n} passed\`, then one row per check with its tinted glyph, name and duration; a pick opens the logs, a row without a url is disabled), Merge now (owners, the shared alert card \`merge-now-pr\`), Hold | Resume auto-merge, Close PR. Model = \`statusPill\` / \`mergeMenuEntries\` / \`checksList\` / \`checksSummary\` (fixtures \`merge-train.json\`, \`pr-checks.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `PrMergePill, prChecksMenuEntry`,
+      symbol: `PrStatusPill, prChecksMenuEntry`,
       file: `packages/ui/src/pr-checks.tsx`,
-      note: `sites: session-merge-button.tsx (pill), hooks/use-pull-request-checks.ts (the … menu rows)`,
+      note: `sites: session-merge-button.tsx (pill, Merge now, Hold | Resume), hooks/use-pull-request-checks.ts (the … menu rows)`,
     },
     desktop: {
       state: `ok`,

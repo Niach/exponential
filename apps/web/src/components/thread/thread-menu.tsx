@@ -7,7 +7,7 @@ import { sessionIssueCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { newDraftNavigation } from "@/lib/issue-draft-page"
 import { trpc } from "@/lib/trpc-client"
-import { usePullRequestClose } from "@/components/session-merge-button"
+import { usePullRequestClose, usePullRequestTrainRows } from "@/components/session-merge-button"
 import { usePullRequestGuideEntries } from "@/hooks/use-pull-request-checks"
 import type { PullRequestRow, SessionRow } from "@/lib/session-tree"
 import { ChatHeaderMenu, useChatMenuEntries, type useChatActions } from "@/components/thread/chat-menu"
@@ -205,14 +205,16 @@ export function useThreadMenu({
 
 /** Thread 58cb32df (chats.json MENUS): the thread header's `…` = the chat's
  *  own menu (Delete, the rows' right-click menu)
- *  plus the Guide PR's rows: its Checks submenu (#EXP-1611, any viewer)
- *  and, while it is open, its Close (EXP-1338). The delete
+ *  plus the Guide PR's rows (#EXP-1710 `mergeMenuEntries`): its Checks
+ *  submenu (any viewer), Merge now (owners), Hold | Resume auto-merge and
+ *  Close (members, a live PR). The delete
  *  confirm is the host's (`useChatActions().dialog`). */
 export function ThreadHeaderMenu({
   root,
   title,
   pr,
   canClosePr,
+  isOwner = false,
   actions,
   className,
 }: {
@@ -221,13 +223,21 @@ export function ThreadHeaderMenu({
   /** The Guide's PR (null = none). */
   pr: PullRequestRow | null
   canClosePr: boolean
+  /** #EXP-1710: an owner also gets Merge now. */
+  isOwner?: boolean
   actions: Pick<ReturnType<typeof useChatActions>, `requestDelete`>
   className?: string
 }) {
   const chat = useChatMenuEntries(root, actions)
   const close = usePullRequestClose(pr ?? NO_PR, canClosePr && pr !== null)
-  // #EXP-1611: the PR's Checks submenu (any viewer), then its Close.
-  const prEntries = usePullRequestGuideEntries(pr, canClosePr, close.entry)
+  // #EXP-1710 (merge-train.json `menu`): the PR's Checks submenu (any
+  // viewer), Merge now (owners), Hold | Resume auto-merge, Close.
+  const train = usePullRequestTrainRows(pr)
+  const prEntries = usePullRequestGuideEntries(
+    pr,
+    { member: canClosePr, owner: isOwner && canClosePr },
+    { "close-pr": close.entry, "merge-now": train.mergeNow, hold: train.hold, resume: train.resume }
+  )
   const entries: MenuEntry[] =
     chat.length > 0 && prEntries.length > 0
       ? [...chat, { kind: `separator`, id: `sep-pr` }, ...prEntries]
@@ -236,6 +246,7 @@ export function ThreadHeaderMenu({
     <>
       <ChatHeaderMenu entries={entries} title={title} className={className} />
       {close.dialog}
+      {train.dialog}
     </>
   )
 }

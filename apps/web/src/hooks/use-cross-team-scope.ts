@@ -55,7 +55,7 @@ export function useCrossTeamScope(
   const { data: session } = useSession()
   const { myTeams } = useTeamMemberships(phone ? session?.user?.id : undefined)
   const signature = myTeams
-    .map((team) => `${team.id}:${team.name}:${team.slug}:${team.yoloMode}`)
+    .map((team) => `${team.id}:${team.name}:${team.slug}:${team.mergeMode}`)
     .join(`|`)
   return useMemo(
     () => crossTeamScope(activeTeam, myTeams as Team[], phone),

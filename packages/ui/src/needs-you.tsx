@@ -1,4 +1,4 @@
-import { type ComponentProps } from "react"
+import { type ComponentProps, type ReactNode } from "react"
 import { CHATS_SHELL } from "@exp/domain-contract/chats"
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS, type NeedsYouRow } from "@exp/domain-contract/needs-you"
 import fixture from "@exp/domain-contract/fixtures/needs-you.json"
@@ -14,7 +14,7 @@ import { conceptIcon } from "./icons.generated"
 // contract's `needsYou()`; these only paint it.
 //
 //   NeedsYouList      one reading column of THE inbox page's ListRow, else
-//                     THE EmptyState
+//                     THE EmptyState; a stuck PR's actions under its meta
 //   NeedsYouEntryRow  the phones' first row of Chats (the Archived row's box)
 //   NeedsYouSpecimen  the styleguide's `needs-you`: `cases[1]` + the entry row
 
@@ -25,13 +25,17 @@ const QuestionIcon = conceptIcon(WAITING_CARDS_ICONS.question as Parameters<type
 const PrIcon = conceptIcon(`pr-open`)
 const GLYPHS = { plan: PlanIcon, question: QuestionIcon, pr: PrIcon } as const
 
-export function NeedsYouList({
+export function NeedsYouList<Row extends NeedsYouRow>({
   rows,
   onOpen,
+  actions,
   className,
 }: {
-  rows: readonly NeedsYouRow[]
-  onOpen?: (row: NeedsYouRow) => void
+  rows: readonly Row[]
+  onOpen?: (row: Row) => void
+  /** #EXP-1710: a row's THE Button sm row under its meta (a stuck PR's
+   *  Retry / Merge now / Close PR); null = none. */
+  actions?: (row: Row) => ReactNode
   className?: string
 }) {
   if (rows.length === 0) {
@@ -60,8 +64,9 @@ export function NeedsYouList({
                 <span className="ml-auto shrink-0 pl-2 text-right text-xs text-muted-foreground">{row.age}</span>
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                {row.meta ? `${row.chat} · ${row.meta}` : row.chat}
+                {[row.chat, row.meta].filter(Boolean).join(` · `)}
               </div>
+              {actions?.(row)}
             </div>
           </ListRow>
         )

@@ -29,9 +29,9 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => ({
   useLiveQuery: () => ({ data: [] }),
 }))
 
-import { MERGE_PR_LABEL, PullRequestMergePill } from "@/components/session-merge-button"
+import { PullRequestStatusPill } from "@/components/session-merge-button"
 import { MERGE_STACK_LABEL } from "@/lib/pr-stack"
-import prChecks from "@exp/domain-contract/fixtures/pr-checks.json"
+import mergeTrain from "@exp/domain-contract/fixtures/merge-train.json"
 
 const pr = {
   id: `pr-1`,
@@ -41,10 +41,18 @@ const pr = {
   state: `open` as const,
   url: `https://github.com/acme/app/pull/42`,
   repositoryId: `repo-1`,
+  mergeState: `checks` as const,
+  mergeWait: null as string | null,
+  mergeHold: null as string | null,
+  mergePosition: null as number | null,
+  mergeTrainId: null as string | null,
 }
 
-// EXP-1293: THE merge pill over a pull_requests row.
-describe(`PullRequestMergePill`, () => {
+const pill = () => screen.getByTestId(mergeTrain.testIds.statusPill)
+const approval = { ...pr, mergeWait: `approval` }
+
+// #EXP-1710: THE header merge STATUS pill (merge-train.json `statusPill`).
+describe(`PullRequestStatusPill`, () => {
   beforeEach(() => {
     merge.mockReset()
     failedAction.mockReset()
@@ -52,24 +60,43 @@ describe(`PullRequestMergePill`, () => {
     checks.rows = []
   })
 
-  it(`hides unless the PR is open and the viewer may merge`, () => {
-    const { rerender } = render(<PullRequestMergePill pr={{ ...pr, state: `merged` }} />)
-    expect(screen.queryByTestId(`pr-merge-pill`)).toBeNull()
-    rerender(<PullRequestMergePill pr={pr} canMerge={false} />)
-    expect(screen.queryByTestId(`pr-merge-pill`)).toBeNull()
+  it(`a closed PR has none; a merged one reads Merged`, () => {
+    const { rerender } = render(<PullRequestStatusPill pr={{ ...pr, state: `closed` as never }} />)
+    expect(screen.queryByTestId(mergeTrain.testIds.statusPill)).toBeNull()
+    rerender(<PullRequestStatusPill pr={{ ...pr, state: `merged` as never }} />)
+    expect(pill().textContent).toBe(`Merged`)
   })
 
-  it(`confirms, then merges the one PR`, async () => {
-    merge.mockResolvedValue({ merged: true, txid: 1 })
-    render(<PullRequestMergePill pr={pr} />)
-    expect(screen.getByTestId(`pr-merge-pill`).textContent).toContain(MERGE_PR_LABEL)
-    fireEvent.click(screen.getByTestId(`pr-merge-pill`))
+  it(`a status without check rows is readonly`, () => {
+    render(<PullRequestStatusPill pr={{ ...pr, mergeState: `queued` as never, mergePosition: 2 }} />)
+    expect(pill().textContent).toBe(`Queued · 2nd`)
+    expect(pill().getAttribute(`data-mode`)).toBe(`readonly`)
+  })
+
+  it(`a status with check rows opens the Checks list`, async () => {
+    checks.rows = [{ name: `gate`, status: `in_progress`, conclusion: null }]
+    render(<PullRequestStatusPill pr={{ ...pr, mergeState: `conflict` as never }} />)
+    expect(pill().textContent).toBe(`Conflict`)
+    expect(pill().getAttribute(`data-tone`)).toBe(`red`)
+    expect(pill().getAttribute(`data-mode`)).toBe(`action`)
+  })
+
+  it(`approval mode: Needs approval confirms, then queues the one PR`, async () => {
+    merge.mockResolvedValue({ merged: false, queued: true })
+    render(<PullRequestStatusPill pr={approval} />)
+    expect(pill().textContent).toBe(`Needs approval`)
+    fireEvent.click(pill())
     fireEvent.click(await screen.findByRole(`button`, { name: /^Merge$/ }))
     await waitFor(() => expect(merge).toHaveBeenCalledWith({ pullRequestId: `pr-1` }, {}))
   })
 
-  it(`a stack member merges the stack through its top`, async () => {
-    merge.mockResolvedValue({ merged: true, txid: 1 })
+  it(`a viewer's Needs approval is no action`, () => {
+    render(<PullRequestStatusPill pr={approval} member={false} />)
+    expect(pill().getAttribute(`data-mode`)).toBe(`readonly`)
+  })
+
+  it(`a stack member approves the stack through its top`, async () => {
+    merge.mockResolvedValue({ merged: false, queued: true })
     stack.confirm = {
       title: MERGE_STACK_LABEL,
       landing: [`#42`, `#43`],
@@ -77,9 +104,8 @@ describe(`PullRequestMergePill`, () => {
       body: `Lands 2 pull requests, bottom-up: #42, #43.`,
       input: { issueId: `pr-2`, mergeStack: true },
     }
-    render(<PullRequestMergePill pr={pr} />)
-    expect(screen.getByTestId(`pr-merge-pill`).textContent).toContain(MERGE_STACK_LABEL)
-    fireEvent.click(screen.getByTestId(`pr-merge-pill`))
+    render(<PullRequestStatusPill pr={approval} />)
+    fireEvent.click(pill())
     const dialog = await screen.findByTestId(`stack-merge-confirm-dialog`)
     fireEvent.click(
       Array.from(dialog.querySelectorAll(`button`)).find(
@@ -92,61 +118,10 @@ describe(`PullRequestMergePill`, () => {
   })
 
   it(`a refusal toasts`, async () => {
-    merge.mockResolvedValue({ merged: false, error: `Conflicts`, txid: 1 })
-    render(<PullRequestMergePill pr={pr} />)
-    fireEvent.click(screen.getByTestId(`pr-merge-pill`))
+    merge.mockResolvedValue({ merged: false, error: `Conflicts` })
+    render(<PullRequestStatusPill pr={approval} />)
+    fireEvent.click(pill())
     fireEvent.click(await screen.findByRole(`button`, { name: /^Merge$/ }))
     await waitFor(() => expect(failedAction).toHaveBeenCalledWith(`merge`, `the PR`, `Conflicts`))
-  })
-
-  // #EXP-1611 (pr-checks.json MERGE PILL): the pill over `checks_state`.
-  it(`pending: the primary pill with THE Spinner, still enabled, the plain confirm`, async () => {
-    merge.mockResolvedValue({ merged: true, txid: 1 })
-    render(<PullRequestMergePill pr={{ ...pr, checksState: `pending` }} />)
-    const pill = screen.getByTestId(`pr-merge-pill`)
-    expect(pill.textContent).toContain(MERGE_PR_LABEL)
-    expect(pill.className).toContain(`bg-primary`)
-    expect(pill.querySelector(`[data-slot=spinner]`)).not.toBeNull()
-    expect((pill as HTMLButtonElement).disabled).toBe(false)
-    fireEvent.click(pill)
-    fireEvent.click(await screen.findByRole(`button`, { name: /^Merge$/ }))
-    await waitFor(() => expect(merge).toHaveBeenCalledWith({ pullRequestId: `pr-1` }, {}))
-  })
-
-  it(`failure: the plain pill asks merge-failing-pr, then merges the PR`, async () => {
-    merge.mockResolvedValue({ merged: true, txid: 1 })
-    checks.rows = prChecks.specimen.checks
-    render(<PullRequestMergePill pr={{ ...pr, checksState: `failure` }} />)
-    const pill = screen.getByTestId(`pr-merge-pill`)
-    expect(pill.textContent).toBe(prChecks.copy.mergeFailing)
-    expect(pill.className).not.toContain(`bg-primary`)
-    expect(pill.querySelector(`[data-glyph=ci-failed]`)?.getAttribute(`class`)).toContain(`text-destructive`)
-    fireEvent.click(pill)
-    expect(await screen.findByText(`Merge PR #42 with failing checks?`)).toBeTruthy()
-    expect(screen.getByText(`Failing: gate.`)).toBeTruthy()
-    fireEvent.click(screen.getByTestId(`pr-merge-failing-confirm`))
-    await waitFor(() => expect(merge).toHaveBeenCalledWith({ pullRequestId: `pr-1` }, {}))
-    expect(screen.queryByTestId(`stack-merge-confirm-dialog`)).toBeNull()
-  })
-
-  it(`failure on a stack member: the stack title, Merge lands the stack through its top`, async () => {
-    merge.mockResolvedValue({ merged: true, txid: 1 })
-    checks.rows = prChecks.specimen.checks
-    stack.confirm = {
-      title: MERGE_STACK_LABEL,
-      landing: [`#42`, `#43`],
-      staysOpen: [],
-      body: `Lands 2 pull requests, bottom-up: #42, #43.`,
-      input: { issueId: `pr-2`, mergeStack: true },
-    }
-    render(<PullRequestMergePill pr={{ ...pr, checksState: `failure` }} />)
-    expect(screen.getByTestId(`pr-merge-pill`).textContent).toBe(prChecks.copy.mergeFailing)
-    fireEvent.click(screen.getByTestId(`pr-merge-pill`))
-    expect(await screen.findByText(`Merge the stack with failing checks?`)).toBeTruthy()
-    expect(screen.queryByTestId(`stack-merge-confirm-dialog`)).toBeNull()
-    fireEvent.click(screen.getByTestId(`pr-merge-failing-confirm`))
-    await waitFor(() =>
-      expect(merge).toHaveBeenCalledWith({ pullRequestId: `pr-2`, stack: true }, {})
-    )
   })
 })

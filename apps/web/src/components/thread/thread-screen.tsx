@@ -615,6 +615,7 @@ export function ThreadScreen({
       title={view.title}
       pr={guidePr}
       canClosePr={permissions.isMember}
+      isOwner={permissions.isOwner}
       actions={chatActions}
       className={className}
     />
