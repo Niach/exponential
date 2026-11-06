@@ -82,6 +82,7 @@ import {
   teamInvites,
   teamMembers,
   teams,
+  repositories,
 } from "@/db/schema"
 import {
   commentAudienceValues,
@@ -3078,6 +3079,12 @@ export function registerExponentialTools(
     prNumber: z.number().int().positive().optional(),
   }
 
+  /** #EXP-1711: the switch may be scoped to some repositories. */
+  async function repositoryFullName(repositoryId: string): Promise<string | null> {
+    const [row] = await db.select({ fullName: repositories.fullName }).from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
+    return row?.fullName ?? null
+  }
+
   async function selectPr(args: {
     pullRequestId?: string
     issueId?: string
@@ -3187,7 +3194,7 @@ export function registerExponentialTools(
         // EXP-1709: the merge train queues it (its stack with it) and
         // reports the position; nothing merges here.
         const train = await import(`@/lib/merge-train/worker`)
-        if (train.mergeTrainOn()) {
+        if (train.mergeTrainOn(await repositoryFullName(pr.repositoryId))) {
           await train.approvePullRequest(pr.id)
           await train.runRepository(pr.repositoryId)
           return ok({ ...prRef(pr), merged: false, queued: true, mergeQueue: await train.queueReport(pr.id), checks })

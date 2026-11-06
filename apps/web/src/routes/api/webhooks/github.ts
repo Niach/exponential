@@ -471,7 +471,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     if (payload.action === `synchronize` && row && pr.head?.sha) {
       // EXP-1709: a new head = merge-train `push` (checks again; a testing
       // unit leaves its run).
-      if (mergeTrainOn()) await onPullRequestPush(row.id)
+      if (mergeTrainOn(repoFullName)) await onPullRequestPush(row.id)
       await repairPullRequestChecks(row.id, Date.now(), { headSha: pr.head.sha })
       return jsonResponse(200, { ok: true })
     }

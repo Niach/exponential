@@ -2,7 +2,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { pullRequests } from "@/db/schema"
+import { pullRequests, repositories } from "@/db/schema"
 import { router, authedProcedure } from "@/lib/trpc"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { postMergeRefusal, withHandoff } from "@/lib/merge-refusal"
@@ -34,7 +34,7 @@ export const pullRequestsRouter = router({
         // EXP-1709: with the merge train on, a person's Merge (approval
         // mode's Needs approval) queues the PR (its stack with it); it never
         // merges directly.
-        if (await trainOn()) {
+        if (await trainOn(input.pullRequestId)) {
           const pr = await prTeam(input.pullRequestId)
           await assertTeamMember(ctx.session.user.id, pr.teamId)
           const { approvePullRequest } = await import(`@/lib/merge-train/worker`)
@@ -51,7 +51,7 @@ export const pullRequestsRouter = router({
     const pr = await prTeam(input.pullRequestId)
     await assertTeamOwner(ctx.session.user.id, pr.teamId)
     // The train off: today's direct merge, through the whole stack beneath.
-    if (!(await trainOn())) {
+    if (!(await trainOn(input.pullRequestId))) {
       await directMerge(ctx.session.user.id, input.pullRequestId, true)
       return { ok: true as const }
     }
@@ -92,8 +92,18 @@ export const pullRequestsRouter = router({
     ),
 })
 
-async function trainOn(): Promise<boolean> {
-  return (await import(`@/lib/merge-train/worker`)).mergeTrainOn()
+async function trainOn(pullRequestId: string): Promise<boolean> {
+  const { mergeTrainOn } = await import(`@/lib/merge-train/worker`)
+  if (mergeTrainOn()) return true
+  if (process.env.MERGE_TRAIN !== `true`) return false
+  // #EXP-1711: a switch scoped to some repositories (MERGE_TRAIN_REPOS).
+  const [row] = await db
+    .select({ fullName: repositories.fullName })
+    .from(pullRequests)
+    .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
+    .where(eq(pullRequests.id, pullRequestId))
+    .limit(1)
+  return mergeTrainOn(row?.fullName ?? null)
 }
 
 async function prTeam(pullRequestId: string): Promise<{ teamId: string }> {
