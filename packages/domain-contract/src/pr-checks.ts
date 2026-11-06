@@ -83,6 +83,13 @@ export function gatedChecks<T extends PrCheckLike>(checks: readonly T[]): T[] {
   return required.length > 0 ? required : [...checks]
 }
 
+/** #EXP-1711 (merge-train.json READINESS): the aggregate over the GATED
+ *  checks only — what holds a PR before the train; an informational leg
+ *  (not required while the base names required ones) never does. */
+export function gatedChecksState(checks: readonly PrCheckLike[]): PrChecksState {
+  return aggregateChecksState(gatedChecks(checks))
+}
+
 export type MergeGateVerdict =
   | { ok: true }
   | { ok: false; reason: `pending` | `failing`; names: string[] }

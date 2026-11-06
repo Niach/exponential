@@ -1064,12 +1064,20 @@ export async function applyPullRequestMerged(opts: {
    *  merge's token. Omitted = only an `exp/` head goes (a merge made
    *  outside Exponential, seen by the webhook or the poller). */
   deleteHead?: { token: string; anyBranch: boolean }
+  /** The merge train's own landing: its `train_landed` step moves
+   *  `merge_state` (and clears the run). Any other merge = `merged` here. */
+  trainLanding?: boolean
 }): Promise<{ applied: boolean; txid: number | null }> {
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     const [claimed] = await tx
       .update(pullRequests)
-      .set({ state: `merged`, mergedAt: opts.mergedAt ?? new Date(), updatedAt: new Date() })
+      .set({
+        state: `merged`,
+        ...(opts.trainLanding ? {} : { mergeState: `merged` as const }),
+        mergedAt: opts.mergedAt ?? new Date(),
+        updatedAt: new Date(),
+      })
       .where(and(eq(pullRequests.id, opts.pullRequestId), ne(pullRequests.state, `merged`)))
       .returning()
     if (!claimed) return { applied: false as const, issueIds: [] as string[], txid: null, pr: null }

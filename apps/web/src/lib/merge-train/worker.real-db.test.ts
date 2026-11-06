@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { and, asc, eq, sql } from "drizzle-orm"
 import type { TrainCheck, TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
-import { agents, boards, devices, mergeTrains, messages, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, boards, devices, mergeTrains, messages, pullRequestChecks, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { inSession } from "@/lib/sessions/messages"
 import type { Forge } from "@/lib/ecode/forge"
@@ -257,6 +257,30 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     await worker.resumePullRequest(a)
     await worker.drainMergeTrainEdges()
     expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `approval`, mergeHold: null })
+  })
+
+  it(`an informational leg never holds a PR: only the required checks do (#EXP-1711)`, async () => {
+    delete process.env.MERGE_TRAIN
+    const w = await world()
+    const a = await w.pr(221)
+    await w.idle()
+    const check = (name: string, status: `queued` | `completed` | `in_progress`, conclusion: `success` | null, required: boolean) => ({
+      teamId: w.teamId,
+      pullRequestId: a,
+      headSha: `h221`,
+      name,
+      status,
+      conclusion,
+      required,
+    })
+    await db.insert(pullRequestChecks).values([check(`gate`, `in_progress`, null, true), check(`ios-core`, `queued`, null, false)])
+    await db.update(pullRequests).set({ checksState: `pending` }).where(eq(pullRequests.id, a))
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `checks` })
+    await db.update(pullRequestChecks).set({ status: `completed`, conclusion: `success` }).where(and(eq(pullRequestChecks.pullRequestId, a), eq(pullRequestChecks.name, `gate`)))
+    // checks_state still pending (ios-core has no runner): ready anyway.
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `queued`, mergeWait: null })
   })
 
   it(`waits for the opener's subtree, then batches ready PRs, lands them on green and tells each opener`, async () => {
