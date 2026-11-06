@@ -1,6 +1,6 @@
 ---
 name: exponential-apps
-description: "Build or change an Exponential app (Apps): the package format (formatVersion 4), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records."
+description: "Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps upsert) or its records."
 ---
 
 # Exponential apps
@@ -17,7 +17,7 @@ Components and their props are NOT listed here: read exponential_apps {op: "cata
 
 ## Checklist
 
-- `formatVersion` is exactly 4; `sources` lists every source a binding follows (`[]` for none) and `functions` every function a press calls.
+- `formatVersion` is exactly 5; `sources` lists every source a binding follows (`[]` for none) and `functions` every function a press calls.
 - Declare every record kind with a schema; pick its `policy` (read/create/update/delete: member | author | owners; create never author) before writing screens.
 - A kind's add/edit form or its list of records = ONE `RecordForm` / `RecordTable` node (`references/records.md`, Record macros), never a hand-built Form or Table.
 - Prefer a named query (group, aggregate, running) over summing rows in expressions.

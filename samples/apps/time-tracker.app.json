@@ -7,7 +7,7 @@
     "description": "Log your hours per day against the team's projects; see the month per day and per ISO week, the total and what is left of the monthly target. Entries are private to their author (owners see everyone's). Agents read the weeks and log hours over MCP."
   },
   "package": {
-    "formatVersion": 4,
+    "formatVersion": 5,
     "id": "exponential.time-tracker",
     "name": "Time tracker",
     "version": "1.1.0",
@@ -2379,6 +2379,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "MLsq6fOClxAvE72CQDMFHNDmlMb-1CFoTcWrxHUaK-42WXvWL_t5MN6g4v8kmbX1WEHJChgsxtSzVGgkcG0eCQ"
+    "value": "gQ3wtE9MovjxcGrnhtjglUe5QT6Fy5h3-5omVMEOksW4tuAictkoU1MwZguRQBpmHm43mzFl7eQ5MwM7ecUzAw"
   }
 }

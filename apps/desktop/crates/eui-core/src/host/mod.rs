@@ -19,6 +19,7 @@ pub mod expressions;
 pub mod package;
 pub mod policy;
 pub mod calendar;
+pub mod capabilities;
 pub mod query;
 pub mod record_macros;
 pub mod record_migrations;
@@ -39,6 +40,7 @@ pub use actions::{
     action_call_name, action_var_types, apply_record_batch, apply_record_batch_as, function_effect, is_action_name, run_action, validate_package_actions, validate_package_effects, ActionContext, ACTION_CALL_PREFIX, ACTION_LIMIT_ACTIONS, ACTION_LIMIT_MAX_STEPS, ACTION_LIMIT_STEPS, ACTION_NAME_PATTERN,
     ACTION_STEP_KINDS, RECORDS_BATCH_FUNCTION,
 };
+pub use capabilities::{capability_origin_valid, validate_package_capabilities, CAPABILITY_ORIGIN_PATTERN, CAPABILITY_ORIGIN_SCOPES, CAPABILITY_SCOPES, MAX_CAPABILITIES, MAX_CAPABILITY_WHY};
 pub use components::validate_package_components;
 pub use contract::*;
 pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions, validate_record_computed};

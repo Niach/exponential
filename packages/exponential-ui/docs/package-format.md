@@ -17,12 +17,12 @@ extension compatibility, canonical JSON, signatures).
 ## Versions
 
 A package MUST carry `formatVersion`. This document is format version
-**4** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
-`policy`, 4 added a screen's `nav` and `exposed`), and a host reads exactly its
+**5** (`catalog/host.json` `package.formatVersion`; 3 added the per-kind
+`policy`, 4 added a screen's `nav` and `exposed`, 5 added `capabilities`), and a host reads exactly its
 own version: Apps keeps no backwards compatibility. A missing one is
-`/formatVersion: formatVersion is required (4)`, an older one `format version
-3 is no longer read: write 4`, a newer one `format version 5 is newer than
-this host (4)`; a host never guesses at keys it does not know. The catalog a package
+`/formatVersion: formatVersion is required (5)`, an older one `format version
+3 is no longer read: write 5`, a newer one `format version 6 is newer than
+this host (5)`; a host never guesses at keys it does not know. The catalog a package
 renders against keeps its own version in its id (`catalogId`,
 `…/catalogs/core/v1`) and is negotiated as before (`supportedCatalogIds`).
 
@@ -30,7 +30,7 @@ renders against keeps its own version in its id (`catalogId`,
 
 ```jsonc
 {
-  "formatVersion": 4,                  // required: the current format
+  "formatVersion": 5,                  // required: the current format
   "id": "acme.hours", "name": "Working hours", "version": "1.2.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "templates": { "<id>": { "components": [/* flat, one root */], "data": {}, "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }] } },
@@ -44,6 +44,7 @@ renders against keeps its own version in its id (`catalogId`,
   "screens": [{ "template": "month", "title": "Month", "icon": "calendar" }, { "template": "team", "title": "Team", "icon": "users", "params": { "range": "week" } }],
   "tests": [{ "name": "a duration", "expr": { "expr": "formatDuration(7.5, 'h:mm')" }, "expect": "7:30" }],
   "extensions": [{ "id": "https://acme.example/catalogs/charts/v1", "version": "1.4.0", "components": ["Gantt"] }],
+  "capabilities": [{ "id": "photos.read", "why": "Pick the photos for an album." }],
   "theme": "exponential", "icon": { "glyph": "clock" }, "description": "…"
 }
 ```
@@ -564,6 +565,35 @@ links an owner can turn on; nothing is public until one does.
   RecordTable, over a snapshot the host computes per request: only `id`,
   `updatedAt` and the named fields, no live data.
 - A host offers no other kind, no member data and no `exp:` source to a guest.
+
+## Capabilities
+
+VAPP-260 (format version 5, `src/host/capabilities.ts`, Rust
+`host::capabilities`, `fixtures/host-router.json` `acme.capabilities` /
+`acme.badcapabilities`; the runtime: `packages/eengine`
+`fixtures/capabilities.json` + `consent.json`). `capabilities` is the
+package's **capability manifest**: the most its UI and its agents may reach
+through the Engine's broker, and what a bundler maps onto platform permissions.
+
+```jsonc
+"capabilities": [
+  { "id": "photos.read", "why": "Pick the photos for an album." },
+  { "id": "http.fetch", "why": "Load exchange rates.", "origins": ["https://api.example.com"] }
+]
+```
+
+- At most **16**. `id` = one of `camera.capture`, `clipboard.read`,
+  `clipboard.write`, `files.read`, `files.write`, `http.fetch`,
+  `location.read`, `notifications.post`, `photos.read`, `print.pdf`,
+  `share.send` (`catalog/host.json` `package.capabilities.scopes`), each at
+  most once. A host's own scopes (eDE's `shell.edit`) are never declarable.
+- `why` = the author's line on the consent sheet, 1 to 200 characters.
+- `origins` = required for `http.fetch` and refused anywhere else: a
+  non-empty list of distinct `https://host[:port]` origins (lowercase, no
+  path). A call to any other origin is refused.
+- Declaring is not granting: the person answers the Engine's consent sheet
+  (an `ask` scope, once) or the platform picker (`files.*`, `print.pdf`,
+  `share.send`, every call). Absent = no capabilities.
 
 ## Expressions
 

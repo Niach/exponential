@@ -20,7 +20,7 @@ use crate::types::ExtensionDef;
 /// (catalog/host.json `package.formatVersion`; docs/package-format.md). A
 /// package names it, and it is exactly this one: no older format is read
 /// (eApps keeps no backwards compatibility).
-pub const PACKAGE_FORMAT_VERSION: u32 = 4;
+pub const PACKAGE_FORMAT_VERSION: u32 = 5;
 /// `package.extensions.versionPattern`.
 pub const EXTENSION_VERSION_PATTERN: &str = "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$";
 
@@ -365,6 +365,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
     issues.extend(super::screens::validate_package_screens(p));
     // VAPP-241: the public link definitions.
     issues.extend(super::share::validate_package_shares(p));
+    // VAPP-260 (format 5): the capability manifest.
+    issues.extend(super::capabilities::validate_package_capabilities(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }

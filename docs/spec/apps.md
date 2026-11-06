@@ -199,7 +199,7 @@ Needs: C2, C13.
 ```jsonc
 {
   "id": "acme.hours", "name": "Hours", "version": "2.0.0",
-  "formatVersion": 4,                      // a host reads exactly its own
+  "formatVersion": 5,                      // a host reads exactly its own
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "icon": { "glyph": "clock", "color": "blue" }, "description": "…",
   "sources":   ["records:*", "exp:members", "exp:issues"],     // allowlist
@@ -232,9 +232,9 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 
 A screen's `nav: false` and `exposed` (§5.1). A version 3 package is a valid version 4 package, so migration `0251_eapps_format_v4` moved the stored ones (`apps.package`, `apps.draft_package`, `app_versions.package`) up, as `0237` did for version 3; a client that has not updated shows the update prompt below.
 
-### 2.2.2 What formatVersion 5 adds (🆕 #VAPP-260)
+### 2.2.2 What formatVersion 5 adds (✅ #VAPP-260)
 
-`capabilities: [{id, why, origins?}]`: the package's **capability manifest** (§13.2). `id` is a scope of the Engine's catalog (`packages/eengine/fixtures/capabilities.json`, never a host-only one), at most once; `why` is the author's one line the consent sheet shows (≤ 200 characters); `origins` is required for `http.fetch` and only there (exact `https://host[:port]` origins). The manifest is the ceiling of what the app's UI and its agents may reach, and the bundler maps it onto platform permissions. Absent = no capabilities. Every Exponential host runs it through the same broker.
+`capabilities: [{id, why, origins?}]`: the package's **capability manifest** (§13.2). `id` is a scope of the Engine's catalog (`packages/eengine/fixtures/capabilities.json`, never a host-only one), at most once; `why` is the author's one line the consent sheet shows (≤ 200 characters); `origins` is required for `http.fetch` and only there (exact `https://host[:port]` origins). The manifest is the ceiling of what the app's UI and its agents may reach, and the bundler maps it onto platform permissions. Absent = no capabilities. A version 4 package is a valid version 5 package, so migration `0258_eapps_format_v5` moved the stored ones up, as `0251` did for version 4. Every host runs the manifest through the same broker (§13.2).
 
 A host refuses a newer `formatVersion` (✅ today), so old clients show "Update Exponential to open this app" instead of a broken screen.
 

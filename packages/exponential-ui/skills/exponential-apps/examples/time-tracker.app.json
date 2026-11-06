@@ -1,5 +1,5 @@
 {
-  "formatVersion": 4,
+  "formatVersion": 5,
   "id": "exponential.time-tracker",
   "name": "Time tracker",
   "version": "1.1.0",
