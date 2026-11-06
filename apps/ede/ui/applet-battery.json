@@ -1,0 +1,27 @@
+{
+  "$comment": "Exponential Desktop's factory battery applet (#EDE-43): the taskbar's battery button opens it as a popup surface. The battery (/services/power/battery: the percent as a progress bar, the state and the time left or until full), the power profile tiles (set_profile), and the Power settings link; without a battery the profile still shows. Every action is ede.service on the power domain.",
+  "surface": {"popup": {"parent": "taskbar", "anchor": "applet-battery", "placement": "top-end", "size": {"width": 380, "height": 180}}, "functions": ["ede.service", "ede.open_document"]},
+  "root": {
+    "id": "battery",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.sm", "height": 180, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.md"},
+    "children": [
+      {"id": "battery-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "visible": {"path": "/services/power/battery/present"}, "children": [
+        {"id": "battery-icon", "component": "Icon", "props": {"name": {"path": "/applets/battery/icon"}, "size": "lg", "label": "Battery"}},
+        {"id": "battery-texts", "component": "Stack", "props": {"direction": "vertical", "gap": "none"}, "style": {"flexGrow": 1, "minWidth": 0}, "children": [
+          {"id": "battery-percent", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "/services/power/battery/percent"}, "%"]}}, "variant": "title"}},
+          {"id": "battery-state", "component": "Text", "props": {"text": {"call": "map", "args": {"value": {"path": "/services/power/battery/state"}, "cases": {"charging": "Charging", "discharging": "Discharging", "full": "Fully charged", "empty": "Empty", "pending-charge": "Pending charge", "pending-discharge": "Pending discharge"}, "default": ""}}, "variant": "muted"}}
+        ]},
+        {"id": "battery-time", "component": "Text", "props": {"text": {"path": "/services/power/battery/timeText"}, "variant": "muted"}}
+      ]},
+      {"id": "battery-bar", "component": "Progress", "props": {"value": {"path": "/services/power/battery/percent"}, "max": 100}, "visible": {"path": "/services/power/battery/present"}},
+      {"id": "no-battery", "component": "Text", "props": {"text": "No battery", "variant": "muted"}, "visible": {"call": "not", "args": {"value": {"path": "/services/power/battery/present"}}}},
+      {"id": "profile-title", "component": "Text", "props": {"text": "Power mode", "variant": "label"}},
+      {"id": "profile", "component": "ChoiceTiles", "props": {"name": "profile", "options": [{"label": "Power saver", "value": "power-saver"}, {"label": "Balanced", "value": "balanced"}, {"label": "Performance", "value": "performance"}], "value": {"path": "/services/power/profile"}, "columns": 3}, "on": {"change": {"functionCall": {"call": "ede.service", "args": {"domain": "power", "action": "set_profile", "args": {"profile": {"path": "/services/power/profile"}}}}}}},
+      {"id": "power-foot", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center"}, "children": [
+        {"id": "power-settings", "component": "Link", "props": {"label": "Power settings"}, "on": {"press": {"functionCall": {"call": "ede.open_document", "args": {"name": "settings"}}}}}
+      ]}
+    ]
+  },
+  "data": {"applets": {"battery": {"show": false, "icon": "ede-battery"}}, "services": {"power": {"available": false, "battery": {"present": false, "percent": 0, "state": "unknown", "timeText": ""}, "profile": "balanced"}}}
+}

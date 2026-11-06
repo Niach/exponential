@@ -29,6 +29,11 @@ const NOTIFICATIONS: &str = include_str!("../../../../../../ede/ui/notifications
 const CENTER: &str = include_str!("../../../../../../ede/ui/notification-center.json");
 const TRAY_MENU: &str = include_str!("../../../../../../ede/ui/tray-menu.json");
 const SETTINGS: &str = include_str!("../../../../../../ede/ui/settings.json");
+const APPLET_SOUND: &str = include_str!("../../../../../../ede/ui/applet-sound.json");
+const APPLET_NETWORK: &str = include_str!("../../../../../../ede/ui/applet-network.json");
+const APPLET_BLUETOOTH: &str = include_str!("../../../../../../ede/ui/applet-bluetooth.json");
+const APPLET_BATTERY: &str = include_str!("../../../../../../ede/ui/applet-battery.json");
+const APPLET_CALENDAR: &str = include_str!("../../../../../../ede/ui/applet-calendar.json");
 
 fn document(source: &str) -> (Value, Value) {
     let doc: Value = serde_json::from_str(source).expect("an eDE factory document");
@@ -60,6 +65,18 @@ fn sample_shell(rail: bool) -> Value {
         ], "apps": apps, "favourites": [{"id": "firefox", "name": "Firefox", "icon": ""}, {"id": "nemo", "name": "Files", "icon": ""}]},
         "chat": {"open": false},
         "altTab": {"open": false, "selected": 0, "order": []}
+    })
+}
+
+/// #EDE-43: the applets' sample services, what `settings::demo_services` feeds the goldens.
+fn applet_services() -> Value {
+    let spotify = json!({"name": "org.mpris.MediaPlayer2.spotify", "identity": "Spotify", "status": "playing", "title": "Weightless", "artist": "Marconi Union", "album": "Weightless (Ambient Transmissions Vol. 2)", "artUrl": "", "position": 83, "length": 485, "positionText": "1:23 / 8:05", "canGoNext": true, "canGoPrevious": true, "canSeek": true});
+    json!({
+        "sound": {"available": true, "volume": 40, "muted": false, "sinks": [{"id": 55, "name": "Built-in Audio Analog Stereo", "volume": 40, "muted": false, "default": true}, {"id": 57, "name": "HDMI Out", "volume": 100, "muted": false, "default": false}], "sinkOptions": [{"label": "Built-in Audio Analog Stereo", "value": "55"}, {"label": "HDMI Out", "value": "57"}], "defaultSink": "55", "streams": [{"id": 71, "app": "Firefox", "name": "Kurzgesagt – In a Nutshell", "volume": 80, "muted": false}, {"id": 74, "app": "Spotify", "name": "Spotify", "volume": 65, "muted": false}]},
+        "media": {"available": true, "players": [spotify.clone()], "active": spotify},
+        "network": {"available": true, "wifiEnabled": true, "wiredConnected": false, "wired": [{"path": "/dev/2", "interface": "enp0s31f6", "state": "disconnected", "connection": ""}], "accessPoints": [{"ssid": "Home", "strength": 82, "secured": true, "active": true}, {"ssid": "Cafe Nero", "strength": 47, "secured": false, "active": false}, {"ssid": "FRITZ!Box 7590", "strength": 31, "secured": true, "active": false}], "vpn": [{"id": "6f2b1c0e-office", "name": "Office", "type": "vpn", "active": false}, {"id": "9a4d7e21-home", "name": "Home WG", "type": "wireguard", "active": true}]},
+        "bluetooth": {"available": true, "powered": true, "discovering": false, "devices": [{"path": "/bt/1", "name": "Keyboard K380", "address": "F4:73:35:12:AB:01", "paired": true, "connected": true}, {"path": "/bt/2", "name": "WH-1000XM4", "address": "38:18:4C:00:11:22", "paired": true, "connected": false}]},
+        "power": {"available": true, "battery": {"present": true, "percent": 73, "state": "discharging", "timeText": "2:10 left"}, "batteryText": "73% · 2:10 left", "profile": "balanced"}
     })
 }
 
@@ -122,6 +139,13 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         d.insert("outputs".into(), json!([{"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1, "scaleText": "1"}]));
         d.insert("user".into(), json!({"name": "Danny", "login": "danny"}));
     }
+    let (applet_sound, _) = document(APPLET_SOUND);
+    let (applet_network, _) = document(APPLET_NETWORK);
+    let (applet_bluetooth, _) = document(APPLET_BLUETOOTH);
+    let (applet_battery, _) = document(APPLET_BATTERY);
+    let (applet_calendar, _) = document(APPLET_CALENDAR);
+    let services = applet_services();
+    let sample_date = json!({"date": "2026-11-06", "dateText": {"weekday": "Friday", "date": "6 November 2026", "long": "Friday, 6 November 2026"}});
     let sample_tray_menu = json!({"traymenu": {"service": "demo/network", "title": "Network", "items": [
         {"id": 1, "label": "Connect to Wi-Fi", "enabled": true, "separator": false, "checked": false, "checkable": false, "depth": 0},
         {"id": 2, "label": "Airplane mode", "enabled": true, "separator": false, "checked": false, "checkable": true, "depth": 0},
@@ -149,4 +173,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notification-center", center, None, Some(sample_notifications), window, cx)))
         .child(div().w(px(280.0)).child(styleguide_surface_in("sg-ede-tray-menu", tray_menu, None, Some(sample_tray_menu), window, cx)))
         .child(div().w(px(960.0)).child(styleguide_surface_in("sg-ede-settings", settings, None, Some(settings_data), window, cx)))
+        .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-sound", applet_sound, None, Some(json!({"services": services, "applets": {"sound": {"icon": "media-volume-up"}}})), window, cx)))
+        .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-network", applet_network, None, Some(json!({"services": services})), window, cx)))
+        .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-bluetooth", applet_bluetooth, None, Some(json!({"services": services})), window, cx)))
+        .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-applet-battery", applet_battery, None, Some(json!({"services": services, "applets": {"battery": {"show": true, "icon": "ede-battery"}}})), window, cx)))
+        .child(div().w(px(720.0)).child(styleguide_surface_in("sg-ede-applet-calendar", applet_calendar, None, Some(sample_date), window, cx)))
 }

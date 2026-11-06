@@ -163,7 +163,35 @@ pub fn user_json() -> Value {
 /// Texts the pages show, derived from a snapshot.
 pub fn decorate(domain: &str, mut snapshot: Value) -> Value {
     match domain {
-        // `power` carries its own `batteryText` since #EDE-43.
+        // The sound applet's output picker (#EDE-43): the sinks as Select
+        // options, the default one as the value (a Select holds strings).
+        "sound" => {
+            let sinks = snapshot["sinks"].as_array().cloned().unwrap_or_default();
+            snapshot["sinkOptions"] = Value::Array(sinks.iter().map(|s| json!({"label": s["name"], "value": s["id"].as_u64().map(|id| id.to_string()).unwrap_or_default()})).collect());
+            snapshot["defaultSink"] = json!(sinks.iter().find(|s| s["default"] == true).and_then(|s| s["id"].as_u64()).map(|id| id.to_string()).unwrap_or_default());
+        }
+        // The seek slider's end label: `1:23 / 8:05`.
+        "media" => {
+            if let Some(players) = snapshot["players"].as_array_mut() {
+                for p in players.iter_mut() {
+                    let text = format!("{} / {}", minutes_seconds(p["position"].as_i64().unwrap_or(0)), minutes_seconds(p["length"].as_i64().unwrap_or(0)));
+                    p["positionText"] = json!(text);
+                }
+            }
+        }
+        // `power` carries its own `batteryText` since #EDE-43; an older
+        // daemon's snapshot gets it here.
+        "power" => {
+            if snapshot.get("batteryText").is_none() {
+                let b = &snapshot["battery"];
+                let text = match (b["present"].as_bool() == Some(true), b["timeText"].as_str().unwrap_or("")) {
+                    (false, _) => "No battery".to_string(),
+                    (true, "") => format!("{}%", b["percent"].as_u64().unwrap_or(0)),
+                    (true, time) => format!("{}% · {time}", b["percent"].as_u64().unwrap_or(0)),
+                };
+                snapshot["batteryText"] = json!(text);
+            }
+        }
         "updates" => {
             let n = snapshot["count"].as_u64().unwrap_or(0);
             snapshot["countText"] = json!(if n == 0 { "Up to date".to_string() } else { n.to_string() });
@@ -177,20 +205,32 @@ pub fn decorate(domain: &str, mut snapshot: Value) -> Value {
     snapshot
 }
 
+/// `m:ss` of a length in seconds (the media card).
+fn minutes_seconds(seconds: i64) -> String {
+    let s = seconds.max(0);
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
 pub fn demo_services() -> Value {
     let mut v = json!({
-        "network": {"available": true, "state": "global", "connected": true, "primary": "802-11-wireless", "wifiEnabled": true,
+        "network": {"available": true, "state": "global", "connected": true, "primary": "802-11-wireless", "wifiEnabled": true, "wiredConnected": false,
             "devices": [{"path": "/dev/1", "interface": "wlp3s0", "type": "wifi", "state": "connected", "connection": "Home", "addresses": ["192.168.1.23"]}, {"path": "/dev/2", "interface": "enp0s31f6", "type": "ethernet", "state": "disconnected", "connection": "", "addresses": []}],
-            "accessPoints": [{"ssid": "Home", "strength": 82, "secured": true, "active": true, "device": "/dev/1"}, {"ssid": "Cafe Nero", "strength": 47, "secured": false, "active": false, "device": "/dev/1"}]},
+            "wired": [{"path": "/dev/2", "interface": "enp0s31f6", "state": "disconnected", "connection": ""}],
+            "accessPoints": [{"ssid": "Home", "strength": 82, "secured": true, "active": true, "device": "/dev/1"}, {"ssid": "Cafe Nero", "strength": 47, "secured": false, "active": false, "device": "/dev/1"}, {"ssid": "FRITZ!Box 7590", "strength": 31, "secured": true, "active": false, "device": "/dev/1"}],
+            "vpn": [{"id": "6f2b1c0e-office", "name": "Office", "type": "vpn", "active": false}, {"id": "9a4d7e21-home", "name": "Home WG", "type": "wireguard", "active": true}]},
         "sound": {"available": true, "volume": 40, "muted": false, "micVolume": 100, "micMuted": false,
-            "sinks": [{"id": 55, "name": "Built-in Audio Analog Stereo", "volume": 40, "muted": false, "default": true}, {"id": 57, "name": "HDMI Out", "volume": 100, "muted": false, "default": false}], "sources": [{"id": 56, "name": "Built-in Microphone", "volume": 100, "muted": false, "default": true}]},
-        "bluetooth": {"available": true, "powered": true, "adapters": [{"name": "hci0", "powered": true}], "devices": [{"path": "/bt/1", "name": "Keyboard K380", "address": "F4:73:35:12:AB:01", "paired": true, "connected": true}, {"path": "/bt/2", "name": "WH-1000XM4", "address": "38:18:4C:00:11:22", "paired": true, "connected": false}]},
-        "power": {"available": true, "battery": {"present": true, "percent": 73, "state": "discharging"}, "onBattery": true, "profile": "balanced", "profiles": ["power-saver", "balanced", "performance"], "canSuspend": true, "canReboot": true, "canPowerOff": true},
+            "sinks": [{"id": 55, "name": "Built-in Audio Analog Stereo", "volume": 40, "muted": false, "default": true}, {"id": 57, "name": "HDMI Out", "volume": 100, "muted": false, "default": false}], "sources": [{"id": 56, "name": "Built-in Microphone", "volume": 100, "muted": false, "default": true}],
+            "streams": [{"id": 71, "app": "Firefox", "name": "Kurzgesagt – In a Nutshell", "volume": 80, "muted": false}, {"id": 74, "app": "Spotify", "name": "Spotify", "volume": 65, "muted": false}]},
+        "media": {"available": true,
+            "players": [{"name": "org.mpris.MediaPlayer2.spotify", "identity": "Spotify", "status": "playing", "title": "Weightless", "artist": "Marconi Union", "album": "Weightless (Ambient Transmissions Vol. 2)", "artUrl": "", "position": 83, "length": 485, "canGoNext": true, "canGoPrevious": true, "canSeek": true}],
+            "active": {"name": "org.mpris.MediaPlayer2.spotify", "identity": "Spotify", "status": "playing", "title": "Weightless", "artist": "Marconi Union", "album": "Weightless (Ambient Transmissions Vol. 2)", "artUrl": "", "position": 83, "length": 485, "canGoNext": true, "canGoPrevious": true, "canSeek": true}},
+        "bluetooth": {"available": true, "powered": true, "discovering": false, "adapters": [{"path": "/org/bluez/hci0", "name": "hci0", "powered": true, "discovering": false}], "devices": [{"path": "/bt/1", "name": "Keyboard K380", "address": "F4:73:35:12:AB:01", "paired": true, "connected": true, "trusted": true, "icon": "input-keyboard"}, {"path": "/bt/2", "name": "WH-1000XM4", "address": "38:18:4C:00:11:22", "paired": true, "connected": false, "trusted": true, "icon": "audio-headset"}]},
+        "power": {"available": true, "battery": {"present": true, "percent": 73, "state": "discharging", "timeText": "2:10 left", "secondsToEmpty": 7800, "secondsToFull": 0}, "batteryText": "73% · 2:10 left", "onBattery": true, "profile": "balanced", "profiles": ["power-saver", "balanced", "performance"], "canSuspend": true, "canHibernate": false, "canReboot": true, "canPowerOff": true},
         "updates": {"available": true, "count": 2, "security": 1, "packages": [{"name": "firefox", "suite": "noble-security", "version": "130.0", "from": "129.0"}, {"name": "vim", "suite": "noble", "version": "2:9.1", "from": "2:9.0"}]},
         "printers": {"available": true, "printers": [{"name": "HP_LaserJet", "state": "idle", "default": true}]},
         "about": {"available": true, "hostname": "ubuntu-wayland", "os": "Ubuntu 26.04 LTS", "kernel": "7.0.0-38-generic", "cpu": "13th Gen Intel Core i9-13900K", "cpus": 6, "memoryMb": 7423, "ede": "0.2.0", "checking": false, "checks": [{"name": "render", "level": "ok", "status": "OK", "detail": "renderD128 (virtio_gpu)"}, {"name": "seat", "level": "ok", "status": "OK", "detail": "logind session 2 on seat0"}, {"name": "Xwayland", "level": "ok", "status": "OK", "detail": "/usr/bin/Xwayland 24.1.10, explicit sync"}]},
     });
-    for d in ["power", "updates", "about"] {
+    for d in ["sound", "media", "power", "updates", "about"] {
         let s = v[d].clone();
         v[d] = decorate(d, s);
     }
@@ -230,5 +270,21 @@ mod tests {
         assert_eq!(decorate("power", json!({"batteryText": "No battery"}))["batteryText"], "No battery");
         assert_eq!(decorate("updates", json!({"count": 0}))["countText"], "Up to date");
         assert_eq!(decorate("about", json!({"memoryMb": 7423}))["memoryText"], "7.2 GB");
+        assert_eq!(decorate("power", json!({"battery": {"present": true, "percent": 73, "timeText": "2:10 left"}, "batteryText": "daemon's"}))["batteryText"], "daemon's");
+        let sound = decorate("sound", json!({"sinks": [{"id": 55, "name": "Built-in", "default": true}, {"id": 57, "name": "HDMI", "default": false}]}));
+        assert_eq!(sound["sinkOptions"], json!([{"label": "Built-in", "value": "55"}, {"label": "HDMI", "value": "57"}]));
+        assert_eq!(sound["defaultSink"], "55");
+        assert_eq!(decorate("media", json!({"players": [{"position": 83, "length": 485}]}))["players"][0]["positionText"], "1:23 / 8:05");
+    }
+
+    /// #EDE-43: the applets' goldens show every section.
+    #[test]
+    fn the_demo_feeds_every_applet() {
+        let s = demo_services();
+        assert!(!s["sound"]["streams"].as_array().unwrap().is_empty() && !s["sound"]["sinkOptions"].as_array().unwrap().is_empty());
+        assert_eq!(s["media"]["players"][0]["positionText"], "1:23 / 8:05");
+        assert!(!s["network"]["vpn"].as_array().unwrap().is_empty() && !s["network"]["wired"].as_array().unwrap().is_empty());
+        assert_eq!(s["bluetooth"]["discovering"], false);
+        assert_eq!(s["power"]["batteryText"], "73% · 2:10 left");
     }
 }

@@ -15,6 +15,11 @@ import notifications from "../../../ede/ui/notifications.json"
 import center from "../../../ede/ui/notification-center.json"
 import trayMenu from "../../../ede/ui/tray-menu.json"
 import settings from "../../../ede/ui/settings.json"
+import appletSound from "../../../ede/ui/applet-sound.json"
+import appletNetwork from "../../../ede/ui/applet-network.json"
+import appletBluetooth from "../../../ede/ui/applet-bluetooth.json"
+import appletBattery from "../../../ede/ui/applet-battery.json"
+import appletCalendar from "../../../ede/ui/applet-calendar.json"
 import type { StyleguideEntry } from "./types.ts"
 
 // #EDE-10 / #EDE-11 / #EDE-12 / #EDE-42: eDE's factory shell documents (apps/ede/ui),
@@ -39,6 +44,11 @@ const NOTIFICATIONS = notifications as unknown as { root: NestedNode }
 const CENTER = center as unknown as { root: NestedNode }
 const TRAY_MENU = trayMenu as unknown as { root: NestedNode }
 const SETTINGS = settings as unknown as { root: NestedNode; data: Record<string, unknown> }
+const APPLET_SOUND = appletSound as unknown as { root: NestedNode }
+const APPLET_NETWORK = appletNetwork as unknown as { root: NestedNode }
+const APPLET_BLUETOOTH = appletBluetooth as unknown as { root: NestedNode }
+const APPLET_BATTERY = appletBattery as unknown as { root: NestedNode }
+const APPLET_CALENDAR = appletCalendar as unknown as { root: NestedNode }
 
 const SAMPLE_SERVICES = {
   network: { available: true, wifiEnabled: true, devices: [{ path: `/dev/1`, interface: `wlp3s0`, state: `connected`, connection: `Home` }], accessPoints: [{ ssid: `Home`, strength: 82, active: true }, { ssid: `Cafe Nero`, strength: 47, active: false }] },
@@ -49,6 +59,17 @@ const SAMPLE_SERVICES = {
   printers: { available: true, printers: [{ name: `HP_LaserJet`, state: `idle`, default: true }] },
   about: { available: true, hostname: `ubuntu-wayland`, os: `Ubuntu 26.04 LTS`, kernel: `7.0.0-38-generic`, cpu: `13th Gen Intel Core i9-13900K`, memoryText: `7.2 GB`, ede: `0.1.0` },
 }
+// #EDE-43: the applets' sample services, what settings::demo_services feeds the goldens.
+const SPOTIFY = { name: `org.mpris.MediaPlayer2.spotify`, identity: `Spotify`, status: `playing`, title: `Weightless`, artist: `Marconi Union`, album: `Weightless (Ambient Transmissions Vol. 2)`, artUrl: ``, position: 83, length: 485, positionText: `1:23 / 8:05`, canGoNext: true, canGoPrevious: true, canSeek: true }
+const APPLET_SERVICES = {
+  sound: { available: true, volume: 40, muted: false, sinks: [{ id: 55, name: `Built-in Audio Analog Stereo`, volume: 40, muted: false, default: true }, { id: 57, name: `HDMI Out`, volume: 100, muted: false, default: false }], sinkOptions: [{ label: `Built-in Audio Analog Stereo`, value: `55` }, { label: `HDMI Out`, value: `57` }], defaultSink: `55`, streams: [{ id: 71, app: `Firefox`, name: `Kurzgesagt – In a Nutshell`, volume: 80, muted: false }, { id: 74, app: `Spotify`, name: `Spotify`, volume: 65, muted: false }] },
+  media: { available: true, players: [SPOTIFY], active: SPOTIFY },
+  network: { available: true, wifiEnabled: true, wiredConnected: false, wired: [{ path: `/dev/2`, interface: `enp0s31f6`, state: `disconnected`, connection: `` }], accessPoints: [{ ssid: `Home`, strength: 82, secured: true, active: true }, { ssid: `Cafe Nero`, strength: 47, secured: false, active: false }, { ssid: `FRITZ!Box 7590`, strength: 31, secured: true, active: false }], vpn: [{ id: `6f2b1c0e-office`, name: `Office`, type: `vpn`, active: false }, { id: `9a4d7e21-home`, name: `Home WG`, type: `wireguard`, active: true }] },
+  bluetooth: { available: true, powered: true, discovering: false, devices: [{ path: `/bt/1`, name: `Keyboard K380`, address: `F4:73:35:12:AB:01`, paired: true, connected: true }, { path: `/bt/2`, name: `WH-1000XM4`, address: `38:18:4C:00:11:22`, paired: true, connected: false }] },
+  power: { available: true, battery: { present: true, percent: 73, state: `discharging`, timeText: `2:10 left` }, batteryText: `73% · 2:10 left`, profile: `balanced` },
+}
+const SAMPLE_DATE = { date: `2026-11-06`, dateText: { weekday: `Friday`, date: `6 November 2026`, long: `Friday, 6 November 2026` } }
+
 const SAMPLE_OUTPUTS = [{ name: `HEADLESS-1`, summary: `Exponential Desktop (headless) · 1280×720 at 1× (0, 0)`, current: `1280x720@60`, modeOptions: [{ label: `1280x720@60 (preferred)`, value: `1280x720@60` }], scale: 1, scaleText: `1` }]
 
 const SAMPLE_NOTIFICATIONS = {
@@ -111,7 +132,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EDE-42`,
   title: `Exponential Desktop shell`,
-  blurb: `The desktop environment's factory shell documents, the IDE look (#EDE-42): the ground (apps/ede/ui/ground.json: the IDE's gradient and the rounded panel the focused window sits on), the sidebar (sidebar.json: the desktop/team switcher, inbox, search, new, the nav Needs you + Chats, the Pinned / Workspaces / Active sections, the Exponential start button and the chat button bottom-left; 272 px, or the 56 px icon rail), Mint's taskbar (taskbar.json: icon-only grouped buttons with pins, hover previews and a context menu, the applets, the bell and the clock at the right), the start menu (start-menu.json: the person and the favourites with lock / log out / power, the categories, the app rows, the search box), the chat (chat.json: the Assistant's composer), Expo and Scale (expo.json, scale.json: the workspaces and the active workspace's windows as live thumbnails), the version history (history.json: the shell documents' edits with Undo and Reset to factory), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json), a tray item's dbusmenu (tray-menu.json) and the settings surface (settings.json, a page per domain over exponential-services). Agents and people edit these files; exponential-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
+  blurb: `The desktop environment's factory shell documents, the IDE look (#EDE-42): the ground (apps/ede/ui/ground.json: the IDE's gradient and the rounded panel the focused window sits on), the sidebar (sidebar.json: the desktop/team switcher, inbox, search, new, the nav Needs you + Chats, the Pinned / Workspaces / Active sections, the Exponential start button and the chat button bottom-left; 272 px, or the 56 px icon rail), Mint's taskbar (taskbar.json: icon-only grouped buttons with pins, hover previews and a context menu, the applets, the bell and the clock at the right), the start menu (start-menu.json: the person and the favourites with lock / log out / power, the categories, the app rows, the search box), the chat (chat.json: the Assistant's composer), Expo and Scale (expo.json, scale.json: the workspaces and the active workspace's windows as live thumbnails), the version history (history.json: the shell documents' edits with Undo and Reset to factory), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json), a tray item's dbusmenu (tray-menu.json), the settings surface (settings.json, a page per domain over exponential-services) and the taskbar's applets (#EDE-43: applet-sound.json with the MPRIS card, the output volume and device and the per-app streams; applet-network.json with the Wired / Wi-Fi / VPN switches and the networks in reach; applet-bluetooth.json; applet-battery.json with the power mode; applet-calendar.json with the agenda and the inline month). Agents and people edit these files; exponential-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
   status: {
     web: {
       state: `ok`,
@@ -185,6 +206,26 @@ export const entry: StyleguideEntry = {
       <span className="text-xs text-muted-foreground">settings.json · the settings surface, a page per domain over exponential-services</span>
       <div style={{ width: 960 }}>
         <ExponentialUiTree id="ede-settings" node={SETTINGS.root} data={{ ...SETTINGS.data, services: SAMPLE_SERVICES, outputs: SAMPLE_OUTPUTS, user: { name: `Danny`, login: `danny` } }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">applet-sound.json · the sound button's popup: the player, the output, the applications</span>
+      <div style={{ width: 380 }}>
+        <ExponentialUiTree id="ede-applet-sound" node={APPLET_SOUND.root} data={{ services: APPLET_SERVICES, applets: { sound: { icon: `media-volume-up` } } }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">applet-network.json · the network button's popup</span>
+      <div style={{ width: 380 }}>
+        <ExponentialUiTree id="ede-applet-network" node={APPLET_NETWORK.root} data={{ services: APPLET_SERVICES }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">applet-bluetooth.json · the Bluetooth button's popup</span>
+      <div style={{ width: 380 }}>
+        <ExponentialUiTree id="ede-applet-bluetooth" node={APPLET_BLUETOOTH.root} data={{ services: APPLET_SERVICES }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">applet-battery.json · the battery button's popup</span>
+      <div style={{ width: 380 }}>
+        <ExponentialUiTree id="ede-applet-battery" node={APPLET_BATTERY.root} data={{ services: APPLET_SERVICES, applets: { battery: { show: true, icon: `ede-battery` } } }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">applet-calendar.json · the clock's popup: the agenda and the month</span>
+      <div style={{ width: 720 }}>
+        <ExponentialUiTree id="ede-applet-calendar" node={APPLET_CALENDAR.root} data={SAMPLE_DATE} formFactor="wide" />
       </div>
     </div>
   ),

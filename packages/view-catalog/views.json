@@ -8432,6 +8432,111 @@
         "ios": "Exponential Desktop only.",
         "android": "Exponential Desktop only."
       }
+    },
+    {
+      "id": "ede-applet-sound",
+      "group": "ede",
+      "title": "Exponential Desktop · sound applet",
+      "blurb": "The factory sound applet (apps/ede/ui/applet-sound.json, #EDE-43): the taskbar's sound button opens it as a popup above it: the MPRIS player card (the art, title and artist, previous / play-pause / next, the seek slider), the output volume and mute, the output device picker, one slider and mute per application stream, and the Sound settings link (sample players and streams in the golden).",
+      "order": 11,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "applet-sound"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-applet-network",
+      "group": "ede",
+      "title": "Exponential Desktop · network applet",
+      "blurb": "The factory network applet (apps/ede/ui/applet-network.json, #EDE-43): the taskbar's network button opens it as a popup above it: the Wired and Wi-Fi switches, the saved VPNs each with its switch, the Wi-Fi networks in reach (a press joins one), and the Network settings link (sample connections in the golden).",
+      "order": 12,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "applet-network"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-applet-bluetooth",
+      "group": "ede",
+      "title": "Exponential Desktop · Bluetooth applet",
+      "blurb": "The factory Bluetooth applet (apps/ede/ui/applet-bluetooth.json, #EDE-43): the taskbar's Bluetooth button opens it as a popup above it: the power switch, the known devices with Connect / Disconnect, the Search for devices switch, and the Bluetooth settings link (sample devices in the golden).",
+      "order": 13,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "applet-bluetooth"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-applet-battery",
+      "group": "ede",
+      "title": "Exponential Desktop · battery applet",
+      "blurb": "The factory battery applet (apps/ede/ui/applet-battery.json, #EDE-43): the taskbar's battery button opens it as a popup above it: the percent with the state and the time left over a progress bar, the power mode tiles, and the Power settings link (a sample battery in the golden; without one only the profile shows).",
+      "order": 14,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "applet-battery"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
+    },
+    {
+      "id": "ede-applet-calendar",
+      "group": "ede",
+      "title": "Exponential Desktop · calendar applet",
+      "blurb": "The factory calendar applet (apps/ede/ui/applet-calendar.json, #EDE-43): the taskbar's clock opens it as a popup above it: the agenda pane (No events: there is no calendar source yet), the weekday and date over the inline month grid, and the Date & time settings link.",
+      "order": 15,
+      "ede": {
+        "size": "1280x720",
+        "popup": [
+          "applet-calendar"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }
     }
   ]
 }

@@ -21,7 +21,7 @@
 //! of that surface. A change on disk redraws the surface; after each draw the
 //! shell prints the document's frame line on stdout, which is how the
 //! supervisor knows an edit reached the screen. The data every document may
-//! bind: `/time` + `/date` (local), `/windows` (the active workspace's
+//! bind: `/time` + `/date` + `/dateText` (local), `/windows` (the active workspace's
 //! windows over ede-protocol: id, title, app, focused, minimized), `/shell`
 //! (the model: rail, taskbar buttons, workspaces, the start menu's categories
 //! and apps, chat, Alt-Tab), `/apps` + `/query` (the launcher), `/switcher`
@@ -1520,6 +1520,7 @@ fn main() {
         let mut feed = Feed::new();
         feed.set("/time", json!(clock::time()));
         feed.set("/date", json!(clock::date()));
+        feed.set("/dateText", clock::date_text());
         feed.set("/windows", json!([]));
         feed.set("/apps", Value::Array(apps::filter(&installed, "")));
         feed.set("/query", json!(""));
@@ -1694,6 +1695,7 @@ fn main() {
                     let mut sh = s.borrow_mut();
                     sh.feed.set("/time", json!(now));
                     sh.feed.set("/date", json!(clock::date()));
+                    sh.feed.set("/dateText", clock::date_text());
                     dirty = true;
                 }
                 if dirty {
