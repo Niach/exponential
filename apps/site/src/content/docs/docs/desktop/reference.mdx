@@ -1,0 +1,182 @@
+---
+title: Exponential Desktop reference
+description: "For agents: the shell document format, the surface header, the data the shell feeds, the host functions, the services MCP tools, exponential-ctl, exponential-ui and the file locations of Exponential Desktop."
+---
+
+## Files
+
+| Path | What |
+|---|---|
+| `~/.config/exponential-desktop/ui/<name>.json` | A shell document; yours wins over the factory copy. A git repository. |
+| `~/.config/exponential-desktop/ui/theme.json` | The look, in the [genUI theme format](/docs/sdk/genui/guides/themes/); `extends` may name a built-in theme. |
+| `/usr/share/exponential-desktop/ui/` | The factory documents. |
+| `~/.config/exponential-desktop/compositor.toml` | Compositor settings: keyboard, windows, lock, idle, protected apps, outputs, theme bridge. A broken file is logged and ignored. |
+
+A document name is lowercase letters, digits, `-` and `_`.
+
+## The document
+
+A genUI document plus a `surface` header. Top-level keys: `surface`, exactly one of `root` (nested tree) or `components` (A2UI's flat list), and optionally `data`, `catalogId`, `$schema`, `$comment`. Unknown keys are refused.
+
+```json
+{
+  "surface": {
+    "layer": "top",
+    "anchor": ["top", "left", "right"],
+    "size": { "height": 40 },
+    "exclusiveZone": 40,
+    "functions": ["ede.focus", "ede.tray"]
+  },
+  "root": { "id": "panel", "component": "Box", "children": [
+    { "id": "clock", "component": "Text", "props": { "text": { "path": "/time" } } }
+  ] }
+}
+```
+
+### Layer surface
+
+| Key | Values | Default |
+|---|---|---|
+| `layer` | `background`, `bottom`, `top`, `overlay` | `top` |
+| `anchor` | edges from `top`, `bottom`, `left`, `right`, each once | none (centred) |
+| `size` | `{width?, height?}`, whole positive px; required on every axis not stretched between two opposite anchors | |
+| `exclusiveZone` | px kept clear along the anchored edge; needs an anchor | `0` |
+| `margin` | `{top, right, bottom, left}` px, never negative | `0` |
+| `keyboard` | `none`, `on-demand`, `exclusive` (top and overlay only) | `none` |
+| `onDemand` | `true`: opened by a hotkey or host function, never at start | `false` |
+| `functions` | the host functions this document may call | none |
+
+### Popup surface
+
+`popup: {parent, anchor, placement, size}`: a popup of the document `parent`, under its component `anchor`. `placement` is `bottom-start` (default), `bottom-end`, `top-start`, `top-end`, `left-start` or `right-start`. `size` with `width` and `height` is required. A popup carries no `layer`, `anchor`, `exclusiveZone`, `margin`, `keyboard` or `onDemand`; `functions` works as above.
+
+### Rules
+
+One issue refuses the whole document; the last good version stays.
+
+- No `Input` with `type: password`.
+- No `functionCall` outside `surface.functions`.
+- Every id once.
+- Then every component, prop, style and token is checked against the catalog.
+
+## Data the shell feeds
+
+| Path | What |
+|---|---|
+| `/time` | Local time. |
+| `/windows` | The open windows. |
+| `/apps`, `/query` | Installed desktop entries, filtered by what is typed. |
+| `/switcher` | Open windows, most recent first, with live thumbnails. |
+| `/osd` | The level the OSD shows. |
+| `/notifications` | `toasts` (newest first), `list` (the session's history), `count`. |
+| `/tray`, `/traymenu` | Tray items; the open item's menu rows. |
+| `/services/<domain>` | A [service](#services-mcp) snapshot. |
+| `/outputs` | Displays: modes, scale, position. |
+| `/config` | `compositor.toml`. |
+| `/user` | The person. |
+
+## Host functions
+
+| Function | Arguments |
+|---|---|
+| `ede.launch` | `{command}` |
+| `ede.focus` | `{window}` |
+| `ede.close` | `{window}` |
+| `ede.select` | `{window}` (the switcher) |
+| `ede.lock` | |
+| `ede.logout` | |
+| `ede.power` | `{action: suspend \| reboot \| poweroff}` |
+| `ede.open_document` | `{name}` |
+| `ede.close_document` | `{name}` |
+| `ede.notify_close` | `{id}` |
+| `ede.notify_action` | `{id, key}` |
+| `ede.notify_clear` | |
+| `ede.tray` | `{service}` |
+| `ede.tray_menu` | `{service, id}` |
+| `ede.service` | `{domain, action, args}` |
+| `ede.output` | `{name, mode?, scale?}`, applied live and saved to `[[outputs]]` |
+| `ede.config` | the `compositor.toml` sections to write (`keyboard`, `theme`), then a reload |
+
+## Services MCP
+
+`exponential-services` runs in the session. Its MCP server listens on loopback; each agent session gets its own bearer.
+
+```sh
+exponential-services list                                # the domains
+exponential-services get sound                           # a snapshot
+exponential-services call sound set_volume '{"percent": 40}'
+exponential-services tools                               # the MCP tool list
+exponential-services grant <session> [label] [system,ui] # a bearer for an agent session
+```
+
+Tools: `<domain>_get` for every domain, `<domain>_<action>` for every action. A call outside the grant comes back as an `isError` result. Every call writes an audit row. A domain whose daemon is missing answers `{available: false, reason}`.
+
+| Domain | Through | Actions | Capability |
+|---|---|---|---|
+| `network` | NetworkManager | `wifi_enable {on}`, `connect {ssid, password?}`, `disconnect {device}` | `system` |
+| `sound` | PipeWire (WirePlumber) | `set_volume {percent}`, `mute {on}`, `set_mic_volume {percent}`, `mute_mic {on}`, `set_default {id}` | `ui` |
+| `bluetooth` | BlueZ | `power {on}`, `connect {device}`, `disconnect {device}`, `discover {on}` | `system` |
+| `power` | UPower, power-profiles-daemon, logind | `set_profile {profile}`, `suspend`, `hibernate`, `reboot`, `poweroff` | `system` |
+| `disks` | udisks2 | `mount {volume}`, `unmount {volume}` | `system` |
+| `updates` | apt | `refresh`, `upgrade` | `system` |
+| `firmware` | fwupd | `refresh` | `system` |
+| `printers` | CUPS | | |
+| `about` | the system | | |
+
+## exponential-ctl
+
+Drives the running compositor.
+
+```sh
+exponential-ctl windows                                        # open windows, JSON lines
+exponential-ctl outputs                                        # outputs, JSON lines
+exponential-ctl capture [--output NAME | --window ID] --png FILE [--expect-drawn]
+exponential-ctl key CODE [--pressed | --released] [--bindings] # an evdev key code
+exponential-ctl pointer X Y [--click] [--bindings]             # move, optionally left click
+```
+
+`--bindings` sends the input as the person's, so it reaches the desktop's own keys (Alt+Tab, Super, the media keys). Protected windows are black in captures and refuse input.
+
+## exponential-ui
+
+```sh
+exponential-ui check                 # load the directory; what applies, what is refused
+exponential-ui validate FILE...      # validate without applying
+exponential-ui set NAME FILE|-       # validate, write NAME.json, commit (NAME = theme: theme.json)
+exponential-ui rm NAME               # delete NAME.json as a commit
+exponential-ui discard NAME          # drop NAME's uncommitted edit
+exponential-ui undo                  # revert the newest edit
+exponential-ui reset                 # every factory document back
+exponential-ui log [N]               # the history, newest first
+exponential-ui watch                 # one JSON change per line
+exponential-ui digest FILE           # the content digest the shell reports with a frame
+exponential-ui dir                   # the ui directory
+```
+
+`--dir DIR` and `--factory DIR` go before the command.
+
+## exponential-sealed
+
+The Tier B surfaces, compiled in.
+
+```sh
+exponential-sealed lock
+exponential-sealed polkit
+exponential-sealed consent --title … --body … [--allow …] [--deny …]   # prints allow or deny, exits 0 or 1
+exponential-sealed share
+```
+
+## Keys
+
+| Keys | Action |
+|---|---|
+| **Super** | Menu |
+| **Alt+Tab** | Switcher (Shift reverses) |
+| **Super+L** | Lock |
+| **Super+Shift+E** | Log out |
+| **Super+Shift+R** | Factory documents back, restart the shell |
+| **Ctrl+Alt+T** | Terminal |
+| **Print** | Screenshot to `~/Pictures/Screenshots` |
+| **Super+Left / Right / Up / Down** | Tile left, right, maximize, restore |
+| **Super+1…9** | Workspace (with Shift: take the window along) |
+| **Alt+F4** | Close |

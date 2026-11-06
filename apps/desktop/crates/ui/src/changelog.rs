@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-06-exponential-desktop-packages",
+    date: "2026-11-06",
+    title: "Exponential Desktop: install and update it from our package repositories",
+    summary: "The Linux desktop environment is now Exponential Desktop, with signed repositories for Ubuntu, Mint, Debian, Fedora and Arch.",
+    body: r#"- **Install with one line**: `curl -fsSL https://exponential.at/desktop/setup.sh | sudo sh` adds the repository and installs it; updates arrive with your system's own updates.
+- **Seven systems tested**: Ubuntu 24.04 and 26.04, Linux Mint 22, Debian 13, Fedora 44 and 45, and Arch install it on every release.
+- **System check in Settings**: About lists what the machine needs (GPU, displays, Xwayland, NVIDIA) with the fix for anything missing.
+- **New name**: Exponential Desktop replaces eDE; an installed `ede` package upgrades in place and keeps your documents and history."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_218: ChangelogEntry = ChangelogEntry {
     id: "2026-11-06-merge-status-ipad-and-siri",
     date: "2026-11-06",
     title: "Merge status, a real iPad layout, Siri and Spotlight",
