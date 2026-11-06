@@ -2838,11 +2838,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eengine",
+ "flate2",
  "image",
  "resvg 0.45.1",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "toml 0.8.23",
 ]
