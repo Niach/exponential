@@ -191,17 +191,19 @@ export function trainQueue(units: readonly TrainUnit[]): TrainUnit[] {
  *  the PR count stays within `batchMax`; a unit never splits (an oversized
  *  one rides alone); the first unit that does not fit ends the batch (no
  *  skipping ahead); a Merge now unit always rides alone. */
-export function composeBatch(units: readonly TrainUnit[]): number[][] {
+export function composeBatch(units: readonly TrainUnit[], batchMax: number = MERGE_TRAIN_LIMITS.batchMax): number[][] {
+  // #EXP-1711: an instance may cap batches lower (never above the limit).
+  const cap = Math.max(1, Math.min(MERGE_TRAIN_LIMITS.batchMax, Math.floor(batchMax) || MERGE_TRAIN_LIMITS.batchMax))
   const queue = trainQueue(units)
   const batch: number[][] = []
   let size = 0
   for (const unit of queue) {
     const prs = unit.members.map((m) => m.number)
     if (unit.mergeNow) return batch.length === 0 ? [prs] : batch
-    if (batch.length > 0 && size + prs.length > MERGE_TRAIN_LIMITS.batchMax) break
+    if (batch.length > 0 && size + prs.length > cap) break
     batch.push(prs)
     size += prs.length
-    if (size >= MERGE_TRAIN_LIMITS.batchMax) break
+    if (size >= cap) break
   }
   return batch
 }

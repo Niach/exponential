@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { mergeTrainOn, mergeTrainScoped } from "./worker"
+import { mergeTrainBatchMax, mergeTrainOn, mergeTrainScoped } from "./worker"
 
 // #EXP-1711: the dogfood switch — MERGE_TRAIN_REPOS scopes the train.
 describe(`merge train switch`, () => {
@@ -34,5 +34,25 @@ describe(`merge train switch`, () => {
     expect(mergeTrainOn(`m5software/m5`)).toBe(false)
     expect(mergeTrainOn()).toBe(false)
     expect(mergeTrainScoped()).toBe(true)
+  })
+})
+
+describe(`merge train batch cap`, () => {
+  const saved = process.env.MERGE_TRAIN_BATCH_MAX
+  afterEach(() => {
+    if (saved === undefined) delete process.env.MERGE_TRAIN_BATCH_MAX
+    else process.env.MERGE_TRAIN_BATCH_MAX = saved
+  })
+  it.each([
+    [undefined, 8],
+    [`4`, 4],
+    [`1`, 1],
+    [`20`, 8],
+    [`0`, 8],
+    [`x`, 8],
+  ])(`MERGE_TRAIN_BATCH_MAX=%s → %i`, (value, expected) => {
+    if (value === undefined) delete process.env.MERGE_TRAIN_BATCH_MAX
+    else process.env.MERGE_TRAIN_BATCH_MAX = value
+    expect(mergeTrainBatchMax()).toBe(expected)
   })
 })
