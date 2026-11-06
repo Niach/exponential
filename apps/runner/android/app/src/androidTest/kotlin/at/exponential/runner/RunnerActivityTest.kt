@@ -28,6 +28,7 @@ class RunnerActivityTest {
         val note = "Runner note ${System.nanoTime()}"
         rule.onNode(hasSetTextAction(), useUnmergedTree = true).performTextInput(note)
         rule.onNodeWithText("Add", useUnmergedTree = true).performClick()
-        rule.waitUntil(10_000) { rule.onAllNodes(hasText(note), useUnmergedTree = true).fetchSemanticsNodes().size >= 2 }
+        // The row (not the field): the package action wrote it through the Engine and the bound list re-resolved.
+        rule.waitUntil(10_000) { rule.onAllNodes(hasText(note) and !hasSetTextAction(), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
     }
 }
