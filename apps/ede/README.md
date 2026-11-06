@@ -7,19 +7,21 @@ libraries, never the other way round.
 | Crate | Role |
 |---|---|
 | `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
-| `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it. |
+| `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it; it lives in `apps/desktop/crates/ede-protocol` (#EDE-51) and this workspace takes it by path. |
 | `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
 | `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`. |
 | `exponential-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/exponential-desktop/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
-## The shell (`shell/`, a second workspace)
+## The shell (`apps/desktop/crates/ede-shell`)
 
-`apps/ede/shell` is its own Cargo workspace (#EDE-10): `exponential-shell` draws the
-shell from the genUI documents `exponential-ui` serves (below) with gpui + eui-gpui
-at the SDK's pins (the painter README's "gpui revisions", gated by
-`check-gpui-revs.ts`), Wayland backend only. The compositor workspace never
-links gpui, and the shell is a separate process under the supervisor, so a
-shell crash never takes the session down. Every document with a layer
+`ede-shell` is a member of the IDE's Cargo workspace (#EDE-10, moved there by
+#EDE-51: one lock and one target directory with the IDE and the SDK crates it
+links): `exponential-shell` draws the shell from the genUI documents
+`exponential-ui` serves (below) with gpui + eui-gpui at the SDK's pins (the
+painter README's "gpui revisions", gated by `check-gpui-revs.ts`), Wayland
+backend only (`cargo build -p ede-shell` in `apps/desktop`). The compositor
+workspace never links gpui, and the shell is a separate process under the
+supervisor, so a shell crash never takes the session down. Every document with a layer
 `surface` header is a layer-shell surface (`WindowKind::LayerShell`); a
 popup document opens from its anchor component in its parent as an
 `xdg_popup` of that surface (so a menu can leave the panel; eui-gpui paints

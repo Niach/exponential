@@ -211,10 +211,11 @@ jobs:
         with:
           workspaces: |
             apps/ede
-            apps/ede/shell
+            apps/desktop
       - uses: ./.github/actions/cargo-fetch
         with:
-          dir: apps/ede/shell
+          dir: apps/ede
+      - uses: ./.github/actions/cargo-fetch
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - name: Capture the eDE views

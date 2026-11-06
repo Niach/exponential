@@ -6,9 +6,10 @@ version.workspace = true
 license.workspace = true
 publish = false
 
-# A client crate (ePilot, eos-agent, the shell link it): eCore's shared types,
+# A client crate (ePilot, eos-agent, the shell link it; the compositor
+# workspace in apps/ede takes it by path, #EDE-51): eCore's shared types,
 # serde, nothing of the compositor.
 [dependencies]
-ecore = { path = "../../../desktop/crates/ecore" }
+ecore = { path = "../ecore" }
 serde.workspace = true
 serde_json = "1"
