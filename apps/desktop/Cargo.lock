@@ -2579,6 +2579,7 @@ name = "domain"
 version = "0.14.134"
 dependencies = [
  "chrono",
+ "eengine",
  "jiff",
  "regex",
  "serde",
@@ -2741,6 +2742,23 @@ dependencies = [
  "signature",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "eengine"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "emcp",
+ "eui-core",
+ "ring",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml 0.8.23",
+ "url",
+ "uuid",
 ]
 
 [[package]]

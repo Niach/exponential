@@ -6,6 +6,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+# VAPP-261: the Engine owns O1's outbox now; `app_records` re-exports it.
+eengine = { path = "../eengine" }
 serde.workspace = true
 # VAPP-120: `preserve_order`: an action's args render in the GIVEN key order
 # (`app_actions::action_consent`, like the TS reference's JSON.stringify).
