@@ -70,9 +70,22 @@ export interface Inventory {
   $comment: string
   ecosystem: `rust` | `npm` | `swift` | `android`
   /** Which distributed client this inventory feeds. */
-  scope: `desktop` | `web` | `site` | `ios` | `android`
+  scope:
+    | `desktop`
+    | `web`
+    | `site`
+    | `ios`
+    | `android`
+    | `runner-desktop`
+    | `runner-android`
+    | `runner-ios`
+    | `runner-web`
   /** What produced it, for the header of the rendered notice. */
   collector: string
+  /** Rust runner inventories only: the crates the kit links (`cargo tree -p`). */
+  roots?: string[]
+  /** Rust runner inventories only: the triples the kit ships (what `platforms` is relative to). */
+  triples?: string[]
   components: Component[]
 }
 

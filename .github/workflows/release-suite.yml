@@ -413,7 +413,7 @@ jobs:
       - name: Re-collect the Rust licence inventory
         run: bun run --filter @exp/licenses collect:rust
       - name: Fail if the committed inventory drifted
-        run: git diff --exit-code -- packages/licenses/inventory/rust.json packages/licenses/inventory/rust-excluded.json
+        run: git diff --exit-code -- packages/licenses/inventory/rust.json packages/licenses/inventory/rust-excluded.json packages/licenses/inventory/rust-runner-*.json
 
 
   # EXP-1457: the browser build of eNet (exponential-net-wasm) runs the web
@@ -669,6 +669,11 @@ jobs:
         run: ./gradlew licenseProductionReleaseReport --no-daemon
       - name: Re-collect the Android licence inventory
         run: bun run --filter @exp/licenses collect:android
+      # VAPP-270: the Android runner kit's graph (an init script applies the plugin).
+      - name: Generate the Android runner's licence report
+        run: packages/exponential-ui-compose/gradlew -p apps/runner/android --init-script "$PWD/packages/licenses/gradle/runner-license.init.gradle.kts" licenseReleaseReport --no-daemon
+      - name: Re-collect the Android runner's licence inventory
+        run: bun run --filter @exp/licenses collect:android -- --runner
       - name: Fail if the committed inventory drifted
-        run: git diff --exit-code -- packages/licenses/inventory/android.json
+        run: git diff --exit-code -- packages/licenses/inventory/android.json packages/licenses/inventory/gradle-runner-android.json
 

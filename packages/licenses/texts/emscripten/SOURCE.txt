@@ -1,0 +1,9 @@
+The licence of the Emscripten runtime inside @sqlite.org/sqlite-wasm's
+glue (the web runner kit), vendored verbatim, pinned to the SDK release
+the bundle names:
+
+  LICENSE.txt
+    https://github.com/emscripten-core/emscripten/blob/5.0.5/LICENSE
+
+Regenerate with: bun run --filter @exp/licenses fetch:texts
+Do not hand-edit these files.
