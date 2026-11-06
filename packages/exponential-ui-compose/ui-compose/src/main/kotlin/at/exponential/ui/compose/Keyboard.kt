@@ -115,6 +115,23 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
         if (typed != null && n.part == "item") return typeahead(model, n, typed)
         return false
     }
+    // #VAPP-285: a Tree row (`treeitem`): the core's tree keys move the
+    // focus (a `focus` event) or fold it.
+    if ((n.accessibility?.get("role") as? JsonValue.Str)?.v == "treeitem") {
+        val dom = when (key) {
+            "up" -> "ArrowUp"
+            "down" -> "ArrowDown"
+            "home" -> "Home"
+            "end" -> "End"
+            "left" -> "ArrowLeft"
+            "right" -> "ArrowRight"
+            else -> null
+        }
+        if (dom != null) {
+            model.nodeKey(n.index, dom)
+            return true
+        }
+    }
     // #VAPP-284: a node that folds (a foldable Row's head or fold button:
     // `expanded` set): the core's fold keys decide (`fold_key`, rtl-aware).
     if ((key == "left" || key == "right") && n.accessibility?.get("expanded") is JsonValue.Bool) {

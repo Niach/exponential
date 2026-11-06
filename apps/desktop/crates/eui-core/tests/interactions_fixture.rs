@@ -339,3 +339,49 @@ fn fold_row_cases_press_fold_and_take_the_arrows_like_the_reference() {
         assert_eq!(expanded, Some(c["after"].clone()), "{name}: expanded after");
     }
 }
+
+/// #VAPP-285: the Tree: a leaf press selects, a branch press folds, a lazy
+/// branch fetches, the arrows (`event(index, "key")`) follow `tree_key` over
+/// the visible rows and answer with a `Focus` event.
+#[test]
+fn tree_cases_select_fold_fetch_and_move_like_the_reference() {
+    let f = fixture();
+    let t = &f["tree"];
+    let row_ids = t["rowIds"].as_object().unwrap();
+    let item_of = |node: &str| row_ids.iter().find(|(_, id)| id.as_str() == Some(node)).map(|(item, _)| item.clone());
+    for c in t["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let tree = if c["rtl"] == json!(true) { json!({"id": "rtl", "component": "Box", "style": {"direction": "rtl"}, "children": [t["surface"].clone()]}) } else { t["surface"].clone() };
+        let mut s = surface(tree);
+        s.set_data("/open", Some(c["open"].clone())).unwrap();
+        let mut m = fixed();
+        s.layout(&mut m);
+        let step = &c["step"];
+        let (item, event, payload) = match step.get("press") {
+            Some(p) => (p.as_str().unwrap(), "press", None),
+            None => (step["on"].as_str().unwrap(), "key", Some(json!({"key": step["key"]}))),
+        };
+        let target = row_ids[item].as_str().unwrap();
+        let index = s.nodes().iter().position(|n| n.id == target).unwrap_or_else(|| panic!("{name}: no {target}"));
+        let out = s.event(index as _, event, payload);
+        let names: Vec<String> = out.iter().filter_map(|e| if let OutEvent::Action { name, .. } = e { Some(name.clone()) } else { None }).collect();
+        assert_eq!(json!(names), c["events"], "{name}: events");
+        let focus = out.iter().find_map(|e| if let OutEvent::Focus { id, .. } = e { item_of(id) } else { None });
+        assert_eq!(json!(focus), c["after"]["focus"], "{name}: focus");
+        assert_eq!(s.get_data("/open"), Some(&c["after"]["open"]), "{name}: /open");
+        assert_eq!(s.get_data("/picked").cloned().unwrap_or(Value::Null), c["after"]["picked"], "{name}: /picked");
+        if let Some(visible) = c["after"].get("visible") {
+            s.layout(&mut m);
+            // Slots are not tree order: sort the shown rows by their index.
+            let mut rows: Vec<(usize, String)> = s
+                .nodes()
+                .into_iter()
+                .filter(|n| !n.hidden && n.id.starts_with("files.row.") && n.id["files.row.".len()..].chars().all(|ch| ch.is_ascii_digit()))
+                .filter_map(|n| Some((n.id["files.row.".len()..].parse().ok()?, item_of(&n.id)?)))
+                .collect();
+            rows.sort();
+            let shown: Vec<String> = rows.into_iter().map(|(_, item)| item).collect();
+            assert_eq!(json!(shown), *visible, "{name}: visible");
+        }
+    }
+}

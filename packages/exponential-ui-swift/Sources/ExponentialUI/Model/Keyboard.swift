@@ -209,6 +209,15 @@ extension SurfaceModel {
             nodeKey(n.index, key: k)
             return true
         }
+        // #VAPP-285: a Tree row (`treeitem`): the core's tree keys move the
+        // focus (a `focus` event) or fold it.
+        if case .string("treeitem") = n.accessibility?["role"] {
+            let names = ["up": "ArrowUp", "down": "ArrowDown", "home": "Home", "end": "End", "left": "ArrowLeft", "right": "ArrowRight"]
+            if let k = names[key] {
+                nodeKey(n.index, key: k)
+                return true
+            }
+        }
         // #VAPP-284: a node that folds (a foldable Row's head or fold button:
         // `expanded` set): the core's fold keys decide (`fold_key`, rtl-aware).
         if key == "left" || key == "right", case .bool = n.accessibility?["expanded"] {

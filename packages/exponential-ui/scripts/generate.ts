@@ -1428,7 +1428,7 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     // #VAPP-285: a Tree bound to /open and /picked: rows show while every
     // ancestor is open; a branch press writes the toggled list, a leaf the id.
     name: `Tree/bound`,
-    input: fileTree({ expanded: { path: `/open` }, value: { path: `/picked` } }, { on: TREE_ON }),
+    input: fileTree({ expanded: { path: `/open` }, value: { path: `/picked` } }),
     datasets: [{ open: [`apps`, `apps/web`], picked: `apps/web/router.ts` }, { open: [`apps`, `apps/desktop`] }, { open: [] }, {}],
   },
   {

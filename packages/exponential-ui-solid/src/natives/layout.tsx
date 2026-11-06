@@ -5,7 +5,7 @@
 
 import { For, Show, createEffect, createMemo, onCleanup, untrack, type Accessor, type JSX } from "solid-js"
 import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
-import { getPointer, LITERAL_ROWS_ROOT, setPointer } from "@exponential_app/eui/web"
+import { getPointer, LITERAL_ROWS_ROOT, setPointer, treeKeyTarget } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, TemplateItemView, latest, mergeStyle, templateItems, type NativeProps } from "../node-view"
@@ -31,6 +31,13 @@ export function BoxNative(props: NativeProps): JSX.Element {
       press()
       return
     }
+    // #VAPP-285: a Tree row moves the focus (treeKey); a fold falls through.
+    const tree = treeKeyTarget(e.currentTarget as HTMLElement, e.key, ctx.direction === `rtl`)
+    if (tree && tree !== `toggle`) {
+      e.preventDefault()
+      if (tree !== `none`) tree.focus.focus()
+      return
+    }
     // #VAPP-284: ArrowRight / ArrowLeft open / close a node that folds.
     const expanded = String((props.rootProps as Record<string, unknown>)[`aria-expanded`])
     if (props.node.on?.toggle && (expanded === `true` || expanded === `false`)) {
@@ -43,7 +50,7 @@ export function BoxNative(props: NativeProps): JSX.Element {
   }
   return (
     <Show when={pressable()} fallback={<div {...props.rootProps}>{props.children}</div>}>
-      <div {...props.rootProps} data-pressable="true" role="button" tabindex="0" onClick={press} onKeyDown={onKey}>
+      <div {...props.rootProps} data-pressable="true" role={(props.rootProps as Record<string, unknown>)[`role`] === `treeitem` ? `treeitem` : `button`} tabindex="0" onClick={press} onKeyDown={onKey}>
         {props.children}
       </div>
     </Show>

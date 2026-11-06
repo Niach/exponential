@@ -93112,23 +93112,6 @@
           "value": {
             "path": "/picked"
           }
-        },
-        "on": {
-          "select": {
-            "event": {
-              "name": "open"
-            }
-          },
-          "toggle": {
-            "event": {
-              "name": "fold"
-            }
-          },
-          "load": {
-            "event": {
-              "name": "fetch"
-            }
-          }
         }
       },
       "expanded": {
@@ -93378,30 +93361,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "apps"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -93425,30 +93384,6 @@
                 }
               },
               "toggle": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "apps"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -93757,30 +93692,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps/web",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "apps/web"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -93804,30 +93715,6 @@
                 }
               },
               "toggle": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps/web",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "apps/web"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -94085,12 +93972,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/main.ts"
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -94306,12 +94187,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/router.ts"
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -94606,30 +94481,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "fetch",
-                  "context": {
-                    "id": "apps/desktop",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "apps/desktop"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -94653,30 +94504,6 @@
                 }
               },
               "toggle": {
-                "event": {
-                  "name": "fetch",
-                  "context": {
-                    "id": "apps/desktop",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "apps/desktop"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -95132,30 +94959,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "packages"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -95179,30 +94982,6 @@
                 }
               },
               "toggle": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "packages"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -95511,30 +95290,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages/ui",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "packages/ui"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -95558,30 +95313,6 @@
                 }
               },
               "toggle": {
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages/ui",
-                    "open": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "call": "expr",
-                          "args": {
-                            "expr": "e.exists(x, x == i)",
-                            "vars": {
-                              "e": {
-                                "path": "/open"
-                              },
-                              "i": "packages/ui"
-                            },
-                            "default": false
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -95766,12 +95497,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "README.md"
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -95970,12 +95695,6 @@
             },
             "on": {
               "press": {
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "package.json"
-                  }
-                },
                 "functionCall": {
                   "call": "set",
                   "args": {
@@ -96140,30 +95859,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -96187,30 +95882,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -96395,30 +96066,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps/web",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/web"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -96442,30 +96089,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps/web",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/web"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -96654,12 +96277,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "apps/web/main.ts"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -96813,12 +96430,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "apps/web/router.ts"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -96988,30 +96599,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fetch",
-                      "context": {
-                        "id": "apps/desktop",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/desktop"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -97035,30 +96622,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fetch",
-                      "context": {
-                        "id": "apps/desktop",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/desktop"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -97222,30 +96785,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -97269,30 +96808,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -97438,12 +96953,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "README.md"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -97594,12 +97103,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "package.json"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -97650,13 +97153,6 @@
                     "apps/web"
                   ],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps",
-                    "open": false
-                  }
                 }
               }
             },
@@ -97668,13 +97164,6 @@
                     "apps"
                   ],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps/web",
-                    "open": false
-                  }
                 }
               }
             },
@@ -97687,12 +97176,6 @@
                     "apps/web"
                   ],
                   "picked": "apps/web/main.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/main.ts"
-                  }
                 }
               }
             },
@@ -97705,12 +97188,6 @@
                     "apps/web"
                   ],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/router.ts"
-                  }
                 }
               }
             },
@@ -97724,13 +97201,6 @@
                     "apps/desktop"
                   ],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "fetch",
-                  "context": {
-                    "id": "apps/desktop",
-                    "open": true
-                  }
                 }
               }
             },
@@ -97744,13 +97214,6 @@
                     "packages"
                   ],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages",
-                    "open": true
-                  }
                 }
               }
             },
@@ -97764,13 +97227,6 @@
                     "packages/ui"
                   ],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages/ui",
-                    "open": true
-                  }
                 }
               }
             },
@@ -97783,12 +97239,6 @@
                     "apps/web"
                   ],
                   "picked": "README.md"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "README.md"
-                  }
                 }
               }
             },
@@ -97801,12 +97251,6 @@
                     "apps/web"
                   ],
                   "picked": "package.json"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "package.json"
-                  }
                 }
               }
             }
@@ -97947,30 +97391,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -97994,30 +97414,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -98202,30 +97598,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps/web",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/web"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -98249,30 +97621,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps/web",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/web"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -98457,30 +97805,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fetch",
-                      "context": {
-                        "id": "apps/desktop",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/desktop"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -98504,30 +97828,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fetch",
-                      "context": {
-                        "id": "apps/desktop",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps/desktop"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -98826,30 +98126,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -98873,30 +98149,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -99042,12 +98294,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "README.md"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -99198,12 +98444,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "package.json"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -99253,13 +98493,6 @@
                   "open": [
                     "apps/desktop"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps",
-                    "open": false
-                  }
                 }
               }
             },
@@ -99272,13 +98505,6 @@
                     "apps/desktop",
                     "apps/web"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps/web",
-                    "open": true
-                  }
                 }
               }
             },
@@ -99291,12 +98517,6 @@
                     "apps/desktop"
                   ],
                   "picked": "apps/web/main.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/main.ts"
-                  }
                 }
               }
             },
@@ -99309,12 +98529,6 @@
                     "apps/desktop"
                   ],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/router.ts"
-                  }
                 }
               }
             },
@@ -99325,13 +98539,6 @@
                   "open": [
                     "apps"
                   ]
-                },
-                "event": {
-                  "name": "fetch",
-                  "context": {
-                    "id": "apps/desktop",
-                    "open": false
-                  }
                 }
               }
             },
@@ -99344,13 +98551,6 @@
                     "apps/desktop",
                     "packages"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages",
-                    "open": true
-                  }
                 }
               }
             },
@@ -99363,13 +98563,6 @@
                     "apps/desktop",
                     "packages/ui"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages/ui",
-                    "open": true
-                  }
                 }
               }
             },
@@ -99382,12 +98575,6 @@
                     "apps/desktop"
                   ],
                   "picked": "README.md"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "README.md"
-                  }
                 }
               }
             },
@@ -99400,12 +98587,6 @@
                     "apps/desktop"
                   ],
                   "picked": "package.json"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "package.json"
-                  }
                 }
               }
             }
@@ -99543,30 +98724,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -99590,30 +98747,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -99777,30 +98910,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -99824,30 +98933,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -99993,12 +99078,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "README.md"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -100149,12 +99228,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "package.json"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -100204,13 +99277,6 @@
                   "open": [
                     "apps"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps",
-                    "open": true
-                  }
                 }
               }
             },
@@ -100221,13 +99287,6 @@
                   "open": [
                     "apps/web"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps/web",
-                    "open": true
-                  }
                 }
               }
             },
@@ -100237,12 +99296,6 @@
                 "data": {
                   "open": [],
                   "picked": "apps/web/main.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/main.ts"
-                  }
                 }
               }
             },
@@ -100252,12 +99305,6 @@
                 "data": {
                   "open": [],
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/router.ts"
-                  }
                 }
               }
             },
@@ -100268,13 +99315,6 @@
                   "open": [
                     "apps/desktop"
                   ]
-                },
-                "event": {
-                  "name": "fetch",
-                  "context": {
-                    "id": "apps/desktop",
-                    "open": true
-                  }
                 }
               }
             },
@@ -100285,13 +99325,6 @@
                   "open": [
                     "packages"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages",
-                    "open": true
-                  }
                 }
               }
             },
@@ -100302,13 +99335,6 @@
                   "open": [
                     "packages/ui"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages/ui",
-                    "open": true
-                  }
                 }
               }
             },
@@ -100318,12 +99344,6 @@
                 "data": {
                   "open": [],
                   "picked": "README.md"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "README.md"
-                  }
                 }
               }
             },
@@ -100333,12 +99353,6 @@
                 "data": {
                   "open": [],
                   "picked": "package.json"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "package.json"
-                  }
                 }
               }
             }
@@ -100474,30 +99488,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -100521,30 +99511,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "apps",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "apps"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -100708,30 +99674,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -100755,30 +99697,6 @@
                     }
                   },
                   "toggle": {
-                    "event": {
-                      "name": "fold",
-                      "context": {
-                        "id": "packages",
-                        "open": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "call": "expr",
-                              "args": {
-                                "expr": "e.exists(x, x == i)",
-                                "vars": {
-                                  "e": {
-                                    "path": "/open"
-                                  },
-                                  "i": "packages"
-                                },
-                                "default": false
-                              }
-                            }
-                          }
-                        }
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -100924,12 +99842,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "README.md"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -101080,12 +99992,6 @@
                 },
                 "on": {
                   "press": {
-                    "event": {
-                      "name": "open",
-                      "context": {
-                        "id": "package.json"
-                      }
-                    },
                     "functionCall": {
                       "call": "set",
                       "args": {
@@ -101135,13 +100041,6 @@
                   "open": [
                     "apps"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps",
-                    "open": true
-                  }
                 }
               }
             },
@@ -101152,13 +100051,6 @@
                   "open": [
                     "apps/web"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "apps/web",
-                    "open": true
-                  }
                 }
               }
             },
@@ -101167,12 +100059,6 @@
               "outcome": {
                 "data": {
                   "picked": "apps/web/main.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/main.ts"
-                  }
                 }
               }
             },
@@ -101181,12 +100067,6 @@
               "outcome": {
                 "data": {
                   "picked": "apps/web/router.ts"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "apps/web/router.ts"
-                  }
                 }
               }
             },
@@ -101197,13 +100077,6 @@
                   "open": [
                     "apps/desktop"
                   ]
-                },
-                "event": {
-                  "name": "fetch",
-                  "context": {
-                    "id": "apps/desktop",
-                    "open": true
-                  }
                 }
               }
             },
@@ -101214,13 +100087,6 @@
                   "open": [
                     "packages"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages",
-                    "open": true
-                  }
                 }
               }
             },
@@ -101231,13 +100097,6 @@
                   "open": [
                     "packages/ui"
                   ]
-                },
-                "event": {
-                  "name": "fold",
-                  "context": {
-                    "id": "packages/ui",
-                    "open": true
-                  }
                 }
               }
             },
@@ -101246,12 +100105,6 @@
               "outcome": {
                 "data": {
                   "picked": "README.md"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "README.md"
-                  }
                 }
               }
             },
@@ -101260,12 +100113,6 @@
               "outcome": {
                 "data": {
                   "picked": "package.json"
-                },
-                "event": {
-                  "name": "open",
-                  "context": {
-                    "id": "package.json"
-                  }
                 }
               }
             }
