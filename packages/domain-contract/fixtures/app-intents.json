@@ -1,0 +1,232 @@
+{
+  "$comment": "#EXP-1640 (owner 2026-11-06): SIRI, SHORTCUTS, THE ACTION BUTTON AND THE ASSISTANTS ×2 (iOS App Intents + an `AppShortcutsProvider`, so the intents also reach Spotlight, the Shortcuts app, the Action button and Apple Intelligence; Android App Actions: `shortcuts.xml` `<capability>`s for Gemini / Assistant; web and desktop have none). Model = pure `intentIssueTitle` + `intentBoard` + `matchIntentAgent` (src/app-intents.ts; iOS ExpCore `AppIntentsModel.swift`, Android `domain/AppIntents.kt`), every mirror replays the `*Cases`. TWO INTENTS on the ACTIVE account. `create-issue` (iOS `CreateIssueIntent`, parameters title + an optional board entity listing the account's boards; Android `actions.intent.CREATE_THING`, `thing.name` = the title): the title goes through `intentIssueTitle` (an empty one asks for it again: `copy.askTitle`), the board is `intentBoard` (the picked one, else the board this account opened last in the app, else the first board in sidebar order, else `copy.noBoard`), then the app creates the issue through THE issues.create path the New issue page uses (no other field, status = the board default) and answers `copy.created` with its identifier, WITHOUT opening the app; tapping the answer opens THE issue page. `ask-agent` (iOS `AskAgentIntent`, parameters an agent entity listing agent-settings.json `orderedAgents` + the text; Android `actions.intent.CREATE_MESSAGE`, `message.recipient.name` = the spoken agent name, `message.text` = the text): the agent is `matchIntentAgent` (none spoken = the first of `orderedAgents`, the member's Assistant; no match = `copy.noAgent`), the text is sent as the member's message to THAT agent's conversation through THE composer's send path (sessions.send; an encrypted conversation is sealed ON THE PHONE with the tree key exactly like the composer, the text never leaves in clear), and the app opens that conversation. Signed out: `copy.signedOut`, nothing runs. App Shortcut phrases (`phrases`) are each platform's spoken entry points; every iOS phrase names the app. No new component.",
+  "copy": {
+    "created": "Created {identifier}",
+    "askTitle": "What's the issue?",
+    "noBoard": "Open Exponential and create a board first",
+    "noAgent": "No agent called {name}",
+    "sent": "Sent to {agent}",
+    "signedOut": "Sign in to Exponential first",
+    "createIssueTitle": "Create issue",
+    "askAgentTitle": "Ask agent"
+  },
+  "phrases": {
+    "createIssue": [
+      "Create an issue in ${applicationName}",
+      "New ${applicationName} issue"
+    ],
+    "askAgent": [
+      "Ask ${agent} in ${applicationName}",
+      "Ask ${applicationName}"
+    ]
+  },
+  "androidCapabilities": {
+    "createIssue": "actions.intent.CREATE_THING",
+    "askAgent": "actions.intent.CREATE_MESSAGE"
+  },
+  "titleMax": 256,
+  "titleCases": [
+    {
+      "name": "trimmed, inner whitespace collapsed",
+      "input": "  Fix   the\nlogin  bug ",
+      "expected": "Fix the login bug"
+    },
+    {
+      "name": "empty asks again",
+      "input": "   ",
+      "expected": null
+    },
+    {
+      "name": "over titleMax: cut",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "boardCases": [
+    {
+      "name": "the picked board wins",
+      "input": {
+        "boards": [
+          {
+            "id": "b1",
+            "sortOrder": 1
+          },
+          {
+            "id": "b2",
+            "sortOrder": 2
+          }
+        ],
+        "lastBoardId": "b1",
+        "pickedId": "b2"
+      },
+      "expected": "b2"
+    },
+    {
+      "name": "else the board opened last",
+      "input": {
+        "boards": [
+          {
+            "id": "b1",
+            "sortOrder": 1
+          },
+          {
+            "id": "b2",
+            "sortOrder": 2
+          }
+        ],
+        "lastBoardId": "b2",
+        "pickedId": null
+      },
+      "expected": "b2"
+    },
+    {
+      "name": "a last board that is gone: the first in sidebar order",
+      "input": {
+        "boards": [
+          {
+            "id": "b2",
+            "sortOrder": 2
+          },
+          {
+            "id": "b1",
+            "sortOrder": 1
+          }
+        ],
+        "lastBoardId": "gone",
+        "pickedId": null
+      },
+      "expected": "b1"
+    },
+    {
+      "name": "no boards",
+      "input": {
+        "boards": [],
+        "lastBoardId": null,
+        "pickedId": null
+      },
+      "expected": null
+    }
+  ],
+  "agentCases": [
+    {
+      "name": "none spoken: the Assistant",
+      "input": {
+        "me": "u1",
+        "agents": [
+          {
+            "id": "a",
+            "name": "Release Manager",
+            "sortOrder": 1,
+            "role": "agent",
+            "ownerId": "u2"
+          },
+          {
+            "id": "c",
+            "name": "Assistant",
+            "sortOrder": 9,
+            "role": "assistant",
+            "ownerId": "u1"
+          }
+        ],
+        "spoken": ""
+      },
+      "expected": "c"
+    },
+    {
+      "name": "an exact name, any case",
+      "input": {
+        "me": "u1",
+        "agents": [
+          {
+            "id": "a",
+            "name": "Release Manager",
+            "sortOrder": 1,
+            "role": "agent",
+            "ownerId": "u2"
+          },
+          {
+            "id": "r",
+            "name": "Release",
+            "sortOrder": 2,
+            "role": "agent",
+            "ownerId": "u2"
+          },
+          {
+            "id": "c",
+            "name": "Assistant",
+            "sortOrder": 9,
+            "role": "assistant",
+            "ownerId": "u1"
+          }
+        ],
+        "spoken": "release"
+      },
+      "expected": "r"
+    },
+    {
+      "name": "else a prefix, in agent order",
+      "input": {
+        "me": "u1",
+        "agents": [
+          {
+            "id": "t",
+            "name": "Triage",
+            "sortOrder": 1,
+            "role": "agent",
+            "ownerId": "u2"
+          },
+          {
+            "id": "a",
+            "name": "Release Manager",
+            "sortOrder": 2,
+            "role": "agent",
+            "ownerId": "u2"
+          },
+          {
+            "id": "r",
+            "name": "Release Notes",
+            "sortOrder": 3,
+            "role": "agent",
+            "ownerId": "u2"
+          }
+        ],
+        "spoken": "Release"
+      },
+      "expected": "a"
+    },
+    {
+      "name": "another member's Assistant is never matched",
+      "input": {
+        "me": "u1",
+        "agents": [
+          {
+            "id": "x",
+            "name": "Assistant",
+            "sortOrder": 9,
+            "role": "assistant",
+            "ownerId": "u2"
+          }
+        ],
+        "spoken": "assistant"
+      },
+      "expected": null
+    },
+    {
+      "name": "no match",
+      "input": {
+        "me": "u1",
+        "agents": [
+          {
+            "id": "t",
+            "name": "Triage",
+            "sortOrder": 1,
+            "role": "agent",
+            "ownerId": "u2"
+          }
+        ],
+        "spoken": "Designer"
+      },
+      "expected": null
+    }
+  ]
+}

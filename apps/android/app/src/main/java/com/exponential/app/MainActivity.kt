@@ -21,6 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.OauthReturn
+import com.exponential.app.data.intents.AppIntentRunner
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.data.share.ShareIntentParser
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var authRepository: AuthRepository
     @Inject lateinit var authApi: AuthApi
     @Inject lateinit var deepLinkBus: DeepLinkBus
+    @Inject lateinit var appIntentRunner: AppIntentRunner
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignored */ }
@@ -126,6 +128,21 @@ class MainActivity : ComponentActivity() {
         }
         // #EXP-1638 (app-shortcuts.json): an app icon long-press shortcut,
         // static (res/xml/shortcuts.xml) or a recent chat (DirectShareShortcuts).
+        // #EXP-1640 (app-intents.json): an App Action (res/xml/shortcuts.xml
+        // capabilities); the runner answers with a toast, then opens the result.
+        when (intent.action) {
+            AppIntentRunner.ACTION_CREATE_ISSUE -> {
+                appIntentRunner.createIssue(intent.getStringExtra(AppIntentRunner.EXTRA_TITLE))
+                return
+            }
+            AppIntentRunner.ACTION_ASK_AGENT -> {
+                appIntentRunner.askAgent(
+                    intent.getStringExtra(AppIntentRunner.EXTRA_AGENT),
+                    intent.getStringExtra(AppIntentRunner.EXTRA_TEXT),
+                )
+                return
+            }
+        }
         intent.getStringExtra(EXTRA_APP_SHORTCUT)?.let { id ->
             handleAppShortcut(intent, id)
             return
