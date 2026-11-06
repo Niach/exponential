@@ -165,9 +165,13 @@ impl TrpcClient {
         self.mutation_raw(path, &body, Some(session_id))
     }
 
-    /// POST a `mutation` procedure that takes no input.
+    /// POST a `mutation` procedure that takes no input. The body is `{}`,
+    /// never empty: tRPC parses the body of any procedure declaring an
+    /// `.input()` (even an `.optional()` one) and an empty body fails that
+    /// parse with a 400 (`notifications.markAllRead` gained `{teamId?}` and
+    /// the IDE's Mark all read silently did nothing).
     pub fn mutation_no_input<O: DeserializeOwned>(&self, path: &str) -> Result<O, ApiError> {
-        self.mutation_raw(path, "", None)
+        self.mutation_raw(path, "{}", None)
     }
 
     fn mutation_raw<O: DeserializeOwned>(

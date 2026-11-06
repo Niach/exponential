@@ -69,6 +69,40 @@ fn mark_read(unread_ids: &[String], cx: &mut App) {
         .detach();
 }
 
+/// The header's mark-all-read: every unread row of the viewer; the cleared
+/// `read_at`s stream back over the notifications shape. A failure is the
+/// failed-action toast with Retry (the call is idempotent).
+fn mark_all_read(cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        crate::action_error::failed_action(MARK_ALL_VERB, MARK_ALL_THING, None, cx);
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::notifications::notifications_mark_all_read(&trpc) })
+            .await;
+        if let Err(err) = result {
+            log::warn!("[ui] notifications.markAllRead failed: {err}");
+            let description = crate::action_error::action_error_description(&err);
+            let _ = cx.update(|cx| {
+                crate::action_error::failed_action_with_retry(
+                    MARK_ALL_VERB,
+                    MARK_ALL_THING,
+                    description,
+                    |_, cx| mark_all_read(cx),
+                    cx,
+                )
+            });
+        }
+    })
+    .detach();
+}
+
+/// `Couldn't mark all read` (feedback-states.json `errors.titlePattern`).
+const MARK_ALL_VERB: &str = "mark";
+const MARK_ALL_THING: &str = "all read";
+
 /// Latest-notification kind → the row's leading type glyph (the meaning table
 /// shared across all clients).
 fn type_icon(kind: Option<&str>) -> Icon {
@@ -274,17 +308,7 @@ impl Render for InboxPopoverBody {
         let mark_all = (data.total_unread > 0).then(|| {
             crate::controls::ghost_icon_button("inbox-mark-all-read", Icon::from(registry::NOTIFICATION_MARK_READ), cx)
                 .tooltip("Mark all read")
-                .on_click(|_: &ClickEvent, _, cx: &mut App| {
-                    if let Some(trpc) = queries::trpc_client(cx) {
-                        cx.background_executor()
-                            .spawn(async move {
-                                if let Err(err) = api::notifications::notifications_mark_all_read(&trpc) {
-                                    log::warn!("[ui] notifications.markAllRead failed: {err}");
-                                }
-                            })
-                            .detach();
-                    }
-                })
+                .on_click(|_: &ClickEvent, _, cx: &mut App| mark_all_read(cx))
         });
         let body: AnyElement = if !data.is_ready {
             crate::feedback::skeleton_rows("inbox-skeleton", crate::feedback::SKELETON_ROWS, eui_gpui::controls::FLAT_ROW_COMPACT_H, cx).into_any_element()

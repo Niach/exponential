@@ -13,8 +13,7 @@ import {
 } from "@exp/ui"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { setInboxPopoverOpen, useInboxPopoverOpen } from "@/hooks/use-inbox-popover"
-import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
-import { trpc } from "@/lib/trpc-client"
+import { markAllNotificationsRead, useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { cn } from "@/lib/utils"
 
 // #FEED-191 (owner-approved draft): the WIDE Inbox: an icon in the sidebar's
@@ -69,7 +68,7 @@ export function InboxPopover() {
               className="size-6 text-muted-foreground"
               aria-label="Mark all read"
               title="Mark all read"
-              onClick={() => void trpc.notifications.markAllRead.mutate()}
+              onClick={() => markAllNotificationsRead()}
             >
               <MarkReadIcon className="size-3.5" />
             </Button>
