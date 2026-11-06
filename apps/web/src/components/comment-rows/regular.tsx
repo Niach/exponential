@@ -1,4 +1,3 @@
-import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { useAppName } from "@/hooks/use-apps"
 import type { Attachment, Comment, User } from "@/db/schema"
 import {
@@ -16,7 +15,7 @@ import { getCommentBodyText } from "@/lib/domain"
 import { cn } from "@/lib/utils"
 import { CommentComposer } from "@/components/comment-composer"
 import { issueMemoryOwner } from "@/lib/work-tab-memory"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { ReadMarkdown } from "@/components/read-markdown"
 import { CommentAttachments } from "@/components/comment-rows/attachments"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { authorLabel, commentCaption, relativeTime } from "./format"
@@ -94,7 +93,6 @@ function CommentCardContent({
   onSaveEdit,
   users,
 }: CommentCardProps) {
-  const onLinkClick = useAppLinkClick()
   const bodyText = getCommentBodyText(comment.body)
   const name = authorAgent?.name ?? authorLabel(comment, author, reporterName)
   const viaAppName = useAppName(comment.viaAppId)
@@ -169,15 +167,8 @@ function CommentCardContent({
         <>
           {bodyText.trim().length > 0 && (
             // #EXP-1674: a link goes through THE opener (`~/x`, in-app routes).
-            <div className="mt-1 text-sm text-foreground" onClickCapture={onLinkClick}>
-              <MarkdownEditor
-                markdown={bodyText}
-                editable={false}
-                onChange={() => {}}
-                // EXP-698: feed-sized markdown everywhere — zero pad and no
-                // min-height, so the row's own `mt-1` is the only spacing.
-                appearance="chat"
-              />
+            <div className="mt-1 text-sm text-foreground">
+              <ReadMarkdown text={bodyText} ariaLabel="Comment" />
             </div>
           )}
           <CommentAttachments attachments={attachments} canModify={canEdit} />

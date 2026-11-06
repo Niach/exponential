@@ -7754,7 +7754,16 @@
             },
             {
               "style": {
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "lineHeight": 22
               }
             }
           ],
@@ -7774,12 +7783,146 @@
                 "fontSize": "$type.size.base",
                 "lineHeight": "$type.lineHeight.base"
               }
+            },
+            {
+              "style": {
+                "fontSize": 17.6,
+                "lineHeight": 28.6
+              }
+            },
+            {
+              "when": {
+                "level": 1
+              },
+              "style": {
+                "fontSize": 20,
+                "lineHeight": 32.5
+              }
+            },
+            {
+              "when": {
+                "level": 2
+              },
+              "style": {
+                "fontSize": 17.6,
+                "lineHeight": 28.6
+              }
+            },
+            {
+              "when": {
+                "level": 3
+              },
+              "style": {
+                "fontSize": 16,
+                "lineHeight": 26
+              }
+            },
+            {
+              "when": {
+                "level": 4
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "level": 5
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "level": 6
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "fontSize": 16,
+                "lineHeight": 26
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 1
+              },
+              "style": {
+                "fontSize": 16.8,
+                "lineHeight": 27.3
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 2
+              },
+              "style": {
+                "fontSize": 16,
+                "lineHeight": 26
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 3
+              },
+              "style": {
+                "fontSize": 15,
+                "lineHeight": 24.4
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 4
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 5
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 6
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22
+              }
             }
           ],
           "link": [
             {
               "style": {
                 "color": "$color.primary"
+              }
+            },
+            {
+              "style": {
+                "color": "#5f8bea"
               }
             }
           ],
@@ -7792,6 +7935,15 @@
                 "borderRadius": "$radius.sm",
                 "paddingHorizontal": "$spacing.xs"
               }
+            },
+            {
+              "style": {
+                "fontSize": 12.8,
+                "paddingHorizontal": 5.6,
+                "paddingVertical": 1.6,
+                "borderRadius": 3,
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "codeBlock": [
@@ -7803,6 +7955,18 @@
                 "backgroundColor": "$color.muted",
                 "borderRadius": "$radius.md",
                 "padding": "$spacing.md"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 12.8,
+                "lineHeight": 20.8,
+                "padding": 12,
+                "paddingHorizontal": 16,
+                "backgroundColor": "$color.accent",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": 6
               }
             }
           ],
@@ -7823,12 +7987,102 @@
                 "borderColor": "$color.border",
                 "borderRadius": "$radius.md"
               }
+            },
+            {
+              "style": {
+                "borderRadius": 0
+              }
             }
           ],
           "image": [
             {
               "style": {
                 "borderRadius": "$radius.sm"
+              }
+            }
+          ],
+          "listItem": [
+            {
+              "style": {
+                "paddingVertical": 4
+              }
+            }
+          ],
+          "headerCell": [
+            {
+              "style": {
+                "backgroundColor": "#fafafa0a",
+                "fontWeight": "$type.weight.semibold"
+              }
+            }
+          ],
+          "chip": [
+            {
+              "when": {
+                "chip": "issue"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.border",
+                "borderWidth": "$border.hairline",
+                "borderRadius": 6,
+                "paddingHorizontal": 6
+              }
+            },
+            {
+              "when": {
+                "chip": "entity"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.border",
+                "borderWidth": "$border.hairline",
+                "borderRadius": 6,
+                "paddingHorizontal": 6
+              }
+            },
+            {
+              "when": {
+                "chip": "mention"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.border",
+                "borderWidth": "$border.hairline",
+                "borderRadius": "$radius.full",
+                "paddingHorizontal": 6.4
+              }
+            }
+          ],
+          "chipLabel": [
+            {
+              "when": {
+                "chip": "issue"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": 13,
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "when": {
+                "chip": "entity"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": 13,
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "when": {
+                "chip": "mention"
+              },
+              "style": {
+                "color": "$color.accentForeground",
+                "fontSize": 13,
+                "fontWeight": "$type.weight.medium"
               }
             }
           ]
@@ -23119,7 +23373,16 @@
             },
             {
               "style": {
-                "gap": "$spacing.sm"
+                "gap": "$spacing.sm",
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "lineHeight": 22
               }
             }
           ],
@@ -23139,12 +23402,146 @@
                 "fontSize": "$type.size.base",
                 "lineHeight": "$type.lineHeight.base"
               }
+            },
+            {
+              "style": {
+                "fontSize": 17.6,
+                "lineHeight": 28.6
+              }
+            },
+            {
+              "when": {
+                "level": 1
+              },
+              "style": {
+                "fontSize": 20,
+                "lineHeight": 32.5
+              }
+            },
+            {
+              "when": {
+                "level": 2
+              },
+              "style": {
+                "fontSize": 17.6,
+                "lineHeight": 28.6
+              }
+            },
+            {
+              "when": {
+                "level": 3
+              },
+              "style": {
+                "fontSize": 16,
+                "lineHeight": 26
+              }
+            },
+            {
+              "when": {
+                "level": 4
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "level": 5
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "level": 6
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22.75
+              }
+            },
+            {
+              "when": {
+                "density": "chat"
+              },
+              "style": {
+                "fontSize": 16,
+                "lineHeight": 26
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 1
+              },
+              "style": {
+                "fontSize": 16.8,
+                "lineHeight": 27.3
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 2
+              },
+              "style": {
+                "fontSize": 16,
+                "lineHeight": 26
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 3
+              },
+              "style": {
+                "fontSize": 15,
+                "lineHeight": 24.4
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 4
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 5
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22
+              }
+            },
+            {
+              "when": {
+                "density": "chat",
+                "level": 6
+              },
+              "style": {
+                "fontSize": 14,
+                "lineHeight": 22
+              }
             }
           ],
           "link": [
             {
               "style": {
                 "color": "$color.primary"
+              }
+            },
+            {
+              "style": {
+                "color": "#5f8bea"
               }
             }
           ],
@@ -23157,6 +23554,15 @@
                 "borderRadius": "$radius.sm",
                 "paddingHorizontal": "$spacing.xs"
               }
+            },
+            {
+              "style": {
+                "fontSize": 12.8,
+                "paddingHorizontal": 5.6,
+                "paddingVertical": 1.6,
+                "borderRadius": 3,
+                "backgroundColor": "$color.accent"
+              }
             }
           ],
           "codeBlock": [
@@ -23168,6 +23574,18 @@
                 "backgroundColor": "$color.muted",
                 "borderRadius": "$radius.md",
                 "padding": "$spacing.md"
+              }
+            },
+            {
+              "style": {
+                "fontSize": 12.8,
+                "lineHeight": 20.8,
+                "padding": 12,
+                "paddingHorizontal": 16,
+                "backgroundColor": "$color.accent",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": 6
               }
             }
           ],
@@ -23188,12 +23606,102 @@
                 "borderColor": "$color.border",
                 "borderRadius": "$radius.md"
               }
+            },
+            {
+              "style": {
+                "borderRadius": 0
+              }
             }
           ],
           "image": [
             {
               "style": {
                 "borderRadius": "$radius.sm"
+              }
+            }
+          ],
+          "listItem": [
+            {
+              "style": {
+                "paddingVertical": 4
+              }
+            }
+          ],
+          "headerCell": [
+            {
+              "style": {
+                "backgroundColor": "#fafafa0a",
+                "fontWeight": "$type.weight.semibold"
+              }
+            }
+          ],
+          "chip": [
+            {
+              "when": {
+                "chip": "issue"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.border",
+                "borderWidth": "$border.hairline",
+                "borderRadius": 6,
+                "paddingHorizontal": 6
+              }
+            },
+            {
+              "when": {
+                "chip": "entity"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.border",
+                "borderWidth": "$border.hairline",
+                "borderRadius": 6,
+                "paddingHorizontal": 6
+              }
+            },
+            {
+              "when": {
+                "chip": "mention"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "borderColor": "$color.border",
+                "borderWidth": "$border.hairline",
+                "borderRadius": "$radius.full",
+                "paddingHorizontal": 6.4
+              }
+            }
+          ],
+          "chipLabel": [
+            {
+              "when": {
+                "chip": "issue"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": 13,
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "when": {
+                "chip": "entity"
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontSize": 13,
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "when": {
+                "chip": "mention"
+              },
+              "style": {
+                "color": "$color.accentForeground",
+                "fontSize": 13,
+                "fontWeight": "$type.weight.medium"
               }
             }
           ]

@@ -4,8 +4,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import type { IconName } from "@exp/icons"
 import { createIssueRefRegExp, matchedIdentifier } from "@/lib/issue-refs"
-import { proseChipKind } from "@/lib/prose-links"
-import { proseChipIconDataUri, statusIconDataUri } from "@/lib/status-icon-svg"
+import { statusIconDataUri } from "@/lib/status-icon-svg"
 
 // Renders `#IDENTIFIER` issue references as clickable pills via inline
 // decorations — the document text stays the plain token, so the GFM markdown
@@ -27,13 +26,6 @@ export interface IssueRefOptions {
   } | null
   /** Navigate to the referenced issue. */
   onOpen: (identifier: string) => void
-  /**
-   * EXP-760: also chip BARE identifiers (`EXP-758`, no `#`). Steering feeds
-   * only — agents narrate them that way, while descriptions and comments keep
-   * the `#IDENT` contract (lib/issue-refs.ts documents the split). Read at
-   * editor CREATION, like every other option here.
-   */
-  bare?: boolean
 }
 
 /** Keep chips readable — the full title stays available as the tooltip. */
@@ -48,8 +40,7 @@ function chipTitle(title: string): string {
 
 function buildDecorations(
   doc: ProseMirrorNode,
-  getResolved: IssueRefOptions[`getResolved`],
-  bare: boolean
+  getResolved: IssueRefOptions[`getResolved`]
 ): Decoration[] {
   const decorations: Decoration[] = []
   doc.descendants((node, pos) => {
@@ -57,22 +48,7 @@ function buildDecorations(
     if (!node.isText || !node.text) return undefined
     if (node.marks.some((mark) => mark.type.name === `code`)) return undefined
 
-    // #EXP-1674 (prose-links.json): a rewritten bare in-app URL paints as THE
-    // entity chip, its text already the title. Display-only: the rewrite never
-    // runs on an editable document.
-    const linkMark = node.marks.find((mark) => mark.type.name === `link`)
-    const chipKind = linkMark ? proseChipKind(String(linkMark.attrs.href ?? ``)) : null
-    if (chipKind && chipKind !== `issue`) {
-      decorations.push(
-        Decoration.inline(pos, pos + node.text.length, {
-          class: `issue-chip issue-ref-pill prose-entity-chip`,
-          style: `--issue-ref-status-icon: ${proseChipIconDataUri(chipKind)}`,
-        })
-      )
-      return undefined
-    }
-
-    const regExp = createIssueRefRegExp({ bare })
+    const regExp = createIssueRefRegExp()
     let match: RegExpExecArray | null
     while ((match = regExp.exec(node.text)) !== null) {
       const identifier = matchedIdentifier(match)
@@ -108,7 +84,6 @@ export const IssueRefExtension = Extension.create<IssueRefOptions>({
     return {
       getResolved: () => null,
       onOpen: () => {},
-      bare: false,
     }
   },
 
@@ -121,11 +96,7 @@ export const IssueRefExtension = Extension.create<IssueRefOptions>({
           decorations(state) {
             return DecorationSet.create(
               state.doc,
-              buildDecorations(
-                state.doc,
-                options.getResolved,
-                options.bare === true
-              )
+              buildDecorations(state.doc, options.getResolved)
             )
           },
           handleClick(_view, _pos, event) {

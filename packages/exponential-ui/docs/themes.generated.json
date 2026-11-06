@@ -2569,10 +2569,15 @@
         "quote",
         "table",
         "listItem",
-        "image"
+        "image",
+        "headerCell",
+        "chip",
+        "chipLabel"
       ],
       "props": [
-        "density"
+        "density",
+        "level",
+        "chip"
       ]
     },
     {

@@ -50,6 +50,9 @@ const INLINE_OVERLAYS_CSS = [
   `[data-xui-overlays="inline"] :is(.xui-Popover-content,.xui-Tooltip-content,.xui-Menu-content){animation:none}`,
 ].join(`\n`)
 
+// #VAPP-258: a `Markdown/quote` part's border and horizontal padding are its
+// BAR (the inline-start side, as the natives paint it); the part layer keeps
+// the theme's quote rule (all sides on a plain box) to that side.
 export const BASE_CSS = `${ANIMATION_PROPERTIES_CSS}
 @layer xui-base{
 ${ROUND2_CSS}
@@ -515,4 +518,5 @@ ${SHIMMER_CSS}
 @media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
 .xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
 ${REDUCED_EXTRA.replace(/\.xui-surface /g, `.xui-surface[data-xui-motion="reduce"] `)}
-${INLINE_OVERLAYS_CSS}`
+${INLINE_OVERLAYS_CSS}
+@layer xui-part{.xui-Markdown-quote{border-top-width:0;border-right-width:0;border-bottom-width:0;padding-right:0}}`

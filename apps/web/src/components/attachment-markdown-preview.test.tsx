@@ -66,7 +66,7 @@ describe(`loadMarkdownPreview`, () => {
 })
 
 describe(`AttachmentMarkdownPreviewDialog`, () => {
-  it(`renders the fetched markdown through the read-only editor`, async () => {
+  it(`renders the fetched markdown through genUI's Markdown`, async () => {
     vi.stubGlobal(
       `fetch`,
       fetchWith(`## Swarms\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n`)
@@ -79,9 +79,9 @@ describe(`AttachmentMarkdownPreviewDialog`, () => {
       />
     )
     await waitFor(() => {
-      expect(baseElement.querySelector(`.tiptap-content h2`)).toBeTruthy()
+      expect(baseElement.querySelector(`.xui-md h2`)).toBeTruthy()
     })
-    expect(baseElement.querySelector(`.tiptap-content table`)).toBeTruthy()
+    expect(baseElement.querySelector(`.xui-md table`)).toBeTruthy()
     // The header names the file and its synced size; download stays a click
     // away and forces the attachment disposition.
     expect(getByText(`tree-swarms-research.md`)).toBeTruthy()

@@ -1,0 +1,64 @@
+// #VAPP-258: the web painter puts the theme scope class and the
+// painter-supplied recipe props on every `Markdown/<part>` element, so a
+// theme's part rules (heading, link, code, chat density) apply; a host chip
+// is the `Markdown/chip` part over the Chip's look.
+
+import { afterEach, describe, expect, it } from "vitest"
+import { cleanup, render } from "@testing-library/react"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
+import { ExponentialSurface } from "./surface"
+import type { HostPlugin } from "./host"
+import { BuiltinMarkdown } from "./markdown"
+
+afterEach(cleanup)
+
+const root = (text: string) => reduceNested({ id: `md`, component: `Markdown`, props: { text } }, { catalogId: CORE_CATALOG_ID }).root
+const paint = (text: string, host: HostPlugin, theme: string) => render(<ExponentialSurface root={root(text)} theme={theme} id="parts" host={host} />).container
+
+const TEXT = `# Title\n\nSee [docs](https://exponential.at/d) and \`code\` and ABC-1.\n\n- one\n\n| a |\n| --- |\n| 1 |\n\n\`\`\`ts\nconst x = 1\n\`\`\``
+const chipHost: HostPlugin = { textLinks: (t) => (t.includes(`ABC-1`) ? t.split(/(ABC-1)/).filter(Boolean).map((s) => (s === `ABC-1` ? { text: s, href: `https://exponential.at/i/ABC-1`, chip: { kind: `issue`, label: `ABC-1 Fix login` } } : { text: s })) : null) }
+
+describe(`#VAPP-258 Markdown parts carry the theme scope and recipe props`, () => {
+  it(`every part has the scope class, its part name and a concrete density`, () => {
+    const c = paint(TEXT, chipHost, `exponential`)
+    const scope = [...c.querySelector(`[data-xui-c="Markdown"]`)!.classList].find((k) => k.startsWith(`xui-t-`))!
+    for (const part of [`heading`, `paragraph`, `link`, `code`, `listItem`, `table`, `headerCell`, `codeBlock`]) {
+      const el = c.querySelector(`.xui-Markdown-${part}`)!
+      expect(el, part).toBeTruthy()
+      expect(el.classList.contains(scope), part).toBe(true)
+      expect(el.getAttribute(`data-r-density`), part).toBe(`document`)
+    }
+    expect(c.querySelector(`.xui-Markdown-heading`)!.getAttribute(`data-r-level`)).toBe(`1`)
+  })
+
+  it(`the chat density reaches the parts`, () => {
+    const c = paint(TEXT, { ...chipHost, markdownOptions: { density: `chat` } }, `exponential`)
+    expect(c.querySelector(`.xui-Markdown-heading`)!.getAttribute(`data-r-density`)).toBe(`chat`)
+  })
+
+  it(`a chip is the Markdown chip part over the Chip look, the theme's kind rules inline`, () => {
+    const exp = paint(TEXT, chipHost, `exponential`)
+    const chip = exp.querySelector<HTMLElement>(`a[data-chip="issue"]`)!
+    expect(chip.classList.contains(`xui-Markdown-chip`)).toBe(true)
+    expect(chip.classList.contains(`xui-Chip-root`)).toBe(true)
+    expect(chip.getAttribute(`data-r-chip`)).toBe(`issue`)
+    expect(chip.style.borderRadius).toBe(`6px`)
+    expect(exp.querySelector<HTMLElement>(`.xui-Markdown-chipLabel`)!.style.fontSize).toBe(`13px`)
+    // The catalog theme has no Markdown chip rules: the Chip look alone.
+    const neutral = paint(TEXT, chipHost, `neutral`)
+    expect(neutral.querySelector<HTMLElement>(`a[data-chip="issue"]`)!.getAttribute(`style`)).toBeNull()
+  })
+})
+
+describe(`#VAPP-258 media outside a surface`, () => {
+  it(`a video or audio link paints the player faces, a file the file row`, () => {
+    const host: HostPlugin = {
+      attachment: (href) => (href.endsWith(`.mp4`) ? { kind: `video`, name: `clip.mp4` } : href.endsWith(`.m4a`) ? { kind: `audio`, name: `voice.m4a` } : { kind: `file`, name: `report.pdf` }),
+    }
+    const { container } = render(<BuiltinMarkdown text={`[clip](https://exponential.at/a/clip.mp4)\n\n[voice](https://exponential.at/a/voice.m4a)\n\n[report](https://exponential.at/a/report.pdf)`} host={host} />)
+    const blocks = container.querySelectorAll(`.xui-Markdown-attachment`)
+    expect(blocks[0]!.querySelector(`[data-xui-c="Video"] .xui-media-play`)).toBeTruthy()
+    expect(blocks[1]!.querySelector(`[data-xui-c="AudioPlayer"] .xui-Audio-track, [data-xui-c="AudioPlayer"] [data-xui-part="AudioPlayer/track"]`)!.textContent).toBe(`voice.m4a`)
+    expect(blocks[2]!.querySelector(`.xui-FileUpload-fileName`)!.textContent).toBe(`report.pdf`)
+  })
+})

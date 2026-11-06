@@ -12,7 +12,7 @@ import {
   useIsMobile,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { ReadMarkdown } from "@/components/read-markdown"
 import {
   CHANGELOG,
   latestChangelogEntry,
@@ -166,11 +166,7 @@ export function ChangelogSheet({
                 {format(parseISO(entry.date), `MMMM d, yyyy`)}
               </div>
               <h3 className="mb-2 text-base font-semibold">{entry.title}</h3>
-              <MarkdownEditor
-                editable={false}
-                markdown={entry.body}
-                onChange={() => {}}
-              />
+              <ReadMarkdown text={entry.body} surface="document" ariaLabel={entry.title} />
             </div>
           ))}
         </div>

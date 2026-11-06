@@ -1,54 +1,41 @@
-import { useEffect, useRef } from "react"
-import MarkdownIt from "markdown-it"
-import { cn } from "@exp/ui"
+import { useEffect, useMemo, useState } from "react"
+import { AppMarkdown, type AppMarkdownHost as HostPlugin } from "@exp/ui"
 import { attachmentIdFromUrl, signedAttachmentUrl, useMcpActions } from "./actions"
 
 // EXP-1183 — issue descriptions, comments and run reports are plain GFM
-// (CLAUDE.md "Markdown"). The views render it read-only through markdown-it
-// with raw HTML OFF (every tag in the source is escaped), painted by the
-// `.exp-markdown` rules in styles.css — the web editor's `.tiptap-content`
-// typography. Two departures, both forced by the sandbox: an image is an
-// authenticated `/api/attachments` URL, so it renders as a placeholder the
-// component swaps for the attachment's signed URL (`exponential_attachments_get`
-// through the host); links go through the host (`onOpenLink`), never a
-// navigation.
+// (CLAUDE.md "Markdown"). #VAPP-258: the views paint them on genUI's
+// Markdown (`AppMarkdown`, the app's own read-only renderer; raw HTML is
+// never markup there). Two departures, both forced by the sandbox: an
+// attachment picture is an authenticated `/api/attachments` URL, so it loads
+// through the attachment's signed URL (`exponential_attachments_get` through
+// the host; until then, and for any foreign picture, its alt text); links go
+// through the host (`onOpenLink`), never a navigation.
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
-
-md.renderer.rules.image = (tokens, index) => {
-  const alt = md.utils.escapeHtml(tokens[index].content || `image`)
-  const id = attachmentIdFromUrl(tokens[index].attrGet(`src`))
-  return id
-    ? `<span class="exp-markdown-image" data-attachment-id="${id}" data-alt="${alt}">${alt}</span>`
-    : `<span class="exp-markdown-image">${alt}</span>`
-}
-
-const defaultLinkOpen =
-  md.renderer.rules.link_open ??
-  ((tokens, index, options, _env, self) =>
-    self.renderToken(tokens, index, options))
-md.renderer.rules.link_open = (tokens, index, options, env, self) => {
-  const href = tokens[index].attrGet(`href`) ?? ``
-  // Relative app links have no origin inside the sandbox.
-  if (href.startsWith(`/`) && typeof env?.origin === `string`) {
-    tokens[index].attrSet(`href`, `${env.origin}${href}`)
+/** The attachment ids `source`'s pictures name. */
+export function attachmentImageIds(source: string): string[] {
+  const ids = new Set<string>()
+  for (const m of source.matchAll(/!\[[^\]]*\]\(([^)\s]+)/g)) {
+    const id = attachmentIdFromUrl(m[1])
+    if (id) ids.add(id)
   }
-  return defaultLinkOpen(tokens, index, options, env, self)
+  return [...ids]
 }
 
-const TASK = /<li>(<p>)?\[( |x|X)\]\s/g
-
-/** GFM → HTML: escaped source, task-list items as disabled checkboxes. */
-export function renderMarkdown(source: string, origin?: string): string {
-  return md
-    .render(source, { origin })
-    .replace(
-      TASK,
-      (_match, paragraph: string | undefined, mark: string) =>
-        `<li class="exp-task" data-checked="${mark !== ` `}">${paragraph ?? ``}<input type="checkbox" disabled${mark !== ` ` ? ` checked` : ``} /> `
-    )
-    .replace(/<table>/g, `<div class="exp-table"><table>`)
-    .replace(/<\/table>/g, `</table></div>`)
+/** The view's host: http(s) links open through the host, relative ones
+ *  against the app origin; a picture loads only from its signed URL. */
+export function markdownHost(signed: Readonly<Record<string, string>>, origin?: string, onOpenLink?: (url: string) => void): HostPlugin {
+  return {
+    openUrl: (url) => {
+      if (/^https?:/i.test(url)) onOpenLink?.(url)
+    },
+    urls: origin ? { baseUrl: origin } : undefined,
+    mediaRequest: (src) => {
+      const id = attachmentIdFromUrl(src)
+      const url = id ? signed[id] : undefined
+      return url ? { url, headers: {} } : null
+    },
+    markdownOptions: { density: `chat` },
+  }
 }
 
 export function Markdown({
@@ -63,41 +50,21 @@ export function Markdown({
   onOpenLink?: (url: string) => void
   className?: string
 }) {
-  const ref = useRef<HTMLDivElement>(null)
   const { call } = useMcpActions()
-  // Attachment placeholders become pictures once their signed URL is back.
+  const [signed, setSigned] = useState<Record<string, string>>({})
+  const ids = attachmentImageIds(source).join(` `)
+  // Attachment pictures load once their signed URL is back.
   useEffect(() => {
-    const root = ref.current
-    if (!root) return
     let live = true
-    for (const node of root.querySelectorAll<HTMLElement>(`[data-attachment-id]`)) {
-      const id = node.dataset.attachmentId
-      if (!id) continue
+    for (const id of ids ? ids.split(` `) : []) {
       void signedAttachmentUrl(call, id).then((url) => {
-        if (!live || !url) return
-        const img = document.createElement(`img`)
-        img.src = url
-        img.alt = node.dataset.alt ?? ``
-        img.loading = `lazy`
-        node.replaceWith(img)
+        if (live && url) setSigned((prev) => (prev[id] === url ? prev : { ...prev, [id]: url }))
       })
     }
     return () => {
       live = false
     }
-  }, [source, call])
-  return (
-    <div
-      ref={ref}
-      className={cn(`exp-markdown`, className)}
-      onClick={(event) => {
-        const anchor = (event.target as HTMLElement).closest(`a`)
-        if (!anchor) return
-        event.preventDefault()
-        const href = anchor.getAttribute(`href`)
-        if (href && /^https?:/i.test(href)) onOpenLink?.(href)
-      }}
-      dangerouslySetInnerHTML={{ __html: renderMarkdown(source, origin) }}
-    />
-  )
+  }, [ids, call])
+  const host = useMemo(() => markdownHost(signed, origin, onOpenLink), [signed, origin, onOpenLink])
+  return <AppMarkdown text={source} host={host} className={className} />
 }

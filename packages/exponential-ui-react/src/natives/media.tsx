@@ -6,6 +6,7 @@ import { Avatar as AvatarPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { CHROME, IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
+import type { HostPlugin } from "../host"
 import { NodeView, mergeStyle, withClass } from "../node-view"
 import { MEDIA_ASPECT_RATIO, MEDIA_INTRINSIC_WIDTH } from "@exponential_app/eui"
 import { mediaClock } from "@exponential_app/eui/web"
@@ -75,34 +76,41 @@ export function ImageNative({ node, props, rootProps }: NativeProps) {
   )
 }
 
+type PartOf = (name: string) => Record<string, unknown>
+/** What a media face needs besides its props: the host (the media loader)
+ *  and the strings; a surface's natives and a Markdown outside a surface
+ *  (#VAPP-258, an app's own text) hand them in alike. */
+export interface MediaFaceProps {
+  host: HostPlugin
+  t: (id: string) => string
+  rootProps: Record<string, unknown>
+  part: PartOf
+  src: string
+  durationMs?: number
+}
+
 /** Video (×4 since EXP-1556): the poster (or a dark tint) with the round
  *  play button and the `durationMs` clock, as desktop, iOS and Android draw
  *  it; the press (or `autoplay`) swaps in the browser's player with its
  *  controls, playing. */
-export function VideoNative({ node, props, rootProps }: NativeProps) {
-  const ctx = useSurfaceContext()
-  const part = useParts(node, props)
-  const src = str(props.src)
-  const poster = str(props.poster)
-  const autoplay = bool(props.autoplay)
+export function VideoFace({ host, t, rootProps, part, src, durationMs, poster = ``, autoplay = false, aspectRatio }: MediaFaceProps & { poster?: string; autoplay?: boolean; aspectRatio?: number }) {
   const [started, setStarted] = useState(false)
   // The video streams (no byte caps); its poster is an image (the limits hold).
-  const url = useMediaSrc(ctx.host, src, `stream`)
-  const posterUrl = useMediaSrc(ctx.host, poster)
+  const url = useMediaSrc(host, src, `stream`)
+  const posterUrl = useMediaSrc(host, poster)
   // Round 2 §7: height = width / `aspectRatio` (default 16:9), never the
   // browser's 300×150.
-  const ratio = num(props.aspectRatio, MEDIA_ASPECT_RATIO) || MEDIA_ASPECT_RATIO
-  const durationMs = props.durationMs !== undefined ? num(props.durationMs) : undefined
+  const ratio = aspectRatio || MEDIA_ASPECT_RATIO
   const Play = CHROME.play
   return (
-    <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { aspectRatio: String(ratio) })}>
+    <div {...rootProps} style={mergeStyle(rootProps, { aspectRatio: String(ratio) })}>
       <MediaSizer />
       {started || autoplay ? (
         <video {...(part(`controls`) as Record<string, string>)} src={url} poster={posterUrl} controls autoPlay muted={autoplay && !started} playsInline preload="metadata" data-duration-ms={durationMs} />
       ) : (
         <>
           {posterUrl ? <img className="xui-video-poster" src={posterUrl} alt="" aria-hidden="true" decoding="async" draggable={false} /> : null}
-          <button type="button" className="xui-media-play" data-size="lg" aria-label={ctx.t(`play`)} disabled={!url} onClick={() => setStarted(true)}>
+          <button type="button" className="xui-media-play" data-size="lg" aria-label={t(`play`)} disabled={!url} onClick={() => setStarted(true)}>
             <Play aria-hidden="true" />
           </button>
           {durationMs !== undefined ? <span className="xui-video-duration">{mediaClock(durationMs)}</span> : null}
@@ -112,20 +120,23 @@ export function VideoNative({ node, props, rootProps }: NativeProps) {
   )
 }
 
+export function VideoNative({ node, props, rootProps }: NativeProps) {
+  const ctx = useSurfaceContext()
+  const part = useParts(node, props)
+  const durationMs = props.durationMs !== undefined ? num(props.durationMs) : undefined
+  return <VideoFace host={ctx.host} t={ctx.t} rootProps={rootProps as Record<string, unknown>} part={part as PartOf} src={str(props.src)} poster={str(props.poster)} autoplay={bool(props.autoplay)} aspectRatio={num(props.aspectRatio, MEDIA_ASPECT_RATIO)} durationMs={durationMs} />
+}
+
 /** AudioPlayer (×4 since EXP-1556): the title over a bar of the round
  *  play/pause button, the progress track and `position / duration`, as
  *  desktop, iOS and Android draw it; a hidden `<audio>` plays. */
-export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
-  const ctx = useSurfaceContext()
-  const part = useParts(node, props)
-  const src = str(props.src)
-  const title = str(props.title)
-  const url = useMediaSrc(ctx.host, src, `stream`)
+export function AudioFace({ host, t, rootProps, part, src, durationMs: given, title = `` }: MediaFaceProps & { title?: string }) {
+  const url = useMediaSrc(host, src, `stream`)
   const audio = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [position, setPosition] = useState(0)
   const [loadedMs, setLoadedMs] = useState<number | null>(null)
-  const durationMs = props.durationMs !== undefined ? num(props.durationMs) : (loadedMs ?? 0)
+  const durationMs = given ?? loadedMs ?? 0
   const Glyph = playing ? CHROME.pause : CHROME.play
   const toggle = () => {
     const el = audio.current
@@ -134,10 +145,10 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
     else el.pause()
   }
   return (
-    <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
+    <div {...rootProps} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       {title ? <span {...(part(`track`) as Record<string, string>)}>{title}</span> : null}
-      <div {...(part(`controls`) as Record<string, string>)} data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined}>
-        <button type="button" className="xui-media-play" data-size="sm" aria-label={ctx.t(playing ? `pause` : `play`)} disabled={!url} onClick={toggle}>
+      <div {...(part(`controls`) as Record<string, string>)} data-duration-ms={given}>
+        <button type="button" className="xui-media-play" data-size="sm" aria-label={t(playing ? `pause` : `play`)} disabled={!url} onClick={toggle}>
           <Glyph aria-hidden="true" />
         </button>
         <span className="xui-audio-progress" aria-hidden="true">
@@ -158,6 +169,12 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
       />
     </div>
   )
+}
+
+export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
+  const ctx = useSurfaceContext()
+  const part = useParts(node, props)
+  return <AudioFace host={ctx.host} t={ctx.t} rootProps={rootProps as Record<string, unknown>} part={part as PartOf} src={str(props.src)} title={str(props.title)} durationMs={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
 }
 
 function initials(name: string): string {

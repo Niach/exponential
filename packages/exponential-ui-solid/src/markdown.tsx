@@ -15,7 +15,7 @@
 
 import { For, Show, createMemo, createSignal, useContext, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { linkedMarkdown, linkHref, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
+import { linkedMarkdown, linkHref, markdownChipOverlay, markdownPartAttrs, loadedImageSize, markdownCodeLines, markdownImageCap, markdownImageSizeOf, markdownImageStyle, mediaRequestOf, rememberImageSize, parseMarkdown, partClass, propAttribute, type MarkdownBlock, type MarkdownChip, type MarkdownInline, type MarkdownList } from "@exponential_app/eui/web"
 import type { UiNode } from "@exponential_app/eui"
 import { SurfaceContext } from "./context"
 import type { HostPlugin } from "./host"
@@ -24,6 +24,17 @@ import { createMediaSource } from "./media"
 import { NodeView } from "./node-view"
 import { BuiltinIcon } from "./natives/shared"
 import { css } from "./style"
+
+/** #VAPP-258: a `Markdown/<part>` element's recipe attributes (web
+ *  markdown-parts.ts): the theme scope class and the painter-supplied recipe
+ *  props (`density`, a heading's `level`), so the theme's part rules reach
+ *  every part. */
+function mdPart(host: HostPlugin, scope: string, name: string, extra?: Record<string, string | number>): Record<string, string> {
+  const p = markdownPartAttrs(scope, name, host.markdownOptions?.density, extra)
+  return { class: p.class, ...p.attrs }
+}
+
+const styleOf = (decls: [string, string][]): Record<string, string> | undefined => (decls.length ? Object.fromEntries(decls) : undefined)
 
 export { MAX_LINK_NESTING, MAX_LINK_DEST, MAX_BLOCK_NESTING, linkAt, wholeImage, parseList } from "@exponential_app/eui/web"
 
@@ -53,11 +64,10 @@ function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; widt
   return (
     <Show
       when={mediaRequestOf(props.host, props.src) !== null}
-      fallback={props.alt ? <p class="xui-Markdown-paragraph">{props.alt}</p> : null}
+      fallback={props.alt ? <p {...mdPart(props.host, props.scope ?? ``, `paragraph`)}>{props.alt}</p> : null}
     >
       <div
-        class={`${props.scope ?? ``} ${partClass(`Markdown`, `image`)}`.trim()}
-        data-xui-part="Markdown/image"
+        {...mdPart(props.host, props.scope ?? ``, `image`)}
         role={press() ? `button` : `img`}
         tabIndex={press() ? 0 : undefined}
         data-pressable={press() ? `` : undefined}
@@ -74,14 +84,14 @@ function MarkdownImage(props: { host: HostPlugin; src: string; alt: string; widt
 }
 
 /** A policed markdown link: a host with `openUrl` opens it. */
-function MarkdownLink(props: { host: HostPlugin; href: string; children: JSX.Element }): JSX.Element {
+function MarkdownLink(props: { host: HostPlugin; href: string; scope: string; children: JSX.Element }): JSX.Element {
   const onClick = (e: MouseEvent) => {
     if (!props.host.openUrl) return
     e.preventDefault()
     props.host.openUrl(props.href)
   }
   return (
-    <a class="xui-Markdown-link" href={props.href} target="_blank" rel="noreferrer" onClick={onClick}>
+    <a {...mdPart(props.host, props.scope, `link`)} href={props.href} target="_blank" rel="noreferrer" onClick={onClick}>
       {props.children}
     </a>
   )
@@ -97,10 +107,17 @@ function MarkdownChipLink(props: { host: HostPlugin; href: string; chip: Markdow
     props.host.openUrl(props.href)
   }
   const recipe = { [propAttribute(true, `shape`)]: `pill`, [propAttribute(true, `selected`)]: `false`, [propAttribute(true, `tone`)]: `neutral` }
+  // #VAPP-258: the `Markdown/chip` + `Markdown/chipLabel` parts (their
+  // `chip` kind) over the Chip's look: classes + attributes for the sheet,
+  // the theme's rules for this kind inline (they win over Chip's).
+  const ctx = useContext(SurfaceContext)
+  const density = props.host.markdownOptions?.density
+  const { "data-xui-part": _part, ...own } = markdownPartAttrs(props.scope, `chip`, density, { chip: props.chip.kind }).attrs
+  const { "data-xui-part": _labelPart, ...ownLabel } = markdownPartAttrs(props.scope, `chipLabel`, density, { chip: props.chip.kind }).attrs
   return (
-    <a class={`xui-md-chip ${props.scope} ${partClass(`Chip`, `root`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/root" data-chip={props.chip.kind} {...recipe} href={props.href} target="_blank" rel="noreferrer" onClick={onClick}>
+    <a class={`xui-md-chip ${props.scope} ${partClass(`Chip`, `root`)} ${partClass(`Markdown`, `chip`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/root" data-chip={props.chip.kind} {...recipe} {...own} style={styleOf(markdownChipOverlay(ctx?.theme, `chip`, props.chip.kind, density))} href={props.href} target="_blank" rel="noreferrer" onClick={onClick}>
       {props.chip.icon ? <IconGlyph icons={props.host.icons} name={props.chip.icon} aria-hidden="true" /> : null}
-      <span class={`${props.scope} xui-Text-root ${partClass(`Chip`, `label`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/label" {...recipe} data-r-variant="caption">
+      <span class={`${props.scope} xui-Text-root ${partClass(`Chip`, `label`)} ${partClass(`Markdown`, `chipLabel`)}`.replace(/  +/g, ` `)} data-xui-part="Chip/label" {...recipe} {...ownLabel} data-r-variant="caption" style={styleOf(markdownChipOverlay(ctx?.theme, `chipLabel`, props.chip.kind, density))}>
         {props.chip.label}
       </span>
     </a>
@@ -148,7 +165,7 @@ function inline(nodes: readonly MarkdownInline[], host: HostPlugin, scope = ``):
     if (typeof n === `string`) return n.includes(`\n`) ? n.split(`\n`).flatMap((line, i) => (i ? [<br />, line] : [line])) : n
     switch (n.type) {
       case `code`:
-        return <code class="xui-Markdown-code">{n.text}</code>
+        return <code {...mdPart(host, scope, `code`)}>{n.text}</code>
       case `strong`:
         return <strong>{inline(n.children, host, scope)}</strong>
       case `em`:
@@ -160,11 +177,11 @@ function inline(nodes: readonly MarkdownInline[], host: HostPlugin, scope = ``):
         if (href && n.chip) return <MarkdownChipLink host={host} href={href} chip={n.chip} scope={scope} />
         const label = inline(n.children, host, scope)
         return href ? (
-          <MarkdownLink host={host} href={href}>
+          <MarkdownLink host={host} href={href} scope={scope}>
             {label}
           </MarkdownLink>
         ) : (
-          <span class="xui-Markdown-link" data-denied="">
+          <span {...mdPart(host, scope, `link`)} data-denied="">
             {label}
           </span>
         )
@@ -176,7 +193,7 @@ function inline(nodes: readonly MarkdownInline[], host: HostPlugin, scope = ``):
 
 function renderList(list: MarkdownList, host: HostPlugin, scope: string): JSX.Element {
   const items = list.items.map((item) => (
-    <li class="xui-Markdown-listItem" data-task={item.task === undefined ? undefined : item.task ? `done` : `todo`}>
+    <li {...mdPart(host, scope, `listItem`)} data-task={item.task === undefined ? undefined : item.task ? `done` : `todo`}>
       {item.task === undefined ? null : <input type="checkbox" checked={item.task} attr:checked={item.task ? `` : undefined} readOnly />}
       {item.task === undefined ? null : ` `}
       {inline(item.content, host, scope)}
@@ -203,33 +220,33 @@ function codeRuns(b: { lang?: string; text: string }, scope: string): JSX.Elemen
 function block(b: MarkdownBlock, host: HostPlugin, scope: string, id: string, key: number): JSX.Element {
   switch (b.type) {
     case `paragraph`:
-      return <p class="xui-Markdown-paragraph">{inline(b.children, host, scope)}</p>
+      return <p {...mdPart(host, scope, `paragraph`)}>{inline(b.children, host, scope)}</p>
     case `image`:
       return <MarkdownImage host={host} src={b.src} alt={b.alt} width={b.width} height={b.height} scope={scope} />
     case `attachment`:
       return <MarkdownAttachment host={host} b={b} scope={scope} id={`${id}.attachment.${key}`} />
     case `codeBlock`:
       return (
-        <pre class="xui-Markdown-codeBlock" data-lang={b.lang}>
+        <pre {...mdPart(host, scope, `codeBlock`)} data-lang={b.lang}>
           <code>{codeRuns(b, scope)}</code>
         </pre>
       )
     case `heading`:
       return (
-        <Dynamic component={`h${Math.min(b.level, 6)}`} class="xui-Markdown-heading" data-level={b.level}>
+        <Dynamic component={`h${Math.min(b.level, 6)}`} {...mdPart(host, scope, `heading`, { level: b.level })} data-level={b.level}>
           {inline(b.children, host, scope)}
         </Dynamic>
       )
     case `quote`:
-      return <blockquote class="xui-Markdown-quote">{blocks(b.children, host, scope, id)}</blockquote>
+      return <blockquote {...mdPart(host, scope, `quote`)}>{blocks(b.children, host, scope, id)}</blockquote>
     case `list`:
       return renderList(b.list, host, scope)
     case `table`:
       return (
-        <table class="xui-Markdown-table">
+        <table {...mdPart(host, scope, `table`)}>
           <thead>
             <tr>
-              <For each={b.head}>{(h, c) => <th style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}>{inline(h, host, scope)}</th>}</For>
+              <For each={b.head}>{(h, c) => <th {...mdPart(host, scope, `headerCell`)} style={css(b.align[c()] ? { textAlign: b.align[c()]! } : undefined)}>{inline(h, host, scope)}</th>}</For>
             </tr>
           </thead>
           <tbody>
