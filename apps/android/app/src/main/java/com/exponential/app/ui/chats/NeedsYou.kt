@@ -51,6 +51,8 @@ import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.SubmitSize
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
+import com.exponential.app.ui.work.MergeNowConfirm
+import com.exponential.app.ui.work.NeedsApprovalConfirm
 import com.exponential.app.ui.components.ChatEntryRow
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LocalPageHeaderActions
@@ -190,6 +192,11 @@ fun NeedsYouRowItem(
     }
 }
 
+/** #EXP-1710: an `approval`-mode ready PR row (a PR row with no stuck
+ *  actions: `auto` mode lists none): its press is THE pill's Needs approval. */
+internal val NeedsYou.Row.needsApproval: Boolean
+    get() = kind == NeedsYou.Kind.Pr && actions.isEmpty()
+
 private fun stuckActionLabel(action: MergeTrain.StuckAction): String = when (action) {
     MergeTrain.StuckAction.Retry -> MergeTrain.Copy.NeedsYou.RETRY
     MergeTrain.StuckAction.MergeNow -> MergeTrain.Copy.NeedsYou.MERGE_NOW
@@ -256,15 +263,29 @@ fun NeedsYouPage(
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
     val rows by viewModel.needsYouRows.collectAsStateWithLifecycle()
+    val pullRequests by viewModel.needsYouPullRequests.collectAsStateWithLifecycle()
     // #EXP-1710: a stuck row's Merge now asks `merge-now-pr`, Close PR asks
     // close-pr.json's confirm (the thread's); Retry resumes at once.
     var mergeNowFor by remember { mutableStateOf<NeedsYou.Row?>(null) }
     var closeFor by remember { mutableStateOf<NeedsYou.Row?>(null) }
+    // #EXP-1710 (needs-you.json): an `approval` ready PR row's press = THE
+    // pill's Needs approval confirm (Merge queues it, Cancel leaves the row).
+    // [approveFor] stays set after the confirm closes so a refused merge
+    // still toasts; [approveOpen] is the confirm itself.
+    var approveFor by remember { mutableStateOf<String?>(null) }
+    var approveOpen by remember { mutableStateOf(false) }
     Scaffold(containerColor = Color.Transparent) { padding ->
         NeedsYouPageContent(
             rows = rows,
             onBack = onBack,
-            onOpen = onOpen,
+            onOpen = { row ->
+                if (row.needsApproval && pullRequests.any { it.id == row.messageId }) {
+                    approveFor = row.messageId
+                    approveOpen = true
+                } else {
+                    onOpen(row)
+                }
+            },
             onOpenInbox = onOpenInbox,
             inboxUnread = inboxUnread,
             modifier = Modifier.padding(top = padding.calculateTopPadding()),
@@ -277,17 +298,35 @@ fun NeedsYouPage(
             },
         )
     }
-    mergeNowFor?.let { row ->
-        PromptAlert(
-            prompt = Prompts.MergeNowPr.prompt(row.pullRequestNumber?.toInt()),
-            onDismiss = { mergeNowFor = null },
-            handlers = mapOf(
-                "merge" to {
-                    mergeNowFor = null
-                    viewModel.mergePullRequestNow(row.messageId)
-                },
-            ),
+    approveFor?.let { id -> pullRequests.firstOrNull { it.id == id } }?.let { pr ->
+        NeedsApprovalConfirm(
+            newest = pr,
+            stackPool = pullRequests.filter { it.teamId == pr.teamId },
+            confirmOpen = approveOpen,
+            onDismiss = { approveOpen = false },
         )
+    }
+    mergeNowFor?.let { row ->
+        val pr = pullRequests.firstOrNull { it.id == row.messageId }
+        if (pr != null) {
+            MergeNowConfirm(
+                pr = pr,
+                stackPool = pullRequests.filter { it.teamId == pr.teamId },
+                onDismiss = { mergeNowFor = null },
+                onMerge = { viewModel.mergePullRequestNow(row.messageId) },
+            )
+        } else {
+            PromptAlert(
+                prompt = Prompts.MergeNowPr.prompt(row.pullRequestNumber?.toInt()),
+                onDismiss = { mergeNowFor = null },
+                handlers = mapOf(
+                    "merge" to {
+                        mergeNowFor = null
+                        viewModel.mergePullRequestNow(row.messageId)
+                    },
+                ),
+            )
+        }
     }
     closeFor?.let { row ->
         val linked by remember(row.messageId) { viewModel.linkedIssueCount(row.messageId) }.collectAsStateWithLifecycle(0)

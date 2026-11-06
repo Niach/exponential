@@ -403,22 +403,31 @@ final class SessionListsModel {
                 card: message.card
             ))
         }
-        // #EXP-1710 (merge-train.json NEEDS YOU): when the opener session's
-        // device went offline = its synced row's `last_seen_at` once it reads
-        // offline. A device the viewer cannot see (a teammate's private
-        // machine) reads online: its fix never shows as stuck here.
+        // #EXP-1710 (merge-train.json OFFLINE SINCE): the opener = the PR's
+        // `sessionId` session, else its root; ExpCore's `offlineSince` reads
+        // its device row (THE presence + `last_seen_at`). An opener without a
+        // device = nil; an UNKNOWN last-seen (no device row synced, or none
+        // recorded) = the PR's `updatedAt`, never online.
         let sessionDevice = Dictionary(
             rows.sessions.compactMap { s in s.deviceId.map { (s.id, (device: $0, user: s.userId)) } },
             uniquingKeysWith: { a, _ in a }
         )
         let devicesById = Dictionary(grouping: rows.deviceRows, by: \.deviceId)
         let clock = Date()
-        func offlineSince(_ sessionId: String?) -> String? {
-            guard let sessionId, let link = sessionDevice[sessionId], let candidates = devicesById[link.device],
-                  let device = candidates.first(where: { $0.userId == link.user }) ?? candidates.first,
-                  !DeviceLiveness.isOnline(lastSeenAt: device.lastSeenAt, now: clock)
-            else { return nil }
-            return device.lastSeenAt
+        func offlineSince(_ pr: PullRequestEntity) -> String? {
+            let link = (pr.sessionId ?? pr.rootSessionId).flatMap { sessionDevice[$0] }
+            let candidates = link.flatMap { devicesById[$0.device] } ?? []
+            let device = candidates.first(where: { $0.userId == link?.user }) ?? candidates.first
+            return MergeTrain.offlineSince(
+                opener: link != nil,
+                device: device.map {
+                    MergeTrain.OpenerDevice(
+                        online: DeviceLiveness.isOnline(lastSeenAt: $0.lastSeenAt, now: clock),
+                        lastSeenAt: $0.lastSeenAt
+                    )
+                },
+                updatedAt: pr.updatedAt
+            )
         }
         for (teamId, mode) in rows.mergeModes {
             inputs[teamId, default: NeedsYouInput()].mergeMode = mode
@@ -439,7 +448,7 @@ final class SessionListsModel {
                 mergeState: pr.mergeState,
                 mergeWait: pr.mergeWait,
                 mergeHold: pr.mergeHold,
-                deviceOfflineSince: offlineSince(pr.sessionId ?? pr.rootSessionId)
+                deviceOfflineSince: offlineSince(pr)
             ))
         }
         return inputs

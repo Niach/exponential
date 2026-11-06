@@ -294,6 +294,11 @@ class ThreadsViewModel @Inject constructor(
             }
         }
 
+    /** #EXP-1710: the synced pull requests a Needs you PR row acts on (the
+     *  row's PR + its team's stack pool for THE pill's confirm and Merge now). */
+    val needsYouPullRequests: StateFlow<List<PullRequestEntity>> =
+        pullRequestRows.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** #EXP-1710: the Needs you stuck row's Retry (= Resume auto-merge). */
     fun retryPullRequest(pullRequestId: String) =
         call("resume", thing = "auto-merge") { pullRequestsApi.hold(it, pullRequestId, false) }
@@ -543,7 +548,7 @@ internal fun needsYouFold(
                 createdAt = pr.createdAt,
                 mergeState = MergeTrain.prMergeState(pr.state, pr.mergeState),
                 holdReason = pr.mergeHold,
-                deviceOfflineSince = openerOfflineSince(pr.sessionId, sessionsById, devicesById, now),
+                deviceOfflineSince = openerOfflineSince(pr, sessionsById, devicesById, now),
             )
         },
         mergeMode = mergeMode,
@@ -552,22 +557,28 @@ internal fun needsYouFold(
 }
 
 /**
- * #EXP-1710 (merge-train.json `stuckRow`): when the opener session's device
- * went offline = its synced `last_seen_at` once that is past the online window
- * (`DeviceLiveness`); null while online, and null when the client knows no
- * such device (no session, no device id, no row, no heartbeat): an unknown
- * device counts as ONLINE, so the agent is trusted to fix it.
+ * #EXP-1710 (merge-train.json `offlineSince`, [MergeTrain.offlineSince]): the
+ * opener = [pr]'s `sessionId` session, else (none, or not synced) its root; no opener (or one not
+ * synced, or without a device) = null; its device online by THE presence
+ * ([DeviceLiveness]) = null; else the row's `last_seen_at`, and an UNKNOWN
+ * last-seen (no device row synced, or no heartbeat) = the PR's `updatedAt`
+ * (offline since the PR went conflict/failing), never online.
  */
 internal fun openerOfflineSince(
-    openerId: String?,
+    pr: PullRequestEntity,
     sessions: Map<String, SessionTree.Session>,
     devices: Map<String, DeviceEntity>,
     now: Long,
 ): String? {
-    val deviceId = openerId?.let { sessions[it] }?.deviceId?.takeIf { it.isNotEmpty() } ?: return null
-    val seen = devices[deviceId]?.lastSeenAt?.takeIf { it.isNotBlank() } ?: return null
-    if (WireTimestamps.parseEpochMs(seen) == null) return null
-    return if (DeviceLiveness.isOnline(seen, now)) null else seen
+    val opener = pr.sessionId?.let { sessions[it] } ?: pr.rootSessionId?.let { sessions[it] }
+    val deviceId = opener?.deviceId?.takeIf { it.isNotEmpty() }
+    val row = deviceId?.let { devices[it] }
+    val seen = row?.lastSeenAt?.takeIf { it.isNotBlank() && WireTimestamps.parseEpochMs(it) != null }
+    return MergeTrain.offlineSince(
+        opener = deviceId != null,
+        device = row?.let { MergeTrain.OpenerDevice(online = DeviceLiveness.isOnline(seen, now), lastSeenAt = seen) },
+        updatedAt = pr.updatedAt.ifBlank { pr.createdAt },
+    )
 }
 
 /** The digests' card kinds a person acts on. */

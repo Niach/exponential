@@ -17,7 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.MergeTrain
 import com.exponential.app.domain.NeedsYou
+import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.ResultsTab
 import com.exponential.app.ui.chats.NeedsYouEntryRow
 import com.exponential.app.ui.chats.NeedsYouRowItem
@@ -52,14 +54,35 @@ internal val NEEDS_YOU_SPECIMEN_ROWS = listOf(
     ),
 )
 
+/**
+ * #EXP-1710: ONE stuck PR row under `cases[1]`'s rows: merge-train.json
+ * `stuckRow` cases[0] (`Auto-merge stuck on #12`, `3 bounces`, Retry · Merge
+ * now · Close PR) as a `pr` row of the `Palette` chat (web `pr12`).
+ */
+internal val NEEDS_YOU_SPECIMEN_STUCK: NeedsYou.Row = MergeTrain.stuckRow(
+    number = 12,
+    state = "held",
+    holdReason = "bounces",
+    deviceOfflineSince = null,
+    nowMs = WireTimestamps.parseEpochMs("2027-01-15T10:00:00.000Z")!!,
+    owner = true,
+)!!.let { stuck ->
+    NeedsYou.Row(
+        messageId = "pr12", sessionId = "r2", rootId = "r2", kind = NeedsYou.Kind.Pr, opens = NeedsYou.Opens.Results,
+        title = stuck.title, chat = "Palette", meta = stuck.meta, age = "3h",
+        createdAt = "2027-01-15T05:00:00.000Z", actions = stuck.actions, pullRequestNumber = 12,
+    )
+}
+
 /** `needs-you`: the phone entry row, then THE list (shot `sg_needs-you`). */
 @Composable
 fun NeedsYouSpecimenScreen() {
+    val rows = NEEDS_YOU_SPECIMEN_ROWS + NEEDS_YOU_SPECIMEN_STUCK
     AppBackground(Modifier.testTag(NeedsYouSpecimenTestId)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(vertical = 16.dp)) {
-            NeedsYouEntryRow(count = NEEDS_YOU_SPECIMEN_ROWS.size, onClick = {})
+            NeedsYouEntryRow(count = rows.size, onClick = {})
             Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 16.dp)) {
-                NEEDS_YOU_SPECIMEN_ROWS.forEach { row -> NeedsYouRowItem(row, onClick = {}) }
+                rows.forEach { row -> NeedsYouRowItem(row, onClick = {}) }
             }
         }
     }

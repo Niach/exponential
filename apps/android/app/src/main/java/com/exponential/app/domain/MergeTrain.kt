@@ -92,6 +92,23 @@ object MergeTrain {
 
     data class StuckRow(val title: String, val meta: String, val actions: List<StuckAction>)
 
+    /** The opener's device row as [offlineSince] reads it: THE presence +
+     *  its last heartbeat (null = none synced). */
+    data class OpenerDevice(val online: Boolean, val lastSeenAt: String?)
+
+    /**
+     * merge-train.json `offlineSince` (TS `offlineSince`): [stuckRow]'s
+     * `deviceOfflineSince`. [opener] = the PR has an opener (its `sessionId`
+     * session, else its root) with a device; null while that device is
+     * online or there is none; else its last heartbeat, and an UNKNOWN
+     * last-seen (no row synced, or `lastSeenAt` null) = the PR's
+     * [updatedAt] (offline since the PR went conflict/failing), never online.
+     */
+    fun offlineSince(opener: Boolean, device: OpenerDevice?, updatedAt: String): String? {
+        if (!opener || device?.online == true) return null
+        return device?.lastSeenAt ?: updatedAt
+    }
+
     /**
      * The Needs you row of a stuck PR, or null: `held` by the limits, or a
      * `conflict`/`failing` whose opener's device is offline 2 h+

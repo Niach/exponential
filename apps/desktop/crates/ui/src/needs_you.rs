@@ -5,7 +5,8 @@
 //! `domain::needs_you::needs_you` over the team's conversation DIGESTS (never a
 //! transcript: EXP-1380), sessions and pull requests; the rail shows the entry
 //! while a row exists, [`NeedsYouView`] the one reading column in the content
-//! card. A press opens the chat by the row's `opens`.
+//! card. A press opens the chat by the row's `opens`; an `approval`-mode ready
+//! PR row's press is THE status pill's Needs approval confirm (#EXP-1710).
 //!
 //! #EXP-1710 (merge-train.json `stuckRow`, web `withStuckRows`): a PR whose
 //! auto-merge is stuck (held by the limits, or a fix waiting 2 h+ on the
@@ -135,11 +136,7 @@ fn stuck_rows(team_id: &str, input: &NeedsYouInput, owner: bool, cx: &App) -> Ve
         }
         let Some(root_id) = pull.root_session_id.as_deref() else { continue };
         let opener = sessions.get(pull.session_id.as_deref().unwrap_or(root_id));
-        let offline_since = opener
-            .and_then(|opener| crate::queries::session_device_row(opener, devices.iter()))
-            .filter(|row| !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), input.now))
-            .and_then(|row| row.last_seen_at.as_deref().and_then(crate::comments::parse_epoch))
-            .map(|seconds| seconds * 1_000);
+        let offline_since = opener_offline_since(pull, opener, devices.iter(), input.now);
         let Some(view) = domain::merge_train::stuck_row(
             pull.number.unwrap_or_default(),
             domain::merge_train::pr_merge_state(pull),
@@ -169,6 +166,29 @@ fn stuck_rows(team_id: &str, input: &NeedsYouInput, owner: bool, cx: &App) -> Ve
         ));
     }
     rows
+}
+
+/// merge-train `offlineSince` off the store's rows: the opener (`opener`,
+/// the PR's `session_id` session, else its root) without a device = None;
+/// its device online (THE presence: a heartbeat inside the online window) =
+/// None; else that row's `last_seen_at`, and an UNKNOWN last-seen (no row
+/// synced, or `last_seen_at` null) = the PR's `updated_at` (else its
+/// `created_at`): offline since the PR went conflict/failing.
+pub(crate) fn opener_offline_since<'a>(
+    pull: &domain::rows::PullRequestRow,
+    opener: Option<&domain::rows::SessionRow>,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    now: i64,
+) -> Option<i64> {
+    let has_device = opener.and_then(|opener| opener.device_id.as_deref()).is_some_and(|id| !id.is_empty());
+    let device = opener.and_then(|opener| crate::queries::session_device_row(opener, devices)).map(|row| {
+        domain::merge_train::OfflineDevice {
+            online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now),
+            last_seen_at_ms: row.last_seen_at.as_deref().and_then(crate::comments::parse_epoch).map(|seconds| seconds * 1_000),
+        }
+    });
+    let updated_at = pull.updated_at.as_deref().or(pull.created_at.as_deref()).and_then(crate::comments::parse_epoch)?;
+    domain::merge_train::offline_since(has_device, device, updated_at * 1_000)
 }
 
 /// Fold the stuck PRs into `needs_you()`'s rows (web `withStuckRows`): a
@@ -240,6 +260,33 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
     let rows = Rc::new(with_stuck_rows(needs_you(&input), stuck));
     cx.global_mut::<RowsMemo>().0 = Some((key, rows.clone()));
     rows
+}
+
+/// What a row's press does (#EXP-1710): an `approval`-mode ready PR row
+/// (a `pr` row that is not stuck: `needs_you()` lists ready PRs only outside
+/// `auto` mode) asks THE status pill's Needs approval confirm; every other
+/// row, a stuck PR's included, opens by `opens`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RowPress {
+    Open,
+    Approve,
+}
+
+pub(crate) fn row_press(row: &NeedsYouRow, stuck: &HashMap<String, StuckPr>) -> RowPress {
+    if row.kind == NeedsYouKind::Pr && !stuck.contains_key(&row.message_id) {
+        RowPress::Approve
+    } else {
+        RowPress::Open
+    }
+}
+
+/// Press a row: Needs approval = THE pill's confirm (the plain or the stack
+/// confirm; Merge queues it, Cancel leaves the row), else [`open_row`].
+pub(crate) fn press_row(row: &NeedsYouRow, press: RowPress, window: &mut Window, cx: &mut App) {
+    match press {
+        RowPress::Approve => crate::pr_merge::ask_approve(&row.message_id, window, cx),
+        RowPress::Open => open_row(row, window, cx),
+    }
 }
 
 /// A press opens the chat by `opens` (needs-you.json): a plan = its Plan tab on
@@ -388,10 +435,11 @@ pub(crate) fn needs_you_list(rows: &[NeedsYouRow], stuck: &HashMap<String, Stuck
         .min_w_0()
         .children(rows.iter().map(|row| {
             let open = row.clone();
+            let press = row_press(row, stuck);
             needs_you_row(row, stuck.get(&row.message_id).map(stuck_actions), cx)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
-                .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| open_row(&open, window, cx))
+                .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| press_row(&open, press, window, cx))
                 .into_any_element()
         }))
         .into_any_element()
@@ -492,6 +540,83 @@ mod tests {
         assert!(!folded.stuck.contains_key("pr-a"));
         // Nothing stuck = the fold's rows as they are.
         assert_eq!(with_stuck_rows(base.clone(), Vec::new()).rows, base);
+    }
+
+    /// #EXP-1710: an `approval` ready PR row's press = Needs approval; a
+    /// stuck PR row and every decision open by `opens`.
+    #[test]
+    fn a_ready_pr_row_presses_needs_approval() {
+        let stuck: HashMap<String, StuckPr> = [(
+            "pr-s".to_string(),
+            StuckPr { pull_request_id: "pr-s".into(), actions: vec![StuckAction::Retry, StuckAction::ClosePr] },
+        )]
+        .into();
+        assert_eq!(row_press(&dated("pr-r", NeedsYouKind::Pr, "2026-11-01T00:00:00.000Z"), &stuck), RowPress::Approve);
+        assert_eq!(row_press(&dated("pr-s", NeedsYouKind::Pr, "2026-11-01T00:00:00.000Z"), &stuck), RowPress::Open);
+        assert_eq!(row_press(&dated("plan", NeedsYouKind::Plan, "2026-11-01T00:00:00.000Z"), &stuck), RowPress::Open);
+        assert_eq!(row_press(&dated("q", NeedsYouKind::Question, "2026-11-01T00:00:00.000Z"), &stuck), RowPress::Open);
+    }
+
+    fn pull(updated_at: Option<&str>) -> domain::rows::PullRequestRow {
+        serde_json::from_value(serde_json::json!({
+            "id": "p", "state": "open", "merge_state": "conflict",
+            "created_at": "2027-01-15T06:00:00.000Z", "updated_at": updated_at,
+        }))
+        .unwrap()
+    }
+
+    fn opener(device_id: Option<&str>) -> domain::rows::SessionRow {
+        serde_json::from_value(serde_json::json!({"id": "s", "user_id": "u", "device_id": device_id})).unwrap()
+    }
+
+    fn device(last_seen_at: Option<&str>) -> domain::rows::DeviceRow {
+        serde_json::from_value(serde_json::json!({"id": "d", "user_id": "u", "device_id": "dev", "last_seen_at": last_seen_at}))
+            .unwrap()
+    }
+
+    fn at(iso: &str) -> i64 {
+        domain::session_tree::iso_ms(iso).unwrap()
+    }
+
+    /// merge-train `offlineSince` off the rows: an unknown last-seen on a
+    /// device that is not online = the PR's `updated_at`, never online.
+    #[test]
+    fn the_stuck_fold_reads_offline_since() {
+        let now = at("2027-01-15T10:00:00.000Z");
+        let updated = Some("2027-01-15T08:00:00.000Z");
+        let online = device(Some("2027-01-15T09:59:59.000Z"));
+        let seen = device(Some("2027-01-15T07:30:00.000Z"));
+        let unknown = device(None);
+        let with_device = opener(Some("dev"));
+        // Online = none.
+        assert_eq!(opener_offline_since(&pull(updated), Some(&with_device), [&online].into_iter(), now), None);
+        // Offline, last seen known = since the last heartbeat.
+        assert_eq!(
+            opener_offline_since(&pull(updated), Some(&with_device), [&seen].into_iter(), now),
+            Some(at("2027-01-15T07:30:00.000Z"))
+        );
+        // Offline, last seen unknown = since the PR went conflict/failing.
+        assert_eq!(
+            opener_offline_since(&pull(updated), Some(&with_device), [&unknown].into_iter(), now),
+            Some(at("2027-01-15T08:00:00.000Z"))
+        );
+        // No device row synced: never online.
+        assert_eq!(
+            opener_offline_since(&pull(updated), Some(&with_device), std::iter::empty(), now),
+            Some(at("2027-01-15T08:00:00.000Z"))
+        );
+        // No updated_at = the created_at.
+        assert_eq!(
+            opener_offline_since(&pull(None), Some(&with_device), std::iter::empty(), now),
+            Some(at("2027-01-15T06:00:00.000Z"))
+        );
+        // No opener, or an opener without a device = none.
+        assert_eq!(opener_offline_since(&pull(updated), None, [&unknown].into_iter(), now), None);
+        assert_eq!(opener_offline_since(&pull(updated), Some(&opener(None)), [&unknown].into_iter(), now), None);
+        // The unknown last-seen reaches the stuck row once 2 h passed.
+        let since = opener_offline_since(&pull(updated), Some(&with_device), [&unknown].into_iter(), now);
+        let row = domain::merge_train::stuck_row(12, "conflict", None, since, now, true).expect("stuck");
+        assert_eq!(row.meta, domain::merge_train::MERGE_TRAIN.copy.needs_you.offline);
     }
 
     #[test]

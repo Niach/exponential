@@ -8,7 +8,10 @@ import SwiftUI
 /// Archived page's), one reading column of THE inbox page's rows, the ACTIVE
 /// team's. A press opens the chat by the row's `opens`. #EXP-1710: a stuck
 /// PR's Button sm row runs Retry (= Resume), Merge now (owners, THE
-/// `merge-now-pr` alert) and Close PR (close-pr.json's confirm).
+/// `merge-now-pr` alert, `titleStack` in an open stack) and Close PR
+/// (close-pr.json's confirm); an `approval` ready PR's press is Needs
+/// approval (THE pill's plain or stack confirm; Merge queues it, Cancel
+/// leaves the row), never the chat.
 struct NeedsYouPage: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(SessionListsModel.self) private var lists
@@ -20,6 +23,7 @@ struct NeedsYouPage: View {
     /// The clock the ages read.
     @State private var now = Date()
     @State private var mergeNowTarget: MergeNowTarget?
+    @State private var approveTarget: NeedsApprovalTarget?
     @State private var closeTarget: CloseTarget?
 
     private struct CloseTarget: Identifiable {
@@ -39,7 +43,11 @@ struct NeedsYouPage: View {
                 NeedsYouPageContent(
                     rows: lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now),
                     onOpen: { row in
-                        pushRoute(AppRoute.openingNeedsYou(row, accountId: accountId, deps: deps))
+                        if row.needsApproval {
+                            askApproval(row)
+                        } else {
+                            pushRoute(AppRoute.openingNeedsYou(row, accountId: accountId, deps: deps))
+                        }
                     },
                     onAction: { row, action in run(action, on: row) }
                 )
@@ -53,6 +61,12 @@ struct NeedsYouPage: View {
         .pageHeader(NeedsYou.Copy.entry, pushed: true)
         .mergeNowConfirm(target: $mergeNowTarget) { target in
             actions.mergeNow(pullRequestId: target.pullRequestId)
+        }
+        .needsApprovalConfirm(target: $approveTarget) { target in
+            actions.approve(
+                pullRequestId: target.stackConfirm?.throughId ?? target.pullRequestId,
+                stack: target.stackConfirm != nil
+            )
         }
         .background {
             Color.clear
@@ -79,28 +93,57 @@ struct NeedsYouPage: View {
         }
     }
 
-    /// A stuck row's press; the confirms read the PR's stack and links off
-    /// the synced store (the row's id IS the PR's).
-    private func run(_ action: MergeTrain.StuckRow.Action, on row: NeedsYou.Row) {
+    /// The row's PR off the synced store (the row's id IS the PR's): the
+    /// PR, its open-stack confirm over the team's PRs and its linked issues.
+    private struct Found {
+        let pullRequest: PullRequestEntity
+        let stackConfirm: PullRequestStack.Confirm?
+        let mergeNow: MergeNowTarget
+        let linkedIssues: Int
+    }
+
+    private func load(_ row: NeedsYou.Row, then use: @escaping @MainActor (Found) -> Void) {
         let pullRequestId = row.messageId
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        Task {
+            let read = try? await pool.read { db -> Found? in
+                guard let pr = try PullRequestEntity.fetchOne(db, key: pullRequestId) else { return nil }
+                let team = try PullRequestEntity.filter(Column("team_id") == pr.teamId).fetchAll(db)
+                let links = try PullRequestIssueEntity.filter(Column("pull_request_id") == pr.id).fetchCount(db)
+                return Found(
+                    pullRequest: pr,
+                    stackConfirm: pr.isOpen ? PullRequestStack.stackConfirm(pr, in: team) : nil,
+                    mergeNow: MergeNowTarget(pr, pool: team),
+                    linkedIssues: links
+                )
+            }
+            guard let found = read ?? nil else { return }
+            use(found)
+        }
+    }
+
+    /// An `approval` ready row's press: THE pill's Needs approval confirm.
+    private func askApproval(_ row: NeedsYou.Row) {
+        load(row) { found in
+            approveTarget = NeedsApprovalTarget(
+                pullRequestId: found.pullRequest.id,
+                number: found.pullRequest.number,
+                issueCount: found.linkedIssues,
+                stackConfirm: found.stackConfirm
+            )
+        }
+    }
+
+    /// A stuck row's buttons.
+    private func run(_ action: MergeTrain.StuckRow.Action, on row: NeedsYou.Row) {
         switch action {
         case .retry:
-            actions.hold(pullRequestId: pullRequestId, hold: false)
-        case .mergeNow, .closePr:
-            guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
-            Task {
-                let read = try? await pool.read { db -> (PullRequestEntity, Bool, Int)? in
-                    guard let pr = try PullRequestEntity.fetchOne(db, key: pullRequestId) else { return nil }
-                    let team = try PullRequestEntity.filter(Column("team_id") == pr.teamId).fetchAll(db)
-                    let links = try PullRequestIssueEntity.filter(Column("pull_request_id") == pr.id).fetchCount(db)
-                    return (pr, PullRequestStack.stackConfirm(pr, in: team) != nil, links)
-                }
-                guard let found = read ?? nil else { return }
-                if action == .mergeNow {
-                    mergeNowTarget = MergeNowTarget(pullRequestId: found.0.id, number: found.0.number, stack: found.1)
-                } else {
-                    closeTarget = CloseTarget(pullRequestId: found.0.id, linkedIssues: found.2)
-                }
+            actions.hold(pullRequestId: row.messageId, hold: false)
+        case .mergeNow:
+            load(row) { found in mergeNowTarget = found.mergeNow }
+        case .closePr:
+            load(row) { found in
+                closeTarget = CloseTarget(pullRequestId: found.pullRequest.id, linkedIssues: found.linkedIssues)
             }
         }
     }

@@ -1,11 +1,19 @@
-import { MERGE_TRAIN_COPY, MERGE_TRAIN_TEST_IDS } from "@exp/domain-contract/merge-train"
-import { Button } from "@exp/ui"
-import { usePullRequestClose, usePullRequestTrainRows } from "@/components/session-merge-button"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { NeedsYouStuckButtons, type StuckAction } from "@exp/ui"
+import {
+  usePullRequestApproval,
+  usePullRequestClose,
+  usePullRequestTrainRows,
+} from "@/components/session-merge-button"
 import type { NeedsYouListRow } from "@/hooks/use-needs-you"
+import type { PullRequestRow } from "@/lib/session-tree"
 
 // #EXP-1710 (merge-train.json `stuckRow`): a stuck PR's Needs you actions as
-// THE Button sm row: Retry (= Resume auto-merge), Merge now (owners: THE
-// shared alert card `merge-now-pr`), Close PR (close-pr.json).
+// THE Button sm row (`NeedsYouStuckButtons`, the styleguide specimen's own):
+// Retry (= Resume auto-merge), Merge now (owners: THE shared alert card
+// `merge-now-pr`, through the `…` menu's own `usePullRequestTrainRows`, so a
+// PR in an open stack asks `titleStack` exactly as the menu does), Close PR
+// (close-pr.json).
 
 export function NeedsYouStuckActions({ row }: { row: NeedsYouListRow }) {
   const stuck = row.stuck
@@ -17,33 +25,53 @@ function StuckActions({ stuck }: { stuck: NonNullable<NeedsYouListRow[`stuck`]> 
   const pr = stuck.pullRequest
   const train = usePullRequestTrainRows(pr)
   const close = usePullRequestClose(pr, stuck.actions.includes(`close-pr`))
-  const copy = MERGE_TRAIN_COPY.needsYou
-  const labels = { retry: copy.retry, "merge-now": copy.mergeNow, "close-pr": copy.close } as const
   const run = { retry: train.resume, "merge-now": train.mergeNow, "close-pr": close.entry } as const
+  const actions = stuck.actions.filter((id): id is StuckAction => run[id]?.kind === `item`)
   return (
-    <div
-      className="mt-2 flex flex-wrap items-center gap-2"
-      data-testid={MERGE_TRAIN_TEST_IDS.stuckRow}
-      onClick={(event) => event.stopPropagation()}
-    >
-      {stuck.actions.map((id) => {
+    <NeedsYouStuckButtons
+      actions={actions}
+      onAction={(id) => {
         const entry = run[id]
-        if (!entry || entry.kind !== `item`) return null
-        return (
-          <Button
-            key={id}
-            type="button"
-            size="sm"
-            variant="outline"
-            data-action={id}
-            onClick={() => entry.onSelect?.()}
-          >
-            {labels[id]}
-          </Button>
-        )
-      })}
+        if (entry?.kind === `item`) entry.onSelect?.()
+      }}
+    >
       {train.dialog}
       {close.dialog}
-    </div>
+    </NeedsYouStuckButtons>
   )
+}
+
+/** #EXP-1710 (needs-you.json): an `approval` ready PR row's press is Needs
+ *  approval, never the chat: THE pill's confirm (`usePullRequestApproval`,
+ *  the plain or the stack confirm), Merge queues it, Cancel leaves the row.
+ *  `open` wraps the list's own press: any other row opens as before. Render
+ *  `dialog` once. */
+export function useNeedsYouPress(
+  open: (row: NeedsYouListRow) => void
+): { press: (row: NeedsYouListRow) => void; dialog: ReactNode } {
+  const [pending, setPending] = useState<PullRequestRow | null>(null)
+  const press = useCallback(
+    (row: NeedsYouListRow) => {
+      if (row.approve && !row.stuck) setPending(row.approve)
+      else open(row)
+    },
+    [open]
+  )
+  const dialog = pending ? (
+    <ApprovalConfirm key={pending.id} pr={pending} onSettled={() => setPending(null)} />
+  ) : null
+  return { press, dialog }
+}
+
+function ApprovalConfirm({ pr, onSettled }: { pr: PullRequestRow; onSettled: () => void }) {
+  const approval = usePullRequestApproval(pr, onSettled)
+  const asked = useRef(false)
+  const { ready, request } = approval
+  // The stack read decides which confirm asks: wait for it, then ask once.
+  useEffect(() => {
+    if (!ready || asked.current) return
+    asked.current = true
+    request()
+  }, [ready, request])
+  return <>{approval.dialog}</>
 }

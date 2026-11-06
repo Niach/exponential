@@ -399,6 +399,28 @@ impl StuckAction {
     }
 }
 
+/// The opener's device as [`offline_since`] reads it: THE presence every
+/// client shows, and its row's last heartbeat (None = unknown).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OfflineDevice {
+    pub online: bool,
+    pub last_seen_at_ms: Option<i64>,
+}
+
+/// `offlineSince` (#EXP-1710): [`stuck_row`]'s `device_offline_since_ms`.
+/// `opener` = the PR has an opener (its `session_id` session, else its root)
+/// with a device; `device` = that device's synced row (None = none synced);
+/// `updated_at_ms` = the PR's last write (the move to conflict/failing).
+/// None while the device is online or there is none to wait for; else its
+/// last heartbeat, and an UNKNOWN last-seen = the PR's `updated_at` (never
+/// online). Times are UTC milliseconds.
+pub fn offline_since(opener: bool, device: Option<OfflineDevice>, updated_at_ms: i64) -> Option<i64> {
+    if !opener || device.is_some_and(|device| device.online) {
+        return None;
+    }
+    Some(device.and_then(|device| device.last_seen_at_ms).unwrap_or(updated_at_ms))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StuckRow {
     pub title: String,
@@ -555,6 +577,21 @@ mod tests {
                 })
             });
             assert_eq!(got.unwrap_or(Value::Null), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn offline_since_matches_the_fixture() {
+        let cases = fixture()["offlineSince"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let device = input["device"].as_object().map(|device| OfflineDevice {
+                online: device["online"].as_bool().unwrap(),
+                last_seen_at_ms: ms(&device["lastSeenAt"]),
+            });
+            let got = offline_since(input["opener"].as_bool().unwrap(), device, ms(&input["updatedAt"]).unwrap());
+            assert_eq!(got, ms(&case["expected"]), "{}", case["name"]);
         }
     }
 

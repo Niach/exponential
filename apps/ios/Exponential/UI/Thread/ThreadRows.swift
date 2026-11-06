@@ -302,6 +302,13 @@ struct ThreadRows: Sendable {
         return PullRequestStack.stackConfirm(pullRequest, in: stackPool)
     }
 
+    /// #EXP-1710: the `…` menu's Merge now alert over the Guide's open PR
+    /// (THE rule the Needs you stuck row shares: `titleStack` in an open stack).
+    var guideMergeNowTarget: MergeNowTarget? {
+        guard let pullRequest = guidePullRequest, pullRequest.isOpen else { return nil }
+        return MergeNowTarget(pullRequest, pool: stackPool)
+    }
+
     /// #EXP-1710 `Testing with N`: the synced PRs sharing the Guide PR's
     /// testing run (`merge_train_id`), itself included; nil = no run.
     var guideBatchSize: Int? {

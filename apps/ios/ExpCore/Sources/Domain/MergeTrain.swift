@@ -293,6 +293,27 @@ public enum MergeTrain {
         public let actions: [Action]
     }
 
+    /// The opener's device row as `offlineSince` reads it: THE presence
+    /// (`DeviceLiveness.isOnline`) + its last heartbeat (wire, nil = unknown).
+    public struct OpenerDevice: Equatable, Sendable {
+        public let online: Bool
+        public let lastSeenAt: String?
+        public init(online: Bool, lastSeenAt: String?) {
+            self.online = online
+            self.lastSeenAt = lastSeenAt
+        }
+    }
+
+    /// `stuckRow`'s `deviceOfflineSince` (merge-train.json OFFLINE SINCE):
+    /// nil while there is no opener with a device (`opener` false) or its
+    /// device is online; else its last heartbeat, and an UNKNOWN last-seen
+    /// (no device row synced, or `lastSeenAt` nil) = the PR's `updatedAt`
+    /// (offline since the PR went conflict/failing), never online.
+    public static func offlineSince(opener: Bool, device: OpenerDevice?, updatedAt: String) -> String? {
+        guard opener, device?.online != true else { return nil }
+        return device?.lastSeenAt ?? updatedAt
+    }
+
     /// The Needs you row of a stuck PR, or nil: `held` by the limits, or a
     /// `conflict`/`failing` whose opener's device is offline 2 h+. A person's
     /// Hold is never a row.

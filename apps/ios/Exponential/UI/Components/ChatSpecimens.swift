@@ -715,9 +715,24 @@ struct PlanPageSpecimenScreen: View {
 }
 
 /// #FEED-191 `needs-you` (needs-you.json `cases[1]`, hardcoded ×4): the phone
-/// entry row, then THE list.
+/// entry row, then THE list. #EXP-1710: ONE stuck PR row (merge-train
+/// `stuckRow` cases[0]: `Auto-merge stuck on #12`, `3 bounces`, Retry ·
+/// Merge now · Close PR) under `cases[1]`'s rows, drawn by the real row.
 struct NeedsYouSpecimens: View {
-    private static let rows = [
+    private static let stuck = MergeTrain.stuckRow(
+        number: 12, state: "held", holdReason: "bounces", deviceOfflineSince: nil,
+        now: WireTimestamps.parse("2027-01-15T10:00:00.000Z") ?? Date(), owner: true
+    )
+
+    private static let rows = decisions + (stuck.map { stuck in
+        [NeedsYou.Row(
+            messageId: "pr12", sessionId: "r2", rootId: "r2", kind: .pr, opens: .results,
+            title: stuck.title, chat: "Palette", meta: stuck.meta, age: "3h",
+            createdAt: "2027-01-15T05:00:00.000Z", actions: stuck.actions, number: 12
+        )]
+    } ?? [])
+
+    private static let decisions = [
         NeedsYou.Row(
             messageId: "p1", sessionId: "r1", rootId: "r1", kind: .plan, opens: .plan,
             title: "Plan: Group by assignee", chat: "Assignee groups", meta: "", age: "24m",
@@ -735,7 +750,7 @@ struct NeedsYouSpecimens: View {
             AppBackground()
             VStack(alignment: .leading, spacing: 16) {
                 NeedsYouEntryRow(count: Self.rows.count)
-                NeedsYouList(rows: Self.rows, onOpen: { _ in })
+                NeedsYouList(rows: Self.rows, onOpen: { _ in }, onAction: { _, _ in })
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

@@ -3,7 +3,16 @@ import { CHATS_SHELL } from "@exp/domain-contract/chats"
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS, type NeedsYouRow } from "@exp/domain-contract/needs-you"
 import fixture from "@exp/domain-contract/fixtures/needs-you.json"
 import { WAITING_CARDS_ICONS } from "@exp/domain-contract/waiting-cards"
+import mergeTrain from "@exp/domain-contract/fixtures/merge-train.json"
+import {
+  MERGE_TRAIN_COPY,
+  MERGE_TRAIN_TEST_IDS,
+  stuckRow,
+  type StuckInput,
+  type StuckRow,
+} from "@exp/domain-contract/merge-train"
 import { Badge } from "./badge"
+import { Button } from "./button"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
 import { ListRow } from "./glass-rows"
@@ -16,7 +25,9 @@ import { conceptIcon } from "./icons.generated"
 //   NeedsYouList      one reading column of THE inbox page's ListRow, else
 //                     THE EmptyState; a stuck PR's actions under its meta
 //   NeedsYouEntryRow  the phones' first row of Chats (the Archived row's box)
-//   NeedsYouSpecimen  the styleguide's `needs-you`: `cases[1]` + the entry row
+//   NeedsYouStuckButtons  a stuck PR's THE Button sm row (merge-train `stuckRow`)
+//   NeedsYouSpecimen  the styleguide's `needs-you`: `cases[1]` + one stuck row
+//                     (merge-train `stuckRow` cases[0]) + the entry row
 
 const NEEDS_YOU_TONE = `text-yellow-400`
 const EntryIcon = conceptIcon(`nav-needs-you`)
@@ -106,9 +117,67 @@ export function NeedsYouEntryRow({
   )
 }
 
-const SPECIMEN_ROWS = fixture.cases[1]!.expected as unknown as NeedsYouRow[]
+export type StuckAction = StuckRow[`actions`][number]
 
-/** THE styleguide specimen ×4: `cases[1]`'s rows and the phone entry row. */
+const STUCK_LABELS: Record<StuckAction, string> = {
+  retry: MERGE_TRAIN_COPY.needsYou.retry,
+  "merge-now": MERGE_TRAIN_COPY.needsYou.mergeNow,
+  "close-pr": MERGE_TRAIN_COPY.needsYou.close,
+}
+
+/** #EXP-1710 (merge-train.json `stuckRow`): a stuck PR's actions as THE
+ *  Button sm row under its meta: Retry · Merge now (owners) · Close PR. A
+ *  press never opens the row. `children` = the caller's dialogs. */
+export function NeedsYouStuckButtons({
+  actions,
+  onAction,
+  children,
+}: {
+  actions: readonly StuckAction[]
+  onAction?: (action: StuckAction) => void
+  children?: ReactNode
+}) {
+  return (
+    <div
+      className="mt-2 flex flex-wrap items-center gap-2"
+      data-testid={MERGE_TRAIN_TEST_IDS.stuckRow}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {actions.map((id) => (
+        <Button key={id} type="button" size="sm" variant="outline" data-action={id} onClick={() => onAction?.(id)}>
+          {STUCK_LABELS[id]}
+        </Button>
+      ))}
+      {children}
+    </div>
+  )
+}
+
+type SpecimenRow = NeedsYouRow & { actions?: readonly StuckAction[] }
+
+const SPECIMEN_STUCK = stuckRow(mergeTrain.stuckRow[0]!.input as StuckInput)!
+
+// `cases[1]`'s rows, then ONE stuck PR row (merge-train `stuckRow` cases[0])
+// under them: PR rows sit under every decision.
+const SPECIMEN_ROWS: SpecimenRow[] = [
+  ...(fixture.cases[1]!.expected as unknown as NeedsYouRow[]),
+  {
+    messageId: `pr12`,
+    sessionId: `r2`,
+    rootId: `r2`,
+    kind: `pr`,
+    opens: `results`,
+    title: SPECIMEN_STUCK.title,
+    chat: `Palette`,
+    meta: SPECIMEN_STUCK.meta,
+    age: `3h`,
+    createdAt: `2027-01-15T05:00:00.000Z`,
+    actions: SPECIMEN_STUCK.actions,
+  },
+]
+
+/** THE styleguide specimen ×4: `cases[1]`'s rows + one stuck row and the
+ *  phone entry row. */
 export function NeedsYouSpecimen({ width = 560 }: { width?: number }) {
   return (
     <div
@@ -117,7 +186,10 @@ export function NeedsYouSpecimen({ width = 560 }: { width?: number }) {
       style={{ width, maxWidth: `100%` }}
     >
       <NeedsYouEntryRow count={SPECIMEN_ROWS.length} />
-      <NeedsYouList rows={SPECIMEN_ROWS} />
+      <NeedsYouList
+        rows={SPECIMEN_ROWS}
+        actions={(row) => (row.actions ? <NeedsYouStuckButtons actions={row.actions} /> : null)}
+      />
     </div>
   )
 }

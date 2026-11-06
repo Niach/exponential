@@ -4,7 +4,7 @@ import XCTest
 
 // #EXP-1710: the merge train's client half ×4, replayed by path against
 // packages/domain-contract/fixtures/merge-train.json (TS `merge-train.ts`):
-// `statusPill`, `menu`, `stuckRow`, plus the copy, limits and test ids.
+// `statusPill`, `menu`, `stuckRow`, `offlineSince`, plus the copy, limits and test ids.
 final class MergeTrainTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -184,6 +184,23 @@ final class MergeTrainTests: XCTestCase {
                 ["title": $0.title, "meta": $0.meta, "actions": $0.actions.map(\.rawValue)]
             }
             XCTAssertEqual(actual.map { $0 as NSDictionary }, expected as NSDictionary, name)
+        }
+    }
+
+    func testOfflineSinceReplaysEveryCase() throws {
+        for item in try cases("offlineSince") {
+            let name = item["name"] as? String ?? "?"
+            let input = try XCTUnwrap(item["input"] as? [String: Any], name)
+            let device = (input["device"] as? [String: Any]).map {
+                MergeTrain.OpenerDevice(online: $0["online"] as? Bool ?? false, lastSeenAt: $0["lastSeenAt"] as? String)
+            }
+            let since = MergeTrain.offlineSince(
+                opener: try XCTUnwrap(input["opener"] as? Bool, name),
+                device: device,
+                updatedAt: try XCTUnwrap(input["updatedAt"] as? String, name)
+            )
+            XCTAssertEqual(since, item["expected"] as? String, name)
+            if item["expected"] is NSNull { XCTAssertNil(since, name) }
         }
     }
 
