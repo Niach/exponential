@@ -283,7 +283,12 @@ async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): 
             pr.mergeState = `checks`
           }
         }
-        if (pr.mergeState !== `checks`) {
+        // #EXP-1711: a conflict the train never tested (no head it ran: the
+        // switch-off display pass read the forge's `mergeable`) is no bounce:
+        // readiness re-reads it, so the train composes it and either lands
+        // it or bounces it with its files to the agent.
+        const untested = state === `conflict` && !pr.mergeHeadSha
+        if (pr.mergeState !== `checks` && !untested) {
           await stepPullRequest(pr.id, { type: `tick`, now: at }, { base, now })
           continue
         }
