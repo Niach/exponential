@@ -3723,6 +3723,17 @@
         "value": {
           "type": "number",
           "bindable": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "endLabel": {
+          "type": "string",
+          "bindable": true
+        },
+        "showValue": {
+          "type": "boolean",
+          "default": true
         }
       },
       "events": [

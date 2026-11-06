@@ -199,6 +199,46 @@ fn contract_heights_hold_for_chart_slider_and_badge() {
     assert!(badge.h < 24.0, "{badge:?}");
 }
 
+/// #VAPP-286: the volume row. `icon` + `endLabel` put the track in a `row`
+/// part (gap sm, centred): the iconSm glyph, the track growing from a zero
+/// basis, the end label end-aligned at least `$control.buttonIcon` wide;
+/// `showValue: false` prints no value, and without a label no header at all.
+#[test]
+fn slider_volume_row_icon_track_end_label() {
+    let mut s = themed(
+        json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
+            {"id": "vol", "component": "Slider", "props": {"min": 0, "max": 100, "value": 34, "icon": "media-volume-up", "endLabel": "34%", "showValue": false}},
+            {"id": "named", "component": "Slider", "props": {"label": "Volume", "min": 0, "max": 100, "value": 34, "showValue": false}},
+            {"id": "plain", "component": "Slider", "props": {"label": "Volume", "min": 0, "max": 100, "value": 34}}
+        ]}),
+        "neutral",
+        Mode::Dark,
+    );
+    s.set_viewport(400.0, 0.0, None);
+    let out = s.layout(&mut Loading { extra: 0.0 });
+    let t = builtin_theme("neutral").unwrap();
+    let (thumb, sm, icon_sm, end_min) = (t.tokens.control["slider"] as f32, t.tokens.spacing["sm"] as f32, t.tokens.control["iconSm"] as f32, t.tokens.control["buttonIcon"] as f32);
+    let has = |id: &str| s.index_of(id).is_some();
+    // No label, no value: no header; the row is the whole control.
+    assert!(!has("vol.header") && !has("vol.value"), "no header without a label and a value");
+    let (vol, row, icon, track, end) = (frame(&s, &out, "vol"), frame(&s, &out, "vol.row"), frame(&s, &out, "vol.icon"), frame(&s, &out, "vol.track"), frame(&s, &out, "vol.end"));
+    assert_eq!((row.x, row.w), (vol.x, vol.w), "the row spans the control");
+    assert_eq!((icon.w, icon.h), (icon_sm, icon_sm), "iconSm");
+    assert_eq!(icon.x, row.x, "the icon leads");
+    assert_eq!(track.x, icon.x + icon.w + sm, "gap sm after the icon");
+    assert!(end.w >= end_min, "the end label is at least buttonIcon wide: {end:?}");
+    assert_eq!(end.x + end.w, row.x + row.w, "the end label ends the row");
+    assert_eq!(end.x, track.x + track.w + sm, "gap sm before the end label");
+    assert_eq!(track.h, 6.0, "the rail");
+    let centre = |f: &PlacedFrame| f.y + f.h / 2.0;
+    assert!((centre(&track) - centre(&row)).abs() < 0.01 && (centre(&icon) - centre(&row)).abs() < 0.01, "centred: {row:?} {icon:?} {track:?}");
+    assert!(row.h >= thumb, "the row holds the thumb");
+    // A label with showValue false: the header holds the label alone.
+    assert!(has("named.label") && !has("named.value"), "showValue false hides the value");
+    // The default still prints it, and no row without icon/endLabel.
+    assert!(has("plain.value") && !has("plain.row"), "the default slider is unchanged");
+}
+
 #[test]
 fn a_loaded_picture_remeasures_its_markdown_and_never_resizes_an_image() {
     let mut s = themed(

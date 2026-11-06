@@ -3501,7 +3501,10 @@
         "thumb",
         "label",
         "value",
-        "header"
+        "header",
+        "row",
+        "icon",
+        "end"
       ],
       "props": []
     },

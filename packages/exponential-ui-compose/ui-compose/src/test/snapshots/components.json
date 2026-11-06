@@ -27596,6 +27596,117 @@
       }
     ]
   },
+  "Slider\/showValue=false" : {
+    "height" : 40,
+    "nodes" : [
+      {
+        "component" : "Slider",
+        "frame" : [
+          0,
+          0,
+          390,
+          40
+        ],
+        "id" : "slider"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "slider.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          48,
+          20
+        ],
+        "id" : "slider.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Slider",
+        "frame" : [
+          0,
+          29,
+          390,
+          6
+        ],
+        "id" : "slider.track",
+        "part" : "track",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Slider\/showValue=true" : {
+    "height" : 40,
+    "nodes" : [
+      {
+        "component" : "Slider",
+        "frame" : [
+          0,
+          0,
+          390,
+          40
+        ],
+        "id" : "slider"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "slider.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          48,
+          20
+        ],
+        "id" : "slider.label",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          374,
+          0,
+          16,
+          20
+        ],
+        "id" : "slider.value",
+        "part" : "value"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Slider",
+        "frame" : [
+          0,
+          29,
+          390,
+          6
+        ],
+        "id" : "slider.track",
+        "part" : "track",
+        "radius" : 9999
+      }
+    ]
+  },
   "Sparkline\/example" : {
     "height" : 24,
     "nodes" : [
