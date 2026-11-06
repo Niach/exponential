@@ -1,0 +1,73 @@
+[package]
+name = "eengine-desktop"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "The Engine's native capabilities on the desktop (macOS, Windows, Linux): photos, files, share, print and notifications as eengine::Capability providers. Host code for E6's runners and eDE; no gpui, no app crate."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+
+[lib]
+name = "eengine_desktop"
+
+# THE RULE: the Engine and platform crates only, never gpui or an app crate
+# (ui, app, sync, …): E6's runners and eDE host this. Every platform crate
+# below is already in apps/desktop/Cargo.lock (gpui, epilot, etalk pull them).
+[dependencies]
+eengine = { path = "../eengine", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = "0.22"
+chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
+# The platform Pictures folder (macOS ~/Pictures, XDG_PICTURES_DIR, FOLDERID_Pictures).
+dirs = { workspace = true }
+log = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSGeometry", "NSString", "NSURL", "NSUserNotification"] }
+objc2-app-kit = { version = "0.3", features = [
+    "block2",
+    "NSApplication",
+    "NSCell",
+    "NSControl",
+    "NSImage",
+    "NSImageView",
+    "NSOpenPanel",
+    "NSPanel",
+    "NSPrintInfo",
+    "NSPrintOperation",
+    "NSResponder",
+    "NSSavePanel",
+    "NSSharingService",
+    "NSView",
+    "NSWindow",
+] }
+block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "alloc", "objc2"] }
+# NSUserNotificationCenter (no bundle needed; the bundle id is faked per process).
+mac-notification-sys = "0.6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The xdg-desktop-portal FileChooser + Print. `async-io`, never ashpd's default
+# `tokio`; the portal calls still run inside a private Tokio runtime on a fresh
+# thread (src/platform/linux.rs) so a unified zbus/tokio cannot panic.
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "file_chooser", "print"] }
+notify-rust = "4"
+zbus = { version = "5", default-features = false, features = ["async-io"] }
+tokio = { workspace = true }
+url = "2.5"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+notify-rust = "4"
+# windows 0.61 = gpui_windows' pin (already in the lock): IFileOpenDialog/IFileSaveDialog.
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+] }
+
+[dev-dependencies]
+tempfile = "3"

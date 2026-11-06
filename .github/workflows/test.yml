@@ -240,10 +240,10 @@ jobs:
         run: cargo check --workspace --locked
       # #EXP-1504: eCore's size/dependency gate and its fixture replay (seconds);
       # #VAPP-261: the Engine's dependency gate and its fixture replay;
-      # #VAPP-263: its UniFFI facade.
+      # #VAPP-263: its UniFFI facade; #VAPP-265: the desktop capabilities (fakes).
       - name: eCore and Engine gates
         working-directory: apps/desktop
-        run: cargo test --locked -p ecore && cargo test --locked -p eengine --features sqlite,hub && cargo test --locked -p eengine-ffi --features hub
+        run: cargo test --locked -p ecore && cargo test --locked -p eengine --features sqlite,hub && cargo test --locked -p eengine-ffi --features hub && cargo test --locked -p eengine-desktop
       # The suites that hold launch behaviour and the shared fixtures: the
       # full `cargo test` stays in release-suite.yml, and until this step a
       # red test here surfaced only when a release was tagged.

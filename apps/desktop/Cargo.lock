@@ -2762,6 +2762,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "eengine-desktop"
+version = "0.1.0"
+dependencies = [
+ "ashpd",
+ "base64 0.22.1",
+ "block2 0.6.2",
+ "chrono",
+ "dirs",
+ "dispatch2",
+ "eengine",
+ "log",
+ "mac-notification-sys",
+ "notify-rust",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "windows 0.61.3",
+ "zbus",
+]
+
+[[package]]
 name = "eengine-ffi"
 version = "0.1.0"
 dependencies = [
