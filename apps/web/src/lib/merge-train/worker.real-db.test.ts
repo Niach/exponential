@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { and, eq, sql } from "drizzle-orm"
+import { and, asc, eq, sql } from "drizzle-orm"
 import type { TrainCheck, TrainPipelineInputs, TrainPipelineOutcome, TrainPipelineUnit } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
 import { agents, boards, devices, mergeTrains, messages, pullRequests, repositories, sessions, teamMembers, teams } from "@/db/schema"
@@ -213,6 +213,7 @@ const lines = (sessionId: string) =>
     .select({ body: messages.body, card: messages.card, consumedAt: messages.consumedAt })
     .from(messages)
     .where(and(inSession(sessionId), sql`${messages.card}->>'event' = 'pr_merge'`))
+    .orderBy(asc(messages.createdAt), asc(messages.id))
 const pass = async (repoId: string, n = 1) => {
   for (let i = 0; i < n; i++) await worker.runRepository(repoId)
 }
