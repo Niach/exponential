@@ -484,7 +484,7 @@ async function landPullRequests(
   // Every PR is merged in Exponential BEFORE the forge closes any: a
   // stack's close (or its branch going) must find the rows above merged.
   for (const id of ids) {
-    await applyPullRequestMerged({ pullRequestId: id, mergedAt: now, base, actorUserId: null })
+    await applyPullRequestMerged({ pullRequestId: id, mergedAt: now, base, actorUserId: null, trainLanding: true })
     const result = await db.transaction(async (tx) => {
       const step = await stepPullRequestInTx(tx, id, { type: `train_landed` }, { base, now })
       const [pr] = await tx.select({ number: pullRequests.number }).from(pullRequests).where(eq(pullRequests.id, id)).limit(1)
