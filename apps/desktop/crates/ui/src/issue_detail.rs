@@ -18,7 +18,7 @@
 //! view builds one instance per issue, forwards Electric echoes through
 //! `set_markdown`, and passes an `on_save` hook that runs the §4.1 un-gated
 //! `issues.update`. Until a factory is installed the description renders as
-//! **read-only markdown** (`TextView::markdown` — correct GFM rendering, no
+//! **read-only markdown** (genUI's Markdown, #VAPP-258 — no
 //! editing), which is the safe v1 fallback.
 //!
 //! Mark-as-duplicate mirrors `issue-detail-view.tsx` L361-398: the actions
@@ -41,7 +41,6 @@ use gpui::{
 use gpui_component::{
     h_flex,
     input::{InputEvent, InputState, TextareaState},
-    text::TextView,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -1166,17 +1165,16 @@ impl IssueDetailView {
             .px(px(WORK_GUTTER))
             .py_2()
             .text_sm()
-            .child(
-                // EXP-282: glass code blocks instead of the component's
-                // opaque `muted` panel.
-                // EXP-521: `Source` selection — copying from the rendered
-                // description yields the markdown source, ready to paste into
-                // a comment or another issue.
-                TextView::markdown("issue-description", SharedString::from(source))
-                    .style(crate::surface::markdown_style())
-                    .selectable(true)
-                    .selection_format(gpui_component::text::SelectionFormat::Source),
-            )
+            .child({
+                // #VAPP-258: genUI's Markdown at the document density, the
+                // issue's team's chips.
+                let team_id = crate::queries::issue_team_id(cx, &issue.id);
+                let view = crate::markdown::MarkdownView::new(SharedString::from(format!("issue-description-{}", issue.id)), source).selectable(true);
+                match team_id {
+                    Some(team_id) => view.resolver(crate::markdown::RefResolver::from_store(team_id.clone())).on_open_link(crate::links::link_opener(Some(team_id))),
+                    None => view,
+                }
+            })
             .into_any_element()
     }
 

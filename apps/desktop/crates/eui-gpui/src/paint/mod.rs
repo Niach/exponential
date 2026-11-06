@@ -12,6 +12,8 @@ pub mod color;
 pub mod date;
 pub mod icons;
 pub mod markdown;
+pub mod markdown_memo;
+pub mod markdown_selection;
 pub mod natives;
 pub mod parts;
 pub mod qr;

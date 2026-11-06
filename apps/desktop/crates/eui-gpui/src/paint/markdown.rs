@@ -1960,6 +1960,17 @@ pub struct MdPaint {
     pub icon: IconPainter,
     /// #VAPP-258: `on_image_press` (`None` = a block image is not pressable).
     pub image_press: Option<LinkHandler>,
+    /// #VAPP-258: `on_task_toggle(ordinal, checked)` (`None` = task boxes
+    /// are inert).
+    pub task_press: Option<TaskPress>,
+    /// #VAPP-258: the host's window-level text selection (gpui-base's
+    /// `TextSelectionLayer`) selects the units, highlighted in this colour;
+    /// `None` = the leaf's own selection.
+    pub window_selection: Option<Hsla>,
+    /// #VAPP-258: the leaf-local band `(top, bottom)` the host's viewport
+    /// shows (a margin included): a lazy block wholly outside it is not
+    /// built this frame (its text units stay, not live). `None` = build all.
+    pub visible: Option<(f32, f32)>,
     /// #VAPP-258: each attachment block's element by block index (the
     /// Video / AudioPlayer natives and the FileUpload file row, built by
     /// the view that owns them), sized to its laid-out box.
@@ -2004,6 +2015,9 @@ impl ChipLook {
     }
 }
 
+/// A task box press: the task's ordinal in the document, its state before.
+pub type TaskPress = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
+
 /// An icon name, size and colour → its element.
 pub type IconPainter = Rc<dyn Fn(&str, f32, Hsla) -> AnyElement>;
 
@@ -2046,10 +2060,20 @@ fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Ve
     let unit = p.units.as_ref().map(|u| u.borrow().get(&p.node).map_or(0, Vec::len)).unwrap_or(0);
     let range = p.selection.filter(|s| s.node == p.node).and_then(|s| s.range_in(unit, text.len()));
     let styled = StyledText::new(text.clone()).with_runs(highlight(runs, range, p.selection_bg));
+    // #VAPP-258: the host's window-level selection takes the unit instead.
+    let joined = p.window_selection.map(|bg| (styled.layout().clone(), text.clone(), bg));
     if let Some(units) = &p.units {
         let live = p.live.borrow().clone().unwrap_or_else(|| Rc::new(std::cell::Cell::new(true)));
         units.borrow_mut().entry(p.node).or_default().push(MdUnit { layout: styled.layout().clone(), text, chips, live });
     }
+    let el = unit_element(id.clone(), styled, links, p);
+    match joined {
+        Some((layout, text, bg)) => super::markdown_selection::SelectableUnit::new(format!("{id}.sel"), el, layout, text, bg).into_any_element(),
+        None => el,
+    }
+}
+
+fn unit_element(id: SharedString, styled: StyledText, links: Vec<(Range<usize>, String)>, p: &MdPaint) -> AnyElement {
     if links.is_empty() {
         styled.into_any_element()
     } else {
@@ -2120,6 +2144,7 @@ fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y,
     }
     let color = own.label.or(p.chip_label).unwrap_or(ink);
     let font = Font { family: p.family.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(m.caption.weight as f32), style: FontStyle::Normal };
+    let label_font = font.clone();
     let label: SharedString = chip.label.clone().into();
     let runs = p.fallback(&label, vec![TextRun { len: label.len(), font, color, background_color: None, underline: None, strikethrough: None }]);
     let label_el = div().text_size(px(m.caption.size)).line_height(px(m.caption.line_height)).whitespace_nowrap().text_color(color);
@@ -2145,9 +2170,12 @@ fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y,
         let ident_color = own.ident.unwrap_or(color);
         let family = spec.family.clone().map(SharedString::from).unwrap_or_else(|| p.mono.clone());
         let ident_font = Font { family, features: Default::default(), fallbacks: None, weight: FontWeight(spec.weight as f32), style: FontStyle::Normal };
+        // Both lines sit centred in the chip; the ident moves by the gap
+        // between the two fonts' baselines so it shares the title's.
+        let shift = p.text_system.as_ref().map_or(0.0, |ts| baseline_shift(ts, (&label_font, m.caption.size, m.caption.line_height), (&ident_font, spec.size, spec.line_height)));
         let text: SharedString = ident.clone().into();
         let runs = p.fallback(&text, vec![TextRun { len: text.len(), font: ident_font, color: ident_color, background_color: None, underline: None, strikethrough: None }]);
-        row = row.child(div().flex_none().text_size(px(spec.size)).line_height(px(spec.line_height)).whitespace_nowrap().text_color(ident_color).child(StyledText::new(text).with_runs(runs)));
+        row = row.child(div().flex_none().relative().top(px(shift)).text_size(px(spec.size)).line_height(px(spec.line_height)).whitespace_nowrap().text_color(ident_color).child(StyledText::new(text).with_runs(runs)));
     }
     let row = row.child(label_el.child(StyledText::new(label).with_runs(runs))).id(id);
     match href {
@@ -2159,6 +2187,20 @@ fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y,
                 .into_any_element()
         }
         None => row.into_any_element(),
+    }
+}
+
+/// #VAPP-258: how far a line box of `other` (font, size, line height)
+/// moves down so its baseline meets `base`'s when both are centred on one
+/// row (gpui: baseline = (line height - ascent - descent) / 2 + ascent).
+pub fn baseline_shift(ts: &gpui::TextSystem, base: (&Font, f32, f32), other: (&Font, f32, f32)) -> f32 {
+    let at = |(font, size, line_height): (&Font, f32, f32)| -> Option<f32> {
+        let id = ts.resolve_font(font);
+        Some(-line_height / 2.0 + f32::from(ts.baseline_offset(id, px(size), px(line_height))))
+    };
+    match (at(base), at(other)) {
+        (Some(a), Some(b)) => a - b,
+        _ => 0.0,
     }
 }
 
@@ -2183,6 +2225,14 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
         let bid: SharedString = format!("{id}.md{i}").into();
         let live = lazy.then(|| Rc::new(std::cell::Cell::new(false)));
         *p.live.borrow_mut() = live.clone();
+        if let (Some(_), Some((top, bottom))) = (&live, p.visible) {
+            // Far from the host's viewport: nothing to lay out (the root
+            // keeps the document's height), only its units.
+            if bx.y + bx.height < top || bx.y > bottom {
+                stub_units(b, p);
+                continue;
+            }
+        }
         let placed = if lazy { div().relative() } else { div().absolute().left_0().top(px(bx.y)) }.w(px(width)).h(px(bx.height));
         let el: AnyElement = match &b.kind {
             BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, width.max(1.0), text)).into_any_element(),
@@ -2194,7 +2244,27 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                 let gutter = div().absolute().left(px(marker_x)).top_0().w(px(s.list_indent));
                 let gutter = match task {
                     // The Checkbox square, centred on the first line.
-                    Some(checked) => gutter.h(px(s.body.line_height)).flex().items_center().when(p.rtl, |d| d.justify_end()).child((p.task_box)(*checked)),
+                    Some(checked) => {
+                        let task_box = (p.task_box)(*checked);
+                        let task_box = match &p.task_press {
+                            Some(press) => {
+                                let (press, checked) = (press.clone(), *checked);
+                                let ordinal = blocks[..i].iter().filter(|b| matches!(b.kind, BlockKind::ListItem { task: Some(_), .. })).count();
+                                div()
+                                    .id(SharedString::from(format!("{bid}.task")))
+                                    .cursor_pointer()
+                                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                    .on_click(move |_, window, cx| {
+                                        cx.stop_propagation();
+                                        press(ordinal, checked, window, cx)
+                                    })
+                                    .child(task_box)
+                                    .into_any_element()
+                            }
+                            None => task_box,
+                        };
+                        gutter.h(px(s.body.line_height)).flex().items_center().when(p.rtl, |d| d.justify_end()).child(task_box)
+                    }
                     None => {
                         let marker = if *depth > 0 && marker == "•" { "◦".to_string() } else { marker.clone() };
                         gutter.text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).when(p.rtl, |d| d.text_right()).child(SharedString::from(marker))
@@ -2329,6 +2399,38 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
     }
     *p.live.borrow_mut() = None;
     root.into_any_element()
+}
+
+/// #VAPP-258: the text units a block registers when built, for a block that
+/// is not built this frame (outside the host's viewport): same count, same
+/// text and chip labels, not live (a selection across it still copies it).
+fn stub_units(b: &Block, p: &MdPaint) {
+    let Some(units) = &p.units else { return };
+    let unit = |inlines: &[Inline]| {
+        let mut text = String::new();
+        let mut chips = Vec::new();
+        for span in inlines.iter().filter(|span| !span.text.is_empty()) {
+            if let Some(chip) = &span.chip {
+                chips.push((text.len()..text.len() + span.text.len(), chip.label.clone()));
+            }
+            text.push_str(&span.text);
+        }
+        (SharedString::from(text), chips)
+    };
+    let pieces: Vec<(SharedString, Vec<(Range<usize>, String)>)> = match &b.kind {
+        BlockKind::Paragraph | BlockKind::Heading(_) | BlockKind::ListItem { .. } | BlockKind::Quote | BlockKind::Image { .. } => vec![unit(&b.inlines)],
+        BlockKind::CodeBlock => vec![(b.inlines.first().map(|i| i.text.clone()).unwrap_or_default().into(), Vec::new())],
+        BlockKind::Table { header, rows } => {
+            let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
+            std::iter::once(header).chain(rows.iter()).flat_map(|row| (0..cols).map(|c| unit(row.get(c).map_or(&[][..], Vec::as_slice))).collect::<Vec<_>>()).collect()
+        }
+        BlockKind::Rule | BlockKind::Attachment { .. } => Vec::new(),
+    };
+    let mut units = units.borrow_mut();
+    let list = units.entry(p.node).or_default();
+    for (text, chips) in pieces {
+        list.push(MdUnit { layout: TextLayout::default(), text, chips, live: Rc::new(std::cell::Cell::new(false)) });
+    }
 }
 
 #[cfg(test)]

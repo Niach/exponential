@@ -1,0 +1,119 @@
+//! #VAPP-258: a Markdown text unit joined to the HOST's window-level text
+//! selection (gpui-base's `TextSelectionLayer`): one participant per unit,
+//! ordered by its place on screen, so a sweep runs across every Markdown leaf
+//! of every surface in the window and the host's copy yields the whole range
+//! in reading order. [`crate::host::HostPlugin::markdown_window_selection`].
+
+use gpui::{point, AnyElement, App, Bounds, ElementId, Hsla, IntoElement, Pixels, SharedString, Subscription, TextLayout, Window};
+use gpui_base::{TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
+
+/// The unit's element, its shaped text and the highlight colour.
+pub struct SelectableUnit {
+    id: ElementId,
+    child: AnyElement,
+    layout: TextLayout,
+    text: SharedString,
+    highlight: Hsla,
+}
+
+impl SelectableUnit {
+    pub fn new(id: impl Into<SharedString>, child: AnyElement, layout: TextLayout, text: SharedString, highlight: Hsla) -> Self {
+        Self { id: ElementId::Name(id.into()), child, layout, text, highlight }
+    }
+}
+
+/// Stable document order from geometry: top to bottom, then left to right,
+/// quantized to 1/8 px (equal orders do not fall back to registration order;
+/// a per-frame counter re-publishes every frame).
+fn document_order(bounds: &Bounds<Pixels>) -> u64 {
+    let quantize = |value: Pixels| (((f32::from(value) + 131_072.0).max(0.0)) * 8.0) as u64;
+    (quantize(bounds.origin.y) << 24) | (quantize(bounds.origin.x) & 0xFF_FFFF)
+}
+
+struct UnitState {
+    selection: TextSelectionHandle,
+    _refresh: Subscription,
+}
+
+/// The line boxes `range` covers in `layout`'s first line (one per wrapped row).
+pub fn range_boxes(layout: &TextLayout, range: std::ops::Range<usize>) -> Vec<Bounds<Pixels>> {
+    if range.start >= range.end {
+        return Vec::new();
+    }
+    let Some(line) = layout.line_layout_for_index(range.start) else { return Vec::new() };
+    let bounds = layout.bounds();
+    let line_height = layout.line_height();
+    let mut rows: Vec<usize> = Vec::with_capacity(line.wrap_boundaries.len() + 2);
+    rows.push(0);
+    for boundary in line.wrap_boundaries.iter() {
+        let run = &line.unwrapped_layout.runs[boundary.run_ix];
+        rows.push(run.glyphs[boundary.glyph_ix].index.min(line.len()));
+    }
+    rows.push(line.len());
+    rows.dedup();
+    let mut out = Vec::new();
+    for row in 0..rows.len().saturating_sub(1) {
+        let (row_start, row_end) = (rows[row], rows[row + 1]);
+        let start = range.start.max(row_start).min(row_end);
+        let end = range.end.min(row_end).max(row_start);
+        if start >= end {
+            continue;
+        }
+        let x0 = line.unwrapped_layout.x_for_index(row_start);
+        let left = line.unwrapped_layout.x_for_index(start) - x0;
+        let right = line.unwrapped_layout.x_for_index(end) - x0;
+        let y = bounds.top() + line_height * row as f32;
+        out.push(Bounds::from_corners(point(bounds.left() + left, y), point(bounds.left() + right, y + line_height)));
+    }
+    out
+}
+
+impl IntoElement for SelectableUnit {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl gpui::Element for SelectableUnit {
+    type RequestLayoutState = ();
+    type PrepaintState = TextSelectionHandle;
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, window: &mut Window, cx: &mut App) -> (gpui::LayoutId, ()) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(&mut self, id: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> TextSelectionHandle {
+        self.child.prepaint(window, cx);
+        let selection = window.with_element_state::<UnitState, _>(id.expect("a SelectableUnit has an id"), |retained, window| {
+            let state = retained.unwrap_or_else(|| {
+                let selection = TextSelectionHandle::new(self.text.clone(), cx);
+                let refresh = selection.refresh_window_on_change(window, cx);
+                UnitState { selection, _refresh: refresh }
+            });
+            (state.selection.clone(), state)
+        });
+        let hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
+        selection.register(TextSelectionRegistration::new(hitbox, bounds).with_document_order(document_order(&bounds)).with_text_bounds(vec![bounds]), window, cx);
+        selection
+    }
+
+    fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), selection: &mut TextSelectionHandle, window: &mut Window, cx: &mut App) {
+        let projection = selection.update_runs(&[TextSelectionRun::new(self.text.clone(), self.layout.clone(), bounds).with_document_order(0)], cx);
+        if let Some(Some(range)) = projection.ranges().first() {
+            for segment in range_boxes(&self.layout, range.clone()) {
+                window.paint_quad(gpui::fill(segment, self.highlight));
+            }
+        }
+        self.child.paint(window, cx);
+    }
+}

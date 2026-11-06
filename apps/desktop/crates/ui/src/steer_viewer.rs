@@ -5175,8 +5175,10 @@ impl SteerSessionView {
     }
 
     /// The agent's prose: its mark beside the chat-rhythm markdown.
-    fn render_narration(&self, key: SharedString, text: String, cx: &App) -> AnyElement {
-        narration_row(self.with_issue_chips(self.prose(key, text), cx), cx)
+    /// #VAPP-258: `streaming` = the live run's last item (the reply being
+    /// written: genUI holds its unfinished tail back).
+    fn render_narration(&self, key: SharedString, text: String, streaming: bool, cx: &App) -> AnyElement {
+        narration_row(self.with_issue_chips(self.prose(key, text).streaming(streaming), cx), cx)
     }
 
     /// The transcript's prose view. EXP-698: the feed reads at the chat
@@ -5199,7 +5201,8 @@ impl SteerSessionView {
         let muted = cx.theme().muted_foreground;
         match &item.kind {
             FeedKind::Narration { text, .. } => {
-                self.render_narration(SharedString::from(format!("steer-narration-{}", item.id)), text.clone(), cx)
+                let streaming = self.phase == ViewerPhase::Live && self.feed.items().last().is_some_and(|last| last.id == item.id);
+                self.render_narration(SharedString::from(format!("steer-narration-{}", item.id)), text.clone(), streaming, cx)
             }
             // Thread 58cb32df (chats.json TRANSCRIPT): a person's `/new` or
             // `/compact` line is THE divider pill, never a bubble.

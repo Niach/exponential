@@ -736,12 +736,16 @@ private fun MarkdownChipView(
             }
             Box(Modifier.width(chips.gap.dp))
         }
-        val ident = chip.shownIdent
-        if (ident != null) {
-            BasicText(ident, style = identStyle, maxLines = 1, softWrap = false)
-            Box(Modifier.width(chips.gap.dp))
+        // #VAPP-258: the mono ident shares the title's baseline (the pair
+        // is centred in the chip as one line).
+        Row {
+            val ident = chip.shownIdent
+            if (ident != null) {
+                BasicText(ident, Modifier.alignByBaseline(), style = identStyle, maxLines = 1, softWrap = false)
+                Box(Modifier.width(chips.gap.dp))
+            }
+            BasicText(chip.label, Modifier.alignByBaseline(), style = label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         }
-        BasicText(chip.label, style = label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 

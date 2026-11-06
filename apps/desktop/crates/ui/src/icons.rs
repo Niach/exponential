@@ -81,12 +81,6 @@ pub fn glyph_svg_path(glyph: IconGlyph) -> SharedString {
     glyph_expicon(glyph).path()
 }
 
-/// #EXP-1674: an icon concept's embedded SVG path (the same paint-level
-/// consumers as [`glyph_svg_path`]), `None` for an unknown concept.
-pub fn concept_svg_path(concept: &str) -> Option<SharedString> {
-    registry::concept_by_name(concept).map(|icon| icon.path())
-}
-
 /// `domain` color role → the live theme color (§4.3: `muted_foreground` /
 /// `foreground` follow the theme; the five accents are the generated
 /// design-token values — token-locked, not Tailwind hex).
