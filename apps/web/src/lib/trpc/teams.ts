@@ -68,7 +68,8 @@ async function findOldestMembership(db: DbOrTx, userId: string) {
   return membership
 }
 
-async function uniqueSlug(tx: DbOrTx, base: string): Promise<string> {
+// #EXP-1713: `imports.create` reserves a slug the same way.
+export async function uniqueSlug(tx: DbOrTx, base: string): Promise<string> {
   const root = slugify(base) || `team`
   let candidate = root
   let suffix = 0

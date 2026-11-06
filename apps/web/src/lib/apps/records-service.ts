@@ -18,6 +18,7 @@
 // undo read those rows back (app-records.json `history`).
 import { afterRecordWrite, type RecordTriggerOp } from "@/lib/apps/automation-scope"
 import { TRPCError } from "@trpc/server"
+import { randomUUID } from "crypto"
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, withoutNulls, type RecordSchema } from "@exponential_app/eui"
 import { RECORD_POLICY_COPY, kindTransitions, migrateRecord, packageMigrations, recordPolicy, recordRefusal, transitionRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
@@ -62,11 +63,20 @@ type Executor = typeof defaultDb
  *  the transaction), then runs `fn`. Read every other table BEFORE this:
  *  under the role they answer permission denied. */
 export async function asEapps<T>(tx: Tx, scope: RecordsScope, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  // #EXP-1713: the transaction may go on after the records (a team import
+  // writes attachments next): the role and the timeout come back off.
+  const before = (await tx.execute(sql`SELECT current_setting('statement_timeout') AS timeout`)) as unknown as { rows?: { timeout: string }[] }
+  const timeout = (Array.isArray(before) ? before[0] : before.rows?.[0])?.timeout ?? `0`
   await tx.execute(
     sql`SELECT set_config('eapps.team', ${scope.teamId}, true), set_config('eapps.apps', ${scope.appIds.join(`,`)}, true), set_config('eapps.write', ${scope.write ? `on` : `off`}, true), set_config('statement_timeout', ${RECORDS_STATEMENT_TIMEOUT}, true)`
   )
   await tx.execute(sql.raw(`SET LOCAL ROLE ${RECORDS_ROLE}`))
-  return fn(tx)
+  // Only after a success: a refused statement leaves the transaction
+  // aborted, and the caller's error must stay the one Postgres raised.
+  const out = await fn(tx)
+  await tx.execute(sql.raw(`SET LOCAL ROLE NONE`))
+  await tx.execute(sql`SELECT set_config('statement_timeout', ${timeout}, true)`)
+  return out
 }
 
 /** A transaction of its own, entirely under the role. */
@@ -994,17 +1004,45 @@ export async function importRecords(
   app: Pick<App, `id` | `teamId` | `package`> & Partial<Pick<App, `publishedVersion`>>,
   userId: string,
   role: string,
-  records: readonly { kind: string; data: Record<string, unknown>; author?: string }[]
-): Promise<void> {
-  if (records.length === 0) return
+  // #EXP-1713: a team import keeps the records' ids and stamps (`id`,
+  // `createdAt`, `updatedAt`); an id the table already holds gets a fresh
+  // one, answered as `localId → id`. The app importer passes neither.
+  records: readonly { kind: string; data: Record<string, unknown>; author?: string; id?: string; createdAt?: Date; updatedAt?: Date }[]
+): Promise<Record<string, string>> {
+  const remapped: Record<string, string> = {}
+  if (records.length === 0) return remapped
   // eApps R3: the importer creates every record (a new app: no access row yet).
   for (const kind of new Set(records.map((r) => r.kind))) assertRecordOp(app, kind, `create`, { id: userId, role })
   await assertRecordAttachments(tx, app, records.flatMap((r) => kindSchemas(app, r.kind).map((schema) => ({ schema, data: r.data }))))
   await lockAndCheckQuota(tx, app.teamId, records.length)
+  // The taken ids, read OUTSIDE the role scope: a collision with another
+  // team's record is exactly what the scoped read would hide.
+  const wanted = records.map((r) => r.id).filter((id): id is string => typeof id === `string`)
+  const taken = new Set(wanted.length === 0 ? [] : (await tx.select({ id: appRecords.id }).from(appRecords).where(inArray(appRecords.id, wanted))).map((r) => r.id))
   await asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: true }, async (tx) => {
+    const ids = records.map((r) => {
+      if (r.id === undefined) return undefined
+      if (!taken.has(r.id)) return r.id
+      remapped[r.id] = randomUUID()
+      return remapped[r.id]
+    })
     const rows = await tx
       .insert(appRecords)
-      .values(records.map((r) => ({ appId: app.id, teamId: app.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: r.author ?? userId, updatedBy: userId, schemaVersion: app.publishedVersion ?? 0 })))
+      .values(
+        records.map((r, i) => ({
+          ...(ids[i] === undefined ? {} : { id: ids[i] }),
+          ...(r.createdAt ? { createdAt: r.createdAt } : {}),
+          ...(r.updatedAt ? { updatedAt: r.updatedAt } : {}),
+          appId: app.id,
+          teamId: app.teamId,
+          kind: r.kind,
+          data: r.data,
+          createdBy: userId,
+          authorId: r.author ?? userId,
+          updatedBy: userId,
+          schemaVersion: app.publishedVersion ?? 0,
+        }))
+      )
       .returning({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId })
     await logEvents(
       tx,
@@ -1014,6 +1052,7 @@ export async function importRecords(
       rows.map((r) => ({ recordId: r.id, kind: r.kind, op: `create` as const, author: r.authorId, patch: r.data, before: null }))
     )
   })
+  return remapped
 }
 
 // ── eApps R8 (#VAPP-233): the publish sweep ──────────────────────────────

@@ -29,6 +29,7 @@ import { evaluatePlan } from "@/lib/import/plan"
 import { getImportSource } from "@/lib/import/sources"
 import { loadImportTeamState } from "@/lib/import/team-state"
 import { kickImportWorker } from "@/lib/import/kick"
+import { teamImportProcedures } from "@/lib/trpc/team-imports"
 
 // Per-user bound on discovery runs: each one is a full workspace fetch
 // against a third-party API under the user's own key.
@@ -126,6 +127,9 @@ async function dryRun(job: Awaited<ReturnType<typeof loadJobForOwner>>): Promise
 }
 
 export const importsRouter = router({
+  // #EXP-1713: the team import (Share a Local desktop as a team): create /
+  // chunk / commit, in lib/trpc/team-imports.ts.
+  ...teamImportProcedures,
   // Validates the credential, creates the job and hands it to the worker
   // for discovery (the full paged fetch, which can take a while).
   connect: authedProcedure

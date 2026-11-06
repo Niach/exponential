@@ -39,6 +39,7 @@ import { registerImportWorkerKick } from "@/lib/import/kick"
 import { buildDefaultPlan } from "@/lib/import/plan"
 import { getImportSource } from "@/lib/import/sources"
 import { loadImportTeamState } from "@/lib/import/team-state"
+import { sweepAbandonedTeamImports } from "@/lib/team-import/sweep"
 
 export const IMPORT_CREDENTIAL_TTL_MS = 24 * 60 * 60 * 1000
 export const IMPORT_STALE_CLAIM_MS = 5 * 60 * 1000
@@ -296,6 +297,8 @@ export async function runImportSweep(
 ): Promise<{ processed: number; credentialsWiped: number; payloadsPurged: number }> {
   const credentialsWiped = await wipeCredentials(now)
   const payloadsPurged = await purgePayloads(now)
+  // #EXP-1713: team imports nobody committed go with their teams.
+  await sweepAbandonedTeamImports(now)
   let processed = 0
   while (true) {
     const job = await claimJob(new Date())
