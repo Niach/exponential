@@ -25,6 +25,9 @@ okhttp = "5.3.2"
 kotlinx-serialization = "1.7.3"
 kotlinx-coroutines = "1.9.0"
 room = "2.7.1"
+# #EXP-1642: issues and chats in the phone's own search (platform AppSearch).
+appsearch = "1.1.0"
+concurrent-futures = "1.2.0"
 datastore = "1.1.1"
 security-crypto = "1.1.0-alpha06"
 browser = "1.8.0"
@@ -108,6 +111,9 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+appsearch = { group = "androidx.appsearch", name = "appsearch", version.ref = "appsearch" }
+appsearch-platform-storage = { group = "androidx.appsearch", name = "appsearch-platform-storage", version.ref = "appsearch" }
+concurrent-futures-ktx = { group = "androidx.concurrent", name = "concurrent-futures-ktx", version.ref = "concurrent-futures" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }

@@ -351,6 +351,16 @@ abstract class SessionDao {
     )
     abstract fun observeRecentChats(teamId: String, limit: Int): Flow<List<SessionEntity>>
 
+    // #EXP-1642 (system-search.json): every team's newest plain chats, the same
+    // filter (never an agent's conversation, an app's editor or an encrypted chat).
+    @Query(
+        """SELECT * FROM sessions WHERE parent_id IS NULL
+        AND agent_id IS NULL AND app_id IS NULL AND seal_public_key IS NULL AND sealed_title IS NULL
+        AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
+        ORDER BY updated_at DESC LIMIT :limit""",
+    )
+    abstract fun observeSearchableChats(limit: Int): Flow<List<SessionEntity>>
+
     @Query("SELECT * FROM sessions ORDER BY created_at, id")
     abstract fun rawObserveAll(): Flow<List<SessionEntity>>
     fun observeAll(): Flow<List<SessionEntity>> = rawObserveAll().openedSessions()

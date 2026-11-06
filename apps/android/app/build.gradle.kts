@@ -306,6 +306,10 @@ dependencies {
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
+    // #EXP-1642: the system search index (AppSearch, platform storage on API 31+).
+    implementation(libs.appsearch)
+    implementation(libs.appsearch.platform.storage)
+    implementation(libs.concurrent.futures.ktx)
     ksp(libs.room.compiler)
 
     implementation(libs.datastore.preferences)
