@@ -33,10 +33,9 @@ final class Nav: WindowHost, @unchecked Sendable {
 
 final class Photos: Capability, @unchecked Sendable {
     func name() -> String { "photos" }
-    func toolsJson() -> String { #"[{"name":"pick","inputSchema":{"type":"object"}}]"# }
-    func call(tool: String, argumentsJson: String) throws -> String {
-        text(["content": [["type": "text", "text": "\(tool): p1"]]])
-    }
+    func toolsJson() -> String { "[]" }
+    // A native result per capabilities.json's nativeOutputSchema.
+    func call(tool: String, argumentsJson: String) throws -> String { #"{"structuredContent":{"photos":[]}}"# }
 }
 
 final class Pinned: EngineClock, @unchecked Sendable {
@@ -85,7 +84,7 @@ check(sheet.scope == "photos.read", "the sheet's scope")
 let title = ((json(sheet.componentsJson) as! [[String: Any]])[0]["title"] as? String) ?? ""
 check(title == "Allow Album to access your photos?", "the sheet's title: \(title)")
 if case let .value(picked) = try! app.answerConsent(name: "photos.pick", argsJson: "{}", verdictJson: verdict, answer: .allow) {
-    check(picked.contains("pick: p1"), "the capability ran: \(picked)")
+    check(picked.contains(#""structuredContent":{"photos":[]}"#), "the capability ran: \(picked)")
 } else { check(false, "allow did not run the call") }
 check(app.grantsJson() == #"{"photos.read":"granted"}"#, "the grant persists: \(app.grantsJson())")
 check(keychain.values["eengine/grants/acme.album"]?.contains("granted") == true, "in the Vault")

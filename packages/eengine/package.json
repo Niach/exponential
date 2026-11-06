@@ -22,6 +22,8 @@
     "./lifecycle": "./src/lifecycle.ts",
     "./providers": "./src/providers.ts",
     "./outbox": "./src/outbox.ts",
+    "./tools": "./src/tools.ts",
+    "./pdf": "./src/pdf.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "devDependencies": {

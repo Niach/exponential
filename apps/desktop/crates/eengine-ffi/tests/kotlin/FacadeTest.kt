@@ -81,8 +81,9 @@ class Nav : WindowHost {
 
 class Photos : Capability {
     override fun `name`() = "photos"
-    override fun `toolsJson`() = """[{"name":"pick","inputSchema":{"type":"object"}}]"""
-    override fun `call`(`tool`: String, `argumentsJson`: String) = Json.write(mapOf("content" to listOf(mapOf("type" to "text", "text" to "$tool: p1"))))
+    override fun `toolsJson`() = "[]"
+    // A native result per capabilities.json's nativeOutputSchema.
+    override fun `call`(`tool`: String, `argumentsJson`: String) = """{"structuredContent":{"photos":[]}}"""
 }
 
 class Pinned : EngineClock {
@@ -129,7 +130,7 @@ fun main(args: Array<String>) {
     val title = ((Json.parse(ask.sheet.componentsJson) as List<*>)[0] as Map<*, *>)["title"]
     check(title == "Allow Album to access your photos?") { "the sheet's title: $title" }
     val picked = app.answerConsent("photos.pick", "{}", ask.verdictJson, ConsentAnswer.ALLOW)
-    check(picked is CallResult.Value && picked.json.contains("pick: p1")) { "the capability ran: $picked" }
+    check(picked is CallResult.Value && picked.json.contains(""""structuredContent":{"photos":[]}""")) { "the capability ran: $picked" }
     check(app.grantsJson() == """{"photos.read":"granted"}""") { "the grant persists: ${app.grantsJson()}" }
     check(keychain.values["eengine/grants/acme.album"]?.contains("granted") == true) { "in the Vault" }
     app.setGrant("photos.read", null)

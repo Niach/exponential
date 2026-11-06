@@ -20,10 +20,12 @@ pub mod instance;
 pub mod lifecycle;
 pub mod outbox;
 pub mod package;
+pub mod pdf;
 pub mod providers;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod stores;
+pub mod tools;
 
 pub use broker::{broker_audit_row, broker_decide, BrokerCall, CallFrom, GrantValue, Grants, ManifestEntry, Verdict, VerdictKind};
 pub use lifecycle::{lifecycle_step, Effect, LifecycleContext, LifecycleEvent, LifecycleState, Phase};

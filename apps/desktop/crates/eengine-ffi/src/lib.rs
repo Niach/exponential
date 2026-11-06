@@ -787,10 +787,8 @@ impl AppInstance {
         };
         let broker = self.with(|i| i.broker().clone());
         eengine::hub::mount_capabilities(hub, &broker).map_err(invalid)?;
-        let provided: Vec<String> = broker.capabilities().iter().map(|c| c.name().to_string()).collect();
-        // What the hub lists: the manifest's catalog tools the native side provides.
-        let native: Vec<String> = broker.capabilities().iter().flat_map(|c| c.tools().into_iter().filter_map(move |t| Some(format!("{}__{}", c.name(), t.get("name")?.as_str()?)))).collect();
-        let tools = eengine::broker::agent_tool_list(broker.manifest(), &provided).into_iter().filter(|t| native.contains(t)).collect();
+        // What the hub lists: the catalog's v1 tools of the manifest's scopes the host provides.
+        let tools = eengine::hub::listed_tools(&broker).into_iter().filter_map(|(capability, t)| Some(format!("{capability}__{}", t.get("name")?.as_str()?))).collect();
         let token = hub.grant(&session, &run, eengine::hub::agent_grant(&broker));
         Ok(AgentAccess { url: hub.url().to_string(), token: token.as_str().to_string(), tools })
     }

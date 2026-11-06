@@ -20,7 +20,7 @@ import { fixDeclarationSpecifiers } from "../../exponential-ui/release/build-npm
 const dir = resolve(import.meta.dir, `..`)
 const packages = resolve(dir, `..`)
 const repo = resolve(packages, `..`)
-const ENTRIES = [`index`, `capabilities`, `consent`, `lifecycle`, `providers`, `outbox`]
+const ENTRIES = [`index`, `capabilities`, `consent`, `lifecycle`, `providers`, `outbox`, `tools`, `pdf`]
 // The private workspace packages the twin imports, inlined in the bundle and
 // carried along in the declarations: specifier → source file under packages/.
 const PRIVATE: Record<string, string> = {

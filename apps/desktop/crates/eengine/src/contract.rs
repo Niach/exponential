@@ -1,6 +1,7 @@
 //! The Engine's contract (`packages/eengine/fixtures`), compiled in. Each
 //! fixture's `$comment` is the spec; [`crate::lifecycle`], [`crate::broker`],
-//! [`crate::consent`], [`crate::providers`] and [`crate::outbox`] replay them
+//! [`crate::consent`], [`crate::providers`], [`crate::outbox`], [`crate::tools`] and
+//! [`crate::pdf`] replay them
 //! (`tests/fixtures.rs`), as the TS twin `@exp/eengine` does.
 
 use std::sync::LazyLock;

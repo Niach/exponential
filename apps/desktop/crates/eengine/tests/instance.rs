@@ -115,11 +115,13 @@ impl Capability for Photos {
     }
 
     fn tools(&self) -> Vec<Value> {
-        vec![json!({"name": "pick", "inputSchema": {"type": "object"}})]
+        vec![]
     }
 
-    fn call(&self, tool: &str, _arguments: &Value) -> Result<Value, Failure> {
-        Ok(json!({"content": [{"type": "text", "text": format!("{tool}: p1")}]}))
+    /// Native results per capabilities.json's `nativeOutputSchema`.
+    fn call(&self, tool: &str, arguments: &Value) -> Result<Value, Failure> {
+        assert_eq!((tool, arguments), ("pick", &json!({"limit": 1})), "the bridge fills the default");
+        Ok(json!({"structuredContent": {"photos": []}}))
     }
 }
 
@@ -144,11 +146,15 @@ fn capability_calls_go_through_the_broker() {
     };
     assert_eq!(sheet.components[0]["title"], json!("Allow Album to access your photos?"));
     match app.answer_consent("photos.pick", &json!({}), &verdict, ConsentAnswer::Allow) {
-        CallResult::Value(v) => assert_eq!(v["content"][0]["text"], json!("pick: p1")),
+        CallResult::Value(v) => assert_eq!(v, json!({"content": [{"type": "text", "text": "{\"photos\":[]}"}], "structuredContent": {"photos": []}})),
         other => panic!("{other:?}"),
     }
     assert!(vault.read("eengine/grants/acme.album").unwrap().contains("\"photos.read\":\"granted\""));
     assert!(matches!(app.call("photos.pick", &json!({}), &[]), CallResult::Value(_)), "granted: no second sheet");
+    match app.call("photos.pick", &json!({"limit": 0}), &[]) {
+        CallResult::Value(v) => assert_eq!(v["content"][0]["text"], json!("invalidParams: /limit minimum")),
+        other => panic!("{other:?}"),
+    }
     // Only the ConsentUi after a gesture changes a grant.
     assert_eq!(app.set_grant(GrantVia::Agent, true, "photos.read", None), Err("onlyConsentUi"));
     assert_eq!(app.set_grant(GrantVia::ConsentUi, false, "photos.read", None), Err("noGesture"));

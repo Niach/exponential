@@ -82,6 +82,8 @@ impl AppInstance {
             grants,
             capabilities: config.capabilities.clone(),
             vault: config.vault.clone(),
+            blobs: config.blobs.clone(),
+            screens: eui_core::host::package_screens(&pkg).iter().filter_map(|s| s.get("template").and_then(Value::as_str).map(str::to_string)).collect(),
             consent: config.consent.clone(),
             audit: config.audit.clone(),
         }));
