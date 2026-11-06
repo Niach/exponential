@@ -197,7 +197,7 @@ private fun AttachmentLinkBlockView(url: String, label: String, issueRefs: Issue
             Text(
                 text = text,
                 style = body,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = MdStyle.blockSpacing / 2),
             )
         }
     }
@@ -232,10 +232,20 @@ private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {
             } else if (a.kind == BlockKind.Blockquote) {
                 var j = i
                 while (j + 1 < lines.size && attrs[j + 1].kind == BlockKind.Blockquote) j++
-                QuoteBlockView((i..j).map { lines[it] }, (i..j).map { lineMarks[it] }, issueRefs)
+                QuoteBlockView(
+                    (i..j).map { lines[it] },
+                    (i..j).map { lineMarks[it] },
+                    (i..j).map { attrs[it].lineBreak },
+                    issueRefs,
+                )
                 i = j + 1
             } else {
-                LineView(lines[i], a, lineMarks[i], issueRefs)
+                // EXP-1676: half a gap above and below every paragraph (web's
+                // collapsing 0.5rem margins), none across a soft line break.
+                val half = MdStyle.blockSpacing / 2
+                val top = if (a.lineBreak) 0.dp else half
+                val bottom = if (attrs.getOrNull(i + 1)?.lineBreak == true) 0.dp else half
+                LineView(lines[i], a, lineMarks[i], issueRefs, Modifier.padding(top = top, bottom = bottom))
                 i++
             }
         }
@@ -249,6 +259,7 @@ private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {
 private fun QuoteBlockView(
     texts: List<String>,
     marks: List<List<InlineMark>>,
+    lineBreaks: List<Boolean>,
     issueRefs: IssueRefHandler?,
 ) {
     val mentions = LocalMentions.current
@@ -257,10 +268,12 @@ private fun QuoteBlockView(
     val bare = LocalIssueRefBare.current
     val appLinks = LocalAppLinks.current
     val body = LocalMarkdownBodyStyle.current
+    // EXP-1676: web's `blockquote > p` keep the 0.5rem paragraph rhythm and
+    // the bar spans the text only (the margins collapse out of the quote).
+    Box(Modifier.fillMaxWidth().padding(vertical = MdStyle.blockSpacing / 2)) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
             .height(IntrinsicSize.Min),
     ) {
         Box(
@@ -278,11 +291,14 @@ private fun QuoteBlockView(
                             annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare, appLinks)
                         },
                         style = body.copy(color = MdStyle.Blockquote),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                        modifier = Modifier.fillMaxWidth().padding(
+                            top = if (index == 0 || lineBreaks.getOrElse(index) { false }) 0.dp else MdStyle.blockSpacing,
+                        ),
                     )
                 }
             }
         }
+    }
     }
 }
 
@@ -309,6 +325,7 @@ private fun LineView(
     a: ParagraphAttrs,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
+    gap: Modifier,
 ) {
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
@@ -322,7 +339,7 @@ private fun LineView(
             // A chat body derives its headings from the body (h1 =
             // `card.headingScale` × it); a document keeps the editor's scale.
             style = if (body == MdStyle.body) MdStyle.heading(a.headingLevel) else MdStyle.chatHeading(a.headingLevel, body),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+            modifier = Modifier.fillMaxWidth().then(gap),
         )
 
         // Blockquote never reaches here — TextBlockView groups quote runs into
@@ -332,10 +349,10 @@ private fun LineView(
         BlockKind.ThematicBreak -> Text(
             text = MarkdownParser.THEMATIC_BREAK_GLYPH,
             style = body.copy(color = MdStyle.Dim),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+            modifier = Modifier.fillMaxWidth().then(gap),
         )
 
-        BlockKind.ListItem -> ListItemView(text, a, marks, issueRefs)
+        BlockKind.ListItem -> ListItemView(text, a, marks, issueRefs, gap)
 
         BlockKind.Paragraph, BlockKind.CodeBlock -> {
             if (text.isEmpty()) {
@@ -344,7 +361,9 @@ private fun LineView(
                 ChipText(
                     line = rememberAnnotatedLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
                     style = body,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    // EXP-1676: web's `.tiptap-content p` 0.5rem rhythm (the
+                    // margins collapse: half above + half below = one gap).
+                    modifier = Modifier.fillMaxWidth().then(gap),
                 )
             }
         }
@@ -357,6 +376,7 @@ private fun ListItemView(
     a: ParagraphAttrs,
     marks: List<InlineMark>,
     issueRefs: IssueRefHandler?,
+    gap: Modifier,
 ) {
     val mentions = LocalMentions.current
     val autolink = LocalMarkdownAutolink.current
@@ -371,7 +391,8 @@ private fun ListItemView(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = indent, top = 2.dp, bottom = 2.dp),
+            .then(gap)
+            .padding(start = indent),
         verticalAlignment = Alignment.Top,
     ) {
         val glyph = if (body == MdStyle.body) 22.dp else PlanCard.Look.LIST_INDENT.dp

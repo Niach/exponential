@@ -150,6 +150,10 @@ data class ParagraphAttrs(
     val listDepth: Int = 0,           // 0-based nesting depth
     val checked: Boolean = false,     // checklist state
     val codeLang: String? = null,     // fence info for code blocks
+    /** EXP-1676: a line a read-only soft break opened (EXP-440's terminal
+     *  reading = web's `<br>`): it continues the paragraph above, so no
+     *  paragraph gap between them. Never set on the editor's parse. */
+    val lineBreak: Boolean = false,
 ) {
     companion object {
         val PLAIN = ParagraphAttrs()

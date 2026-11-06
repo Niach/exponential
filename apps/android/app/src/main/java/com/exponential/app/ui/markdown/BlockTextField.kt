@@ -285,7 +285,7 @@ fun BlockTextField(
     // coordinates (see the Popup below).
     var textLayout by remember(row.id) { mutableStateOf<TextLayoutResult?>(null) }
     val chipTransform = remember(value.text, marks, issueRefs, paragraphs) {
-        IssueChipTransform.build(value.text, marks, issueRefs, paragraphs)
+        IssueChipTransform.build(value.text, marks, issueRefs, paragraphs, paragraphGaps = true)
     }
     // The painted half of the editor's chips (EXP-423) — same geometry rules as
     // the read renderer, in the decoration box's coordinate space.
@@ -406,6 +406,7 @@ fun BlockTextField(
             issueRefs = issueRefs,
             paragraphs = paragraphs,
             fontScale = LocalDensity.current.fontScale,
+            paragraphGaps = true,
         ),
         modifier = modifier
             .focusRequester(focusRequester)

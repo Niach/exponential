@@ -9,6 +9,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
@@ -47,7 +48,32 @@ internal class IssueChipTransform private constructor(
     val display: String,
     /** Ascending, non-overlapping, at least one entry unless this is the identity. */
     val chips: List<Chip>,
+    /** Ascending paragraph gaps (EXP-1676), empty unless built with `paragraphGaps`. */
+    val gaps: List<Gap> = emptyList(),
 ) {
+
+    /**
+     * EXP-1676: web's 0.5rem paragraph rhythm (`.tiptap-content p` / task
+     * `li` margins) in a BasicTextField, which has no paragraph spacing: the
+     * display injects a [GAP_CHAR] after a source '\n' and gives it its own
+     * [MdStyle.blockSpacing]-tall paragraph ([ChipVisualTransformation]).
+     * The gap is never a caret position: both mapping directions skip it.
+     * When the '\n' ends the source (an empty last line), a SECOND char rides
+     * along so that empty line owns a display character (its own range).
+     */
+    class Gap(
+        /** Source offset of the '\n' the gap follows. */
+        val newline: Int,
+        /** Display offset of that '\n'. */
+        val displayNewline: Int,
+        /** Injected chars: 1, or 2 for the empty last line's own char. */
+        val length: Int,
+    ) {
+        val sourceEnd: Int get() = newline + 1
+        /** Display offset of the gap paragraph's one char. */
+        val displayGap: Int get() = displayNewline + 1
+        val displayEnd: Int get() = displayNewline + 1 + length
+    }
 
     /**
      * One rendered chip. Source coordinates cover the bare token; display
@@ -66,7 +92,32 @@ internal class IssueChipTransform private constructor(
         val injectedLength: Int get() = displayEnd - displayTokenEnd
     }
 
-    val isIdentity: Boolean get() = chips.isEmpty()
+    val isIdentity: Boolean get() = chips.isEmpty() && gaps.isEmpty()
+
+    /** Display offset of the first character of the source line starting at [sourceLineStart]. */
+    fun lineStartToDisplay(sourceLineStart: Int): Int {
+        val d = caretToDisplay(sourceLineStart)
+        val padded = gaps.any { it.length == 2 && it.sourceEnd == sourceLineStart }
+        return if (padded) d - 1 else d
+    }
+
+    /**
+     * Each source line's display bounds: its first character and its visual
+     * end (the display offset of its '\n', or the display end).
+     */
+    fun lineBounds(): List<Pair<Int, Int>> {
+        val lines = if (source.isEmpty()) listOf("") else source.split("\n")
+        val out = ArrayList<Pair<Int, Int>>(lines.size)
+        var start = 0
+        for ((i, line) in lines.withIndex()) {
+            val end = start + line.length
+            val dStart = lineStartToDisplay(start)
+            val dEnd = if (i == lines.lastIndex) display.length else caretToDisplay(end).coerceAtLeast(dStart)
+            out.add(dStart to dEnd)
+            start = end + 1
+        }
+        return out
+    }
 
     /**
      * Source → display, RANGE semantics: strictly `<` at a chip's `sourceEnd`,
@@ -91,6 +142,11 @@ internal class IssueChipTransform private constructor(
             val counts = if (inclusive) chip.sourceEnd <= p else chip.sourceEnd < p
             if (counts) delta += chip.injectedLength else break
         }
+        // A gap belongs to the NEXT line under both semantics: a range or a
+        // caret at that line's start lands after it.
+        for (gap in gaps) {
+            if (gap.sourceEnd <= p) delta += gap.length else break
+        }
         return (p + delta).coerceIn(0, display.length)
     }
 
@@ -104,13 +160,28 @@ internal class IssueChipTransform private constructor(
     fun transformedToOriginal(offset: Int): Int {
         val q = offset.coerceIn(0, display.length)
         var delta = 0
+        var gi = 0
         for (chip in chips) {
+            while (gi < gaps.size && gaps[gi].displayNewline < chip.displayStart) {
+                val gap = gaps[gi]
+                if (q <= gap.displayGap) return (q - delta).coerceIn(0, source.length)
+                if (q <= gap.displayEnd) return gap.sourceEnd
+                delta += gap.length
+                gi++
+            }
             if (q <= chip.displayStart) return (q - delta).coerceIn(0, source.length)
             if (q <= chip.displayEnd) {
                 val nearStart = q - chip.displayStart <= chip.displayTokenEnd - q
                 return if (nearStart) chip.sourceStart else chip.sourceEnd
             }
             delta += chip.injectedLength
+        }
+        while (gi < gaps.size) {
+            val gap = gaps[gi]
+            if (q <= gap.displayGap) return (q - delta).coerceIn(0, source.length)
+            if (q <= gap.displayEnd) return gap.sourceEnd
+            delta += gap.length
+            gi++
         }
         return (q - delta).coerceIn(0, source.length)
     }
@@ -151,37 +222,82 @@ internal class IssueChipTransform private constructor(
             marks: List<InlineMark>,
             issueRefs: IssueRefHandler?,
             paragraphs: List<ParagraphAttrs>,
+            /** EXP-1676: inject the paragraph [Gap]s (the editor field). */
+            paragraphGaps: Boolean = false,
         ): IssueChipTransform {
-            if (issueRefs == null || !source.contains('#')) return identity(source)
-            // Same candidate rule as the read renderer: resolved tokens only,
-            // never inside inline code, a markdown link, or a code-block line.
-            val pills = resolvedRefPills(source, marks, issueRefs).filterNot { (match, _) ->
-                paragraphs.getOrNull(ParaRemap.paraIndexAt(source, match.start))
-                    ?.kind == BlockKind.CodeBlock
+            val gapAt = if (paragraphGaps) gapNewlines(source, paragraphs) else emptyList()
+            val pills = if (issueRefs == null || !source.contains('#')) {
+                emptyList()
+            } else {
+                // Same candidate rule as the read renderer: resolved tokens only,
+                // never inside inline code, a markdown link, or a code-block line.
+                resolvedRefPills(source, marks, issueRefs).filterNot { (match, _) ->
+                    paragraphs.getOrNull(ParaRemap.paraIndexAt(source, match.start))
+                        ?.kind == BlockKind.CodeBlock
+                }.sortedBy { it.first.start }
             }
-            if (pills.isEmpty()) return identity(source)
+            if (pills.isEmpty() && gapAt.isEmpty()) return identity(source)
 
-            val out = StringBuilder(source.length + pills.size * 16)
+            val out = StringBuilder(source.length + pills.size * 16 + gapAt.size * 2)
             val chips = ArrayList<Chip>(pills.size)
+            val gaps = ArrayList<Gap>(gapAt.size)
             var last = 0
-            for ((match, target) in pills.sortedBy { it.first.start }) {
-                if (match.start < last) continue // overlapping token: keep the first
-                if (match.start < 0 || match.end > source.length || match.end <= match.start) continue
-                val title = inlineChipTitle(target.title)
-                if (title.isEmpty()) continue // blank title keeps the bare token
-                out.append(source, last, match.start)
-                val displayStart = out.length
-                out.append(source, match.start, match.end)
-                val displayTokenEnd = out.length
-                out.append(CHIP_NBSP).append(title)
-                chips.add(
-                    Chip(match.start, match.end, displayStart, displayTokenEnd, out.length, target),
-                )
-                last = match.end
+            var pi = 0
+            var gi = 0
+            while (pi < pills.size || gi < gapAt.size) {
+                val newline = gapAt.getOrNull(gi)
+                val pill = pills.getOrNull(pi)
+                if (pill != null && (newline == null || pill.first.start < newline)) {
+                    pi++
+                    val (match, target) = pill
+                    if (match.start < last) continue // overlapping token: keep the first
+                    if (match.start < 0 || match.end > source.length || match.end <= match.start) continue
+                    val title = inlineChipTitle(target.title)
+                    if (title.isEmpty()) continue // blank title keeps the bare token
+                    out.append(source, last, match.start)
+                    val displayStart = out.length
+                    out.append(source, match.start, match.end)
+                    val displayTokenEnd = out.length
+                    out.append(CHIP_NBSP).append(title)
+                    chips.add(
+                        Chip(match.start, match.end, displayStart, displayTokenEnd, out.length, target),
+                    )
+                    last = match.end
+                } else {
+                    gi++
+                    val n = newline ?: break
+                    if (n < last) continue
+                    out.append(source, last, n + 1)
+                    val length = if (n + 1 == source.length) 2 else 1
+                    gaps.add(Gap(n, out.length - 1, length))
+                    repeat(length) { out.append(GAP_CHAR) }
+                    last = n + 1
+                }
             }
-            if (chips.isEmpty()) return identity(source)
+            if (chips.isEmpty() && gaps.isEmpty()) return identity(source)
             out.append(source, last, source.length)
-            return IssueChipTransform(source, out.toString(), chips)
+            return IssueChipTransform(source, out.toString(), chips, gaps)
+        }
+
+        /** The injected gap character: zero-width, so it never paints. */
+        const val GAP_CHAR = '\u200B'
+
+        /**
+         * The source '\n's a paragraph gap follows: every break except one
+         * INSIDE a code fence (web's `pre` is one block, its lines pack).
+         */
+        internal fun gapNewlines(source: String, paragraphs: List<ParagraphAttrs>): List<Int> {
+            if (!source.contains('\n')) return emptyList()
+            val out = ArrayList<Int>()
+            var line = 0
+            for ((i, c) in source.withIndex()) {
+                if (c != '\n') continue
+                val above = paragraphs.getOrNull(line)?.kind
+                val below = paragraphs.getOrNull(line + 1)?.kind
+                if (!(above == BlockKind.CodeBlock && below == BlockKind.CodeBlock)) out.add(i)
+                line++
+            }
+            return out
         }
 
         private fun identity(source: String) = IssueChipTransform(source, source, emptyList())
@@ -202,12 +318,14 @@ internal class ChipVisualTransformation(
     private val paragraphs: List<ParagraphAttrs>,
     /** For dp→sp indent conversion — sp shrinks under font scaling, dp doesn't. */
     private val fontScale: Float,
+    /** EXP-1676: web's paragraph rhythm ([IssueChipTransform.Gap]). */
+    private val paragraphGaps: Boolean = false,
 ) : VisualTransformation {
 
     override fun filter(text: AnnotatedString): TransformedText {
         // Built from filter's OWN argument — never from captured state.
         val source = text.text
-        val transform = IssueChipTransform.build(source, marks, issueRefs, paragraphs)
+        val transform = IssueChipTransform.build(source, marks, issueRefs, paragraphs, paragraphGaps)
         // Reuse the shared mark styling by lifting the marks into display
         // coordinates first, so the editor and the read renderer can never
         // drift on how a bold/link/code span looks.
@@ -267,17 +385,11 @@ internal class ChipVisualTransformation(
         transform: IssueChipTransform,
     ) {
         val display = transform.display
-        val lines = if (source.isEmpty()) listOf("") else source.split("\n")
-        var lineStart = 0
-        for ((i, line) in lines.withIndex()) {
-            val lineEnd = lineStart + line.length
+        // The display position of each line's '\n' (chips injected at the
+        // very end of the line sit BEFORE it: caret semantics at the line end).
+        for ((i, bounds) in transform.lineBounds().withIndex()) {
+            val (dStart, dLineEnd) = bounds
             val a = paragraphs.getOrNull(i) ?: ParagraphAttrs.PLAIN
-            val dStart = transform.originalToTransformed(lineStart)
-            // The display position of this line's '\n' (chips injected at the
-            // very end of the line sit BEFORE it, hence the end+1 - 1 mapping).
-            val dLineEnd =
-                if (i == lines.lastIndex) display.length
-                else (transform.originalToTransformed(lineEnd + 1) - 1).coerceAtLeast(dStart)
             val span: SpanStyle? = when (a.kind) {
                 BlockKind.Heading -> MdStyle.heading(a.headingLevel).toSpanStyle()
                 BlockKind.CodeBlock -> SpanStyle(
@@ -299,7 +411,22 @@ internal class ChipVisualTransformation(
             if (span != null && dLineEnd > dStart) builder.addStyle(span, dStart, dLineEnd)
             val parEnd = (dLineEnd + 1).coerceAtMost(display.length)
             if (parEnd > dStart) builder.addStyle(paragraph, dStart, parEnd)
-            lineStart = lineEnd + 1
+        }
+        // Each gap char is its own paragraph, exactly [MdStyle.blockSpacing] tall.
+        if (transform.gaps.isEmpty()) return
+        val gapSp = (MdStyle.blockSpacing.value / fontScale).sp
+        val gapParagraph = ParagraphStyle(
+            lineHeight = gapSp,
+            lineHeightStyle = LineHeightStyle(
+                alignment = LineHeightStyle.Alignment.Center,
+                trim = LineHeightStyle.Trim.None,
+            ),
+        )
+        for (gap in transform.gaps) {
+            val at = gap.displayGap
+            if (at + 1 > display.length) continue
+            builder.addStyle(SpanStyle(fontSize = gapSp), at, at + 1)
+            builder.addStyle(gapParagraph, at, at + 1)
         }
     }
 
@@ -350,13 +477,15 @@ internal class ChipVisualTransformation(
             other.marks == marks &&
             other.issueRefs === issueRefs &&
             other.paragraphs == paragraphs &&
-            other.fontScale == fontScale
+            other.fontScale == fontScale &&
+            other.paragraphGaps == paragraphGaps
 
     override fun hashCode(): Int {
         var result = marks.hashCode()
         result = 31 * result + (issueRefs?.hashCode() ?: 0)
         result = 31 * result + paragraphs.hashCode()
         result = 31 * result + fontScale.hashCode()
+        result = 31 * result + paragraphGaps.hashCode()
         return result
     }
 }
