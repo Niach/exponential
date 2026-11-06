@@ -5,8 +5,9 @@
 //! The lib is the painter-free glue, tested headless: where the bundle sits
 //! ([`bundle`]), the app-data paths ([`storage`]), the Vault in the
 //! platform keystore ([`vault`]), what reaches the runner from outside
-//! ([`events`]) and the one Engine instance with what each event means for
-//! the window ([`runner`]). `main.rs` paints it with eui-gpui.
+//! ([`events`]), the one Engine instance with what each event means for
+//! the window ([`runner`]) and the one running instance per app id on
+//! Linux and Windows ([`single`]). `main.rs` paints it with eui-gpui.
 //!
 //! No chrome of its own, no updater, no telemetry, no account: every pixel
 //! is a genUI surface (`app`, `consent`, `permissions`, `toast`), and
@@ -16,5 +17,6 @@ pub mod assets;
 pub mod bundle;
 pub mod events;
 pub mod runner;
+pub mod single;
 pub mod storage;
 pub mod vault;
