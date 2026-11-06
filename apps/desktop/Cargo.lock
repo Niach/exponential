@@ -2762,6 +2762,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eengine-bundle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "eengine",
+ "image",
+ "resvg 0.45.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "eengine-desktop"
 version = "0.1.0"
 dependencies = [
@@ -3349,6 +3364,7 @@ dependencies = [
  "coding",
  "dirs",
  "domain",
+ "eengine-bundle",
  "engine",
  "epilot",
  "eui-motion",

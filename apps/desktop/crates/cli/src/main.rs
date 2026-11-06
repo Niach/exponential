@@ -96,6 +96,8 @@ Commands:
   mcp list|connect|set-secret|disconnect  Team MCP servers + your connection to each
   motion import|compile|decompile|check|render <file>
                                           Motion: convert, validate and preview animations
+  bundle <package.app.json> --icon <svg> --config <bundle.toml> --target <list>
+                                          Export an app to native binaries (macOS, Windows, Linux, Android, iOS, web)
   daemon [--foreground] [--label <name>]  Run the device daemon (runs the sessions queued here)
   daemon install|uninstall|status         Manage the systemd/launchd service
   update [--auto on|off]                  Self-update now, or switch auto-update
@@ -190,6 +192,7 @@ fn main() -> ExitCode {
         "sessions" => commands::sessions::run(rest),
         "mcp" => commands::mcp::run(rest),
         "motion" => commands::motion::run(rest),
+        "bundle" => commands::bundle::run(rest),
         "daemon" => commands::daemon::run(rest),
         "update" => commands::update::run(rest),
         "uninstall" => commands::uninstall::run(rest),

@@ -1,4 +1,5 @@
 pub mod account;
+pub mod bundle;
 pub mod code;
 pub mod daemon;
 pub mod devices;

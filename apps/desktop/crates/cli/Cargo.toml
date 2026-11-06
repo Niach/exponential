@@ -54,5 +54,7 @@ epilot = { path = "../epilot" }
 # the eUI Motion engine with its tiny-skia raster; `gif` (already in the
 # lock) writes the animated previews, `base64` inlines local image assets.
 eui-motion = { path = "../eui-motion", features = ["raster"] }
+# VAPP-270 (E7): `exponential bundle` on the bundler crate.
+eengine-bundle = { path = "../eengine-bundle" }
 gif = "0.13"
 base64 = "0.22"
