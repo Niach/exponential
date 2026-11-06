@@ -67,13 +67,15 @@ jobs:
         with:
           path: engine
           persist-credentials: false
-      - name: The train clone (full history, blobs on demand)
+      # A FULL clone (#EXP-1711): a blobless one made GitHub refuse the lazy
+      # blob fetches of a force-pushed stack ("upload-pack: not our ref"), so
+      # every run of that unit errored. The full history is ~550 MB.
+      - name: The train clone (full history)
         uses: actions/checkout@v4
         with:
           path: train
           ref: ${{ inputs.base_sha }}
           fetch-depth: 0
-          filter: blob:none
           token: ${{ secrets.MERGE_TRAIN_TOKEN || github.token }}
       - uses: oven-sh/setup-bun@v2
       - name: Fetch the units
@@ -83,12 +85,8 @@ jobs:
           [[ "$TRAIN_ID" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::train_id: [A-Za-z0-9._-] only"; exit 1; }
           git config user.name 'exp-train'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          # The units' commits come WITH their blobs (blob:limit overrides the
-          # clone's blob:none): a squash must never lazy-fetch a blob later,
-          # because GitHub refuses one that only an older, force-pushed
-          # history of a stack reaches ("upload-pack: not our ref", #EXP-1711).
           # shellcheck disable=SC2046
-          git fetch --no-tags --quiet --filter=blob:limit=1g origin $(jq -r '.[].prs[].head_sha' <<<"$UNITS" | sort -u)
+          git fetch --no-tags --quiet origin $(jq -r '.[].prs[].head_sha' <<<"$UNITS" | sort -u)
           # A tested sha that is gone only costs the proof (CI runs instead).
           for sha in $(jq -r '.[].tested_sha // empty' <<<"$UNITS"); do git fetch --no-tags --quiet origin "$sha" || true; done
       - name: Compose
