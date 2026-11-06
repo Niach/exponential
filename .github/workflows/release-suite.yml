@@ -373,6 +373,9 @@ jobs:
     needs: [dedupe, pick]
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'desktop')
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    # ~6 min warm; a hung test (2026-11-06: 2 h on a seal_keys deadlock) must
+    # never hold a self-hosted runner, so the job stops at 40 min.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Linux system deps (wgpu/gpui)
