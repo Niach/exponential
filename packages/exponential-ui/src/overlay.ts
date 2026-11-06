@@ -48,6 +48,31 @@ function room(side: OverlaySide, anchor: Rect, viewport: Size, padding: number):
   }
 }
 
+/** VAPP-281: where an overlay of `size` sits against `anchor` on `side`,
+ *  `align`ed along it, `offset` away: NO flip and NO shift (a popup hosted
+ *  OUTSIDE the surface; the host's window system constrains it, e.g. an
+ *  `xdg_positioner`'s flip / slide). `fixtures/overlay-geometry.json`
+ *  `hosted` locks it; the Rust core's `anchor_position` mirrors it. */
+export function anchorPosition(anchor: Rect, size: Size, side: OverlaySide, align: OverlayAlign = `center`, offset: number = OVERLAY_OFFSET): { x: number; y: number } {
+  const p = rawPosition(anchor, size, side, align, offset)
+  return { x: round(p.x), y: round(p.y) }
+}
+
+function rawPosition(anchor: Rect, size: Size, side: OverlaySide, align: OverlayAlign, offset: number): { x: number; y: number } {
+  const alongX = align === `start` ? anchor.x : align === `end` ? anchor.x + anchor.width - size.width : anchor.x + anchor.width / 2 - size.width / 2
+  const alongY = align === `start` ? anchor.y : align === `end` ? anchor.y + anchor.height - size.height : anchor.y + anchor.height / 2 - size.height / 2
+  switch (side) {
+    case `top`:
+      return { x: alongX, y: anchor.y - offset - size.height }
+    case `bottom`:
+      return { x: alongX, y: anchor.y + anchor.height + offset }
+    case `left`:
+      return { x: anchor.x - offset - size.width, y: alongY }
+    case `right`:
+      return { x: anchor.x + anchor.width + offset, y: alongY }
+  }
+}
+
 export function placeOverlay(
   anchor: Rect,
   size: Size,
@@ -66,28 +91,7 @@ export function placeOverlay(
     side = OPPOSITE[preferred]
     flipped = true
   }
-  let x: number
-  let y: number
-  const alongX = (): number => (align === `start` ? anchor.x : align === `end` ? anchor.x + anchor.width - size.width : anchor.x + anchor.width / 2 - size.width / 2)
-  const alongY = (): number => (align === `start` ? anchor.y : align === `end` ? anchor.y + anchor.height - size.height : anchor.y + anchor.height / 2 - size.height / 2)
-  switch (side) {
-    case `top`:
-      x = alongX()
-      y = anchor.y - offset - size.height
-      break
-    case `bottom`:
-      x = alongX()
-      y = anchor.y + anchor.height + offset
-      break
-    case `left`:
-      x = anchor.x - offset - size.width
-      y = alongY()
-      break
-    case `right`:
-      x = anchor.x + anchor.width + offset
-      y = alongY()
-      break
-  }
+  let { x, y } = rawPosition(anchor, size, side, align, offset)
   // Shift along the cross axis to stay inside the viewport.
   if (vertical === (side === `top` || side === `bottom`)) {
     if (side === `top` || side === `bottom`) x = Math.min(Math.max(x, padding), Math.max(padding, viewport.width - padding - size.width))

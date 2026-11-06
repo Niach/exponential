@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import ExponentialUICore
 @testable import ExponentialUI
 
@@ -93,6 +94,48 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(menu.anchorFrame, m.frame(try XCTUnwrap(m.trigger(of: "startMenu")).index))
         m.press(id: "start")
         XCTAssertFalse(m.layers.contains { $0.owner == "startMenu" }, "the anchor toggles it closed")
+    }
+
+    /// VAPP-281: with `hostedPopups` an anchored Popover leaves the 44 pt
+    /// panel surface (unclipped, above it, end-aligned): the surface paints
+    /// none of it while a popup host shows it, the host hears it (side,
+    /// align, anchor) when the surface renders, its `dismiss` closes it.
+    func testHostedPopupsReachThePopupHost() throws {
+        let m = try makeModel("hosted", theme: nil, width: 390, fixed: true)
+        m.setSettings(SurfaceSettings(hostedPopups: true))
+        try m.setNested(json: """
+        {"id": "panel", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "space-between", "alignItems": "center", "width": 390, "height": 44}, "children": [
+          {"id": "start", "component": "Button", "props": {"label": "Start"}},
+          {"id": "clock", "component": "Button", "props": {"label": "12:00"}},
+          {"id": "calendar", "component": "Popover", "props": {"anchor": "clock", "side": "top", "align": "end"}, "children": [{"id": "month", "component": "Box", "style": {"width": 280, "height": 200}}]}]}
+        """)
+        m.setViewport(width: 390, height: 44)
+        m.press(id: "clock")
+        let layer = try XCTUnwrap(m.layers.first { $0.owner == "calendar" })
+        XCTAssertTrue(layer.hosted)
+        XCTAssertEqual(layer.align, "end")
+        XCTAssertLessThan(layer.frame.minY, 0, "above the surface")
+        XCTAssertGreaterThanOrEqual(layer.frame.width, 280, "unclipped")
+        XCTAssertTrue(PaintedLayers.inSurface(m.layers, hosting: true).isEmpty)
+        XCTAssertEqual(PaintedLayers.inSurface(m.layers, hosting: false).map(\.owner), ["calendar"])
+        // The host hears it when the surface renders.
+        final class Box { var heard: [[HostedPopup]] = [] }
+        let box = Box()
+        let root = ExponentialSurface(model: m).exponentialPopupHost(PopupHost { box.heard.append($0) }).frame(width: 390)
+        #if canImport(AppKit)
+        let view = NSHostingView(rootView: root)
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 44)
+        view.layoutSubtreeIfNeeded()
+        _ = view.fittingSize
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        #endif
+        let popup = try XCTUnwrap(box.heard.last?.first)
+        XCTAssertEqual(popup.owner, "calendar")
+        XCTAssertEqual(popup.side, "top")
+        XCTAssertEqual(popup.align, "end")
+        XCTAssertEqual(popup.anchor.maxX, layer.frame.maxX, accuracy: 0.5)
+        popup.dismiss()
+        XCTAssertFalse(m.layers.contains { $0.owner == "calendar" })
     }
 
     func testOpenLayersCarryFrames() throws {

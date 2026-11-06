@@ -11,8 +11,11 @@
 # and prints `checksum <64 hex>` last. The package: the binary target
 # `ExponentialEngineFFI` (`url:` + `checksum:`, SwiftPM refuses file URLs) and
 # the target `ExponentialEngine` = the COMMITTED UniFFI binding, product `ExponentialEngine`;
-# #VAPP-265: the target + product `ExponentialEngineCapabilities` = swift/ExponentialEngineCapabilities
-# (photos, files, share, print, notifications on UIKit/PhotoKit), depending on `ExponentialEngine`.
+# #VAPP-265/#VAPP-268: the capabilities = swift/<module>, ONE product per capability
+# (ExponentialEnginePhotos, -Files, -Share, -Print, -Notifications, each on
+# ExponentialEngineCapabilityCore) so an app links a privacy framework only when it
+# declares it (ITMS-90683), plus the umbrella `ExponentialEngineCapabilities` (all five);
+# the same layout as the workspace package (../Package.swift).
 set -euo pipefail
 
 [ $# -ge 2 ] || { echo "usage: $0 <version> <outdir> [--local]" >&2; exit 2; }
@@ -33,8 +36,11 @@ ditto -c -k --sequesterRsrc --keepParent "$xcf" "$zip"
 
 mkdir -p "$pkg/Sources/ExponentialEngine"
 cp "$crate/bindings/swift/ExponentialEngineFFI.swift" "$pkg/Sources/ExponentialEngine/"
-mkdir -p "$pkg/Sources/ExponentialEngineCapabilities"
-cp "$crate"/swift/ExponentialEngineCapabilities/*.swift "$pkg/Sources/ExponentialEngineCapabilities/"
+CAPS=(ExponentialEnginePhotos ExponentialEngineFiles ExponentialEngineShare ExponentialEnginePrint ExponentialEngineNotifications)
+for m in ExponentialEngineCapabilityCore "${CAPS[@]}" ExponentialEngineCapabilities; do
+  mkdir -p "$pkg/Sources/$m"
+  cp "$crate/swift/$m"/*.swift "$pkg/Sources/$m/"
+done
 cp "$repo/LICENSE" "$repo/NOTICE" "$pkg/"
 checksum="$(cd "$pkg" && swift package compute-checksum "$zip")"
 if [ "$local" = "--local" ]; then
@@ -58,14 +64,27 @@ let package = Package(
     platforms: [.iOS(.v15), .macOS(.v12)],
     products: [
         .library(name: "ExponentialEngine", targets: ["ExponentialEngine"]),
-        // The native capabilities (photos, files, share, print, notifications) for EngineProviders.
+        // The native capabilities for EngineProviders: one product each (an App
+        // Store app links only what it declares), or all five.
+        .library(name: "ExponentialEnginePhotos", targets: ["ExponentialEnginePhotos"]),
+        .library(name: "ExponentialEngineFiles", targets: ["ExponentialEngineFiles"]),
+        .library(name: "ExponentialEngineShare", targets: ["ExponentialEngineShare"]),
+        .library(name: "ExponentialEnginePrint", targets: ["ExponentialEnginePrint"]),
+        .library(name: "ExponentialEngineNotifications", targets: ["ExponentialEngineNotifications"]),
         .library(name: "ExponentialEngineCapabilities", targets: ["ExponentialEngineCapabilities"]),
     ],
     targets: [
         // eengine-ffi (iOS device + simulator + macOS, static).
         $binary,
         .target(name: "ExponentialEngine", dependencies: ["ExponentialEngineFFI"]),
-        .target(name: "ExponentialEngineCapabilities", dependencies: ["ExponentialEngine"]),
+        .target(name: "ExponentialEngineCapabilityCore", dependencies: ["ExponentialEngine"]),
+        .target(name: "ExponentialEnginePhotos", dependencies: ["ExponentialEngine", "ExponentialEngineCapabilityCore"]),
+        .target(name: "ExponentialEngineFiles", dependencies: ["ExponentialEngine", "ExponentialEngineCapabilityCore"]),
+        .target(name: "ExponentialEngineShare", dependencies: ["ExponentialEngine", "ExponentialEngineCapabilityCore"]),
+        .target(name: "ExponentialEnginePrint", dependencies: ["ExponentialEngine", "ExponentialEngineCapabilityCore"]),
+        .target(name: "ExponentialEngineNotifications", dependencies: ["ExponentialEngine", "ExponentialEngineCapabilityCore"]),
+        .target(name: "ExponentialEngineCapabilities", dependencies: ["ExponentialEngine", "ExponentialEnginePhotos", "ExponentialEngineFiles",
+                                                                     "ExponentialEngineShare", "ExponentialEnginePrint", "ExponentialEngineNotifications"]),
     ]
 )
 SWIFT
@@ -100,8 +119,10 @@ let app = try engine.load(fileJson: packageFile)
 _ = try app.event(eventJson: #"{"type":"launch"}"#)
 \`\`\`
 
-The platform's capabilities, product \`ExponentialEngineCapabilities\` (photos,
-files, share, print, notifications on UIKit, PhotoKit and UserNotifications).
+The platform's capabilities, one product each (\`ExponentialEnginePhotos\`,
+\`-Files\`, \`-Share\`, \`-Print\`, \`-Notifications\`: link only what your app
+declares, ITMS-90683) or all five as \`ExponentialEngineCapabilities\` (UIKit,
+PhotoKit and UserNotifications).
 Their calls block: the Engine makes them from a worker thread, never the main one.
 
 \`\`\`swift

@@ -144,6 +144,29 @@ fn round3(n: f64) -> f64 {
     (n * 1000.0).round() / 1000.0
 }
 
+/// VAPP-281: where an overlay of `size` sits against `anchor` on `side`,
+/// `align`ed along it, `offset` away: NO flip and NO shift (a popup hosted
+/// OUTSIDE the surface: the host's window system constrains it, e.g. an
+/// `xdg_positioner`'s flip/slide). Mirrors `anchorPosition` (TS).
+pub fn anchor_position(anchor: &Rect, size: &Size, side: OverlaySide, align: OverlayAlign, offset: f64) -> (f64, f64) {
+    let along_x = match align {
+        OverlayAlign::Start => anchor.x,
+        OverlayAlign::End => anchor.x + anchor.width - size.width,
+        OverlayAlign::Center => anchor.x + anchor.width / 2.0 - size.width / 2.0,
+    };
+    let along_y = match align {
+        OverlayAlign::Start => anchor.y,
+        OverlayAlign::End => anchor.y + anchor.height - size.height,
+        OverlayAlign::Center => anchor.y + anchor.height / 2.0 - size.height / 2.0,
+    };
+    match side {
+        OverlaySide::Top => (along_x, anchor.y - offset - size.height),
+        OverlaySide::Bottom => (along_x, anchor.y + anchor.height + offset),
+        OverlaySide::Left => (anchor.x - offset - size.width, along_y),
+        OverlaySide::Right => (anchor.x + anchor.width + offset, along_y),
+    }
+}
+
 /// Mirrors `placeOverlay` exactly (the TS rounds to 3 decimals).
 pub fn place_overlay(anchor: &Rect, size: &Size, viewport: &Size, options: &PlaceOptions) -> OverlayPlacement {
     let preferred = options.side;
@@ -158,22 +181,7 @@ pub fn place_overlay(anchor: &Rect, size: &Size, viewport: &Size, options: &Plac
         side = preferred.opposite();
         flipped = true;
     }
-    let along_x = || match options.align {
-        OverlayAlign::Start => anchor.x,
-        OverlayAlign::End => anchor.x + anchor.width - size.width,
-        OverlayAlign::Center => anchor.x + anchor.width / 2.0 - size.width / 2.0,
-    };
-    let along_y = || match options.align {
-        OverlayAlign::Start => anchor.y,
-        OverlayAlign::End => anchor.y + anchor.height - size.height,
-        OverlayAlign::Center => anchor.y + anchor.height / 2.0 - size.height / 2.0,
-    };
-    let (mut x, mut y) = match side {
-        OverlaySide::Top => (along_x(), anchor.y - offset - size.height),
-        OverlaySide::Bottom => (along_x(), anchor.y + anchor.height + offset),
-        OverlaySide::Left => (anchor.x - offset - size.width, along_y()),
-        OverlaySide::Right => (anchor.x + anchor.width + offset, along_y()),
-    };
+    let (mut x, mut y) = anchor_position(anchor, size, side, options.align, offset);
     if side.vertical() {
         x = x.max(padding).min((viewport.width - padding - size.width).max(padding));
     } else {

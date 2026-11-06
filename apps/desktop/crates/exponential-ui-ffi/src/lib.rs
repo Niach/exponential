@@ -127,6 +127,15 @@ pub struct FfiLayer {
     /// Escape / a scrim press / a drag closes it (`event(root, "dismiss")`).
     pub dismissible: bool,
     pub frames: Vec<FfiFrame>,
+    /// VAPP-281: an anchored layer's alignment along its side, physical
+    /// (`start | center | end`).
+    #[uniffi(default = None)]
+    pub align: Option<String>,
+    /// VAPP-281: hosted OUTSIDE the surface (`FfiSettings.hosted_popups`): the
+    /// host shows a popup of the root frame's size against `anchor_frame`,
+    /// paints the frames minus the root's origin, routes input back.
+    #[uniffi(default = false)]
+    pub hosted: bool,
 }
 
 /// A scroll container: its clamped offset and scrollable content. Frames
@@ -487,6 +496,10 @@ pub struct FfiSettings {
     /// width (`phone` below the theme's `$breakpoint.md`).
     #[uniffi(default = None)]
     pub form_factor: Option<String>,
+    /// VAPP-281: the host hosts anchored Popover / Menu layers OUTSIDE the
+    /// surface (unclipped, no flip / shift; `FfiLayer.hosted`).
+    #[uniffi(default = false)]
+    pub hosted_popups: bool,
 }
 
 /// One event for the host: `kind` = `action | openUrl | functionCall |
@@ -585,6 +598,8 @@ fn layer(l: &Layer) -> FfiLayer {
         modal: l.modal,
         dismissible: l.dismissible,
         frames: l.frames.iter().map(frame).collect(),
+        align: l.align.map(|a| a.as_str().to_string()),
+        hosted: l.hosted,
     }
 }
 
@@ -719,6 +734,7 @@ fn settings_of(f: &FfiSettings) -> Result<SurfaceSettings, UiError> {
             None | Some("") => None,
             Some(v) => Some(eui_core::conditions::FormFactor::parse(v).ok_or_else(|| invalid(format!("formFactor must be phone|wide, got {v:?}")))?),
         },
+        hosted_popups: f.hosted_popups,
     })
 }
 
@@ -744,6 +760,7 @@ fn settings_out(s: &SurfaceSettings, time_zone: Option<String>) -> FfiSettings {
         time_zone,
         read_only: s.read_only,
         form_factor: s.form_factor.map(|f| f.as_str().to_string()),
+        hosted_popups: s.hosted_popups,
     }
 }
 

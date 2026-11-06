@@ -57,6 +57,8 @@ private struct SurfaceBody: View {
         // surface's or the enclosing one's stops motion).
         .environment(\.xuiRTL, model.isRTL)
         .environment(\.xuiReducedMotion, model.reducedMotion || enclosingReducedMotion)
+        // VAPP-281: a popup host hears the hosted layers.
+        .modifier(HostedPopupsReporter(model: model))
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: size.height > 0 ? size.height : nil, alignment: .topLeading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in

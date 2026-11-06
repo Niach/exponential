@@ -15,7 +15,7 @@ import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type VirtualAnchor } from "@exponential_app/eui/web"
+import { findAnchor, hostedPopupOf, mountHostedPopup, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type HostedPopup, type VirtualAnchor } from "@exponential_app/eui/web"
 import { absolutePath } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -26,8 +26,12 @@ import { SearchBody, searchMatches } from "./search"
 
 /** A Radix Portal into the overlay layer, or (EXP-1673, `inlineOverlays`)
  *  no portal: the content paints in place. */
-function OverlayPortal({ as: Portal, children }: { as: ComponentType<{ container?: HTMLElement; children?: ReactNode }>; children: ReactNode }) {
+function OverlayPortal({ as: Portal, children, hosted = null }: { as: ComponentType<{ container?: HTMLElement; children?: ReactNode }>; children: ReactNode; hosted?: HostedContainer }) {
   const ctx = useSurfaceContext()
+  // VAPP-281: the host's container (the content lays out in it statically),
+  // nothing while the host is being asked.
+  if (hosted === `pending`) return null
+  if (hosted) return <Portal container={hosted}>{children}</Portal>
   if (ctx.inlineOverlays) return <Fragment>{children}</Fragment>
   return <Portal container={ctx.portal ?? undefined}>{children}</Portal>
 }
@@ -56,6 +60,32 @@ const Trigger = forwardRef<HTMLSpanElement, HTMLAttributes<HTMLSpanElement> & { 
     </span>
   )
 })
+
+/** VAPP-281: where an open popup's content goes: the host's element, null
+ *  (the in-surface overlay), or `pending` while the host is asked. */
+type HostedContainer = HTMLElement | null | `pending`
+
+/** VAPP-281: with `host.popupHost`, ask it for a container when the popup
+ *  opens (its anchor's box in surface coordinates, side, align); tell it
+ *  when it closes. */
+function useHostedPopup(owner: string, kind: HostedPopup[`kind`], open: boolean, anchorEl: Element | null | undefined, side: HostedPopup[`side`], align: HostedPopup[`align`]): HostedContainer {
+  const ctx = useSurfaceContext()
+  const host = ctx.host.popupHost
+  const [asked, setAsked] = useState<{ el: HTMLElement | null } | null>(null)
+  // Asked again when the anchor's element changes (an `anchor` node is found
+  // after the first commit).
+  useLayoutEffect(() => {
+    if (!host || !open) return
+    const popup = hostedPopupOf(owner, kind, anchorEl, side, align, ctx.direction)
+    setAsked({ el: mountHostedPopup(host, popup, anchorEl) })
+    return () => {
+      host.unmount?.(popup)
+      setAsked(null)
+    }
+  }, [host, open, owner, kind, anchorEl, side, align, ctx.direction])
+  if (!host || !open) return null
+  return asked ? asked.el : `pending`
+}
 
 /** VAPP-276: the element of the overlay's `anchor` node (found after every
  *  render, so a node painted later in the tree is picked up), wired as the
@@ -279,6 +309,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const outside = useRef(false)
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `dialog`, toggle: () => setOpen(!openRef.current), hover: { active: () => hoverModeRef.current, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
   const anchored = !!anchorId
+  const [triggerEl, setTriggerEl] = useState<Element | null>(null)
+  useLayoutEffect(() => setTriggerEl(wrapperRef.current?.querySelector(`.xui-trigger`) ?? wrapperRef.current?.firstElementChild ?? null), [])
+  const hosted = useHostedPopup(node.id, `Popover`, open, anchored ? anchor.el : triggerEl, side, align)
   const hoverModeRef = useRef(hoverMode)
   hoverModeRef.current = hoverMode
   return (
@@ -296,7 +329,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           </PopoverPrimitive.Anchor>
         )}
       </div>
-      <OverlayPortal as={PopoverPrimitive.Portal}>
+      <OverlayPortal as={PopoverPrimitive.Portal} hosted={hosted}>
         <PopoverPrimitive.Content
           ref={contentRef}
           {...(part(`content`, open && `open`) as Record<string, string>)}
@@ -580,6 +613,9 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const openRef = useRef(open)
   openRef.current = open
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `menu`, toggle: () => setOpen(!openRef.current), open: () => setOpen(true) }, open, contentId)
+  const [triggerEl, setTriggerEl] = useState<Element | null>(null)
+  useLayoutEffect(() => setTriggerEl(wrapperRef.current?.firstElementChild ?? null), [])
+  const hosted = useHostedPopup(node.id, `Menu`, open, anchored ? anchor.el : triggerEl, side, align)
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, anchored && !child ? null : true, child)}>
@@ -606,7 +642,7 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
         </MenuPrimitive.Trigger>
         )}
       </div>
-      <OverlayPortal as={MenuPrimitive.Portal}>
+      <OverlayPortal as={MenuPrimitive.Portal} hosted={hosted}>
         <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} {...(anchored ? { id: contentId } : {})} side={side} align={align} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
           <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={() => setOpen(false)} />
         </MenuPrimitive.Content>

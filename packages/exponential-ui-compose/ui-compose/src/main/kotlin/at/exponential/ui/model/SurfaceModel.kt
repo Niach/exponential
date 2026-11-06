@@ -122,6 +122,12 @@ data class SurfaceSettings(
      * width (`phone` below the theme's `$breakpoint.md`).
      */
     val formFactor: String? = null,
+    /**
+     * VAPP-281: the host shows anchored Popover / Menu layers OUTSIDE the surface
+     * (unclipped, no flip / shift; [LayerInfo.hosted]) through
+     * [at.exponential.ui.compose.LocalPopupHost].
+     */
+    val hostedPopups: Boolean = false,
 )
 
 /** Safe-area insets in dp. */
@@ -470,6 +476,7 @@ class SurfaceModel(
             timeZone = zone,
             readOnly = st.readOnly,
             formFactor = st.formFactor?.takeIf { it == "phone" || it == "wide" },
+            hostedPopups = st.hostedPopups,
         )
         val key = "$locale|$zone|${System.identityHashCode(st.formatter)}"
         var changed = false

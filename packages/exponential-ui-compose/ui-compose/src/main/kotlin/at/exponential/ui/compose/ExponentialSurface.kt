@@ -191,6 +191,7 @@ private fun SurfaceBody(model: SurfaceModel, density: Float, modifier: Modifier)
             PaintedLayers(model)
         }
         NativeOverlays(model)
+        HostedPopups(model)
         DatePopup(model)
     }
 }

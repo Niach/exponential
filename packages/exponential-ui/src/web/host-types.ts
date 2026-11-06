@@ -11,6 +11,7 @@ import type { FunctionCallInfo, MediaOptions, MediaRequest, ThemeIssue, UiNode, 
 import type { ClientFunction } from "./data"
 import type { MarkdownOptions } from "./markdown"
 import type { QrScannerHost } from "./round5"
+import type { PopupHost } from "./popup-host"
 
 /** A registry name → the renderer's icon component (a map or a lookup). */
 export type IconMap<Icon = unknown> = Record<string, Icon | undefined> | ((name: string) => Icon | undefined)
@@ -119,6 +120,11 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
    *  text selects), `streaming` (a growing prefix: only its tail reparses,
    *  its unfinished end paints as plain text). Unset = the defaults. */
   markdownOptions?: MarkdownOptions
+  /** #VAPP-281 (round-7 contract): host anchored Popovers / Menus OUTSIDE
+   *  the surface: `mount` gets the layer (anchor box in surface
+   *  coordinates, side, align) and returns the element its content renders
+   *  into (null = the in-surface overlay). Unset = in-surface. */
+  popupHost?: PopupHost
   /** The URL policy EVERY href passes (Link, markdown links, FileUpload
    *  file urls, openUrl): `catalog/host.json` urls. Unset = the default
    *  schemes; relative urls resolve against `baseUrl`, else `media.baseUrl`,

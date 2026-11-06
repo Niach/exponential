@@ -391,3 +391,12 @@ against the web baseline, ratcheted: [`conformance/`](conformance/README.md)).
 - `ImageRenderer` renders the text leaves blank (they are UIKit/AppKit
   views); capture a real window instead.
 - The real-font layout gaps left are core-side (`conformance/README.md`).
+
+## Hosted popups (VAPP-281)
+
+`SurfaceSettings(hostedPopups: true)` + `.exponentialPopupHost(PopupHost { popups in … })`
+around `ExponentialSurface`: anchored Popover / Menu layers leave the surface
+(unclipped, no flip / shift, `LayerInfo.hosted`); the host hears every change as
+`[HostedPopup]` (`anchor` in surface coordinates, `side`, `align`, `size`,
+`content` = the layer wired to the model, `dismiss`) and shows them where it
+wants (an `NSPanel`, a popover). The surface paints none of them.

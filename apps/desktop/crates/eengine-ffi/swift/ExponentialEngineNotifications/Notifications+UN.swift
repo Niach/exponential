@@ -4,6 +4,7 @@
 #if canImport(UserNotifications)
 import Foundation
 import UserNotifications
+import ExponentialEngineCapabilityCore
 
 public final class UserNotificationScheduler: NotificationScheduler, @unchecked Sendable {
     let center: UNUserNotificationCenter

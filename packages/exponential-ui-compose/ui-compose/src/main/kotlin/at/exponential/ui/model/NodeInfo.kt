@@ -150,6 +150,10 @@ data class LayerInfo(
     val modal: Boolean = kind == "Dialog" || kind == "Drawer",
     /** Escape / a scrim press / a drag closes it. */
     val dismissible: Boolean = true,
+    /** VAPP-281: an anchored layer's alignment along its side, physical (`start | center | end`). */
+    val align: String? = null,
+    /** VAPP-281: hosted OUTSIDE the surface ([SurfaceSettings.hostedPopups]; [at.exponential.ui.compose.LocalPopupHost]). */
+    val hosted: Boolean = false,
 ) {
     /** From the facade's record. */
     constructor(l: FfiLayer) : this(
@@ -165,6 +169,8 @@ data class LayerInfo(
         layerClass = l.`class`,
         modal = l.modal,
         dismissible = l.dismissible,
+        align = l.align,
+        hosted = l.hosted,
     )
 
     /** The layer id (= its owner). */

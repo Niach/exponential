@@ -593,3 +593,77 @@ fn an_anchor_by_id_is_the_overlays_trigger_and_dismiss_closes_it() {
     surface.event(start, "press", None);
     assert!(surface.layout(&mut measure).layers.is_empty());
 }
+
+#[test]
+fn overlay_geometry_hosted_cases_sit_against_the_anchor_without_flip_or_shift() {
+    let fx = fixture("overlay-geometry.json");
+    let cases = fx["hosted"].as_array().unwrap();
+    assert!(cases.len() > 4);
+    for c in cases {
+        let rect = |v: &Value| Rect { x: v["x"].as_f64().unwrap(), y: v["y"].as_f64().unwrap(), width: v["width"].as_f64().unwrap(), height: v["height"].as_f64().unwrap() };
+        let size = Size { width: c["size"]["width"].as_f64().unwrap(), height: c["size"]["height"].as_f64().unwrap() };
+        let (x, y) = eui_core::overlay::anchor_position(&rect(&c["anchor"]), &size, OverlaySide::parse(c["side"].as_str().unwrap()).unwrap(), OverlayAlign::parse(c["align"].as_str().unwrap()).unwrap(), OVERLAY_OFFSET);
+        let name = c["name"].as_str().unwrap();
+        assert_eq!((x, y), (c["expected"]["x"].as_f64().unwrap(), c["expected"]["y"].as_f64().unwrap()), "{name}");
+    }
+}
+
+/// VAPP-281: a bottom panel SURFACE (800 × 44) with `hosted_popups`: its
+/// start menu and calendar lay out at their unclipped size ABOVE the surface
+/// (negative y), no flip, no shift, marked `hosted`; presses on their nodes
+/// and a dismiss still route through the surface. Off, the same popups stay
+/// inside the surface.
+#[test]
+fn hosted_popups_leave_the_surface_unclipped_and_still_route_events() {
+    let tree = || -> NestedNode {
+        serde_json::from_value(json!({
+            "id": "panel", "component": "Box", "style": {"display": "flex", "flexDirection": "row", "justifyContent": "space-between", "alignItems": "center", "width": 800, "height": 44, "paddingHorizontal": 8},
+            "children": [
+                {"id": "start", "component": "Button", "props": {"label": "Start"}, "style": {"width": 40, "height": 36}},
+                {"id": "clock", "component": "Button", "props": {"label": "12:00"}, "style": {"width": 40, "height": 36}},
+                {"id": "startMenu", "component": "Menu", "props": {"anchor": "start", "side": "top", "align": "start", "items": [{"label": "Files", "value": "files"}]}, "on": {"select": {"event": {"name": "launch"}}}},
+                {"id": "calendar", "component": "Popover", "props": {"anchor": "clock", "side": "top", "align": "end", "open": true},
+                 "children": [{"id": "month", "component": "Box", "style": {"width": 280, "height": 320}}]}
+            ]
+        }))
+        .unwrap()
+    };
+    let mut measure = FixedMeasure::default();
+    // Off: the calendar stays inside the 44 px surface (flip / shift rules).
+    let mut inside = Surface::new("panel", SurfaceOptions { theme: None, ..SurfaceOptions::default() });
+    assert!(inside.set_nested(tree()).issues.is_empty());
+    inside.set_viewport(800.0, 44.0, None);
+    let out = inside.layout(&mut measure);
+    let cal = out.layers.iter().find(|l| l.owner == "calendar").unwrap();
+    assert!(!cal.hosted);
+
+    let mut s = Surface::new("panel", SurfaceOptions { theme: None, ..SurfaceOptions::default() });
+    assert!(s.set_nested(tree()).issues.is_empty());
+    s.set_settings(eui_core::surface::SurfaceSettings { hosted_popups: true, ..s.settings().clone() });
+    s.set_viewport(800.0, 44.0, None);
+    let out = s.layout(&mut measure);
+    let cal = out.layers.iter().find(|l| l.owner == "calendar").unwrap().clone();
+    assert!(cal.hosted);
+    assert_eq!(cal.align, Some(OverlayAlign::End));
+    let p = cal.placement.unwrap();
+    assert_eq!((p.side, p.flipped), (OverlaySide::Top, false));
+    let a = cal.anchor_frame.unwrap();
+    let root = cal.frames[0];
+    assert!(root.w >= 280.0 && root.h >= 320.0, "unclipped {}x{}", root.w, root.h);
+    assert!((root.x + root.w - (a.x + a.w)).abs() < 0.01, "end-aligned");
+    assert!((root.y + root.h + OVERLAY_OFFSET as f32 - a.y).abs() < 0.01, "above the anchor: y {}", root.y);
+    assert!(root.y < 0.0, "outside the surface");
+    // The start menu opens hosted too; its row's press routes back.
+    let start = s.index_of("start").unwrap();
+    s.event(start, "press", None);
+    let out = s.layout(&mut measure);
+    let menu = out.layers.iter().find(|l| l.owner == "startMenu").unwrap();
+    assert!(menu.hosted);
+    assert!(menu.frames[0].y < 0.0);
+    let row = s.index_of("startMenu.item.0").unwrap();
+    let events = s.event(row, "press", None);
+    assert!(events.iter().any(|e| matches!(e, OutEvent::Action { name, .. } if name == "launch")), "{events:?}");
+    // Escape (a dismiss on the hosted root) closes the calendar.
+    s.event(cal.root, "dismiss", None);
+    assert!(s.layout(&mut measure).layers.iter().all(|l| l.owner != "calendar"));
+}
