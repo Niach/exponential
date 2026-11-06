@@ -54,6 +54,12 @@ final class DeepLinkBus: @unchecked Sendable {
     // NEVER hand it back to UIApplication.open: the app is entitled for the
     // link and would re-open itself in a loop.
     var pendingExternalUrl: URL?
+    // #EXP-1638 (app-shortcuts.json): a long-press menu pick on the app
+    // icon, under the ACTIVE account (the menu follows it).
+    var pendingShortcut: AppShortcuts.Target?
+    // #EXP-1638: the Agent tab's composer takes focus once it is up (the
+    // `new-chat` shortcut); cleared by `AgentPageView`.
+    var pendingComposerFocus = false
 
     func navigateToIssue(_ issueId: String, userId: String? = nil) {
         pendingIssueUserId = userId
@@ -122,6 +128,16 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingIssueReplacesTop = false
         pendingIssueCommentId = nil
         return id
+    }
+
+    func navigateToShortcut(_ target: AppShortcuts.Target) {
+        pendingShortcut = target
+    }
+
+    func consumeShortcut() -> AppShortcuts.Target? {
+        let target = pendingShortcut
+        pendingShortcut = nil
+        return target
     }
 
     func consumeExternalUrl() -> URL? {

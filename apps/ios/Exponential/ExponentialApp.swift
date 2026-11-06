@@ -5,6 +5,8 @@ import ExpUI
 
 @main
 struct ExponentialApp: App {
+    // #EXP-1638: the scene delegate receives the app icon's shortcuts.
+    @UIApplicationDelegateAdaptor(ExponentialAppDelegate.self) private var appDelegate
     @State private var dependencies = AppDependencies()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -22,6 +24,7 @@ struct ExponentialApp: App {
         WindowGroup {
             AppNavigator()
                 .environment(dependencies)
+                .onAppear { AppShortcutItems.deps = dependencies }
                 .preferredColorScheme(.dark)
                 // EXP-643: every Toggle in the tree (sheets included) renders
                 // the black-on-white glass switch instead of the system one.
