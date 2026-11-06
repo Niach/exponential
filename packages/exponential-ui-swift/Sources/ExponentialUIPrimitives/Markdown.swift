@@ -65,13 +65,41 @@ public enum Markdown {
         var bold = false, italic = false, strike = false
     }
 
-    private static func push(_ out: inout [MarkdownInline], _ text: Substring, _ f: Flags, _ link: String?) {
-        if text.isEmpty { return }
+    private static func push(_ out: inout [MarkdownInline], _ raw: Substring, _ f: Flags, _ link: String?) {
+        if raw.isEmpty { return }
+        let text = raw.contains("&") ? Substring(decodeEntities(String(raw))) : raw
         if let last = out.indices.last, !out[last].code, out[last].bold == f.bold, out[last].italic == f.italic, out[last].strike == f.strike, out[last].link == link {
             out[last].text += text
             return
         }
         out.append(MarkdownInline(text: String(text), bold: f.bold, italic: f.italic, strike: f.strike, link: link))
+    }
+
+    private static let entities: [String: String] = ["amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": "\u{00A0}"]
+
+    /// #VAPP-258 (markdown-render.json): the common named entities and
+    /// numeric references decoded (text, never code).
+    static func decodeEntities(_ s: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "&(?:#([0-9]{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z]+));") else { return s }
+        let ns = s as NSString
+        var out = ""
+        var at = 0
+        for m in regex.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: at, length: m.range.location - at))
+            let whole = ns.substring(with: m.range)
+            var decoded: String?
+            if m.range(at: 3).location != NSNotFound {
+                decoded = entities[ns.substring(with: m.range(at: 3))]
+            } else {
+                let dec = m.range(at: 1).location != NSNotFound
+                let digits = ns.substring(with: m.range(at: dec ? 1 : 2))
+                if let code = UInt32(digits, radix: dec ? 10 : 16), code > 0, let scalar = Unicode.Scalar(code) { decoded = String(Character(scalar)) }
+            }
+            out += decoded ?? whole
+            at = m.range.location + m.range.length
+        }
+        out += ns.substring(from: at)
+        return out
     }
 
     /// Link labels (and emphasis) nest at most this deep; a deeper `[` is
@@ -235,7 +263,12 @@ public enum Markdown {
             let rest = s[i...]
             let c = s[i]
             var handled: Int? = nil
-            if c == "`" {
+            if c == "\\", let next = s.index(i, offsetBy: 1, limitedBy: s.endIndex), next < s.endIndex, s[next].isASCII, s[next].isPunctuation || s[next].isSymbol {
+                // #VAPP-258: a backslash-escaped punctuation character is literal.
+                push(&out, s[plainStart..<i], f, link)
+                push(&out, s[next...next], f, link)
+                handled = 2
+            } else if c == "`" {
                 let body = rest.dropFirst()
                 if let end = body.firstIndex(of: "`") {
                     push(&out, s[plainStart..<i], f, link)
@@ -259,7 +292,15 @@ public enum Markdown {
                 let prevAlnum = i > s.startIndex && { let p = s[s.index(before: i)]; return p.isLetter || p.isNumber }()
                 if !(c == "_" && prevAlnum) {
                     let double = c == "*" ? "**" : (c == "_" ? "__" : "~~")
-                    if let (inner, n) = delimited(rest, double) {
+                    if c != "~", let (inner, n) = delimited(rest, String(repeating: c, count: 3)) {
+                        // `***x***` is both.
+                        push(&out, s[plainStart..<i], f, link)
+                        var nf = f
+                        nf.bold = true
+                        nf.italic = true
+                        parseInline(inner, nf, link, &out, scan: scan, depth: depth + 1)
+                        handled = n
+                    } else if let (inner, n) = delimited(rest, double) {
                         push(&out, s[plainStart..<i], f, link)
                         var nf = f
                         if c == "~" { nf.strike = true } else { nf.bold = true }
@@ -312,6 +353,14 @@ public enum Markdown {
         }
     }
 
+    /// A line that opens a block of its own (never a continuation).
+    private static func startsBlock(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        let hashes = t.prefix(while: { $0 == "#" }).count
+        return t.hasPrefix("```") || t.hasPrefix("~~~") || t.hasPrefix(">") || isTableRow(line) || isRule(t)
+            || ((1...6).contains(hashes) && t.dropFirst(hashes).hasPrefix(" "))
+    }
+
     private static func isRule(_ t: String) -> Bool {
         t.count >= 3 && (t.allSatisfy { $0 == "-" } || t.allSatisfy { $0 == "*" } || t.allSatisfy { $0 == "_" })
     }
@@ -345,7 +394,19 @@ public enum Markdown {
         var group = 0
         func flush() {
             if !para.isEmpty {
-                blocks.append(MarkdownBlock(kind: .paragraph, inlines: parseInline(para.joined(separator: " "))))
+                // A line ending in a backslash or two spaces breaks hard (a
+                // newline in the run); any other line break is a space.
+                var text = ""
+                for (k, line) in para.enumerated() {
+                    if k > 0 {
+                        if text.hasSuffix("\\") { text.removeLast(); text += "\n" }
+                        else if text.hasSuffix("  ") { while text.hasSuffix(" ") { text.removeLast() }; text += "\n" }
+                        else { text += " " }
+                    }
+                    text += line
+                }
+                while text.hasSuffix(" ") { text.removeLast() }
+                blocks.append(MarkdownBlock(kind: .paragraph, inlines: parseInline(text)))
                 para.removeAll()
             }
         }
@@ -353,11 +414,12 @@ public enum Markdown {
         while i < lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") {
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 flush()
+                let fence = String(trimmed.prefix(3))
                 var body: [String] = []
                 i += 1
-                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(fence) {
                     body.append(lines[i])
                     i += 1
                 }
@@ -398,14 +460,26 @@ public enum Markdown {
                 // opens a child list under it; a shallower one closes lists
                 // until it fits.
                 var columns: [Int] = []
-                while i < lines.count, let (marker, rest, column) = listMarker(lines[i]) {
+                var lastBody = ""
+                while i < lines.count {
+                    guard let (marker, rest, column) = listMarker(lines[i]) else {
+                        // A non-blank line under an item that starts no
+                        // block continues it.
+                        let next = lines[i].trimmingCharacters(in: .whitespaces)
+                        guard !next.isEmpty, !startsBlock(lines[i]), let last = blocks.indices.last else { break }
+                        lastBody += " " + next
+                        blocks[last].inlines = parseInline(lastBody)
+                        i += 1
+                        continue
+                    }
                     while let last = columns.last, column < last + 2 { columns.removeLast() }
                     columns.append(column)
                     var task: Bool? = nil
                     var body = rest
                     if rest.hasPrefix("[ ] ") || rest == "[ ]" { task = false; body = String(rest.dropFirst(3)) }
                     else if rest.hasPrefix("[x] ") || rest.hasPrefix("[X] ") || rest == "[x]" || rest == "[X]" { task = true; body = String(rest.dropFirst(3)) }
-                    blocks.append(MarkdownBlock(kind: .listItem(marker: marker, task: task), inlines: parseInline(body.trimmingCharacters(in: .whitespaces)), listGroup: group, depth: columns.count - 1))
+                    lastBody = body.trimmingCharacters(in: .whitespaces)
+                    blocks.append(MarkdownBlock(kind: .listItem(marker: marker, task: task), inlines: parseInline(lastBody), listGroup: group, depth: columns.count - 1))
                     i += 1
                 }
                 continue
@@ -428,7 +502,7 @@ public enum Markdown {
                 i += 1
                 continue
             }
-            if trimmed.isEmpty { flush() } else { para.append(trimmed) }
+            if trimmed.isEmpty { flush() } else { para.append(String(line.drop(while: { $0 == " " || $0 == "\t" }))) }
             i += 1
         }
         flush()

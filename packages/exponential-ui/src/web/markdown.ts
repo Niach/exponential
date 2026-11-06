@@ -149,12 +149,44 @@ export type MarkdownBlock =
   | { type: `table`; align: (`start` | `center` | `end` | undefined)[]; head: MarkdownInline[][]; rows: MarkdownInline[][][] }
   | { type: `rule` }
 
-const SIMPLE = /(`[^`]+`)|(\*\*([^*]+)\*\*)|(__([^_]+)__)|(\*([^*\s][^*]*)\*)|(_([^_\s][^_]*)_)|(~~([^~]+)~~)/
+// #VAPP-258 (markdown-render.json): `***x***` is both; a strong span may
+// hold an em one (`**a *b* c**`); an underscore span never opens or closes
+// inside a word (`snake_case`).
+const SIMPLE = /(`[^`]+`)|(\*\*\*([^*\s](?:[^*]*[^*\s])?)\*\*\*)|(\*\*([^\s](?:.*?[^\s])?)\*\*)|((?<![A-Za-z0-9])__([^_\s](?:[^_]*[^_\s])?)__(?![A-Za-z0-9]))|(\*([^*\s][^*]*)\*)|((?<![A-Za-z0-9])_([^_\s][^_]*)_(?![A-Za-z0-9]))|(~~([^~]+)~~)/
 
 /** One inline run, linear in its length: the link geometry is precomputed
  *  (LinkScanner), the simple spans come off one global regex that never
  *  rescans, and link labels recurse at most MAX_LINK_NESTING deep. */
 export function parseInline(text: string, depth = 0): MarkdownInline[] {
+  return inlineRun(escapePunctuation(text), depth)
+}
+
+// #VAPP-258: a backslash-escaped ASCII punctuation character is literal: it
+// rides the parse as a private-use code point (so it never opens a span or
+// a link) and decodes back to itself in text, or to `\x` inside code.
+const PUA = 0xe000
+const ESCAPE = /\\([!-\/:-@[-`{-~])/g
+const ESCAPED = /[\ue000-\ue07f]/g
+function escapePunctuation(text: string): string {
+  return text.includes(`\\`) ? text.replace(ESCAPE, (_, c: string) => String.fromCharCode(PUA + c.charCodeAt(0))) : text
+}
+function unescapeCode(text: string): string {
+  return text.replace(ESCAPED, (c) => `\\${String.fromCharCode(c.charCodeAt(0) - PUA)}`)
+}
+const ENTITIES: Record<string, string> = { amp: `&`, lt: `<`, gt: `>`, quot: `"`, apos: `'`, nbsp: `\u00a0` }
+const ENTITY = /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z]+));/g
+/** Escapes and the common entities decoded (text, never code). */
+function decodeText(text: string): string {
+  const unescaped = text.replace(ESCAPED, (c) => String.fromCharCode(c.charCodeAt(0) - PUA))
+  if (!unescaped.includes(`&`)) return unescaped
+  return unescaped.replace(ENTITY, (whole, dec: string | undefined, hex: string | undefined, name: string | undefined) => {
+    if (name) return ENTITIES[name] ?? whole
+    const code = dec ? Number.parseInt(dec, 10) : Number.parseInt(hex!, 16)
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+  })
+}
+
+function inlineRun(text: string, depth: number): MarkdownInline[] {
   const out: MarkdownInline[] = []
   const scan = depth < MAX_LINK_NESTING && text.includes(`[`) ? new LinkScanner(text) : null
   const simple = new RegExp(SIMPLE.source, `g`)
@@ -182,24 +214,25 @@ export function parseInline(text: string, depth = 0): MarkdownInline[] {
       }
     }
     if (link) {
-      if (link.at > pos) out.push(text.slice(pos, link.at))
+      if (link.at > pos) out.push(decodeText(text.slice(pos, link.at)))
       // An image inside running text paints its alt text (×4).
-      if (link.image) out.push(link.label)
-      else out.push({ type: `link`, dest: link.dest, children: parseInline(link.label, depth + 1) })
+      if (link.image) out.push(decodeText(link.label))
+      else out.push({ type: `link`, dest: decodeText(link.dest), children: inlineRun(link.label, depth + 1) })
       pos = link.end
       continue
     }
     if (!m) {
-      out.push(text.slice(pos))
+      out.push(decodeText(text.slice(pos)))
       break
     }
-    if (m.index > pos) out.push(text.slice(pos, m.index))
-    if (m[1]) out.push({ type: `code`, text: m[1].slice(1, -1) })
-    else if (m[2]) out.push({ type: `strong`, children: parseInline(m[3]!, depth) })
-    else if (m[4]) out.push({ type: `strong`, children: parseInline(m[5]!, depth) })
-    else if (m[6]) out.push({ type: `em`, children: parseInline(m[7]!, depth) })
-    else if (m[8]) out.push({ type: `em`, children: parseInline(m[9]!, depth) })
-    else if (m[10]) out.push({ type: `del`, text: m[11]! })
+    if (m.index > pos) out.push(decodeText(text.slice(pos, m.index)))
+    if (m[1]) out.push({ type: `code`, text: unescapeCode(m[1].slice(1, -1)) })
+    else if (m[2]) out.push({ type: `strong`, children: [{ type: `em`, children: inlineRun(m[3]!, depth) }] })
+    else if (m[4]) out.push({ type: `strong`, children: inlineRun(m[5]!, depth) })
+    else if (m[6]) out.push({ type: `strong`, children: inlineRun(m[7]!, depth) })
+    else if (m[8]) out.push({ type: `em`, children: inlineRun(m[9]!, depth) })
+    else if (m[10]) out.push({ type: `em`, children: inlineRun(m[11]!, depth) })
+    else if (m[12]) out.push({ type: `del`, text: decodeText(m[13]!), children: inlineRun(m[13]!, depth) })
     pos = m.index + m[0].length
   }
   return out
@@ -219,6 +252,8 @@ export interface MarkdownListItem {
 export interface MarkdownList {
   indent: number
   ordered: boolean
+  /** An ordered list's first number (its source marker's), else 1. */
+  start: number
   items: MarkdownListItem[]
 }
 
@@ -229,8 +264,9 @@ export function parseList(lines: readonly string[]): MarkdownList {
   // VAPP-107 (property-tested): no lines, or a line that is no list item,
   // is an empty list / a skipped line, never a throw.
   const first = lines.length ? LIST_ITEM.exec(lines[0]!) : null
-  if (!first) return { indent: 0, ordered: false, items: [] }
-  const root: MarkdownList = { indent: indentOf(first[1]!), ordered: /\d/.test(first[2]!), items: [] }
+  if (!first) return { indent: 0, ordered: false, start: 1, items: [] }
+  const startOf = (marker: string) => (/\d/.test(marker) ? Number.parseInt(marker, 10) : 1)
+  const root: MarkdownList = { indent: indentOf(first[1]!), ordered: /\d/.test(first[2]!), start: startOf(first[2]!), items: [] }
   const stack: MarkdownList[] = [root]
   for (const line of lines) {
     const m = LIST_ITEM.exec(line)
@@ -240,7 +276,7 @@ export function parseList(lines: readonly string[]): MarkdownList {
     let list = stack[stack.length - 1]!
     const parent = list.items[list.items.length - 1]
     if (parent && indent >= list.indent + 2 && stack.length < MAX_BLOCK_NESTING) {
-      const child: MarkdownList = { indent, ordered: /\d/.test(m[2]!), items: [] }
+      const child: MarkdownList = { indent, ordered: /\d/.test(m[2]!), start: startOf(m[2]!), items: [] }
       parent.children.push(child)
       stack.push(child)
       list = child
@@ -258,6 +294,11 @@ const cells = (line: string) => line.trim().replace(/^\|/, ``).replace(/\|$/, ``
 /** Block quotes and lists nest at most this deep (deeper = text). */
 export const MAX_BLOCK_NESTING = 32
 
+/** A line that opens a block of its own (never a paragraph continuation). */
+function startsBlock(line: string): boolean {
+  return /^(`{3,}|~{3,})/.test(line) || /^#{1,6}\s/.test(line) || /^\s*>/.test(line) || isTableRow(line) || /^\s*([-*_])(\s*\1){2,}\s*$/.test(line)
+}
+
 /** Markdown text → its block tree. */
 export function parseMarkdown(text: string): MarkdownBlock[] {
   return parseBlocks(text, 0)
@@ -270,7 +311,13 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
   const para: string[] = []
   const flush = () => {
     if (para.length === 0) return
-    const text = para.join(` `)
+    // A line ending in a backslash or two spaces breaks hard (a newline in
+    // the run); any other line break is a space.
+    const text = para.reduce((all, line, k) => {
+      if (k === 0) return line
+      const hard = /(\\| {2,})$/.exec(all)
+      return hard ? `${all.slice(0, hard.index)}\n${line}` : `${all} ${line}`
+    }, ``).replace(/ +$/, ``)
     const image = wholeImage(text)
     if (image) blocks.push({ type: `image`, alt: image.alt, src: image.src })
     else blocks.push({ type: `paragraph`, children: parseInline(text) })
@@ -278,14 +325,15 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
   }
   while (i < lines.length) {
     const line = lines[i]!
-    const fence = /^```(\w*)\s*$/.exec(line)
+    const fence = /^(`{3,}|~{3,})([\w+#.-]*)\s*$/.exec(line)
     if (fence) {
       flush()
       const body: string[] = []
+      const close = new RegExp(`^${fence[1]![0] === `~` ? `~` : `\``}{${fence[1]!.length},}\\s*$`)
       i++
-      while (i < lines.length && !/^```\s*$/.test(lines[i]!)) body.push(lines[i++]!)
+      while (i < lines.length && !close.test(lines[i]!)) body.push(lines[i++]!)
       i++
-      blocks.push({ type: `codeBlock`, lang: fence[1] || undefined, text: body.join(`\n`) })
+      blocks.push({ type: `codeBlock`, lang: fence[2] || undefined, text: body.join(`\n`) })
       continue
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(line)
@@ -305,7 +353,14 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
     if (LIST_ITEM.test(line)) {
       flush()
       const body: string[] = []
-      while (i < lines.length && LIST_ITEM.test(lines[i]!)) body.push(lines[i++]!)
+      // A non-blank line under an item that starts no block continues it.
+      while (i < lines.length) {
+        const next = lines[i]!
+        if (LIST_ITEM.test(next)) body.push(next)
+        else if (next.trim() !== `` && !startsBlock(next)) body[body.length - 1] += ` ${next.trim()}`
+        else break
+        i++
+      }
       blocks.push({ type: `list`, list: parseList(body) })
       continue
     }
@@ -330,7 +385,7 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
       i++
       continue
     }
-    para.push(line.trim())
+    para.push(line.replace(/^\s+/, ``))
     i++
   }
   flush()

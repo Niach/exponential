@@ -55,7 +55,7 @@ const merged = (nodes: readonly MarkdownInline[]) => mergeRuns(runs(nodes))
 
 function listItems(list: MarkdownList, depth: number, out: NormalBlock[]): void {
   list.items.forEach((item, i) => {
-    const marker = list.ordered ? `${i + 1}.` : `•`
+    const marker = list.ordered ? `${list.start + i}.` : `•`
     out.push({ kind: `listItem`, marker, ...(item.task !== undefined ? { task: item.task } : {}), depth, runs: merged(item.content) })
     for (const child of item.children) listItems(child, depth + 1, out)
   })
