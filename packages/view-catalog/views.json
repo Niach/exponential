@@ -74,8 +74,8 @@
     },
     {
       "id": "ede",
-      "label": "eDE",
-      "blurb": "The Exponential desktop environment's shell (#NEW-10, apps/ede): genUI documents on disk drawn as layer-shell surfaces by ede-shell on ede-compositor, photographed headless.",
+      "label": "Exponential Desktop",
+      "blurb": "The Exponential desktop environment's shell (#NEW-10, apps/ede): genUI documents on disk drawn as layer-shell surfaces by exponential-shell on exponential-compositor, photographed headless.",
       "order": 13
     }
   ],
@@ -8035,7 +8035,7 @@
     {
       "id": "ede-panel",
       "group": "ede",
-      "title": "eDE · panel",
+      "title": "Exponential Desktop · panel",
       "blurb": "The factory panel (apps/ede/ui/panel.json): the launcher button, the taskbar, the tray items, the bell with its count and the clock in a 40 px top layer surface on the headless compositor's 1280×720 output.",
       "order": 1,
       "ede": {
@@ -8043,17 +8043,17 @@
         "settleMs": 1500
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     },
     {
       "id": "ede-panel-menu",
       "group": "ede",
-      "title": "eDE · panel with the menu",
+      "title": "Exponential Desktop · panel with the menu",
       "blurb": "The factory menu (apps/ede/ui/menu.json), the launcher: the search box, the installed apps (sample entries in the golden) and the power row, open as the panel's own popup surface, an xdg_popup under the launcher button, with the keyboard.",
       "order": 2,
       "ede": {
@@ -8064,17 +8064,17 @@
         "settleMs": 2500
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     },
     {
       "id": "ede-switcher",
       "group": "ede",
-      "title": "eDE · switcher",
+      "title": "Exponential Desktop · switcher",
       "blurb": "The factory switcher (apps/ede/ui/switcher.json): Alt+Tab's overlay in the middle of the screen with the open windows most recent first (sample windows in the golden, live thumbnails in the session), the selected one underlined.",
       "order": 3,
       "ede": {
@@ -8085,17 +8085,17 @@
         "settleMs": 2000
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     },
     {
       "id": "ede-osd",
       "group": "ede",
-      "title": "eDE · OSD",
+      "title": "Exponential Desktop · OSD",
       "blurb": "The factory on-screen display (apps/ede/ui/osd.json): the volume, microphone and brightness keys' level near the bottom of the screen.",
       "order": 4,
       "ede": {
@@ -8106,17 +8106,17 @@
         "settleMs": 2000
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     },
     {
       "id": "ede-notifications",
       "group": "ede",
-      "title": "eDE · toasts",
+      "title": "Exponential Desktop · toasts",
       "blurb": "The factory toasts (apps/ede/ui/notifications.json): the shell is the session's notification server; new notifications stack top-right with the app, the time, the summary, the body and the app's actions (sample ones in the golden).",
       "order": 5,
       "ede": {
@@ -8127,17 +8127,17 @@
         "settleMs": 2000
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     },
     {
       "id": "ede-notification-center",
       "group": "ede",
-      "title": "eDE · notification centre",
+      "title": "Exponential Desktop · notification centre",
       "blurb": "The factory notification centre (apps/ede/ui/notification-center.json): the panel's bell opens the session's history as a popup, each entry closable, all clearable.",
       "order": 6,
       "ede": {
@@ -8148,17 +8148,17 @@
         "settleMs": 2500
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     },
     {
       "id": "ede-tray-menu",
       "group": "ede",
-      "title": "eDE · tray menu",
+      "title": "Exponential Desktop · tray menu",
       "blurb": "The factory tray menu (apps/ede/ui/tray-menu.json): a StatusNotifierItem's dbusmenu as a popup under the panel's tray (a sample item in the golden).",
       "order": 7,
       "ede": {
@@ -8169,17 +8169,17 @@
         "settleMs": 2500
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     },
     {
       "id": "ede-settings",
       "group": "ede",
-      "title": "eDE · settings",
+      "title": "Exponential Desktop · settings",
       "blurb": "The factory settings (apps/ede/ui/settings.json): one on-demand surface with a page per domain (Displays, Network, Sound, Bluetooth, Power, Input, Theme, Apps & updates, Users, Printers, About) bound to ede-services' snapshots, the compositor's outputs and compositor.toml (sample data in the golden).",
       "order": 8,
       "ede": {
@@ -8190,11 +8190,11 @@
         "settleMs": 2500
       },
       "notes": {
-        "web": "eDE only: the shell is a Wayland layer-shell client of ede-compositor (apps/ede), there is no web route.",
-        "web-mobile": "eDE only.",
-        "desktop": "eDE only: ede-shell is its own gpui process, not the IDE.",
-        "ios": "eDE only.",
-        "android": "eDE only."
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     }
   ]

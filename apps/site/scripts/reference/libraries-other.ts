@@ -70,7 +70,7 @@ export const REFERENCE: ReferenceSource[] = [
     title: `Licences`,
     description: `The licences of everything Voice downloads or ships: the CrispASR runtime, the CUDA libraries, Qwen3-TTS, Parakeet, Silero VAD and the wake word models.`,
     transform: (md) =>
-      section(`exponentialTalk: one voice engine on the GPU`, `eDE's bundled Xwayland`)(md)
+      section(`exponentialTalk: one voice engine on the GPU`, `Exponential Desktop's bundled Xwayland`)(md)
         .replace(/^## exponentialTalk: one voice engine on the GPU.*$/m, `## The voice engine`)
         .replace(/^## Voice wake word models.*$/m, `## Wake word models`),
   },

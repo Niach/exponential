@@ -1,4 +1,4 @@
 [portal]
-DBusName=org.freedesktop.impl.portal.desktop.ede
+DBusName=org.freedesktop.impl.portal.desktop.exponential
 Interfaces=org.freedesktop.impl.portal.ScreenCast;org.freedesktop.impl.portal.Screenshot;org.freedesktop.impl.portal.RemoteDesktop;org.freedesktop.impl.portal.GlobalShortcuts;org.freedesktop.impl.portal.Settings;
-UseIn=eDE
+UseIn=Exponential

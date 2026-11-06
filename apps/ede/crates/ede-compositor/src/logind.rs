@@ -54,7 +54,7 @@ pub fn parse(line: &str, our_session: &str) -> Option<Signal> {
 /// Holds suspend back until we let go (a `systemd-inhibit` child).
 fn take_inhibitor() -> Option<Child> {
     Command::new("systemd-inhibit")
-        .args(["--what=sleep", "--mode=delay", "--who=eDE", "--why=Locking the screen", "sleep", "infinity"])
+        .args(["--what=sleep", "--mode=delay", "--who=Exponential Desktop", "--why=Locking the screen", "sleep", "infinity"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()

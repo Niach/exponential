@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's factory menu (#EDE-10, #EDE-12): the launcher. It opens from the panel's first button (or Super) as its own popup surface, an xdg_popup child of the panel's layer surface, and takes the keyboard while open. The shell feeds /apps (the installed desktop entries, filtered by /query as the person types) and answers the host functions the header allows: ede.launch, ede.lock, ede.logout, ede.power, ede.open_document (the settings).",
+  "$comment": "Exponential Desktop's factory menu (#EDE-10, #EDE-12): the launcher. It opens from the panel's first button (or Super) as its own popup surface, an xdg_popup child of the panel's layer surface, and takes the keyboard while open. The shell feeds /apps (the installed desktop entries, filtered by /query as the person types) and answers the host functions the header allows: ede.launch, ede.lock, ede.logout, ede.power, ede.open_document (the settings).",
   "surface": {"popup": {"parent": "panel", "anchor": "menu", "placement": "bottom-start", "size": {"width": 360, "height": 520}}, "functions": ["ede.launch", "ede.lock", "ede.logout", "ede.power", "ede.open_document"]},
   "root": {
     "id": "menu",

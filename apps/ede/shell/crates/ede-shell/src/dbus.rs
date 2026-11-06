@@ -156,7 +156,7 @@ impl Notifications {
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
-        ("eDE".into(), "Exponential".into(), env!("CARGO_PKG_VERSION").into(), "1.2".into())
+        ("Exponential Desktop".into(), "Exponential".into(), env!("CARGO_PKG_VERSION").into(), "1.2".into())
     }
 }
 

@@ -1,5 +1,5 @@
 {
-  "$comment": "eDE's sealed consent dialog (#EDE-17, Tier B): compiled into ede-sealed. An agent's privileged action is put to the person here, never in an editable document: the title, the body, Allow and Deny. `ede-sealed consent` prints the answer.",
+  "$comment": "Exponential Desktop's sealed consent dialog (#EDE-17, Tier B): compiled into exponential-sealed. An agent's privileged action is put to the person here, never in an editable document: the title, the body, Allow and Deny. `exponential-sealed consent` prints the answer.",
   "root": {
     "id": "consent",
     "component": "Box",

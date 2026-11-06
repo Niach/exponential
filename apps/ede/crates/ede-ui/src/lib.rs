@@ -1,6 +1,6 @@
-//! `ede-ui`: eDE's eUI-on-disk runtime (#NEW-107).
+//! `exponential-ui`: eDE's eUI-on-disk runtime (#NEW-107).
 //!
-//! The shell (#NEW-108) draws documents from `$XDG_CONFIG_HOME/ede/ui`:
+//! The shell (#NEW-108) draws documents from `$XDG_CONFIG_HOME/exponential-desktop/ui`:
 //! one eUI surface per `<name>.json`, the look in `theme.json`. Agents
 //! (ede-tools, #NEW-115) and people edit those files; this crate makes
 //! that safe:
@@ -55,8 +55,8 @@ pub mod events {
     pub const THEME_REJECTED: &str = "theme.rejected";
 }
 
-/// The factory documents (#EDE-9): `$EDE_FACTORY_DIR`, else `/usr/share/ede/ui`.
-pub const FACTORY_DIR: &str = "/usr/share/ede/ui";
+/// The factory documents (#EDE-9): `$EDE_FACTORY_DIR`, else `/usr/share/exponential-desktop/ui`.
+pub const FACTORY_DIR: &str = "/usr/share/exponential-desktop/ui";
 
 pub fn default_factory_dir() -> PathBuf {
     std::env::var_os("EDE_FACTORY_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(FACTORY_DIR))
@@ -74,7 +74,7 @@ pub fn digest(bytes: &[u8]) -> String {
 }
 
 /// `$EDE_UI_DIR` (the supervisor hands it to the shell), else
-/// `$XDG_CONFIG_HOME/ede/ui`, else `~/.config/ede/ui`.
+/// `$XDG_CONFIG_HOME/exponential-desktop/ui`, else `~/.config/exponential-desktop/ui`.
 pub fn default_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("EDE_UI_DIR").filter(|v| !v.is_empty()) {
         return PathBuf::from(dir);
@@ -83,7 +83,7 @@ pub fn default_dir() -> PathBuf {
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"));
-    config.join("ede").join("ui")
+    config.join("exponential-desktop").join("ui")
 }
 
 /// A document name is the file stem: lowercase letters, digits, `-` and
@@ -232,7 +232,7 @@ fn read(path: &Path) -> io::Result<Seen> {
 /// Write through a temporary file and a rename, so a reader (the watcher,
 /// the shell) never sees half a document.
 fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_file_name(format!(".{}.tmp", path.file_name().and_then(|f| f.to_str()).unwrap_or("ede-ui")));
+    let tmp = path.with_file_name(format!(".{}.tmp", path.file_name().and_then(|f| f.to_str()).unwrap_or("exponential-ui")));
     fs::write(&tmp, bytes)?;
     fs::rename(&tmp, path)
 }

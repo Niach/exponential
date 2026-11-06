@@ -906,7 +906,7 @@ function packageOnly(scope: Scope): boolean {
 /**
  * #EDE-11: eDE's views from the headless compositor
  * (`apps/ede/scripts/shots.sh`: compositor + supervisor + shell from the
- * factory documents, `ede-ctl capture`). Builds once, then one run per view;
+ * factory documents, `exponential-ctl capture`). Builds once, then one run per view;
  * no backend, no display.
  */
 async function captureEde(views: string[], outcomes: LaneOutcome[]): Promise<void> {

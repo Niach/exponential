@@ -4,7 +4,7 @@
 //! capabilities the session may use; a call outside them is refused as
 //! content (`isError`) and audited as `denied`. Every call appends an
 //! `mcp_calls`-shaped row (audit.json's columns, `args_hash` canonical) to
-//! `$XDG_STATE_HOME/ede/mcp-audit.jsonl`.
+//! `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl`.
 
 use std::{
     collections::HashMap,
@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 
 use crate::{CallError, Registry};
 
-pub const SERVER_NAME: &str = "ede-services";
+pub const SERVER_NAME: &str = "exponential-services";
 
 pub struct Mcp {
     server: emcp::Server,
@@ -39,10 +39,10 @@ struct Provider {
     inner: Arc<Inner>,
 }
 
-/// `$XDG_STATE_HOME/ede/mcp-audit.jsonl`.
+/// `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl`.
 pub fn audit_path() -> PathBuf {
     let base = std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
-    base.join("ede").join("mcp-audit.jsonl")
+    base.join("exponential-desktop").join("mcp-audit.jsonl")
 }
 
 /// `<domain>_<action>` and `<domain>_get`.

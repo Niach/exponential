@@ -1,0 +1,23 @@
+# The shell (#EDE-10): the panel and its popups, drawn from the genUI
+# documents in ~/.config/exponential-desktop/ui (factory copies in /usr/share/exponential-desktop/ui), run
+# under the exponential-ui supervisor (#EDE-9: every edit a commit, frame-ack
+# watchdog, crash revert, factory fallback). exponential-session.target starts it
+# once the compositor is up; WAYLAND_DISPLAY and EDE_SAFE_MODE come from
+# `exponential-session --ready`, which imports the compositor's environment.
+# The supervisor restarts a crashed shell itself; this unit covers the
+# supervisor, and a supervisor that gave up (ten quick shell exits) comes
+# back after a pause so a fixed document is picked up without a re-login.
+[Unit]
+Description=Exponential Desktop shell (the genUI panel under the exponential-ui supervisor)
+Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
+PartOf=graphical-session.target exponential-session.target
+After=graphical-session.target exponential-theme.service
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/exponential-ui supervise -- /usr/bin/exponential-shell
+Restart=always
+RestartSec=2
+Slice=session.slice
+Environment=RUST_LOG=info,wgpu_core=warn,wgpu_hal=warn

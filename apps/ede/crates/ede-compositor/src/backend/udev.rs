@@ -697,7 +697,7 @@ fn set_cursor_hotspot(drm: &DrmDevice, planes: &[smithay::reexports::drm::contro
 /// An output got no frame: logged (the first time, then rarely), and when
 /// no output has drawn anything since start and this keeps happening, the
 /// session stops with the reason instead of staying black (#EDE-40);
-/// ede-session shows it and falls back.
+/// exponential-session shows it and falls back.
 fn frame_failed(u: &mut Udev, state: &mut Ede, output: &Output, error: String) {
     match u.health.failed(&error) {
         super::Failure::Log => tracing::error!("{error}"),

@@ -1,7 +1,7 @@
-//! `xdg-desktop-portal-ede` (#NEW-105): eDE's xdg-desktop-portal backend.
+//! `xdg-desktop-portal-exponential` (#NEW-105): eDE's xdg-desktop-portal backend.
 //!
 //! The frontend (`xdg-desktop-portal`) routes ScreenCast, Screenshot,
-//! RemoteDesktop, GlobalShortcuts and Settings here (`ede-portals.conf`);
+//! RemoteDesktop, GlobalShortcuts and Settings here (`exponential-portals.conf`);
 //! everything else (FileChooser, …) stays with the GTK backend. Each one is
 //! an `ede-protocol` call with the shell's root token: captures, synthetic
 //! input (refused on protected surfaces and the lock, like every other
@@ -9,7 +9,7 @@
 //! ([`stream`]).
 //!
 //! What to share is picked by the chooser (`[screencast] chooser`, by
-//! default `ede-sealed share`, a sealed dialog, #EDE-17; without one the
+//! default `exponential-sealed share`, a sealed dialog, #EDE-17; without one the
 //! focused output/window). Remote control is never granted silently: it
 //! needs the chooser's `allow` or an app on `[remote_desktop] allow`.
 //! Every connection holds a grant minted for the portal, never the root
@@ -41,7 +41,7 @@ pub use config::Config;
 pub use pick::Pick;
 pub use session::{Kind, Session, StreamInfo};
 
-pub const BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.ede";
+pub const BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.exponential";
 pub const PATH: &str = "/org/freedesktop/portal/desktop";
 
 /// Opens a new `ede-protocol` connection (each stream captures over its own).
@@ -210,7 +210,7 @@ impl Ctx {
         let (summary, body) = (summary.to_string(), body.to_string());
         std::thread::spawn(move || {
             let hints: HashMap<&str, Value> = HashMap::new();
-            let args = ("eDE", 0u32, "", summary.as_str(), body.as_str(), Vec::<&str>::new(), hints, 5000i32);
+            let args = ("Exponential Desktop", 0u32, "", summary.as_str(), body.as_str(), Vec::<&str>::new(), hints, 5000i32);
             let call = conn.call_method(
                 Some("org.freedesktop.Notifications"),
                 "/org/freedesktop/Notifications",

@@ -1,17 +1,17 @@
-//! Tier B, the compositor's half (#EDE-17): `ede-sealed`, a separate
+//! Tier B, the compositor's half (#EDE-17): `exponential-sealed`, a separate
 //! binary with compiled-in genUI documents, draws the lock screen, the
 //! polkit prompt and consent. The compositor trusts it by identity, never
 //! by what a document says:
 //!
 //! - **The lock**: with no `[lock] command` the compositor spawns
-//!   `ede-sealed lock` itself and remembers the child's pid; while
+//!   `exponential-sealed lock` itself and remembers the child's pid; while
 //!   [`LockState::Sealed`] every output shows only that process's layer
 //!   surfaces (black until one arrives), only they get input, bindings are
 //!   off but VT switching, and the session unlocks only through the
 //!   `unlock` op with the grant minted for that child (`EDE_TOKEN`). A lock
 //!   client that dies keeps the session locked and is started again.
 //! - **Sealed surfaces**: a layer surface from a process whose executable
-//!   is `ede-sealed` (the polkit prompt, consent) is protected: black in
+//!   is `exponential-sealed` (the polkit prompt, consent) is protected: black in
 //!   captures, never driven by an agent, no input method on it.
 
 use std::{process::Child, time::Instant};
@@ -26,7 +26,7 @@ use smithay::{
 use crate::{lock::LockState, state::Ede};
 
 /// The grant's session name for the lock child.
-pub const SEALED_SESSION: &str = "ede-sealed";
+pub const SEALED_SESSION: &str = "exponential-sealed";
 /// Give up starting the lock client after this many quick deaths.
 pub const MAX_RESPAWNS: u32 = 5;
 
@@ -34,7 +34,7 @@ pub const MAX_RESPAWNS: u32 = 5;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LayerOrigin {
     pub pid: u32,
-    /// The process's executable is `ede-sealed`.
+    /// The process's executable is `exponential-sealed`.
     pub sealed: bool,
 }
 
@@ -48,19 +48,19 @@ pub struct Sealed {
     pub started: Instant,
 }
 
-/// Where `ede-sealed` is: next to this binary, else on `PATH`.
+/// Where `exponential-sealed` is: next to this binary, else on `PATH`.
 pub fn sealed_binary() -> String {
     std::env::current_exe()
         .ok()
-        .and_then(|p| Some(p.parent()?.join("ede-sealed")))
+        .and_then(|p| Some(p.parent()?.join("exponential-sealed")))
         .filter(|p| p.exists())
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "ede-sealed".into())
+        .unwrap_or_else(|| "exponential-sealed".into())
 }
 
 pub fn origin_of(ede: &Ede, surface: &WlSurface) -> LayerOrigin {
     let pid = ede.display_handle.get_client(surface.id()).ok().and_then(|c| c.get_credentials(&ede.display_handle).ok()).map(|c| c.pid as u32).unwrap_or(0);
-    let sealed = pid != 0 && std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).is_some_and(|n| n == "ede-sealed");
+    let sealed = pid != 0 && std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).is_some_and(|n| n == "exponential-sealed");
     LayerOrigin { pid, sealed }
 }
 
@@ -80,7 +80,7 @@ impl Ede {
                 self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now() });
             }
             None => {
-                tracing::error!("ede-sealed could not start: the session stays unlocked");
+                tracing::error!("exponential-sealed could not start: the session stays unlocked");
                 self.ipc.grants.retain(|g| g.token != grant.token);
                 return;
             }

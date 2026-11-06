@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Exponential
+Comment=Exponential Desktop
+Exec=exponential-session
+TryExec=exponential-session
+Type=Application
+DesktopNames=Exponential

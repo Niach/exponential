@@ -1,4 +1,4 @@
-//! `ede-compositor`: eDE's Wayland compositor, built on smithay.
+//! `exponential-compositor`: eDE's Wayland compositor, built on smithay.
 //!
 //! Floating windows (Mint-like) with magnetic edges and edge tiling,
 //! workspaces, xdg-shell, wlr-layer-shell, fractional scale, damage-tracked

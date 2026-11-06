@@ -25,7 +25,7 @@ use smithay::{
 use crate::state::Ede;
 
 /// The root grant's session: the shell.
-pub const ROOT_SESSION: &str = "ede-shell";
+pub const ROOT_SESSION: &str = "exponential-shell";
 
 #[derive(Debug, Default)]
 pub struct Ipc {
@@ -112,10 +112,10 @@ impl Ede {
         self.ipc.shell_subscribed()
     }
 
-    /// Opens `$XDG_RUNTIME_DIR/ede/<wayland-N>.sock` (directory 0700) and
+    /// Opens `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.sock` (directory 0700) and
     /// writes the root token next to it (0600).
     pub fn ipc_listen(&mut self, runtime_dir: &Path, wayland_display: &str) -> std::io::Result<PathBuf> {
-        let dir = runtime_dir.join("ede");
+        let dir = runtime_dir.join("exponential-desktop");
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
         let socket = ede_protocol::socket_path(runtime_dir, wayland_display);

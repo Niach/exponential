@@ -1,12 +1,12 @@
-//! `ede-services`: the daemon and a command line over it.
+//! `exponential-services`: the daemon and a command line over it.
 //!
 //! ```text
-//! ede-services serve                       the data socket + the MCP face (ede-services.service)
-//! ede-services list                        the domains
-//! ede-services get <domain>                a snapshot (through the daemon; direct when it is not running)
-//! ede-services call <domain> <action> [JSON]
-//! ede-services grant <session> [label] [cap,cap…]   an MCP bearer for an agent session (through the daemon)
-//! ede-services tools                       the MCP tool list
+//! exponential-services serve                       the data socket + the MCP face (exponential-services.service)
+//! exponential-services list                        the domains
+//! exponential-services get <domain>                a snapshot (through the daemon; direct when it is not running)
+//! exponential-services call <domain> <action> [JSON]
+//! exponential-services grant <session> [label] [cap,cap…]   an MCP bearer for an agent session (through the daemon)
+//! exponential-services tools                       the MCP tool list
 //! ```
 
 use std::{process::ExitCode, sync::Arc};
@@ -15,7 +15,7 @@ use ede_services::{mcp::Mcp, socket, Registry};
 use serde_json::{json, Value};
 
 fn usage() -> ExitCode {
-    eprintln!("usage: ede-services serve | list | get <domain> | call <domain> <action> [JSON] | grant <session> [label] [cap,cap…] | tools");
+    eprintln!("usage: exponential-services serve | list | get <domain> | call <domain> <action> [JSON] | grant <session> [label] [cap,cap…] | tools");
     ExitCode::from(2)
 }
 
@@ -38,7 +38,7 @@ fn main() -> ExitCode {
             match socket::serve(&ede_services::socket_path(), registry, mcp) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("ede-services: {e}");
+                    eprintln!("exponential-services: {e}");
                     ExitCode::FAILURE
                 }
             }
@@ -88,7 +88,7 @@ fn print_result(result: Result<Value, String>) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("ede-services: {e}");
+            eprintln!("exponential-services: {e}");
             ExitCode::FAILURE
         }
     }

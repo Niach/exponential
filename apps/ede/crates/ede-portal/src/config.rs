@@ -1,4 +1,4 @@
-//! `~/.config/ede/portal.toml`. Every key is optional; a file that fails to
+//! `~/.config/exponential-desktop/portal.toml`. Every key is optional; a file that fails to
 //! parse is reported and the defaults apply. Re-read when the compositor
 //! reloads its config (`config.reloaded`).
 
@@ -80,7 +80,7 @@ impl Default for Appearance {
 impl Config {
     pub fn path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-        Some(base.join("ede").join("portal.toml"))
+        Some(base.join("exponential-desktop").join("portal.toml"))
     }
 
     /// The file at `path`; missing = defaults, broken = defaults + a warning.
@@ -134,12 +134,12 @@ fn expand_home(p: &str) -> PathBuf {
 }
 
 /// `XDG_PICTURES_DIR` from `user-dirs.dirs`, else `~/Pictures`.
-/// `ede-sealed share` when it is installed (next to this binary's
+/// `exponential-sealed share` when it is installed (next to this binary's
 /// `/usr/bin`, or on PATH); else none (the focused output/window).
 pub fn default_chooser() -> Vec<String> {
-    let on_path = std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("ede-sealed").exists()));
-    if on_path || Path::new("/usr/bin/ede-sealed").exists() {
-        vec!["ede-sealed".into(), "share".into()]
+    let on_path = std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("exponential-sealed").exists()));
+    if on_path || Path::new("/usr/bin/exponential-sealed").exists() {
+        vec!["exponential-sealed".into(), "share".into()]
     } else {
         Vec::new()
     }

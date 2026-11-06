@@ -1,0 +1,10 @@
+[Unit]
+Description=Portal service (Exponential Desktop implementation)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.impl.portal.desktop.exponential
+ExecStart=/usr/libexec/xdg-desktop-portal-exponential
+Restart=on-failure

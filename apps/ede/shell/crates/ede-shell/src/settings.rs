@@ -8,10 +8,10 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-/// `$XDG_CONFIG_HOME/ede/compositor.toml`.
+/// `$XDG_CONFIG_HOME/exponential-desktop/compositor.toml`.
 pub fn config_path() -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"));
-    base.join("ede").join("compositor.toml")
+    base.join("exponential-desktop").join("compositor.toml")
 }
 
 fn read_table() -> toml::Table {
@@ -171,7 +171,7 @@ pub fn demo_services() -> Value {
 }
 
 pub fn demo_outputs() -> Vec<Value> {
-    vec![json!({"name": "HEADLESS-1", "summary": "Exponential eDE headless · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1"})]
+    vec![json!({"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1"})]
 }
 
 #[cfg(test)]
@@ -182,7 +182,7 @@ mod tests {
     fn config_edits_keep_other_keys() {
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("XDG_CONFIG_HOME", dir.path());
-        std::fs::create_dir_all(dir.path().join("ede")).unwrap();
+        std::fs::create_dir_all(dir.path().join("exponential-desktop")).unwrap();
         std::fs::write(config_path(), "background = \"#102030\"\n[windows]\nsnap_threshold = 4\n").unwrap();
         persist_config(&json!({"keyboard": {"layout": "de", "repeat_rate": 40}})).unwrap();
         persist_output("DP-1", Some("2560x1440@60"), Some(1.5)).unwrap();

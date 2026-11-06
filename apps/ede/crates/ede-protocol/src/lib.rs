@@ -1,6 +1,6 @@
 //! `ede-protocol` v1: eDE's control plane (#NEW-104).
 //!
-//! One unix socket per compositor, `$XDG_RUNTIME_DIR/ede/<wayland-N>.sock`
+//! One unix socket per compositor, `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.sock`
 //! in a 0700 directory. Frames are a little-endian `u32` length and then the
 //! bytes: JSON for calls, replies and events, raw pixels for a capture (the
 //! frame right after its reply). A connection starts with `hello` and a
@@ -9,7 +9,7 @@
 //! eCore's [`Envelope`].
 //!
 //! The compositor writes a root token (every capability) to
-//! `$XDG_RUNTIME_DIR/ede/<wayland-N>.token` (0600) for the shell; whoever
+//! `$XDG_RUNTIME_DIR/exponential-desktop/<wayland-N>.token` (0600) for the shell; whoever
 //! holds `system` mints narrower, expiring grants for agents with
 //! [`Request::MintGrant`]. A grant never mints more than it holds.
 
@@ -27,7 +27,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// Largest frame either side accepts (an 8K capture fits).
 pub const MAX_FRAME: usize = 160 << 20;
 /// `source` of every event envelope.
-pub const EVENT_SOURCE: &str = "ede-compositor";
+pub const EVENT_SOURCE: &str = "exponential-compositor";
 
 /// Event kinds (`Envelope::kind`).
 pub mod events {
@@ -52,11 +52,11 @@ pub mod events {
 
 /// The socket and token file of the compositor serving `wayland_display`.
 pub fn socket_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
-    runtime_dir.join("ede").join(format!("{wayland_display}.sock"))
+    runtime_dir.join("exponential-desktop").join(format!("{wayland_display}.sock"))
 }
 
 pub fn token_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
-    runtime_dir.join("ede").join(format!("{wayland_display}.token"))
+    runtime_dir.join("exponential-desktop").join(format!("{wayland_display}.token"))
 }
 
 /// A call: `{"id": 1, "op": "list_windows", …}`.
@@ -89,7 +89,7 @@ pub enum Request {
     },
     /// Drive the person's seat. Protected surfaces and the lock refuse it.
     /// `bindings` = the key goes through the compositor's bindings and
-    /// hotkeys as a person's would (the root grant only: ede-ctl in a test
+    /// hotkeys as a person's would (the root grant only: exponential-ctl in a test
     /// harness; an agent's keys never reach Alt+Tab or Super).
     Input {
         event: InputEvent,
@@ -98,7 +98,7 @@ pub enum Request {
     },
     ReloadConfig,
     Lock,
-    /// End the session cleanly (the compositor exits 0; ede-session logs out).
+    /// End the session cleanly (the compositor exits 0; exponential-session logs out).
     Logout,
     /// The sealed lock client (#EDE-17) authenticated: open the session.
     /// Only the grant the compositor minted for that client is accepted.

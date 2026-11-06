@@ -1,6 +1,7 @@
 [package]
+autobins = false
 name = "ede-compositor"
-description = "eDE's Wayland compositor (smithay): floating windows with edge snapping, layer-shell, winit for development"
+description = "Exponential Desktop's Wayland compositor (smithay): floating windows with edge snapping, layer-shell, winit for development"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -49,3 +50,8 @@ wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
 wayland-protocols-misc = { version = "0.3.8", features = ["client"] }
 tempfile = "3"
 x11rb = "0.13"
+
+# The installed name (Exponential Desktop); the crate keeps its ede- name.
+[[bin]]
+name = "exponential-compositor"
+path = "src/main.rs"

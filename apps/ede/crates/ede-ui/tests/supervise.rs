@@ -28,7 +28,7 @@ fn panel(text: &str) -> Value {
 /// "silent".
 fn fake_shell(dir: &Path) -> String {
     let script = dir.join("fake-shell.sh");
-    let ede_ui = env!("CARGO_BIN_EXE_ede-ui");
+    let ede_ui = env!("CARGO_BIN_EXE_exponential-ui");
     fs::write(
         &script,
         format!(
@@ -132,7 +132,7 @@ fn the_factory_copy_arrives_as_the_first_commit() {
     let (ui, changes) = Runtime::open_with_factory(&dir, &factory).unwrap();
     assert_eq!(ui.factory_names().unwrap(), ["panel"]);
     assert!(changes.iter().any(|c| matches!(c, ede_ui::Change::Applied { name, commit: Some(_) } if name == "panel")));
-    assert_eq!(log(&dir), ["Factory panel", "ede-ui: history starts"]);
+    assert_eq!(log(&dir), ["Factory panel", "exponential-ui: history starts"]);
     assert_eq!(text(&dir), "factory");
     // A second open copies nothing again, and a deleted document is not resurrected.
     let (_, changes) = Runtime::open_with_factory(&dir, &factory).unwrap();
@@ -190,5 +190,5 @@ fn a_broken_edit_is_refused_and_never_committed() {
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
     fs::write(dir.join("panel.json"), br#"{"surface": {"size": {"width": 1, "height": 1}}, "root": {"id": "panel", "component": "Nope"}}"#).unwrap();
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Refused { name } if name == "panel"));
-    assert_eq!(log(&dir), ["Factory panel", "ede-ui: history starts"]);
+    assert_eq!(log(&dir), ["Factory panel", "exponential-ui: history starts"]);
 }

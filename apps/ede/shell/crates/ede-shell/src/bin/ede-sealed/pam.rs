@@ -2,7 +2,7 @@
 //! libpam headers or a `-dev` package to build against): `pam_start`,
 //! `pam_authenticate`, `pam_acct_mgmt`, `pam_end` with a conversation that
 //! answers every prompt with the password. The service is `ede` when
-//! `/etc/pam.d/ede` exists, else `login`.
+//! `/etc/pam.d/exponential-desktop` exists, else `login`.
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 
@@ -72,7 +72,7 @@ pub fn authenticate(user: &str, password: &str) -> Result<(), String> {
             *lib.get::<PamStrerror>(b"pam_strerror\0").map_err(|e| e.to_string())?,
         )
     };
-    let service = if std::path::Path::new("/etc/pam.d/ede").exists() { "ede" } else { "login" };
+    let service = if std::path::Path::new("/etc/pam.d/exponential-desktop").exists() { "exponential-desktop" } else { "login" };
     let service = CString::new(service).unwrap();
     let user_c = CString::new(user).map_err(|_| "bad user name")?;
     let password = Box::new(CString::new(password).map_err(|_| "a password cannot contain NUL")?);

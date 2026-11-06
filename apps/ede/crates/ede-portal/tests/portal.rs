@@ -1,5 +1,5 @@
 //! #NEW-105 end to end, headless: a private dbus-daemon, a private
-//! PipeWire, a headless ede-compositor on a real ede-protocol socket, and
+//! PipeWire, a headless exponential-compositor on a real ede-protocol socket, and
 //! the portal served on that bus. Calls go straight to the impl
 //! interfaces, as the xdg-desktop-portal frontend makes them.
 
@@ -125,7 +125,7 @@ fn world(portal_toml: &str) -> World {
     let h = Harness::start(Config::default(), &[(800, 600)]);
     let runtime = dir.path().to_path_buf();
     let socket = h.with(move |ede| ede.ipc_listen(&runtime, "wayland-test")).unwrap();
-    let token = ede_protocol::Token::new(std::fs::read_to_string(dir.path().join("ede/wayland-test.token")).unwrap()).unwrap();
+    let token = ede_protocol::Token::new(std::fs::read_to_string(dir.path().join("exponential-desktop/wayland-test.token")).unwrap()).unwrap();
     let config = dir.path().join("portal.toml");
     std::fs::write(&config, format!("[screenshot]\ndir = \"{}\"\n{portal_toml}", dir.path().join("shots").display())).unwrap();
     let connect: ede_portal::Connect = Arc::new(move || ede_protocol::Client::connect(&socket, token.clone()));
@@ -201,7 +201,7 @@ fn a_screenshot_is_a_png_of_the_screen() {
 
 fn ede_protocol_client(w: &World) -> ede_protocol::Client {
     let socket = ede_protocol::socket_path(w.dir.path(), "wayland-test");
-    let token = ede_protocol::Token::new(std::fs::read_to_string(w.dir.path().join("ede/wayland-test.token")).unwrap()).unwrap();
+    let token = ede_protocol::Token::new(std::fs::read_to_string(w.dir.path().join("exponential-desktop/wayland-test.token")).unwrap()).unwrap();
     ede_protocol::Client::connect(&socket, token).unwrap()
 }
 

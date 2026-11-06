@@ -1,13 +1,13 @@
 [package]
 name = "ede-portal"
-description = "eDE's xdg-desktop-portal backend: ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts and Settings over ede-protocol"
+description = "Exponential Desktop's xdg-desktop-portal backend: ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts and Settings over ede-protocol"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 publish = false
 
 [[bin]]
-name = "xdg-desktop-portal-ede"
+name = "xdg-desktop-portal-exponential"
 path = "src/main.rs"
 
 # zbus 5 and pipewire 0.9 = the versions apps/desktop's epilot-screen (the

@@ -1,5 +1,5 @@
-//! `ede-session [--safe-mode]`: the session the login manager starts.
-//! `ede-session --ready`: run by the compositor once it is up.
+//! `exponential-session [--safe-mode]`: the session the login manager starts.
+//! `exponential-session --ready`: run by the compositor once it is up.
 
 use std::{
     process::{Child, Command, ExitCode, ExitStatus},
@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ede_session::{compositor_args, failure_file, load_crashes, recovery_args, state_file, store_crashes, take_failure, Exit, Next, Policy, EXPORTED_ENV, FATAL_EXIT, SESSION_ENV};
+use ede_session::{compositor_args, migrate_legacy_dirs, xdg_homes, failure_file, load_crashes, recovery_args, state_file, store_crashes, take_failure, Exit, Next, Policy, EXPORTED_ENV, FATAL_EXIT, SESSION_ENV};
 
 /// SIGTERM/SIGHUP/SIGINT arrived: the login manager ends the session.
 static TERMINATED: AtomicBool = AtomicBool::new(false);
@@ -25,7 +25,7 @@ fn main() -> ExitCode {
         Some("--ready") => ready(),
         None | Some("--safe-mode") => run(!args.is_empty()),
         Some(other) => {
-            eprintln!("unknown argument {other:?}; usage: ede-session [--safe-mode]");
+            eprintln!("unknown argument {other:?}; usage: exponential-session [--safe-mode]");
             ExitCode::FAILURE
         }
     }
@@ -40,10 +40,10 @@ fn ready() -> ExitCode {
         // Without the D-Bus tool, systemd alone still gets them.
         let _ = Command::new("systemctl").args(["--user", "import-environment"]).args(&vars).status();
     }
-    match Command::new("systemctl").args(["--user", "start", "--no-block", "ede-session.target"]).status() {
+    match Command::new("systemctl").args(["--user", "start", "--no-block", "exponential-session.target"]).status() {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         other => {
-            tracing::error!("ede-session.target did not start: {other:?}");
+            tracing::error!("exponential-session.target did not start: {other:?}");
             ExitCode::FAILURE
         }
     }
@@ -56,6 +56,10 @@ fn run(mut safe_mode: bool) -> ExitCode {
             libc::signal(signal, on_terminate as extern "C" fn(libc::c_int) as libc::sighandler_t);
         }
     }
+    // The upgrade from 0.1.x (`ede`): its directories move before anything reads them.
+    for dir in migrate_legacy_dirs(&xdg_homes()) {
+        tracing::info!("moved the ede directory to {}", dir.display());
+    }
     for (k, v) in SESSION_ENV {
         std::env::set_var(k, v);
     }
@@ -64,14 +68,14 @@ fn run(mut safe_mode: bool) -> ExitCode {
     for (k, v) in ede_theme::environment(&ede_theme::Paths::from_env()) {
         std::env::set_var(k, v);
     }
-    let me = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "ede-session".into());
-    // ede-compositor next to us (the .deb puts both in /usr/bin), else PATH.
+    let me = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| "exponential-session".into());
+    // exponential-compositor next to us (the .deb puts both in /usr/bin), else PATH.
     let compositor = std::env::current_exe()
         .ok()
-        .and_then(|p| Some(p.parent()?.join("ede-compositor")))
+        .and_then(|p| Some(p.parent()?.join("exponential-compositor")))
         .filter(|p| p.exists())
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "ede-compositor".into());
+        .unwrap_or_else(|| "exponential-compositor".into());
 
     let crashes_path = state_file();
     let carried = crashes_path.as_deref().map(load_crashes).unwrap_or(0);
@@ -105,13 +109,13 @@ fn run(mut safe_mode: bool) -> ExitCode {
         let (exit, detail) = match status {
             Ok(s) if s.success() => (Exit::Clean, String::new()),
             Ok(s) if s.code() == Some(FATAL_EXIT) => {
-                let reason = failure.as_deref().and_then(take_failure).unwrap_or_else(|| "ede-compositor could not drive the display".into());
-                tracing::error!("ede-compositor stopped: {reason}");
+                let reason = failure.as_deref().and_then(take_failure).unwrap_or_else(|| "exponential-compositor could not drive the display".into());
+                tracing::error!("exponential-compositor stopped: {reason}");
                 (Exit::Fatal { ran }, reason)
             }
             Ok(s) => {
-                tracing::error!("ede-compositor ended: {s}");
-                (Exit::Crashed { ran }, format!("ede-compositor ended: {s}"))
+                tracing::error!("exponential-compositor ended: {s}");
+                (Exit::Crashed { ran }, format!("exponential-compositor ended: {s}"))
             }
             Err(e) => {
                 tracing::error!("{compositor}: {e}");
@@ -139,7 +143,7 @@ fn run(mut safe_mode: bool) -> ExitCode {
                 return if exit == Exit::Clean { ExitCode::SUCCESS } else { ExitCode::FAILURE };
             }
             Next::Restart { safe_mode } => {
-                tracing::warn!("restarting ede-compositor{}", if safe_mode { " in safe mode" } else { "" });
+                tracing::warn!("restarting exponential-compositor{}", if safe_mode { " in safe mode" } else { "" });
             }
         }
     }
@@ -172,9 +176,9 @@ fn wait_or_terminate(mut child: Child) -> std::io::Result<ExitStatus> {
 }
 
 /// The compositor is gone: its apps and services go with it. Both targets
-/// stop: the units are `PartOf` them, and `ede-session --ready` starts them
+/// stop: the units are `PartOf` them, and `exponential-session --ready` starts them
 /// again on a restart.
 fn stop_session_units() {
-    let _ = Command::new("systemctl").args(["--user", "stop", "ede-session.target", "graphical-session.target"]).status();
+    let _ = Command::new("systemctl").args(["--user", "stop", "exponential-session.target", "graphical-session.target"]).status();
     let _ = Command::new("systemctl").args(["--user", "unset-environment"]).args(["WAYLAND_DISPLAY", "DISPLAY", "EDE_SAFE_MODE"]).status();
 }

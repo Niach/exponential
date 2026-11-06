@@ -1,10 +1,10 @@
-//! `ede-shell`: eDE's shell, drawn from genUI documents on disk (#EDE-10).
-//! Its own process next to `ede-compositor`: a wlr-layer-shell client
+//! `exponential-shell`: eDE's shell, drawn from genUI documents on disk (#EDE-10).
+//! Its own process next to `exponential-compositor`: a wlr-layer-shell client
 //! (gpui's `WindowKind::LayerShell`) painting eui-gpui surfaces, so a shell
 //! crash never takes the session down and the compositor never links gpui.
 //!
-//! The documents come from `ede-ui` (`$EDE_UI_DIR`, else `~/.config/ede/ui`;
-//! the supervisor `ede-ui supervise -- ede-shell` hands the directory over
+//! The documents come from `exponential-ui` (`$EDE_UI_DIR`, else `~/.config/exponential-desktop/ui`;
+//! the supervisor `exponential-ui supervise -- exponential-shell` hands the directory over
 //! and owns the history): every document with a layer `surface` header is a
 //! layer surface, every popup document opens from its anchor component in
 //! its parent as an `xdg_popup` of that surface. A change on disk redraws
@@ -26,7 +26,7 @@
 //! `/notifications` (toasts, the history, the count) and `/tray` (the
 //! items), `/traymenu` (an item's menu).
 //!
-//! `ede-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
+//! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
 //!   --popup NAME  open a popup document right away (the goldens; `all` = every one)
 //!   --open NAME   open an on-demand layer document right away (the goldens)
@@ -85,7 +85,7 @@ fn parse_args() -> Options {
             "--open" => o.open.extend(args.next()),
             "--exit-after" => o.exit_after = args.next().and_then(|v| v.parse().ok()),
             "-h" | "--help" => {
-                println!("usage: ede-shell [--windowed] [--popup <document>] [--open <document>] [--exit-after <ms>]");
+                println!("usage: exponential-shell [--windowed] [--popup <document>] [--open <document>] [--exit-after <ms>]");
                 std::process::exit(0);
             }
             other => {
@@ -126,7 +126,7 @@ struct ShellData {
     notifications: Value,
     tray: Vec<Value>,
     traymenu: Value,
-    /// `/services/<domain>` from ede-services (#EDE-13).
+    /// `/services/<domain>` from exponential-services (#EDE-13).
     services: Value,
     /// `/outputs` (the compositor's, with the options a page picks from),
     /// `/config` (compositor.toml), `/user`: the settings pages (#EDE-14).
@@ -231,7 +231,7 @@ struct Host {
 }
 
 /// Does `document`'s header list `function`? (Tier C: a document grants no
-/// privileges; `ede-ui` refuses such a document already, this is the
+/// privileges; `exponential-ui` refuses such a document already, this is the
 /// shell's own check.)
 fn allowed(shell: &Shell, document: &str, function: &str) -> bool {
     let ui = shell.ui.lock().unwrap_or_else(|p| p.into_inner());
@@ -400,7 +400,7 @@ impl HostPlugin for Host {
                         with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
                         if args.get("theme").is_some() {
                             // #EDE-19: apply or remove, as the switch says.
-                            system::launch("ede-theme sync");
+                            system::launch("exponential-theme sync");
                         }
                     }
                     Err(e) => tracing::warn!("compositor.toml: {e}"),
@@ -473,7 +473,7 @@ fn layer_options(header: &SurfaceHeader) -> (WindowKind, Bounds<Pixels>) {
     let width = s.width.map(|w| w as f32).unwrap_or(DEFAULT_SIZE.0);
     let height = s.height.map(|h| h as f32).unwrap_or(DEFAULT_SIZE.1);
     let kind = WindowKind::LayerShell(LayerShellOptions {
-        namespace: "ede-shell".into(),
+        namespace: "exponential-shell".into(),
         layer: match layer {
             DocLayer::Background => Layer::Background,
             DocLayer::Bottom => Layer::Bottom,
@@ -978,7 +978,7 @@ fn main() {
     let (ui, initial) = match Runtime::open_readonly(&dir) {
         Ok(opened) => opened,
         Err(e) => {
-            eprintln!("ede-shell: {}: {e}", dir.display());
+            eprintln!("exponential-shell: {}: {e}", dir.display());
             std::process::exit(2);
         }
     };
@@ -989,7 +989,7 @@ fn main() {
     }) {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("ede-shell: watch {}: {e}", dir.display());
+            eprintln!("exponential-shell: watch {}: {e}", dir.display());
             std::process::exit(2);
         }
     };
@@ -1056,7 +1056,7 @@ fn main() {
                     }
                 }
                 let Some(mut client) = client else {
-                    tracing::info!("no ede-services socket: /services stays empty");
+                    tracing::info!("no exponential-services socket: /services stays empty");
                     return;
                 };
                 let domains: Vec<String> = client.call(json!({"op": "list"})).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
@@ -1096,7 +1096,7 @@ fn main() {
         };
         let (notifications, tray) = if demo {
             (
-                json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the eDE M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the eDE M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}),
+                json!({"toasts": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [{"key": "open", "label": "Open"}, {"key": "archive", "label": "Archive"}], "urgency": 1, "at": "11:58"}], "list": [{"id": 1, "app": "Thunderbird", "summary": "Release notes for 1.4", "body": "Danny: the M1 demo runs on Friday, bring the VM.", "icon": "", "actions": [], "urgency": 1, "at": "11:58"}, {"id": 2, "app": "Software", "summary": "Updates installed", "body": "12 packages were updated.", "icon": "", "actions": [], "urgency": 0, "at": "11:40"}], "count": 2}),
                 vec![json!({"service": "demo/network", "title": "Network", "status": "Active", "icon": ""}), json!({"service": "demo/sound", "title": "Sound", "status": "Active", "icon": ""})],
             )
         } else {
@@ -1145,7 +1145,7 @@ fn main() {
             }
         }
         if shell.borrow().open.is_empty() {
-            tracing::warn!(dir = %dir.display(), "no layer document to draw (is the factory directory installed? ede-ui --factory apps/ede/ui check)");
+            tracing::warn!(dir = %dir.display(), "no layer document to draw (is the factory directory installed? exponential-ui --factory apps/ede/ui check)");
         }
 
         // The main loop's inputs: file changes, window lists, the clock.

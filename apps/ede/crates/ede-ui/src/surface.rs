@@ -1,4 +1,4 @@
-//! The `surface` header of a shell document (#EDE-8): how ede-shell places
+//! The `surface` header of a shell document (#EDE-8): how exponential-shell places
 //! it. Pure and byte-locked by `packages/ede/fixtures/surface.json` (its
 //! `$comment` is the spec; `tests/contract.rs` replays the cases); the TS
 //! reference is `packages/ede/src/surface.ts`.

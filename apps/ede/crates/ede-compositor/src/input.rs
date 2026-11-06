@@ -28,7 +28,7 @@ use crate::{
 /// What a key press did when the compositor kept it for itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// Super+Shift+E: end the session (ede-session logs out on a clean exit).
+    /// Super+Shift+E: end the session (exponential-session logs out on a clean exit).
     Quit,
     /// Ctrl+Alt+F1…F12 (xkb's XF86Switch_VT_n).
     SwitchVt(i32),

@@ -50,7 +50,7 @@ may be copied from GPL apps, code never.
 | Bluetooth Manager | `blueman` 2.3.5 | pairing wizard; the Bluetooth page covers power, connect, disconnect |
 | Firewall | `gufw` 24.04 | ufw front end, root |
 | Synaptic | `synaptic` 0.91.3 | apt power tool |
-| Driver Manager, Software Sources, Backup Tool, Upload/USB tools, Welcome, System Reports, Language Settings | `mintdrivers` 1.8.4, `mintsources` 2.4.3, `mintbackup` 2.4.6, `mintstick` 1.6.3, `mintwelcome` 2.6.0, `mintreport` 1.5.6, `mintlocale` 1.6.4 | Mint's own tools, root helpers with policies of their own; they run under eDE (GTK 3, polkit through `ede-sealed polkit`) |
+| Driver Manager, Software Sources, Backup Tool, Upload/USB tools, Welcome, System Reports, Language Settings | `mintdrivers` 1.8.4, `mintsources` 2.4.3, `mintbackup` 2.4.6, `mintstick` 1.6.3, `mintwelcome` 2.6.0, `mintreport` 1.5.6, `mintlocale` 1.6.4 | Mint's own tools, root helpers with policies of their own; they run under eDE (GTK 3, polkit through `exponential-sealed polkit`) |
 | On-screen keyboard | `onboard` 1.4.1 | needs an input-method path eDE has not built (text-input v3 is there; the keyboard itself is M2) |
 | Redshift | `redshift-gtk` 1.12 | needs the wlr-gamma-control protocol in the compositor first (M2 candidate) |
 
@@ -58,16 +58,16 @@ may be copied from GPL apps, code never.
 
 | Mint | eDE | Where |
 |---|---|---|
-| Cinnamon (`cinnamon` 6.4.14+xia), cinnamon-session, cinnamon-settings-daemon | the compositor, ede-session, the shell | `apps/ede` |
+| Cinnamon (`cinnamon` 6.4.14+xia), cinnamon-session, cinnamon-settings-daemon | the compositor, exponential-session, the shell | `apps/ede` |
 | Cinnamon menu, panel, Alt+Tab, notifications, tray, OSD | the shell's documents | #EDE-12 |
-| cinnamon-screensaver 6.4.1 | the sealed lock (`ede-sealed lock`, PAM) | #EDE-17 |
-| cinnamon-control-center 6.4.1 (Displays, Network, Sound, Bluetooth, Power, Keyboard, Themes, Users, Printers, Info) | `settings.json` over ede-services | #EDE-13, #EDE-14 |
-| polkit-gnome / the Cinnamon polkit agent | `ede-sealed polkit` | #EDE-17 |
-| xdg-desktop-portal-xapp 1.1.2 | `xdg-desktop-portal-ede` (ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts, Settings); `-gtk` keeps FileChooser and the rest | #EDE-15 |
-| Mint-Y / Mint-X themes, cursors, icons | the token palette through `ede-theme` over Adwaita-dark, Papirus or Yaru icons, Adwaita cursors | #EDE-19 |
-| Update Manager (`mintupdate` 7.1.1) | the Apps & updates page: count, list, refresh, install all (apt over ede-services, polkit through the sealed agent) | #EDE-14 |
+| cinnamon-screensaver 6.4.1 | the sealed lock (`exponential-sealed lock`, PAM) | #EDE-17 |
+| cinnamon-control-center 6.4.1 (Displays, Network, Sound, Bluetooth, Power, Keyboard, Themes, Users, Printers, Info) | `settings.json` over exponential-services | #EDE-13, #EDE-14 |
+| polkit-gnome / the Cinnamon polkit agent | `exponential-sealed polkit` | #EDE-17 |
+| xdg-desktop-portal-xapp 1.1.2 | `xdg-desktop-portal-exponential` (ScreenCast, Screenshot, RemoteDesktop, GlobalShortcuts, Settings); `-gtk` keeps FileChooser and the rest | #EDE-15 |
+| Mint-Y / Mint-X themes, cursors, icons | the token palette through `exponential-theme` over Adwaita-dark, Papirus or Yaru icons, Adwaita cursors | #EDE-19 |
+| Update Manager (`mintupdate` 7.1.1) | the Apps & updates page: count, list, refresh, install all (apt over exponential-services, polkit through the sealed agent) | #EDE-14 |
 | gnome-screenshot 41.0 | the compositor's screenshot hotkey and the portal's Screenshot | #EDE-12, #EDE-15 |
-| slick-greeter 2.2.2 (the login screen) | stays; eDE is a session entry under it (`wayland-sessions/ede.desktop`) | packaging |
+| slick-greeter 2.2.2 (the login screen) | stays; eDE is a session entry under it (`wayland-sessions/exponential.desktop`) | packaging |
 
 ## Rewrite as eApps packages, parked until the `eapps` crate (#EXP-1420)
 
@@ -79,13 +79,13 @@ of the shell process, not apps (wrong process, wrong grants, no window).
 | App | Mint today | What the eApps version is | What exists now |
 |---|---|---|---|
 | Calculator | `gnome-calculator` 41.1+mint1 (Mint pins the GTK 3 one) | one genUI document with a keypad, an expression Input, a history List; the arithmetic in the package's own functions (no engine) | nothing; the launcher opens Mint's |
-| System Monitor | `gnome-system-monitor` 46.0 | processes, CPU/memory/network as the styleguide's Chart and Sparkline over a `processes` domain of ede-services (not written: it needs a `kill` action with its own capability) | the About page's static facts; `ede-services` has power and disks, not processes |
+| System Monitor | `gnome-system-monitor` 46.0 | processes, CPU/memory/network as the styleguide's Chart and Sparkline over a `processes` domain of exponential-services (not written: it needs a `kill` action with its own capability) | the About page's static facts; `exponential-services` has power and disks, not processes |
 | Software | `mintinstall` 8.3.8 (Software Manager, apt + Flatpak) and `gnome-software` 46.0 | search and install over PackageKit (or apt + flatpak as the `updates` domain does), reviews and screenshots from AppStream, the same `mcp_calls`-shaped audit for an agent installing on a person's behalf | the Apps & updates page (updates only) and its Software button, which opens `mintinstall` or `gnome-software` |
 
 Order when the crate lands: Calculator (a weekend, proves the package
 format on eDE), System Monitor (needs the `processes` domain first), then
 Software (needs the PackageKit face and a consent prompt through
-`ede-sealed consent` for installs).
+`exponential-sealed consent` for installs).
 
 ## Not on Mint's list, worth noting
 

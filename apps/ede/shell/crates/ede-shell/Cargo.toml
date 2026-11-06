@@ -1,6 +1,7 @@
 [package]
+autobins = false
 name = "ede-shell"
-description = "eDE's shell: genUI documents on disk drawn in wlr-layer-shell surfaces (gpui + eui-gpui), its own process next to ede-compositor"
+description = "Exponential Desktop's shell: genUI documents on disk drawn in wlr-layer-shell surfaces (gpui + eui-gpui), its own process next to ede-compositor"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -40,3 +41,12 @@ ede-theme = { path = "../../../crates/ede-theme" }
 
 [dev-dependencies]
 tempfile = "3"
+
+# The installed names (Exponential Desktop); the crate keeps its ede- name.
+[[bin]]
+name = "exponential-shell"
+path = "src/main.rs"
+
+[[bin]]
+name = "exponential-sealed"
+path = "src/bin/ede-sealed/main.rs"

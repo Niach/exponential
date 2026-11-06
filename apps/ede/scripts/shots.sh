@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One eDE shot (#EDE-11): the headless compositor draws the factory
-# documents through the supervisor and the shell, ede-ctl captures the
+# documents through the supervisor and the shell, exponential-ctl captures the
 # output as the compositor composes it. The shots lane (`bun run shots --
 # --platform ede`) runs this once per view; by hand:
 #
@@ -44,8 +44,8 @@ export EDE_SHELL_CLOCK="${EDE_SHELL_CLOCK:-12:00}"
 export EDE_SHELL_DEMO=1
 export RUST_LOG="${RUST_LOG:-info,smithay=warn,wgpu_core=error,wgpu_hal=error}"
 log="$scratch/run.log"
-"$target/debug/ede-compositor" --headless "$size" --no-xwayland -- \
-  "$target/debug/ede-ui" --dir "$scratch/ui" --factory "$here/ui" supervise -- "$shell_target/debug/ede-shell" "${popup[@]}" "${open[@]}" > "$log" 2>&1 &
+"$target/debug/exponential-compositor" --headless "$size" --no-xwayland -- \
+  "$target/debug/exponential-ui" --dir "$scratch/ui" --factory "$here/ui" supervise -- "$shell_target/debug/exponential-shell" "${popup[@]}" "${open[@]}" > "$log" 2>&1 &
 pid=$!
 cleanup() { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -rf "$scratch"; }
 trap cleanup EXIT
@@ -64,4 +64,4 @@ done
 grep -q 'surface opened' "$log" || { echo "the shell drew nothing:" >&2; grep -v '^\s*$' "$log" | tail -30 >&2; exit 1; }
 sleep "$(LC_ALL=C awk "BEGIN{printf \"%.3f\", $settle/1000}")"
 mkdir -p "$(dirname "$out")"
-WAYLAND_DISPLAY="$sock" "$target/debug/ede-ctl" capture --png "$out" --expect-drawn
+WAYLAND_DISPLAY="$sock" "$target/debug/exponential-ctl" capture --png "$out" --expect-drawn

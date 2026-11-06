@@ -1,18 +1,18 @@
-//! `ede-sealed` (#EDE-17, Tier B): the surfaces a document on disk must
+//! `exponential-sealed` (#EDE-17, Tier B): the surfaces a document on disk must
 //! never be, compiled into this binary (`apps/ede/sealed/*.json`, never
 //! agent-editable; only the theme's accent is anyone's), each a
 //! full-screen overlay layer surface with the keyboard to itself:
 //!
-//! - `ede-sealed lock`: the lock screen. The compositor starts it (no
+//! - `exponential-sealed lock`: the lock screen. The compositor starts it (no
 //!   `[lock] command`), shows nothing but this process's surfaces while
 //!   locked, and takes `unlock` only with the grant it minted for this
 //!   process (`EDE_TOKEN`). The password goes to PAM in this process.
-//! - `ede-sealed polkit`: the polkit authentication agent for the session
-//!   (`ede-polkit-agent.service`): polkitd's `BeginAuthentication` opens
+//! - `exponential-sealed polkit`: the polkit authentication agent for the session
+//!   (`exponential-polkit-agent.service`): polkitd's `BeginAuthentication` opens
 //!   the prompt, `polkit-agent-helper-1` checks the password.
-//! - `ede-sealed consent --title T --body B [--allow A] [--deny D]`: a
+//! - `exponential-sealed consent --title T --body B [--allow A] [--deny D]`: a
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
-//! - `ede-sealed share`: the screen-share chooser the portal runs
+//! - `exponential-sealed share`: the screen-share chooser the portal runs
 //!   (#EDE-15): the ask as JSON on stdin (`app_id`, `types`, `multiple`,
 //!   `remote_control`, `outputs`, `windows`), the picks on stdout
 //!   (`output:NAME`, `window:ID`, and `allow` for remote control).
@@ -108,7 +108,7 @@ fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option
     let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
     let host: Rc<dyn HostPlugin> = Rc::new(Host { acts });
     let kind = WindowKind::LayerShell(LayerShellOptions {
-        namespace: "ede-sealed".into(),
+        namespace: "exponential-sealed".into(),
         layer: Layer::Overlay,
         anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
         exclusive_zone: Some(px(-1.0)),
@@ -208,7 +208,7 @@ fn user_name() -> String {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: ede-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL] | share (the ask as JSON on stdin)");
+    eprintln!("usage: exponential-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL] | share (the ask as JSON on stdin)");
     std::process::exit(2)
 }
 
@@ -306,12 +306,12 @@ fn polkit_agent() {
     let conn = match zbus::blocking::connection::Builder::system().and_then(|b| b.serve_at(polkit::AGENT_PATH, polkit::Agent { to_ui: ui_tx })).and_then(|b| b.build()) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("ede-sealed polkit: no system bus: {e}");
+            eprintln!("exponential-sealed polkit: no system bus: {e}");
             std::process::exit(1);
         }
     };
     if let Err(e) = polkit::register(&conn) {
-        eprintln!("ede-sealed polkit: not registered: {e}");
+        eprintln!("exponential-sealed polkit: not registered: {e}");
         std::process::exit(1);
     }
     tracing::info!("polkit agent registered");

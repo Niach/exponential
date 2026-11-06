@@ -1,4 +1,4 @@
-//! The data source: `$XDG_RUNTIME_DIR/ede/services.sock` (the directory
+//! The data source: `$XDG_RUNTIME_DIR/exponential-desktop/services.sock` (the directory
 //! is 0700, the compositor's), ede-protocol framing (a `u32` length then
 //! JSON). Calls: `{"id", "op": "list" | "get" {domain} | "call" {domain,
 //! action, args} | "subscribe" | "grant" {session, label, capabilities}}`;
