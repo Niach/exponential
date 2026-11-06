@@ -7,7 +7,6 @@
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core"
 import {
   agents,
-  appRecords,
   appVersions,
   apps,
   attachments,
@@ -42,7 +41,8 @@ export const IMPORT_TABLES: Readonly<Record<string, PgTable>> = {
   conversations,
   messages,
   app_versions: appVersions,
-  app_records: appRecords,
+  // `app_records` is NOT here: the records service is the one module that
+  // writes that table (lib/apps/records-service.ts `importRecords`).
   attachments,
 }
 
@@ -57,7 +57,6 @@ export const DROPPED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   attachments: [`draft_id`, `board_deleted_at`, `board_archived_at`],
   sessions: [`repository_id`, `mcp_server_ids`, `skill_ids`, `wake_on`],
   agents: [`skill_ids`],
-  app_records: [`app_deleted_at`],
 }
 
 /** Self references that must be in place at insert time (a CHECK names
@@ -144,7 +143,8 @@ export function tableMeta(name: string): TableMeta {
   return meta
 }
 
-/** Every import table's metadata, in the fixture's order. */
+/** Every import table's metadata, in the fixture's order (`app_records`
+ *  has none: the records service writes it). */
 export function allTableMeta(): TableMeta[] {
-  return TEAM_IMPORT_TABLES.map((name) => tableMeta(name))
+  return TEAM_IMPORT_TABLES.filter((name) => name in IMPORT_TABLES).map((name) => tableMeta(name))
 }

@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { attachments, comments, conversations, importIdMap, importRows, issueLabels, issueStatuses, issues, labels, messages, sessions, teamImports, teamMembers, teams } from "@/db/schema"
+import { appRecords, apps, attachments, comments, conversations, importIdMap, importRows, issueLabels, issueStatuses, issues, labels, messages, sessions, teamImports, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 // #EXP-1713: the team import against the REAL migrated Postgres: the team
@@ -59,8 +59,13 @@ describe.skipIf(!ready.ok)(`team import (real db)`, () => {
     made.teams.push(other!.id)
     const takenLabel = uuid()
     await db.insert(labels).values({ id: takenLabel, teamId: other!.id, name: `Taken` })
+    // An app elsewhere with a record whose id the local file reuses too.
+    const PACKAGE = { formatVersion: 5, records: { note: { schema: { type: `object`, properties: { text: { type: `string` } } } } } }
+    const [otherApp] = await db.insert(apps).values({ teamId: other!.id, slug: `notes`, name: `Notes`, package: PACKAGE }).returning({ id: apps.id })
+    const takenRecord = uuid()
+    await db.insert(appRecords).values({ id: takenRecord, appId: otherApp!.id, teamId: other!.id, kind: `note`, data: { text: `elsewhere` } })
 
-    const ids = { b1: uuid(), i1: uuid(), c1: uuid(), c2: uuid(), ag: uuid(), s1: uuid(), s2: uuid(), cv1: uuid(), m1: uuid(), a1: uuid(), stBacklog: uuid(), stProgress: uuid(), stBlocked: uuid(), stDone: uuid(), stShipped: uuid() }
+    const ids = { b1: uuid(), i1: uuid(), c1: uuid(), c2: uuid(), ag: uuid(), s1: uuid(), s2: uuid(), cv1: uuid(), m1: uuid(), a1: uuid(), stBacklog: uuid(), stProgress: uuid(), stBlocked: uuid(), stDone: uuid(), stShipped: uuid(), app: uuid(), r1: uuid(), r2: uuid() }
     const created = await caller(owner).create({
       name: `Local`,
       manifest: { version: 1, desktopId: uuid(), name: `Local`, identity: { userId: LOCAL_USER, email: LOCAL_EMAIL }, deviceId: `dev-${id8()}`, counts: { issues: 1 }, attachmentBytes: 3 },
@@ -91,6 +96,9 @@ describe.skipIf(!ready.ok)(`team import (real db)`, () => {
       { table: `sessions`, id: ids.s2, row: { id: ids.s2, team_id: `t-local`, root_id: ids.s1, parent_id: ids.s1, depth: 1, user_id: LOCAL_USER, device_id: `dev-local`, status: `ended`, ended_at: T0, title: `Child` } },
       { table: `conversations`, id: ids.cv1, row: { id: ids.cv1, team_id: `t-local`, kind: `session`, session_id: ids.s1 } },
       { table: `messages`, id: ids.m1, row: { id: ids.m1, conversation_id: ids.cv1, root_id: ids.s1, team_id: `t-local`, author_kind: `user`, author_id: LOCAL_USER, body: `hello @${LOCAL_EMAIL}`, attachment_ids: [ids.a1], mention_user_ids: [LOCAL_USER] } },
+      { table: `apps`, id: ids.app, row: { id: ids.app, team_id: `t-local`, slug: `notes`, name: `Notes`, package: PACKAGE, published_version: 1, created_by: LOCAL_USER, created_at: T0, updated_at: T0 } },
+      { table: `app_records`, id: ids.r1, row: { id: ids.r1, app_id: ids.app, team_id: `t-local`, kind: `note`, data: { text: `kept` }, created_by: LOCAL_USER, author_id: LOCAL_USER, created_at: T0, updated_at: T0 } },
+      { table: `app_records`, id: takenRecord, row: { id: takenRecord, app_id: ids.app, team_id: `t-local`, kind: `note`, data: { text: `moved` }, created_by: LOCAL_USER, author_id: `someone-else`, created_at: T0, updated_at: T0 } },
       { table: `attachments`, id: ids.a1, row: { id: ids.a1, team_id: `t-local`, issue_id: ids.i1, uploader_id: LOCAL_USER, filename: `note.txt`, content_type: `text/plain`, size_bytes: 3, storage_key: `local/a1`, url: `/api/attachments/${ids.a1}`, created_at: T0, updated_at: T0 } },
     ]
     const first = await caller(owner).chunk({ importId: created.importId, seq: 0, rows })
@@ -157,6 +165,16 @@ describe.skipIf(!ready.ok)(`team import (real db)`, () => {
     const [message] = await db.select().from(messages).where(eq(messages.id, ids.m1))
     expect(message).toMatchObject({ conversationId: conversation!.id, rootId: ids.s1, authorId: owner.id, body: `hello @${owner.email}`, attachmentIds: [first.uploads[0]!.serverId], mentionUserIds: [owner.id] })
     expect(await db.select().from(importIdMap).where(and(eq(importIdMap.importId, created.importId), eq(importIdMap.tableName, `conversations`)))).toHaveLength(1)
+
+    // App records went through the records service: ids and stamps kept, the taken one remapped, the author the caller.
+    const records = await db.select({ id: appRecords.id, data: appRecords.data, authorId: appRecords.authorId, createdAt: appRecords.createdAt }).from(appRecords).where(eq(appRecords.appId, ids.app))
+    expect(records).toHaveLength(2)
+    const kept = records.find((r) => r.id === ids.r1)
+    expect(kept).toMatchObject({ data: { text: `kept` }, authorId: owner.id })
+    expect(kept?.createdAt.toISOString()).toBe(T0)
+    const moved = result.idMap.find((e) => e.tableName === `app_records` && e.localId === takenRecord)
+    expect(moved?.serverId).toBeDefined()
+    expect(records.find((r) => r.id === moved!.serverId)).toMatchObject({ data: { text: `moved` } })
 
     // The attachment the upload landed now belongs to the issue.
     const [att] = await db.select({ issueId: attachments.issueId, boardId: attachments.boardId, sizeBytes: attachments.sizeBytes }).from(attachments).where(eq(attachments.id, first.uploads[0]!.serverId))

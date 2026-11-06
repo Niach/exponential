@@ -12,7 +12,8 @@ const identity: ImportIdentity = { localUserId: `u-local`, localEmail: `danny@lo
 
 describe(`team import tables`, () => {
   it(`knows every fixture table and derives its references from the schema`, () => {
-    expect(allTableMeta().map((m) => m.name)).toEqual([...TEAM_IMPORT_TABLES])
+    // `app_records` is the records service's (lib/apps/records-service.ts), not drizzle metadata here.
+    expect(allTableMeta().map((m) => m.name)).toEqual(TEAM_IMPORT_TABLES.filter((t) => t !== `app_records`))
     const comments = tableMeta(`comments`)
     expect(comments.references).toMatchObject({ issue_id: `issues`, author_agent_id: `agents`, via_app_id: `apps` })
     expect(comments.selfReferences).toEqual([`parent_id`])

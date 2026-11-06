@@ -15,7 +15,8 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import type { PgColumn } from "drizzle-orm/pg-core"
 import { TRPCError } from "@trpc/server"
 import type { db } from "@/db/connection"
-import { attachments, conversations, importIdMap, issueStatuses } from "@/db/schema"
+import { apps, attachments, conversations, importIdMap, issueStatuses, type App } from "@/db/schema"
+import { importRecords } from "@/lib/apps/records-service"
 import { ISSUE_STATUS_STARTED_MAX } from "@/lib/domain"
 import {
   mapUserId,
@@ -23,10 +24,11 @@ import {
   remapRow,
   rewriteLocalMentions,
   sessionArrival,
+  TEAM_IMPORT_TABLES,
   TEAM_IMPORT_TEXT_COLUMNS,
   type StatusLike,
 } from "@exp/domain-contract/team-import"
-import { ARRAY_REFERENCES, DROPPED_COLUMNS, allTableMeta, type TableMeta } from "@/lib/team-import/tables"
+import { ARRAY_REFERENCES, DROPPED_COLUMNS, IMPORT_TABLES, tableMeta, type TableMeta } from "@/lib/team-import/tables"
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -314,6 +316,38 @@ async function applyAttachments(ctx: ApplyContext, meta: TableMeta, rows: Staged
   return bytes
 }
 
+/** App records go through the one records service (ids and stamps kept,
+ *  a taken id remapped by it, the quota and the events its own). */
+async function applyRecords(ctx: ApplyContext, rows: StagedRow[]): Promise<void> {
+  const byApp = new Map<string, StagedRow[]>()
+  for (const staged of rows) {
+    const app = staged.row.app_id
+    if (typeof app !== `string`) throw bad(`app_records ${staged.localId}: app_id is required`)
+    const serverApp = ctx.ids.get(`apps`, app)
+    byApp.set(serverApp, [...(byApp.get(serverApp) ?? []), staged])
+  }
+  for (const [appId, list] of byApp) {
+    const [app] = await ctx.tx
+      .select({ id: apps.id, teamId: apps.teamId, package: apps.package, draftPackage: apps.draftPackage, publishedVersion: apps.publishedVersion })
+      .from(apps)
+      .where(and(eq(apps.id, appId), eq(apps.teamId, ctx.teamId)))
+      .limit(1)
+    if (!app) throw bad(`app_records ${list[0]!.localId}: its app is not part of the import`)
+    const records = list.map((staged) => {
+      const row = staged.row
+      const author = mapUserId(typeof row.author_id === `string` ? row.author_id : typeof row.created_by === `string` ? row.created_by : null, ctx.identity.localUserId, ctx.identity.callerId, true)
+      if (typeof row.kind !== `string` || row.data === null || typeof row.data !== `object`) throw bad(`app_records ${staged.localId}: kind and data are required`)
+      const stamp = (v: unknown) => (typeof v === `string` && !Number.isNaN(new Date(v).getTime()) ? new Date(v) : undefined)
+      return { id: staged.localId, kind: row.kind, data: row.data as Record<string, unknown>, author: author as string, createdAt: stamp(row.created_at), updatedAt: stamp(row.updated_at) }
+    })
+    const remapped = await importRecords(ctx.tx, app as Pick<App, `id` | `teamId` | `package`> & Partial<Pick<App, `publishedVersion`>>, ctx.identity.callerId, `owner`, records)
+    for (const [localId, serverId] of Object.entries(remapped)) {
+      ctx.ids.set(`app_records`, localId, serverId)
+      ctx.remapped += 1
+    }
+  }
+}
+
 export interface ApplyResult {
   remapped: number
   attachmentBytes: number
@@ -344,10 +378,16 @@ export async function applyImport(
   }
   const counts: Record<string, number> = {}
   let attachmentBytes = 0
-  for (const meta of allTableMeta()) {
-    const rows = byTable.get(meta.name) ?? []
-    counts[meta.name] = rows.length
+  for (const name of TEAM_IMPORT_TABLES) {
+    const rows = byTable.get(name) ?? []
+    counts[name] = rows.length
     if (rows.length === 0) continue
+    if (!(name in IMPORT_TABLES)) {
+      if (name === `app_records`) await applyRecords(ctx, rows)
+      else throw bad(`not an import table: ${name}`)
+      continue
+    }
+    const meta = tableMeta(name)
     switch (meta.name) {
       case `issue_statuses`:
         await applyStatuses(ctx, meta, rows)
