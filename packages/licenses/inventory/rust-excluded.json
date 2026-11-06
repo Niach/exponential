@@ -120,6 +120,14 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
+      "package": "ede-protocol@0.14.135",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "ede-shell@0.14.135",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
       "package": "eengine-desktop@0.1.0",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
@@ -316,14 +324,6 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "matchers@0.2.0",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
-      "package": "memoffset@0.9.1",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
       "package": "mime_guess@2.0.5",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -337,10 +337,6 @@
     },
     {
       "package": "ndk@0.9.0",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
-      "package": "nu-ansi-term@0.50.3",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
@@ -416,10 +412,6 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "sharded-slab@0.1.7",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
       "package": "simd_cesu8@1.2.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -448,27 +440,11 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
-      "package": "thread_local@1.1.10",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
       "package": "tiny_http@0.12.0",
       "reason": "dev-dependency only — compiled for tests and benchmarks, never linked into a distributed artifact"
     },
     {
       "package": "tokio-socks@0.5.3",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
-      "package": "tracing-log@0.2.0",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
-      "package": "tracing-subscriber@0.3.23",
-      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
-    },
-    {
-      "package": "uds_windows@1.2.1",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
