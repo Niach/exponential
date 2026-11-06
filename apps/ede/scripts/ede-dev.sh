@@ -16,8 +16,9 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 target="${CARGO_TARGET_DIR:-$here/target}"
-# The shell is its own workspace (its own target/ unless CARGO_TARGET_DIR is shared).
-shell_target="${CARGO_TARGET_DIR:-$here/shell/target}"
+# The shell is a member of apps/desktop (#EDE-51): its own target/ unless CARGO_TARGET_DIR is shared.
+desktop="$(dirname "$here")/desktop"
+shell_target="${CARGO_TARGET_DIR:-$desktop/target}"
 headless=""
 dir="${EDE_UI_DIR:-}"
 while [ $# -gt 0 ]; do
@@ -33,7 +34,7 @@ if [ -z "$dir" ]; then
   echo "ui directory: $dir (scratch; --dir keeps your own)"
 fi
 (cd "$here" && cargo build -q -p ede-compositor -p ede-ui -p ede-ctl)
-(cd "$here/shell" && cargo build -q -p ede-shell)
+(cd "$desktop" && cargo build -q -p ede-shell)
 args=(--no-xwayland)
 [ -n "$headless" ] && args=(--headless "$headless" --no-xwayland)
 export EDE_FACTORY_DIR="$here/ui"

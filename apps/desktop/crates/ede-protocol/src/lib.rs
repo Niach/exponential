@@ -36,6 +36,9 @@ pub mod events {
     pub const WINDOW_FOCUSED: &str = "window.focused";
     /// A window's title or app id changed.
     pub const WINDOW_CHANGED: &str = "window.changed";
+    /// A window left the screen into the taskbar (#EDE-48); `window.restored` brings it back.
+    pub const WINDOW_MINIMIZED: &str = "window.minimized";
+    pub const WINDOW_RESTORED: &str = "window.restored";
     /// A key the shell answers (#EDE-12): `{"name": "switcher.next" | "menu.toggle" | "volume.up" | …}`.
     pub const HOTKEY: &str = "hotkey";
     pub const SESSION_LOCKED: &str = "session.locked";
@@ -74,9 +77,16 @@ pub enum Request {
     Hello { version: u32, token: Token },
     ListWindows,
     ListOutputs,
+    /// Raises and activates a window; a parked one brings its workspace
+    /// along and a minimized one comes back first (#EDE-48).
     FocusWindow { window: WindowId },
     CloseWindow { window: WindowId },
     MoveWindow { window: WindowId, x: i32, y: i32 },
+    /// Into the taskbar (#EDE-48): the window leaves the screen but keeps
+    /// its geometry and workspace; `restore_window` or `focus_window`
+    /// brings it back.
+    MinimizeWindow { window: WindowId },
+    RestoreWindow { window: WindowId },
     /// Pixels of an output or a window; protected windows are black in an
     /// output capture and refused as a window capture, a locked session is
     /// black. `since` = the `serial` of the last capture: when nothing was
@@ -169,7 +179,7 @@ impl Request {
     pub fn capability(&self) -> Option<Capability> {
         match self {
             Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe => None,
-            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
+            Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
             Request::Input { .. } => Some(Capability::InputPerson),
@@ -234,6 +244,10 @@ pub struct WindowInfo {
     /// The workspace it lives on (0-based).
     #[serde(default)]
     pub workspace: usize,
+    /// In the taskbar only (#EDE-48): unmapped, not focusable, its
+    /// geometry kept for the restore.
+    #[serde(default)]
+    pub minimized: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -491,6 +505,14 @@ impl Client {
         self.call(Request::CloseWindow { window }).map(|_| ())
     }
 
+    pub fn minimize(&mut self, window: WindowId) -> Result<(), Error> {
+        self.call(Request::MinimizeWindow { window }).map(|_| ())
+    }
+
+    pub fn restore(&mut self, window: WindowId) -> Result<(), Error> {
+        self.call(Request::RestoreWindow { window }).map(|_| ())
+    }
+
     pub fn lock(&mut self) -> Result<(), Error> {
         self.call(Request::Lock).map(|_| ())
     }
@@ -557,6 +579,17 @@ mod tests {
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 }, bindings: false }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
         assert_eq!(Request::ListWindows.capability(), None);
+        assert_eq!(Request::MinimizeWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));
+        assert_eq!(Request::RestoreWindow { window: WindowId::new("w1").unwrap() }.capability(), Some(Capability::Ui));
+    }
+
+    #[test]
+    fn a_window_listed_by_an_older_compositor_is_not_minimized() {
+        let old = r#"{"id":"w1","title":"a","app_id":null,"x":0,"y":0,"width":1,"height":1,"focused":false,"fullscreen":false,"protected":false,"x11":false}"#;
+        let w: WindowInfo = serde_json::from_str(old).unwrap();
+        assert!(!w.minimized && w.workspace == 0);
+        let call = Call { id: 1, request: Request::MinimizeWindow { window: w.id } };
+        assert_eq!(serde_json::to_value(&call).unwrap(), serde_json::json!({"id": 1, "op": "minimize_window", "window": "w1"}));
     }
 
     #[test]

@@ -1,11 +1,12 @@
 //! The domains. Each talks to its daemon over the system bus (zbus,
-//! blocking) or a command the distribution ships, and answers
+//! blocking; `media` over the session bus) or a command the distribution ships, and answers
 //! `unavailable` when it is not there, so a page can say so.
 
 pub mod about;
 pub mod bluetooth;
 pub mod disks;
 pub mod firmware;
+pub mod media;
 pub mod network;
 pub mod power;
 pub mod printers;
@@ -22,6 +23,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
     vec![
         Box::new(network::Network),
         Box::new(sound::Sound),
+        Box::new(media::Media),
         Box::new(bluetooth::Bluetooth),
         Box::new(power::Power),
         Box::new(disks::Disks),
@@ -41,6 +43,11 @@ pub fn managed_objects(conn: &Connection, dest: &str, path: &str) -> Result<Mana
 
 pub fn system_bus() -> Result<Connection, String> {
     Connection::system().map_err(|e| format!("no system bus: {e}"))
+}
+
+/// The session bus (MPRIS players live there).
+pub fn session_bus() -> Result<Connection, String> {
+    Connection::session().map_err(|e| format!("no session bus: {e}"))
 }
 
 /// A property read as `T`.

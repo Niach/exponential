@@ -28,7 +28,7 @@ udev = [
 ]
 
 [dependencies]
-ede-protocol = { path = "../ede-protocol" }
+ede-protocol = { path = "../../../desktop/crates/ede-protocol" }
 serde_json = "1"
 smithay = { workspace = true, features = ["wayland_frontend", "desktop", "renderer_gl", "renderer_pixman"] }
 serde.workspace = true

@@ -112,6 +112,11 @@ pub struct Windows {
     pub edge_tiling_px: i32,
     /// Size (px) of the corner zones along each edge.
     pub corner_px: i32,
+    /// The IDE look (#EDE-48): windows sit on a panel inside a frame, so
+    /// the work area (maximize, tiling, Super+Up/Left/Right, new windows)
+    /// is the output minus exclusive layer zones, inset by this many px on
+    /// every side. 0 = flush with the panel and the screen edges.
+    pub panel_margin: i32,
 }
 
 impl Default for Config {
@@ -155,7 +160,7 @@ impl Default for Idle {
 
 impl Default for Windows {
     fn default() -> Self {
-        Self { snap_threshold: 12, edge_tiling: true, edge_tiling_px: 4, corner_px: 120 }
+        Self { snap_threshold: 12, edge_tiling: true, edge_tiling_px: 4, corner_px: 120, panel_margin: 10 }
     }
 }
 
@@ -213,6 +218,9 @@ impl Config {
     pub fn parse(text: &str) -> Result<Self, String> {
         let cfg: Config = toml::from_str(text).map_err(|e| e.to_string())?;
         cfg.background_rgba()?;
+        if cfg.windows.panel_margin < 0 {
+            return Err("[windows] panel_margin must be 0 or more".into());
+        }
         for o in &cfg.outputs {
             if o.name.is_empty() {
                 return Err("[[outputs]] needs a name".into());
@@ -269,6 +277,9 @@ mod tests {
         let cfg = Config::parse("background = \"#102030\"\n[windows]\nsnap_threshold = 0\n[keyboard]\nlayout = \"de\"\n").unwrap();
         assert_eq!(cfg.windows.snap_threshold, 0);
         assert!(cfg.windows.edge_tiling);
+        assert_eq!(cfg.windows.panel_margin, 10, "the IDE look's default");
+        assert_eq!(Config::parse("[windows]\npanel_margin = 0\n").unwrap().windows.panel_margin, 0);
+        assert!(Config::parse("[windows]\npanel_margin = -1\n").is_err());
         assert_eq!(cfg.keyboard.layout, "de");
         assert_eq!(cfg.keyboard.repeat_rate, 30);
         let [r, g, b, a] = cfg.background_rgba().unwrap();
