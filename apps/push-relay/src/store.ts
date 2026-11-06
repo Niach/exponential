@@ -24,8 +24,17 @@ export interface InstallRow {
   token: string
   topic: string | null
   environment: ApnsEnvironment | null
+  /** #EXP-1639: ActivityKit's push-to-start token (APNs installs only). */
+  activityStartToken?: string | null
   createdAt: number
   updatedAt: number
+}
+
+export interface ActivityRow {
+  id: string
+  installId: string
+  token: string
+  createdAt: number
 }
 
 export interface CapabilityRow {
@@ -73,6 +82,15 @@ const SCHEMA = [
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS capabilities_install_id ON capabilities (install_id)`,
+  // #EXP-1639: a Live Activity the device started (ActivityKit's per-activity
+  // push token), addressed by the opaque id the relay hands back.
+  `CREATE TABLE IF NOT EXISTS activities (
+    id TEXT PRIMARY KEY,
+    install_id TEXT NOT NULL,
+    token TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS activities_install_id ON activities (install_id)`,
 ]
 
 interface InstallDbRow {
@@ -82,6 +100,7 @@ interface InstallDbRow {
   token: string
   topic: string | null
   environment: ApnsEnvironment | null
+  activity_start_token: string | null
   created_at: number
   updated_at: number
 }
@@ -107,6 +126,7 @@ function toInstall(row: InstallDbRow): InstallRow {
     token: row.token,
     topic: row.topic,
     environment: row.environment,
+    activityStartToken: row.activity_start_token,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -135,6 +155,10 @@ export class RelayStore {
     // registration; harmless on ":memory:".
     db.exec(`PRAGMA journal_mode = WAL`)
     for (const statement of SCHEMA) db.exec(statement)
+    const columns = db.query<{ name: string }, []>(`PRAGMA table_info(installs)`).all()
+    if (!columns.some((column) => column.name === `activity_start_token`)) {
+      db.exec(`ALTER TABLE installs ADD COLUMN activity_start_token TEXT`)
+    }
   }
 
   /** Opens (creating the directory if needed) the store at `path`; ":memory:" for tests. */
@@ -167,8 +191,44 @@ export class RelayStore {
   deleteInstall(id: string): boolean {
     return this.db.transaction(() => {
       this.db.query(`DELETE FROM capabilities WHERE install_id = ?`).run(id)
+      this.db.query(`DELETE FROM activities WHERE install_id = ?`).run(id)
       return this.db.query(`DELETE FROM installs WHERE id = ?`).run(id).changes > 0
     })()
+  }
+
+  setActivityStartToken(id: string, token: string | null, now: number): void {
+    this.db.query(`UPDATE installs SET activity_start_token = ?, updated_at = ? WHERE id = ?`).run(token, now, id)
+  }
+
+  insertActivity(row: ActivityRow): void {
+    this.db
+      .query(`INSERT INTO activities (id, install_id, token, created_at) VALUES (?, ?, ?, ?)`)
+      .run(row.id, row.installId, row.token, row.createdAt)
+  }
+
+  getActivity(installId: string, id: string): ActivityRow | null {
+    const row = this.db
+      .query<{ id: string; install_id: string; token: string; created_at: number }, [string, string]>(
+        `SELECT * FROM activities WHERE id = ? AND install_id = ?`
+      )
+      .get(id, installId)
+    return row ? { id: row.id, installId: row.install_id, token: row.token, createdAt: row.created_at } : null
+  }
+
+  countActivities(installId: string): number {
+    const row = this.db
+      .query<{ n: number }, [string]>(`SELECT COUNT(*) AS n FROM activities WHERE install_id = ?`)
+      .get(installId)
+    return row?.n ?? 0
+  }
+
+  deleteActivity(installId: string, id: string): boolean {
+    return this.db.query(`DELETE FROM activities WHERE id = ? AND install_id = ?`).run(id, installId).changes > 0
+  }
+
+  /** Activities older than ActivityKit's 12-hour lifetime are dead weight. */
+  deleteOldActivities(before: number): number {
+    return this.db.query(`DELETE FROM activities WHERE created_at <= ?`).run(before).changes
   }
 
   insertCapability(row: CapabilityRow): void {

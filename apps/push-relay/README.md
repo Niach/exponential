@@ -28,6 +28,10 @@ There are no accounts and no privileged caller. A peer device, a desktop agent a
 | `GET /installs/:id/capabilities` | `Bearer <installSecret>` | list them (never the tokens) |
 | `DELETE /installs/:id/capabilities/:capId` | `Bearer <installSecret>` | revoke one |
 | `POST /push` | `Bearer cap_…` | push a sealed payload |
+| `PUT /installs/:id/activity-start-token` | `Bearer <installSecret>` | set (or clear with `null`) ActivityKit's push-to-start token |
+| `POST /installs/:id/activities` | `Bearer <installSecret>` | register a started Live Activity's push token, get its `activityId` |
+| `DELETE /installs/:id/activities/:activityId` | `Bearer <installSecret>` | forget one |
+| `POST /activity` | `Bearer cap_…` | start / update / end a Live Activity with a sealed content |
 | `GET /healthz` | none | `{"ok":true}`, the constant Docker's HEALTHCHECK polls |
 | `GET /healthz?detail=1` | none | `{"ok":true,"api":true,"compatSend":bool,"providers":{"fcm":bool,"apns":bool}}` |
 | `GET /healthz?deep=1` | `x-relay-secret` | a dry-run FCM multicast that exercises the transport end to end |
@@ -140,6 +144,22 @@ What goes on the wire:
 
   The alert is a fixed placeholder (`PUSH_PLACEHOLDER_TITLE`, optional `PUSH_PLACEHOLDER_BODY`). The app's Notification Service Extension opens `s` and replaces title and body, so neither the relay nor Apple sees the text.
 - **FCM**: data-only, `{"data": {"s": "<sealed>"}}` with the android priority/ttl/collapseKey above. The app's messaging service opens `s` and posts the notification itself.
+
+### Live Activities: `POST /activity` (#EXP-1639)
+
+```http
+POST /activity
+Authorization: Bearer cap_…
+
+{ "event": "update", "activityId": "act_…", "sealed": "<base64url>", "urgency": "high", "staleAt": "…", "dismissAt": "…" }
+```
+
+- `event`: `start` (APNs: the install's push-to-start token, `409` without one), `update` or `end` (APNs: the registered `activityId`, `410` once it is gone; a successful `end` forgets it).
+- `sealed`: the activity's whole content, sealed like a push (≤ 3072 bytes decoded).
+- `urgency`: `"normal"` (default) or `"high"`: APNs priority 5/10.
+- `staleAt` / `dismissAt`: ISO date-times, APNs `stale-date` / `dismissal-date`.
+
+On the wire, **APNs** gets `apns-push-type: liveactivity` on `<topic>.push-type.liveactivity` with `{"aps": {"timestamp", "event", "content-state": {"s": "<sealed>"}, …}}` (a `start` adds `"attributes-type": "SessionActivityAttributes"`, empty `attributes` and the placeholder alert). The app's widget extension opens `s` with the push key, so neither the relay nor Apple sees a title. A dead activity token deletes that activity only, never the install. **FCM** gets data-only `{"data": {"s": "<sealed>", "activity": "<event>"}}`; the app draws its Live Update itself. Activities older than 12 hours are swept.
 
 ### The sealing contract
 

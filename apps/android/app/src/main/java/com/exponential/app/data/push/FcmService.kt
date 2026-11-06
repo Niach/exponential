@@ -27,6 +27,7 @@ class FcmService : FirebaseMessagingService() {
     @Inject lateinit var syncManager: SyncManager
     @Inject lateinit var pushKeyStore: PushKeyStore
     @Inject lateinit var treeKeyStore: TreeKeyStore
+    @Inject lateinit var liveActivities: LiveActivityNotifier
 
     override fun onNewToken(token: String) {
         Log.i(TAG, "FCM token rotated")
@@ -57,6 +58,19 @@ class FcmService : FirebaseMessagingService() {
         val payload = secret?.let { openSealedPush(sealed) { bytes -> PushCrypto.open(it, bytes) } }
         if (payload == null) {
             Log.w(TAG, "sealed push dropped (${if (secret == null) "no key" else "unopenable"})")
+            return
+        }
+        // #EXP-1639: a Live Update (`{s, activity}`), drawn, never a sound.
+        data[LiveActivity.EVENT_KEY]?.let { event ->
+            liveActivities.show(event, payload) { sessionId, userId ->
+                val target = PushDeepLinks.Target.Session(sessionId)
+                PendingIntent.getActivity(
+                    this,
+                    LiveActivityNotifier.notificationId(sessionId),
+                    contentIntent(target, userId),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+            }
             return
         }
         // #VAPP-45: a question push carries its tree-sealed text; opened
@@ -113,17 +127,7 @@ class FcmService : FirebaseMessagingService() {
             activeAccountId = auth.activeAccountId.value,
             targetUserId = targetUserId,
         )
-
-        val intent = if (target != null && account != PushDeepLinks.Account.Unknown) {
-            Intent(Intent.ACTION_VIEW, Uri.parse(PushDeepLinks.uri(target, targetUserId))).apply {
-                setPackage(packageName)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-        } else {
-            Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-        }
+        val intent = contentIntent(target, targetUserId)
 
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -156,6 +160,25 @@ class FcmService : FirebaseMessagingService() {
         } catch (err: SecurityException) {
             // POST_NOTIFICATIONS not granted — drop silently.
             Log.w(TAG, "notify denied: ${err.message}")
+        }
+    }
+
+    /** The intent a tap on a push opens: its target under its user, else a bare launch. */
+    private fun contentIntent(target: PushDeepLinks.Target?, targetUserId: String?): Intent {
+        val account = PushDeepLinks.resolveAccount(
+            accounts = auth.accounts.value,
+            activeAccountId = auth.activeAccountId.value,
+            targetUserId = targetUserId,
+        )
+        return if (target != null && account != PushDeepLinks.Account.Unknown) {
+            Intent(Intent.ACTION_VIEW, Uri.parse(PushDeepLinks.uri(target, targetUserId))).apply {
+                setPackage(packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+        } else {
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
         }
     }
 

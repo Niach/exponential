@@ -1,7 +1,8 @@
 import { z } from "zod"
 import { and, eq } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { fcmTokens } from "@/db/schema"
+import { fcmTokens, liveActivityFollows, sessions } from "@/db/schema"
+import { kickLiveActivities } from "@/lib/integrations/live-activities"
 
 // 32 bytes as unpadded base64url = 43 chars; the last char carries only 4
 // significant bits, so it is one of [AEIMQUYcgkosw048].
@@ -38,6 +39,9 @@ export const pushTokensRouter = router({
             .string()
             .regex(PUSH_PUBLIC_KEY_RE, `base64url of 32 bytes`)
             .optional(),
+          // #EXP-1639: the build draws Live Activities / Live Updates (sealed
+          // registrations only: their content is sealed to the push key).
+          liveActivities: z.boolean().optional(),
         })
         .refine(
           (v) => (v.capability === undefined) === (v.pushPublicKey === undefined),
@@ -64,6 +68,7 @@ export const pushTokensRouter = router({
           platform: input.platform,
           relayCapability: input.capability ?? null,
           pushPublicKey: input.pushPublicKey ?? null,
+          liveActivities: Boolean(input.liveActivities && input.capability),
         })
         .onConflictDoUpdate({
           target: [fcmTokens.token, fcmTokens.userId],
@@ -74,9 +79,49 @@ export const pushTokensRouter = router({
             platform: input.platform,
             relayCapability: input.capability ?? null,
             pushPublicKey: input.pushPublicKey ?? null,
+            liveActivities: Boolean(input.liveActivities && input.capability),
             updatedAt: new Date(),
           },
         })
+      if (input.liveActivities) kickLiveActivities([userId])
+      return { ok: true }
+    }),
+
+  /** #EXP-1639: the phone started (or ActivityKit restarted) the Live
+   *  Activity of a session and registered its push token with the relay as
+   *  `activityId`; the next change of that session is pushed to it. Only the
+   *  member's own registration and own session. */
+  activity: authedProcedure
+    .input(
+      z.object({
+        token: z.string().min(1),
+        sessionId: z.string().uuid(),
+        activityId: z.string().startsWith(`act_`).max(64),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const [row] = await ctx.db
+        .select({ id: fcmTokens.id })
+        .from(fcmTokens)
+        .where(and(eq(fcmTokens.token, input.token), eq(fcmTokens.userId, userId)))
+        .limit(1)
+      const [session] = await ctx.db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(and(eq(sessions.id, input.sessionId), eq(sessions.userId, userId)))
+        .limit(1)
+      if (!row || !session) return { ok: false }
+      const now = new Date()
+      await ctx.db
+        .insert(liveActivityFollows)
+        .values({ sessionId: session.id, fcmTokenId: row.id, relayActivityId: input.activityId, content: ``, sentAt: now })
+        .onConflictDoUpdate({
+          target: [liveActivityFollows.sessionId, liveActivityFollows.fcmTokenId],
+          // An empty content forces the next sync to push the current one.
+          set: { relayActivityId: input.activityId, content: ``, updatedAt: now },
+        })
+      kickLiveActivities([userId])
       return { ok: true }
     }),
 

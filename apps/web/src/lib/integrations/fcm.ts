@@ -9,7 +9,7 @@ import { QUESTION_PUSH_DATA_KEYS } from "@exp/domain-contract/question-push"
 
 let relayUrl: string | null | undefined
 
-function getRelayUrl(): string | null {
+export function getRelayUrl(): string | null {
   if (relayUrl !== undefined) return relayUrl
 
   const url = process.env.PUSH_RELAY_URL

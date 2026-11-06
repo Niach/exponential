@@ -16,6 +16,8 @@ data class RegisterPushTokenInput(
     val platform: String,
     val capability: String,
     val pushPublicKey: String,
+    /** #EXP-1639: this build draws Live Updates (FcmService, `LiveActivity`). */
+    val liveActivities: Boolean = true,
 )
 
 @Serializable

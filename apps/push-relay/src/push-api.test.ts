@@ -463,3 +463,88 @@ describe(`APNs provider token`, () => {
     expect(() => createApnsClient({ keyP8: pem, keyId: `K`, teamId: `T` })).not.toThrow()
   })
 })
+
+// #EXP-1639: Live Activities through the relay. ActivityKit's content-state
+// is only the sealed blob; the tokens never leave the relay.
+describe(`activities`, () => {
+  function activity(relay: Relay, capability: string, body: Record<string, unknown>) {
+    return call(relay, `POST`, `/activity`, body, capability)
+  }
+
+  test(`push-to-start uses the install's start token and a liveactivity topic`, async () => {
+    const relay = setup()
+    const install = await register(relay)
+    const { capability } = await mint(relay, install)
+    expect((await activity(relay, capability, { event: `start`, sealed: sealed() })).status).toBe(409)
+    const put = await call(relay, `PUT`, `/installs/${install.installId}/activity-start-token`, { token: APNS_TOKEN_2 }, install.installSecret)
+    expect(put.status).toBe(204)
+    const res = await activity(relay, capability, { event: `start`, sealed: sealed(), urgency: `high` })
+    expect(res.status).toBe(202)
+    const sent = relay.apns!.calls.at(-1)!
+    expect(sent.token).toBe(APNS_TOKEN_2)
+    expect(sent.headers).toMatchObject({
+      "apns-topic": `${TOPIC}.push-type.liveactivity`,
+      "apns-push-type": `liveactivity`,
+      "apns-priority": `10`,
+    })
+    const payload = JSON.parse(sent.payload)
+    expect(payload.aps.event).toBe(`start`)
+    expect(payload.aps[`content-state`]).toEqual({ s: sealed() })
+    expect(payload.aps[`attributes-type`]).toBe(`SessionActivityAttributes`)
+    expect(payload.aps.attributes).toEqual({})
+  })
+
+  test(`update and end address a registered activity; end forgets it`, async () => {
+    const relay = setup()
+    const install = await register(relay)
+    const { capability } = await mint(relay, install)
+    const reg = await call(relay, `POST`, `/installs/${install.installId}/activities`, { token: APNS_TOKEN_2 }, install.installSecret)
+    expect(reg.status).toBe(201)
+    const { activityId } = (await reg.json()) as { activityId: string }
+    expect(activityId).toMatch(/^act_/)
+    const update = await activity(relay, capability, {
+      event: `update`,
+      activityId,
+      sealed: sealed(),
+      staleAt: `2026-10-29T13:00:00.000Z`,
+    })
+    expect(update.status).toBe(202)
+    const payload = JSON.parse(relay.apns!.calls.at(-1)!.payload)
+    expect(payload.aps[`stale-date`]).toBe(Date.UTC(2026, 9, 29, 13) / 1000)
+    expect(payload.aps.attributes).toBeUndefined()
+    expect(relay.apns!.calls.at(-1)!.token).toBe(APNS_TOKEN_2)
+    expect((await activity(relay, capability, { event: `end`, activityId, sealed: sealed() })).status).toBe(202)
+    expect((await activity(relay, capability, { event: `update`, activityId, sealed: sealed() })).status).toBe(410)
+  })
+
+  test(`an activity's install secret is required to register, a foreign one is refused`, async () => {
+    const relay = setup()
+    const install = await register(relay)
+    const other = await register(relay, { platform: `apns`, token: APNS_TOKEN_2 })
+    const res = await call(relay, `POST`, `/installs/${install.installId}/activities`, { token: APNS_TOKEN_2 }, other.installSecret)
+    expect(res.status).toBe(401)
+  })
+
+  test(`a dead activity token drops the activity, never the install`, async () => {
+    const apns = fakeApns((request) =>
+      request.headers[`apns-push-type`] === `liveactivity` ? { status: 410, reason: `Unregistered` } : { status: 200 }
+    )
+    const relay = setup({ apns: apns.client })
+    const install = await register(relay)
+    const { capability } = await mint(relay, install)
+    const reg = await call(relay, `POST`, `/installs/${install.installId}/activities`, { token: APNS_TOKEN_2 }, install.installSecret)
+    const { activityId } = (await reg.json()) as { activityId: string }
+    expect((await activity(relay, capability, { event: `update`, activityId, sealed: sealed() })).status).toBe(410)
+    expect(relay.store.getActivity(install.installId, activityId)).toBeNull()
+    expect(relay.store.getInstall(install.installId)).not.toBeNull()
+  })
+
+  test(`an FCM install gets a data-only message naming the event`, async () => {
+    const relay = setup()
+    const install = await register(relay, { platform: `fcm`, token: FCM_TOKEN })
+    const { capability } = await mint(relay, install)
+    const res = await activity(relay, capability, { event: `update`, sealed: sealed() })
+    expect(res.status).toBe(202)
+    expect(relay.fcm!.calls.at(-1)!.data).toEqual({ s: sealed(), activity: `update` })
+  })
+})

@@ -71,6 +71,11 @@ const MAX_MAX_PER_HOUR = 600
 const MAX_TTL_SECONDS = 2_419_200 // 28 days, FCM's ceiling (APNs keeps ~30)
 const DEFAULT_REGISTRATION_LIMIT = { max: 20, windowMs: 60 * 60 * 1000 }
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000
+const MAX_ACTIVITIES_PER_INSTALL = 16
+/** ActivityKit ends an activity after at most 12 hours. */
+const ACTIVITY_LIFETIME_MS = 12 * 60 * 60 * 1000
+/** The widget extension's ActivityAttributes type (apps/ios). */
+export const ACTIVITY_ATTRIBUTES_TYPE = `SessionActivityAttributes`
 
 export const CAPABILITY_PREFIX = `cap_`
 
@@ -98,6 +103,19 @@ const capabilitySchema = z.object({
   label: z.string().max(64).optional(),
   expiresAt: z.iso.datetime({ offset: true }).optional(),
   maxPerHour: z.number().int().min(1).max(MAX_MAX_PER_HOUR).optional(),
+})
+
+const activityTokenSchema = z.object({ token: z.string() })
+
+// #EXP-1639: a Live Activity push. `sealed` is the whole content, sealed to
+// the install like a push; ActivityKit's content-state carries only it.
+const activitySchema = z.object({
+  event: z.enum([`start`, `update`, `end`]),
+  activityId: z.string().min(1).max(64).optional(),
+  sealed: z.string().min(1),
+  urgency: z.enum([`high`, `normal`]).optional(),
+  staleAt: z.iso.datetime({ offset: true }).optional(),
+  dismissAt: z.iso.datetime({ offset: true }).optional(),
 })
 
 const pushSchema = z.object({
@@ -162,6 +180,7 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
   setInterval(() => {
     try {
       store.deleteExpiredCapabilities(now())
+      store.deleteOldActivities(now() - ACTIVITY_LIFETIME_MS)
     } catch (err) {
       log.error(`expired-capability sweep failed`, err)
     }
@@ -344,6 +363,48 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
     return c.body(null, 204)
   })
 
+  // ── Live Activities (#EXP-1639) ─────────────────────────────────────────────
+
+  // ActivityKit's push-to-start token; null clears it.
+  app.put(`/installs/:id/activity-start-token`, async (c) => {
+    const install = authInstall(c)
+    if (install instanceof Response) return install
+    if (install.platform !== `apns`) return c.json({ error: `Bad request`, message: `APNs-only` }, 400)
+    const read = await readJson(c)
+    if (read instanceof Response) return read
+    const parsed = z.object({ token: z.string().nullable() }).safeParse(read.body)
+    if (!parsed.success) return c.json({ error: `Bad request`, issues: parsed.error.issues }, 400)
+    const { token } = parsed.data
+    if (token !== null && !APNS_TOKEN_RE.test(token)) return c.json({ error: `Bad request`, field: `token` }, 400)
+    store.setActivityStartToken(install.id, token, now())
+    return c.body(null, 204)
+  })
+
+  // A started activity's own push token: the caller addresses it by the id.
+  app.post(`/installs/:id/activities`, async (c) => {
+    const install = authInstall(c)
+    if (install instanceof Response) return install
+    if (install.platform !== `apns`) return c.json({ error: `Bad request`, message: `APNs-only` }, 400)
+    const read = await readJson(c)
+    if (read instanceof Response) return read
+    const parsed = activityTokenSchema.safeParse(read.body)
+    if (!parsed.success) return c.json({ error: `Bad request`, issues: parsed.error.issues }, 400)
+    if (!APNS_TOKEN_RE.test(parsed.data.token)) return c.json({ error: `Bad request`, field: `token` }, 400)
+    if (store.countActivities(install.id) >= MAX_ACTIVITIES_PER_INSTALL) {
+      return c.json({ error: `Too many activities` }, 409)
+    }
+    const activityId = randomId(`act_`, 12)
+    store.insertActivity({ id: activityId, installId: install.id, token: parsed.data.token, createdAt: now() })
+    return c.json({ activityId }, 201)
+  })
+
+  app.delete(`/installs/:id/activities/:activityId`, (c) => {
+    const install = authInstall(c)
+    if (install instanceof Response) return install
+    if (!store.deleteActivity(install.id, c.req.param(`activityId`))) return c.json({ error: `Not found` }, 404)
+    return c.body(null, 204)
+  })
+
   // ── Push ────────────────────────────────────────────────────────────────────
 
   function dead(c: Context, install: InstallRow): Response {
@@ -442,6 +503,112 @@ export function mountPushApi(app: Hono, options: PushApiOptions) {
         ...(ttlSeconds !== undefined ? { ttl: ttlSeconds * 1000 } : {}),
         ...(collapseId !== undefined ? { collapseKey: collapseId } : {}),
       },
+    }
+    try {
+      const response = await withDeadline(messaging.sendEachForMulticast(message), fcmDeadlineMs)
+      const result = response.responses[0]
+      if (result?.success) {
+        stats.delivered += 1
+        return c.json({ delivered: true }, 202)
+      }
+      const code = result?.error?.code
+      if (code && DEAD_CODES.has(code)) return dead(c, install)
+      return providerError(c, install, `code=${code ?? `unknown`}`)
+    } catch (err) {
+      if (err instanceof DeadlineError) return providerError(c, install, `deadline exceeded`, 504)
+      return providerError(c, install, String(err))
+    }
+  })
+
+  // #EXP-1639: start / update / end a Live Activity. APNs installs get a
+  // `liveactivity` push whose content-state is ONLY the sealed blob (the
+  // widget extension opens it with the push key); FCM installs get a
+  // data-only message the app opens and draws as its Live Update.
+  app.post(`/activity`, async (c) => {
+    stats.pushRequests += 1
+    const token = bearer(c)
+    if (!token?.startsWith(CAPABILITY_PREFIX)) return unauthorized(c)
+    const capability = store.findCapability(hashSecret(token))
+    const current = now()
+    if (!capability || (capability.expiresAt !== null && capability.expiresAt <= current)) return unauthorized(c)
+    const install = store.getInstall(capability.installId)
+    if (!install) return c.json({ error: `Install gone` }, 410)
+
+    const read = await readJson(c)
+    if (read instanceof Response) return read
+    const parsed = activitySchema.safeParse(read.body)
+    if (!parsed.success) return c.json({ error: `Bad request`, issues: parsed.error.issues }, 400)
+    const { event, activityId, sealed, urgency = `normal`, staleAt, dismissAt } = parsed.data
+    if (!BASE64URL_RE.test(sealed)) return c.json({ error: `Bad request`, field: `sealed` }, 400)
+    if (Buffer.from(sealed, `base64url`).length > MAX_SEALED_BYTES) {
+      return c.json({ error: `Sealed payload too large` }, 413)
+    }
+
+    if (install.platform === `apns`) {
+      if (!apns) return c.json({ error: `APNs not configured` }, 503)
+      const activity = event === `start` ? null : activityId ? store.getActivity(install.id, activityId) : null
+      const target = event === `start` ? (install.activityStartToken ?? null) : (activity?.token ?? null)
+      if (event !== `start` && !activityId) return c.json({ error: `Bad request`, field: `activityId` }, 400)
+      if (!target) return c.json({ error: event === `start` ? `No start token` : `Activity gone` }, event === `start` ? 409 : 410)
+      if (!store.consumeCapability(capability, current)) {
+        stats.rateLimited += 1
+        return c.json({ error: `Rate limit exceeded` }, 429)
+      }
+      const seconds = (iso: string | undefined) => (iso ? Math.floor(Date.parse(iso) / 1000) : undefined)
+      const payload = JSON.stringify({
+        aps: {
+          timestamp: Math.floor(current / 1000),
+          event,
+          "content-state": { s: sealed },
+          ...(staleAt ? { "stale-date": seconds(staleAt) } : {}),
+          ...(dismissAt ? { "dismissal-date": seconds(dismissAt) } : {}),
+          ...(event === `start`
+            ? {
+                "attributes-type": ACTIVITY_ATTRIBUTES_TYPE,
+                attributes: {},
+                alert: { title: placeholderTitle },
+              }
+            : {}),
+        },
+      })
+      const headers: Record<string, string> = {
+        "apns-topic": `${install.topic ?? ``}.push-type.liveactivity`,
+        "apns-push-type": `liveactivity`,
+        "apns-priority": urgency === `high` ? `10` : `5`,
+      }
+      try {
+        const result = await withDeadline(
+          apns.send({ token: target, environment: install.environment ?? `production`, headers, payload }),
+          fcmDeadlineMs
+        )
+        if (result.status === 200) {
+          stats.delivered += 1
+          if (event === `end` && activity) store.deleteActivity(install.id, activity.id)
+          return c.json({ delivered: true }, 202)
+        }
+        if (result.status === 410 || result.reason === `BadDeviceToken` || result.reason === `Unregistered`) {
+          // A dead ACTIVITY token kills that activity only, never the install.
+          if (activity) store.deleteActivity(install.id, activity.id)
+          else store.setActivityStartToken(install.id, null, current)
+          return c.json({ error: event === `start` ? `No start token` : `Activity gone` }, 410)
+        }
+        return providerError(c, install, `status ${result.status} ${result.reason ?? ``}`.trim())
+      } catch (err) {
+        if (err instanceof DeadlineError) return providerError(c, install, `deadline exceeded`, 504)
+        return providerError(c, install, String(err))
+      }
+    }
+
+    if (!store.consumeCapability(capability, current)) {
+      stats.rateLimited += 1
+      return c.json({ error: `Rate limit exceeded` }, 429)
+    }
+    const messaging = getMessaging()
+    if (!messaging) return c.json({ error: `FCM not configured` }, 503)
+    const message: MulticastMessage = {
+      tokens: [install.token],
+      data: { s: sealed, activity: event },
+      android: { priority: urgency },
     }
     try {
       const response = await withDeadline(messaging.sendEachForMulticast(message), fcmDeadlineMs)

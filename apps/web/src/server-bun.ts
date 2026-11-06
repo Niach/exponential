@@ -46,6 +46,7 @@ import { kickImportWorker } from "@/lib/import/kick"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startSessionWatchdog } from "@/lib/sessions/watchdog"
+import { startLiveActivityScheduler } from "@/lib/integrations/live-activities"
 import { startEmcpSchedulers } from "@/lib/emcp/schedulers"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
@@ -88,6 +89,10 @@ startBoardTrashScheduler()
 // reports nothing, pending input nobody delivers: flagged on the row, said
 // once in the parent's conversation, nudged to the device.
 startSessionWatchdog()
+
+// #EXP-1639: Live Activities / Live Updates, every 30 s — each followed
+// session's content, sealed to the phone, on a change only.
+startLiveActivityScheduler()
 
 // Conversation + Guide uploads (EXP-1291): periodic reclaim of owner-less
 // attachments rows no Guide references, past the grace window — unreachable
