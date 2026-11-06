@@ -24,7 +24,7 @@ object Actions {
         /** `set`, `records.upsert` / `.delete` / `.batch`. */
         Write("write"),
 
-        /** `openUrl`, `bind`, every `actions.` `harness.` `exponential.` `tools.` `upstream.` name. */
+        /** `openUrl`, `bind`, every `actions.` `harness.` `exponential.` `tools.` `upstream.` name and every Engine capability's (`photos.`, `files.`, `print.`, `share.`, …; VAPP-271). */
         Host("host"),
         ;
 
@@ -58,9 +58,27 @@ object Actions {
         val calls: List<Call> get() = json["calls"]?.array.orEmpty().map { Call(it["name"]?.string.orEmpty(), it["args"]?.obj.orEmpty()) }
     }
 
-    /** The plan, or the one error that discards the whole action. */
+    /**
+     * VAPP-271: the first `call` step with a `result` the run reached
+     * unanswered: the host gates and runs it (before any commit), then runs
+     * the action again over the SAME snapshot with its answer under
+     * `results[result]`.
+     */
+    data class Pending(
+        /** The step's index in the action. */
+        val step: Int,
+        /** The host function to call. */
+        val name: String,
+        val args: Map<String, JsonValue>,
+        /** The result name later steps read it as (`results.<result>`). */
+        val result: String,
+    )
+
+    /** The plan, a result call still to answer (VAPP-271), or the one error that discards the whole action. */
     sealed interface Outcome {
         data class Planned(val plan: Plan) : Outcome
+
+        data class Waiting(val pending: Pending) : Outcome
 
         data class Error(val message: String) : Outcome
     }
@@ -76,8 +94,9 @@ object Actions {
      * Runs action [name] of [pkg] with [params] against one snapshot: [data]
      * (the surface data model), [me] (the member; null = unknown), [nowMs]
      * (epoch ms; null = the wall clock), [zone] (the team zone; null = UTC),
-     * [maxSteps] (the run's budget; null = the contract's 100 000). Pure:
-     * nothing is written.
+     * [maxSteps] (the run's budget; null = the contract's 100 000),
+     * [results] (VAPP-271: the answers of the result calls so far, by
+     * result name). Pure: nothing is written.
      */
     fun run(
         pkg: JsonValue,
@@ -88,18 +107,32 @@ object Actions {
         nowMs: Double? = null,
         zone: HostZone? = null,
         maxSteps: UInt? = null,
+        results: Map<String, JsonValue> = emptyMap(),
     ): Outcome {
         val out = runCatching {
-            at.exponential.ui.ffi.runPackageActionJson(pkg.json, name, (params ?: JsonValue.Null).json, (data ?: JsonValue.Null).json, me, nowMs, zone, maxSteps)
+            at.exponential.ui.ffi.runPackageActionJson(
+                pkg.json,
+                name,
+                (params ?: JsonValue.Null).json,
+                (data ?: JsonValue.Null).json,
+                me,
+                nowMs,
+                zone,
+                maxSteps,
+                if (results.isEmpty()) null else JsonValue.Obj(results).json,
+            )
         }.getOrNull() ?: return Outcome.Error("the package is JSON")
         val v = JsonValue.parse(out)
         v["error"]?.string?.let { return Outcome.Error(it) }
+        v["pending"]?.let { p ->
+            return Outcome.Waiting(Pending(p["step"]?.number?.toInt() ?: 0, p["name"]?.string.orEmpty(), p["args"]?.obj.orEmpty(), p["result"]?.string.orEmpty()))
+        }
         return Outcome.Planned(Plan(v["plan"] ?: JsonValue.Null))
     }
 
     /** [run] in a `java.util.TimeZone`. */
-    fun run(pkg: JsonValue, name: String, params: JsonValue?, data: JsonValue?, me: String?, nowMs: Double?, timeZone: TimeZone): Outcome =
-        run(pkg, name, params, data, me, nowMs, TimeZoneOffset(timeZone))
+    fun run(pkg: JsonValue, name: String, params: JsonValue?, data: JsonValue?, me: String?, nowMs: Double?, timeZone: TimeZone, results: Map<String, JsonValue> = emptyMap()): Outcome =
+        run(pkg, name, params, data, me, nowMs, TimeZoneOffset(timeZone), results = results)
 
     /**
      * Applies [writes] to [rows] (record rows as JSON: `{id, kind, data,

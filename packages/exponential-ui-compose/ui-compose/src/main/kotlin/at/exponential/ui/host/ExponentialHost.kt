@@ -462,6 +462,9 @@ class ExponentialHost(
      * record writes as ONE `records.batch`, then the sets, then the calls. A
      * failure before the commit lands nothing: ACTION_FAILED +
      * [HostOptions.onActionFailed] (the toast), the outcome's `error`.
+     * VAPP-271: a result call (`call` + `result`) is gated and run before
+     * the commit and the action re-runs over the same snapshot with its
+     * answer.
      */
     private suspend fun runPackageAction(call: FunctionCallInfo, action: String): FunctionOutcome {
         fun failed(message: String): FunctionOutcome {
@@ -472,11 +475,30 @@ class ExponentialHost(
         val model = surfaces[call.surfaceId]
         val pkg = packageOf[call.surfaceId]?.let { packages[it] }
         if (model == null || pkg == null) return failed("no action $action")
-        val plan = when (
-            val result = Actions.run(pkg, action, JsonValue.Obj(call.args), model.data, options.me, options.now?.invoke(), options.zone)
-        ) {
-            is Actions.Outcome.Error -> return failed(result.message)
-            is Actions.Outcome.Planned -> result.plan
+        // VAPP-271: a `call` step with a `result` runs when the plan reaches
+        // it (its gate first, before the commit; a refusal or a failure = the
+        // action's failure); the action runs again over the SAME snapshot
+        // with its answer as `results.<name>`.
+        val data = model.data
+        val nowMs = options.now?.invoke()
+        val results = mutableMapOf<String, JsonValue>()
+        fun runAction() = Actions.run(pkg, action, JsonValue.Obj(call.args), data, options.me, nowMs, options.zone, results = results.toMap())
+        var outcome = runAction()
+        while (outcome is Actions.Outcome.Waiting) {
+            val pending = outcome.pending
+            val c = FunctionCallInfo(call.surfaceId, call.componentId, pending.name, pending.args)
+            val verdict = gate(c)
+            if (verdict.decision != FunctionDecision.Allow) return failed(verdict.error ?: "${c.name} was not allowed")
+            val answer = run(c)
+            answer.error?.let { return failed(it) }
+            if (answer.decision != FunctionDecision.Allow) return failed("${c.name} was not allowed")
+            results[pending.result] = JsonValue.of(answer.result)
+            outcome = runAction()
+        }
+        val plan = when (outcome) {
+            is Actions.Outcome.Error -> return failed(outcome.message)
+            is Actions.Outcome.Planned -> outcome.plan
+            is Actions.Outcome.Waiting -> return failed("no action $action")
         }
         val calls = plan.calls.map { FunctionCallInfo(call.surfaceId, call.componentId, it.name, it.args) }
         for (c in calls) {
