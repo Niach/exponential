@@ -291,6 +291,7 @@ describe(`github webhook — pull_request routing (EXP-1291)`, () => {
       url: HTML_URL,
       number: 7,
       title: `Fix the nav`,
+      body: null,
       head: `exp/EXP-9`,
       base: `master`,
       draft: false,

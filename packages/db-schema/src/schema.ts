@@ -2980,6 +2980,10 @@ export const pullRequestIssues = pgTable(
     }),
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
+    // EXP-1706: server-only. false = a REFERENCE (`pr unlink` keeps the row
+    // as evidence instead of deleting it): it never moves the issue and the
+    // shape hides it, so clients see it unlinked.
+    closes: boolean().notNull().default(true),
     ...timestamps,
   },
   (table) => [

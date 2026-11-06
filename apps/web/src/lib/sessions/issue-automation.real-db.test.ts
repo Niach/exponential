@@ -9,6 +9,7 @@ import {
   issueRelations,
   issues,
   issueStatuses,
+  pullRequestIssues,
   repositories,
   sessionIssues,
   sessions,
@@ -259,9 +260,10 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
 
     // a's share = its subtree's rows + what its start names.
     expect((await prDefaultIssueIds(db, { rootId, sessionId: a })).sort()).toEqual([named.id, followUp.id].sort())
-    // The root's own PR takes the whole thread.
+    // EXP-1706: the root's own PR takes its rows nobody else holds, never
+    // the whole thread (the grandchild's row stays with the grandchild).
     expect((await prDefaultIssueIds(db, { rootId, sessionId: rootId })).sort()).toEqual(
-      [named.id, other.id, followUp.id].sort()
+      [named.id, other.id].sort()
     )
   })
 
@@ -359,7 +361,7 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(moves).toHaveLength(3)
   })
 
-  it(`a parent waits for its linked sub-issues and follows the last one`, async () => {
+  it(`a parent is never a closing link: it rolls up once every sub-issue reached the stage (EXP-1706)`, async () => {
     const w = await world()
     const parent = await w.issue(`Parent`)
     const child = await w.issue(`Linked child`)
@@ -369,22 +371,74 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     const rootId = await w.thread([parent.id, child.id])
     expect(await w.status(child.id)).toMatchObject({ status: `in_progress` })
 
-    // The parent's PR opens while its linked sub-issue is still in progress.
+    // The parent's PR opens while its sub-issues are not in review.
     const parentPr = await w.openPr({ rootId, head: `exp/parent`, issueIds: [parent.id] })
     expect(await w.status(parent.id)).toMatchObject({ status: `in_progress` })
-    // The sub-issue's PR opens: the parent follows it into review; the
-    // unlinked sub-issue never moves and never holds the parent back.
+    // The linked sub-issue's PR opens: the other sub-issue still holds it.
     const childPr = await w.openPr({ rootId, head: `exp/child`, issueIds: [child.id] })
     expect(await w.status(child.id)).toMatchObject({ status: `in_review` })
-    expect(await w.status(parent.id)).toMatchObject({ status: `in_review` })
+    expect(await w.status(parent.id)).toMatchObject({ status: `in_progress` })
     expect(await w.status(stray.id)).toMatchObject({ status: `backlog` })
 
     await applyPullRequestMerged({ pullRequestId: parentPr.id, actorUserId: w.owner })
-    expect(await w.status(parent.id)).toMatchObject({ status: `in_review` })
     await applyPullRequestMerged({ pullRequestId: childPr.id, actorUserId: w.owner })
     expect(await w.status(child.id)).toMatchObject({ status: `done` })
+    expect(await w.status(parent.id)).toMatchObject({ status: `in_progress` })
+
+    // The last sub-issue lands: the parent follows it.
+    const strayPr = await w.openPr({ rootId, head: `exp/stray`, issueIds: [stray.id] })
+    await applyPullRequestMerged({ pullRequestId: strayPr.id, actorUserId: w.owner })
+    expect(await w.status(stray.id)).toMatchObject({ status: `done` })
     expect(await w.status(parent.id)).toMatchObject({ status: `done` })
-    expect(await w.status(stray.id)).toMatchObject({ status: `backlog` })
+  })
+
+  it(`an unlinked issue stays a reference: the merge never moves it; naming it again closes it (EXP-1706)`, async () => {
+    const w = await world()
+    const kept = await w.issue(`Kept`)
+    const dropped = await w.issue(`Dropped`)
+    const rootId = await w.thread([kept.id, dropped.id])
+    const pr = await w.openPr({ rootId, head: `exp/two`, issueIds: [kept.id, dropped.id] })
+    // `pr unlink` (unlinkPullRequestIssue) flips the row, never deletes it.
+    await db
+      .update(pullRequestIssues)
+      .set({ closes: false })
+      .where(and(eq(pullRequestIssues.pullRequestId, pr.id), eq(pullRequestIssues.issueId, dropped.id)))
+    // A share re-link never revives it.
+    await w.openPr({ rootId, head: `exp/two`, issueIds: [kept.id, dropped.id] })
+    const [row] = await db
+      .select({ closes: pullRequestIssues.closes })
+      .from(pullRequestIssues)
+      .where(and(eq(pullRequestIssues.pullRequestId, pr.id), eq(pullRequestIssues.issueId, dropped.id)))
+    expect(row).toEqual({ closes: false })
+
+    await applyPullRequestMerged({ pullRequestId: pr.id, actorUserId: w.owner })
+    expect(await w.status(kept.id)).toMatchObject({ status: `done` })
+    expect(await w.status(dropped.id)).toMatchObject({ status: `in_review` })
+  })
+
+  it(`naming a reference in issueIds makes it closing again (EXP-1706)`, async () => {
+    const w = await world()
+    const issue = await w.issue(`Revived`)
+    const rootId = await w.thread([issue.id])
+    const pr = await w.openPr({ rootId, head: `exp/revive`, issueIds: [issue.id] })
+    await db.update(pullRequestIssues).set({ closes: false }).where(eq(pullRequestIssues.pullRequestId, pr.id))
+    await recordPullRequestOpened({
+      teamId: w.teamId,
+      rootSessionId: rootId,
+      sessionId: rootId,
+      repositoryId: w.repoId,
+      repoFullName: pr.url.split(`/pull/`)[0]!.replace(`https://github.com/`, ``),
+      number: pr.number,
+      url: pr.url,
+      title: pr.title,
+      head: pr.head,
+      base: pr.base,
+      issueIds: [issue.id],
+      reviveIssueIds: [issue.id],
+      actorUserId: w.owner,
+    })
+    await applyPullRequestMerged({ pullRequestId: pr.id, actorUserId: w.owner })
+    expect(await w.status(issue.id)).toMatchObject({ status: `done` })
   })
 
   it(`one PR closing a parent and its sub-issue moves both together`, async () => {

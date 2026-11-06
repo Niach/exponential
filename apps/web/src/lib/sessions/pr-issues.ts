@@ -10,7 +10,8 @@ import { isSealedBody } from "@/lib/sessions/sealed"
 // session's issues are the rows it HOLDS; the PR belongs to ONE session of
 // the tree, so it closes its SUBTREE's share: the rows its subtree holds
 // plus the tree's issues its start message names as `#IDENT` (the root's
-// subtree = the whole thread). #EXP-1402 (FEED-166): a child with no share
+// subtree = the whole thread; EXP-1706: the root's share is only the rows
+// it holds that no other session holds). #EXP-1402 (FEED-166): a child with no share
 // links NOTHING, never the thread's other issues (merging would close
 // them). Done work (an issue a merged PR closed) is never re-linked.
 // EXP-1458: a SEALED start message is never parsed; its clear
@@ -64,7 +65,16 @@ export function pickPrIssues(opts: {
 }): string[] {
   const unique = (ids: string[]) => [...new Set(ids)]
   if (!opts.sessionId || opts.sessionId === opts.rootId) {
-    return unique(opts.links.map((link) => link.issueId))
+    // EXP-1706: never the whole thread: the root's own rows that no other
+    // session of the thread holds (a child's work goes with its PR).
+    const elsewhere = new Set(
+      opts.links.filter((link) => link.sessionId !== opts.rootId).map((link) => link.issueId)
+    )
+    return unique(
+      opts.links
+        .filter((link) => link.sessionId === opts.rootId && !elsewhere.has(link.issueId))
+        .map((link) => link.issueId)
+    )
   }
   const held = new Set<string>()
   for (const id of logicalSessionIds(opts.sessionId, opts.tree)) {
@@ -144,7 +154,9 @@ export async function prDefaultIssueIds(
     .select({ issueId: pullRequestIssues.issueId })
     .from(pullRequestIssues)
     .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
-    .where(and(inArray(pullRequestIssues.issueId, picked), eq(pullRequests.state, `merged`)))
+    .where(
+      and(inArray(pullRequestIssues.issueId, picked), eq(pullRequests.state, `merged`), eq(pullRequestIssues.closes, true))
+    )
   const doneIds = new Set(done.map((row) => row.issueId))
   return picked.filter((id) => !doneIds.has(id))
 }

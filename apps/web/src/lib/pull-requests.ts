@@ -81,6 +81,7 @@ import {
   stackLanding,
   stackStopBranches,
 } from "@/lib/pr-merge-guard"
+import { prLinks } from "@exp/domain-contract/issue-lifecycle"
 import { ensureGithubStack, GitHubStackForkError, inferBaseBranch, mergeThrough } from "@/lib/pr-stacks"
 import { mergeRefusalText } from "@/lib/merge-refusal"
 import { isNotMergeable, MergeRefusal, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
@@ -212,8 +213,22 @@ interface IssueForPr {
   boardDefaultBranch: string | null
 }
 
+/** EXP-1706: the issues a PR names (branch, title prefix, closing body
+ *  lines) by identifier, in `teamId`. */
+async function loadNamedIssuesForPr(teamId: string, identifiers: string[]): Promise<IssueForPr[]> {
+  if (identifiers.length === 0) return []
+  const rows = await issueForPrSelect().where(
+    and(eq(issues.teamId, teamId), inArray(issues.identifier, identifiers), boardVisible())
+  )
+  return identifiers.flatMap((identifier) => rows.filter((row) => row.identifier === identifier))
+}
+
 async function loadIssuesForPr(ids: string[]): Promise<IssueForPr[]> {
   if (ids.length === 0) return []
+  return issueForPrSelect().where(and(inArray(issues.id, ids), boardVisible()))
+}
+
+function issueForPrSelect() {
   return db
     .select({
       id: issues.id,
@@ -225,7 +240,6 @@ async function loadIssuesForPr(ids: string[]): Promise<IssueForPr[]> {
     })
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
-    .where(and(inArray(issues.id, ids), boardVisible()))
 }
 
 /** Create the PR, or adopt the one GitHub already holds open on `head`
@@ -300,6 +314,8 @@ async function joinGithubStack(opts: {
  * Open a PR (the MCP `pr_open`). The caller session (X-Exp-Session-Id)
  * gives the defaults: its repository and branch, and its share of its
  * thread's issues when `issueIds` is omitted (EXP-1334, `prDefaultIssueIds`).
+ * EXP-1706 (issue-lifecycle.json `links`): the head branch's ident, the
+ * title prefix's idents and the body's closing lines always link too.
  * An omitted `base` = the nearest live PR below `head` (native stacks), else
  * the default branch.
  * Idempotent: a live PR already on `head` is updated and gains the issues.
@@ -375,7 +391,13 @@ export async function openPullRequest(args: {
       )
     }
   }
-  const linked = candidates.filter(belongs)
+  const named = await loadNamedIssuesForPr(
+    repo.teamId,
+    prLinks({ issueIds: [], branch: head!, title: args.title, body: args.body ?? ``, share: [], parents: [] }).link
+  )
+  const linked = [...candidates, ...named]
+    .filter(belongs)
+    .filter((issue, index, all) => all.findIndex((other) => other.id === issue.id) === index)
   const linkedIdentifiers = linked.map((issue) => issue.identifier)
   const token = await repoToken(repo)
   const existing = await loadLivePullRequestByHead(repo.id, head!)
@@ -438,6 +460,7 @@ export async function openPullRequest(args: {
       base: pr.base,
       ...(args.draft ? { draft: true } : {}),
       issueIds: linked.map((issue) => issue.id),
+      ...(explicitIds ? { reviveIssueIds: explicitIds } : {}),
       ...actor,
     })
 
@@ -929,30 +952,32 @@ export async function updatePullRequest(args: {
 }
 
 /** Detach one issue from a PR (a mislinked `pull_request_issues` row), in
- *  any PR state. The issue's status stays a human decision; the row is
- *  deleted only inside the PR's team (the MCP layer already confines the
- *  issue to it). */
+ *  any PR state. EXP-1706: the row stays as a REFERENCE (`closes = false`):
+ *  the PR never moves the issue again and clients see it unlinked (the
+ *  shape hides it), but the link's history survives for audits. The issue's
+ *  status stays a human decision; only rows inside the PR's team. A later
+ *  `pr open` naming it in `issueIds` makes it closing again. */
 export async function unlinkPullRequestIssue(args: {
   userId: string
   pullRequestId: string
   issueId: string
 }): Promise<{ unlinked: boolean }> {
   const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
-  const deleted = await db
-    .delete(pullRequestIssues)
+  const unlinked = await db
+    .update(pullRequestIssues)
+    .set({ closes: false, updatedAt: new Date() })
     .where(
       and(
         eq(pullRequestIssues.pullRequestId, pr.id),
         eq(pullRequestIssues.issueId, args.issueId),
-        eq(pullRequestIssues.teamId, pr.teamId)
+        eq(pullRequestIssues.teamId, pr.teamId),
+        eq(pullRequestIssues.closes, true)
       )
     )
     .returning({ issueId: pullRequestIssues.issueId })
-  return { unlinked: deleted.length > 0 }
+  return { unlinked: unlinked.length > 0 }
 }
 
-/** Close a live PR WITHOUT merging (the Reviews "reject" path). Issue
- *  statuses stay a human decision. */
 export async function closePullRequest(args: { userId: string; pullRequestId: string }): Promise<void> {
   await closePullRequestTx(args)
 }

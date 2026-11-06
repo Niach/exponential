@@ -22,7 +22,11 @@ const h = vi.hoisted(() => {
     deleteRows,
     db: {
       select: vi.fn(chain),
-      update: vi.fn(() => ({ set: () => ({ where: async () => {} }) })),
+      update: vi.fn(() => ({
+        set: () => ({
+          where: () => Object.assign(Promise.resolve(), { returning: async () => deleteRows.shift() ?? [] }),
+        }),
+      })),
       delete: vi.fn(() => ({ where: () => ({ returning: async () => deleteRows.shift() ?? [] }) })),
     },
   }
@@ -669,7 +673,7 @@ describe(`closePullRequest / pullRequestFiles`, () => {
 })
 
 describe(`unlinkPullRequestIssue`, () => {
-  it(`deletes the one pull_request_issues row and says whether it existed`, async () => {
+  it(`turns the one closing pull_request_issues row into a reference and says whether it was closing (EXP-1706)`, async () => {
     h.deleteRows.push([{ issueId: `issue-2` }], [])
     await expect(
       unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
@@ -677,15 +681,16 @@ describe(`unlinkPullRequestIssue`, () => {
     await expect(
       unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
     ).resolves.toEqual({ unlinked: false })
-    expect(h.db.delete).toHaveBeenCalledTimes(2)
+    expect(h.db.update).toHaveBeenCalledTimes(2)
+    expect(h.db.delete).not.toHaveBeenCalled()
   })
 
-  it(`a foreign team's PR is NOT_FOUND and deletes nothing`, async () => {
+  it(`a foreign team's PR is NOT_FOUND and touches nothing`, async () => {
     vi.mocked(resolveTeamAccess).mockRejectedValueOnce(new Error(`no`))
     await expect(
       unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
-    expect(h.db.delete).not.toHaveBeenCalled()
+    expect(h.db.update).not.toHaveBeenCalled()
   })
 })
 

@@ -19,6 +19,7 @@ import {
   type IssueStatusCategory,
 } from "@/lib/domain"
 import { applyStatusDerivations } from "@/lib/status-derivations"
+import { branchIdentifier, prLinks } from "@exp/domain-contract/issue-lifecycle"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { emitEventInTx } from "@/lib/events"
@@ -64,10 +65,10 @@ export function repoFromPrUrl(prUrl: string): string | null {
 
 // Parse a team issue identifier ("MET-12") out of a PR head-branch name.
 // Matches the launcher's `exp/<IDENTIFIER>` convention and any custom prefix
-// (e.g. `feature/MET-12`) by anchoring on the trailing `<IDENT>-<number>` tail.
+// (e.g. `feature/MET-12`) by anchoring on the trailing `<IDENT>-<number>` tail
+// (EXP-1706: the fixture's `links` rule, `branchIdentifier`).
 export function parseIssueIdentifierFromBranch(branch: string): string | null {
-  const match = branch.match(/(?:^|\/)([A-Z0-9]+-\d+)$/)
-  return match ? match[1]! : null
+  return branchIdentifier(branch)
 }
 
 // Resolve an issue by (repo full name + head branch), for the webhook's
@@ -80,7 +81,14 @@ export async function findIssueIdByBranch(
   branch: string
 ): Promise<string | null> {
   const identifier = parseIssueIdentifierFromBranch(branch)
-  if (!identifier) return null
+  return identifier ? findIssueIdByIdentifier(repoFullName, identifier) : null
+}
+
+/** One identifier on the repo's boards, unique across teams (REV-22). */
+export async function findIssueIdByIdentifier(
+  repoFullName: string,
+  identifier: string
+): Promise<string | null> {
   const repoRows = await db
     .select({ id: repositories.id })
     .from(repositories)
@@ -122,6 +130,40 @@ export async function findIssueIdByBranch(
     )
   }
   return movedRows.length === 1 ? movedRows[0]!.issueId : null
+}
+
+/**
+ * EXP-1706 (issue-lifecycle.json `links`): the issues an out-of-band PR
+ * links: its head branch's ident, every ident of its title prefix and its
+ * body's closing lines, each resolved on the repo's boards. They must share
+ * one team (the first resolved one's); the others are dropped.
+ */
+export async function findPrLinkIssueIds(
+  repoFullName: string,
+  pr: { head: string; title: string | null; body: string | null }
+): Promise<{ teamId: string; issueIds: string[] } | null> {
+  const { link } = prLinks({
+    issueIds: null,
+    branch: pr.head,
+    title: pr.title ?? ``,
+    body: pr.body ?? ``,
+    share: [],
+    parents: [],
+  })
+  const ids: string[] = []
+  for (const identifier of link) {
+    const id = await findIssueIdByIdentifier(repoFullName, identifier)
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+  if (ids.length === 0) return null
+  const rows = await db
+    .select({ id: issues.id, teamId: issues.teamId })
+    .from(issues)
+    .where(inArray(issues.id, ids))
+  const teamId = rows.find((row) => row.id === ids[0])?.teamId
+  if (!teamId) return null
+  const sameTeam = new Set(rows.filter((row) => row.teamId === teamId).map((row) => row.id))
+  return { teamId, issueIds: ids.filter((id) => sameTeam.has(id)) }
 }
 
 // Coding-flow status transitions (EXP-120): an opened PR parks its issue in
@@ -353,7 +395,8 @@ export async function withLivePrInTx(tx: Tx, issueIds: string[]): Promise<Set<st
     .where(
       and(
         inArray(pullRequestIssues.issueId, issueIds),
-        inArray(pullRequests.state, [...LIVE_PR_STATES])
+        inArray(pullRequests.state, [...LIVE_PR_STATES]),
+        eq(pullRequestIssues.closes, true)
       )
     )
   return new Set(rows.map((row) => row.issueId))
@@ -438,7 +481,9 @@ async function applyLandedInTx(
   const rows = await tx
     .select({ id: pullRequestIssues.issueId })
     .from(pullRequestIssues)
-    .where(inArray(pullRequestIssues.pullRequestId, [pr.id, ...held.map((row) => row.id)]))
+    .where(
+      and(inArray(pullRequestIssues.pullRequestId, [pr.id, ...held.map((row) => row.id)]), eq(pullRequestIssues.closes, true))
+    )
   return applyPrEventToIssuesInTx(tx, {
     teamId: pr.teamId,
     issueIds: rows.map((row) => row.id),
@@ -447,38 +492,22 @@ async function applyLandedInTx(
   })
 }
 
-/** The issues a parent's sub-issues must share to hold it back: linked to
- *  the same PRs, or to those PRs' threads. `prIds` = the parent's PRs that
- *  carry the event (live/merged for `opened`, landed for `merged`). */
-async function parentScopeInTx(tx: Tx, parentId: string, event: PrAutomationEvent) {
+/** A PR linking the parent carries the event (live/merged for `opened`,
+ *  landed for `merged`): only then may it roll up. */
+async function parentCarriedInTx(tx: Tx, parentId: string, event: PrAutomationEvent): Promise<boolean> {
   const prs = await tx
     .select({
       id: pullRequests.id,
       state: pullRequests.state,
       basePullRequestId: pullRequests.basePullRequestId,
-      rootSessionId: pullRequests.rootSessionId,
     })
     .from(pullRequestIssues)
     .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
-    .where(eq(pullRequestIssues.issueId, parentId))
-  const carrying: typeof prs = []
+    .where(and(eq(pullRequestIssues.issueId, parentId), eq(pullRequestIssues.closes, true)))
   for (const pr of prs) {
-    if (event === `opened` ? pr.state !== `closed` : await prLandedInTx(tx, pr)) carrying.push(pr)
+    if (event === `opened` ? pr.state !== `closed` : await prLandedInTx(tx, pr)) return true
   }
-  if (carrying.length === 0) return null
-  const prIds = carrying.map((pr) => pr.id)
-  const roots = [...new Set(carrying.map((pr) => pr.rootSessionId).filter((id): id is string => !!id))]
-  const viaPr = await tx
-    .select({ issueId: pullRequestIssues.issueId })
-    .from(pullRequestIssues)
-    .where(inArray(pullRequestIssues.pullRequestId, prIds))
-  const viaThread = roots.length
-    ? await tx
-        .select({ issueId: sessionIssues.issueId })
-        .from(sessionIssues)
-        .where(inArray(sessionIssues.sessionId, roots))
-    : []
-  return new Set([...viaPr, ...viaThread].map((row) => row.issueId))
+  return false
 }
 
 /** Sub-issues (canonical `parent` rows read parent → child) per parent. */
@@ -542,12 +571,12 @@ export async function applyPrEventToIssuesInTx(
     return applied
   }
 
-  /** A parent is ready when no in-scope sub-issue lags behind. */
-  const ready = async (parentId: string, children: string[]): Promise<boolean | null> => {
-    const scope = await parentScopeInTx(tx, parentId, opts.event)
-    if (!scope) return null
-    const gating = children.filter((child) => scope.has(child))
-    const rows = await statusOf(gating)
+  /** EXP-1706 (issue-lifecycle.json `links`): an issue with sub-issues is
+   *  never a closing link: it moves only once EVERY sub-issue reached the
+   *  stage (it rolls up), and only while a PR carrying the event links it. */
+  const ready = async (parentId: string, children: string[]): Promise<boolean> => {
+    if (!(await parentCarriedInTx(tx, parentId, opts.event))) return false
+    const rows = await statusOf(children)
     return rows.every((row) => subIssueReached(opts.event, row, target?.id ?? null))
   }
 
@@ -647,14 +676,18 @@ export async function livePullRequestsForIssue(
     .from(pullRequestIssues)
     .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
     .where(
-      and(eq(pullRequestIssues.issueId, issueId), inArray(pullRequests.state, [...LIVE_PR_STATES]))
+      and(
+        eq(pullRequestIssues.issueId, issueId),
+        inArray(pullRequests.state, [...LIVE_PR_STATES]),
+        eq(pullRequestIssues.closes, true)
+      )
     )
     .orderBy(desc(pullRequests.createdAt))
   if (rows.length === 0) return []
   const counts = await db
     .select({ pullRequestId: pullRequestIssues.pullRequestId, n: sql<number>`count(*)::int` })
     .from(pullRequestIssues)
-    .where(inArray(pullRequestIssues.pullRequestId, rows.map((row) => row.pr.id)))
+    .where(and(inArray(pullRequestIssues.pullRequestId, rows.map((row) => row.pr.id)), eq(pullRequestIssues.closes, true)))
     .groupBy(pullRequestIssues.pullRequestId)
   // NEW-48: a session_issues row sits on the session that HOLDS the issue
   // (NEW-1), so the PR that session opened is the issue's own.
@@ -718,7 +751,7 @@ export async function linkedIssueIds(pullRequestId: string): Promise<string[]> {
   const rows = await db
     .select({ issueId: pullRequestIssues.issueId })
     .from(pullRequestIssues)
-    .where(eq(pullRequestIssues.pullRequestId, pullRequestId))
+    .where(and(eq(pullRequestIssues.pullRequestId, pullRequestId), eq(pullRequestIssues.closes, true)))
   return rows.map((row) => row.issueId)
 }
 
@@ -774,7 +807,10 @@ export async function linkPullRequestIssuesInTx(
   tx: Tx,
   pr: Pick<PullRequestRow, `id` | `teamId` | `url` | `number` | `head` | `state` | `basePullRequestId`>,
   issueIds: string[],
-  actor: { userId: string | null; origin?: IssueEventOrigin }
+  actor: { userId: string | null; origin?: IssueEventOrigin },
+  /** EXP-1706: ids the opener NAMED: a reference row (`pr unlink`) among
+   *  them closes again. */
+  revive: readonly string[] = []
 ): Promise<string[]> {
   if (issueIds.length === 0) return []
   const rows: IssueLinkRow[] = await tx
@@ -787,7 +823,21 @@ export async function linkPullRequestIssuesInTx(
     .values(rows.map((row) => ({ pullRequestId: pr.id, issueId: row.id, teamId: pr.teamId })))
     .onConflictDoNothing()
     .returning({ issueId: pullRequestIssues.issueId })
-  const fresh = new Set(inserted.map((row) => row.issueId))
+  const named = rows.map((row) => row.id).filter((id) => revive.includes(id))
+  const revived = named.length
+    ? await tx
+        .update(pullRequestIssues)
+        .set({ closes: true, updatedAt: new Date() })
+        .where(
+          and(
+            eq(pullRequestIssues.pullRequestId, pr.id),
+            inArray(pullRequestIssues.issueId, named),
+            eq(pullRequestIssues.closes, false)
+          )
+        )
+        .returning({ issueId: pullRequestIssues.issueId })
+    : []
+  const fresh = new Set([...inserted, ...revived].map((row) => row.issueId))
   const linked: string[] = []
   for (const row of rows) {
     if (!fresh.has(row.id)) continue
@@ -829,6 +879,8 @@ export interface RecordOpenedArgs {
   base: string
   draft?: boolean
   issueIds: string[]
+  /** EXP-1706: the ids the opener named explicitly (revive references). */
+  reviveIssueIds?: string[]
   actorUserId: string | null
   actorViaAgent?: boolean
   githubActorUserId?: string | null
@@ -919,10 +971,13 @@ export async function recordPullRequestOpened(
       pullRequest = updated ?? existing
       if (!existing.rootSessionId) announceRoot = pullRequest.rootSessionId
     }
-    const linked = await linkPullRequestIssuesInTx(tx, pullRequest, args.issueIds, {
-      userId: args.actorUserId,
-      ...(args.origin ? { origin: args.origin } : {}),
-    })
+    const linked = await linkPullRequestIssuesInTx(
+      tx,
+      pullRequest,
+      args.issueIds,
+      { userId: args.actorUserId, ...(args.origin ? { origin: args.origin } : {}) },
+      args.reviveIssueIds ?? []
+    )
     if (inserted) {
       // NEW-2: the builtin `pr.opened` event, once per PR row.
       await emitEventInTx(tx, {
@@ -1026,7 +1081,7 @@ export async function applyPullRequestMerged(opts: {
       .select({ id: issues.id })
       .from(pullRequestIssues)
       .innerJoin(issues, eq(issues.id, pullRequestIssues.issueId))
-      .where(eq(pullRequestIssues.pullRequestId, claimed.id))
+      .where(and(eq(pullRequestIssues.pullRequestId, claimed.id), eq(pullRequestIssues.closes, true)))
     for (const issue of linked) {
       await recordIssueEvent(tx, {
         issueId: issue.id,
@@ -1354,15 +1409,17 @@ async function inNativeStack(repo: string, prNumber: number, token: string): Pro
 
 /**
  * The webhook's `opened` for a PR nobody recorded (an agent's `gh`, the
- * compare view): link it when its head names exactly one issue
- * (`exp/<IDENTIFIER>`), in that issue's team, on the team's repo row. A
- * known url only learns its base.
+ * compare view): link it when its head, title prefix or closing body lines
+ * name issues (EXP-1706, `findPrLinkIssueIds`), in their team, on the
+ * team's repo row. A known url only learns its base.
  */
 export async function adoptOutOfBandPullRequest(opts: {
   repoFullName: string
   url: string
   number: number
   title: string | null
+  /** EXP-1706: its `Fixes #IDENT` lines link too. */
+  body?: string | null
   head: string
   base: string
   draft?: boolean
@@ -1375,14 +1432,13 @@ export async function adoptOutOfBandPullRequest(opts: {
     if (known.base !== opts.base) await applyPullRequestBase({ pullRequestId: known.id, base: opts.base })
     return
   }
-  const issueId = await findIssueIdByBranch(opts.repoFullName, opts.head)
-  if (!issueId) return
-  const [issue] = await db
-    .select({ teamId: issues.teamId })
-    .from(issues)
-    .where(eq(issues.id, issueId))
-    .limit(1)
-  if (!issue) return
+  const links = await findPrLinkIssueIds(opts.repoFullName, {
+    head: opts.head,
+    title: opts.title,
+    body: opts.body ?? null,
+  })
+  if (!links) return
+  const issue = { teamId: links.teamId }
   const [repo] = await db
     .select({ id: repositories.id })
     .from(repositories)
@@ -1401,7 +1457,7 @@ export async function adoptOutOfBandPullRequest(opts: {
     head: opts.head,
     base: opts.base,
     ...(opts.draft ? { draft: true } : {}),
-    issueIds: [issueId],
+    issueIds: links.issueIds,
     actorUserId: opts.actorUserId,
     ...(opts.actorViaAgent !== undefined ? { actorViaAgent: opts.actorViaAgent } : {}),
     githubActorUserId: opts.githubActorUserId ?? null,

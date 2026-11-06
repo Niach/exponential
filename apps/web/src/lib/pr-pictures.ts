@@ -167,7 +167,7 @@ export async function linkedIssuesOfPullRequest(
     .select({ identifier: issues.identifier, title: issues.title })
     .from(pullRequestIssues)
     .innerJoin(issues, eq(issues.id, pullRequestIssues.issueId))
-    .where(eq(pullRequestIssues.pullRequestId, pullRequestId))
+    .where(and(eq(pullRequestIssues.pullRequestId, pullRequestId), eq(pullRequestIssues.closes, true)))
     .orderBy(asc(pullRequestIssues.createdAt))
 }
 

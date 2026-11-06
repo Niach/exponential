@@ -270,6 +270,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         merged?: boolean
         merged_at?: string | null
         title?: string
+        // EXP-1706: its `Fixes #IDENT` lines link an out-of-band PR.
+        body?: string | null
         draft?: boolean
         // When GitHub last changed the PR: a generic draft sync never lets
         // an older delivery overwrite a newer state.
@@ -311,6 +313,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           url: htmlUrl,
           number: pr.number,
           title: pr.title ?? null,
+          body: pr.body ?? null,
           head: headRef,
           base: pr.base?.ref ?? ``,
           actorUserId: null,
@@ -406,6 +409,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         url: htmlUrl,
         number: pr.number,
         title: pr.title ?? null,
+        body: pr.body ?? null,
         head: headRef,
         base: pr.base?.ref ?? ``,
         draft: pr.draft === true,

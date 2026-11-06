@@ -1,0 +1,1 @@
+ALTER TABLE "pull_request_issues" ADD COLUMN "closes" boolean DEFAULT true NOT NULL;

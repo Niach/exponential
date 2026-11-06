@@ -23,14 +23,9 @@ const links = [
 ]
 
 describe(`pickPrIssues`, () => {
-  it(`the root's own PR (or no session) takes the whole thread, each issue once`, () => {
+  it(`the root's own PR (or no session) takes the root's rows nobody else holds, never the thread (EXP-1706)`, () => {
     for (const sessionId of [`root`, null]) {
-      expect(pickPrIssues({ rootId: `root`, sessionId, links, tree, startText: null })).toEqual([
-        `i-1`,
-        `i-2`,
-        `i-3`,
-        `i-4`,
-      ])
+      expect(pickPrIssues({ rootId: `root`, sessionId, links, tree, startText: null })).toEqual([`i-1`, `i-4`])
     }
     expect(
       pickPrIssues({
@@ -40,7 +35,7 @@ describe(`pickPrIssues`, () => {
         tree,
         startText: null,
       })
-    ).toEqual([`i-1`, `i-2`, `i-3`, `i-4`])
+    ).toEqual([`i-4`])
   })
 
   it(`a child takes the rows its subtree holds plus the issues its start message names`, () => {
