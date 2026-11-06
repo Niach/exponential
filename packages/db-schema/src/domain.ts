@@ -389,6 +389,21 @@ export const prCheckConclusionValues = [
   `startup_failure`,
   `stale`,
 ] as const
+// EXP-1709 (merge-train.json, contract prMergeState / teamMergeMode): the
+// merge train's per-PR state and the team's merge mode.
+export const prMergeStateValues = [
+  `draft`,
+  `checks`,
+  `queued`,
+  `testing`,
+  `merged`,
+  `conflict`,
+  `failing`,
+  `held`,
+] as const
+export const teamMergeModeValues = [`auto`, `approval`] as const
+export type PrMergeStateValue = (typeof prMergeStateValues)[number]
+export type TeamMergeModeValue = (typeof teamMergeModeValues)[number]
 export type PrChecksState = (typeof prChecksStateValues)[number]
 export type PrCheckStatus = (typeof prCheckStatusValues)[number]
 export type PrCheckConclusion = (typeof prCheckConclusionValues)[number]

@@ -67,6 +67,7 @@ import {
   prChecksStateValues,
   prCheckStatusValues,
   prCheckConclusionValues,
+  prMergeStateValues,
   pinKindSchema,
   pinKindValues,
   subscriberSourceSchema,
@@ -121,6 +122,7 @@ export const prStateEnum = pgEnum(`pr_state`, prStateValues)
 export const prChecksStateEnum = pgEnum(`pr_checks_state`, prChecksStateValues)
 export const prCheckStatusEnum = pgEnum(`pr_check_status`, prCheckStatusValues)
 export const prCheckConclusionEnum = pgEnum(`pr_check_conclusion`, prCheckConclusionValues)
+export const prMergeStateEnum = pgEnum(`pr_merge_state`, prMergeStateValues)
 
 
 export const issueEventTypeEnum = pgEnum(
@@ -231,6 +233,12 @@ export const teams = pgTable(`teams`, {
   // (desktop also Files + Source Control) unless something failed (an open PR
   // left behind, a trunk-sync conflict). Synced so the nav can gate.
   yoloMode: boolean(`yolo_mode`).notNull().default(false),
+  // EXP-1709 (merge-train.json MODE): replaces `yolo_mode` once the train is
+  // switched on (MERGE_TRAIN). `auto` (default, every team) = a ready PR
+  // joins the merge train by itself; `approval` = it waits for a person's
+  // Needs approval first (a documented varchar, contract teamMergeMode, like
+  // `estimation_type`). Synced (the Settings select row); owners write it.
+  mergeMode: varchar(`merge_mode`, { length: 16 }).notNull().default(`auto`),
   // EXP-630 — the estimate scale (contract `issueEstimation`, a documented
   // varchar): `none` (default) hides estimates everywhere; the other values
   // pick the ladder the picker offers and how a value reads (t-shirt).
@@ -2893,10 +2901,36 @@ export const pullRequests = pgTable(
     // EXP-1610: the aggregate over its `pull_request_checks` rows
     // (contract prChecksState). `none` = no checks known.
     checksState: prChecksStateEnum(`checks_state`).notNull().default(`none`),
+    // EXP-1709 (merge-train.json STATE): the merge train's state of this PR
+    // (contract prMergeState), written only by the train worker
+    // (`lib/merge-train`). `merge_wait` = what a `checks` PR still waits for
+    // (draft | failing | checks | session | approval, null = ready): the
+    // status pill reads it (`Session working`, `Needs approval`).
+    // `merge_attempts` = train bounces; `merge_hold` = the hold reason
+    // (person | bounces | timeout, null = none); `merge_queued_since` = the
+    // 24 h clock (first entry to queued); `merge_ready_at` = the latest
+    // entry to queued (queue order); `merge_now` = an owner's Merge now;
+    // `merge_position` = the unit's 1-based queue place (`Queued · 2nd`);
+    // `merge_train_id` = the run testing it (`Testing with N` = the other
+    // PRs sharing it). `merge_approved_at` (server-only) = a person pressed
+    // Needs approval (approval mode).
+    mergeState: prMergeStateEnum(`merge_state`).notNull().default(`checks`),
+    mergeWait: varchar(`merge_wait`, { length: 16 }),
+    mergeAttempts: integer(`merge_attempts`).notNull().default(0),
+    mergeHold: varchar(`merge_hold`, { length: 16 }),
+    mergeQueuedSince: timestamp(`merge_queued_since`, { withTimezone: true }),
+    mergeReadyAt: timestamp(`merge_ready_at`, { withTimezone: true }),
+    mergeNow: boolean(`merge_now`).notNull().default(false),
+    mergePosition: integer(`merge_position`),
+    mergeTrainId: uuid(`merge_train_id`).references((): AnyPgColumn => mergeTrains.id, {
+      onDelete: `set null`,
+    }),
+    mergeApprovedAt: timestamp(`merge_approved_at`, { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
     unique().on(table.repositoryId, table.number),
+    index(`idx_pull_requests_merge_state`).on(table.repositoryId, table.mergeState),
     uniqueIndex(`uniq_pull_requests_url`).on(table.url),
     index(`idx_pull_requests_team`).on(table.teamId),
     index(`idx_pull_requests_root`).on(table.rootSessionId),
@@ -2939,6 +2973,80 @@ export const pullRequestChecks = pgTable(
     unique(`uniq_pull_request_checks_name`).on(table.pullRequestId, table.name),
     index(`idx_pull_request_checks_team`).on(table.teamId),
   ]
+)
+
+// EXP-1709 (merge-train.json, SERVER-ONLY, no shape): one train run = one
+// pipeline dispatch testing `units` (PR ids per unit, a stack bottom first)
+// composed on `base_sha` of `base`. `tested_sha` = the composed commit the
+// pipeline reports (null until composed); landing fast-forwards `base` to
+// it, expecting `base_sha`. `attempt` 0 = the first run, 1 = the re-run;
+// `bisect_of` = the red run this half was split from; `pending` = the
+// halves still to test after it; `heads` = the PR heads it composed. state: dispatching →
+// composing → testing → green → landed | red | conflict | cancelled |
+// error. `conflicts` = the pipeline's unmatched files per PR number. The
+// clients read only `pull_requests.merge_train_id` (`Testing with N`).
+export const mergeTrains = pgTable(
+  `merge_trains`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    base: varchar({ length: 255 }).notNull(),
+    baseSha: varchar(`base_sha`, { length: 64 }),
+    units: jsonb().$type<string[][]>().notNull(),
+    state: varchar({ length: 16 }).notNull().default(`dispatching`),
+    attempt: integer().notNull().default(0),
+    bisectOf: uuid(`bisect_of`).references((): AnyPgColumn => mergeTrains.id, {
+      onDelete: `set null`,
+    }),
+    // The bisect halves still to test after this run, in order (each a list
+    // of units), carried from run to run until the batch is resolved.
+    pending: jsonb().$type<string[][][]>().notNull().default([]),
+    // PR id → the head sha this run composed: a PR pushed since never lands
+    // from it.
+    heads: jsonb().$type<Record<string, string>>().notNull().default({}),
+    // Untested on purpose: a Merge now, or a repo without CI.
+    untested: boolean().notNull().default(false),
+    testedSha: varchar(`tested_sha`, { length: 64 }),
+    // The forge's handle on the run (a workflow run id / URL), display only.
+    runRef: text(`run_ref`),
+    conflicts: jsonb().$type<Record<string, string[]>>(),
+    error: text(),
+    finishedAt: timestamp(`finished_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_merge_trains_repo_state`).on(table.repositoryId, table.state),
+    index(`idx_merge_trains_tested_sha`).on(table.repositoryId, table.testedSha),
+  ]
+)
+
+// EXP-1709 (SERVER-ONLY, no shape): CI results per COMMIT, provider-neutral
+// (no provider columns): GitHub's check_run / check_suite / status webhooks
+// write it today, eCode's own CI later. The merge train reads it for the
+// composed train commit, which no PR's `pull_request_checks` covers.
+export const commitChecks = pgTable(
+  `commit_checks`,
+  {
+    id: uuidPk(),
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    sha: varchar({ length: 64 }).notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    status: prCheckStatusEnum().notNull(),
+    // Null until completed.
+    conclusion: prCheckConclusionEnum(),
+    detailsUrl: text(`details_url`),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [unique(`uniq_commit_checks_name`).on(table.repositoryId, table.sha, table.name)]
 )
 
 // #EXP-1540 (SERVER-ONLY, no shape): the latest push of each branch (GitHub

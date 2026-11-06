@@ -1070,6 +1070,7 @@ describe(`exponential_teams_get`, () => {
       `estimationType`,
       `iconUrl`,
       `id`,
+      `mergeMode`,
       `name`,
       `prMergedAutomation`,
       `prMergedStatusId`,

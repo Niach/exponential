@@ -97,6 +97,9 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON messages FOR EACH R
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON pull_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- EXP-1610: CI check rows.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON pull_request_checks FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- EXP-1709: the merge train's runs and per-commit checks.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON merge_trains FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON commit_checks FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON session_issues FOR EACH ROW
   WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
     AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
