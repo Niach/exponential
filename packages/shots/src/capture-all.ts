@@ -927,7 +927,7 @@ async function captureEde(views: string[], outcomes: LaneOutcome[]): Promise<voi
       ...(capture?.settleMs ? [`--settle`, String(capture.settleMs)] : []),
       ...(built ? [`--no-build`] : []),
     ]
-    const result = await run({ cmd, timeoutMs: 30 * 60_000 })
+    const result = await run({ cmd, timeoutMs: 30 * 60_000, env: capture?.env })
     built = true
     if (result.code === 0) {
       console.log(`  ✓ ${id}`)

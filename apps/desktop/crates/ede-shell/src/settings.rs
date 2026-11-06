@@ -143,6 +143,8 @@ pub fn output_json(o: &ede_protocol::OutputInfo) -> Value {
         "modeOptions": options,
         "scale": o.scale,
         "scaleText": scale_text,
+        "width": o.width,
+        "height": o.height,
     })
 }
 
@@ -154,7 +156,8 @@ pub fn user_json() -> Value {
         let pw = libc::getpwuid(libc::getuid());
         if pw.is_null() { String::new() } else { std::ffi::CStr::from_ptr((*pw).pw_gecos).to_string_lossy().split(',').next().unwrap_or("").to_string() }
     };
-    json!({"login": login, "name": if name.is_empty() { login.clone() } else { name }})
+    let host = std::fs::read_to_string("/etc/hostname").map(|h| h.trim().to_string()).unwrap_or_default();
+    json!({"login": login, "name": if name.is_empty() { login.clone() } else { name }, "host": host})
 }
 
 /// Texts the pages show, derived from a snapshot.
@@ -199,7 +202,7 @@ pub fn demo_services() -> Value {
 }
 
 pub fn demo_outputs() -> Vec<Value> {
-    vec![json!({"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1"})]
+    vec![json!({"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1", "width": 1280, "height": 720})]
 }
 
 #[cfg(test)]

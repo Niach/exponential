@@ -254,6 +254,13 @@ impl HostPlugin for Host {
                 }
             });
         }
+        // The sidebar's sections fold on their own change event (the
+        // component id names the section: pinned, workspaces, sessions).
+        if event.name == "sidebar" {
+            let section = event.component_id.trim_end_matches("-head").to_string();
+            let shell = self.shell.clone();
+            cx.defer(move |cx| dispatch(&shell, ShellEvent::SidebarToggle { section }, cx));
+        }
     }
 
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
@@ -268,6 +275,8 @@ impl HostPlugin for Host {
             "ede.launch" => {
                 if let Some(command) = args.get("command").and_then(Value::as_str) {
                     system::launch(command);
+                } else if let Some(app) = args.get("app").and_then(Value::as_str) {
+                    launch_app(&self.shell.borrow(), app);
                 }
                 cx.defer(move |cx| {
                     close(&shell, "menu", cx);
@@ -432,12 +441,62 @@ impl HostPlugin for Host {
                 }
             }
             "ede.previews" => {
+                // A hover Popover's change: open with the app, closed = that app's previews go.
                 let app = args.get("app").and_then(Value::as_str).map(String::from);
-                cx.defer(move |cx| previews_set(&shell, app, cx));
+                let open = args.get("open").and_then(Value::as_bool).unwrap_or(app.is_some());
+                cx.defer(move |cx| {
+                    let current = shell.borrow().model.taskbar.previews.clone();
+                    if open {
+                        previews_set(&shell, app, cx);
+                    } else if current == app || app.is_none() {
+                        previews_set(&shell, None, cx);
+                    }
+                });
+            }
+            "ede.switcher" => {
+                let args = args.clone();
+                cx.defer(move |cx| match args.get("action").and_then(Value::as_str) {
+                    Some("pick") => {
+                        let kind: Option<uicore_model::SwitcherKind> = args.get("kind").cloned().and_then(|k| serde_json::from_value(k).ok());
+                        if let (Some(entry_kind), Some(id)) = (kind, args.get("id").and_then(Value::as_str)) {
+                            dispatch(&shell, ShellEvent::SwitcherPick { entry_kind, id: id.into() }, cx);
+                        }
+                    }
+                    Some("connect") => launch_app(&shell.borrow(), "at.exponential"),
+                    // Local desktops and Share as a team come with #EDE-54 / #EDE-57.
+                    Some(other) => tracing::info!(action = other, "the switcher action comes with Local desktops (#EDE-54)"),
+                    None => {}
+                });
+            }
+            "ede.taskbar_menu" => {
+                let (app, value) = (args.get("app").and_then(Value::as_str).map(String::from), args.get("value").and_then(Value::as_str).map(String::from));
+                if let (Some(app), Some(value)) = (app, value) {
+                    cx.defer(move |cx| match value.as_str() {
+                        "pin" => {
+                            dispatch(&shell, ShellEvent::TaskbarPin { app }, cx);
+                            pins_persist(&shell);
+                        }
+                        "unpin" => {
+                            dispatch(&shell, ShellEvent::TaskbarUnpin { app }, cx);
+                            pins_persist(&shell);
+                        }
+                        "close" => {
+                            let ids: Vec<ede_protocol::WindowId> = shell.borrow().model.windows.iter().filter(|w| w.app == app).filter_map(|w| ede_protocol::WindowId::new(&w.id).ok()).collect();
+                            for id in ids {
+                                with_ede(&shell, |ede| ede.close_window(id));
+                            }
+                        }
+                        other => tracing::warn!(value = other, "unknown taskbar menu entry"),
+                    });
+                }
             }
             "ede.start_menu" => {
                 let args = args.clone();
                 cx.defer(move |cx| {
+                    if args.get("toggle").and_then(Value::as_bool) == Some(true) {
+                        start_menu_toggle(&shell, cx);
+                        return;
+                    }
                     if let Some(open) = args.get("open").and_then(Value::as_bool) {
                         dispatch(&shell, if open { ShellEvent::StartMenuOpen } else { ShellEvent::StartMenuClose }, cx);
                     }
@@ -496,6 +555,146 @@ impl HostPlugin for Host {
     }
 }
 
+/// Launches the desktop entry `app` (its id, with or without `.desktop`).
+fn launch_app(shell: &Shell, app: &str) {
+    let wanted = app.trim_end_matches(".desktop");
+    match shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop") == wanted) {
+        Some(a) => system::launch(&a.exec),
+        None => tracing::warn!(app, "no desktop entry to launch"),
+    }
+}
+
+/// The installed entry for an app id (a window's app_id, a pin), if any.
+fn app_entry<'a>(shell: &'a Shell, app: &str) -> Option<&'a apps::App> {
+    let wanted = app.trim_end_matches(".desktop");
+    shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop").eq_ignore_ascii_case(wanted)).or_else(|| shell.apps.iter().find(|a| a.id.trim_end_matches(".desktop").rsplit('.').next().is_some_and(|tail| tail.eq_ignore_ascii_case(wanted))))
+}
+
+fn app_icon(shell: &Shell, app: &str) -> String {
+    app_entry(shell, app).and_then(|a| a.icon.as_ref()).map(|p| format!("file://{}", p.display())).unwrap_or_default()
+}
+
+fn app_name(shell: &Shell, app: &str) -> String {
+    app_entry(shell, app).map(|a| a.name.clone()).unwrap_or_else(|| app.to_string())
+}
+
+/// Mint's category glyphs for the start menu's column.
+fn category_icon(id: &str) -> &'static str {
+    match id {
+        "all" => "nav-apps",
+        "favourites" => "ui-pin",
+        "exponential" => "brand-exponential",
+        "accessories" => "ui-properties",
+        "administration" => "nav-settings",
+        "education" => "ui-help",
+        "games" => "ui-run",
+        "graphics" => "ui-edit",
+        "internet" => "ui-link",
+        "office" => "ui-file",
+        "programming" => "nav-terminal",
+        "science" => "ui-info",
+        "sound-video" => "media-volume-up",
+        _ => "nav-apps",
+    }
+}
+
+/// What the documents need on top of the reducer's `/shell`: names and
+/// icons for apps, the sidebar's lists, the start menu's favourites.
+fn decorate_shell(shell: &Shell, mut value: Value) -> Value {
+    if let Some(buttons) = value["taskbar"]["buttons"].as_array_mut() {
+        for b in buttons {
+            let app = b["app"].as_str().unwrap_or_default().to_string();
+            b["name"] = json!(app_name(shell, &app));
+            b["icon"] = json!(app_icon(shell, &app));
+        }
+    }
+    let pinned: Vec<Value> = shell
+        .model
+        .taskbar
+        .pinned
+        .iter()
+        .map(|app| json!({"app": app, "name": app_name(shell, app), "icon": app_icon(shell, app), "focused": shell.model.windows.iter().any(|w| &w.app == app && w.focused)}))
+        .collect();
+    value["sidebar"]["pinned"] = Value::Array(pinned);
+    let workspaces: Vec<Value> = uicore_model::workspace_badges(&shell.model)
+        .into_iter()
+        .map(|b| json!({"index": b.index, "label": format!("Workspace {}", b.index + 1), "active": b.active, "count": b.count, "countText": if b.count == 0 { String::new() } else { b.count.to_string() }}))
+        .collect();
+    value["sidebar"]["workspaces"] = Value::Array(workspaces);
+    value["sessions"] = json!([]);
+    if let Some(entries) = value["switcher"]["entries"].as_array_mut() {
+        for e in entries {
+            let current = e["kind"] == shell.model.switcher.current.kind.clone().into_json() && e["id"] == json!(shell.model.switcher.current.id);
+            e["current"] = json!(current);
+        }
+    }
+    let current_category = shell.model.start_menu.category.clone();
+    if let Some(categories) = value["startMenu"]["categories"].as_array_mut() {
+        for c in categories {
+            let id = c["id"].as_str().unwrap_or_default().to_string();
+            c["icon"] = json!(category_icon(&id));
+            c["selected"] = json!(id == current_category);
+        }
+    }
+    if let Some(apps) = value["startMenu"]["apps"].as_array_mut() {
+        for a in apps {
+            let id = a["id"].as_str().unwrap_or_default().to_string();
+            a["icon"] = json!(app_icon(shell, &id));
+        }
+    }
+    let favourites: Vec<Value> = {
+        let mut state = shell.model.clone();
+        state.start_menu.query.clear();
+        state.start_menu.category = "favourites".into();
+        uicore_model::start_menu_apps(&state, &shell.menu_apps, &shell.model.taskbar.pinned).into_iter().map(|e| json!({"id": e.id, "name": e.name, "icon": app_icon(shell, &e.id)})).collect()
+    };
+    value["startMenu"]["favourites"] = Value::Array(favourites);
+    value
+}
+
+trait IntoJson {
+    fn into_json(self) -> Value;
+}
+impl IntoJson for uicore_model::SwitcherKind {
+    fn into_json(self) -> Value {
+        serde_json::to_value(self).unwrap_or(Value::Null)
+    }
+}
+
+/// `/applets`: what the taskbar's applet buttons show, from the services.
+fn applets_json(services: &Value) -> Value {
+    let network = &services["network"];
+    let network_icon = if network["available"].as_bool() != Some(true) {
+        "ui-offline"
+    } else if network["wiredConnected"].as_bool() == Some(true) {
+        "ede-wired"
+    } else if network["wifiEnabled"].as_bool() == Some(false) {
+        "ui-offline"
+    } else {
+        "ede-wifi"
+    };
+    let sound = &services["sound"];
+    let volume = sound["volume"].as_u64().unwrap_or(0);
+    let sound_icon = if sound["muted"].as_bool() == Some(true) {
+        "media-volume-mute"
+    } else if volume == 0 {
+        "media-volume-off"
+    } else if volume < 50 {
+        "media-volume-down"
+    } else {
+        "media-volume-up"
+    };
+    let bluetooth = &services["bluetooth"];
+    let battery = &services["power"]["battery"];
+    let charging = battery["state"].as_str() == Some("charging") || battery["state"].as_str() == Some("full");
+    json!({
+        "network": {"icon": network_icon},
+        "sound": {"icon": sound_icon},
+        "bluetooth": {"show": bluetooth["available"].as_bool() == Some(true) && bluetooth["powered"].as_bool() == Some(true)},
+        "battery": {"show": battery["present"].as_bool() == Some(true), "icon": if charging { "ede-battery-charging" } else { "ede-battery" }},
+    })
+}
+
 /// The popup documents anchored at `component` of `parent`.
 fn popups_of(shell: &Shell, parent: &str, component: &str) -> Vec<String> {
     let ui = shell.ui.lock().unwrap_or_else(|p| p.into_inner());
@@ -505,12 +704,34 @@ fn popups_of(shell: &Shell, parent: &str, component: &str) -> Vec<String> {
         .collect()
 }
 
+/// The first output's logical size (the goldens' headless output, the
+/// session's primary), 1280×720 without a compositor.
+fn output_size(shell: &Shell) -> (u32, u32) {
+    shell
+        .feed
+        .get("/outputs")
+        .and_then(Value::as_array)
+        .and_then(|o| o.first())
+        .and_then(|o| Some((o["width"].as_u64()? as u32, o["height"].as_u64()? as u32)))
+        .filter(|(w, h)| *w > 0 && *h > 0)
+        .unwrap_or((1280, 720))
+}
+
 /// The sidebar's header for the model's `rail` (the width and exclusive
-/// zone of `shell-layout.json`); any other document's as written.
+/// zone of `shell-layout.json`), and a stretched axis (anchored to both
+/// of its edges) sized to the output, since the window takes the size it
+/// asks for; any other document's as written.
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
     let mut header = doc.surface.clone();
-    if doc.name == "sidebar" {
-        if let SurfaceHeader::Layer { size, exclusive_zone, .. } = &mut header {
+    if let SurfaceHeader::Layer { size, exclusive_zone, anchor, .. } = &mut header {
+        let (out_w, out_h) = output_size(shell);
+        if anchor.contains(&ede_ui::surface::Edge::Left) && anchor.contains(&ede_ui::surface::Edge::Right) {
+            size.width = Some(out_w.saturating_sub(if doc.name == "taskbar" { if shell.model.rail { shell_layout().rail_width } else { shell_layout().sidebar_width } } else { 0 }).max(1));
+        }
+        if anchor.contains(&ede_ui::surface::Edge::Top) && anchor.contains(&ede_ui::surface::Edge::Bottom) {
+            size.height = Some(out_h.max(1));
+        }
+        if doc.name == "sidebar" {
             let width = if shell.model.rail { shell_layout().rail_width } else { shell_layout().sidebar_width };
             size.width = Some(width);
             if *exclusive_zone > 0 {
@@ -519,6 +740,21 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
         }
     }
     header
+}
+
+/// A layer document's root takes the surface's size in px (`100%` of a
+/// layer window is whatever it was opened at).
+fn size_root(doc: &mut Document, header: &SurfaceHeader) {
+    let SurfaceHeader::Layer { size, .. } = header else { return };
+    if let ede_ui::Body::Nested(root) = &mut doc.body {
+        let style = root.style.get_or_insert_with(Default::default);
+        if let Some(w) = size.width {
+            style.insert("width".into(), json!(w));
+        }
+        if let Some(h) = size.height {
+            style.insert("height".into(), json!(h));
+        }
+    }
 }
 
 /// The order layer documents open in: the ground first, then the sidebar
@@ -542,6 +778,7 @@ fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
         (header_for(&s, doc), s.feed.clone())
     };
     let mut doc = doc.clone();
+    size_root(&mut doc, &header);
     doc.surface = header;
     shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
 }
@@ -569,7 +806,12 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
             let open = shell.borrow().surfaces.is_open(&name);
             match (open, &doc.surface) {
                 (true, _) => {
-                    let feed = shell.borrow().feed.clone();
+                    let (header, feed) = {
+                        let s = shell.borrow();
+                        (header_for(&s, &doc), s.feed.clone())
+                    };
+                    let mut doc = doc.clone();
+                    size_root(&mut doc, &header);
                     shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
                     tracing::info!(document = %name, "redrawn");
                 }
@@ -596,6 +838,7 @@ fn model_changed(shell: &SharedShell, cx: &mut App) {
         let mut s = shell.borrow_mut();
         let favourites: Vec<String> = s.model.taskbar.pinned.clone();
         let value = uicore_data::shell_feed(&s.model, &s.menu_apps, &favourites);
+        let value = decorate_shell(&s, value);
         s.feed.set("/shell", value);
     }
     refresh(shell, cx);
@@ -1231,6 +1474,8 @@ fn main() {
         let menu_apps: Vec<StartMenuApp> = installed.iter().map(apps::App::start_menu_app).collect();
         let favourites = model.taskbar.pinned.clone();
         feed.set("/shell", uicore_data::shell_feed(&model, &menu_apps, &favourites));
+        let applets = applets_json(feed.get("/services").unwrap_or(&Value::Null));
+        feed.set("/applets", applets);
 
         let shell_cell: Rc<RefCell<Option<SharedShell>>> = Rc::new(RefCell::new(None));
         let plugin_for: uicore_gpui::PluginFor = {
@@ -1265,13 +1510,17 @@ fn main() {
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
+        model_changed(&shell, cx);
+        if !demo {
+            // The outputs first: a stretched surface takes the output's size.
+            outputs_refresh(&shell);
+        }
         if demo {
             // The sample windows, before any document opens (the goldens).
             windows_changed(&shell, demo_windows(), vec![ede_protocol::WorkspaceInfo { index: 0, active: true, windows: vec![] }, ede_protocol::WorkspaceInfo { index: 1, active: false, windows: vec![] }], cx);
         } else {
-            // The tray and the outputs as they stand at start.
+            // The tray as it stands at start.
             tray_refresh(&shell);
-            outputs_refresh(&shell);
         }
 
         // Every layer document on screen, the ground, the sidebar and the
@@ -1321,7 +1570,9 @@ fn main() {
                     let mut sh = s.borrow_mut();
                     let mut services = sh.feed.get("/services").cloned().unwrap_or_else(|| json!({}));
                     services[domain.as_str()] = settings::decorate(&domain, snapshot);
+                    let applets = applets_json(&services);
                     sh.feed.set("/services", services);
+                    sh.feed.set("/applets", applets);
                     dirty = true;
                 }
                 while let Ok(()) = outputs_rx.try_recv() {

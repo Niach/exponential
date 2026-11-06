@@ -21,7 +21,7 @@ macro_rules! docs {
     };
 }
 
-docs!["menu", "notification-center", "notifications", "osd", "panel", "settings", "switcher", "tray-menu"];
+docs!["chat", "ground", "notification-center", "notifications", "osd", "settings", "sidebar", "start-menu", "switcher", "taskbar", "tray-menu"];
 
 impl Doc {
     /// The parsed document (the sources are checked by the tests).

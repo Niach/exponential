@@ -534,6 +534,84 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `battery-charging`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "battery-charging",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m11 7-3 5h4l-3 5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14.856 6H16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.935"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M22 14v-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5.14 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2.936"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `battery-medium`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "battery-medium",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M10 14v-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M22 14v-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 14v-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 6H16A2 2 0 0 1 18 8V16A2 2 0 0 1 16 18H4A2 2 0 0 1 2 16V8A2 2 0 0 1 4 6Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `bell`: ImageVector by lazy {
         ImageVector.Builder(
             name = "bell",
@@ -590,6 +668,24 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `bluetooth`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "bluetooth",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m7 7 10 10-5 5V2l5 5L7 17"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -2653,6 +2749,52 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M11 19A1 1 0 1 0 13 19A1 1 0 1 0 11 19Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `ethernet-port`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "ethernet-port",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m15 20 3-3h2a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2l3 3z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 8v1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M10 8v1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14 8v1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 8v1"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -8738,6 +8880,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `wifi`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "wifi",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 20h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M2 8.82a15 15 0 0 1 20 0"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 12.859a10 10 0 0 1 14 0"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8.5 16.429a5 5 0 0 1 7 0"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `wifi-off`: ImageVector by lazy {
         ImageVector.Builder(
             name = "wifi-off",
@@ -9020,8 +9201,11 @@ public object ExpIcons {
         "audio-lines" -> `audio-lines`
         "award" -> `award`
         "ban" -> `ban`
+        "battery-charging" -> `battery-charging`
+        "battery-medium" -> `battery-medium`
         "bell" -> `bell`
         "bell-off" -> `bell-off`
+        "bluetooth" -> `bluetooth`
         "bold" -> `bold`
         "book-open" -> `book-open`
         "bookmark" -> `bookmark`
@@ -9079,6 +9263,7 @@ public object ExpIcons {
         "ear" -> `ear`
         "ellipsis" -> `ellipsis`
         "ellipsis-vertical" -> `ellipsis-vertical`
+        "ethernet-port" -> `ethernet-port`
         "external-link" -> `external-link`
         "eye" -> `eye`
         "eye-off" -> `eye-off`
@@ -9266,6 +9451,7 @@ public object ExpIcons {
         "volume-off" -> `volume-off`
         "volume-x" -> `volume-x`
         "wallet" -> `wallet`
+        "wifi" -> `wifi`
         "wifi-off" -> `wifi-off`
         "workflow" -> `workflow`
         "wrench" -> `wrench`
@@ -9307,11 +9493,17 @@ public object ExpIcons {
         "coding-stop" -> `circle-x`
         "coding-subagent" -> `bot`
         "coding-tool" -> `wrench`
+        "ede-battery" -> `battery-medium`
+        "ede-battery-charging" -> `battery-charging`
+        "ede-bluetooth" -> `bluetooth`
         "ede-brightness" -> `sun`
         "ede-lock" -> `lock`
         "ede-power" -> `power`
         "ede-suspend" -> `moon`
+        "ede-wifi" -> `wifi`
         "ede-window" -> `monitor`
+        "ede-wired" -> `ethernet-port`
+        "ede-workspaces" -> `layout-grid`
         "editor-bold" -> `bold`
         "editor-clear-formatting" -> `remove-formatting`
         "editor-code" -> `code`
@@ -9652,6 +9844,12 @@ public object ExpIcons {
     public val codingSubagent: ImageVector get() = `bot`
     /** Concept `coding-tool`. */
     public val codingTool: ImageVector get() = `wrench`
+    /** Concept `ede-battery`. */
+    public val edeBattery: ImageVector get() = `battery-medium`
+    /** Concept `ede-battery-charging`. */
+    public val edeBatteryCharging: ImageVector get() = `battery-charging`
+    /** Concept `ede-bluetooth`. */
+    public val edeBluetooth: ImageVector get() = `bluetooth`
     /** Concept `ede-brightness`. */
     public val edeBrightness: ImageVector get() = `sun`
     /** Concept `ede-lock`. */
@@ -9660,8 +9858,14 @@ public object ExpIcons {
     public val edePower: ImageVector get() = `power`
     /** Concept `ede-suspend`. */
     public val edeSuspend: ImageVector get() = `moon`
+    /** Concept `ede-wifi`. */
+    public val edeWifi: ImageVector get() = `wifi`
     /** Concept `ede-window`. */
     public val edeWindow: ImageVector get() = `monitor`
+    /** Concept `ede-wired`. */
+    public val edeWired: ImageVector get() = `ethernet-port`
+    /** Concept `ede-workspaces`. */
+    public val edeWorkspaces: ImageVector get() = `layout-grid`
     /** Concept `editor-bold`. */
     public val editorBold: ImageVector get() = `bold`
     /** Concept `editor-clear-formatting`. */

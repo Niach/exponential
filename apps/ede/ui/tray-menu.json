@@ -1,6 +1,6 @@
 {
-  "$comment": "Exponential Desktop's factory tray menu (#EDE-12): a tray item's dbusmenu (com.canonical.dbusmenu over the session bus), opened as a popup under the panel's tray area when the item has one (an item without a menu is activated instead). /traymenu holds the item and its rows, one submenu level flattened; a row press sends the item its clicked event (ede.tray_menu).",
-  "surface": {"popup": {"parent": "panel", "anchor": "tray", "placement": "bottom-end", "size": {"width": 280, "height": 360}}, "functions": ["ede.tray_menu"]},
+  "$comment": "Exponential Desktop's factory tray menu (#EDE-12): a tray item's dbusmenu (com.canonical.dbusmenu over the session bus), opened as a popup above the taskbar's tray area when the item has one (an item without a menu is activated instead). /traymenu holds the item and its rows, one submenu level flattened; a row press sends the item its clicked event (ede.tray_menu).",
+  "surface": {"popup": {"parent": "taskbar", "anchor": "tray", "placement": "top-end", "size": {"width": 280, "height": 360}}, "functions": ["ede.tray_menu"]},
   "root": {
     "id": "traymenu",
     "component": "Box",

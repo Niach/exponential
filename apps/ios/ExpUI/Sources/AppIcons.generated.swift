@@ -163,8 +163,11 @@ public enum AppIcons {
         "audio-lines",
         "award",
         "ban",
+        "battery-charging",
+        "battery-medium",
         "bell",
         "bell-off",
+        "bluetooth",
         "bold",
         "book-open",
         "bookmark",
@@ -222,6 +225,7 @@ public enum AppIcons {
         "ear",
         "ellipsis",
         "ellipsis-vertical",
+        "ethernet-port",
         "external-link",
         "eye",
         "eye-off",
@@ -409,6 +413,7 @@ public enum AppIcons {
         "volume-off",
         "volume-x",
         "wallet",
+        "wifi",
         "wifi-off",
         "workflow",
         "wrench",
@@ -455,11 +460,17 @@ public enum AppIcons {
         "coding-stop": "circle-x",
         "coding-subagent": "bot",
         "coding-tool": "wrench",
+        "ede-battery": "battery-medium",
+        "ede-battery-charging": "battery-charging",
+        "ede-bluetooth": "bluetooth",
         "ede-brightness": "sun",
         "ede-lock": "lock",
         "ede-power": "power",
         "ede-suspend": "moon",
+        "ede-wifi": "wifi",
         "ede-window": "monitor",
+        "ede-wired": "ethernet-port",
+        "ede-workspaces": "layout-grid",
         "editor-bold": "bold",
         "editor-clear-formatting": "remove-formatting",
         "editor-code": "code",
@@ -805,6 +816,12 @@ public enum AppIcons {
     public static let codingSubagent: String = "bot"
     /// Concept `coding-tool`.
     public static let codingTool: String = "wrench"
+    /// Concept `ede-battery`.
+    public static let edeBattery: String = "battery-medium"
+    /// Concept `ede-battery-charging`.
+    public static let edeBatteryCharging: String = "battery-charging"
+    /// Concept `ede-bluetooth`.
+    public static let edeBluetooth: String = "bluetooth"
     /// Concept `ede-brightness`.
     public static let edeBrightness: String = "sun"
     /// Concept `ede-lock`.
@@ -813,8 +830,14 @@ public enum AppIcons {
     public static let edePower: String = "power"
     /// Concept `ede-suspend`.
     public static let edeSuspend: String = "moon"
+    /// Concept `ede-wifi`.
+    public static let edeWifi: String = "wifi"
     /// Concept `ede-window`.
     public static let edeWindow: String = "monitor"
+    /// Concept `ede-wired`.
+    public static let edeWired: String = "ethernet-port"
+    /// Concept `ede-workspaces`.
+    public static let edeWorkspaces: String = "layout-grid"
     /// Concept `editor-bold`.
     public static let editorBold: String = "bold"
     /// Concept `editor-clear-formatting`.

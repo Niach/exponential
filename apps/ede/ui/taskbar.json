@@ -1,0 +1,50 @@
+{
+  "$comment": "Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer surface along the bottom edge, to the right of the sidebar (the shell opens the sidebar first, so its exclusive zone takes the left edge). Left: one icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running ones), a dot under a running app, a wider one under the focused app, dimmed when every window is minimized; a click does what Mint's does (ede.taskbar: launch, focus, minimize, or the group's previews), the context menu pins, unpins and closes (ede.taskbar_menu), hovering a running app opens its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup document anchored here, #EDE-43), the tray items, the bell (notification-center.json) and the clock.",
+  "surface": {"layer": "top", "anchor": ["bottom", "left", "right"], "size": {"height": 48}, "exclusiveZone": 48, "functions": ["ede.taskbar", "ede.taskbar_menu", "ede.previews", "ede.focus", "ede.close", "ede.tray"]},
+  "root": {
+    "id": "taskbar",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "space-between", "height": 48, "paddingLeft": "$spacing.sm", "paddingRight": "$spacing.sm", "backgroundColor": "$color.background"},
+    "children": [
+      {"id": "buttons", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center"}, "template": {"component": "group", "path": "/shell/taskbar/buttons", "key": "app"}, "children": [
+        {"id": "group", "component": "Menu", "props": {"openOn": "contextmenu", "side": "top", "align": "start", "items": [{"label": "Pin to the taskbar", "value": "pin", "icon": "ui-pin"}, {"label": "Unpin from the taskbar", "value": "unpin", "icon": "ui-unpin"}, {"kind": "separator"}, {"label": "Close", "value": "close", "icon": "ui-close"}]}, "on": {"select": {"functionCall": {"call": "ede.taskbar_menu", "args": {"app": {"path": "app"}, "value": {"path": "value"}}}}}, "children": [
+          {"id": "previews", "component": "Popover", "props": {"openOn": "hover", "side": "top", "align": "center"}, "on": {"change": {"functionCall": {"call": "ede.previews", "args": {"app": {"path": "app"}, "open": {"path": "open"}}}}},
+            "slots": {"trigger": {"id": "button", "component": "Box", "props": {"pressable": true}, "style": {"position": "relative", "display": "flex", "flexDirection": "column", "alignItems": "center", "justifyContent": "center", "width": 40, "height": 40, "borderRadius": "$radius.md"}, "on": {"press": {"functionCall": {"call": "ede.taskbar", "args": {"app": {"path": "app"}}}}}, "children": [
+              {"id": "focus-bg", "component": "Box", "style": {"position": "absolute", "inset": 0, "borderRadius": "$radius.md", "backgroundColor": "$color.accent"}, "visible": {"path": "focused"}},
+              {"id": "button-icon", "component": "Image", "props": {"src": {"path": "icon"}, "alt": {"path": "name"}, "width": 24, "height": 24, "fit": "contain", "fallback": "nav-apps"}, "visible": {"call": "not", "args": {"value": {"path": "minimized"}}}},
+              {"id": "button-icon-dim", "component": "Image", "props": {"src": {"path": "icon"}, "alt": {"path": "name"}, "width": 24, "height": 24, "fit": "contain", "fallback": "nav-apps"}, "style": {"opacity": 0.5}, "visible": {"path": "minimized"}},
+              {"id": "running-focused", "component": "Box", "style": {"height": 2, "width": 20, "marginTop": 3, "borderRadius": "$radius.full", "backgroundColor": "$color.primary"}, "visible": {"path": "focused"}},
+              {"id": "running", "component": "Box", "style": {"height": 2, "width": 8, "marginTop": 3, "borderRadius": "$radius.full", "backgroundColor": "$color.mutedForeground"}, "visible": {"call": "and", "args": {"values": [{"path": "running"}, {"call": "not", "args": {"value": {"path": "focused"}}}]}}},
+              {"id": "not-running", "component": "Box", "style": {"height": 2, "marginTop": 3}, "visible": {"call": "not", "args": {"value": {"path": "running"}}}}
+            ]}},
+            "children": [
+              {"id": "previews-box", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "start"}, "style": {"padding": "$spacing.sm"}, "template": {"component": "preview", "path": "/previews/windows", "key": "id"}, "children": [
+                {"id": "preview", "component": "Box", "props": {"pressable": true}, "style": {"position": "relative", "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "width": 200, "borderRadius": "$radius.md"}, "on": {"press": {"functionCall": {"call": "ede.focus", "args": {"window": {"path": "id"}}}}}, "children": [
+                  {"id": "preview-bg", "component": "Box", "style": {"position": "absolute", "inset": 0, "borderRadius": "$radius.md", "backgroundColor": "$color.accent"}, "visible": {"path": "focused"}},
+                  {"id": "preview-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center"}, "children": [
+                    {"id": "preview-title", "component": "Text", "props": {"text": {"path": "title"}, "variant": "caption", "lines": 1}, "style": {"flexGrow": 1, "minWidth": 0}},
+                    {"id": "preview-close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.close", "args": {"window": {"path": "id"}}}}}}
+                  ]},
+                  {"id": "preview-thumb", "component": "Image", "props": {"src": {"path": "thumbnail"}, "alt": {"path": "title"}, "width": 184, "height": 110, "fit": "contain", "fallback": "ede-window"}}
+                ]}
+              ]}
+            ]}
+        ]}
+      ]},
+      {"id": "right", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center"}, "children": [
+        {"id": "tray", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center"}, "template": {"component": "tray-item", "path": "/tray", "key": "service"}, "children": []},
+        {"id": "tray-item", "component": "Box", "props": {"pressable": true}, "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": 32, "height": 32, "borderRadius": "$radius.sm"}, "on": {"press": {"functionCall": {"call": "ede.tray", "args": {"service": {"path": "service"}}}}}, "children": [
+          {"id": "tray-icon", "component": "Image", "props": {"src": {"path": "icon"}, "alt": {"path": "title"}, "width": 18, "height": 18, "fit": "contain", "fallback": "nav-apps"}}
+        ]},
+        {"id": "applet-network", "component": "Button", "props": {"icon": {"path": "/applets/network/icon"}, "variant": "ghost", "size": "icon", "label": "Network"}, "on": {"press": {"event": {"name": "applet"}}}},
+        {"id": "applet-sound", "component": "Button", "props": {"icon": {"path": "/applets/sound/icon"}, "variant": "ghost", "size": "icon", "label": "Sound"}, "on": {"press": {"event": {"name": "applet"}}}},
+        {"id": "applet-bluetooth", "component": "Button", "props": {"icon": "ede-bluetooth", "variant": "ghost", "size": "icon", "label": "Bluetooth"}, "visible": {"path": "/applets/bluetooth/show"}, "on": {"press": {"event": {"name": "applet"}}}},
+        {"id": "applet-battery", "component": "Button", "props": {"icon": {"path": "/applets/battery/icon"}, "variant": "ghost", "size": "icon", "label": "Battery"}, "visible": {"path": "/applets/battery/show"}, "on": {"press": {"event": {"name": "applet"}}}},
+        {"id": "bell", "component": "Button", "props": {"icon": "nav-notifications", "variant": "ghost", "size": "icon", "label": "Notifications"}, "on": {"press": {"event": {"name": "bell"}}}},
+        {"id": "bell-count", "component": "Badge", "props": {"text": {"path": "/notifications/count"}, "variant": "secondary"}, "visible": {"call": "not", "args": {"value": {"call": "eq", "args": {"a": {"path": "/notifications/count"}, "b": 0}}}}},
+        {"id": "clock", "component": "Button", "props": {"label": {"path": "/time"}, "variant": "ghost", "size": "sm"}, "on": {"press": {"event": {"name": "clock"}}}}
+      ]}
+    ]
+  },
+  "data": {"time": "00:00", "tray": [], "notifications": {"count": 0}, "previews": {"app": null, "windows": []}, "applets": {"network": {"icon": "ede-wifi"}, "sound": {"icon": "media-volume-up"}, "bluetooth": {"show": false}, "battery": {"show": false, "icon": "ede-battery"}}, "shell": {"taskbar": {"buttons": []}}}
+}

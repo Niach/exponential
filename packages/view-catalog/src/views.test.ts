@@ -175,6 +175,7 @@ const edeCaptureSchema = z.strictObject({
   open: z.array(z.string()).optional(),
   size: z.string().regex(/^\d+x\d+$/).optional(),
   settleMs: z.number().int().positive().optional(),
+  env: z.record(z.string().startsWith(`EDE_SHELL_`), z.string().min(1)).optional(),
 })
 
 const viewSchema = z.strictObject({

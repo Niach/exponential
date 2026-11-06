@@ -73,15 +73,24 @@ click: launch, focus, minimize, or the previews of a group),
 `ede.workspace {index}`, `ede.sidebar {section}` (fold a section).
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
-`file:` pictures. Factory documents live in `apps/ede/ui/*.json`:
-`panel.json` (top, 40 px exclusive zone, the launcher button, the taskbar,
-the clock), `menu.json` (the panel's popup: search, apps, the power row),
+`file:` pictures. Factory documents live in `apps/ede/ui/*.json` (the IDE
+look, #EDE-42): `ground.json` (the background layer: the rounded panel the
+focused window sits on, inset by the sidebar, the taskbar and the panel
+margin), `sidebar.json` (left, 272 px exclusive zone, or the 56 px icon rail:
+the desktop/team switcher, inbox, search and new, Needs you + Chats, the
+Pinned / Workspaces / Active sections, the Exponential start button and the
+chat button bottom-left), `taskbar.json` (bottom, 48 px exclusive zone to the
+right of the sidebar: Mint's grouped window list with pins, hover previews
+and a context menu, the applets, the tray, the bell and the clock),
+`start-menu.json` (the start button's popup: Mint's three columns and the
+search box), `chat.json` (the Assistant's composer, on demand),
 `switcher.json` and `osd.json` (`onDemand` overlays the shell opens on a
 hotkey and closes again), `notifications.json` (the toasts, top-right, on
 demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
 (a tray item's menu as the tray's popup). A click outside an open popup, or
-Escape in it, closes it. A layer document's root is opaque (`$color.popover`
-for the panel, Settings, the OSD and the switcher): `$color.card` is a white
+Escape in it, closes it. A layer document's root is opaque (`$color.background`
+for the ground, the sidebar and the taskbar, `$color.popover` for Settings,
+the OSD and the switcher): `$color.card` is a white
 glaze at 6% in the dark theme, right inside a window, see-through for a
 surface floating over other windows (#EDE-60; `crates/ede-ui/tests/factory.rs`
 checks every layer document).
@@ -128,9 +137,9 @@ WAYLAND_DISPLAY=wayland-1 target/debug/exponential-ctl pointer 40 20 --click   #
 ```
 
 The M0 demo (#EDE-1), in the `ubuntu-wayland` VM: edit the scratch
-directory's `panel.json` and the panel redraws within the watcher's
+directory's `taskbar.json` and the taskbar redraws within the watcher's
 debounce; break it and `exponential-ui check` says why while the last good version
-stays on screen; `git -C <dir> log` shows `Edit panel.json` commits after
+stays on screen; `git -C <dir> log` shows `Edit taskbar.json` commits after
 the factory ones. `exponential-shell --windowed` opens normal windows instead
 (macOS, any desktop); `--popup` opens every popup document right away and
 `--exit-after <ms>` quits, for the headless check.
