@@ -105,7 +105,7 @@ jobs:
           ios_app='^(apps/ios/|packages/exponential-ui-swift/|apps/desktop/crates/(exponential-ui-ffi|exponential-net-ffi)/|\.github/workflows/test-ios\.yml$|\.github/scripts/select-xcode\.sh$)'
           echo "ios_app=$(grep -qE "$ios_app" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #VAPP-268: the iOS runner, the Engine's Swift facade + capabilities, what it paints with.
-          ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|\.github/workflows/ios-runner\.yml$)'
+          ios_runner='^(apps/runner/ios/|apps/desktop/crates/(eengine|eengine-ffi|eengine-bundle|exponential-ui-ffi)/|packages/eengine/|packages/exponential-ui-swift/|scripts/lanes/runner-ios\.sh$|scripts/runner-kits/ios\.sh$|\.github/workflows/ios-runner\.yml$)'
           echo "ios_runner=$(grep -qE "$ios_runner" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EXP-1544: the app, the Compose eUI modules it includes, every
           # generator that writes Kotlin into it, the fixtures and vectors its
@@ -116,7 +116,7 @@ jobs:
           # #VAPP-267: the Android runner, the modules it builds from (eUI
           # Compose, the Engine AAR + its facade and core) and the fixtures its
           # JVM tests replay.
-          runner_android='^(apps/runner/android/|packages/(exponential-ui-compose|eengine|icons)/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi)/|apps/android/app/src/main/java/com/exponential/app/ui/icons/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
+          runner_android='^(apps/runner/android/|packages/(exponential-ui-compose|eengine|icons)/|apps/desktop/crates/(eengine|eengine-ffi|exponential-ui-ffi|eengine-bundle)/|scripts/runner-kits/android\.sh$|apps/android/app/src/main/java/com/exponential/app/ui/icons/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
           echo "runner_android=$(grep -qE "$runner_android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # exponential.at: the site, what it renders (eUI, Motion's WASM,
           # the shot store) and the repo markdown its reference pages read.
@@ -376,6 +376,13 @@ jobs:
       - name: Compile + unit tests
         working-directory: apps/runner/android
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest --no-daemon
+      # #VAPP-270: `exponential bundle --target android` end to end on a
+      # synthetic kit (aapt2 link, zipalign, apksigner, bundletool, jarsigner).
+      - name: Bundle an app for Android
+        working-directory: apps/desktop
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+          BUNDLETOOL="$RUNNER_TEMP/bundletool.jar" cargo test --locked -p eengine-bundle --test android -- --nocapture
 
   # #EXP-1543: the iOS ExpCore suite (ios-core.yml) when the PR touches
   # ExpCore or a fixture it reads. INFORMATIONAL (2026-11-01): not in `gate`,

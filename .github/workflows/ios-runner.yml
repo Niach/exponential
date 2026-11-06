@@ -7,7 +7,9 @@ name: ios-runner
 #    xcframework's macOS slice) and packages/eengine/fixtures;
 # 3. the build check of the generated project for the simulator
 #    (apps/runner/ios/check-build.sh: links only the declared capability
-#    modules, purpose strings, the bundle at <name>.app/app).
+#    modules, purpose strings, the bundle at <name>.app/app);
+# 4. E7's `exponential bundle --target ios` (apps/runner/ios/check-bundle.sh:
+#    the kit, the album sample to an unsigned device .ipa + a simulator build).
 # test.yml calls it on PRs as an INFORMATIONAL check (outside `gate`);
 # release-suite.yml calls it as a release blocker.
 
@@ -38,7 +40,7 @@ jobs:
         run: command -v xcodegen >/dev/null || brew install xcodegen
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios-sim,aarch64-apple-darwin
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
@@ -56,8 +58,10 @@ jobs:
         run: swift test --package-path apps/runner/ios ${EXP_SWIFTPM_CACHE:+--cache-path "$EXP_SWIFTPM_CACHE"}
       - name: The generated project builds (simulator)
         run: bash apps/runner/ios/check-build.sh "$RUNNER_TEMP/ios-runner"
+      - name: exponential bundle --target ios (the album sample)
+        run: bash apps/runner/ios/check-bundle.sh "$RUNNER_TEMP/ios-bundle"
       - name: Free the MacBook's disk
         if: always() && runner.environment == 'self-hosted'
         run: |
-          rm -rf "$RUNNER_TEMP/ios-runner" apps/runner/ios/.build apps/desktop/crates/eengine-ffi/.build \
+          rm -rf "$RUNNER_TEMP/ios-runner" "$RUNNER_TEMP/ios-bundle" apps/runner/ios/.build apps/desktop/crates/eengine-ffi/.build \
             apps/desktop/crates/eengine-ffi/out packages/exponential-ui-swift/Binaries
