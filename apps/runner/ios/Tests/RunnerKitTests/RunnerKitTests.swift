@@ -175,6 +175,18 @@ final class RunnerKitTests: XCTestCase {
         XCTAssertGreaterThan(files, 4)
     }
 
+    // The committed sample bundle (the build check and the screenshots) runs.
+    func testSampleBundle() throws {
+        let bundle = try RunnerBundle.read(repo.appendingPathComponent("apps/runner/ios/sample/app")).get()
+        let painter = Recorder()
+        let s = session(.success(bundle), painter)
+        s.start()
+        s.settle()
+        XCTAssertNil(s.failure)
+        XCTAssertEqual(painter.opened, ["notes"])
+        XCTAssertTrue(painter.last("install")!.1.contains("runner.permissions"))
+    }
+
     func testLaunchAndShell() {
         let painter = Recorder()
         let s = running(painter)
