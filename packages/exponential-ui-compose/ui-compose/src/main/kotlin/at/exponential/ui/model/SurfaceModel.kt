@@ -657,6 +657,19 @@ class SurfaceModel(
         invalidate(true)
     }
 
+    /**
+     * A PROGRAMMATIC write at a JSON pointer (an action's `set`; null
+     * removes): bumps the surface's write epoch, so a bound field adopts it
+     * even while focused (#VAPP-288). Host data (updateDataModel, a bind)
+     * goes through [setData].
+     */
+    fun assignData(path: String, value: JsonValue?) {
+        val json = value?.json
+        benchCounters?.sent(path.length + (json?.length ?: 0))
+        runCatching { surface.assignData(path, json) }
+        invalidate(true)
+    }
+
     /** The data model. */
     val data: JsonValue get() = JsonValue.parse(surface.dataJson())
 

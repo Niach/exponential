@@ -312,6 +312,8 @@ fun SurfaceModel.press(index: Int) {
         return
     }
     if (n.isTextField || (n.component == "Slider" && n.part == "track") || n.component == "Segmented") return
+    // #VAPP-288: the focused field's outstanding edit goes out first.
+    flushFocusedField()
     // EXP-1605: a Motion's state machine gets the click first.
     motionDrivers[n.id]?.post("click")
     when (owner.component) {

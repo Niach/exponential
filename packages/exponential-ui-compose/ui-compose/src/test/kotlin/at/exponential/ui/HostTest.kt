@@ -80,8 +80,11 @@ class HostTest {
         laidOut(m!!)
         assertEquals(m.issues.toString() + " " + m.surface.dataJson(), listOf("root", "a", "b"), m.nodes.map { it.id })
         assertEquals("A2", m.node(m.indexOf("a")!!)!!.props["text"]?.string)
+        val epoch = m.surface.writeEpoch()
         t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/b","value":"B"}}"""))
         assertEquals("B", m.data["b"]?.string)
+        // #VAPP-288: host data is not a programmatic write.
+        assertEquals(epoch, m.surface.writeEpoch())
         // No `value` = remove the path; path "/" = the whole model.
         t.feed(msg("""{"version":"v0.9","updateDataModel":{"surfaceId":"s1","path":"/b"}}"""))
         assertNull(m.data["b"])

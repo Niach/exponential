@@ -160,6 +160,8 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
   - the view owns its `TextFieldValue`;
   - every edit carries a revision;
   - a model write (an echo, the composer clearing) reloads the view only when `FieldState.writeGeneration` moves.
+  - the echo of the host's data (`updateDataModel`, a bind, the echo of the field's own edits = `setData`) is adopted only while the field is idle and unfocused;
+  - a programmatic write (an action's `set`: a press's `functionCall set`, a package action's `sets` = `SurfaceModel.assignData`) bumps the surface's write epoch and is adopted even while focused: the outstanding edit is dropped and the cursor goes to the end (#VAPP-288, `interactions-round1.json fieldWrites`); a press sends the focused field's pending edit first.
 - **Interaction states.** Press, focus and hover reach the core as the node's states (`setStates`), so recipes' `hover` / `pressed` and `:hover` styles restyle it. A mouse hovers pressables, the nodes the core marks `hoverStyled` (a `:hover` style block or a hover recipe rule), triggers, text fields and nodes with a transition (gpui's set).
 - **Unbound values.** The core keeps every unbound control's value (round 1) and restyles its parts; the painter's mirror only bridges the press until the next pass.
 

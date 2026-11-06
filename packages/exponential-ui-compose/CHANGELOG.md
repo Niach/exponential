@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A focused text field adopts an action's `set` of its bound value (#VAPP-288): `SurfaceModel.assignData` (the host's package-action sets), the write epoch in `echoFields`; echoes keep the typing rule.
 - Tree (#VAPP-285): the arrows, Home and End on a treeitem go to the core (`nodeKey`), which moves the focus or folds.
 - A foldable Row (#VAPP-284): ArrowRight / ArrowLeft on a node with `expanded` go to the core (`nodeKey`, its fold keys).
 - Popover `align` + `anchor`, Menu `side` + `align` + `anchor` (VAPP-276): painted from the core's layers; `placeOverlayAligned` in the bindings.
