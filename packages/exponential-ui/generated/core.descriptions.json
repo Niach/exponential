@@ -2287,6 +2287,15 @@
         },
         "firstDayOfWeek": {
           "description": "0 (Sunday) to 6; else the locale's."
+        },
+        "inline": {
+          "description": "The month grid in place, no field."
+        },
+        "marks": {
+          "description": "Event dots."
+        },
+        "today": {
+          "description": "The ringed day; else the host's."
         }
       },
       "description": "A calendar date field (ISO yyyy-mm-dd).",
@@ -3306,6 +3315,17 @@
         }
       },
       "description": "One picture of a Mosaic."
+    },
+    "dateMark": {
+      "properties": {
+        "date": {
+          "description": "The day (yyyy-mm-dd)."
+        },
+        "tone": {
+          "description": "The dot's tone."
+        }
+      },
+      "description": "An event dot on a day."
     }
   },
   "functions": {

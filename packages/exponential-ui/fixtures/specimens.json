@@ -10660,6 +10660,54 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-date-picker-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-date-picker-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "inline · today · marks · firstDayOfWeek 1",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-month",
+                "component": "DatePicker",
+                "props": {
+                  "name": "day",
+                  "inline": true,
+                  "value": "2026-10-14",
+                  "today": "2026-10-08",
+                  "firstDayOfWeek": 1,
+                  "marks": [
+                    {
+                      "date": "2026-10-02",
+                      "tone": "primary"
+                    },
+                    {
+                      "date": "2026-10-14",
+                      "tone": "success"
+                    },
+                    {
+                      "date": "2026-10-20",
+                      "tone": "warning"
+                    },
+                    {
+                      "date": "2026-10-29",
+                      "tone": "danger"
+                    }
+                  ]
+                }
+              }
+            ]
           }
         ]
       }

@@ -6349,7 +6349,8 @@
       "children": "none",
       "slots": [],
       "events": [
-        "change"
+        "change",
+        "month"
       ],
       "basic": [
         "DateTimeInput"
@@ -6410,6 +6411,31 @@
           "bindable": false,
           "responsive": false,
           "description": "0 (Sunday) to 6; else the locale's."
+        },
+        {
+          "name": "inline",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "The month grid in place, no field."
+        },
+        {
+          "name": "marks",
+          "type": "[dateMark]",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Event dots."
+        },
+        {
+          "name": "today",
+          "type": "date",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The ringed day; else the host's."
         }
       ],
       "accessibility": {

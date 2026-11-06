@@ -557,8 +557,7 @@
             "color": "$color.foreground",
             "gap": "$spacing.md"
           }
-        }
-     ,
+        },
         {
           "when": {
             "density": "chat"
@@ -576,8 +575,7 @@
             "fontSize": "$type.size.lg",
             "lineHeight": "$type.lineHeight.lg"
           }
-        }
-     ,
+        },
         {
           "when": {
             "density": "chat"
@@ -3370,6 +3368,17 @@
             "boxShadow": "$shadow.md",
             "padding": "$spacing.md"
           }
+        },
+        {
+          "when": {
+            "inline": true
+          },
+          "style": {
+            "backgroundColor": "#00000000",
+            "borderWidth": "$border.none",
+            "boxShadow": "$shadow.none",
+            "padding": "$spacing.none"
+          }
         }
       ],
       "day": [
@@ -3389,6 +3398,23 @@
           },
           "style": {
             "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "outside": true
+          },
+          "style": {
+            "opacity": "$opacity.tertiary"
+          }
+        },
+        {
+          "when": {
+            "isToday": true
+          },
+          "style": {
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.ring"
           }
         },
         {
@@ -5660,6 +5686,23 @@
           },
           "style": {
             "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "outside": true
+          },
+          "style": {
+            "opacity": "$opacity.tertiary"
+          }
+        },
+        {
+          "when": {
+            "isToday": true
+          },
+          "style": {
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.ring"
           }
         },
         {

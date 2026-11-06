@@ -91,6 +91,21 @@ pub mod dates {
     }
 }
 
+/// #VAPP-282: a DatePicker's `marks` → the tone of each day's dot: the
+/// FIRST mark of a day wins, no tone = `primary` (fixtures/month-grid.json).
+pub fn mark_tones(marks: Option<&Value>) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    for m in marks.and_then(Value::as_array).into_iter().flatten() {
+        let Some(date) = m.get("date").and_then(Value::as_str).and_then(|d| d.get(0..10)) else { continue };
+        if dates::parse(date).is_none() || out.contains_key(date) {
+            continue;
+        }
+        let tone = m.get("tone").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("primary");
+        out.insert(date.to_string(), tone.to_string());
+    }
+    out
+}
+
 /// `HH:mm` → minutes since midnight.
 pub fn parse_time(s: &str) -> Option<u32> {
     let (h, m) = s.split_once(':')?;
@@ -409,10 +424,15 @@ impl Builder<'_, '_> {
     /// DatePicker / DateRangePicker: trigger; open → one calendar layer:
     /// header (previous, the month title, next), the weekday row, six weeks
     /// of `day` cells from the week start (`firstDayOfWeek`, else the
-    /// locale's).
+    /// locale's). #VAPP-282: a DatePicker `inline: true` builds the same
+    /// `calendar` IN FLOW (no trigger, no layer, start-aligned); `today`
+    /// (else the host's) rings a day (recipe prop `isToday`), outside days
+    /// carry `outside`, `marks` put a `mark` tone on their days
+    /// (fixtures/month-grid.json).
     pub(crate) fn date_picker(&mut self, index: u32) {
         let owner = self.field_open(index);
         let range = owner.component == "DateRangePicker";
+        let inline = !range && bool_prop(&owner.props, "inline");
         let (start, end) = if range {
             (owner.props.get("start").and_then(Value::as_str).unwrap_or("").to_string(), owner.props.get("end").and_then(Value::as_str).unwrap_or("").to_string())
         } else {
@@ -425,20 +445,35 @@ impl Builder<'_, '_> {
             (true, false) => format!("{} – {}", self.date_label(&start), if end.is_empty() { "…".to_string() } else { self.date_label(&end) }),
         };
         let glyph = format!("{}.trigger", owner.component);
-        let trigger = self.trigger(&owner, &text, start.is_empty(), &glyph);
-        self.field_close(&owner, Some(trigger));
-        if !self.is_open(&owner.id, &Map::new(), false) {
+        let trigger = if inline { None } else { Some(self.trigger(&owner, &text, start.is_empty(), &glyph)) };
+        if !inline {
+            self.field_close(&owner, trigger);
+        }
+        if !inline && !self.is_open(&owner.id, &Map::new(), false) {
             return;
         }
-        let today = self.today();
+        let today = owner.props.get("today").and_then(Value::as_str).filter(|t| dates::parse(t).is_some()).map(str::to_string).or_else(|| self.today());
+        let marks = mark_tones(owner.props.get("marks"));
         let (y, m) = self.ctx.local.month.get(&owner.id).copied().or_else(|| dates::parse(&start).map(|(y, m, _)| (y, m))).or_else(|| today.as_deref().and_then(dates::parse).map(|(y, m, _)| (y, m))).or_else(|| owner.props.get("min").and_then(Value::as_str).and_then(dates::parse).map(|(y, m, _)| (y, m))).unwrap_or((2026, 1));
         let first_dow = owner.props.get("firstDayOfWeek").and_then(Value::as_u64).map(|d| (d % 7) as u32).unwrap_or_else(|| crate::locale::week_start(self.ctx.locale) as u32);
-        let (layer, root) = self.popup(&owner, "calendar", trigger, json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.sm", "borderRadius": "$radius.md"}));
+        // #VAPP-282: the web reference's geometry (web/base-css.ts
+        // `.xui-calendar-*`): header 28 tall (28 x 28 steppers), `sm` to the
+        // grid; the grid = the weekday row (24 tall, narrow names) and six
+        // weeks, `xxs` apart; a day = a 32-wide column, its label centred.
+        let calendar_style = json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.sm", "borderRadius": "$radius.md"});
+        let (layer, root) = match trigger {
+            Some(t) => self.popup(&owner, "calendar", t, calendar_style),
+            None => {
+                let mut style = calendar_style;
+                style["alignSelf"] = json!("flex-start");
+                (0, self.part(&owner, "calendar", "Box", NodeKind::Container, style, json!({})))
+            }
+        };
         let header = self.part_in(root, &owner, "header", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "space-between", "gap": "$spacing.xs"}), json!({}), "");
         self.nodes[header as usize].part_query = None;
         let button = |b: &mut Self, parent: u32, part: &str, glyph: &str, label_id: &str| {
             let label = b.string(label_id);
-            let n = b.part_in(parent, &owner, part, "Button", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"icon": super::builtin_icon(glyph), "label": label, "variant": "ghost", "size": "icon"}), "");
+            let n = b.part_in(parent, &owner, part, "Button", NodeKind::Leaf, json!({"flexShrink": 0, "width": 28, "height": 28, "borderRadius": "$radius.sm"}), json!({"icon": super::builtin_icon(glyph), "label": label, "variant": "ghost", "size": "icon"}), "");
             b.nodes[n as usize].pressable = true;
             b.nodes[n as usize].own_query = Some(RecipeQuery::new("Button", "root", b.ctx.recipes.native_recipe_props("Button", &b.nodes[n as usize].props.clone()), Vec::new()));
             n
@@ -446,19 +481,26 @@ impl Builder<'_, '_> {
         button(self, header, "previous", &format!("{}.previousMonth", "DatePicker"), "previousMonth");
         // Round 2: month and weekday names through the surface formatter.
         let title = self.date_pattern(&dates::format(y, m, 1), "MMMM yyyy");
-        let t = self.part_in(header, &owner, "title", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "textAlign": "center"}), json!({"text": title, "variant": "label", "month": m, "year": y}), "");
+        let t = self.part_in(header, &owner, "title", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "textAlign": "center", "fontWeight": "$type.weight.medium"}), json!({"text": title, "variant": "label", "month": m, "year": y}), "");
         self.nodes[t as usize].live = Some("polite".into());
         button(self, header, "next", "DatePicker.nextMonth", "nextMonth");
         let week_style = json!({"display": "flex", "flexDirection": "row", "gap": "$spacing.xxs"});
-        let cell_style = json!({"flexGrow": 1, "flexBasis": 0, "minWidth": 32, "height": 32, "textAlign": "center"});
-        let weekdays = self.part_in(root, &owner, "weekdays", "Box", NodeKind::Container, week_style.clone(), json!({}), "");
+        let day_h = self.ctx.menu_row;
+        let cell_style = json!({"flexGrow": 1, "flexBasis": 0, "minWidth": 32, "height": day_h, "lineHeight": day_h, "textAlign": "center"});
+        let weekday_style = json!({"flexGrow": 1, "flexBasis": 0, "minWidth": 32, "height": 24, "lineHeight": 24, "textAlign": "center", "fontSize": "$type.size.xs", "color": "$color.mutedForeground"});
+        let grid = self.part_in(root, &owner, "grid", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.xxs"}), json!({}), "");
+        self.nodes[grid as usize].part_query = None;
+        let weekdays = self.part_in(grid, &owner, "weekdays", "Box", NodeKind::Container, week_style.clone(), json!({}), "");
         self.nodes[weekdays as usize].part_query = None;
         for c in 0..7u32 {
             let dow = (first_dow + c) % 7;
-            // 2026-01-04 is a Sunday.
-            let name = self.date_pattern(&dates::format(2026, 1, 4 + dow), "EEE");
-            let w = self.part_in(weekdays, &owner, "weekday", "Text", NodeKind::Leaf, cell_style.clone(), json!({"text": name, "variant": "caption", "weekday": dow}), &format!(".{c}"));
+            // 2026-01-04 is a Sunday: the column head = the narrow name
+            // (`EEEEE`), its accessible name the short one (`EEE`).
+            let iso = dates::format(2026, 1, 4 + dow);
+            let (name, short) = (self.date_pattern(&iso, "EEEEE"), self.date_pattern(&iso, "EEE"));
+            let w = self.part_in(weekdays, &owner, "weekday", "Text", NodeKind::Leaf, weekday_style.clone(), json!({"text": name, "variant": "caption", "weekday": dow}), &format!(".{c}"));
             self.nodes[w as usize].part_query = None;
+            self.default_a11y(w, "label", json!(short));
         }
         let lead = (dates::weekday(y, m, 1) + 7 - first_dow) % 7;
         let (sy, sm, sd) = dates::add_days(y, m, 1, -(lead as i32));
@@ -470,7 +512,7 @@ impl Builder<'_, '_> {
             _ => (start.clone(), end.clone()),
         };
         for r in 0..6 {
-            let week = self.part_in(root, &owner, "week", "Box", NodeKind::Container, week_style.clone(), json!({}), &format!(".{r}"));
+            let week = self.part_in(grid, &owner, "week", "Box", NodeKind::Container, week_style.clone(), json!({}), &format!(".{r}"));
             self.nodes[week as usize].part_query = None;
             for c in 0..7 {
                 let (dy, dm, dd) = dates::add_days(sy, sm, sd, r * 7 + c);
@@ -481,7 +523,11 @@ impl Builder<'_, '_> {
                 let is_end = range && !hi.is_empty() && date == hi;
                 let in_range = range && !lo.is_empty() && !hi.is_empty() && date > lo && date < hi;
                 let selected = is_start || is_end;
-                let props = json!({"text": dd.to_string(), "date": date, "outside": outside, "disabled": disabled, "selected": selected, "inRange": in_range, "rangeStart": range && is_start, "rangeEnd": is_end, "today": today.as_deref() == Some(date.as_str())});
+                let is_today = today.as_deref() == Some(date.as_str());
+                let mut props = json!({"text": dd.to_string(), "date": date, "outside": outside, "disabled": disabled, "selected": selected, "inRange": in_range, "rangeStart": range && is_start, "rangeEnd": is_end, "today": is_today});
+                if let Some(tone) = marks.get(&date) {
+                    props["mark"] = json!(tone);
+                }
                 let day = self.part_in(week, &owner, "day", "Text", NodeKind::Leaf, cell_style.clone(), props, &format!(".{r}.{c}"));
                 // The cell's name = the full localized date (the reference's
                 // `{weekday: long, year, month: long, day}`).
@@ -497,9 +543,18 @@ impl Builder<'_, '_> {
                 if in_range {
                     self.query_prop(day, "inRange", Value::Bool(true));
                 }
+                if is_today {
+                    self.query_prop(day, "isToday", Value::Bool(true));
+                }
+                if outside {
+                    self.query_prop(day, "outside", Value::Bool(true));
+                }
             }
         }
-        self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: trigger, side: OverlaySide::Bottom, align: OverlayAlign::Start }, false, true, false, None);
+        match trigger {
+            Some(anchor) => self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor, side: OverlaySide::Bottom, align: OverlayAlign::Start }, false, true, false, None),
+            None => self.field_close(&owner, None),
+        }
     }
 
     /// The host's notion of today (`SurfaceSettings.today`), if set.

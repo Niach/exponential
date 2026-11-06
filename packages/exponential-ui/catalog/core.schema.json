@@ -14280,10 +14280,30 @@
               "type": "number",
               "description": "0 (Sunday) to 6; else the locale's."
             },
+            "inline": {
+              "type": "boolean",
+              "description": "The month grid in place, no field.",
+              "default": false
+            },
+            "marks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/dateMark"
+              },
+              "description": "Event dots."
+            },
+            "today": {
+              "type": "string",
+              "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+              "description": "The ringed day; else the host's."
+            },
             "on": {
               "type": "object",
               "properties": {
                 "change": {
+                  "$ref": "#/$defs/Action"
+                },
+                "month": {
                   "$ref": "#/$defs/Action"
                 }
               },
@@ -27132,6 +27152,32 @@
       },
       "required": [
         "src"
+      ],
+      "additionalProperties": false
+    },
+    "dateMark": {
+      "type": "object",
+      "description": "An event dot on a day.",
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$",
+          "description": "The day (yyyy-mm-dd)."
+        },
+        "tone": {
+          "enum": [
+            "neutral",
+            "primary",
+            "success",
+            "warning",
+            "danger",
+            "info"
+          ],
+          "description": "The dot's tone."
+        }
+      },
+      "required": [
+        "date"
       ],
       "additionalProperties": false
     },

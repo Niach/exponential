@@ -35,6 +35,8 @@ struct LeafContent: View {
             SelectItemLeaf(cx: cx)
         case ("Text", "itemLabel"):
             MenuItemLabelLeaf(cx: cx)
+        case ("Text", "day") where owner == "DatePicker" && !n.props.str("mark").isEmpty:
+            CalendarMarkedDayLeaf(cx: cx)
         case ("Text", _):
             TextLeaf(cx: cx)
         case ("Markdown", _):
@@ -418,5 +420,24 @@ extension View {
             // selectable TextKit view per block; macOS: the labels).
             self.transformEnvironment(\.xuiTextPaint) { $0.userSelect = "text" }
         }
+    }
+}
+
+/// #VAPP-282: a marked calendar day: the day's text + its event dot (4 x 4,
+/// centred, 1 pt over the bottom; primaryForeground on the selected day;
+/// fixtures/month-grid.json).
+struct CalendarMarkedDayLeaf: View {
+    let cx: LeafContext
+
+    var body: some View {
+        let selected = cx.node.states.contains("selected")
+        let dot = (selected ? cx.themeColor("primaryForeground") : (cx.props.str("mark") == "neutral" ? cx.themeColor("mutedForeground") : cx.tone(cx.props.str("mark")))) ?? cx.themeColor("primary") ?? cx.ink
+        ZStack(alignment: .topLeading) {
+            TextLeaf(cx: cx)
+            Circle().fill(dot).frame(width: 4, height: 4)
+                .offset(x: (cx.size.width - 4) / 2, y: cx.size.height - 1 - 4)
+                .accessibilityHidden(true)
+        }
+        .frame(width: cx.size.width, height: cx.size.height, alignment: .topLeading)
     }
 }

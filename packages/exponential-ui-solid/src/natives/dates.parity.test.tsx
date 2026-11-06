@@ -67,7 +67,7 @@ describe(`DOM parity: dates`, { timeout: 60_000 }, () => {
   for (const c of cases) {
     it(`${c.name}`, async () => expectParity({ tree: c.node }))
     it(`${c.name} (open)`, async () => {
-      if (c.node.props?.disabled === true) return
+      if (c.node.props?.disabled === true || c.node.props?.inline === true) return
       await expectParity({ tree: c.node }, true)
     })
   }
@@ -90,6 +90,37 @@ describe(`DOM parity: dates`, { timeout: 60_000 }, () => {
     } as unknown as NestedNode
     await expectParity({ tree }, true)
     await expectParity({ tree: { id: `dp`, component: `DatePicker`, props: { label: `When`, placeholder: `Pick a day` } } })
+  })
+  // #VAPP-282: the inline month grid (fixtures/month-grid.json): today
+  // ringed, outside days, the event dots, a Monday week start, and a step.
+  it(`DatePicker inline: today, marks, firstDayOfWeek, next month`, async () => {
+    const tree = { id: `cal`, component: `DatePicker`, props: { name: `day`, inline: true, value: `2026-10-14`, today: `2026-10-08`, firstDayOfWeek: 1, marks: [{ date: `2026-10-02` }, { date: `2026-10-14`, tone: `success` }, { date: `2026-11-03`, tone: `danger` }] } } as unknown as NestedNode
+    const { react, solid } = await both({ tree }, false)
+    expect(react).toContain(`data-r-is-today="true"`)
+    expect(react).toContain(`data-r-outside="true"`)
+    expect(react).toContain(`xui-calendar-mark`)
+    expect(react).not.toContain(`/trigger`)
+    expect(solid).toBe(react)
+    const r = await renderReact({ tree })
+    let reactNext: string
+    try {
+      await act(async () => {
+        r.root.querySelectorAll<HTMLButtonElement>(`.xui-calendar-nav`)[1]!.click()
+        await tick()
+      })
+      reactNext = serializeDom(r.root)
+    } finally {
+      r.cleanup()
+    }
+    const so = await renderSolidSurface({ tree })
+    try {
+      so.root.querySelectorAll<HTMLButtonElement>(`.xui-calendar-nav`)[1]!.click()
+      await tick()
+      expect(serializeDom(so.root)).toBe(reactNext)
+      expect(reactNext).toContain(`data-date="2026-11-03"`)
+    } finally {
+      so.cleanup()
+    }
   })
   it(`TimePicker: step, min/max, the locale clock`, async () => {
     await expectParity({ tree: { id: `tp`, component: `TimePicker`, props: { label: `At`, value: `13:20`, step: 20, min: `08:00`, max: `18:00` } }, locale: `de-AT` }, true)

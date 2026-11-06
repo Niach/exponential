@@ -650,8 +650,9 @@ fn date_picker_calendar_follows_the_locale_week_start_and_picks() {
     let nodes = s.nodes();
     let text = |id: &str| nodes.iter().find(|n| n.id == id).unwrap().props["text"].clone();
     assert_eq!(text("d.title"), json!("October 2026"));
-    // Round 2: weekday names = the formatter's `EEE`.
-    assert_eq!(text("d.weekday.0"), json!("Sun"), "en-US starts on Sunday");
+    // #VAPP-282: the column head = the narrow `EEEEE` (the web reference), named by `EEE`.
+    assert_eq!(text("d.weekday.0"), json!("S"), "en-US starts on Sunday");
+    assert_eq!(nodes.iter().find(|n| n.id == "d.weekday.0").unwrap().accessibility.as_ref().unwrap()["label"], json!("Sun"));
     assert_eq!(text("d.day.0.0"), json!("27"), "Sun 27 Sep 2026 leads the grid");
     assert!(nodes.iter().find(|n| n.id == "d.day.1.3").unwrap().states.contains(&"selected".to_string()), "Wed 7 Oct");
     let wed = nodes.iter().find(|n| n.id == "d.day.1.3").unwrap();
@@ -659,7 +660,7 @@ fn date_picker_calendar_follows_the_locale_week_start_and_picks() {
     s.set_locale("de-DE");
     s.layout(&mut m);
     let nodes = s.nodes();
-    assert_eq!(nodes.iter().find(|n| n.id == "d.weekday.0").unwrap().props["text"], json!("Mon"), "de starts on Monday (names: the English fallback formatter)");
+    assert_eq!(nodes.iter().find(|n| n.id == "d.weekday.0").unwrap().props["text"], json!("M"), "de starts on Monday (names: the English fallback formatter)");
     press(&mut s, "d.next");
     s.layout(&mut m);
     assert_eq!(s.nodes().iter().find(|n| n.id == "d.title").unwrap().props["text"], json!("November 2026"));

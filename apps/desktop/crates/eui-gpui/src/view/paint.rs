@@ -1083,6 +1083,23 @@ impl SurfaceView {
     /// CodeBlock's tokens.
     fn paint_text(&self, lcx: &LeafCx, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let n = lcx.node;
+        // #VAPP-282: a marked calendar day = the day's text + its event dot
+        // (4 x 4, centred, 1 px over the bottom; primaryForeground on the
+        // selected day; fixtures/month-grid.json).
+        if n.owner_component.as_deref() == Some("DatePicker") && n.part.as_deref() == Some("day") {
+            if let Some(tone) = n.props.get("mark").and_then(Value::as_str) {
+                let text = self.paint_text_plain(lcx, window, cx);
+                let token = if NodeFlags::of(n).selected { "primaryForeground" } else { mark_token(tone) };
+                let dot = lcx.theme_color(token).unwrap_or(lcx.ink);
+                let (d, inset) = (4.0, 1.0);
+                return div().size_full().child(text).child(div().absolute().left(px((lcx.w - d) / 2.0)).top(px(lcx.h - inset - d)).size(px(d)).rounded_full().bg(dot)).into_any_element();
+            }
+        }
+        self.paint_text_plain(lcx, window, cx)
+    }
+
+    fn paint_text_plain(&self, lcx: &LeafCx, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let n = lcx.node;
         // #EXP-1674: a `hostLinks` Text (the Row subtitle) the host links part of.
         if n.props.get("hostLinks").and_then(Value::as_bool) == Some(true) {
             let text = display_text(n.props.get("text"));
@@ -1925,4 +1942,16 @@ fn segmented_badge(lcx: &LeafCx, text: &str, icon: f32, states: &[String], windo
         .whitespace_nowrap()
         .child(SharedString::from(text.to_string()))
         .into_any_element()
+}
+
+/// #VAPP-282: the theme colour of a calendar event dot's tone.
+fn mark_token(tone: &str) -> &'static str {
+    match tone {
+        "success" => "success",
+        "warning" => "warning",
+        "danger" | "destructive" => "destructive",
+        "info" => "info",
+        "neutral" | "muted" => "mutedForeground",
+        _ => "primary",
+    }
 }

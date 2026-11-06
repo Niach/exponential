@@ -21,6 +21,10 @@ final class SnapshotTests: XCTestCase {
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let m = try makeModel("snap", fixed: true)
+            // #VAPP-282: a pinned today far from every fixture month (a
+            // calendar's today ring must not follow the wall clock; Compose
+            // passes none).
+            m.setToday("2000-01-01")
             try m.setNested(json: c["node"]!.json)
             var rows: [JSONValue] = []
             for n in m.nodes {

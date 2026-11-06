@@ -46845,7 +46845,9 @@
     {
       "component": "DatePicker",
       "part": "label",
-      "props": {},
+      "props": {
+        "inline": false
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -46924,7 +46926,9 @@
     {
       "component": "DatePicker",
       "part": "trigger",
-      "props": {},
+      "props": {
+        "inline": false
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -47443,7 +47447,9 @@
     {
       "component": "DatePicker",
       "part": "calendar",
-      "props": {},
+      "props": {
+        "inline": false
+      },
       "visuals": {
         "neutral": {
           "light": {
@@ -47623,8 +47629,115 @@
     },
     {
       "component": "DatePicker",
+      "part": "calendar",
+      "props": {
+        "inline": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#0a0a0a",
+              "borderWidth": 0,
+              "borderColor": "#e5e5e5",
+              "borderRadius": 8,
+              "boxShadow": [],
+              "padding": 0
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#fafafa",
+              "borderWidth": 0,
+              "borderColor": "#ffffff1a",
+              "borderRadius": 8,
+              "boxShadow": [],
+              "padding": 0
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#0a0a0a",
+              "borderWidth": 0,
+              "borderColor": "#e5e5e5",
+              "borderRadius": 10,
+              "boxShadow": [],
+              "padding": 0
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#fafafa",
+              "borderWidth": 0,
+              "borderColor": "#ffffff1a",
+              "borderRadius": 10,
+              "boxShadow": [],
+              "padding": 0
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#1f1235",
+              "borderWidth": 0,
+              "borderColor": "#e9d5ff",
+              "borderRadius": 14,
+              "boxShadow": [],
+              "padding": 0
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#f5f3ff",
+              "borderWidth": 0,
+              "borderColor": "#4c3a7a",
+              "borderRadius": 14,
+              "boxShadow": [],
+              "padding": 0
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#0a0a0a",
+              "borderWidth": 0,
+              "borderColor": "#e5e5e5",
+              "borderRadius": 10,
+              "boxShadow": [],
+              "padding": 0
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#00000000",
+              "color": "#fafafa",
+              "borderWidth": 0,
+              "borderColor": "#ffffff1a",
+              "borderRadius": 10,
+              "boxShadow": [],
+              "padding": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "DatePicker",
       "part": "day",
-      "props": {},
+      "props": {
+        "inline": false
+      },
       "visuals": {
         "neutral": {
           "light": {

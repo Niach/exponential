@@ -269,7 +269,6 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-DatePicker-day,.xui-DateRangePicker-day{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:var(--xui-radius-sm);cursor:pointer;padding:0;font-size:var(--xui-type-size-sm)}
 .xui-DatePicker-day:hover,.xui-DateRangePicker-day:hover{background:var(--xui-color-accent)}
 .xui-DatePicker-day[data-xs~="selected"],.xui-DateRangePicker-day[data-xs~="selected"]{background:var(--xui-color-primary);color:var(--xui-color-primaryForeground)}
-.xui-DatePicker-day[data-outside],.xui-DateRangePicker-day[data-outside]{opacity:.4}
 .xui-DatePicker-day:disabled,.xui-DateRangePicker-day:disabled{opacity:.3;cursor:default;pointer-events:none}
 .xui-Composer-field{display:block;width:100%;min-width:0;margin:0;padding:0;outline:none;border:0;background:transparent;color:inherit;font:inherit;resize:none;max-height:200px}
 .xui-composer-bar{display:flex;align-items:center;justify-content:flex-end;gap:var(--xui-spacing-xs)}
@@ -383,7 +382,16 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-calendar-row{display:contents}
 .xui-calendar-cell{display:flex;align-items:center;justify-content:center}
 .xui-calendar-day-label{position:relative}
-.xui-DatePicker-day[data-today]>.xui-calendar-day-label,.xui-DateRangePicker-day[data-today]>.xui-calendar-day-label{text-decoration:underline;text-underline-offset:3px}
+/* #VAPP-282: today = the recipe ring (isToday), outside days the recipe dim (outside); the event dot: 4 x 4, centred, 1 px over the day's bottom; on the selected day primaryForeground. An inline grid sits at the start, sized to its seven columns. */
+.xui-DatePicker-day{position:relative}
+.xui-calendar-mark{position:absolute;left:50%;bottom:1px;width:4px;height:4px;margin-left:-2px;border-radius:9999px;background:var(--xui-color-primary);pointer-events:none}
+.xui-calendar-mark[data-tone="success"]{background:var(--xui-color-success)}
+.xui-calendar-mark[data-tone="warning"]{background:var(--xui-color-warning)}
+.xui-calendar-mark[data-tone="danger"]{background:var(--xui-color-destructive)}
+.xui-calendar-mark[data-tone="info"]{background:var(--xui-color-info)}
+.xui-calendar-mark[data-tone="neutral"]{background:var(--xui-color-mutedForeground)}
+.xui-DatePicker-day[data-xs~="selected"]>.xui-calendar-mark{background:var(--xui-color-primaryForeground)}
+.xui-DatePicker-calendar[data-r-inline="true"]{align-self:flex-start}
 .xui-DateRangePicker-day{position:relative}
 .xui-DateRangePicker-range{position:absolute;inset:0;border-radius:inherit}
 .xui-DateRangePicker-day[data-range]{background:var(--xui-color-accent)}

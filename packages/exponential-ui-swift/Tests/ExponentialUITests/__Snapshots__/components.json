@@ -9615,6 +9615,858 @@
       }
     ]
   },
+  "DatePicker\/inline=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "date-picker"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "date-picker.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "date-picker.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "DatePicker\/inline=true" : {
+    "height" : 240,
+    "nodes" : [
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          0,
+          390,
+          240
+        ],
+        "id" : "date-picker"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "date-picker.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          236,
+          216
+        ],
+        "id" : "date-picker.calendar",
+        "part" : "calendar",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          236,
+          28
+        ],
+        "id" : "date-picker.header",
+        "part" : "header"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          24,
+          28,
+          28
+        ],
+        "id" : "date-picker.previous",
+        "part" : "previous",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          32,
+          28,
+          172,
+          20
+        ],
+        "id" : "date-picker.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          208,
+          24,
+          28,
+          28
+        ],
+        "id" : "date-picker.next",
+        "part" : "next",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          60,
+          236,
+          180
+        ],
+        "id" : "date-picker.grid",
+        "part" : "grid"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          60,
+          236,
+          24
+        ],
+        "id" : "date-picker.weekdays",
+        "part" : "weekdays"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          60,
+          32,
+          24
+        ],
+        "id" : "date-picker.weekday.0",
+        "part" : "weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          34,
+          60,
+          32,
+          24
+        ],
+        "id" : "date-picker.weekday.1",
+        "part" : "weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          68,
+          60,
+          32,
+          24
+        ],
+        "id" : "date-picker.weekday.2",
+        "part" : "weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          102,
+          60,
+          32,
+          24
+        ],
+        "id" : "date-picker.weekday.3",
+        "part" : "weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          136,
+          60,
+          32,
+          24
+        ],
+        "id" : "date-picker.weekday.4",
+        "part" : "weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          170,
+          60,
+          32,
+          24
+        ],
+        "id" : "date-picker.weekday.5",
+        "part" : "weekday"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          204,
+          60,
+          32,
+          24
+        ],
+        "id" : "date-picker.weekday.6",
+        "part" : "weekday"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          86,
+          236,
+          24
+        ],
+        "id" : "date-picker.week.0",
+        "part" : "week"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          0,
+          86,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.0.0",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          34,
+          86,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.0.1",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          68,
+          86,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.0.2",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          102,
+          86,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.0.3",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          136,
+          86,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.0.4",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          170,
+          86,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.0.5",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          204,
+          86,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.0.6",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          112,
+          236,
+          24
+        ],
+        "id" : "date-picker.week.1",
+        "part" : "week"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          0,
+          112,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.1.0",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          34,
+          112,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.1.1",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          68,
+          112,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.1.2",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          102,
+          112,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.1.3",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          136,
+          112,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.1.4",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          170,
+          112,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.1.5",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          204,
+          112,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.1.6",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          138,
+          236,
+          24
+        ],
+        "id" : "date-picker.week.2",
+        "part" : "week"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          0,
+          138,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.2.0",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          34,
+          138,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.2.1",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          68,
+          138,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.2.2",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Text",
+        "frame" : [
+          102,
+          138,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.2.3",
+        "part" : "day",
+        "radius" : 10,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          136,
+          138,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.2.4",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          170,
+          138,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.2.5",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          204,
+          138,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.2.6",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          164,
+          236,
+          24
+        ],
+        "id" : "date-picker.week.3",
+        "part" : "week"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          0,
+          164,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.3.0",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          34,
+          164,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.3.1",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          68,
+          164,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.3.2",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          102,
+          164,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.3.3",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          136,
+          164,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.3.4",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          170,
+          164,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.3.5",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          204,
+          164,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.3.6",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          190,
+          236,
+          24
+        ],
+        "id" : "date-picker.week.4",
+        "part" : "week"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          0,
+          190,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.4.0",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          34,
+          190,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.4.1",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          68,
+          190,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.4.2",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          102,
+          190,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.4.3",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          136,
+          190,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.4.4",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          170,
+          190,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.4.5",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          204,
+          190,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.4.6",
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          216,
+          236,
+          24
+        ],
+        "id" : "date-picker.week.5",
+        "part" : "week"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          0,
+          216,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.5.0",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          34,
+          216,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.5.1",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          68,
+          216,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.5.2",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          102,
+          216,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.5.3",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          136,
+          216,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.5.4",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          170,
+          216,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.5.5",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          204,
+          216,
+          32,
+          24
+        ],
+        "id" : "date-picker.day.5.6",
+        "opacity" : 0.5,
+        "part" : "day",
+        "radius" : 10
+      }
+    ]
+  },
   "DateRangePicker\/example" : {
     "height" : 60,
     "nodes" : [

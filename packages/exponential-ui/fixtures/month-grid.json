@@ -1,0 +1,37 @@
+{
+  "$comment": "#VAPP-282 (round 7): THE month grid of a DatePicker, the same in its popup and `inline: true` (the calendar applet). Six weeks of seven `day` cells, ids `<id>.day.<row>.<col>`, starting on `firstDayOfWeek` (else the locale's week start); `leading` days of the previous month, then the month, then `trailing` days of the next (always 42 cells; leading + trailing days carry `outside`). The view opens on `value`'s month, else `today`'s (the prop, else the host's today), else `min`'s. The `previous` / `next` steppers move the view one month (across years) and fire `month {month: yyyy-mm}` (never `change`). `today` rings that day (recipe prop `today`), `value` selects it (state `selected`), `outside` dims (recipe prop `outside`). `marks` [{date, tone}] put ONE event dot on each listed day of the grid (outside days too; a later mark on the same day is ignored; no tone = primary): `mark` on the day = the tone. Replayed by the TS reference (`monthView` in src/web/dates.ts, which the React and Solid grids paint) and the Rust core (`eui-core/tests/month_grid.rs` over the laid-out inline DatePicker, whose `day` nodes SwiftUI, Compose and gpui paint). `first`/`last` = the first and last cell's date; positions are `row.col`.",
+  "cases": [
+    {
+      "name": "October 2026, Sunday first: four leading, seven trailing",
+      "props": { "value": "2026-10-14", "today": "2026-10-08", "firstDayOfWeek": 0, "marks": [{ "date": "2026-10-02", "tone": "primary" }, { "date": "2026-10-14", "tone": "success" }, { "date": "2026-09-28", "tone": "warning" }, { "date": "2026-11-03" }, { "date": "2026-10-02", "tone": "danger" }, { "date": "2026-12-01", "tone": "info" }] },
+      "expect": { "month": "2026-10", "title": "October 2026", "first": "2026-09-27", "last": "2026-11-07", "leading": 4, "trailing": 7, "today": "1.4", "selected": "2.3", "marks": { "0.1": "warning", "0.5": "primary", "2.3": "success", "5.2": "primary" } }
+    },
+    {
+      "name": "October 2026, Monday first: three leading, eight trailing",
+      "props": { "value": "2026-10-14", "today": "2026-10-08", "firstDayOfWeek": 1, "marks": [{ "date": "2026-10-02", "tone": "primary" }, { "date": "2026-10-14", "tone": "success" }] },
+      "expect": { "month": "2026-10", "title": "October 2026", "first": "2026-09-28", "last": "2026-11-08", "leading": 3, "trailing": 8, "today": "1.3", "selected": "2.2", "marks": { "0.4": "primary", "2.2": "success" } }
+    },
+    {
+      "name": "February 2026 starts on the week start: no leading, fourteen trailing",
+      "props": { "value": "2026-02-28", "today": "2026-03-05", "firstDayOfWeek": 0 },
+      "expect": { "month": "2026-02", "title": "February 2026", "first": "2026-02-01", "last": "2026-03-14", "leading": 0, "trailing": 14, "today": "4.4", "selected": "3.6", "marks": {} }
+    },
+    {
+      "name": "no value: the view opens on today's month (Saturday first)",
+      "props": { "today": "2026-03-05", "firstDayOfWeek": 6 },
+      "expect": { "month": "2026-03", "title": "March 2026", "first": "2026-02-28", "last": "2026-04-10", "leading": 1, "trailing": 10, "today": "0.5", "selected": null, "marks": {} }
+    },
+    {
+      "name": "next across the year end fires month, keeps the value",
+      "props": { "value": "2026-12-14", "today": "2026-10-08", "firstDayOfWeek": 1, "marks": [{ "date": "2027-01-14", "tone": "info" }] },
+      "steps": ["next"],
+      "expect": { "month": "2027-01", "title": "January 2027", "first": "2026-12-28", "last": "2027-02-07", "leading": 4, "trailing": 7, "today": null, "selected": null, "marks": { "2.3": "info" }, "events": [{ "name": "month", "payload": { "month": "2027-01" } }] }
+    },
+    {
+      "name": "previous twice from January 2026 lands on November 2025",
+      "props": { "value": "2026-01-10", "today": "2026-10-08", "firstDayOfWeek": 0 },
+      "steps": ["previous", "previous"],
+      "expect": { "month": "2025-11", "title": "November 2025", "first": "2025-10-26", "last": "2025-12-06", "leading": 6, "trailing": 6, "today": null, "selected": null, "marks": {}, "events": [{ "name": "month", "payload": { "month": "2025-12" } }, { "name": "month", "payload": { "month": "2025-11" } }] }
+    }
+  ]
+}

@@ -768,6 +768,21 @@
           "description": "The accessibility description."
         }
       }
+    },
+    "dateMark": {
+      "description": "An event dot on a day.",
+      "properties": {
+        "date": {
+          "type": "date",
+          "required": true,
+          "description": "The day (yyyy-mm-dd)."
+        },
+        "tone": {
+          "type": "enum",
+          "enum": "tone",
+          "description": "The dot's tone."
+        }
+      }
     }
   },
   "functions": {
@@ -5192,10 +5207,28 @@
         "firstDayOfWeek": {
           "type": "number",
           "description": "0 (Sunday) to 6; else the locale's."
+        },
+        "inline": {
+          "type": "boolean",
+          "default": false,
+          "description": "The month grid in place, no field."
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "dateMark"
+          },
+          "description": "Event dots."
+        },
+        "today": {
+          "type": "date",
+          "description": "The ringed day; else the host's."
         }
       },
       "events": [
-        "change"
+        "change",
+        "month"
       ],
       "example": {
         "label": "Due",

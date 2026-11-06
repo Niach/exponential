@@ -91,7 +91,27 @@ internal fun TextPart(cx: LeafContext) {
             else -> TextCellLeaf(cx)
         }
         "CodeBlock" to "code" -> if (cx.props["tokens"]?.array != null) CodeLineLeaf(cx) else TextLeaf(cx)
+        "DatePicker" to "day" -> if (cx.props.str("mark").isNotEmpty()) CalendarMarkedDayLeaf(cx) else TextLeaf(cx)
         else -> TextLeaf(cx)
+    }
+}
+
+/**
+ * #VAPP-282: a marked calendar day: the day's text + its event dot (4 x 4,
+ * centred, 1 dp over the bottom; primaryForeground on the selected day;
+ * fixtures/month-grid.json).
+ */
+@Composable
+internal fun CalendarMarkedDayLeaf(cx: LeafContext) {
+    val selected = "selected" in cx.node.states
+    val dot = (if (selected) cx.themeColor("primaryForeground") else cx.tone(cx.props.str("mark"))) ?: cx.themeColor("primary") ?: cx.ink
+    Box(Modifier.size(cx.size.width.dp, cx.size.height.dp)) {
+        TextLeaf(cx)
+        Box(
+            Modifier.absoluteOffset(((cx.size.width - 4f) / 2f).dp, (cx.size.height - 1f - 4f).dp)
+                .size(4.dp)
+                .background(dot, RoundedCornerShape(50)),
+        )
     }
 }
 
