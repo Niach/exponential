@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  #VAPP-267: the Android runner's manifest (the template E7 patches per bundle).
+  NO capability permissions here: the Engine's capabilities declare none either
+  (eengine-ffi/README.md "Capabilities (Kotlin)"). E7 writes them from the
+  package's capability manifest at the marked spot; see ../../../README.md.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- E7:PERMISSIONS (the package's capabilities; nothing else, never INTERNET unless runner.json `network` is not `off`) -->
+    <!-- /E7:PERMISSIONS -->
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/runner_label"
+        android:supportsRtl="true"
+        android:theme="@style/Runner">
+
+        <!-- E7: android:icon / android:roundIcon from the package's icon. -->
+        <activity
+            android:name=".RunnerActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|uiMode|fontScale|locale|layoutDirection"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Deep links `<runner.json id>://<screen>?<params>` (lifecycle.json `deepLink`). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${runnerScheme}" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
