@@ -13,6 +13,7 @@ bun run build      # dist/ = the whole export: the shell, app/, manifest + icons
 bun run preview    # serve dist/
 bun run test       # the controller with fakes
 bun run capture -- --package samples/album.app.json --name album --permissions --out /tmp/shots
+bun run flow -- --export <out>/Photobook-1.0.0-web --shots /tmp/shots   # VAPP-271: the Photobook flow on a real export, no request off the origin
 ```
 
 Icons: the JS bundles no icon set. `vite build` writes `glyphs.json` (every

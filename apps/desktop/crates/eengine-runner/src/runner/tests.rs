@@ -222,3 +222,106 @@ fn an_app_file_src_reads_the_instances_blob_store() {
     assert!(eui_gpui::media::fetch(&gone).is_err());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// VAPP-271: the signed Photobook sample end to end on the runner, headless:
+/// what its `addPage` and `exportPdf` actions call, in order, through the
+/// real desktop `photos` capability (the picker = a fake `Dialogs`, the one
+/// seam a real NSOpenPanel sits behind) and the Engine's `print.pdf`.
+/// `photos.read` asks first and Allow settles it; the app reads each answer's
+/// `structuredContent`. The picked photos land in the BlobStore as fileIds,
+/// and the PDF too.
+#[test]
+fn the_photobook_sample_picks_photos_and_exports_a_pdf() {
+    use eengine_desktop::{Dialogs, NamedBytes, NativeResult, OpenRequest, PhotosCapability, PrintCapability, Printer, SaveRequest};
+    use std::path::PathBuf;
+
+    struct Picker(Vec<PathBuf>);
+    impl Dialogs for Picker {
+        fn open(&self, _request: &OpenRequest) -> NativeResult<Option<Vec<PathBuf>>> {
+            Ok(Some(self.0.clone()))
+        }
+        fn save(&self, _request: &SaveRequest) -> NativeResult<Option<PathBuf>> {
+            Ok(None)
+        }
+    }
+    /// print.pdf is the Engine's own layout: the print sheet is never reached.
+    struct NoPrinter;
+    impl Printer for NoPrinter {
+        fn print(&self, _job: &NamedBytes) -> NativeResult<bool> {
+            Ok(false)
+        }
+    }
+    fn b64(text: &str) -> Vec<u8> {
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let (mut out, mut acc, mut bits) = (Vec::new(), 0u32, 0);
+        for c in text.bytes().filter(|c| *c != b'=') {
+            acc = (acc << 6) | alphabet.iter().position(|a| *a == c).expect("base64") as u32;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                out.push((acc >> bits) as u8);
+            }
+        }
+        out
+    }
+    /// A capability call (an Ask answered Allow): its value, and whether it asked.
+    fn allowed(r: &mut Runner, ticket: u64, name: &str, args: &Value) -> (Value, bool) {
+        let Dispatch::Broker(broker) = r.dispatch(name, args) else { panic!("{name} goes to the broker") };
+        let (answer, paints) = r.finish(ticket, name, args, brokered(broker.call(CallFrom::Ui, None, name, args)));
+        if let Some(answer) = answer {
+            return (answer.unwrap_or_else(|e| panic!("{name}: {e}")), false);
+        }
+        assert_eq!(surface_of(messages(&paints)[0]), Some(CONSENT));
+        let (_, pending) = r.runner_event(RunnerEvent::ConsentAnswer { answer: ConsentAnswer::Allow });
+        let (pending, answer) = pending.expect("the pending call");
+        let result = brokered(broker.answer(CallFrom::Ui, None, &pending.name, &pending.args, &pending.verdict, answer));
+        let (answer, _) = r.finish(pending.ticket, &pending.name, &pending.args, result);
+        (answer.expect("settled").unwrap_or_else(|e| panic!("{name}: {e}")), true)
+    }
+
+    let file: Value = serde_json::from_slice(include_bytes!("../../../../../../samples/apps/photobook.app.json")).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let blobs: Arc<FsBlobStore> = Arc::new(FsBlobStore::new(tmp.path().join("files")));
+    let jpg = b64(eengine::contract::CAPABILITIES["pdfCases"][3]["blobs"]["jpg1"].as_str().unwrap());
+    let photos: Vec<PathBuf> = ["lake.jpg", "jetty.jpg"].iter().map(|n| tmp.path().join(n)).collect();
+    for p in &photos {
+        std::fs::write(p, &jpg).unwrap();
+    }
+    let providers = Providers {
+        platform: "macos".into(),
+        blobs: blobs.clone(),
+        capabilities: vec![Arc::new(PhotosCapability::new(None, Some(Arc::new(Picker(photos))))), Arc::new(PrintCapability::new(Arc::new(NoPrinter)))],
+        ..providers()
+    };
+    let config = RunnerConfig { id: "at.exponential.samples.photobook".into(), name: "Photobook".into(), version: "1.0.0".into(), network: NetworkPolicy::Off };
+    let mut r = Runner::boot(config, &file, providers, FormFactor::Wide).expect("the signed sample boots");
+    let paints = r.launch(Vec::new());
+    assert_eq!(messages(&paints)[0]["applyTemplate"]["templateId"], "albums");
+
+    // newAlbum
+    let Dispatch::Done(result) = r.dispatch("records.upsert", &json!({"kind": "album", "data": {"title": "Summer 2026"}})) else { panic!() };
+    let album = r.finish(1, "records.upsert", &Value::Null, result).0.unwrap().unwrap();
+    let album = album["record"]["id"].as_str().or_else(|| album["id"].as_str()).map(str::to_string).unwrap_or_else(|| panic!("an album id: {album}"));
+
+    // addPage: photos.pick {limit: 4} → fileIds in the BlobStore → the page.
+    let (picked, asked) = allowed(&mut r, 2, "photos.pick", &json!({"limit": 4}));
+    assert!(asked, "photos.read asks");
+    let ids: Vec<String> = picked["photos"].as_array().unwrap_or_else(|| panic!("picked: {picked}")).iter().map(|p| p["fileId"].as_str().expect("a fileId").to_string()).collect();
+    assert_eq!(ids.len(), 2);
+    for id in &ids {
+        assert_eq!(blobs.get(r.app_id(), id).unwrap(), Some(jpg.clone()));
+    }
+    let Dispatch::Done(result) = r.dispatch("records.upsert", &json!({"kind": "page", "data": {"album": album, "photos": ids, "caption": "At the lake"}})) else { panic!() };
+    r.finish(3, "records.upsert", &Value::Null, result).0.unwrap().unwrap();
+    let pages = r.records(&format!("records:page?album={album}")).unwrap();
+    assert_eq!(pages["count"], 1, "{pages}");
+
+    // exportPdf: print.pdf → a PDF in the BlobStore.
+    let blocks = json!([{"heading": "Summer 2026"}, {"image": ids[0]}, {"image": ids[1]}, {"text": "At the lake"}, {"pageBreak": true}]);
+    let (pdf, _) = allowed(&mut r, 4, "print.pdf", &json!({"title": "Summer 2026", "blocks": blocks}));
+    let pdf_id = pdf["file"]["fileId"].as_str().unwrap_or_else(|| panic!("a PDF fileId: {pdf}"));
+    assert_eq!(pdf["file"]["name"], "Summer 2026.pdf");
+    let bytes = blobs.get(r.app_id(), pdf_id).unwrap().expect("the PDF in the BlobStore");
+    assert!(bytes.starts_with(b"%PDF-"), "a PDF");
+    assert_eq!(r.instance().grants().get("photos.read"), Some(&GrantValue::Granted));
+}

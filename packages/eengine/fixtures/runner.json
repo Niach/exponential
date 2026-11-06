@@ -1693,6 +1693,7 @@
               {
                 "id": "runner-permissions",
                 "component": "Button",
+                "label": "Permissions",
                 "icon": "ui-permission",
                 "size": "icon",
                 "variant": "ghost",

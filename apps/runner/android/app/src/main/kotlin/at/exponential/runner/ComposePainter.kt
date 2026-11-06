@@ -75,7 +75,8 @@ class ComposePainter(scope: CoroutineScope) : RunnerPainter {
             mode = Mode.Dark,
             plugin = plugin,
             navigate = { target ->
-                controller.onEvent("runner.navigate", JsonValue.Obj(mapOf("screen" to JsonValue.Str(target.screen))))
+                val params = JsonValue.Obj(target.params.mapValues { JsonValue.Str(it.value) })
+                controller.onEvent("runner.navigate", JsonValue.Obj(mapOf("screen" to JsonValue.Str(target.screen), "params" to params)))
                 true
             },
         ),

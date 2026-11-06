@@ -363,10 +363,16 @@ pub fn function_names(pkg: &Value) -> Vec<String> {
     names
 }
 
-/// The broker's answer as a `CallResult` (what `AppInstance::call` answers).
+/// The broker's answer as a `CallResult` (what `AppInstance::call` answers,
+/// VAPP-271): the app reads a capability's `structuredContent` (an action
+/// step's `results.<name>`); an `isError` result is a refusal, its text the toast.
 pub fn brokered(answer: eengine::BrokerAnswer) -> CallResult {
     match answer {
-        eengine::BrokerAnswer::Result(v) => CallResult::Value(v),
+        eengine::BrokerAnswer::Result(v) if v.get("isError").and_then(Value::as_bool) == Some(true) => {
+            let text = v.pointer("/content/0/text").and_then(Value::as_str).unwrap_or("failed");
+            CallResult::Refused(eengine::providers::Failure::new("failed", text))
+        }
+        eengine::BrokerAnswer::Result(v) => CallResult::Value(v.get("structuredContent").cloned().unwrap_or(Value::Null)),
         eengine::BrokerAnswer::Ask(verdict, sheet) => CallResult::Ask(verdict, sheet),
         eengine::BrokerAnswer::Refused(f) => CallResult::Refused(f),
     }

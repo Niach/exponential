@@ -212,6 +212,11 @@ strip = true
 inherits = "release"
 lto = "thin"
 strip = true
+# #VAPP-271: `strip` would reach the host proc-macro dylibs too, and a stripped
+# one no longer loads on macOS (E0463 "can't find crate for `ztracing_macro`"):
+# strip only the target binary (scripts/runner-kits/macos.sh, release-eengine.yml).
+[profile.runner.build-override]
+strip = false
 
 # EXP-1457: the browser's eNet node (`exponential-net-wasm`, built by
 # scripts/build-enet-wasm.sh): small over fast, it downloads after sign-in.

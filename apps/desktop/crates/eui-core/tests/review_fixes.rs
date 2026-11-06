@@ -553,3 +553,23 @@ fn text_link_chips_are_policed() {
     assert_eq!(wire.chip, Some(TextLinkChip { kind: "entity".into(), label: "Web".into(), icon: None, ident: None }));
     assert_eq!(serde_json::to_value(TextLink { text: "x".into(), ..Default::default() }).unwrap(), serde_json::json!({"text": "x"}));
 }
+
+// ---------------------------------------------------------------------------
+// #VAPP-271: a Page whose body overflows keeps its AppBar at full height
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_overflowing_page_body_never_squeezes_its_app_bar() {
+    let rows: Vec<Value> = (0..40).map(|i| json!({"id": format!("r{i}"), "component": "Box", "style": {"height": 40, "width": 300, "flexShrink": 0}})).collect();
+    let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "height": 300, "width": 400}, "children": [
+        {"id": "page", "component": "Page", "props": {"title": "Album"}, "children": [{"id": "list", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": rows}]}
+    ]}));
+    s.set_viewport(400.0, 300.0, None);
+    let mut m = fixed();
+    s.layout(&mut m);
+    let out = s.layout(&mut m);
+    let bar = frame(&s, &out, "page.header");
+    let page = frame(&s, &out, "page");
+    assert_eq!(page.h, 300.0, "the page fills its box");
+    assert_eq!(bar.h, 48.0, "the app bar keeps $control.appBar");
+}

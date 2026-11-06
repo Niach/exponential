@@ -215,14 +215,19 @@ class RunnerController(
 
     /**
      * Step 5: the events the runner handles itself (true = handled):
-     * `runner.navigate {screen}`, `runner.permissions`, `consent.toggle
+     * `runner.navigate {screen, params?}`, `runner.permissions`, `consent.toggle
      * {scope}`, `consent.answer {answer}`.
      */
     fun onEvent(name: String, context: JsonValue): Boolean {
         when (name) {
             "runner.navigate" -> {
                 val screen = context["screen"]?.string ?: return true
-                scope.launch { call("app.navigate", JsonValue.Obj(mapOf("screen" to JsonValue.Str(screen)))) }
+                // genUI's `app.navigate {screen, params}` arrives here too: the params open the screen.
+                val args = buildMap {
+                    put("screen", JsonValue.Str(screen))
+                    context["params"]?.obj?.let { put("params", JsonValue.Obj(it)) }
+                }
+                scope.launch { call("app.navigate", JsonValue.Obj(args)) }
             }
             "runner.permissions" -> scope.launch { withContext(worker) { paintPermissions() } }
             "consent.toggle" -> {
