@@ -81,6 +81,32 @@ describe(`HostOwnedController`, () => {
     expect(changes).toBeGreaterThan(0)
     c.dispose()
   })
+
+  it(`#VAPP-288: a programmatic write (a moved epoch) wins over focus and an outstanding edit`, async () => {
+    const sent: [string, number, string][] = []
+    const c = new HostOwnedController<string>({ initial: ``, epoch: 0, debounceMs: 5, send: (v, rev, kind) => void sent.push([v, rev, kind]) })
+    c.focus()
+    c.edit(`Buy milk`)
+    expect(c.pending).toBe(true)
+    // A host write (no epoch move) is an echo: ignored while focused.
+    expect(c.push(`Buy`, 0)).toBe(false)
+    // The action `set` clears the field: adopted, the debounce dropped.
+    expect(c.push(``, 1)).toBe(true)
+    expect(c.value).toBe(``)
+    expect(c.pending).toBe(false)
+    await new Promise((r) => setTimeout(r, 15))
+    expect(sent).toEqual([])
+    // The epoch moved with an unchanged value (a write to another path):
+    // only recorded, so a later host write is under the echo rule again.
+    c.edit(`abc`)
+    expect(c.push(`abc`, 2)).toBe(false)
+    expect(c.push(`a`, 2)).toBe(false)
+    expect(c.value).toBe(`abc`)
+    // A programmatic write of the value the field shows is a no-op.
+    expect(c.push(`abc`, 3)).toBe(false)
+    expect(c.value).toBe(`abc`)
+    c.dispose()
+  })
 })
 
 describe(`markdown tree`, () => {

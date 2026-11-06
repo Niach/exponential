@@ -7,7 +7,11 @@
 //! `event(change, {value})` (bound values write through) and the host an
 //! `InputEvent::Change` with that revision. Blur / Enter flush and send a
 //! `Commit` / `submit`. An echo (a changed prop value) is written into the
-//! field only when it is not focused and no newer edit is outstanding. A
+//! field only when it is not focused and no newer edit is outstanding,
+//! unless it came with a PROGRAMMATIC write (#VAPP-288: an action's `set`,
+//! a package action's `sets`, which move the surface's write epoch): then
+//! the field adopts it even while focused, drops the outstanding edit and
+//! puts the cursor at the end (the form that clears itself after Save). A
 //! growing field (Composer, autosize Textarea) is re-measured on every edit
 //! from its LIVE text.
 
@@ -82,6 +86,8 @@ pub(crate) struct Field {
     pub pending: Option<Task<()>>,
     /// The last prop value seen (the echo source).
     pub external: String,
+    /// #VAPP-288: the surface's write epoch when this field last looked.
+    pub seen_epoch: u64,
     pub placeholder: String,
     /// The text last sent or echoed in (an edit not yet seen by the
     /// subscription still counts as outstanding).
@@ -123,6 +129,24 @@ impl Field {
         }
     }
 
+    /// #VAPP-288: adopt a programmatic write even while focused: the value,
+    /// the outstanding edit dropped, the cursor at the end.
+    fn adopt(&mut self, value: String, focused: bool, window: &mut Window, cx: &mut App) {
+        self.pending = None;
+        self.flushed = self.revision;
+        self.synced = value.clone();
+        if self.value(cx) != value {
+            // A single-line state puts the caret at the end on `set_value`;
+            // a multi-line one resets it to the start (moving it focuses, so
+            // only a focused one moves).
+            let end = gpui_component::input::Position::new(value.matches('\n').count() as u32, value.rsplit('\n').next().unwrap_or("").chars().count() as u32);
+            self.set_value(value, window, cx);
+            if let (FieldInput::Multi(s), true) = (&self.input, focused) {
+                s.update(cx, |s, cx| s.set_cursor_position(end, window, cx));
+            }
+        }
+    }
+
     fn select_all(&self, window: &mut Window, cx: &mut App) {
         if let FieldInput::Line(s) = &self.input {
             s.update(cx, |s, cx| s.select_all(window, cx));
@@ -144,6 +168,7 @@ impl SurfaceView {
     /// Create states for new fields, apply echoes, drop stale fields.
     pub(crate) fn sync_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut keep = HashSet::new();
+        let epoch = self.surface.write_epoch();
         let fields: Vec<PlacedNode> = self.cache.nodes.iter().filter(|n| !n.removed && is_text_field(n)).cloned().collect();
         for n in fields {
             keep.insert(n.id.clone());
@@ -155,14 +180,26 @@ impl SurfaceView {
                     f.placeholder = placeholder.clone();
                     f.set_placeholder(placeholder, window, cx);
                 }
-                if f.external != external {
+                let moved = f.external != external;
+                // #VAPP-288: a programmatic write (the epoch moved) wins over
+                // the focus when the bound value moved since the field last
+                // looked OR last wrote (a press flushes the field's own edit
+                // first, so its `set` may land back on the value last seen).
+                let programmatic = epoch != f.seen_epoch && (moved || f.synced != external);
+                if moved {
                     f.external = external.clone();
+                }
+                if programmatic {
+                    let focused = f.focus_handle(cx).is_focused(window);
+                    f.adopt(external, focused, window, cx);
+                } else if moved {
                     let focused = f.focus_handle(cx).is_focused(window);
                     if !focused && f.idle(cx) && f.value(cx) != external {
                         f.synced = external.clone();
                         f.set_value(external, window, cx);
                     }
                 }
+                f.seen_epoch = epoch;
                 continue;
             }
             let id = n.id.clone();
@@ -190,7 +227,7 @@ impl SurfaceView {
                 (FieldInput::Multi(state), sub)
             };
             let grows = kind.grows(&n);
-            self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, placeholder, grows, focused: false, focusing_press: None, _subscription: sub });
+            self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, seen_epoch: epoch, placeholder, grows, focused: false, focusing_press: None, _subscription: sub });
         }
         self.fields.retain(|id, _| keep.contains(id));
     }
@@ -347,6 +384,22 @@ impl SurfaceView {
     /// window has no native view for a really focused input).
     pub fn field_gained_focus(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.on_field_event(id, &InputEvent::Focus, window, cx);
+    }
+
+    /// Really focus field `id` (its gpui focus handle) and run its focus,
+    /// for automation and tests (#VAPP-288: the sync reads the real focus).
+    pub fn focus_field(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(handle) = self.fields.get(id).map(|f| f.focus_handle(cx)) else { return false };
+        window.focus(&handle, cx);
+        self.on_field_event(id, &InputEvent::Focus, window, cx);
+        true
+    }
+
+    /// Blur field `id` (the window's focus cleared) and run its blur, for
+    /// automation and tests.
+    pub fn blur_field(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        window.blur();
+        self.on_field_event(id, &InputEvent::Blur, window, cx);
     }
 
     /// The current text of field `id`.

@@ -36,8 +36,11 @@ final class HostTests: XCTestCase {
         let model = try XCTUnwrap(host.surface("s1"))
         XCTAssertEqual(model.options.catalogId, core)
         host.receive(components("s1", [.object(["id": .string("root"), "component": .string("Text"), "text": .object(["path": .string("/name")])])]))
+        let epoch = model.surface.writeEpoch()
         host.receive(msg("updateDataModel", .object(["surfaceId": .string("s1"), "path": .string("/name"), "value": .string("Ada")])))
         XCTAssertEqual(model.data["name"], .string("Ada"))
+        // #VAPP-288: host data is not a programmatic write.
+        XCTAssertEqual(model.surface.writeEpoch(), epoch)
         model.setViewport(width: 300, height: 400)
         XCTAssertEqual(model.nodes.first?.props["text"], .string("Ada"))
         // No `value` = remove the path.

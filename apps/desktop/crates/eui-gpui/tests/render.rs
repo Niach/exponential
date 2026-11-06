@@ -4,8 +4,9 @@
 //! geometry fixtures paint every node exactly at the core's frame (LTR and
 //! RTL), presses reach the host, overlays open and close, the bench tree's
 //! cold pass stays in budget. Interaction and keyboard tests live in
-//! `tests/interaction.rs`. Text fields are never focused here (a focused
-//! gpui-component input asks a test window for a native view).
+//! `tests/interaction.rs`. Text fields are never DRAWN focused here (a
+//! focused gpui-component input asks a test window for a native view); the
+//! #VAPP-288 field-write cases focus one and never draw it.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -555,6 +556,65 @@ fn typing_debounces_one_change_per_burst_writes_through_and_echoes_apply_when_id
         v.layout_now(window, cx);
     });
     with_view(cx, &|v, _, cx| assert_eq!(v.field_text(field, cx).as_deref(), Some("Echoed!")));
+}
+
+/// #VAPP-288 `fieldWrites` (interactions-round1.json): the echo rule keeps a
+/// focused field's text against a host write, a PROGRAMMATIC write (an
+/// action's `set`) wins over the focus and an edit in flight. The field
+/// here IS focused (its gpui handle) but never drawn.
+#[gpui::test]
+fn field_write_cases_keep_the_echo_rule_and_adopt_programmatic_writes(cx: &mut TestAppContext) {
+    init(cx);
+    let f = fixture("interactions-round1.json");
+    for c in f["fieldWrites"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap().to_string();
+        let host = Rc::new(Recorder::default());
+        let window = cx.add_window(move |window, cx| Holder { view: cx.new(|cx| SurfaceView::new(SurfaceViewOptions { host, ..Default::default() }, window, cx)) });
+        let with_view = |cx: &mut TestAppContext, f: &dyn Fn(&mut SurfaceView, &mut Window, &mut gpui::Context<SurfaceView>)| {
+            window.update(cx, |holder, window, cx| holder.view.update(cx, |v, cx| f(v, window, cx))).unwrap();
+        };
+        let mut save = json!({"id": "save", "component": "Button", "props": {"label": "Save"}});
+        if let Some(path) = c.get("pressPath") {
+            save["on"] = json!({"press": {"functionCall": {"call": "set", "args": {"path": path, "value": c["pressValue"]}}}});
+        }
+        let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "children": [{"id": "draft", "component": "Input", "props": {"label": "Draft", "name": "draft", "value": {"path": "/draft"}}}, save]})).unwrap();
+        let seed = c["seed"].clone();
+        with_view(cx, &|v, window, cx| {
+            v.set_nested(tree.clone(), cx);
+            v.set_data("/draft", Some(seed.clone()), cx).unwrap();
+            v.layout_now(window, cx);
+        });
+        let field = "draft.field";
+        for step in c["steps"].as_array().unwrap() {
+            match step["op"].as_str().unwrap() {
+                "focus" => with_view(cx, &|v, window, cx| assert!(v.focus_field(field, window, cx))),
+                "blur" => with_view(cx, &|v, window, cx| v.blur_field(field, window, cx)),
+                "type" => with_view(cx, &|v, window, cx| assert!(v.type_into(field, step["text"].as_str().unwrap(), window, cx))),
+                "hostWrite" => with_view(cx, &|v, _, cx| v.set_data(step["path"].as_str().unwrap(), Some(step["value"].clone()), cx).unwrap()),
+                "press" => with_view(cx, &|v, window, cx| {
+                    let i = v.index_of("save").expect("save");
+                    v.press(i, window, cx);
+                }),
+                op => panic!("{name}: unknown op {op}"),
+            }
+            // Inside the 150 ms debounce: an edit stays in flight.
+            cx.executor().advance_clock(std::time::Duration::from_millis(20));
+            cx.run_until_parked();
+            with_view(cx, &|v, window, cx| {
+                v.layout_now(window, cx);
+            });
+        }
+        // The last edit flushes (it writes through).
+        cx.executor().advance_clock(std::time::Duration::from_millis(400));
+        cx.run_until_parked();
+        with_view(cx, &|v, window, cx| {
+            v.layout_now(window, cx);
+            assert_eq!(v.field_text(field, cx).as_deref(), c["expect"]["text"].as_str(), "{name}: text");
+            if let Some(data) = c["expect"].get("data") {
+                assert_eq!(v.surface().get_data("/draft"), Some(data), "{name}: /draft");
+            }
+        });
+    }
 }
 
 #[gpui::test]

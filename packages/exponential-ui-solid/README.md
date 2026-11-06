@@ -58,6 +58,9 @@ differences:
   `useField` is `createField`, `useMediaSource` is `createMediaSource`,
   `useHostSurface` is `createHostSurface`, and `defineReactExtension` is
   `defineSolidExtension`.
+- React's `useWriteEpoch(ctx)` is the live getter `ctx.writeEpoch`: hand
+  `createHostOwnedValue` `epoch: () => ctx.writeEpoch` so a programmatic
+  write (an action `set`, `ctx.assignData`) wins over a focused field.
 
 ## The QrScanner camera (`qrScanner` host option)
 

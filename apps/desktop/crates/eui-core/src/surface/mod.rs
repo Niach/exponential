@@ -590,6 +590,10 @@ pub struct Surface {
     clock: Option<f64>,
     /// Bumped on every write to `data` (template key caches).
     data_version: u64,
+    /// #VAPP-288: bumped on every PROGRAMMATIC write (an action's `set`, a
+    /// host's [`Surface::assign_data`]); a painter's focused field adopts a
+    /// changed bound value when this moved since it last looked.
+    write_epoch: u64,
 }
 
 // SAFETY: taffy's `CompactLength` carries a `*const ()` slot for `calc()`
@@ -677,6 +681,7 @@ impl Surface {
             formatter: Arc::new(crate::format::EnglishFormatter),
             clock: None,
             data_version: 0,
+            write_epoch: 0,
         };
         s.refresh_theme();
         s
@@ -1422,6 +1427,23 @@ impl Surface {
         self.data_version += 1;
         self.needs_build = true;
         Ok(())
+    }
+
+    /// #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+    /// [`Surface::set_data`], and it bumps [`Surface::write_epoch`], so a
+    /// focused field bound to `path` adopts the value (the form that clears
+    /// itself after Save). A refused write bumps nothing.
+    pub fn assign_data(&mut self, path: &str, value: Option<Value>) -> Result<(), String> {
+        self.set_data(path, value)?;
+        self.write_epoch += 1;
+        Ok(())
+    }
+
+    /// #VAPP-288: the programmatic-write epoch (an action's `set`,
+    /// [`Surface::assign_data`]). A field's own edit and a plain
+    /// [`Surface::set_data`] (updateDataModel, a bind, an echo) leave it.
+    pub fn write_epoch(&self) -> u64 {
+        self.write_epoch
     }
 
     pub fn data(&self) -> &Value {

@@ -495,7 +495,7 @@ class ExponentialHost(
                 return failed(e.message ?: e.toString())
             }
         }
-        for (s in plan.sets) model.setData(s.path, s.value)
+        for (s in plan.sets) model.assignData(s.path, s.value)
         for (c in calls) {
             val outcome = run(c)
             val error = outcome.error ?: if (outcome.decision == FunctionDecision.Allow) null else "${c.name} was not allowed"

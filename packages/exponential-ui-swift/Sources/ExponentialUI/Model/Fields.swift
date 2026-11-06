@@ -6,8 +6,10 @@ import ExponentialUICore
 /// CLIENT owns the string (a UIKit/AppKit view, never a SwiftUI
 /// `TextField`: the VAPP-4 burst finding); every edit carries a revision;
 /// a 150 ms debounce sends `change`, blur sends `commit` (+ `blur`), Enter
-/// in a single-line field `submit` (which submits its Form); an echo (a
-/// changed prop) is written in only while the field is idle and unfocused.
+/// in a single-line field `submit` (which submits its Form). An echo of the
+/// field's own edits (a changed prop) is written in only while the field is
+/// idle and unfocused; a PROGRAMMATIC write (an action's `set`, `assignData`:
+/// the core's write epoch moved) is adopted even while focused or pending.
 @MainActor
 final class FieldState {
     let id: String
@@ -24,12 +26,16 @@ final class FieldState {
     var writeGeneration = 0
     /// Was the text non-blank at the last `noteComposerText`?
     var filled: Bool
+    /// The surface's write epoch at this field's last echo pass (a moved
+    /// epoch = a programmatic write landed since).
+    var seenEpoch: UInt64
 
-    init(id: String, kind: FieldKind, text: String, external: JSONValue) {
+    init(id: String, kind: FieldKind, text: String, external: JSONValue, seenEpoch: UInt64) {
         self.id = id
         self.kind = kind
         self.text = text
         self.external = external
+        self.seenEpoch = seenEpoch
         filled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
@@ -82,7 +88,7 @@ extension SurfaceModel {
         if let f = fields[n.id] { return f }
         let kind = FieldKind(n)
         let ext = external(of: n, kind: kind)
-        let f = FieldState(id: n.id, kind: kind, text: ext.displayText, external: ext)
+        let f = FieldState(id: n.id, kind: kind, text: ext.displayText, external: ext, seenEpoch: surface.writeEpoch())
         fields[n.id] = f
         return f
     }
@@ -238,13 +244,40 @@ extension SurfaceModel {
         dispatch(events, inputRevision: rev)
     }
 
-    /// After a pass: apply changed echo props to idle, unfocused fields.
+    /// A press sends the focused field's outstanding edit first (a
+    /// `change`), so the action sees the current text and a programmatic
+    /// `set` back to the pre-edit value still reads as a change of the
+    /// field's value (#VAPP-288).
+    func flushFocusedField() {
+        guard let id = focusedField, let f = fields[id], f.pendingChange, let i = byId[id] else { return }
+        flushField(f, index: i, event: nil)
+    }
+
+    /// After a pass: apply changed echo props. An echo lands only in idle,
+    /// unfocused fields; a programmatic write (the write epoch moved and the
+    /// field's value changed) lands even while focused, an outstanding edit
+    /// dropped (#VAPP-288).
     func echoFields() {
+        let epoch = surface.writeEpoch()
         for (id, f) in fields {
             guard let i = byId[id], let n = node(i) else { continue }
             let ext = external(of: n, kind: f.kind)
+            let programmatic = epoch != f.seenEpoch
+            f.seenEpoch = epoch
             if ext == f.external { continue }
             f.external = ext
+            if programmatic, f.focused || f.pendingChange {
+                f.debounce?.cancel()
+                f.debounce = nil
+                f.pendingChange = false
+                let text = ext.displayText
+                if text != f.text {
+                    f.text = text
+                    noteComposerText(f)
+                    f.writeGeneration += 1
+                }
+                continue
+            }
             if f.focused || f.pendingChange { continue }
             let text = ext.displayText
             if text != f.text {

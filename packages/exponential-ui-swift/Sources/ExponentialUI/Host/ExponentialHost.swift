@@ -429,7 +429,7 @@ public final class ExponentialHost {
                 return failed(error.localizedDescription)
             }
         }
-        for s in plan.sets { model.setData(path: s.path, value: s.value) }
+        for s in plan.sets { model.assignData(path: s.path, value: s.value) }
         for c in calls {
             let outcome = await run(c)
             if let error = outcome.error ?? (outcome.decision == .allow ? nil : "\(c.name) was not allowed") {

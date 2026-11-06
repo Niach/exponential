@@ -981,6 +981,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_apply(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_assign_data(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_command_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_data_json(
@@ -1108,6 +1110,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock(
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_visual(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_visuals(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_theme_color(
 ): Short
@@ -1308,6 +1312,8 @@ external fun uniffi_exponential_ui_ffi_fn_constructor_surface_with_theme(`surfac
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_method_surface_apply(`ptr`: Long,`messageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_assign_data(`ptr`: Long,`path`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_command_json(`ptr`: Long,`commandJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_data_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1436,6 +1442,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_visual(`ptr`: Long,`ind
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_visuals(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
 external fun uniffi_exponential_ui_ffi_fn_clone_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_free_theme(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -5440,6 +5448,13 @@ public interface SurfaceInterface {
     fun `apply`(`messageJson`: kotlin.String): FfiApplyOutcome
     
     /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+    fun `assignData`(`path`: kotlin.String, `valueJson`: kotlin.String?)
+    
+    /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
      * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
      * "align"?}}` (round 2).
@@ -5737,6 +5752,13 @@ public interface SurfaceInterface {
     
     fun `visuals`(): List<FfiVisual>
     
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */
+    fun `writeEpoch`(): kotlin.ULong
+    
     companion object
 }
 
@@ -5867,6 +5889,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     )
     }
+    
+
+    
+    /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+    @Throws(UiException::class)override fun `assignData`(`path`: kotlin.String, `valueJson`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_assign_data(
+        it,
+        FfiConverterString.lower(`path`),FfiConverterOptionalString.lower(`valueJson`),_status)
+}
+    }
+    
     
 
     
@@ -6858,6 +6898,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_visuals(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */override fun `writeEpoch`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(
         it,
         _status)
 }

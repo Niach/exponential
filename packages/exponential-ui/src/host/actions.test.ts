@@ -87,6 +87,22 @@ describe(`a package action on a host`, () => {
     expect(toasts).toEqual([`Logged 2:00`])
   })
 
+  // #VAPP-288: a package action's `sets` are PROGRAMMATIC writes (they bump
+  // the store's write epoch, so a focused field adopts them); a host data
+  // write (updateDataModel) is not.
+  test(`the sets bump the write epoch, updateDataModel does not`, async () => {
+    const s = surface()
+    const store = s.h.surface(`s`)!
+    const start = store.writeEpoch
+    s.h.receive({ version: `v0.9`, updateDataModel: { surfaceId: `s`, path: `/form/hours`, value: 3 } })
+    expect((s.data() as { form: { hours: number } }).form.hours).toBe(3)
+    expect(store.writeEpoch).toBe(start)
+    const out = await s.h.callFunction({ surfaceId: `s`, componentId: `log`, name: `actions.log`, args: { date: `2026-11-03`, hours: 2 } })
+    expect(out.error).toBeUndefined()
+    expect((s.data() as { form: { hours: number } }).form.hours).toBe(0)
+    expect(store.writeEpoch).toBeGreaterThan(start)
+  })
+
   test(`a false require lands nothing and is the failure's message`, async () => {
     const failed: string[] = []
     const s = surface({ failed })

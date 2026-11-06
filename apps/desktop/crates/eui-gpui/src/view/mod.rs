@@ -733,6 +733,16 @@ impl SurfaceView {
         Ok(())
     }
 
+    /// #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+    /// [`SurfaceView::set_data`], and it bumps the surface's write epoch, so
+    /// a focused field bound to `path` adopts the value.
+    pub fn assign_data(&mut self, path: &str, value: Option<serde_json::Value>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.changed = true;
+        self.surface.assign_data(path, value)?;
+        cx.notify();
+        Ok(())
+    }
+
     pub fn set_theme(&mut self, theme: Option<Arc<ResolvedTheme>>, cx: &mut Context<Self>) {
         self.changed = true;
         self.fonts.set_theme(theme.as_deref());

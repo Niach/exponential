@@ -2684,6 +2684,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func apply(messageJson: String) throws  -> FfiApplyOutcome
     
     /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+    func assignData(path: String, valueJson: String?) throws 
+    
+    /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
      * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
      * "align"?}}` (round 2).
@@ -2981,6 +2988,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     
     func visuals()  -> [FfiVisual]
     
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */
+    func writeEpoch()  -> UInt64
+    
 }
 /**
  * ONE surface. Every method locks it briefly; the host calls from any
@@ -3078,6 +3092,20 @@ open func apply(messageJson: String)throws  -> FfiApplyOutcome  {
         FfiConverterString.lower(messageJson),$0
     )
 })
+}
+    
+    /**
+     * #VAPP-288: a PROGRAMMATIC write (a package action's `sets`): like
+     * `set_data`, and it bumps `write_epoch`, so a focused field bound to
+     * `path` adopts the value. A refused write bumps nothing.
+     */
+open func assignData(path: String, valueJson: String?)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_assign_data(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),
+        FfiConverterOptionString.lower(valueJson),$0
+    )
+}
 }
     
     /**
@@ -3807,6 +3835,19 @@ open func visual(index: UInt32) -> FfiVisual?  {
 open func visuals() -> [FfiVisual]  {
     return try!  FfiConverterSequenceTypeFfiVisual.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_visuals(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * #VAPP-288: the programmatic-write epoch (an action's `set`,
+     * `assign_data`); a painter's field adopts a changed bound value while
+     * focused only when this moved since it last looked.
+     */
+open func writeEpoch() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_write_epoch(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -8870,6 +8911,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_assign_data() != 62677) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 27523) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9060,6 +9104,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_visuals() != 48935) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_write_epoch() != 6275) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_theme_color() != 46286) {
