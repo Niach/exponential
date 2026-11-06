@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,6 +89,44 @@ internal fun LayerView(layer: LayerInfo, modifier: Modifier = Modifier) {
 }
 
 /**
+ * VAPP-281 (round-7 contract): one anchored Popover / Menu layer the HOST
+ * shows outside the surface: [anchor] = the anchor's frame in SURFACE
+ * coordinates (dp), [side] + [align] the placement, [size] the popup's
+ * unclipped size; [content] paints the layer at (0, 0) and routes presses,
+ * keys and dismissals back to the surface.
+ */
+class HostedPopup(val layer: LayerInfo, val content: @Composable () -> Unit) {
+    val owner: String get() = layer.owner
+    val kind: String get() = layer.kind
+    val anchor: Rect get() = layer.anchorFrame ?: layer.frame
+    val side: String get() = layer.placementSide ?: layer.position
+    val align: String get() = layer.align ?: "center"
+    val size: androidx.compose.ui.geometry.Size get() = layer.frame.size
+}
+
+/**
+ * VAPP-281: hosts the surface's hosted popups (a desktop's popup windows, a
+ * compositor's popups): [Popups] composes inside the surface's composition
+ * (so [HostedPopup.content] finds the model) and places each where it
+ * wants; [dismiss] closes one (its window system dismissed it).
+ */
+interface PopupHost {
+    @Composable
+    fun Popups(popups: List<HostedPopup>, dismiss: (owner: String) -> Unit)
+}
+
+/** VAPP-281: the host of [LayerInfo.hosted] layers; null = they paint as the default popups. */
+val LocalPopupHost = staticCompositionLocalOf<PopupHost?> { null }
+
+/** VAPP-281: hand the hosted layers to [LocalPopupHost]. */
+@Composable
+internal fun HostedPopups(model: SurfaceModel) {
+    val host = LocalPopupHost.current ?: return
+    val popups = model.layers.filter { it.hosted }.map { layer -> HostedPopup(layer) { LayerView(layer) } }
+    host.Popups(popups) { owner -> model.dismissLayer(owner) }
+}
+
+/**
  * Layers painted INSIDE the surface at the core's frames (surface
  * coordinates): tooltips always; every kind under
  * [OverlayPresentation.Painted], with a scrim for Dialog / Drawer (the
@@ -98,9 +137,10 @@ internal fun LayerView(layer: LayerInfo, modifier: Modifier = Modifier) {
 internal fun PaintedLayers(model: SurfaceModel) {
     val catcherW = model.surfaceSize.width
     val catcherH = max(model.surfaceSize.height, model.viewportHeight)
+    val hosting = LocalPopupHost.current != null
     for (layer in model.layers) {
         key(layer.owner, layer.root) {
-            if (model.paintsInSurface(layer)) {
+            if (model.paintsInSurface(layer) && !(hosting && layer.hosted)) {
                 // A viewport-placed layer (a centred dialog, an edge sheet, the
                 // toasts) follows the part of the surface the host shows.
                 val shift = if (layer.placementSide == null && layer.position != "point") model.surfaceScroll.y else 0f
@@ -180,8 +220,9 @@ internal fun NativeOverlays(model: SurfaceModel) {
             }
         }
     }
+    val hosting = LocalPopupHost.current != null
     for (layer in model.layers) {
-        if (layer.isModal || layer.isToast || layer.kind == "Tooltip") continue
+        if (layer.isModal || layer.isToast || layer.kind == "Tooltip" || (hosting && layer.hosted)) continue
         key(layer.owner, layer.root) { PopoverLayer(model, layer) }
     }
 }

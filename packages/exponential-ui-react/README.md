@@ -373,3 +373,13 @@ The app's `/exponential-ui-kitchen-sink` route (view `exponential-ui-kitchen-sin
 renders the same fixture with the app's icon registry; the theme builder
 (`packages/exponential-ui/builder`) previews its recipe sheet and the sink
 through this renderer.
+
+## Hosted popups (VAPP-281)
+
+`host.popupHost = { mount(popup), unmount?(popup) }` shows anchored Popovers and
+Menus outside the surface: `mount` gets `{owner, kind, anchor, side, align}`
+(the anchor's box in surface coordinates) when one opens and returns the element
+its content renders into (`null` = the usual overlay layer). The element takes
+the surface's theme scope; the content lays out in flow inside it, the host
+places it (e.g. at `anchorPosition`). Presses, Escape and focus return still
+route through the surface. Harness: `?view=hosted`.

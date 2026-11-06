@@ -48,8 +48,12 @@ public struct SurfaceSettings: Sendable, Equatable {
     /// phone); nil = derived from the surface width (`phone` below the
     /// theme's `$breakpoint.md`).
     public var formFactor: FormFactor?
+    /// VAPP-281: the host shows anchored Popover / Menu layers OUTSIDE the
+    /// surface (unclipped, no flip / shift; `LayerInfo.hosted`) through
+    /// `exponentialPopupHost(_:)`.
+    public var hostedPopups: Bool
 
-    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150, timeZone: String? = nil, readOnly: Bool = false, formFactor: FormFactor? = nil) {
+    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150, timeZone: String? = nil, readOnly: Bool = false, formFactor: FormFactor? = nil, hostedPopups: Bool = false) {
         self.locale = locale
         self.strings = strings
         self.mode = mode
@@ -64,6 +68,7 @@ public struct SurfaceSettings: Sendable, Equatable {
         self.timeZone = timeZone
         self.readOnly = readOnly
         self.formFactor = formFactor
+        self.hostedPopups = hostedPopups
     }
 }
 
@@ -144,7 +149,8 @@ extension SurfaceSettings {
             hoverCloseMs: UInt32(max(0, hoverCloseMs)),
             timeZone: timeZone ?? TimeZone.current.identifier,
             readOnly: readOnly,
-            formFactor: formFactor?.rawValue
+            formFactor: formFactor?.rawValue,
+            hostedPopups: hostedPopups
         )
     }
 }

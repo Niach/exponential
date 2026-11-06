@@ -763,3 +763,12 @@ paint): `RUSTUP_TOOLCHAIN=1.96.0 cargo run --release -p eui-gpui
   pickers.
 - Images load through the host's media request when it has one (headers;
   `media::MediaLoader`), else from urls, files and `data:` URIs.
+
+## Hosted popups (VAPP-281)
+
+`SurfaceSettings { hosted_popups: true, .. }`: the view paints no anchored
+Popover / Menu layer; `HostPlugin::on_hosted_popups(&[Layer])` hears them
+(`anchor_frame`, `placement.side`, `align`, the root frame = the unclipped
+size), the host renders `SurfaceView::hosted_popup_element(owner)` in its own
+popup (eDE: an `xdg_popup`) and calls `dismiss_hosted_popup(owner)` when its
+window system dismissed it.

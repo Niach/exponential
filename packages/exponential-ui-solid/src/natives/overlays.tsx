@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, withinAnchor, withinOtherOverlay, type AnchorLink } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, withinAnchor, withinOtherOverlay, hostedPopupOf, mountHostedPopup, type AnchorLink, type HostedPopup } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -273,6 +273,41 @@ function createAnchor(id: Accessor<string>, from: Accessor<Element | undefined>,
   return el
 }
 
+/** VAPP-281: where an open popup's content goes: the host's element, null
+ *  (the in-surface overlay), or `pending` while the host is asked. */
+type HostedContainer = HTMLElement | null | `pending`
+
+/** VAPP-281: with `host.popupHost`, ask it for a container when the popup
+ *  opens (its anchor's box in surface coordinates, side, align); tell it
+ *  when it closes. */
+function createHostedPopup(owner: Accessor<string>, kind: HostedPopup[`kind`], open: Accessor<boolean>, anchorOf: () => Element | null | undefined, side: Accessor<Side>, align: Accessor<`start` | `center` | `end`>): Accessor<HostedContainer> {
+  const ctx = useSurfaceContext()
+  const [asked, setAsked] = createSignal<{ el: HTMLElement | null } | null>(null)
+  createEffect(() => {
+    const host = ctx.host.popupHost
+    if (!host || !open()) return
+    // Asked again when the anchor's element changes (an `anchor` node is
+    // found after the first pass).
+    const el = anchorOf()
+    const popup = untrack(() => hostedPopupOf(owner(), kind, el, side(), align(), ctx.direction))
+    setAsked({ el: mountHostedPopup(host, popup, el) })
+    onCleanup(() => {
+      host.unmount?.(popup)
+      setAsked(null)
+    })
+  })
+  return () => {
+    if (!ctx.host.popupHost || !open()) return null
+    const a = asked()
+    return a ? a.el : `pending`
+  }
+}
+
+/** The overlay layer, or the host's container (VAPP-281). */
+function popupMount(hosted: HostedContainer, portal: HTMLElement | null): HTMLElement | null {
+  return hosted === `pending` ? null : (hosted ?? portal)
+}
+
 // ---------------------------------------------------------------------------
 // Popover
 // ---------------------------------------------------------------------------
@@ -313,6 +348,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
   const [wrapper, setWrapper] = createSignal<HTMLElement>()
   const linked = createAnchor(anchorId, wrapper, { haspopup: `dialog`, toggle: () => setOpen(!untrack(open)), hover: { active: hoverMode, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
   const anchor = () => (anchored() ? (linked() ?? undefined) : own())
+  const hosted = createHostedPopup(() => props.node.id, `Popover`, open, anchor, side, align)
   const state = () => (open() ? `open` : `closed`)
   const presence = createPresence(open)
 
@@ -415,7 +451,7 @@ export function PopoverNative(props: NativeProps): JSX.Element {
           </span>
         </Show>
       </div>
-      <LayerPortal mount={ctx.portal}>
+      <LayerPortal mount={popupMount(hosted(), ctx.portal)}>
         <Show when={presence.mounted()}>
           <Content />
         </Show>
@@ -1005,6 +1041,7 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
       side={str(props.props.side, `bottom`) as Side}
       align={str(props.props.align, `start`) as `start` | `center` | `end`}
       anchor={() => (anchored() ? linked() : null)}
+      hostAs={props.node.id}
       contentId={contentId}
       trigger={(t) => (
         <Show
@@ -1071,6 +1108,8 @@ export function PressMenu(props: {
    *  focus returns to it. */
   anchor?: Accessor<HTMLElement | null>
   contentId?: string
+  /** VAPP-281: the Menu's id: `host.popupHost` may host it outside the surface. */
+  hostAs?: string
   trigger: (t: PressMenuTrigger) => JSX.Element
 }): JSX.Element {
   const ctx = useSurfaceContext()
@@ -1080,6 +1119,7 @@ export function PressMenu(props: {
   const contentId = props.contentId ?? createUniqueId()
   const [own, setTrigger] = createSignal<HTMLElement>()
   const trigger = () => props.anchor?.() ?? own()
+  const hosted = createHostedPopup(() => props.hostAs ?? ``, `Menu`, () => !!props.hostAs && open(), trigger, () => props.side ?? `bottom`, () => props.align ?? `start`)
   useKeyboardTracking()
   const root: MenuRoot = { close: () => setOpen(false), dir: () => ctx.direction, overlay: `Menu`, openOn: `press`, part: props.part, emit: props.emit, scope: () => props.scope }
   const presence = createPresence(open)
@@ -1107,7 +1147,7 @@ export function PressMenu(props: {
   return (
     <MenuRootContext.Provider value={root}>
       {props.trigger({ ref: setTrigger, attrs: triggerAttrs, onPointerDown, onKeyDown })}
-      <LayerPortal mount={ctx.portal}>
+      <LayerPortal mount={popupMount(hosted(), ctx.portal)}>
         <Show when={presence.mounted()}>
           <MenuContent
             anchor={trigger()}

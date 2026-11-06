@@ -138,6 +138,17 @@ pub struct Layer {
     pub anchor_frame: Option<Frame>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placement: Option<OverlayPlacement>,
+    /// VAPP-281: an anchored layer's alignment along its side, PHYSICAL
+    /// (`start` = left / top; the core mirrors the author's under RTL).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<crate::overlay::OverlayAlign>,
+    /// VAPP-281: hosted OUTSIDE the surface (`SurfaceSettings::hosted_popups`):
+    /// the host places a popup of the root frame's size against
+    /// `anchor_frame` (`placement.side` + `align`), paints the frames
+    /// translated by minus the root's origin, and routes input back in
+    /// surface coordinates; the in-surface painter skips it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hosted: bool,
     /// Drawer: the viewport edge; Dialog: `centered`; anchored: the side it
     /// landed on; a context menu: `point`; a toast: `toast`.
     pub position: String,
@@ -370,6 +381,14 @@ pub struct SurfaceSettings {
     /// matches (an editor preview's phone frame, a phone). `None` (default)
     /// = derived from the surface width against the theme's `$breakpoint.md`.
     pub form_factor: Option<crate::conditions::FormFactor>,
+    /// VAPP-281: the HOST hosts every anchored Popover / Menu layer OUTSIDE
+    /// the surface (eDE: an `xdg_popup`; a desktop host: a popup window):
+    /// such a layer lays out at its unclipped natural size and sits against
+    /// its anchor with NO flip and NO shift ([`crate::overlay::anchor_position`],
+    /// `overlay-geometry.json` `hosted`), its frames in surface coordinates
+    /// even past the surface's bounds; [`Layer::hosted`] marks it. Off
+    /// (default) = the in-surface overlay.
+    pub hosted_popups: bool,
 }
 
 impl Default for SurfaceSettings {
@@ -390,6 +409,7 @@ impl Default for SurfaceSettings {
             hover_close_ms: 0,
             read_only: false,
             form_factor: None,
+            hosted_popups: false,
         }
     }
 }

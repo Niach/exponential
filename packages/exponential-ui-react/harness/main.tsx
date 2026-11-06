@@ -5,6 +5,7 @@
 //   ?view=kitchen-sink&theme=<id>&mode=light|dark&width=<px>&rtl=1&echo=150
 //   ?view=geometry&case=900|390|900-rtl|390-rtl        (fixed fake measure)
 //   ?view=overlay&case=<n>                              (overlay-geometry.json)
+//   ?view=hosted                                        (VAPP-281: popups hosted outside a panel surface)
 //   ?view=catalog                                        (every fixture case)
 //   ?view=conditions&case=<n>&ctx=<n>                    (style-conditions.json)
 //   ?view=tree&tree=<json>&data=<json>&width=&height=&viewportHeight=&locale=&dir=  (any tree)
@@ -611,7 +612,47 @@ function BenchSuiteSurface({ scenario, initialData }: { scenario: BenchScenario;
   )
 }
 
+/** VAPP-281: a bottom-panel surface (800 x 44, outlined) whose start menu and
+ *  calendar are HOSTED outside it: `host.popupHost` gives each a fixed box
+ *  above the surface, placed at the anchor (side top; start / end edges). */
+function Hosted() {
+  const tree = {
+    id: `panel`,
+    component: `Box`,
+    style: { display: `flex`, flexDirection: `row`, justifyContent: `space-between`, alignItems: `center`, width: 800, height: 44, paddingHorizontal: 4, backgroundColor: `$color.card` },
+    children: [
+      { id: `start`, component: `Button`, props: { label: `Start`, variant: `ghost` } },
+      { id: `clock`, component: `Button`, props: { label: `12:00`, variant: `ghost` } },
+      { id: `startMenu`, component: `Popover`, props: { anchor: `start`, side: `top`, align: `start`, open: true }, children: [`Files`, `Terminal`, `Settings`].map((t) => ({ id: t, component: `Text`, props: { text: t } })) },
+      { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end`, open: true }, children: [{ id: `month`, component: `Heading`, props: { text: `November 2026`, level: `h4` } }, { id: `today`, component: `Text`, props: { text: `Friday, 6` } }] },
+    ],
+  } as unknown as NestedNode
+  const { root } = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
+  const host: HostPlugin = {
+    popupHost: {
+      mount: (p) => {
+        const s = document.querySelector(`[data-xui-surface="hosted"]`)!.getBoundingClientRect()
+        const el = document.createElement(`div`)
+        el.style.position = `fixed`
+        if (p.side === `top`) el.style.bottom = `${innerHeight - (s.top + p.anchor.y - 4)}px`
+        else el.style.top = `${s.top + p.anchor.y + p.anchor.height + 4}px`
+        if (p.align === `end`) el.style.right = `${innerWidth - (s.left + p.anchor.x + p.anchor.width)}px`
+        else el.style.left = `${s.left + p.anchor.x}px`
+        document.body.append(el)
+        return el
+      },
+      unmount: (p) => document.querySelector(`[data-xui-hosted="${p.owner}"]`)?.remove(),
+    },
+  }
+  return (
+    <div style={{ position: `absolute`, left: 40, bottom: 40, outline: `1px dashed #f59e0b`, outlineOffset: 2 }}>
+      <ExponentialSurface id="hosted" root={root} host={host} theme={themeId} mode={mode} width={800} />
+    </div>
+  )
+}
+
 function App() {
+  if (view === `hosted`) return <Hosted />
   if (view === `bench`) return <Bench />
   if (view === `bench-suite`) return <BenchSuite />
   if (view === `round2`) return <Round2 />

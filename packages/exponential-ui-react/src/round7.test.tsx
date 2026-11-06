@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it } from "vitest"
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react"
 import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
 import type { NestedNode } from "@exponential_app/eui"
+import type { HostedPopup } from "@exponential_app/eui/web"
+import type { SurfaceActionEvent } from "./host"
 import { ExponentialSurface } from "./surface"
 
 afterEach(cleanup)
@@ -83,5 +85,50 @@ describe(`anchor by id (VAPP-276)`, () => {
     await act(async () => fireEvent.keyDown(menu!, { key: `Escape` }))
     await waitFor(() => expect(content(`Menu`)).toBeNull())
     await waitFor(() => expect(document.activeElement).toBe(start))
+  })
+})
+
+describe(`hosted popups (VAPP-281)`, () => {
+  it(`host.popupHost receives the layer, the content renders through its element, presses and Escape route back`, async () => {
+    const mounted: HostedPopup[] = []
+    const unmounted: string[] = []
+    const actions: SurfaceActionEvent[] = []
+    const box = document.createElement(`div`)
+    document.body.append(box)
+    const tree = panel()
+    // A button inside the calendar fires an action.
+    ;(tree.children![2] as NestedNode).children!.push({ id: `today`, component: `Button`, props: { label: `Today` }, on: { press: { event: { name: `today` } } } } as unknown as NestedNode)
+    const r = reduceNested(tree, { catalogId: CORE_CATALOG_ID })
+    expect(r.issues).toEqual([])
+    const { container } = render(
+      <ExponentialSurface root={r.root} theme="neutral" id="panel" host={{ onAction: (e) => void actions.push(e), popupHost: { mount: (p) => (mounted.push(p), box), unmount: (p) => void unmounted.push(p.owner) } }} />
+    )
+    await act(async () => fireEvent.click(byId(container, `clock`)!))
+    expect(mounted.map((p) => [p.owner, p.kind, p.side, p.align])).toEqual([[`calendar`, `Popover`, `top`, `end`]])
+    expect(Object.keys(mounted[0]!.anchor).sort()).toEqual([`height`, `width`, `x`, `y`])
+    // The content is the host's, not the surface's overlay layer.
+    const pop = content(`Popover`)!
+    expect(box.contains(pop)).toBe(true)
+    expect(container.querySelector(`[data-xui-layer="overlay"]`)!.contains(pop)).toBe(false)
+    expect(box.getAttribute(`data-xui-hosted`)).toBe(`calendar`)
+    await act(async () => fireEvent.click(byId(box, `today`)!))
+    expect(actions.map((a) => a.name)).toContain(`today`)
+    await act(async () => fireEvent.keyDown(pop, { key: `Escape` }))
+    await waitFor(() => expect(content(`Popover`)).toBeNull())
+    expect(unmounted).toEqual([`calendar`])
+    await waitFor(() => expect(document.activeElement).toBe(byId(container, `clock`)))
+    // A Menu goes through the host too.
+    await act(async () => fireEvent.click(byId(container, `start`)!))
+    expect(mounted.at(-1)!.kind).toBe(`Menu`)
+    expect(box.contains(content(`Menu`))).toBe(true)
+    box.remove()
+  })
+
+  it(`a host that returns null keeps the in-surface overlay`, async () => {
+    const r = reduceNested(panel(), { catalogId: CORE_CATALOG_ID })
+    const { container } = render(<ExponentialSurface root={r.root} theme="neutral" id="panel" host={{ popupHost: { mount: () => null } }} />)
+    await act(async () => fireEvent.click(byId(container, `clock`)!))
+    await waitFor(() => expect(content(`Popover`)).not.toBeNull())
+    expect(container.querySelector(`[data-xui-layer="overlay"]`)!.contains(content(`Popover`))).toBe(true)
   })
 })

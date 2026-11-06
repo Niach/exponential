@@ -7872,6 +7872,19 @@ data class FfiLayer (
     var `dismissible`: kotlin.Boolean
     , 
     var `frames`: List<FfiFrame>
+    , 
+    /**
+     * VAPP-281: an anchored layer's alignment along its side, physical
+     * (`start | center | end`).
+     */
+    var `align`: kotlin.String? = null 
+    , 
+    /**
+     * VAPP-281: hosted OUTSIDE the surface (`FfiSettings.hosted_popups`): the
+     * host shows a popup of the root frame's size against `anchor_frame`,
+     * paints the frames minus the root's origin, routes input back.
+     */
+    var `hosted`: kotlin.Boolean = false 
     
 ){
     
@@ -7899,6 +7912,8 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterSequenceTypeFfiFrame.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -7913,7 +7928,9 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterString.allocationSize(value.`class`) +
             FfiConverterBoolean.allocationSize(value.`modal`) +
             FfiConverterBoolean.allocationSize(value.`dismissible`) +
-            FfiConverterSequenceTypeFfiFrame.allocationSize(value.`frames`)
+            FfiConverterSequenceTypeFfiFrame.allocationSize(value.`frames`) +
+            FfiConverterOptionalString.allocationSize(value.`align`) +
+            FfiConverterBoolean.allocationSize(value.`hosted`)
     )
 
     override fun write(value: FfiLayer, buf: ByteBuffer) {
@@ -7928,6 +7945,8 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterBoolean.write(value.`modal`, buf)
             FfiConverterBoolean.write(value.`dismissible`, buf)
             FfiConverterSequenceTypeFfiFrame.write(value.`frames`, buf)
+            FfiConverterOptionalString.write(value.`align`, buf)
+            FfiConverterBoolean.write(value.`hosted`, buf)
     }
 }
 
@@ -8725,6 +8744,12 @@ data class FfiSettings (
      * width (`phone` below the theme's `$breakpoint.md`).
      */
     var `formFactor`: kotlin.String? = null 
+    , 
+    /**
+     * VAPP-281: the host hosts anchored Popover / Menu layers OUTSIDE the
+     * surface (unclipped, no flip / shift; `FfiLayer.hosted`).
+     */
+    var `hostedPopups`: kotlin.Boolean = false 
     
 ){
     
@@ -8760,6 +8785,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -8782,7 +8808,8 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterUInt.allocationSize(value.`hoverCloseMs`) +
             FfiConverterOptionalString.allocationSize(value.`timeZone`) +
             FfiConverterBoolean.allocationSize(value.`readOnly`) +
-            FfiConverterOptionalString.allocationSize(value.`formFactor`)
+            FfiConverterOptionalString.allocationSize(value.`formFactor`) +
+            FfiConverterBoolean.allocationSize(value.`hostedPopups`)
     )
 
     override fun write(value: FfiSettings, buf: ByteBuffer) {
@@ -8805,6 +8832,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterOptionalString.write(value.`timeZone`, buf)
             FfiConverterBoolean.write(value.`readOnly`, buf)
             FfiConverterOptionalString.write(value.`formFactor`, buf)
+            FfiConverterBoolean.write(value.`hostedPopups`, buf)
     }
 }
 

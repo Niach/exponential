@@ -464,3 +464,81 @@ node rebuilds fully (`Surface::anchor_ids`).
 - [x] SwiftUI + Compose: paint the core's frames; geometry + conformance
       replays call `placeOverlayAligned`; a model test per SDK (anchored
       Popover + Menu: trigger, frame, Escape, toggle).
+
+## Hosted popups: a popover that leaves its surface (#VAPP-281)
+
+A RENDER option, not a catalog prop (the prompt is unchanged): a host may
+show an anchored Popover / Menu OUTSIDE its surface. eDE's bottom panel is a
+44 px surface; its start menu and applets must open above it as
+`xdg_popup`s (the compositor flips and slides them on screen), a desktop
+host as popup windows, a web host as a box positioned over the page. Off
+(every default) = today's in-surface overlay.
+
+### What moved
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| placement | NEW `anchorPosition(anchor, size, side, align, offset)` (TS) / `anchor_position` (Rust): the placement WITHOUT flip and shift; `placeOverlay` uses it | `src/overlay.ts`, eui-core `overlay.rs` | `overlay-geometry.json` `hosted` (6 cases: a bottom-panel surface 800 x 44, every popup outside it), `overlay.test.ts`, `layout_fixtures.rs` |
+| core | `SurfaceSettings.hosted_popups`; `Layer.hosted`, `Layer.align` (physical) | eui-core `surface/mod.rs`, `pass.rs` | `layout_fixtures.rs` `hosted_popups_leave_the_surface_unclipped_and_still_route_events` |
+| FFI | `FfiSettings.hosted_popups`, `FfiLayer.hosted`, `FfiLayer.align` (all defaulted) | `exponential-ui-ffi/src/lib.rs` + bindings | the binding tests |
+| web | `HostPlugin.popupHost` {`mount(popup) => HTMLElement \| null`, `unmount?`}, `HostedPopup`, `hostedPopupOf`, `mountHostedPopup`, `HOSTED_POPUP_ATTR`; base CSS `[data-xui-hosted]>[data-radix-popper-content-wrapper]` lays out in flow | `src/web/popup-host.ts`, `host-types.ts`, `base-css.ts` | React + Solid `round7.test.tsx` |
+| gpui | `HostPlugin::on_hosted_popups(&[Layer])`, `SurfaceView::hosted_popup_element(owner)`, `dismiss_hosted_popup(owner)` | `eui-gpui/src/host.rs`, `view/paint.rs` | `tests/round7.rs` |
+| SwiftUI | `SurfaceSettings.hostedPopups`, `.exponentialPopupHost(PopupHost { popups in … })`, `HostedPopup` (anchor, side, align, size, `content: AnyView`, `dismiss`), `LayerInfo.hosted/align` | `Views/Overlays/PopupHost.swift` | `GeometryTests.testHostedPopupsReachThePopupHost` |
+| Compose | `SurfaceSettings.hostedPopups`, `LocalPopupHost` (`PopupHost.Popups(popups, dismiss)`), `HostedPopup`, `LayerInfo.hosted/align` | `compose/Overlays.kt` | `Round7Test` |
+
+### The rule
+
+With `hosted_popups` on, every layer of a Popover or a Menu (its submenus
+too) placed against an anchor or a point is HOSTED:
+
+- it lays out at its natural size, NOT clamped to the surface's width;
+- it sits against its anchor by `anchor_position`: the side and the
+  (physical) alignment, `OVERLAY_OFFSET` away, NO flip and NO shift, so
+  its frames (surface coordinates) may lie outside the surface (a top-start
+  menu over a 44 px panel has a negative y);
+- `Layer.hosted` = true, `Layer.anchor_frame` = the anchor's frame,
+  `placement.side` + `align` = the placement, the root frame = the
+  popup's unclipped size: what an `xdg_positioner` takes (anchor rect,
+  anchor edge + gravity from side/align, size; constraint adjustment =
+  flip + slide, the compositor's);
+- events are unchanged: they target node indices, so a host forwards a
+  press at popup coordinates + the root's origin, and `dismiss` on the
+  layer root closes it (the compositor's `popup_done`).
+
+Dialogs, Drawers, Tooltips, toasts and the picker popups (Select, DatePicker)
+are never hosted.
+
+### Per SDK
+
+- **web (React, Solid; element through Solid)**: `host.popupHost.mount`
+  is asked when the popup opens (again when its anchor's element resolves)
+  with `{owner, kind, anchor (the anchor's box in surface coordinates),
+  side, align (physical)}`; the returned element receives the content
+  through the renderer's portal (presses, Escape, outside presses and focus
+  return still route through the surface's tree) and takes the surface's
+  theme scope (`xui-surface` classes, `data-xui-mode`, `dir`);
+  the popper wrapper lays out in flow inside it, the HOST positions it
+  (e.g. at `anchorPosition`). `null` keeps the in-surface overlay;
+  `unmount` hears it close. Web needs no core setting (its renderers place
+  overlays themselves).
+- **gpui**: turn on `SurfaceSettings::hosted_popups`; the view paints no
+  hosted layer, `HostPlugin::on_hosted_popups` hears the set whenever it
+  changes; the host renders `hosted_popup_element(owner)` (the layer at
+  (0, 0), any window: its listeners update the surface's view) and calls
+  `dismiss_hosted_popup`. A press in the surface's window never counts as
+  inside a hosted popup.
+- **SwiftUI / Compose**: turn on `hostedPopups` and provide the host
+  (`.exponentialPopupHost` / `LocalPopupHost`): it receives
+  `HostedPopup`s with the layer's geometry and a `content` view /
+  composable wired to the model; the surface paints none of them (without a
+  host they paint as the default popups).
+
+### Per-renderer checklist
+
+- [x] TS reference: `anchorPosition` + the `hosted` cases.
+- [x] Rust core: the setting, the unclipped no-flip placement, `Layer.hosted/align`.
+- [x] FFI: defaulted fields + regenerated bindings.
+- [x] React, Solid: `popupHost`; tests (layer received, content in the host's element, a press + Escape route back, `null` = in-surface).
+- [x] element: through Solid.
+- [x] gpui: the hook, the element, the dismiss; test (heard, not painted in-surface, a click in the host's window routes back, dismissed).
+- [x] SwiftUI, Compose: the hooks; tests.

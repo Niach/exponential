@@ -3,7 +3,7 @@
 // reproduces it).
 
 import { describe, expect, test } from "bun:test"
-import { OVERLAY_OFFSET, OVERLAY_PADDING, placeOverlay } from "./overlay"
+import { OVERLAY_OFFSET, OVERLAY_PADDING, anchorPosition, placeOverlay } from "./overlay"
 import fixture from "../fixtures/overlay-geometry.json" with { type: "json" }
 import type { OverlayAlign, OverlayPlacement, OverlaySide } from "./overlay"
 
@@ -26,6 +26,17 @@ describe(`overlay-geometry.json`, () => {
     expect(aligned.some((c) => c.expected.x === fixture.padding)).toBe(true)
     expect(aligned.some((c) => c.expected.x === 800 - fixture.padding - 240)).toBe(true)
     expect(aligned.filter((c) => c.byId).length).toBeGreaterThan(1)
+  })
+  test(`VAPP-281: a hosted popup sits against its anchor, no flip, no shift (outside the surface)`, () => {
+    expect(fixture.hosted.length).toBeGreaterThan(4)
+    for (const c of fixture.hosted) {
+      expect(anchorPosition(c.anchor, c.size, c.side as OverlaySide, c.align as OverlayAlign, fixture.offset), c.name).toEqual(c.expected)
+    }
+    expect(fixture.hosted.some((c) => c.expected.y < 0)).toBe(true)
+    expect(fixture.hosted.some((c) => c.expected.x < 0)).toBe(true)
+    // In-surface the same popup shifts inside; hosted it does not.
+    const c = fixture.hosted.find((h) => h.expected.x < 0 && h.align === `end`)!
+    expect(placeOverlay(c.anchor, c.size, { width: c.surface.width, height: 600 }, { side: c.side as OverlaySide, align: `end` }).x).toBe(fixture.padding)
   })
   test(`a flip happens only when the opposite side has MORE room`, () => {
     const tight = placeOverlay({ x: 0, y: 290, width: 100, height: 20 }, { width: 100, height: 400 }, { width: 400, height: 600 }, { side: `bottom` })
