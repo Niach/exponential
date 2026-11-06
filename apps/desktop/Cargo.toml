@@ -1,4 +1,8 @@
 [workspace]
+# #EDE-51: Exponential Desktop's control plane (crates/ede-protocol) and its
+# shell (crates/ede-shell) are members too: one workspace, one lock with the IDE
+# and the SDK crates they link; the compositor workspace in apps/ede takes
+# ede-protocol by path and never links gpui.
 members = ["crates/*"]
 # #EXP-1484 / #EXP-1620: the vendored, patched iroh and gpui-component (see
 # the [patch] sections below) are third-party crates, not ours.

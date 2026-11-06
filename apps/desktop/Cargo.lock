@@ -2745,6 +2745,77 @@ dependencies = [
 ]
 
 [[package]]
+name = "ede-protocol"
+version = "0.14.135"
+dependencies = [
+ "ecore",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ede-services"
+version = "0.2.2"
+dependencies = [
+ "ede-protocol",
+ "emcp",
+ "libc",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
+name = "ede-shell"
+version = "0.14.135"
+dependencies = [
+ "base64 0.22.1",
+ "ede-protocol",
+ "ede-services",
+ "ede-theme",
+ "ede-ui",
+ "eui-core",
+ "eui-gpui",
+ "futures-util",
+ "gpui",
+ "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
+ "libc",
+ "libloading",
+ "png 0.17.16",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
+name = "ede-theme"
+version = "0.2.2"
+dependencies = [
+ "serde_json",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "ede-ui"
+version = "0.2.2"
+dependencies = [
+ "eui-core",
+ "libc",
+ "notify",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eengine"
 version = "0.1.0"
 dependencies = [
