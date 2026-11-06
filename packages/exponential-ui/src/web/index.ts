@@ -15,7 +15,7 @@ export { nodeSheet, compileNodeSheet, nodeSheetBatches, dynamicStyleEntries, que
 export type { NodeSheet, NodeSheetBatch, DynamicStyleEntry } from "./box-css"
 export { BASE_CSS } from "./base-css"
 export { QUIET_FOCUS_ATTR, openFocusTarget, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "./focus"
-export { findAnchor, linkAnchor, markAnchor, virtualAnchor, withinAnchor } from "./anchor"
+export { findAnchor, linkAnchor, markAnchor, virtualAnchor, withinAnchor, withinOtherOverlay } from "./anchor"
 export type { AnchorLink, VirtualAnchor } from "./anchor"
 export { DIALOG_HOLD_ATTR, DIALOG_HOLD_VAR, holdDialogBottom } from "./dialog-hold"
 export { getPointer, setPointer, pointerTokens, absolutePath, resolveValue, resolveProps, resolveNodeProps, resolveVisible, resolveAccessibility, ariaAttributes, bindTree, boundPath, hostPath, isBinding, isCall, hasDynamic, memoFormatter, formatterOf, viewOf, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT } from "./data"

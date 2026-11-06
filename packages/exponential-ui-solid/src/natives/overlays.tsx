@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, withinAnchor, type AnchorLink } from "@exponential_app/eui/web"
+import { absolutePath, findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, withinAnchor, withinOtherOverlay, type AnchorLink } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -326,6 +326,9 @@ export function PopoverNative(props: NativeProps): JSX.Element {
           if (e.detail.originalEvent.type === `pointerdown`) hasPointerDownOutside = true
         }
         if (withinAnchor(anchor(), e.target) && (hasTrigger() || anchored())) e.preventDefault()
+        // VAPP-276: a press or focus in ANOTHER open overlay (a second panel
+        // applet) dismisses nothing (the core's rule).
+        if (withinOtherOverlay(contentEl, e.target)) e.preventDefault()
         if (e.detail.originalEvent.type === `focusin` && hasPointerDownOutside) e.preventDefault()
       },
       onDismiss: () => setOpen(false),

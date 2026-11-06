@@ -15,7 +15,7 @@ import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, withinAnchor, type AnchorLink, type VirtualAnchor } from "@exponential_app/eui/web"
+import { findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, withinAnchor, withinOtherOverlay, type AnchorLink, type VirtualAnchor } from "@exponential_app/eui/web"
 import { absolutePath } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -284,12 +284,13 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
-        {anchored ? <PopoverPrimitive.Anchor virtualRef={anchor.virtualRef} /> : null}
+        {/* An id that names no painted node: the wrapper anchors it (the core's rule). */}
+        {anchored && anchor.el ? <PopoverPrimitive.Anchor virtualRef={anchor.virtualRef} /> : null}
         {slots.trigger ? (
           <PopoverPrimitive.Trigger asChild>
             <Trigger {...hoverProps}>{slots.trigger}</Trigger>
           </PopoverPrimitive.Trigger>
-        ) : anchored ? null : (
+        ) : anchored && anchor.el ? null : (
           <PopoverPrimitive.Anchor asChild>
             <span style={{ display: `inline-flex` }} />
           </PopoverPrimitive.Anchor>
@@ -309,15 +310,13 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           dir={ctx.direction}
           onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : undefined}
           // VAPP-276: a press on the anchor is its toggle, not an outside
-          // press; a close that did not come from outside returns focus to it.
-          onInteractOutside={
-            anchored
-              ? (e) => {
-                  if (withinAnchor(anchor.el, e.target)) e.preventDefault()
-                  else outside.current = true
-                }
-              : undefined
-          }
+          // press; a press or focus in ANOTHER open overlay (a second panel
+          // applet) dismisses nothing (the core's rule); a close that did not
+          // come from outside returns focus to the anchor.
+          onInteractOutside={(e) => {
+            if (withinOtherOverlay(contentRef.current, e.target) || (anchored && withinAnchor(anchor.el, e.target))) e.preventDefault()
+            else outside.current = true
+          }}
           onCloseAutoFocus={
             anchored
               ? (e) => {

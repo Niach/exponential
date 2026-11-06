@@ -101,3 +101,12 @@ export function markAnchor(el: HTMLElement, open: boolean, contentId?: string | 
 export function withinAnchor(el: HTMLElement | null | undefined, target: EventTarget | null): boolean {
   return !!el && target instanceof Node && el.contains(target)
 }
+
+/** True when `target` is inside ANOTHER open overlay's content (the core's
+ *  outside-press rule: a press or focus landing in another open layer never
+ *  dismisses a non-modal popup, so two panel applets can stay open). */
+export function withinOtherOverlay(own: Element | null | undefined, target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false
+  const layer = target.closest(`[data-xui-overlay]`)
+  return !!layer && layer !== own && !own?.contains(layer)
+}

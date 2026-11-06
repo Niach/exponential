@@ -874,7 +874,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
     node: {
       id: `desk`,
       component: `Box`,
-      style: { position: `relative`, height: 300, borderRadius: `$radius.lg`, backgroundColor: `$color.muted`, overflow: `hidden` },
+      style: { position: `relative`, width: `100%`, height: 300, borderRadius: `$radius.lg`, backgroundColor: `$color.muted`, overflow: `hidden` },
       children: [
         {
           id: `panel`,
@@ -1044,6 +1044,8 @@ function specimenContent(node: NestedNode): NestedNode {
 /** Re-ids a nested tree so several cases of one component share a surface. */
 function prefixIds(node: NestedNode, prefix: string): NestedNode {
   const out: NestedNode = { ...node, id: `${prefix}${node.id}` }
+  // VAPP-276: an `anchor` names a node id of the same case.
+  if (typeof node.props?.anchor === `string`) out.props = { ...node.props, anchor: `${prefix}${node.props.anchor}` }
   if (node.children) out.children = node.children.map((c) => prefixIds(c, prefix))
   if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, prefixIds(v, prefix)]))
   return out

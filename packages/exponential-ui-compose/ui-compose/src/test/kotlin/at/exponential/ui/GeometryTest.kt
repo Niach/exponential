@@ -172,7 +172,7 @@ class GeometryTest {
         val layer = m.layers.first { it.owner == "calendar" }
         assertEquals("top", layer.placementSide)
         assertEquals(m.frame(clock.index), layer.anchorFrame)
-        assertEquals("end-aligned", m.frame(clock.index).right, layer.frame.right, 0.01f)
+        assertEquals("end-aligned (shifted 8 px inside the surface)", minOf(m.frame(clock.index).right, 792f), layer.frame.right, 0.01f)
         assertTrue("above the clock", layer.frame.bottom <= m.frame(clock.index).top)
         assertTrue(m.escape())
         assertTrue(m.layers.none { it.owner == "calendar" })

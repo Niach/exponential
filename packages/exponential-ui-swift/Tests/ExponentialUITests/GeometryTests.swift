@@ -83,7 +83,7 @@ final class GeometryTests: XCTestCase {
         let clock = try XCTUnwrap(m.trigger(of: "calendar"))
         XCTAssertEqual(layer.placementSide, "top")
         XCTAssertEqual(layer.anchorFrame, m.frame(clock.index))
-        XCTAssertEqual(layer.frame.maxX, m.frame(clock.index).maxX, accuracy: 0.01, "end-aligned")
+        XCTAssertEqual(layer.frame.maxX, min(m.frame(clock.index).maxX, 792), accuracy: 0.01, "end-aligned (shifted 8 px inside the surface)")
         XCTAssertLessThanOrEqual(layer.frame.maxY, m.frame(clock.index).minY, "above the clock")
         XCTAssertTrue(m.escape())
         XCTAssertFalse(m.layers.contains { $0.owner == "calendar" })
