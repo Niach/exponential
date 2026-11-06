@@ -1,0 +1,87 @@
+// VAPP-276 (docs/round-7-contract.md): a Popover / Menu `anchor`ed to a node
+// elsewhere in the surface (a bottom-panel button): the anchor is the
+// overlay's trigger (a press toggles it, aria-haspopup / aria-expanded /
+// aria-controls), `side` + `align` reach the popper, Escape closes it and
+// returns focus to the anchor. Placement itself is the browser suite's
+// (browser/overlay.test.ts replays overlay-geometry.json in Chromium).
+
+import { afterEach, describe, expect, it } from "vitest"
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
+import type { NestedNode } from "@exponential_app/eui"
+import { ExponentialSurface } from "./surface"
+
+afterEach(cleanup)
+
+const byId = (c: Element | Document, id: string) => c.querySelector<HTMLElement>(`[data-xui-id="${id}"]`)
+
+const panel = (): NestedNode =>
+  ({
+    id: `root`,
+    component: `Box`,
+    children: [
+      {
+        id: `panel`,
+        component: `Box`,
+        style: { display: `flex`, flexDirection: `row`, justifyContent: `space-between` },
+        children: [
+          { id: `start`, component: `Button`, props: { label: `Start` } },
+          { id: `clock`, component: `Button`, props: { label: `12:00` } },
+        ],
+      },
+      { id: `startMenu`, component: `Menu`, props: { anchor: `start`, side: `top`, align: `start`, items: [{ label: `Files`, value: `files` }] } },
+      { id: `calendar`, component: `Popover`, props: { anchor: `clock`, side: `top`, align: `end` }, children: [{ id: `month`, component: `Text`, props: { text: `November` } }] },
+    ],
+  }) as unknown as NestedNode
+
+function mount() {
+  const r = reduceNested(panel(), { catalogId: CORE_CATALOG_ID })
+  expect(r.issues).toEqual([])
+  return render(<ExponentialSurface root={r.root} theme="neutral" id="panel" />)
+}
+
+const content = (overlay: string) => document.querySelector<HTMLElement>(`[data-xui-overlay="${overlay}"]`)
+
+describe(`anchor by id (VAPP-276)`, () => {
+  it(`the anchored node is the Popover's trigger: a press toggles it, Escape returns focus to it`, async () => {
+    const { container } = mount()
+    const clock = byId(container, `clock`)!
+    expect(clock.getAttribute(`aria-haspopup`)).toBe(`dialog`)
+    expect(clock.getAttribute(`aria-expanded`)).toBe(`false`)
+    // No own trigger: the overlay lays out nothing.
+    expect(byId(container, `calendar`)!.getAttribute(`data-xui-overlay-root`)).toBe(`none`)
+    await act(async () => fireEvent.click(clock))
+    const pop = content(`Popover`)
+    expect(pop).not.toBeNull()
+    expect(pop!.textContent).toContain(`November`)
+    expect(pop!.getAttribute(`data-side`)).toBe(`top`)
+    expect(pop!.getAttribute(`data-align`)).toBe(`end`)
+    expect(clock.getAttribute(`aria-expanded`)).toBe(`true`)
+    expect(clock.getAttribute(`aria-controls`)).toBe(pop!.id)
+    await act(async () => fireEvent.keyDown(pop!, { key: `Escape` }))
+    await waitFor(() => expect(content(`Popover`)).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(clock))
+    expect(clock.getAttribute(`aria-expanded`)).toBe(`false`)
+    // A second press opens it again, a third closes it.
+    await act(async () => fireEvent.click(clock))
+    await waitFor(() => expect(content(`Popover`)).not.toBeNull())
+    await act(async () => fireEvent.click(clock))
+    await waitFor(() => expect(content(`Popover`)).toBeNull())
+  })
+
+  it(`an anchored Menu draws no default trigger and opens from its anchor, side + align on the content`, async () => {
+    const { container } = mount()
+    expect(byId(container, `startMenu.trigger`)).toBeNull()
+    const start = byId(container, `start`)!
+    expect(start.getAttribute(`aria-haspopup`)).toBe(`menu`)
+    await act(async () => fireEvent.click(start))
+    const menu = content(`Menu`)
+    expect(menu).not.toBeNull()
+    expect(menu!.getAttribute(`data-side`)).toBe(`top`)
+    expect(menu!.getAttribute(`data-align`)).toBe(`start`)
+    expect(menu!.textContent).toContain(`Files`)
+    await act(async () => fireEvent.keyDown(menu!, { key: `Escape` }))
+    await waitFor(() => expect(content(`Menu`)).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(start))
+  })
+})

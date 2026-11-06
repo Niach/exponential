@@ -10,12 +10,12 @@
 // motion). A trigger slot is wrapped in an inline-flex span so Radix
 // measures the slot's own box and the slot's painter keeps its element.
 
-import { Fragment, forwardRef, type ComponentType, useCallback, useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { Fragment, forwardRef, type ComponentType, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { holdDialogBottom, isBinding, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide } from "@exponential_app/eui/web"
+import { findAnchor, holdDialogBottom, isBinding, linkAnchor, markAnchor, overlayOpenFocus, tooltipFocusHost, tooltipPhysicalSide, virtualAnchor, withinAnchor, type AnchorLink, type VirtualAnchor } from "@exponential_app/eui/web"
 import { absolutePath } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -55,6 +55,47 @@ const Trigger = forwardRef<HTMLSpanElement, HTMLAttributes<HTMLSpanElement> & { 
       {children}
     </span>
   )
+})
+
+/** VAPP-276: the element of the overlay's `anchor` node (found after every
+ *  render, so a node painted later in the tree is picked up), wired as the
+ *  overlay's trigger while it is mounted (`linkAnchor`), its open state
+ *  mirrored (`markAnchor`). `null` without an `anchor` prop. */
+function useAnchor(id: string, from: { current: Element | null }, link: AnchorLink, open: boolean, contentId: string) {
+  const ctx = useSurfaceContext()
+  const [el, setEl] = useState<HTMLElement | null>(null)
+  const linkRef = useRef(link)
+  linkRef.current = link
+  useLayoutEffect(() => {
+    const found = id ? findAnchor(from.current ?? ctx.portal, ctx.surfaceId, id) : null
+    if (found !== el) setEl(found)
+  })
+  useEffect(() => {
+    if (!el) return
+    return linkAnchor(el, {
+      haspopup: link.haspopup,
+      toggle: () => linkRef.current.toggle(),
+      open: () => linkRef.current.open?.(),
+      hover: link.hover ? { active: () => linkRef.current.hover?.active() ?? false, enter: () => linkRef.current.hover?.enter(), leave: () => linkRef.current.hover?.leave() } : undefined,
+    })
+  }, [el, link.haspopup, !!link.hover])
+  useEffect(() => {
+    if (el) markAnchor(el, open, contentId)
+  }, [el, open, contentId])
+  const elRef = useRef<HTMLElement | null>(null)
+  elRef.current = el
+  const virtual = useMemo(() => virtualAnchor(() => elRef.current), [])
+  // Radix's `virtualRef` is a ref object.
+  const virtualRef = useMemo(() => ({ current: virtual }), [virtual])
+  return { el, virtual, virtualRef }
+}
+
+/** VAPP-276: the popper reference a Radix DropdownMenu Trigger measures and
+ *  focuses: a forwarded VIRTUAL element following the anchor (the trigger
+ *  paints nothing of its own). */
+const AnchorProxy = forwardRef<unknown, { anchor: VirtualAnchor }>(function AnchorProxy({ anchor }, ref) {
+  useImperativeHandle(ref, () => anchor, [anchor])
+  return null
 })
 
 /** Round 2 §7: an overlay is LAYOUT-TRANSPARENT — its frame is its
@@ -229,14 +270,26 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
         },
       }
     : {}
+  // VAPP-276: `anchor` = a node elsewhere opens it and places it; `align`
+  // along the side.
+  const align = str(props.align, `center`) as `start` | `center` | `end`
+  const anchorId = str(props.anchor)
+  const contentId = useId()
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const outside = useRef(false)
+  const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `dialog`, toggle: () => setOpen(!openRef.current), hover: { active: () => hoverModeRef.current, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
+  const anchored = !!anchorId
+  const hoverModeRef = useRef(hoverMode)
+  hoverModeRef.current = hoverMode
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <div {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
+      <div ref={wrapperRef} {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
+        {anchored ? <PopoverPrimitive.Anchor virtualRef={anchor.virtualRef} /> : null}
         {slots.trigger ? (
           <PopoverPrimitive.Trigger asChild>
             <Trigger {...hoverProps}>{slots.trigger}</Trigger>
           </PopoverPrimitive.Trigger>
-        ) : (
+        ) : anchored ? null : (
           <PopoverPrimitive.Anchor asChild>
             <span style={{ display: `inline-flex` }} />
           </PopoverPrimitive.Anchor>
@@ -246,14 +299,34 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
         <PopoverPrimitive.Content
           ref={contentRef}
           {...(part(`content`, open && `open`) as Record<string, string>)}
+          {...(anchored ? { id: contentId } : {})}
           side={side}
-          align="center"
+          align={align}
           sideOffset={OVERLAY_OFFSET}
           collisionPadding={OVERLAY_PADDING}
           data-xui-overlay="Popover"
           data-open-on={hoverMode ? `hover` : undefined}
           dir={ctx.direction}
           onOpenAutoFocus={hoverMode ? (e) => e.preventDefault() : undefined}
+          // VAPP-276: a press on the anchor is its toggle, not an outside
+          // press; a close that did not come from outside returns focus to it.
+          onInteractOutside={
+            anchored
+              ? (e) => {
+                  if (withinAnchor(anchor.el, e.target)) e.preventDefault()
+                  else outside.current = true
+                }
+              : undefined
+          }
+          onCloseAutoFocus={
+            anchored
+              ? (e) => {
+                  e.preventDefault()
+                  if (!outside.current && !hoverMode) anchor.el?.focus()
+                  outside.current = false
+                }
+              : undefined
+          }
           onPointerEnter={hoverMode ? () => schedule(true) : undefined}
           onPointerLeave={hoverMode ? () => schedule(false) : undefined}
         >
@@ -497,9 +570,28 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const icon = str(props.icon)
   const [open, setOpen] = useState(ctx.inlineOverlays)
   const child = node.children[0] ?? null
+  // VAPP-276: `side` + `align`; `anchor` = a node elsewhere is the trigger
+  // the popper measures (its child, when given, still toggles it).
+  const side = str(props.side, `bottom`) as `top` | `right` | `bottom` | `left`
+  const align = str(props.align, `start`) as `start` | `center` | `end`
+  const anchorId = str(props.anchor)
+  const anchored = !!anchorId
+  const contentId = useId()
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const openRef = useRef(open)
+  openRef.current = open
+  const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `menu`, toggle: () => setOpen(!openRef.current), open: () => setOpen(true) }, open, contentId)
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
-      <div {...overlayRootProps(rootProps, true, child)}>
+      <div ref={wrapperRef} {...overlayRootProps(rootProps, anchored && !child ? null : true, child)}>
+        {anchored ? (
+          <>
+            <MenuPrimitive.Trigger asChild>
+              <AnchorProxy anchor={anchor.virtual} />
+            </MenuPrimitive.Trigger>
+            {child ? <Trigger onClick={() => setOpen(!openRef.current)}>{children}</Trigger> : null}
+          </>
+        ) : (
         <MenuPrimitive.Trigger asChild>
           {child ? (
             <Trigger>{children}</Trigger>
@@ -513,9 +605,10 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
             </button>
           )}
         </MenuPrimitive.Trigger>
+        )}
       </div>
       <OverlayPortal as={MenuPrimitive.Portal}>
-        <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
+        <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} {...(anchored ? { id: contentId } : {})} side={side} align={align} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
           <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={() => setOpen(false)} />
         </MenuPrimitive.Content>
       </OverlayPortal>
