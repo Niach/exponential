@@ -140,6 +140,14 @@ round in the strip, `closable: hover` = only while its tab or itself is
 hovered or focused) → `more` (the `+N` button: the chip box at rest,
 padding-x sm, tabular figures) → `new` (24 × 24 round). No indicator.
 
+Spacing = the IDE work tab's (`surface::strip_chip_frame`, web
+`StripChip`): the title starts 10 in (item xxs + tab sm), icon → title
+`$spacing.xs` (4; the IDE's chip gap moved 6 → 4 to match, desktop and
+web), and with a close the tab's inline-end padding and the item's are
+`$spacing.xs`, so title → × = 4 and × → border = 4 (the core sets them as
+per-side layout styles, which win over the recipe's padding-x; the web
+base CSS restates them).
+
 ### Fit
 
 After every layout the renderer measures each item (folded ones TOO: they

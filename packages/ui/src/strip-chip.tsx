@@ -81,7 +81,7 @@ export function StripChip({
         type={type}
         title={tooltip}
         className={cn(
-          `flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 px-2.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+          `flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1 px-2.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`,
           trailing ? `pr-1` : undefined,
           className
         )}

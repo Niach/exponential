@@ -55,6 +55,11 @@ impl Builder<'_, '_> {
             let tab = &tabs[i];
             let selected = values[i] == active;
             let mut style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "minWidth": 0, "maxWidth": crate::layout::TAB_STRIP_MAX_WIDTH});
+            // The IDE's chip: the × sits `$spacing.xs` from the end border
+            // and from the title (round-7 contract, Tabs strip).
+            if closable {
+                style["paddingInlineEnd"] = json!("$spacing.xs");
+            }
             if !shown(i) {
                 for (k, v) in folded.as_object().into_iter().flatten() {
                     style[k] = v.clone();
@@ -72,7 +77,11 @@ impl Builder<'_, '_> {
             if let Some(count) = tab.get("count") {
                 props["count"] = count.clone();
             }
-            let t = self.part_in(item, owner, "tab", "Text", NodeKind::Leaf, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 1, "minWidth": 0}), props, &format!(".{i}"));
+            let mut tab_style = json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 1, "minWidth": 0});
+            if closable {
+                tab_style["paddingInlineEnd"] = json!("$spacing.xs");
+            }
+            let t = self.part_in(item, owner, "tab", "Text", NodeKind::Leaf, tab_style, props, &format!(".{i}"));
             self.query_prop(t, "selected", Value::Bool(selected));
             if selected {
                 self.add_state(t, "selected");

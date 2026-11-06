@@ -168,6 +168,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Tabs-item .xui-Tabs-tab-body{min-width:0}
 .xui-Tabs-item .xui-Tabs-tab-body>span:not([data-count]){min-width:0;overflow:hidden;text-overflow:ellipsis}
 .xui-Tabs-more{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
+.xui-Tabs-item:has(>.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
+.xui-Tabs-item>.xui-Tabs-tab:has(+.xui-Tabs-close){padding-inline-end:var(--xui-spacing-xs) !important}
 .xui-Tabs-item[data-folded],.xui-Tabs-more[data-folded]{position:absolute;top:0;inset-inline-start:0;visibility:hidden;pointer-events:none}
 [data-xui-c="Segmented"].xui-el{display:inline-flex;align-items:center;align-self:flex-start;flex-wrap:nowrap}
 [data-xui-c="Segmented"][data-r-fill="true"].xui-el,[data-xui-c="Segmented"][data-r-variant="bar"].xui-el{align-self:stretch}

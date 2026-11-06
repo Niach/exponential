@@ -1099,6 +1099,29 @@ fn choice_tiles_rove_pick_and_toggle(cx: &mut TestAppContext) {
     assert!(states(&view, cx, "many.tile.0").contains(&"selected".to_string()), "the other pick stays");
 }
 
+#[gpui::test]
+/// VAPP-279: the strip chip's spacing is the IDE work tab's: the title
+/// `$spacing.xs` before the ×, the × `$spacing.xs` (+ the hairline) from
+/// the end border, the title 10 from the start border.
+fn a_strip_chip_spaces_its_close_like_the_ide(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"width": 900}, "children": [
+        {"id": "s", "component": "Tabs", "props": {"variant": "strip", "value": "a", "closable": "always", "tabs": [{"label": "ExponentialOS", "value": "a", "icon": "status-in-progress"}, {"label": "google keywords", "value": "b", "icon": "action-chat"}]}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    view.read_with(cx, |v, _| {
+        let s = v.surface();
+        let f = |id: &str| v.frame(s.index_of(id).unwrap()).unwrap();
+        for i in 0..2 {
+            let (item, tab, close) = (f(&format!("s.item.{i}")), f(&format!("s.tab.{i}")), f(&format!("s.close.{i}")));
+            let pad = s.visual(s.index_of(&format!("s.tab.{i}")).unwrap()).and_then(|x| x.padding).unwrap();
+            assert_eq!(pad[1], 4.0, "title → × = $spacing.xs");
+            assert!((close.x - (tab.x + tab.w)).abs() < 0.01, "the × follows the tab box");
+            assert!(((item.x + item.w) - (close.x + close.w) - 5.0).abs() < 0.01, "× → border = 4 + hairline");
+            assert!(((tab.x + pad[3]) - item.x - 11.0).abs() < 0.01, "title starts 10 + hairline in");
+        }
+    });
+}
+
 /// VAPP-279: a strip tab drags past its neighbour's centre (the press is
 /// spent, `reorder` fires on the release), a click without movement
 /// presses, and the strip folds into `+N` on a narrow surface.

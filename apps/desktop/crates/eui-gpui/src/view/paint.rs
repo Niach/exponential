@@ -1161,7 +1161,14 @@ impl SurfaceView {
         if lcx.style.letter_spacing != 0.0 || lcx.shimmer.is_some() {
             row = row.child(natives::tracked_text(lcx.tracked(vec![shown], align, true)).min_w_0().flex_1().h(px(ts.line_height)));
         } else {
-            row = row.child(aligned(div().min_w_0().flex_1().truncate(), align).child(SharedString::from(text::with_paragraph_direction(&shown, lcx.rtl).into_owned())));
+            // VAPP-279: the measurer gave this box exactly the shaped width;
+            // gpui's ellipsis can fire on a sub-pixel shortfall (a strip tab
+            // read "google keywor…" where every other renderer showed the
+            // whole title), so a text within a pixel of its box never truncates.
+            let need = shaper.line_width(&shown, &lcx.font, ts.font_size);
+            let room = w - lead - trail;
+            let text_box = if need <= room + 1.0 { div().min_w_0().flex_1().overflow_hidden() } else { div().min_w_0().flex_1().truncate() };
+            row = row.child(aligned(text_box, align).child(SharedString::from(text::with_paragraph_direction(&shown, lcx.rtl).into_owned())));
         }
         match (owner, part) {
             ("Tabs", Some("tab")) => {
