@@ -60,6 +60,7 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON notifications FOR E
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON fcm_tokens FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON live_activity_follows FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON team_members FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON team_invites FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_subscribers FOR EACH ROW

@@ -49,6 +49,8 @@ vi.mock(`@/db/connection`, () => ({
 // transport.
 vi.mock(`@/lib/integrations/fcm`, () => ({
   sendToUsers: vi.fn(async () => {}),
+  // #EXP-1639: an ask kicks the Live Activity sync; no relay here.
+  getRelayUrl: () => null,
 }))
 vi.mock(`@/lib/email`, () => ({
   emailEnabled: false,
