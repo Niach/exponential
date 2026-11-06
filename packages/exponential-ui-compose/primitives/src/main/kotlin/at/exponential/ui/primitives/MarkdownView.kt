@@ -23,7 +23,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -32,6 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.LinkInteractionListener
@@ -83,6 +92,11 @@ data class MarkdownColors(
     val taskChecked: Color = Color.Unspecified,
     /** The check on [taskChecked]. */
     val taskCheck: Color = Color.White,
+    /** #VAPP-258: the inline chip = the Chip `root` recipe's fill, border (drawn inside) and the `label` colour (Unspecified = [ink]). */
+    val chipBackground: Color = Color.Transparent,
+    val chipBorder: Color = Color.Unspecified,
+    val chipBorderWidth: Float = 0f,
+    val chipInk: Color = Color.Unspecified,
 ) {
     /** Factories over the tokens. */
     companion object {
@@ -99,6 +113,10 @@ data class MarkdownColors(
             taskBorder = tokens.input,
             taskChecked = tokens.primary,
             taskCheck = tokens.primaryForeground,
+            chipBackground = tokens.background,
+            chipBorder = tokens.mutedForeground,
+            chipBorderWidth = 1f,
+            chipInk = tokens.mutedForeground,
         )
     }
 }
@@ -163,8 +181,15 @@ class MarkdownComposeText(
         onLink: ((String) -> Unit)? = null,
     ): AnnotatedString = buildAnnotatedString {
         val mono = fonts.family(monoFamily, mono = true)
+        var chips = 0
         for (span in inlines) {
             if (span.text.isEmpty()) continue
+            val chip = span.chip
+            if (chip != null) {
+                // #VAPP-258: the chip is a placeholder (its label = the alternate text, the accessible name).
+                appendInlineContent(markdownChipId(chips++), chip.label)
+                continue
+            }
             var weight = spec.weight
             if (span.bold) weight = maxOf(weight, 600)
             if (boldFloor != null) weight = maxOf(weight, boldFloor)
@@ -194,10 +219,16 @@ class MarkdownComposeText(
         }
     }
 
-    private fun layout(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?): TextLayoutResult =
+    private fun layout(
+        inlines: List<MarkdownInline>,
+        spec: MarkdownTextSpec,
+        width: Float?,
+        placeholders: List<AnnotatedString.Range<Placeholder>> = emptyList(),
+    ): TextLayoutResult =
         measurer.measure(
             annotated(inlines, spec),
             style = style(spec),
+            placeholders = placeholders,
             softWrap = width != null,
             constraints = if (width != null) {
                 Constraints(maxWidth = (width * density).roundToInt().coerceAtLeast(1))
@@ -222,6 +253,76 @@ class MarkdownComposeText(
         val words = Markdown.plain(inlines).split(Regex("\\s+")).filter { it.isNotEmpty() }
         return words.maxOfOrNull { width(listOf(MarkdownInline(text = it)), spec) } ?: 0f
     }
+
+    /** #VAPP-258: a chip label's width (shaped in [MarkdownChipStyle.label], the painted font). */
+    fun labelWidth(label: String, chips: MarkdownChipStyle): Float {
+        if (label.isEmpty()) return chips.labelWidth(0f, density)
+        val r = layout(listOf(MarkdownInline(text = label)), chips.label, null)
+        return chips.labelWidth(r.getLineRight(0) - r.getLineLeft(0), density)
+    }
+
+    /** #VAPP-258: the chip placeholders of [inlines] (each capped at [cap]). */
+    fun placeholders(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle, cap: Float?): List<AnnotatedString.Range<Placeholder>> =
+        markdownChipPlaceholders(inlines, spec, chips, cap) { labelWidth(it, chips) }
+
+    override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float {
+        if (inlines.none { it.chip != null }) return height(inlines, spec, width)
+        return maxOf(1, layout(inlines, spec, width, placeholders(inlines, spec, chips, width)).lineCount) * spec.lineHeight
+    }
+
+    override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
+        if (inlines.none { it.chip != null }) return width(inlines, spec)
+        val r = layout(inlines, spec, null, placeholders(inlines, spec, chips, null))
+        var widest = 0f
+        for (line in 0 until r.lineCount) widest = maxOf(widest, r.getLineRight(line) - r.getLineLeft(line))
+        return ceil(widest / density)
+    }
+
+    override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
+        if (inlines.none { it.chip != null }) return widestWord(inlines, spec)
+        val text = inlines.map { if (it.chip != null) it.copy(text = " ", chip = null) else it }
+        val widestChip = inlines.mapNotNull { it.chip }.maxOf { chips.width(it, labelWidth(it.label, chips)) }
+        return maxOf(widestWord(text, spec), widestChip)
+    }
+}
+
+/** #VAPP-258: the inline-content id of the [n]th chip of a run list. */
+fun markdownChipId(n: Int): String = "eui-chip-$n"
+
+/**
+ * #VAPP-258: the placeholders of [inlines]' chip runs in the text built by
+ * appending every non-empty run (a chip run as its label): each chip
+ * [MarkdownChipStyle.width] wide (capped at [cap]) and
+ * [MarkdownChipStyle.height] tall, centred in the line. What the painter's
+ * inline content and every measurer agree on.
+ */
+fun markdownChipPlaceholders(
+    inlines: List<MarkdownInline>,
+    spec: MarkdownTextSpec,
+    chips: MarkdownChipStyle,
+    cap: Float?,
+    labelWidth: (String) -> Float,
+): List<AnnotatedString.Range<Placeholder>> {
+    val out = ArrayList<AnnotatedString.Range<Placeholder>>()
+    var at = 0
+    for (span in inlines) {
+        if (span.text.isEmpty()) continue
+        val chip = span.chip
+        if (chip == null) {
+            at += span.text.length
+            continue
+        }
+        val w = markdownChipWidth(chip, chips, cap, labelWidth)
+        out.add(AnnotatedString.Range(Placeholder(w.sp, chips.height(spec.lineHeight).sp, PlaceholderVerticalAlign.Center), at, at + chip.label.length))
+        at += chip.label.length
+    }
+    return out
+}
+
+/** #VAPP-258: a chip's box width (capped at [cap]). */
+fun markdownChipWidth(chip: MarkdownChip, chips: MarkdownChipStyle, cap: Float?, labelWidth: (String) -> Float): Float {
+    val w = chips.width(chip, labelWidth(chip.label))
+    return if (cap != null) minOf(w, maxOf(cap, 1f)) else w
 }
 
 /**
@@ -237,7 +338,12 @@ class MarkdownComposeText(
  * paragraph of its alt text, no box); [image] paints an allowed one inside
  * its box (null = the alt text) and falls back to the alt text itself.
  * [codeHighlighter] colours a fenced block's text by its fence's language
- * (#VAPP-258; null = plain).
+ * (#VAPP-258; null = plain). #VAPP-258 host hooks (catalog/host.json
+ * `markdown`): [linkSegments] = [textLinks] with chips (painted inline as
+ * the Chip look through [chipIcon]); [imageSize] boxes a block image at
+ * its aspect; [onImagePress] makes block images pressable; [attachments]
+ * classifies a one-link paragraph (raw href), painted by [attachmentView]
+ * (null = a link row).
  */
 @Composable
 fun MarkdownView(
@@ -254,13 +360,23 @@ fun MarkdownView(
     textLinks: ((String) -> List<Pair<String, String?>>?)? = null,
     image: (@Composable (src: String, alt: String) -> Unit)? = null,
     codeHighlighter: MarkdownCodeHighlighter? = null,
+    linkSegments: ((String) -> List<MarkdownTextLink>?)? = null,
+    imageSize: ((String) -> MarkdownSize?)? = null,
+    attachments: ((String) -> MarkdownAttachment?)? = null,
+    onImagePress: ((String) -> Unit)? = null,
+    chipIcon: (@Composable (name: String, size: Float, color: Color) -> Unit)? = null,
+    attachmentView: (@Composable (attachment: MarkdownBlockKind.Attachment, width: Float, height: Float) -> Unit)? = null,
 ) {
-    val parsed = remember(text, linkPolicy, imagePolicy) {
-        val parsed = Markdown.parse(text).let { if (imagePolicy == null) it else Markdown.resolveImages(it, imagePolicy) }
-        if (linkPolicy == null) parsed else Markdown.policeLinks(parsed, linkPolicy)
+    val parsed = remember(text, linkPolicy, imagePolicy, attachments, imageSize) {
+        Markdown.prepare(text, MarkdownHooks(linkPolicy = linkPolicy, imagePolicy = imagePolicy, attachment = attachments, imageSize = imageSize))
     }
     // A host's text links read live, like a `hostLinks` Text's.
-    val blocks = if (textLinks == null) parsed else Markdown.linkText(parsed, textLinks)
+    val blocks = when {
+        linkSegments != null -> Markdown.linkSegments(parsed, linkSegments)
+        textLinks != null -> Markdown.linkText(parsed, textLinks)
+        else -> parsed
+    }
+    val hooks = MarkdownPaintHooks(onLink, image, codeHighlighter, onImagePress, chipIcon, attachmentView)
     val outer = LocalDensity.current
     val pinned = remember(outer.density) { Density(outer.density, 1f) }
     CompositionLocalProvider(LocalDensity provides pinned) {
@@ -280,13 +396,23 @@ fun MarkdownView(
                             .width(width.dp)
                             .height(box.height.dp),
                     ) {
-                        MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, onLink, image, codeHighlighter)
+                        MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, hooks)
                     }
                 }
             }
         }
     }
 }
+
+/** The painter-only hooks a [MarkdownView] passes down to its blocks. */
+private class MarkdownPaintHooks(
+    val onLink: ((String) -> Unit)?,
+    val image: (@Composable (src: String, alt: String) -> Unit)?,
+    val codeHighlighter: MarkdownCodeHighlighter?,
+    val onImagePress: ((String) -> Unit)?,
+    val chipIcon: (@Composable (name: String, size: Float, color: Color) -> Unit)?,
+    val attachmentView: (@Composable (attachment: MarkdownBlockKind.Attachment, width: Float, height: Float) -> Unit)?,
+)
 
 @Composable
 private fun MarkdownBlockView(
@@ -297,24 +423,57 @@ private fun MarkdownBlockView(
     colors: MarkdownColors,
     codeBlockRadius: Dp,
     shaper: MarkdownComposeText,
-    onLink: ((String) -> Unit)?,
-    image: (@Composable (src: String, alt: String) -> Unit)?,
-    codeHighlighter: MarkdownCodeHighlighter?,
+    hooks: MarkdownPaintHooks,
 ) {
     val spec = styles.spec(block.kind)
+    val onLink = hooks.onLink
+    val uri = LocalUriHandler.current
+    val open: (String) -> Unit = { href -> if (onLink != null) onLink(href) else runCatching { uri.openUri(href) } }
     fun runs(inlines: List<MarkdownInline>, ink: Color, code: Color?, boldFloor: Int? = null) =
         shaper.annotated(inlines, spec, ink = ink, link = colors.link, codeBackground = code, boldFloor = boldFloor, onLink = onLink)
+    // #VAPP-258: the chips of a run list wrapped at [cap] (the width its layout used).
+    fun chips(inlines: List<MarkdownInline>, cap: Float): Map<String, InlineTextContent> =
+        markdownChipContent(inlines, spec, styles.chip, cap, colors, shaper, hooks.chipIcon, open)
     when (val kind = block.kind) {
         is MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> BasicText(
             runs(block.inlines, colors.ink, colors.codeBackground),
             style = shaper.style(spec, colors.ink),
             modifier = Modifier.fillMaxWidth(),
+            inlineContent = chips(block.inlines, maxOf(width, 1f)),
         )
-        is MarkdownBlockKind.Image -> Box(Modifier.width(width.dp).height(box.height.dp)) {
-            if (image != null) {
-                image(kind.src, kind.alt)
-            } else {
-                MarkdownImageAlt(kind.alt, shaper.style(spec, colors.muted))
+        is MarkdownBlockKind.Image -> {
+            val ib = Markdown.imageBox(kind.width, kind.height, width, styles.imageHeight)
+            val press = hooks.onImagePress
+            Box(
+                Modifier
+                    .width(ib.width.dp)
+                    .height(box.height.dp)
+                    .then(if (press != null) Modifier.clickable(role = Role.Image) { press(kind.src) } else Modifier),
+            ) {
+                val image = hooks.image
+                if (image != null) {
+                    image(kind.src, kind.alt)
+                } else {
+                    MarkdownImageAlt(kind.alt, shaper.style(spec, colors.muted))
+                }
+            }
+        }
+        is MarkdownBlockKind.Attachment -> {
+            val w = styles.attachmentWidth(kind, width)
+            Box(Modifier.width(w.dp).height(box.height.dp)) {
+                val view = hooks.attachmentView
+                if (view != null) {
+                    view(kind, w, box.height)
+                } else {
+                    // No attachment painter: the link row (its name, opening the href).
+                    BasicText(
+                        kind.name,
+                        style = shaper.style(spec, colors.link).copy(textDecoration = TextDecoration.Underline),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.align(Alignment.CenterStart).clickable(role = Role.Button) { open(kind.href) },
+                    )
+                }
             }
         }
         is MarkdownBlockKind.ListItem -> Row(verticalAlignment = Alignment.Top) {
@@ -333,6 +492,7 @@ private fun MarkdownBlockView(
                 runs(block.inlines, colors.ink, colors.codeBackground),
                 style = shaper.style(spec, colors.ink),
                 modifier = Modifier.width((width - styles.listInset(kind.depth)).coerceAtLeast(1f).dp),
+                inlineContent = chips(block.inlines, maxOf(width - styles.listInset(kind.depth), 1f)),
             )
         }
         is MarkdownBlockKind.Quote -> Row {
@@ -342,6 +502,7 @@ private fun MarkdownBlockView(
                 runs(block.inlines, colors.muted, null),
                 style = shaper.style(spec, colors.muted),
                 modifier = Modifier.width((width - styles.quoteBorder - styles.quotePad).coerceAtLeast(1f).dp),
+                inlineContent = chips(block.inlines, maxOf(width - styles.quoteBorder - styles.quotePad, 1f)),
             )
         }
         is MarkdownBlockKind.CodeBlock -> Box(
@@ -351,7 +512,7 @@ private fun MarkdownBlockView(
                 .background(colors.codeBlockBackground, RoundedCornerShape(codeBlockRadius))
                 .padding(styles.codePad.dp),
         ) {
-            BasicText(highlightedCode(runs(block.inlines, colors.ink, null), block.lang, codeHighlighter), style = shaper.style(spec, colors.ink), softWrap = false)
+            BasicText(highlightedCode(runs(block.inlines, colors.ink, null), block.lang, hooks.codeHighlighter), style = shaper.style(spec, colors.ink), softWrap = false)
         }
         is MarkdownBlockKind.Rule -> Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
         is MarkdownBlockKind.Table -> {
@@ -368,6 +529,7 @@ private fun MarkdownBlockView(
                             BasicText(
                                 runs(cell, colors.ink, colors.codeBackground, boldFloor = if (r == 0) 600 else null),
                                 style = shaper.style(spec, colors.ink),
+                                inlineContent = chips(cell, maxOf(cellW - 2 * styles.cellPadH, 1f)),
                                 modifier = Modifier
                                     .width(cellW.dp)
                                     .padding(horizontal = styles.cellPadH.dp, vertical = styles.cellPadV.dp),
@@ -378,6 +540,68 @@ private fun MarkdownBlockView(
                 }
             }
         }
+    }
+}
+
+/**
+ * #VAPP-258: the inline content of [inlines]' chips: each the Chip look
+ * (fill, inside border, full radius, `padH`, the icon then the caption
+ * label, one line) in a placeholder [markdownChipPlaceholders] sizes the
+ * same way; a tap opens the run's href through [open].
+ */
+private fun markdownChipContent(
+    inlines: List<MarkdownInline>,
+    spec: MarkdownTextSpec,
+    chips: MarkdownChipStyle,
+    cap: Float,
+    colors: MarkdownColors,
+    shaper: MarkdownComposeText,
+    icon: (@Composable (name: String, size: Float, color: Color) -> Unit)?,
+    open: (String) -> Unit,
+): Map<String, InlineTextContent> {
+    if (inlines.none { it.chip != null }) return emptyMap()
+    val out = HashMap<String, InlineTextContent>()
+    var n = 0
+    for (span in inlines) {
+        if (span.text.isEmpty()) continue
+        val chip = span.chip ?: continue
+        val href = span.link
+        val w = markdownChipWidth(chip, chips, cap) { shaper.labelWidth(it, chips) }
+        val h = chips.height(spec.lineHeight)
+        out[markdownChipId(n++)] = InlineTextContent(Placeholder(w.sp, h.sp, PlaceholderVerticalAlign.Center)) {
+            MarkdownChipView(chip, chips, colors, shaper.style(chips.label, colors.chipInk.takeOrElse { colors.ink }), icon) { if (href != null) open(href) }
+        }
+    }
+    return out
+}
+
+@Composable
+private fun MarkdownChipView(
+    chip: MarkdownChip,
+    chips: MarkdownChipStyle,
+    colors: MarkdownColors,
+    label: TextStyle,
+    icon: (@Composable (name: String, size: Float, color: Color) -> Unit)?,
+    onPress: () -> Unit,
+) {
+    val shape = RoundedCornerShape(percent = 50)
+    Row(
+        Modifier
+            .fillMaxSize()
+            .background(colors.chipBackground, shape)
+            .then(if (colors.chipBorderWidth > 0f) Modifier.border(colors.chipBorderWidth.dp, colors.chipBorder.takeOrElse { colors.border }, shape) else Modifier)
+            .clickable(role = Role.Button, onClick = onPress)
+            .padding(horizontal = chips.padH.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val name = chip.icon
+        if (!name.isNullOrEmpty()) {
+            Box(Modifier.size(chips.iconSize.dp), contentAlignment = Alignment.Center) {
+                icon?.invoke(name, chips.iconSize, label.color)
+            }
+            Box(Modifier.width(chips.gap.dp))
+        }
+        BasicText(chip.label, style = label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 

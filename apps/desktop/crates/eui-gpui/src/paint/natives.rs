@@ -949,6 +949,44 @@ pub fn audio(cx: &LeafCx, play: MediaPlay) -> AnyElement {
     .into_any_element()
 }
 
+/// #VAPP-258: the FileUpload `file` row's look for a Markdown file
+/// attachment (`catalog/host.json` markdown): the row recipe's box (min
+/// height, border, radius), `fileIcon` then `fileName` one line; no size, no
+/// remove. A press opens `href` through the host (its URL policy and opener)
+/// and never reaches what is behind.
+pub fn file_row(cx: &LeafCx, name: &str, m: &crate::paint::markdown::AttachMetrics, href: Option<String>, host: Rc<dyn HostPlugin>) -> AnyElement {
+    let look = cx.part("FileUpload", "file", &[]);
+    let icon_color = cx.part("FileUpload", "fileIcon", &[]).color.unwrap_or(cx.ink);
+    let name_color = cx.part("FileUpload", "fileName", &[]).color.unwrap_or(cx.ink);
+    let icon = eui_core::layout_tree::builtin_icon("FileUpload.file").unwrap_or("ui-file");
+    let label = div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_size(px(m.file_name.size))
+        .line_height(px(m.file_name.line_height))
+        .text_color(name_color)
+        .child(SharedString::from(name.to_string()));
+    let row = cx
+        .row(styled_box(cx.typed(div()), &look, cx.w, cx.h).size_full())
+        .items_center()
+        .gap(px(m.file_gap))
+        .px(px(m.file_pad))
+        .overflow_hidden()
+        .child(div().flex_none().child(icons::concept(cx.host, icon, m.file_icon, icon_color)))
+        .child(label)
+        .id(SharedString::from(cx.node.id.clone()));
+    match href {
+        Some(href) => row
+            .cursor_pointer()
+            .role(gpui::Role::Link)
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(move |_, _, cx| host.open_url(&href, cx))
+            .into_any_element(),
+        None => row.into_any_element(),
+    }
+}
+
 /// `Spinner`.
 pub fn spinner(cx: &LeafCx) -> AnyElement {
     let (_, _, w, h) = cx.inner();

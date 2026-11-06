@@ -582,6 +582,16 @@ final class HostBridge: HostPlugin {
         host?.options.policy.textLinks?(text) ?? base?.textLinks(text)
     }
 
+    func imageSize(_ src: String) -> CGSize? {
+        host?.options.policy.imageSize?(src) ?? base?.imageSize(src)
+    }
+
+    var onImagePress: (@MainActor (String) -> Void)? { host?.options.policy.onImagePress ?? base?.onImagePress }
+
+    func attachment(_ href: String) -> MarkdownAttachmentInfo? {
+        host?.options.policy.attachment?(href) ?? base?.attachment(href)
+    }
+
     var urlPolicy: UrlPolicy? { host?.urlPolicy }
 
     var mediaOptions: MediaOptions? { host?.options.policy.media }

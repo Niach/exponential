@@ -38,6 +38,13 @@ import at.exponential.ui.measure.FontResolver
 import at.exponential.ui.measure.SurfaceMeasurer
 import at.exponential.ui.measure.TextShaper
 import at.exponential.ui.primitives.PrimitiveTokens
+import at.exponential.ui.primitives.Markdown
+import at.exponential.ui.primitives.MarkdownAttachment
+import at.exponential.ui.primitives.MarkdownBlock
+import at.exponential.ui.primitives.MarkdownChip
+import at.exponential.ui.primitives.MarkdownHooks
+import at.exponential.ui.primitives.MarkdownSize
+import at.exponential.ui.primitives.MarkdownTextLink
 import at.exponential.ui.theme.GeometrySpacing
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.PaintStyle
@@ -554,6 +561,35 @@ class SurfaceModel(
         return policed.takeIf { list -> list.any { it.href != null } }
     }
 
+    /** #VAPP-258: [textLinkSegments] for a Markdown, chips carried (validated by the primitives: kind, label, an allowed href). */
+    fun markdownTextLinks(text: String): List<MarkdownTextLink>? =
+        textLinkSegments(text)?.map { s -> MarkdownTextLink(s.text, s.href, s.chip?.let { MarkdownChip(it.kind, it.label, it.icon) }) }
+
+    /** #VAPP-258: the host's natural size of a Markdown block image (RAW src); null = unknown (invalid answers too). */
+    fun markdownImageSize(src: String): MarkdownSize? =
+        host.imageSize(src)?.let { MarkdownSize(it.width.toFloat(), it.height.toFloat()) }?.takeIf { it.valid }
+
+    /** #VAPP-258: the host's attachment of a one-link Markdown paragraph (RAW href); null = a paragraph. */
+    fun markdownAttachment(href: String): MarkdownAttachment? =
+        host.attachment(href)?.takeIf { it.kind in MarkdownAttachment.KINDS && it.name.isNotEmpty() }?.let { MarkdownAttachment(it.kind, it.name) }
+
+    /**
+     * #VAPP-258: the host hooks a Markdown resolves through (URL + media
+     * policy, attachments, image sizes, text links + chips): the measurer
+     * and the painter both ([markdownBlocks]).
+     */
+    val markdownHooks: MarkdownHooks
+        get() = MarkdownHooks(
+            linkPolicy = ::href,
+            imagePolicy = { mediaRequest(it) != null },
+            attachment = ::markdownAttachment,
+            imageSize = ::markdownImageSize,
+            textLinks = ::markdownTextLinks,
+        )
+
+    /** #VAPP-258: a Markdown's blocks as measured and painted ([Markdown.resolve] through [markdownHooks]). */
+    fun markdownBlocks(text: String): List<MarkdownBlock> = Markdown.resolve(text, markdownHooks)
+
     /** The media request for `src` (the host's `resolveUrl`, then the media policy); null = nothing loads. */
     fun mediaRequest(src: String): MediaRequest? = policedMediaRequest(host, src)
 
@@ -829,7 +865,7 @@ class SurfaceModel(
             val used: Map<String, String> = if (kinds.isEmpty()) emptyMap() else HashMap(kinds)
             var measurer: SurfaceMeasurer? = null
             out = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed) { mediaRequest(it) != null }.let {
+                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed, markdownBlocks = ::markdownBlocks) { mediaRequest(it) != null }.let {
                     measurer = it
                     surface.layout(it)
                 }

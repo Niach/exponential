@@ -13,13 +13,24 @@ enum MarkdownPainter {
         Markdown.resolveImages(Markdown.parse(text)) { model.mediaRequest($0) != nil }
     }
 
-    /// `blocks` with the URL policy on every link, and the text a host's
-    /// `textLinks` links as links (the painter only: never a width).
+    /// `blocks` after the host's Markdown hooks (#VAPP-258, the measurer
+    /// and the painter alike): one-link paragraphs the host's `attachment`
+    /// classifies become attachment blocks, block images take the host's
+    /// `imageSize`, every link passes the URL policy, and the text a host's
+    /// `textLinks` links is a link (a valid chip on an allowed href = an
+    /// inline chip, whose width the measurer counts).
     @MainActor
     static func painted(_ text: String, model: SurfaceModel) -> [MarkdownBlock] {
-        Markdown.linkText(Markdown.mapLinks(blocks(text, model: model), model.linkHref)) { piece in
-            model.textLinkSegments(piece)?.map { (text: $0.text, href: $0.href) }
+        let host = model.host
+        let attached = Markdown.resolveAttachments(blocks(text, model: model), href: model.linkHref) { raw in
+            host.attachment(raw).map { (kind: $0.kind, name: $0.name) }
         }
+        let sized = Markdown.sizeImages(attached) { host.imageSize($0) }
+        return Markdown.linkText(Markdown.mapLinks(sized, model.linkHref), chips: { piece in
+            model.textLinkSegments(piece)?.map { s in
+                (text: s.text, href: s.href, chip: s.chip.map { MarkdownChip(kind: $0.kind, label: $0.label, icon: $0.icon) })
+            }
+        })
     }
 
     /// From the theme's `Markdown/*` recipes (the root's own text style is
@@ -48,6 +59,15 @@ enum MarkdownPainter {
         s.headingBottom = theme.spacing("xs")
         s.cellPadH = theme.spacing("sm")
         s.cellPadV = theme.spacing("xs")
+        // #VAPP-258: the inline chip (Chip's geometry, the Text caption's
+        // type) and the attachment blocks (the media natives' boxes).
+        let caption = theme.part("Text", "root", props: ["variant": .string("caption")], mode: mode)
+        let captionSpec = MarkdownTextSpec(size: caption.px("fontSize") ?? 12, lineHeight: caption.px("lineHeight") ?? 16, weight: Int(caption.props.num("fontWeight") ?? Double(body.fontWeight)), family: caption.fontFamily ?? body.fontFamily)
+        s.chip = MarkdownChipStyle(label: captionSpec, paddingH: theme.spacing("sm"), gap: theme.spacing("xs"), icon: theme.control("iconSm", 16), height: theme.control("badge", 20))
+        s.audioTitleGap = theme.spacing("xs")
+        s.audioControls = theme.control("row", SurfaceMeasurer.audioControlsHeight)
+        s.fileIcon = theme.control("iconSm", 16)
+        s.fileGap = theme.spacing("sm")
         return s
     }
 }
@@ -132,17 +152,41 @@ struct MarkdownView: View {
 
     /// A text block whose allowed links open on a tap (through the URL
     /// policy again in `openLink`); hit-tested with the measurer's
-    /// typesetter at the block's wrap width.
+    /// typesetter at the block's wrap width. #VAPP-258: its inline chips
+    /// paint over their reserved boxes (each opens its href).
     @ViewBuilder
     private func linked(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
         let label = TextLabel(attributed: runs, lineHeight: spec.lineHeight)
-        if TextShaper.hasLinks(runs) {
-            label.contentShape(Rectangle()).onTapGesture(coordinateSpace: .local) { point in
-                if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }
+        Group {
+            if TextShaper.hasLinks(runs) {
+                label.contentShape(Rectangle()).onTapGesture(coordinateSpace: .local) { point in
+                    if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }
+                }
+            } else {
+                label
             }
-        } else {
-            label
         }
+        .overlay(alignment: .topLeading) { chips(runs, spec: spec, width: width) }
+    }
+
+    /// The inline chips of `runs` at the boxes the typesetter laid out.
+    @ViewBuilder
+    private func chips(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
+        let placed = TextShaper.chipRects(in: runs, lineHeight: spec.lineHeight, wrap: width, rtl: model.isRTL)
+        if !placed.isEmpty {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
+                    MarkdownChipView(run: p.run, style: styles.chip, model: model, ink: ink)
+                        .offset(x: p.rect.minX, y: p.rect.minY)
+                }
+            }
+            .frame(width: width, alignment: .topLeading)
+        }
+    }
+
+    /// The runs of a text block (the chips sized for `width`).
+    private func runs(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, ink: Color, link: Color, codeBackground: Color?, width: CGFloat) -> NSAttributedString {
+        TextShaper.runs(inlines, spec, mono: model.theme?.monoFamily, ink: platform(ink), link: platform(link), codeBackground: codeBackground.map(platform), chip: styles.chip, wrap: width)
     }
 
     private func platform(_ c: Color) -> PlatformColor {
@@ -183,15 +227,27 @@ struct MarkdownView: View {
         let mono = model.theme?.monoFamily
         switch block.kind {
         case .paragraph, .heading:
-            linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), spec: spec, width: width)
+            linked(runs(block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
         case let .image(src, alt):
-            MediaImage(request: model.mediaRequest(src), options: model.mediaPolicy) { image in
-                image.resizable().scaledToFit().frame(maxWidth: width, maxHeight: box.height, alignment: .topLeading)
+            let boxWidth = box.width ?? width
+            let image = MediaImage(request: model.mediaRequest(src), options: model.mediaPolicy) { image in
+                image.resizable().scaledToFit().frame(maxWidth: boxWidth, maxHeight: box.height, alignment: .topLeading)
             } placeholder: {
                 Text(alt).font(.system(size: spec.size)).foregroundStyle(muted).lineLimit(2)
             }
-            .frame(width: width, height: box.height, alignment: .topLeading)
+            .frame(width: boxWidth, height: box.height, alignment: .topLeading)
             .accessibilityLabel(alt)
+            // #VAPP-258: a press calls the host's `onImagePress` (raw src).
+            if let press = model.host.onImagePress {
+                image.contentShape(Rectangle()).onTapGesture { press(src) }
+                    .accessibilityAddTraits(.isButton)
+                    .frame(width: width, alignment: .topLeading)
+            } else {
+                image.frame(width: width, alignment: .topLeading)
+            }
+        case let .attachment(type, name, href):
+            MarkdownAttachmentView(type: type, name: name, href: href, box: CGSize(width: box.width ?? width, height: box.height), styles: styles, model: model, ink: ink)
+                .frame(width: width, alignment: .topLeading)
         case let .listItem(marker, task):
             HStack(alignment: .top, spacing: 0) {
                 Group {
@@ -203,14 +259,16 @@ struct MarkdownView: View {
                     }
                 }
                 .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topLeading)
-                linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), spec: spec, width: max(width - styles.listInset(block), 1))
+                let inner = max(width - styles.listInset(block), 1)
+                linked(runs(block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: inner), spec: spec, width: inner)
             }
             .padding(.leading, styles.listIndent * CGFloat(block.depth))
         case .quote:
             HStack(alignment: .top, spacing: 0) {
                 Rectangle().fill(quoteBorder).frame(width: styles.quoteBorder)
                 Color.clear.frame(width: styles.quotePad)
-                linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(muted), link: platform(link), codeBackground: nil), spec: spec, width: max(width - styles.quoteBorder - styles.quotePad, 1))
+                let inner = max(width - styles.quoteBorder - styles.quotePad, 1)
+                linked(runs(block.inlines, spec, ink: muted, link: link, codeBackground: nil, width: inner), spec: spec, width: inner)
             }
         case .codeBlock:
             TextLabel(attributed: MarkdownCode.highlighted(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: nil), lang: block.lang) { kind in model.codeTokenLook(kind).color.map(platform) }, lineHeight: spec.lineHeight, wraps: false)
@@ -229,7 +287,10 @@ struct MarkdownView: View {
                             let cell = c < row.count ? row[c] : []
                             var cellSpec = spec
                             let _ = { if r == 0 { cellSpec.weight = max(cellSpec.weight, 600) } }()
-                            TextLabel(attributed: TextShaper.runs(cell, cellSpec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), lineHeight: spec.lineHeight)
+                            let cellText = max(cellW - 2 * styles.cellPadH, 1)
+                            let cellRuns = runs(cell, cellSpec, ink: ink, link: link, codeBackground: codeBg, width: cellText)
+                            TextLabel(attributed: cellRuns, lineHeight: spec.lineHeight)
+                                .overlay(alignment: .topLeading) { chips(cellRuns, spec: spec, width: cellText) }
                                 .padding(.horizontal, styles.cellPadH)
                                 .padding(.vertical, styles.cellPadV)
                                 .frame(width: cellW, height: box.rows[safe: r].map { $0 - 1 } ?? spec.lineHeight, alignment: .topLeading)
@@ -269,5 +330,78 @@ struct MarkdownTaskBox: View {
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
+    }
+}
+
+/// #VAPP-258: an inline chip (`catalog/host.json` markdown): the catalog
+/// Chip's `root` colours (background, border drawn inside) on a capsule,
+/// the icon at `$control.iconSm`, the label in the Text caption (the Chip
+/// `label` colour, else the ink), one line; a tap opens its href.
+struct MarkdownChipView: View {
+    let run: MarkdownChipRun
+    let style: MarkdownChipStyle
+    let model: SurfaceModel
+    let ink: Color
+
+    var body: some View {
+        let root = model.part("Chip", "root", props: [:])
+        let labelPart = model.part("Chip", "label", props: [:])
+        let color = labelPart.color ?? ink
+        let border = root.style.borderWidth > 0 ? root.style.borderWidth : (root.style.borderColor == nil ? 0 : 1)
+        HStack(spacing: style.gap) {
+            if let icon = run.chip.icon {
+                ConceptIcon(name: icon, size: style.icon, color: color, model: model)
+            }
+            MeasuredLabel(text: run.chip.label, ts: TextShaper.chipLabelStyle(style), color: color)
+        }
+        .padding(.horizontal, style.paddingH)
+        .frame(width: run.width, height: run.height, alignment: .leading)
+        .background(Capsule().fill(root.style.background ?? Color.clear))
+        .overlay(Capsule().strokeBorder(root.style.borderColor ?? Color.clear, lineWidth: border))
+        .clipShape(Capsule())
+        .contentShape(Capsule())
+        .onTapGesture { model.openLink(run.href) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(run.chip.label)
+        .accessibilityAddTraits(.isLink)
+    }
+}
+
+/// #VAPP-258: an attachment block: `video` = the Video native's face (no
+/// poster), `audio` = the AudioPlayer's with the name as its title, `file`
+/// = the FileUpload `file` row (fileIcon + fileName) that opens the href.
+struct MarkdownAttachmentView: View {
+    let type: MarkdownAttachmentKind
+    let name: String
+    let href: String
+    let box: CGSize
+    let styles: MarkdownStyles
+    let model: SurfaceModel
+    let ink: Color
+
+    var body: some View {
+        let ts = TextStyle(fontSize: styles.body.size, fontWeight: styles.body.weight, lineHeight: styles.body.lineHeight, fontFamily: styles.body.family)
+        switch type {
+        case .video:
+            VideoFace(model: model, src: href, size: box)
+                .accessibilityLabel(name)
+        case .audio:
+            AudioFace(model: model, title: name, src: href, ink: ink, font: Font(TextFonts.font(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize) as CTFont), titleColor: model.part("AudioPlayer", "track", props: [:]).color, size: box)
+        case .file:
+            let row = model.part("FileUpload", "file", props: [:])
+            let icon = model.part("FileUpload", "fileIcon", props: [:])
+            let fileName = model.part("FileUpload", "fileName", props: [:])
+            HStack(spacing: styles.fileGap) {
+                ConceptIcon(name: BuiltinIcons.name("FileUpload.file"), size: styles.fileIcon, color: icon.color ?? ink.opacity(0.7), model: model)
+                MeasuredLabel(text: name, ts: ts, color: fileName.color ?? row.color ?? ink)
+                Spacer(minLength: 0)
+            }
+            .frame(width: box.width, height: box.height, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { model.openLink(href) }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(name)
+            .accessibilityAddTraits(.isLink)
+        }
     }
 }

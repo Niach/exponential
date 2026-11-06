@@ -121,6 +121,8 @@ class SurfaceMeasurer(
     val ownerOf: (Int, String, String?) -> String? = { _, _, _ -> null },
     /** A painter failed measuring component `id` (`onPaintError`; it measures 0×0 and paints an empty box). */
     val onPaintError: (id: String, message: String) -> Unit = { _, _ -> },
+    /** #VAPP-258: a Markdown's blocks through the host's hooks (the painter's [at.exponential.ui.model.SurfaceModel.markdownBlocks]); null = parse + [mediaAllowed]. */
+    val markdownBlocks: ((String) -> List<at.exponential.ui.primitives.MarkdownBlock>)? = null,
     /** Whether a markdown image's src passes the host's media policy (the painter asks the same question). */
     val mediaAllowed: (String) -> Boolean = { true },
 ) : Measurer {
@@ -382,7 +384,8 @@ class SurfaceMeasurer(
     }
 
     private fun markdown(leaf: LeafRequest, wrap: Float?): Content {
-        val blocks = Markdown.resolveImages(Markdown.parse(leaf.props.str("text")), mediaAllowed)
+        val text = leaf.props.str("text")
+        val blocks = markdownBlocks?.invoke(text) ?: Markdown.resolveImages(Markdown.parse(text), mediaAllowed)
         val ts = leaf.textStyle
         val styles = MarkdownPainter.styles(theme, mode, ts, leaf.props)
         val md = MarkdownShaper(shaper, theme?.monoFamily)

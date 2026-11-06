@@ -548,8 +548,18 @@ public enum TextShaper {
         return nil
     }
 
+    /// #VAPP-258: the attribute an inline chip's object replacement
+    /// character carries (`MarkdownChipRun`).
+    static let chipKey = NSAttributedString.Key("ExponentialUI.chip")
+
     /// The runs of some markdown spans in a base spec (bold/italic/code/link).
-    public static func runs(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, mono: String?, ink: PlatformColor, link: PlatformColor, codeBackground: PlatformColor?, align: NSTextAlignment = .natural) -> NSAttributedString {
+    /// #VAPP-258: with `chip` (the chip metrics), a span carrying a chip is
+    /// ONE object replacement character as wide as the chip (capped at
+    /// `wrap`): a CoreText run delegate for the measurer's typesetter and a
+    /// clear text attachment for TextKit, the same width, so it breaks like
+    /// one unbreakable word and never grows the line; the painter draws the
+    /// chip over it (`chipRects`).
+    public static func runs(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, mono: String?, ink: PlatformColor, link: PlatformColor, codeBackground: PlatformColor?, align: NSTextAlignment = .natural, chip chipStyle: MarkdownChipStyle? = nil, wrap: CGFloat? = nil) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let base = TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family)
         for span in inlines where !span.text.isEmpty {
@@ -557,6 +567,10 @@ public enum TextShaper {
             if span.bold { ts.fontWeight = max(ts.fontWeight, 600) }
             let family = span.code ? (mono ?? "ui-monospace") : spec.family
             var attrs = attributes(ts, italic: span.italic, family: family, align: align)
+            if let chip = span.chip, let chipStyle, let href = span.link {
+                out.append(chipRun(chip, href: href, style: chipStyle, lineHeight: spec.lineHeight, wrap: wrap, attrs: attrs))
+                continue
+            }
             attrs[.foregroundColor] = span.link != nil ? link : ink
             if span.strike { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let href = span.link {
@@ -565,6 +579,125 @@ public enum TextShaper {
             }
             if span.code, let codeBackground { attrs[.backgroundColor] = codeBackground }
             out.append(NSAttributedString(string: span.text, attributes: attrs))
+        }
+        return out
+    }
+}
+
+/// #VAPP-258: an inline chip as laid out: what it shows, where it opens,
+/// its box size.
+final class MarkdownChipRun: NSObject {
+    let chip: MarkdownChip
+    let href: String
+    let width: CGFloat
+    let height: CGFloat
+    let ascent: CGFloat
+    let descent: CGFloat
+
+    init(chip: MarkdownChip, href: String, width: CGFloat, height: CGFloat, ascent: CGFloat, descent: CGFloat) {
+        self.chip = chip
+        self.href = href
+        self.width = width
+        self.height = height
+        self.ascent = ascent
+        self.descent = descent
+    }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let o = object as? MarkdownChipRun else { return false }
+        return o.chip == chip && o.href == href && o.width == width && o.height == height
+    }
+
+    override var hash: Int { chip.hashValue ^ href.hashValue }
+}
+
+extension TextShaper {
+    /// The chip label's text style (the Text caption).
+    static func chipLabelStyle(_ style: MarkdownChipStyle) -> TextStyle {
+        TextStyle(fontSize: style.label.size, fontWeight: style.label.weight, lineHeight: style.label.lineHeight, fontFamily: style.label.family)
+    }
+
+    /// The chip's width: 2 × padding + the label shaped in the caption
+    /// style (+ icon + gap), capped at `wrap`.
+    static func chipWidth(_ chip: MarkdownChip, style: MarkdownChipStyle, wrap: CGFloat?) -> CGFloat {
+        style.width(chip, labelWidth: width(chip.label, chipLabelStyle(style)), wrap: wrap)
+    }
+
+    static func chipRun(_ chip: MarkdownChip, href: String, style: MarkdownChipStyle, lineHeight: CGFloat, wrap: CGFloat?, attrs base: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        var attrs = base
+        let w = chipWidth(chip, style: style, wrap: wrap)
+        let h = style.height(lineHeight: lineHeight)
+        let font = attrs[.font] as? PlatformFont
+        let ascent = font.map { $0.ascender } ?? lineHeight * 0.8
+        let descent = font.map { -$0.descender } ?? lineHeight * 0.2
+        let run = MarkdownChipRun(chip: chip, href: href, width: w, height: h, ascent: ascent, descent: descent)
+        attrs[chipKey] = run
+        attrs[linkKey] = href
+        // CoreText (the measurer's typesetter, hit-testing): the run delegate.
+        var callbacks = CTRunDelegateCallbacks(version: kCTRunDelegateVersion1, dealloc: { ref in
+            Unmanaged<MarkdownChipRun>.fromOpaque(ref).release()
+        }, getAscent: { ref in
+            Unmanaged<MarkdownChipRun>.fromOpaque(ref).takeUnretainedValue().ascent
+        }, getDescent: { ref in
+            Unmanaged<MarkdownChipRun>.fromOpaque(ref).takeUnretainedValue().descent
+        }, getWidth: { ref in
+            Unmanaged<MarkdownChipRun>.fromOpaque(ref).takeUnretainedValue().width
+        })
+        if let delegate = CTRunDelegateCreate(&callbacks, Unmanaged.passRetained(run).toOpaque()) {
+            attrs[NSAttributedString.Key(kCTRunDelegateAttributeName as String)] = delegate
+        }
+        // TextKit (the label): a clear attachment as wide, no taller than the glyphs.
+        let attachment = NSTextAttachment()
+        attachment.image = clearImage
+        attachment.bounds = CGRect(x: 0, y: -descent, width: w, height: min(h, ascent + descent))
+        attrs[.attachment] = attachment
+        return NSAttributedString(string: "\u{FFFC}", attributes: attrs)
+    }
+
+    nonisolated(unsafe) static let clearImage: PlatformImage = {
+        #if canImport(UIKit)
+        return UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in }
+        #else
+        return NSImage(size: NSSize(width: 1, height: 1))
+        #endif
+    }()
+
+    /// #VAPP-258: each inline chip of `a` laid out as the label lays it out
+    /// (CoreText lines at `wrap`, each `lineHeight` tall, flushed right under
+    /// rtl): its box, vertically centred in its line.
+    static func chipRects(in a: NSAttributedString, lineHeight: CGFloat, wrap: CGFloat, rtl: Bool = false) -> [(run: MarkdownChipRun, rect: CGRect)] {
+        guard a.length > 0 else { return [] }
+        var chips: [Int: MarkdownChipRun] = [:]
+        a.enumerateAttribute(chipKey, in: NSRange(location: 0, length: a.length)) { v, range, _ in
+            if let run = v as? MarkdownChipRun { for i in range.location..<(range.location + range.length) { chips[i] = run } }
+        }
+        if chips.isEmpty { return [] }
+        var out: [(run: MarkdownChipRun, rect: CGRect)] = []
+        let ns = a.string as NSString
+        let typesetter = CTTypesetterCreateWithAttributedString(a)
+        var line = 0
+        var start = 0
+        while start <= ns.length {
+            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
+            let end = nl.location == NSNotFound ? ns.length : nl.location
+            var pos = start
+            repeat {
+                let n = end > pos ? max(CTTypesetterSuggestLineBreak(typesetter, pos, Double(max(wrap, 1) + 0.5)), 1) : 0
+                if n > 0, (pos..<(pos + n)).contains(where: { chips[$0] != nil }) {
+                    let ct = CTTypesetterCreateLine(typesetter, CFRange(location: pos, length: n))
+                    let pen = rtl ? CGFloat(CTLineGetPenOffsetForFlush(ct, 1, Double(wrap))) : 0
+                    for i in pos..<(pos + n) {
+                        guard let run = chips[i] else { continue }
+                        let x = CTLineGetOffsetForStringIndex(ct, i, nil) + pen
+                        let y = CGFloat(line) * lineHeight + (lineHeight - run.height) / 2
+                        out.append((run, CGRect(x: x, y: y, width: run.width, height: run.height)))
+                    }
+                }
+                pos += n
+                line += 1
+            } while pos < end
+            if nl.location == NSNotFound { break }
+            start = end + 1
         }
         return out
     }
@@ -579,9 +712,11 @@ public typealias PlatformColor = NSColor
 /// Markdown measurement through the shaper (the painter's `MdText`).
 struct MarkdownShaper: MarkdownTextMeasure {
     let mono: String?
+    /// #VAPP-258: the inline chip's metrics (a chip run = its box's width).
+    var chip = MarkdownChipStyle()
 
     func height(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, width: CGFloat?) -> CGFloat {
-        let a = TextShaper.runs(inlines, spec, mono: mono, ink: .black, link: .black, codeBackground: nil)
+        let a = TextShaper.runs(inlines, spec, mono: mono, ink: .black, link: .black, codeBackground: nil, chip: chip, wrap: width)
         if a.length == 0 { return spec.lineHeight }
         return TextShaper.wrappedHeight(a, lineHeight: spec.lineHeight, wrap: width)
     }
@@ -590,7 +725,7 @@ struct MarkdownShaper: MarkdownTextMeasure {
         // Each hard line of the RICH runs (bold / code / italic keep their
         // faces): a plain re-shaping measured a bold paragraph narrower than
         // it lays out, so it wrapped at its own max-content width.
-        let a = TextShaper.runs(inlines, spec, mono: mono, ink: .black, link: .black, codeBackground: nil)
+        let a = TextShaper.runs(inlines, spec, mono: mono, ink: .black, link: .black, codeBackground: nil, chip: chip)
         let ns = a.string as NSString
         var widest: CGFloat = 0
         var start = 0
@@ -606,6 +741,11 @@ struct MarkdownShaper: MarkdownTextMeasure {
 
     func widestWord(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec) -> CGFloat {
         let ts = TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family)
-        return TextShaper.minContent(Markdown.plain(inlines), ts)
+        // #VAPP-258: a chip is one unbreakable word as wide as its box.
+        let chips = inlines.filter { $0.chip != nil && $0.link != nil }
+        if chips.isEmpty { return TextShaper.minContent(Markdown.plain(inlines), ts) }
+        let text = inlines.map { $0.chip != nil && $0.link != nil ? " " : $0.text }.joined()
+        let widestChip = chips.compactMap { $0.chip.map { TextShaper.chipWidth($0, style: chip, wrap: nil) } }.max() ?? 0
+        return max(TextShaper.minContent(text, ts), widestChip)
     }
 }

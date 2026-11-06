@@ -59,10 +59,28 @@ export interface SourceOption {
   disabled?: boolean
 }
 
+/** #VAPP-258: a text link painted as the catalog Chip's look, inline in a
+ *  Markdown's text (`catalog/host.json` markdown): an issue ref, a mention,
+ *  an in-app entity. */
+export interface TextLinkChip {
+  kind: `issue` | `mention` | `entity`
+  label: string
+  /** An icon registry name. */
+  icon?: string
+}
+
 /** One piece of a host's `textLinks` answer. */
 export interface TextLinkSegment {
   text: string
   href?: string
+  /** #VAPP-258: paint this (allowed) link as a chip in a Markdown. */
+  chip?: TextLinkChip
+}
+
+/** #VAPP-258: what a host's `attachment(href)` answers. */
+export interface MarkdownAttachmentInfo {
+  kind: `video` | `audio` | `file`
+  name: string
 }
 
 export interface HostPlugin<Icon = unknown, Markdown = unknown> {
@@ -81,6 +99,17 @@ export interface HostPlugin<Icon = unknown, Markdown = unknown> {
    *  `Row` subtitle) as segments `{text, href?}` that concatenate back to it;
    *  null = no links. eUI knows nothing of what they mean. */
   textLinks?: (text: string) => TextLinkSegment[] | null
+  /** #VAPP-258 (`catalog/host.json` markdown): a Markdown block image's
+   *  natural size (asked with the src as written), so its box keeps the
+   *  aspect ratio before it loads; null = the fixed box. */
+  imageSize?: (src: string) => { width: number; height: number } | null
+  /** #VAPP-258: a press on a Markdown block image (a lightbox); unset = not
+   *  pressable. */
+  onImagePress?: (src: string) => void
+  /** #VAPP-258: a Markdown paragraph that is exactly one link (asked with the
+   *  destination as written) painted as a video, audio or file block; null =
+   *  the paragraph. */
+  attachment?: (href: string) => MarkdownAttachmentInfo | null
   /** The URL policy EVERY href passes (Link, markdown links, FileUpload
    *  file urls, openUrl): `catalog/host.json` urls. Unset = the default
    *  schemes; relative urls resolve against `baseUrl`, else `media.baseUrl`,

@@ -66,6 +66,11 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   else the surface presents `.fileImporter`; `announce` = what the model
   also posted to VoiceOver; `copy` = `true` when the host wrote the
   clipboard (a CodeBlock copy). `ClosureHost` builds one from closures.
+- **Markdown hooks** (#VAPP-258, all optional, asked by the measurer and
+  the painter alike): a `textLinks` segment's `chip` (`TextLinkChip`) paints
+  an inline Chip; `imageSize(src)` sizes a block image's box;
+  `onImagePress` (nil = not pressable); `attachment(href)` makes a one-link
+  paragraph a video / audio / file block. `HostPolicy` has the same closures.
 - **Settings** (contract §4–6). `SurfaceOptions.settings` /
   `model.setSettings(SurfaceSettings(...))` or one setter each
   (`setLocale`, `setStrings`, `setModeSetting`, `setDensity`,

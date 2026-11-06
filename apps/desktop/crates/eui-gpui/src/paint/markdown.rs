@@ -33,6 +33,53 @@ pub struct Inline {
     pub code: bool,
     pub strike: bool,
     pub link: Option<String>,
+    /// #VAPP-258: the host's chip for this text link (`catalog/host.json`
+    /// markdown): painted as the Chip look inline in the run.
+    pub chip: Option<InlineChip>,
+}
+
+/// #VAPP-258: an inline chip (a policed `textLinks` segment's `chip`). Its
+/// run's `text` is the source text until [`size_chips`] puts in the
+/// non-breaking placeholder that reserves the chip's width in the line, so
+/// the text system wraps it like one unbreakable word (measure = paint).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct InlineChip {
+    pub kind: String,
+    pub label: String,
+    pub icon: Option<String>,
+    /// The text the run stood for (`#ABC-1`).
+    pub source: String,
+    /// The chip box width ([`size_chips`]; 0 before).
+    pub width: f32,
+    /// Capped at the wrap width: the label truncates.
+    pub capped: bool,
+}
+
+/// #VAPP-258: what a one-link paragraph became (`attachment(href)`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachmentKind {
+    Video,
+    Audio,
+    File,
+}
+
+impl AttachmentKind {
+    pub fn parse(kind: &str) -> Option<AttachmentKind> {
+        match kind {
+            "video" => Some(AttachmentKind::Video),
+            "audio" => Some(AttachmentKind::Audio),
+            "file" => Some(AttachmentKind::File),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            AttachmentKind::Video => "video",
+            AttachmentKind::Audio => "audio",
+            AttachmentKind::File => "file",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,8 +95,13 @@ pub enum BlockKind {
     Rule,
     /// A paragraph that is one `![alt](src)`: painted through the host's
     /// media policy and loader in an `image_height` box (the alt text there
-    /// while it loads or when it fails).
-    Image { src: String, alt: String },
+    /// while it loads or when it fails). #VAPP-258: `size` = the host's
+    /// `image_size(src)` (the box keeps its aspect, [`image_box`]).
+    Image { src: String, alt: String, size: Option<(f32, f32)> },
+    /// #VAPP-258: a top-level paragraph that is exactly one link the host
+    /// classified (`attachment(href)`): the Video / AudioPlayer / FileUpload
+    /// file row look. `href` = the policed destination.
+    Attachment { kind: AttachmentKind, name: String, href: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +184,7 @@ fn push_text(out: &mut Vec<Inline>, raw: &str, f: Flags, link: Option<&str>) {
             return;
         }
     }
-    out.push(Inline { text: text.to_string(), bold: f.bold, italic: f.italic, code: false, strike: f.strike, link: link.map(str::to_string) });
+    out.push(Inline { text: text.to_string(), bold: f.bold, italic: f.italic, code: false, strike: f.strike, link: link.map(str::to_string), chip: None });
 }
 
 /// `[label](dest)` at the start of `s` → (label, dest, consumed bytes): the
@@ -256,7 +308,7 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
     blocks
         .into_iter()
         .filter_map(|mut b| {
-            if let BlockKind::Image { src, alt } = &b.kind {
+            if let BlockKind::Image { src, alt, .. } = &b.kind {
                 if !image_allowed(src) {
                     if alt.is_empty() {
                         return None;
@@ -296,7 +348,11 @@ pub fn link_text(blocks: &[Block], segments: impl Fn(&str) -> Option<Vec<eui_cor
                 match if is_url { None } else { segments(piece) } {
                     Some(answer) => {
                         linked = true;
-                        out.extend(answer.into_iter().map(|segment| Inline { text: segment.text, link: segment.href, ..span.clone() }));
+                        out.extend(answer.into_iter().map(|segment| {
+                            // #VAPP-258: a chip only on an allowed href, a known kind and a label.
+                            let chip = segment.chip.filter(|chip| segment.href.is_some() && chip.is_valid()).map(|chip| InlineChip { kind: chip.kind, label: chip.label, icon: chip.icon, source: segment.text.clone(), ..InlineChip::default() });
+                            Inline { text: segment.text, link: segment.href, chip, ..span.clone() }
+                        }));
                     }
                     None => out.push(Inline { text: piece.to_string(), ..span.clone() }),
                 }
@@ -314,13 +370,106 @@ pub fn link_text(blocks: &[Block], segments: impl Fn(&str) -> Option<Vec<eui_cor
                         *cell = spans(&cell[..]);
                     }
                 }
-                BlockKind::CodeBlock | BlockKind::Rule | BlockKind::Image { .. } => {}
+                BlockKind::CodeBlock | BlockKind::Rule | BlockKind::Image { .. } | BlockKind::Attachment { .. } => {}
                 _ => b.inlines = spans(&b.inlines[..]),
             }
             b
         })
         .collect();
     linked.then_some(out)
+}
+
+/// #VAPP-258 (`catalog/host.json` markdown): what the host answers a
+/// Markdown, already narrowed to plain closures (each asked with the RAW
+/// destination or text, by the measurer and the painter alike).
+pub struct MdHooks<'a> {
+    /// `attachment(href)` (unpoliced: [`apply_hooks`] checks the kind).
+    pub attachment: &'a dyn Fn(&str) -> Option<crate::host::MarkdownAttachment>,
+    /// `image_size(src)` (unchecked: [`image_box`] drops a bad size).
+    pub image_size: &'a dyn Fn(&str) -> Option<(f32, f32)>,
+    /// The URL policy: the href a press navigates to, `None` = denied.
+    pub href: &'a dyn Fn(&str) -> Option<String>,
+    /// `text_links(piece)`, POLICED ([`eui_core::host::police_text_links`]).
+    pub text_links: &'a dyn Fn(&str) -> Option<Vec<eui_core::host::TextLink>>,
+}
+
+/// A size the image box may use: both sides finite and positive.
+fn usable_size(size: Option<(f32, f32)>) -> Option<(f32, f32)> {
+    size.filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0)
+}
+
+/// #VAPP-258: a block image's box `(width, height)` in `available` px: the
+/// natural size scaled by min(1, available / width, max_height / height),
+/// else the fixed box (available × max_height).
+pub fn image_box(size: Option<(f32, f32)>, available: f32, max_height: f32) -> (f32, f32) {
+    match usable_size(size) {
+        Some((w, h)) => {
+            let k = 1f32.min(available / w).min(max_height / h);
+            (w * k, h * k)
+        }
+        None => (available, max_height),
+    }
+}
+
+/// The one link a paragraph is made of: every run carries it, nothing else.
+fn sole_link(inlines: &[Inline]) -> Option<&str> {
+    let first = inlines.first()?.link.as_deref()?;
+    inlines.iter().all(|span| span.link.as_deref() == Some(first)).then_some(first)
+}
+
+/// #VAPP-258: the host's hooks over policed blocks ([`resolve_urls`]):
+/// a top-level one-link paragraph the host classifies becomes an
+/// [`BlockKind::Attachment`] (asked before the text links), a block image
+/// gets the host's size, then every text run asks the text links
+/// ([`link_text`], chips included). `None` = nothing changed.
+pub fn apply_hooks(blocks: &[Block], hooks: &MdHooks) -> Option<Vec<Block>> {
+    let mut changed = false;
+    let hosted: Vec<Block> = blocks
+        .iter()
+        .map(|b| match &b.kind {
+            BlockKind::Paragraph => {
+                let attachment = sole_link(&b.inlines).and_then(|raw| {
+                    let answer = (hooks.attachment)(raw)?;
+                    let kind = AttachmentKind::parse(&answer.kind)?;
+                    let href = (hooks.href)(raw)?;
+                    (!answer.name.is_empty()).then_some(BlockKind::Attachment { kind, name: answer.name, href })
+                });
+                match attachment {
+                    Some(kind) => {
+                        changed = true;
+                        Block { kind, inlines: Vec::new(), list_group: None, lang: None }
+                    }
+                    None => b.clone(),
+                }
+            }
+            BlockKind::Image { src, alt, .. } => match usable_size((hooks.image_size)(src)) {
+                Some(size) => {
+                    changed = true;
+                    Block { kind: BlockKind::Image { src: src.clone(), alt: alt.clone(), size: Some(size) }, ..b.clone() }
+                }
+                None => b.clone(),
+            },
+            _ => b.clone(),
+        })
+        .collect();
+    match link_text(&hosted, hooks.text_links) {
+        Some(linked) => Some(linked),
+        None => changed.then_some(hosted),
+    }
+}
+
+/// [`apply_hooks`] with a host's answers under its URL policy.
+pub fn hosted(host: &dyn crate::host::HostPlugin, blocks: &[Block], cx: &App) -> Option<Vec<Block>> {
+    let urls = host.url_policy();
+    apply_hooks(
+        blocks,
+        &MdHooks {
+            attachment: &|href| host.attachment(href, cx),
+            image_size: &|src| host.image_size(src, cx),
+            href: &|href| eui_core::host::safe_href(urls.as_ref(), href),
+            text_links: &|piece| host.text_links(piece, cx).and_then(|links| eui_core::host::police_text_links(urls.as_ref(), piece, links)),
+        },
+    )
 }
 
 /// A run cut around its bare urls (`http://` or `https://`, any case, not glued
@@ -600,7 +749,7 @@ pub fn parse(text: &str) -> Vec<Block> {
         if !para.is_empty() {
             let joined = join_paragraph(para);
             match whole_image(joined.trim()) {
-                Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone() }, inlines: parse_inline(&alt), list_group: None, lang: None }),
+                Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone(), size: None }, inlines: parse_inline(&alt), list_group: None, lang: None }),
                 None => blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&joined), list_group: None, lang: None }),
             }
             para.clear();
@@ -752,12 +901,73 @@ pub struct MdStyles {
     pub image_height: f32,
     pub cell_pad_h: f32,
     pub cell_pad_v: f32,
+    /// #VAPP-258: the inline chip's metrics.
+    pub chip: ChipMetrics,
+    /// #VAPP-258: the attachment blocks' metrics.
+    pub attach: AttachMetrics,
+}
+
+/// #VAPP-258 (`catalog/host.json` markdown): the inline chip's box: height
+/// min(`$control.badge`, the line height), `$spacing.sm` side padding, the
+/// icon at `$control.iconSm` then `$spacing.xs`, the label in the Text
+/// `caption` style.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChipMetrics {
+    pub height: f32,
+    pub pad: f32,
+    pub gap: f32,
+    pub icon: f32,
+    pub caption: TextSpec,
+}
+
+impl ChipMetrics {
+    /// The chip box width for a label `label_w` wide.
+    pub fn width(&self, label_w: f32, icon: bool) -> f32 {
+        2.0 * self.pad + label_w + if icon { self.icon + self.gap } else { 0.0 }
+    }
+
+    /// The chip box height in a line `line_height` tall.
+    pub fn box_height(&self, line_height: f32) -> f32 {
+        self.height.min(line_height)
+    }
+}
+
+/// #VAPP-258: what the Video / AudioPlayer / FileUpload `file` looks take.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttachMetrics {
+    /// Layout `mediaIntrinsicWidth` / `mediaAspectRatio` (the Video box).
+    pub media_width: f32,
+    pub media_ratio: f32,
+    /// AudioPlayer: the title line, `$spacing.xs`, the controls row.
+    pub audio_gap: f32,
+    pub audio_row: f32,
+    /// FileUpload `file`: its min height, side padding, gap, the icon, the
+    /// name's text.
+    pub file_row: f32,
+    pub file_pad: f32,
+    pub file_gap: f32,
+    pub file_icon: f32,
+    pub file_name: TextSpec,
 }
 
 impl MdStyles {
     /// Plain metrics for a body text style (geometry mode, tests).
     pub fn plain(body: TextSpec) -> MdStyles {
+        let chip = ChipMetrics { height: 20.0, pad: 8.0, gap: 4.0, icon: 16.0, caption: TextSpec { size: 12.0, line_height: 16.0, weight: 400, family: body.family.clone() } };
+        let attach = AttachMetrics {
+            media_width: eui_core::layout::MEDIA_INTRINSIC_WIDTH as f32,
+            media_ratio: eui_core::layout::MEDIA_ASPECT_RATIO as f32,
+            audio_gap: 4.0,
+            audio_row: 40.0,
+            file_row: 40.0,
+            file_pad: 8.0,
+            file_gap: 8.0,
+            file_icon: 16.0,
+            file_name: body.clone(),
+        };
         MdStyles {
+            chip,
+            attach,
             heading: TextSpec { size: body.size + 4.0, line_height: body.line_height + 8.0, weight: 600, family: body.family.clone() },
             code: TextSpec { size: (body.size - 2.0).max(10.0), line_height: body.line_height, weight: 400, family: None },
             list_indent: (body.size * 1.4).round(),
@@ -801,6 +1011,24 @@ impl MdStyles {
         s.heading_bottom = spacing(theme, "xs");
         s.cell_pad_h = spacing(theme, "sm");
         s.cell_pad_v = spacing(theme, "xs");
+        // #VAPP-258: the chip (the Chip macro's root + its caption label).
+        let caption = part_props(theme, mode, "Text", "root", &Map::from_iter([("variant".to_string(), serde_json::Value::from("caption"))]), &[]);
+        s.chip = ChipMetrics {
+            height: super::parts::control(theme, "badge", s.chip.height),
+            pad: spacing(theme, "sm"),
+            gap: spacing(theme, "xs"),
+            icon: super::parts::control(theme, "iconSm", s.chip.icon),
+            caption: TextSpec { weight: 400, ..spec(&caption, &s.chip.caption) },
+        };
+        let file = part_props(theme, mode, "FileUpload", "file", owner_props, &[]);
+        let file_name = part_props(theme, mode, "FileUpload", "fileName", owner_props, &[]);
+        s.attach.audio_gap = spacing(theme, "xs");
+        s.attach.audio_row = px_prop(&part_props(theme, mode, "AudioPlayer", "controls", owner_props, &[]), "height").unwrap_or_else(|| super::parts::control(theme, "row", 40.0));
+        s.attach.file_row = px_prop(&file, "minHeight").or_else(|| px_prop(&file, "height")).unwrap_or_else(|| super::parts::control(theme, "row", 40.0));
+        s.attach.file_pad = px_prop(&file, "paddingHorizontal").or_else(|| px_prop(&file, "padding")).unwrap_or_else(|| spacing(theme, "sm"));
+        s.attach.file_gap = px_prop(&file, "gap").unwrap_or_else(|| spacing(theme, "sm"));
+        s.attach.file_icon = super::parts::control(theme, "iconSm", 16.0);
+        s.attach.file_name = spec(&file_name, &s.body);
         s
     }
 
@@ -846,6 +1074,101 @@ pub trait MdText {
     fn height(&mut self, inlines: &[Inline], spec: &TextSpec, width: Option<f32>) -> f32;
     fn width(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32;
     fn widest_word(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32;
+    /// #VAPP-258: one line of `text` shaped in `spec` (bold / italic as a
+    /// run of these flags paints it): a chip's label, its placeholder.
+    fn run_width(&mut self, text: &str, spec: &TextSpec, bold: bool, italic: bool) -> f32;
+    /// #VAPP-258: where each byte offset `at` of `inlines` wrapped at `width`
+    /// lands: `(x in its line, that line's top, that line's width)` — the
+    /// painter places the inline chips there.
+    fn spots(&mut self, inlines: &[Inline], spec: &TextSpec, width: f32, at: &[usize]) -> Vec<(f32, f32, f32)>;
+}
+
+/// The non-breaking spaces a chip's placeholder is made of (both glue in
+/// UAX #14 and in gpui's line wrapper): the wider first.
+const CHIP_FILL: [char; 2] = ['\u{a0}', '\u{202f}'];
+
+/// The placeholder that reserves `target` px (never more than `cap`): the
+/// fewest non-breaking spaces at least `target` wide, from the two widths.
+fn chip_fill(target: f32, cap: f32, wide: f32, narrow: f32) -> String {
+    let wide = wide.max(0.01);
+    let mut best: Option<(f32, usize, usize)> = None;
+    let narrows = if narrow > 0.01 && (narrow - wide).abs() > 0.01 { 8 } else { 0 };
+    for b in 0..=narrows {
+        let rest = (target - b as f32 * narrow).max(0.0);
+        let a = (rest / wide - 1e-3).ceil().max(0.0) as usize;
+        let total = a as f32 * wide + b as f32 * narrow;
+        if a + b > 0 && total <= cap + 0.01 && best.is_none_or(|(t, _, _)| total < t) {
+            best = Some((total, a, b));
+        }
+    }
+    let (a, b) = match best {
+        Some((_, a, b)) => (a, b),
+        // Even the target does not fit: as many as the cap takes.
+        None => (((cap / wide).floor() as usize).max(1), 0),
+    };
+    let mut out = String::new();
+    out.extend(std::iter::repeat_n(CHIP_FILL[0], a));
+    out.extend(std::iter::repeat_n(CHIP_FILL[1], b));
+    out
+}
+
+/// The text width each block's runs wrap at `width` wide (`None` = no
+/// wrap), as [`layout`] lays them out; a table's cells get their own.
+fn wrap_of(kind: &BlockKind, s: &MdStyles, width: Option<f32>) -> Option<f32> {
+    let w = width?;
+    Some(match kind {
+        BlockKind::ListItem { depth, .. } => (w - s.list_indent * (*depth as f32 + 1.0)).max(1.0),
+        BlockKind::Quote => (w - s.quote_border - s.quote_pad).max(1.0),
+        BlockKind::Table { header, rows } => {
+            let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
+            (w / cols as f32 - 2.0 * s.cell_pad_h).max(1.0)
+        }
+        _ => w.max(1.0),
+    })
+}
+
+/// #VAPP-258: every inline chip sized (the label shaped in the caption
+/// style, capped at its block's wrap width `width` wide) and its run's text
+/// swapped for the placeholder that reserves that width, so the measurer
+/// and the painter wrap the SAME runs. `None` = no chip.
+pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut dyn MdText) -> Option<Vec<Block>> {
+    let has_chip = |list: &[Inline]| list.iter().any(|i| i.chip.is_some());
+    let any = blocks.iter().any(|b| has_chip(&b.inlines) || matches!(&b.kind, BlockKind::Table { header, rows } if header.iter().chain(rows.iter().flatten()).any(|c| has_chip(c))));
+    if !any {
+        return None;
+    }
+    let mut size = |list: &mut Vec<Inline>, spec: &TextSpec, cap: f32| {
+        for span in list.iter_mut() {
+            let (bold, italic) = (span.bold, span.italic);
+            let Some(chip) = span.chip.as_mut() else { continue };
+            let label = text.run_width(&chip.label, &s.chip.caption, false, false);
+            let want = s.chip.width(label, chip.icon.is_some());
+            chip.capped = want > cap;
+            chip.width = want.min(cap);
+            let wide = text.run_width(&CHIP_FILL[0].to_string(), spec, bold, italic);
+            let narrow = text.run_width(&CHIP_FILL[1].to_string(), spec, bold, italic);
+            span.text = chip_fill(chip.width, cap, wide, narrow);
+        }
+    };
+    Some(
+        blocks
+            .iter()
+            .map(|b| {
+                let mut b = b.clone();
+                let cap = wrap_of(&b.kind, s, width).unwrap_or(f32::INFINITY);
+                let spec = s.spec_of(&b.kind).clone();
+                if let BlockKind::Table { header, rows } = &mut b.kind {
+                    // The cells wrap in the body spec (as `layout` measures them).
+                    for cell in header.iter_mut().chain(rows.iter_mut().flatten()) {
+                        size(cell, &s.body, cap);
+                    }
+                } else {
+                    size(&mut b.inlines, &spec, cap);
+                }
+                b
+            })
+            .collect(),
+    )
 }
 
 fn margins(kind: &BlockKind, s: &MdStyles) -> (f32, f32) {
@@ -877,7 +1200,8 @@ pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText)
         let (height, rows) = match &b.kind {
             BlockKind::Paragraph | BlockKind::Heading(_) => (text.height(&b.inlines, spec, Some(width.max(1.0))), Vec::new()),
             BlockKind::ListItem { depth, .. } => (text.height(&b.inlines, spec, Some((width - s.list_indent * (*depth as f32 + 1.0)).max(1.0))), Vec::new()),
-            BlockKind::Image { .. } => (s.image_height, Vec::new()),
+            BlockKind::Image { size, .. } => (image_box(*size, width.max(1.0), s.image_height).1, Vec::new()),
+            BlockKind::Attachment { kind, .. } => (attachment_height(*kind, s, width), Vec::new()),
             BlockKind::Quote => (text.height(&b.inlines, spec, Some((width - s.quote_border - s.quote_pad).max(1.0))), Vec::new()),
             BlockKind::CodeBlock => (text.height(&b.inlines, spec, None) + 2.0 * s.code_pad, Vec::new()),
             BlockKind::Rule => (1.0, Vec::new()),
@@ -898,6 +1222,18 @@ pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText)
     MdLayout { blocks: out, height: y }
 }
 
+/// #VAPP-258: an attachment block's height `width` wide: the Video box
+/// (min(width, mediaIntrinsicWidth) / mediaAspectRatio), the AudioPlayer
+/// (title line + gap + controls row), the FileUpload file row.
+pub fn attachment_height(kind: AttachmentKind, s: &MdStyles, width: f32) -> f32 {
+    let a = &s.attach;
+    match kind {
+        AttachmentKind::Video => width.max(1.0).min(a.media_width) / a.media_ratio,
+        AttachmentKind::Audio => s.body.line_height + a.audio_gap + a.audio_row,
+        AttachmentKind::File => a.file_row.max(a.file_name.line_height),
+    }
+}
+
 /// Max-content width: the widest block on one line.
 pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) -> f32 {
     blocks
@@ -907,7 +1243,13 @@ pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
             match &b.kind {
                 BlockKind::Paragraph | BlockKind::Heading(_) => text.width(&b.inlines, spec),
                 BlockKind::ListItem { depth, .. } => text.width(&b.inlines, spec) + s.list_indent * (*depth as f32 + 1.0),
+                BlockKind::Image { size: Some(size), .. } => image_box(Some(*size), f32::INFINITY, s.image_height).0,
                 BlockKind::Image { .. } => (s.image_height * 1.5).round(),
+                BlockKind::Attachment { kind: AttachmentKind::File, name, .. } => {
+                    let a = &s.attach;
+                    2.0 * a.file_pad + a.file_icon + a.file_gap + text.width(&[Inline { text: name.clone(), ..Inline::default() }], &a.file_name)
+                }
+                BlockKind::Attachment { .. } => s.attach.media_width,
                 BlockKind::Quote => text.width(&b.inlines, spec) + s.quote_border + s.quote_pad,
                 BlockKind::CodeBlock => b.inlines[0].text.lines().map(|l| text.width(&[Inline { text: l.to_string(), ..b.inlines[0].clone() }], spec)).fold(0.0, f32::max) + 2.0 * s.code_pad,
                 BlockKind::Rule => 0.0,
@@ -932,7 +1274,7 @@ pub fn min_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
                 BlockKind::CodeBlock => max_content_width(std::slice::from_ref(b), s, text),
                 BlockKind::Table { header, .. } => header.len().max(1) as f32 * (2.0 * s.cell_pad_h + 16.0),
                 BlockKind::ListItem { depth, .. } => text.widest_word(&b.inlines, spec) + s.list_indent * (*depth as f32 + 1.0),
-                BlockKind::Image { .. } => 1.0,
+                BlockKind::Image { .. } | BlockKind::Attachment { .. } => 1.0,
                 BlockKind::Quote => text.widest_word(&b.inlines, spec) + s.quote_border + s.quote_pad,
                 _ => text.widest_word(&b.inlines, spec),
             }
@@ -969,6 +1311,12 @@ pub fn runs(inlines: &[Inline], family: &SharedString, mono: &SharedString, weig
             weight: FontWeight(if span.bold { weight.max(600) } else { weight } as f32),
             style: if span.italic { FontStyle::Italic } else { FontStyle::Normal },
         };
+        // #VAPP-258: a chip's placeholder paints nothing (the chip box
+        // sits over it).
+        if span.chip.is_some() {
+            out.push(TextRun { len: span.text.len(), font, color: gpui::transparent_black(), background_color: None, underline: None, strikethrough: None });
+            continue;
+        }
         let color = if span.link.is_some() { colors.link } else { colors.ink };
         out.push(TextRun {
             len: span.text.len(),
@@ -1125,7 +1473,23 @@ pub struct MdPaint {
     pub code_token: CodeTokenColor,
     /// YO-30: spans are cut per cluster against it (`None` = as built).
     pub text_system: Option<std::sync::Arc<gpui::TextSystem>>,
+    /// #VAPP-258: the inline chip's look (the Chip root recipe: background,
+    /// border; the radius is full) and its label colour (Chip/label, else
+    /// the run's ink).
+    pub chip_box: super::PaintStyle,
+    pub chip_label: Option<Hsla>,
+    /// An icon registry name at a size in a colour (the host's icons).
+    pub icon: IconPainter,
+    /// #VAPP-258: `on_image_press` (`None` = a block image is not pressable).
+    pub image_press: Option<LinkHandler>,
+    /// #VAPP-258: each attachment block's element by block index (the
+    /// Video / AudioPlayer natives and the FileUpload file row, built by
+    /// the view that owns them), sized to its laid-out box.
+    pub attachments: RefCell<HashMap<usize, AnyElement>>,
 }
+
+/// An icon name, size and colour → its element.
+pub type IconPainter = Rc<dyn Fn(&str, f32, Hsla) -> AnyElement>;
 
 /// A code token kind → its colour (`None` = the ink).
 pub type CodeTokenColor = Rc<dyn Fn(&str) -> Option<Hsla>>;
@@ -1184,22 +1548,77 @@ fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Ve
     }
 }
 
-fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors) -> AnyElement {
-    let (text, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
-    let runs = p.fallback(&text, runs);
-    let links: Vec<(std::ops::Range<usize>, String)> = {
-        let mut at = 0;
-        let mut out = Vec::new();
-        for span in inlines {
-            if let Some(href) = &span.link {
-                out.push((at..at + span.text.len(), href.clone()));
-            }
-            at += span.text.len();
+fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors, wrap: f32, text: &mut dyn MdText) -> AnyElement {
+    let (shown, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
+    let runs = p.fallback(&shown, runs);
+    // Link ranges (a chip opens its own href) and the chips' byte offsets.
+    let mut links: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+    let mut chips: Vec<(usize, &InlineChip, Option<&String>)> = Vec::new();
+    let mut at = 0;
+    for span in inlines {
+        match (&span.chip, &span.link) {
+            (Some(chip), href) => chips.push((at, chip, href.as_ref())),
+            (None, Some(href)) => links.push((at..at + span.text.len(), href.clone())),
+            _ => {}
         }
-        out
-    };
-    let body = unit_text(id, text, runs, links, p);
-    div().w_full().text_size(px(spec.size)).line_height(px(spec.line_height)).child(body).into_any_element()
+        at += span.text.len();
+    }
+    let body = unit_text(id.clone(), shown, runs, links, p);
+    let mut el = div().relative().w_full().text_size(px(spec.size)).line_height(px(spec.line_height)).child(body);
+    if !chips.is_empty() {
+        let starts: Vec<usize> = chips.iter().map(|(at, _, _)| *at).collect();
+        let spots = text.spots(inlines, spec, wrap, &starts);
+        let h = p.styles.chip.box_height(spec.line_height);
+        for (k, ((_, chip, href), (x, top, line_w))) in chips.into_iter().zip(spots).enumerate() {
+            // A right-aligned (RTL) line starts where its width leaves off.
+            let x = if p.rtl { x + (wrap - line_w).max(0.0) } else { x };
+            el = el.child(inline_chip(format!("{id}.chip{k}").into(), chip, href.cloned(), (x, top + (spec.line_height - h) / 2.0, h), p, colors.ink));
+        }
+    }
+    el.into_any_element()
+}
+
+/// #VAPP-258: the inline chip box at `(x, y)` `h` tall in its text block: the
+/// Chip look (background, border inside the box, a full radius,
+/// `$spacing.sm` side padding), the icon then the caption label, one line.
+/// A press opens the policed href like a link and never reaches what is
+/// behind (a Row, the text selection).
+fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y, h): (f32, f32, f32), p: &MdPaint, ink: Hsla) -> AnyElement {
+    let m = &p.styles.chip;
+    let mut look = p.chip_box.clone();
+    look.radii = [h / 2.0; 4];
+    let color = p.chip_label.unwrap_or(ink);
+    let font = Font { family: p.family.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(m.caption.weight as f32), style: FontStyle::Normal };
+    let label: SharedString = chip.label.clone().into();
+    let runs = p.fallback(&label, vec![TextRun { len: label.len(), font, color, background_color: None, underline: None, strikethrough: None }]);
+    let label_el = div().text_size(px(m.caption.size)).line_height(px(m.caption.line_height)).whitespace_nowrap().text_color(color);
+    let label_el = if chip.capped { label_el.min_w_0().flex_1().overflow_hidden().text_ellipsis() } else { label_el.flex_none() };
+    let mut row = super::natives::styled_box(div(), &look, chip.width, h)
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(chip.width))
+        .h(px(h))
+        .flex()
+        .when(p.rtl, |d| d.flex_row_reverse())
+        .items_center()
+        .gap(px(m.gap))
+        .px(px(m.pad))
+        .overflow_hidden();
+    if let Some(icon) = &chip.icon {
+        row = row.child(div().flex_none().child((p.icon)(icon, m.icon, color)));
+    }
+    let row = row.child(label_el.child(StyledText::new(label).with_runs(runs))).id(id);
+    match href {
+        Some(href) => {
+            let on_link = p.on_link.clone();
+            row.cursor_pointer()
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(move |_, window, cx| on_link(&href, window, cx))
+                .into_any_element()
+        }
+        None => row.into_any_element(),
+    }
 }
 
 /// The left edge of table column `c` of `cols` (mirrored in RTL: column 0
@@ -1210,7 +1629,7 @@ pub fn table_cell_left(c: usize, cols: usize, col_w: f32, rtl: bool) -> f32 {
 }
 
 /// Paint `blocks` laid out at `width` (`lay` from [`layout`] at that width).
-pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint) -> AnyElement {
+pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint, text: &mut dyn MdText) -> AnyElement {
     let s = &p.styles;
     if let Some(units) = &p.units {
         units.borrow_mut().insert(p.node, Vec::new());
@@ -1220,8 +1639,8 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
         let bid: SharedString = format!("{id}.md{i}").into();
         let placed = div().absolute().left_0().top(px(bx.y)).w(px(width)).h(px(bx.height));
         let el: AnyElement = match &b.kind {
-            BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)).into_any_element(),
-            BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors)).into_any_element(),
+            BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, width.max(1.0), text)).into_any_element(),
+            BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors, width.max(1.0), text)).into_any_element(),
             BlockKind::ListItem { marker, task, depth } => {
                 let lead = s.list_indent * *depth as f32;
                 let body_w = (width - lead - s.list_indent).max(1.0);
@@ -1237,27 +1656,46 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                 };
                 placed
                     .child(gutter)
-                    .child(div().absolute().left(px(body_x)).top_0().w(px(body_w)).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)))
+                    .child(div().absolute().left(px(body_x)).top_0().w(px(body_w)).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, body_w, text)))
                     .into_any_element()
             }
-            BlockKind::Image { src, alt } => {
-                let alt_el = text_block(bid.clone(), &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors });
+            BlockKind::Image { src, alt, size } => {
+                let alt_el = text_block(bid.clone(), &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors }, width.max(1.0), text);
                 match (p.image)(src) {
                     Some(source) => {
                         let fallback_alt: SharedString = alt.clone().into();
                         let muted = p.muted;
-                        placed
-                            .child(
-                                gpui::img(source)
-                                    .size_full()
-                                    .object_fit(gpui::ObjectFit::Contain)
-                                    .with_fallback(move || div().text_color(muted).child(fallback_alt.clone()).into_any_element()),
-                            )
-                            .into_any_element()
+                        // #VAPP-258: the host-sized box, start-aligned (the
+                        // fixed box fills the width).
+                        let (bw, bh) = image_box(*size, width.max(1.0), s.image_height);
+                        let frame = div()
+                            .absolute()
+                            .top_0()
+                            .left(px(if p.rtl { (width - bw).max(0.0) } else { 0.0 }))
+                            .w(px(bw))
+                            .h(px(bh))
+                            .child(gpui::img(source).size_full().object_fit(gpui::ObjectFit::Contain).with_fallback(move || div().text_color(muted).child(fallback_alt.clone()).into_any_element()));
+                        let frame: AnyElement = match &p.image_press {
+                            Some(press) => {
+                                let (press, src) = (press.clone(), src.clone());
+                                frame
+                                    .id(SharedString::from(format!("{bid}.image")))
+                                    .cursor_pointer()
+                                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                    .on_click(move |_, window, cx| press(&src, window, cx))
+                                    .into_any_element()
+                            }
+                            None => frame.into_any_element(),
+                        };
+                        placed.child(frame).into_any_element()
                     }
                     None => placed.child(alt_el).into_any_element(),
                 }
             }
+            BlockKind::Attachment { .. } => match p.attachments.borrow_mut().remove(&i) {
+                Some(el) => placed.child(el).into_any_element(),
+                None => placed.into_any_element(),
+            },
             BlockKind::Quote => placed
                 .child(div().absolute().left(px(if p.rtl { width - s.quote_border } else { 0.0 })).top_0().h_full().w(px(s.quote_border)).bg(p.border))
                 .child(
@@ -1267,7 +1705,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                         .when(p.rtl, |d| d.text_right())
                         .top_0()
                         .w(px((width - s.quote_border - s.quote_pad).max(1.0)))
-                        .child(text_block(bid, &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors })),
+                        .child(text_block(bid, &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors }, (width - s.quote_border - s.quote_pad).max(1.0), text)),
                 )
                 .into_any_element(),
             BlockKind::CodeBlock => {
@@ -1322,7 +1760,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                                         .top(px(s.cell_pad_v))
                                         .w(px((col_w - 2.0 * s.cell_pad_h).max(1.0)))
                                         .when(p.rtl, |d| d.text_right())
-                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors)),
+                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors, (col_w - 2.0 * s.cell_pad_h).max(1.0), text)),
                                 ),
                         );
                     }
@@ -1361,15 +1799,15 @@ mod tests {
                 }
                 let end = dash + 1 + digits;
                 let Some(href) = f["known"][&text[start + 1..end]].as_str() else { continue };
-                out.push(TextLink { text: text[at..start].to_string(), href: None });
-                out.push(TextLink { text: text[start..end].to_string(), href: Some(href.to_string()) });
+                out.push(TextLink { text: text[at..start].to_string(), href: None, chip: None });
+                out.push(TextLink { text: text[start..end].to_string(), href: Some(href.to_string()), chip: None });
                 at = end;
                 from = end;
             }
             if out.is_empty() {
                 return None;
             }
-            out.push(TextLink { text: text[at..].to_string(), href: None });
+            out.push(TextLink { text: text[at..].to_string(), href: None, chip: None });
             Some(out)
         };
         let cases = f["cases"].as_array().expect("cases");
@@ -1388,6 +1826,323 @@ mod tests {
             }
             assert_eq!(serde_json::Value::Array(links), c["links"], "{}", c["name"]);
         }
+    }
+
+    /// #VAPP-258: `fixtures/markdown-host.json`'s fake host: its text links
+    /// (the first `links` key the piece continues with, at each index), its
+    /// image sizes and attachments, under the fixture's URL policy.
+    struct FakeHost {
+        f: serde_json::Value,
+        policy: eui_core::host::UrlPolicy,
+    }
+
+    impl FakeHost {
+        fn load() -> FakeHost {
+            let path = format!("{}/../../../../packages/exponential-ui/fixtures/markdown-host.json", env!("CARGO_MANIFEST_DIR"));
+            let f: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).expect("fixture")).expect("json");
+            let policy = eui_core::host::UrlPolicy { base_url: f["policy"]["baseUrl"].as_str().map(str::to_string), link_base: f["policy"]["linkBase"].as_str().map(str::to_string), ..Default::default() };
+            FakeHost { f, policy }
+        }
+
+        fn text_links(&self, piece: &str) -> Option<Vec<eui_core::host::TextLink>> {
+            use eui_core::host::TextLink;
+            let links = self.f["links"].as_object().expect("links");
+            let mut out = Vec::new();
+            let (mut at, mut i) = (0, 0);
+            while i < piece.len() {
+                let hit = links.iter().find(|(key, _)| piece[i..].starts_with(key.as_str()));
+                match hit {
+                    Some((key, v)) => {
+                        if i > at {
+                            out.push(TextLink { text: piece[at..i].to_string(), ..Default::default() });
+                        }
+                        let chip = v.get("chip").map(|c| serde_json::from_value(c.clone()).expect("chip"));
+                        out.push(TextLink { text: key.clone(), href: v["href"].as_str().map(str::to_string), chip });
+                        i += key.len();
+                        at = i;
+                    }
+                    None => i += piece[i..].chars().next().map_or(1, char::len_utf8),
+                }
+            }
+            if out.is_empty() {
+                return None;
+            }
+            if at < piece.len() {
+                out.push(TextLink { text: piece[at..].to_string(), ..Default::default() });
+            }
+            Some(out)
+        }
+
+        /// The policed, hooked blocks of `text` (what the painter paints).
+        fn blocks(&self, text: &str) -> Vec<Block> {
+            let urls = Some(&self.policy);
+            let blocks = resolve_urls(parse(text), |h| eui_core::host::safe_href(urls, h).is_some(), |_| true);
+            let size = |src: &str| self.f["images"].get(src).map(|v| (v["width"].as_f64().unwrap() as f32, v["height"].as_f64().unwrap() as f32));
+            let attachment = |href: &str| self.f["attachments"].get(href).map(|v| serde_json::from_value::<crate::host::MarkdownAttachment>(v.clone()).expect("attachment"));
+            let href = |h: &str| eui_core::host::safe_href(urls, h);
+            let links = |piece: &str| self.text_links(piece).and_then(|links| eui_core::host::police_text_links(urls, piece, links));
+            apply_hooks(&blocks, &MdHooks { attachment: &attachment, image_size: &size, href: &href, text_links: &links }).unwrap_or(blocks)
+        }
+    }
+
+    /// The markdown-render.json normal form plus `chip`, `attachment` and an
+    /// image's `width` / `height`; `link` = the href as painted (policed).
+    fn host_normal(blocks: &[Block], href: &dyn Fn(&str) -> Option<String>) -> serde_json::Value {
+        use serde_json::{json, Map, Value};
+        let num = |v: f32| if v.fract() == 0.0 { json!(v as i64) } else { json!(v) };
+        let runs = |inlines: &[Inline]| -> Value {
+            let mut out: Vec<Map<String, Value>> = Vec::new();
+            let mut last: Option<(bool, bool, bool, bool, Option<String>)> = None;
+            for run in inlines.iter().filter(|r| !r.text.is_empty()) {
+                let link = run.link.as_deref().and_then(href);
+                let key = (run.bold, run.italic, run.code, run.strike, link.clone());
+                if run.chip.is_none() && last.as_ref() == Some(&key) {
+                    let prev = out.last_mut().unwrap();
+                    let text = format!("{}{}", prev["text"].as_str().unwrap(), run.text);
+                    prev.insert("text".into(), json!(text));
+                    continue;
+                }
+                let mut r = Map::new();
+                let text = run.chip.as_ref().map_or(run.text.as_str(), |c| c.source.as_str());
+                r.insert("text".into(), json!(text));
+                if run.bold { r.insert("bold".into(), json!(true)); }
+                if run.italic { r.insert("italic".into(), json!(true)); }
+                if run.code { r.insert("code".into(), json!(true)); }
+                if run.strike { r.insert("strike".into(), json!(true)); }
+                if let Some(link) = &link { r.insert("link".into(), json!(link)); }
+                if let Some(chip) = &run.chip {
+                    let mut c = json!({"kind": chip.kind, "label": chip.label});
+                    if let Some(icon) = &chip.icon { c["icon"] = json!(icon); }
+                    r.insert("chip".into(), c);
+                }
+                out.push(r);
+                last = if run.chip.is_some() { None } else { Some(key) };
+            }
+            Value::Array(out.into_iter().map(Value::Object).collect())
+        };
+        Value::Array(
+            blocks
+                .iter()
+                .map(|b| match &b.kind {
+                    BlockKind::Paragraph => json!({ "kind": "paragraph", "runs": runs(&b.inlines) }),
+                    BlockKind::Quote => json!({ "kind": "quote", "runs": runs(&b.inlines) }),
+                    BlockKind::Heading(level) => json!({ "kind": "heading", "level": level, "runs": runs(&b.inlines) }),
+                    BlockKind::ListItem { marker, task, depth } => {
+                        let mut o = json!({ "kind": "listItem", "marker": marker, "depth": depth, "runs": runs(&b.inlines) });
+                        if let Some(task) = task { o["task"] = json!(task); }
+                        o
+                    }
+                    BlockKind::CodeBlock => json!({ "kind": "codeBlock", "text": plain(&b.inlines) }),
+                    BlockKind::Table { header, rows } => json!({
+                        "kind": "table",
+                        "header": header.iter().map(|c| runs(c)).collect::<Vec<_>>(),
+                        "rows": rows.iter().map(|r| r.iter().map(|c| runs(c)).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                    }),
+                    BlockKind::Rule => json!({ "kind": "rule" }),
+                    BlockKind::Image { src, alt, size } => {
+                        let mut o = json!({ "kind": "image", "src": src, "alt": alt });
+                        if let Some((w, h)) = size { o["width"] = num(*w); o["height"] = num(*h); }
+                        o
+                    }
+                    BlockKind::Attachment { kind, name, href } => json!({ "kind": "attachment", "type": kind.name(), "name": name, "href": href }),
+                })
+                .collect(),
+        )
+    }
+
+    /// #VAPP-258: `fixtures/markdown-host.json`: the fake host's answers
+    /// through the painter's pipeline (policy → hooks → text links) in the
+    /// normal form, and the block image boxes.
+    #[test]
+    fn markdown_host_fixture() {
+        let host = FakeHost::load();
+        let href = |h: &str| eui_core::host::safe_href(Some(&host.policy), h);
+        let cases = host.f["cases"].as_array().expect("cases");
+        assert!(!cases.is_empty());
+        let mut failures = Vec::new();
+        for case in cases {
+            let actual = host_normal(&host.blocks(case["text"].as_str().unwrap()), &href);
+            if actual != case["blocks"] {
+                failures.push(format!("{}\n  expected {}\n  actual   {actual}", case["name"], case["blocks"]));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+        let max = host.f["imageMaxHeight"].as_f64().map_or(eui_core::host::MARKDOWN_IMAGE_MAX_HEIGHT, |v| v) as f32;
+        assert_eq!(max, 160.0);
+        for b in host.f["imageBoxes"].as_array().expect("imageBoxes") {
+            let size = b["size"].as_object().map(|s| (s["width"].as_f64().unwrap() as f32, s["height"].as_f64().unwrap() as f32));
+            let (w, h) = image_box(size, b["available"].as_f64().unwrap() as f32, max);
+            let (ew, eh) = (b["box"]["width"].as_f64().unwrap() as f32, b["box"]["height"].as_f64().unwrap() as f32);
+            assert!((w - ew).abs() < 0.01 && (h - eh).abs() < 0.01, "{}: {w}×{h}, expected {ew}×{eh}", b["name"]);
+        }
+    }
+
+    /// #VAPP-258: no hook, no answer = the blocks as without hooks.
+    #[test]
+    fn no_host_answer_changes_nothing() {
+        let blocks = parse("see #ABC-1\n\n[clip](https://x.example/clip.mp4)\n\n![a](https://x.example/a.png)");
+        let none = MdHooks { attachment: &|_| None, image_size: &|_| None, href: &|h| Some(h.to_string()), text_links: &|_| None };
+        assert!(apply_hooks(&blocks, &none).is_none());
+        assert!(size_chips(&blocks, &MdStyles::plain(body()), Some(300.0), &mut Fixed).is_none());
+    }
+
+    #[test]
+    fn a_host_size_changes_the_image_height() {
+        let s = MdStyles::plain(body());
+        let src = "https://x.example/banner.png";
+        let blocks = parse(&format!("![banner]({src})"));
+        assert_eq!(layout(&blocks, &s, 320.0, &mut Fixed).height, 160.0, "the fixed box");
+        let hooks = MdHooks { attachment: &|_| None, image_size: &|s| (s == src).then_some((800.0, 200.0)), href: &|h| Some(h.to_string()), text_links: &|_| None };
+        let sized = apply_hooks(&blocks, &hooks).expect("sized");
+        assert_eq!(layout(&sized, &s, 320.0, &mut Fixed).height, 80.0, "320 / 800 of 200");
+        assert_eq!(layout(&sized, &s, 160.0, &mut Fixed).height, 40.0);
+        let bad = MdHooks { image_size: &|_| Some((f32::NAN, 10.0)), ..hooks };
+        assert!(apply_hooks(&blocks, &bad).is_none(), "a non-finite size is no size");
+    }
+
+    #[test]
+    fn attachment_blocks_reserve_their_natives_height() {
+        let s = MdStyles::plain(body());
+        let text = "[a](https://x.example/a.mp4)\n\n[b](https://x.example/b.m4a)\n\n[c](https://x.example/c.pdf)";
+        let kind = |h: &str| Some(crate::host::MarkdownAttachment { kind: if h.ends_with("mp4") { "video" } else if h.ends_with("m4a") { "audio" } else { "file" }.into(), name: h.rsplit('/').next().unwrap().into() });
+        let hooks = MdHooks { attachment: &kind, image_size: &|_| None, href: &|h| Some(h.to_string()), text_links: &|_| None };
+        let blocks = apply_hooks(&parse(text), &hooks).expect("attachments");
+        assert!(blocks.iter().all(|b| matches!(b.kind, BlockKind::Attachment { .. })));
+        let lay = layout(&blocks, &s, 600.0, &mut Fixed);
+        let video = 320.0 / s.attach.media_ratio;
+        assert_eq!(lay.blocks.iter().map(|b| b.height).collect::<Vec<_>>(), vec![video, 20.0 + 4.0 + 40.0, 40.0]);
+        assert_eq!(lay.height, video + 8.0 + 64.0 + 8.0 + 40.0);
+        // A narrow column narrows the video box (16:9 kept).
+        assert!((layout(&blocks[..1], &s, 160.0, &mut Fixed).height - 90.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_chip_placeholder_reserves_at_least_its_width() {
+        // 3.9 / 2.4 px spaces: the fewest that cover 50 px.
+        let fill = chip_fill(50.0, 400.0, 3.9, 2.4);
+        let w = |f: &str| f.chars().map(|c| if c == CHIP_FILL[0] { 3.9 } else { 2.4 }).sum::<f32>();
+        assert!(w(&fill) >= 50.0 && w(&fill) < 50.0 + 1.0, "{}", w(&fill));
+        assert!(w(&chip_fill(50.0, 40.0, 3.9, 2.4)) <= 40.0, "never past the cap");
+        assert_eq!(chip_fill(16.0, 400.0, 8.0, 8.0).chars().count(), 2, "one width: whole spaces");
+        assert!(chip_fill(1.0, 0.5, 8.0, 8.0).chars().count() == 1, "never empty");
+    }
+
+    /// #VAPP-258: a host-sized chip through gpui's text system: a chip that
+    /// fits keeps the line (the measured height = the plain text's), the
+    /// measured wrap is the painted one (the spots), and a chip that does
+    /// not fit moves WHOLE to the next line.
+    #[gpui::test]
+    fn chips_measure_as_they_paint(cx: &mut gpui::TestAppContext) {
+        let window = cx.add_window(|_, _| gpui::Empty);
+        window
+            .update(cx, |_, window, cx| {
+                let fonts = crate::measure::Fonts::new(Rc::new(crate::host::NoHost), None, cx.text_system().clone());
+                let mut sh = crate::measure::Shaper::new(window, &fonts);
+                let s = MdStyles::plain(body());
+                let host = FakeHost::load();
+                let chipped = host.blocks("see #ABC-1 now");
+                let plain_text = parse("see #ABC-1 now");
+                let sized = size_chips(&chipped, &s, Some(400.0), &mut sh).expect("a chip");
+                let chip = sized[0].inlines.iter().find_map(|i| i.chip.clone()).expect("chip");
+                let label = MdText::run_width(&mut sh, "ABC-1 Fix login", &s.chip.caption, false, false);
+                assert_eq!(chip.width, s.chip.width(label, true));
+                let ph = sized[0].inlines.iter().find(|i| i.chip.is_some()).unwrap().text.clone();
+                assert!(ph.chars().all(|c| CHIP_FILL.contains(&c)));
+                assert!(MdText::run_width(&mut sh, &ph, &s.body, false, false) >= chip.width - 0.01, "the placeholder covers the chip");
+                let h = layout(&sized, &s, 400.0, &mut sh).height;
+                assert_eq!(h, layout(&plain_text, &s, 400.0, &mut sh).height, "a chip never grows a line");
+                assert_eq!(h, s.body.line_height);
+                let start = "see ".len();
+                let spot = sh.spots(&sized[0].inlines, &s.body, 400.0, &[start])[0];
+                assert_eq!(spot.1, 0.0);
+                assert!((spot.0 - MdText::run_width(&mut sh, "see ", &s.body, false, false)).abs() < 0.01);
+                // Too narrow for "see " + the chip: the chip starts line 2.
+                let narrow = MdText::run_width(&mut sh, "see ", &s.body, false, false) + chip.width - 1.0;
+                let sized = size_chips(&chipped, &s, Some(narrow), &mut sh).unwrap();
+                let lay = layout(&sized, &s, narrow, &mut sh);
+                let spot = sh.spots(&sized[0].inlines, &s.body, narrow, &[start])[0];
+                assert_eq!((spot.0, spot.1), (0.0, s.body.line_height), "the chip wraps whole");
+                assert!(lay.height >= 2.0 * s.body.line_height);
+                // Wider than the column: capped, the label truncates.
+                let sized = size_chips(&chipped, &s, Some(60.0), &mut sh).unwrap();
+                let chip = sized[0].inlines.iter().find_map(|i| i.chip.clone()).unwrap();
+                assert!(chip.capped && chip.width <= 60.0);
+            })
+            .unwrap();
+    }
+
+    /// #VAPP-258: in a surface, a chip press opens its policed href (not
+    /// the text behind), a block image press calls `on_image_press`, and the
+    /// measured frame is the painted layout's height.
+    #[gpui::test]
+    fn chip_and_image_presses_reach_the_host(cx: &mut gpui::TestAppContext) {
+        use crate::view::{SurfaceView, SurfaceViewOptions};
+        use std::cell::RefCell;
+        #[derive(Default, Clone)]
+        struct Host {
+            opened: Rc<RefCell<Vec<String>>>,
+            pressed: Rc<RefCell<Vec<String>>>,
+        }
+        impl crate::host::HostPlugin for Host {
+            fn url_policy(&self) -> Option<eui_core::host::UrlPolicy> {
+                Some(FakeHost::load().policy)
+            }
+            fn text_links(&self, text: &str, _: &App) -> Option<Vec<eui_core::host::TextLink>> {
+                FakeHost::load().text_links(text)
+            }
+            fn open_url(&self, url: &str, _: &mut App) {
+                self.opened.borrow_mut().push(eui_core::host::safe_href(self.url_policy().as_ref(), url).unwrap_or_default());
+            }
+            fn image_size(&self, _: &str, _: &App) -> Option<(f32, f32)> {
+                Some((400.0, 100.0))
+            }
+            fn image_pressable(&self, _: &App) -> bool {
+                true
+            }
+            fn on_image_press(&self, src: &str, _: &mut Window, _: &mut App) {
+                self.pressed.borrow_mut().push(src.to_string());
+            }
+            fn attachment(&self, href: &str, _: &App) -> Option<crate::host::MarkdownAttachment> {
+                FakeHost::load().f["attachments"].get(href).map(|v| serde_json::from_value(v.clone()).unwrap())
+            }
+        }
+        cx.update(gpui_component::init);
+        let host = Host::default();
+        let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: Mode::Light, host: Rc::new(host.clone()), width: Some(400.0), ..Default::default() };
+        let (view, cx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+        let tree = serde_json::json!({"id": "root", "component": "Box", "style": {"width": 400}, "children": [
+            {"id": "md", "component": "Markdown", "props": {"text": "see #ABC-1 now\n\n![x](https://app.example/a.png)\n\n[the report](https://app.example/api/attachments/report.pdf)\n\n[clip](https://app.example/api/attachments/clip.mp4)\n\n[voice](https://app.example/api/attachments/voice.m4a)"}}
+        ]});
+        view.update(cx, |v, cx| {
+            v.set_nested(serde_json::from_value(tree).unwrap(), cx);
+            v.record_bounds(true);
+        });
+        for _ in 0..2 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let b = view.read_with(cx, |v, _| v.painted_bounds("md")).expect("painted");
+        let w = f32::from(b.size.width);
+        // One body line, the gap, the 400×100 image scaled to the width.
+        let theme = eui_core::themes::builtin_theme("neutral").unwrap();
+        let body_lh = crate::paint::parts::px_prop(&crate::paint::parts::part_props(Some(&theme), Mode::Light, "Text", "root", &Map::new(), &[]), "lineHeight").unwrap_or(20.0);
+        let styles = MdStyles::resolve(Some(&theme), Mode::Light, TextSpec { size: 14.0, line_height: body_lh, weight: 400, family: None }, &Map::new());
+        let gap = spacing(Some(&theme), "sm");
+        let file_top = body_lh + gap + image_box(Some((400.0, 100.0)), w, 160.0).1 + gap;
+        let expected = file_top
+            + [AttachmentKind::File, AttachmentKind::Video, AttachmentKind::Audio].iter().map(|k| attachment_height(*k, &styles, w)).sum::<f32>()
+            + 2.0 * gap;
+        assert!((f32::from(b.size.height) - expected).abs() < 0.5, "measured {} vs laid out {expected}", f32::from(b.size.height));
+        // The chip sits after "see " on the first line.
+        let at = b.origin + gpui::point(px(60.0), px(body_lh / 2.0));
+        cx.simulate_click(at, gpui::Modifiers::default());
+        assert_eq!(*host.opened.borrow(), vec!["https://app.example/i/ABC-1".to_string()]);
+        let img = b.origin + gpui::point(px(10.0), px(body_lh + spacing(Some(&theme), "sm") + 10.0));
+        cx.simulate_click(img, gpui::Modifiers::default());
+        assert_eq!(*host.pressed.borrow(), vec!["https://app.example/a.png".to_string()]);
+        // The file row opens its policed href.
+        cx.simulate_click(b.origin + gpui::point(px(40.0), px(file_top + 10.0)), gpui::Modifiers::default());
+        assert_eq!(host.opened.borrow().last().map(String::as_str), Some("https://app.example/api/attachments/report.pdf"));
     }
 
     #[test]
@@ -1416,6 +2171,13 @@ mod tests {
         }
         fn widest_word(&mut self, inlines: &[Inline], _: &TextSpec) -> f32 {
             plain(inlines).split_whitespace().map(|w| w.chars().count()).max().unwrap_or(0) as f32 * 8.0
+        }
+        fn run_width(&mut self, text: &str, _: &TextSpec, _: bool, _: bool) -> f32 {
+            text.chars().count() as f32 * 8.0
+        }
+        fn spots(&mut self, inlines: &[Inline], _: &TextSpec, _: f32, at: &[usize]) -> Vec<(f32, f32, f32)> {
+            let text = plain(inlines);
+            at.iter().map(|&a| (text[..a].chars().count() as f32 * 8.0, 0.0, text.chars().count() as f32 * 8.0)).collect()
         }
     }
 
@@ -1466,6 +2228,7 @@ mod tests {
                 BlockKind::Table { .. } => "table",
                 BlockKind::Rule => "hr",
                 BlockKind::Image { .. } => "img",
+                BlockKind::Attachment { .. } => "attachment",
             })
             .collect();
         assert_eq!(kinds, ["h", "p", "li", "li", "li", "q", "code", "table", "hr"]);
@@ -1534,7 +2297,7 @@ mod tests {
     #[test]
     fn whole_line_images_are_blocks_and_the_policy_resolves_them() {
         let blocks = parse("![chart](https://exponential.at/c.png)\n\ntext ![inline](https://x/y.png) [bad](javascript:alert(1)) [ok](https://exponential.at)");
-        assert_eq!(blocks[0].kind, BlockKind::Image { src: "https://exponential.at/c.png".into(), alt: "chart".into() });
+        assert_eq!(blocks[0].kind, BlockKind::Image { src: "https://exponential.at/c.png".into(), alt: "chart".into(), size: None });
         assert_eq!(plain(&blocks[1].inlines), "text inline bad ok", "an inline image is its alt text");
         let s = MdStyles::plain(body());
         assert_eq!(layout(&blocks[..1], &s, 300.0, &mut Fixed).height, s.image_height);
@@ -1623,7 +2386,8 @@ mod tests {
                             "rows": rows.iter().map(|r| r.iter().map(|c| runs(c)).collect::<Vec<_>>()).collect::<Vec<_>>(),
                         }),
                         BlockKind::Rule => json!({ "kind": "rule" }),
-                        BlockKind::Image { src, alt } => json!({ "kind": "image", "src": src, "alt": alt }),
+                        BlockKind::Image { src, alt, .. } => json!({ "kind": "image", "src": src, "alt": alt }),
+                        BlockKind::Attachment { .. } => unreachable!("no host, no attachment"),
                     })
                     .collect(),
             )

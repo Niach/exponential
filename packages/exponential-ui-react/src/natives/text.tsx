@@ -52,14 +52,14 @@ export function TextNative({ props, rootProps }: NativeProps) {
   )
 }
 
-export function MarkdownNative({ props, rootProps }: NativeProps) {
+export function MarkdownNative({ domId, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const text = displayString(props.text)
   const Host = ctx.host.Markdown
   const lines = num(props.lines, 0)
   return (
     <div {...(rootProps as Record<string, unknown>)} data-lines={lines > 0 ? lines : undefined} style={mergeStyle(rootProps, lines > 0 ? ({ WebkitLineClamp: lines } as React.CSSProperties) : undefined)}>
-      {Host ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} host={ctx.host} />}
+      {Host ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} host={ctx.host} id={domId} />}
     </div>
   )
 }

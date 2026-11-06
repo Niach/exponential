@@ -27,6 +27,8 @@ export const SSE_EVENTS: readonly string[] = hostJson.transport.sseEvents
 export const SURFACE_SETTING_KEYS: readonly string[] = hostJson.surface.settings
 export const FORMATTER_METHODS: readonly string[] = hostJson.surface.formatter
 export const SURFACE_COMMANDS: readonly string[] = hostJson.surface.commands
+/** #VAPP-258: the optional hooks a Markdown asks (`markdown`). */
+export const MARKDOWN_HOST_HOOKS: readonly string[] = hostJson.markdown.hooks
 
 export type HostErrorCode =
   | `VALIDATION_FAILED`

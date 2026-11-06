@@ -11,6 +11,7 @@
 // alt text, as on every renderer. Every pass is linear in its input.
 
 import { markdownCodeLanguage, tokenizeCode, type CodeToken } from "../code"
+import { HOST_CONTRACT } from "../host/contract"
 
 /** Link labels nest at most this deep (×4): a link inside 32 enclosing link
  *  labels is its text. */
@@ -138,12 +139,30 @@ export type MarkdownInline =
   | { type: `em`; children: MarkdownInline[] }
   /** `children` only when a host's text links reach into it. */
   | { type: `del`; text: string; children?: MarkdownInline[] }
-  | { type: `link`; dest: string; children: MarkdownInline[] }
+  /** `chip` only on a host's text link (catalog/host.json `markdown`). */
+  | { type: `link`; dest: string; children: MarkdownInline[]; chip?: MarkdownChip }
+
+/** #VAPP-258: a host text link painted as the catalog Chip's look, inline. */
+export interface MarkdownChip {
+  kind: `issue` | `mention` | `entity`
+  label: string
+  icon?: string
+}
+
+/** #VAPP-258: what a host's `attachment(href)` classifies a link as. */
+export interface MarkdownAttachment {
+  kind: `video` | `audio` | `file`
+  name: string
+}
 
 export type MarkdownBlock =
   | { type: `paragraph`; children: MarkdownInline[] }
-  /** A paragraph that is exactly one image. */
-  | { type: `image`; alt: string; src: string }
+  /** A paragraph that is exactly one image; `width` / `height` = the host's
+   *  `imageSize` answer (its box keeps that aspect ratio). */
+  | { type: `image`; alt: string; src: string; width?: number; height?: number }
+  /** #VAPP-258: a paragraph that is exactly one link the host's
+   *  `attachment` classified (`href` = the policed href). */
+  | { type: `attachment`; kind: MarkdownAttachment[`kind`]; name: string; href: string }
   | { type: `codeBlock`; lang?: string; text: string }
   | { type: `heading`; level: number; children: MarkdownInline[] }
   | { type: `quote`; children: MarkdownBlock[] }
@@ -406,7 +425,7 @@ function parseBlocks(text: string, depth: number): MarkdownBlock[] {
 }
 
 /** One piece of a run a host's `textLinks` answered for (urls.ts `textLinkSegments`). */
-type TextLinkAsk = (text: string) => readonly { text: string; href?: string }[] | null
+type TextLinkAsk = (text: string) => readonly { text: string; href?: string; chip?: MarkdownChip }[] | null
 
 const BARE_URL = /(?<![A-Za-z0-9_])https?:\/\/[^ \t\n]*/gi
 
@@ -416,7 +435,7 @@ function linkRun(run: string, ask: TextLinkAsk): MarkdownInline[] {
   const piece = (text: string) => {
     const segments = text ? ask(text) : null
     if (!segments) return void (text && out.push(text))
-    for (const segment of segments) out.push(segment.href ? { type: `link`, dest: segment.href, children: [segment.text] } : segment.text)
+    for (const segment of segments) out.push(segment.href ? { type: `link`, dest: segment.href, children: [segment.text], ...(segment.chip ? { chip: segment.chip } : {}) } : segment.text)
   }
   let at = 0
   for (const url of run.matchAll(BARE_URL)) {
@@ -473,4 +492,68 @@ export function linkMarkdownText(tree: readonly MarkdownBlock[], ask: TextLinkAs
         return b
     }
   })
+}
+
+/** catalog/host.json `markdown`: the chip and attachment kinds a host may
+ *  answer, and a block image box's max height. */
+export const CHIP_KINDS: readonly string[] = HOST_CONTRACT.markdown.chipKinds
+export const ATTACHMENT_KINDS: readonly string[] = HOST_CONTRACT.markdown.attachmentKinds
+export const MARKDOWN_IMAGE_MAX_HEIGHT: number = HOST_CONTRACT.markdown.imageMaxHeight
+
+/** #VAPP-258: a host's chip as painted: a known kind and a non-empty label
+ *  (an icon only when non-empty), else none. */
+export function validChip(chip: unknown): MarkdownChip | undefined {
+  if (!chip || typeof chip !== `object`) return undefined
+  const c = chip as Record<string, unknown>
+  if (typeof c.kind !== `string` || !CHIP_KINDS.includes(c.kind) || typeof c.label !== `string` || !c.label) return undefined
+  return { kind: c.kind as MarkdownChip[`kind`], label: c.label, ...(typeof c.icon === `string` && c.icon ? { icon: c.icon } : {}) }
+}
+
+const validSize = (size: unknown): { width: number; height: number } | null => {
+  if (!size || typeof size !== `object`) return null
+  const { width, height } = size as Record<string, unknown>
+  return typeof width === `number` && typeof height === `number` && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 ? { width, height } : null
+}
+
+/** #VAPP-258 (fixtures/markdown-host.json `imageBoxes`): a block image's
+ *  box in `available` px: the host's size at its natural size, scaled down
+ *  to fit the width and `maxHeight`; no (valid) size = the fixed box. */
+export function markdownImageBox(size: { width: number; height: number } | null | undefined, available: number, maxHeight = MARKDOWN_IMAGE_MAX_HEIGHT): { width: number; height: number } {
+  const s = validSize(size)
+  if (!s) return { width: available, height: maxHeight }
+  const scale = Math.min(1, available / s.width, maxHeight / s.height)
+  return { width: s.width * scale, height: s.height * scale }
+}
+
+/** The hooks `hostMarkdown` applies (urls.ts `hostedMarkdown` builds them
+ *  from a host plugin): `link` = the URL policy (null = denied). */
+export interface MarkdownHooks {
+  link: (href: string) => string | undefined
+  textLinks?: TextLinkAsk
+  imageSize?: (src: string) => { width: number; height: number } | null | undefined
+  attachment?: (href: string) => MarkdownAttachment | null | undefined
+}
+
+/** #VAPP-258 (catalog/host.json `markdown`, fixtures/markdown-host.json):
+ *  a tree through a host's hooks. A top-level paragraph that is exactly one
+ *  markdown link the host's `attachment` classifies (its href allowed) is an
+ *  attachment block; a block image the host's `imageSize` knows carries the
+ *  size; then the text links (chips included). No hooks = the tree. */
+export function hostMarkdown(tree: readonly MarkdownBlock[], hooks: MarkdownHooks): MarkdownBlock[] {
+  const out = tree.map((b): MarkdownBlock => {
+    if (b.type === `paragraph` && hooks.attachment && b.children.length === 1) {
+      const only = b.children[0]!
+      if (typeof only !== `string` && only.type === `link`) {
+        const href = hooks.link(only.dest)
+        const answer = href ? hooks.attachment(only.dest) : null
+        if (href && answer && ATTACHMENT_KINDS.includes(answer.kind) && typeof answer.name === `string` && answer.name) return { type: `attachment`, kind: answer.kind, name: answer.name, href }
+      }
+    }
+    if (b.type === `image` && hooks.imageSize) {
+      const size = validSize(hooks.imageSize(b.src))
+      if (size) return { ...b, width: size.width, height: size.height }
+    }
+    return b
+  })
+  return hooks.textLinks ? linkMarkdownText(out, hooks.textLinks) : out
 }

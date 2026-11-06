@@ -388,6 +388,8 @@ public final class SurfaceModel {
             } else {
                 let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration, memo: memoizeMeasures ? measureMemo : nil, mediaAllowed: { [unowned self] src in
                     MainActor.assumeIsolated { self.mediaRequest(src) != nil }
+                }, markdownBlocks: { [unowned self] text in
+                    MainActor.assumeIsolated { MarkdownPainter.painted(text, model: self) }
                 })
                 out = surface.layout(measurer: measurer)
                 calls += measurer.calls

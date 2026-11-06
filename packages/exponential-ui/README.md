@@ -249,6 +249,13 @@ painters through the facade); `catalog/host.json` is the contract and
   `openUrl`, and a host's optional `textLinks(text)` hook turns parts of a
   `Row` subtitle into tappable spans (`[{text, href?}]`; genUI knows nothing of
   what they mean). `catalog/host.json` `urls` is the contract.
+- **Markdown hooks** (`catalog/host.json` `markdown`, all optional): a
+  `textLinks` segment's `chip: {kind: issue|mention|entity, label, icon?}`
+  paints the Chip look inline in a Markdown's text; `imageSize(src)` gives a
+  block image its aspect before it loads; `onImagePress(src)` makes block
+  images pressable; `attachment(href)` paints a one-link paragraph as the
+  Video, AudioPlayer or FileUpload file row look. Locked by
+  `fixtures/markdown-host.json` on every renderer.
 - **Policy** (every renderer, every href and src): `decideUrl` (schemes
   `https http mailto tel`; `schemes: ["https"]` = https only; optional host
   allowlist; relative urls against `baseUrl`) for `openUrl`, `Link`,

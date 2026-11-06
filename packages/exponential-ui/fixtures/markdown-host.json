@@ -1,0 +1,703 @@
+{
+  "$comment": "#VAPP-258 (catalog/host.json `markdown`): the host hooks a Markdown asks, as a FAKE HOST's answers → the normal form of fixtures/markdown-render.json AFTER the hooks and the URL policy, replayed by React and Solid (web/markdown.ts `hostMarkdown` + markdown-normal.ts), Swift, Compose and gpui. THE NORMAL FORM ADDS: on a run, `link` = the href AS PAINTED (policed: a denied link is no link; the fixture's markdown destinations are canonical absolute urls, so policed = written) and `chip: {kind, label, icon?}` (a chip run never merges with a neighbour); `{kind: \"attachment\", type, name, href}` blocks; `width` / `height` on an `image` block the host sized. THE FAKE HOST, with the URL policy `policy` (otherwise the default): `textLinks(piece)` scans the piece left to right and, at each index, takes the FIRST key of `links` (in order) the piece continues with as a segment `{text: key, href, chip?}` from its value (everything between = plain segments; no key found = null); `imageSize(src)` = `images[src]` (else null); `attachment(href)` = `attachments[href]` (else null). `imageBoxes`: the block image box for `size` (null = the host does not know) in `available` px (`imageMaxHeight` 160): {width, height}, compared to 0.01.",
+  "policy": {
+    "baseUrl": "https://app.example/",
+    "linkBase": "/t/acme"
+  },
+  "links": {
+    "#ABC-1": {
+      "href": "https://app.example/i/ABC-1",
+      "chip": {
+        "kind": "issue",
+        "label": "ABC-1 Fix login",
+        "icon": "ui-issue"
+      }
+    },
+    "#DEF-2": {
+      "href": "https://app.example/i/DEF-2"
+    },
+    "#BAD-9": {
+      "href": "javascript:alert(1)",
+      "chip": {
+        "kind": "issue",
+        "label": "ABC-1 Fix login",
+        "icon": "ui-issue"
+      }
+    },
+    "#ODD-3": {
+      "href": "https://app.example/i/ODD-3",
+      "chip": {
+        "kind": "widget",
+        "label": "Odd"
+      }
+    },
+    "#NIL-4": {
+      "href": "https://app.example/i/NIL-4",
+      "chip": {
+        "kind": "issue",
+        "label": ""
+      }
+    },
+    "@ann@example.com": {
+      "href": "~/people/ann",
+      "chip": {
+        "kind": "mention",
+        "label": "Ann Lee"
+      }
+    },
+    "~/boards/web": {
+      "href": "~/boards/web",
+      "chip": {
+        "kind": "entity",
+        "label": "Web",
+        "icon": "nav-boards"
+      }
+    }
+  },
+  "images": {
+    "https://app.example/api/attachments/wide.png": {
+      "width": 1600,
+      "height": 800
+    },
+    "https://app.example/api/attachments/zero.png": {
+      "width": 0,
+      "height": 40
+    }
+  },
+  "attachments": {
+    "https://app.example/api/attachments/clip.mp4": {
+      "kind": "video",
+      "name": "clip.mp4"
+    },
+    "https://app.example/api/attachments/voice.m4a": {
+      "kind": "audio",
+      "name": "voice.m4a"
+    },
+    "https://app.example/api/attachments/report.pdf": {
+      "kind": "file",
+      "name": "report.pdf"
+    },
+    "https://app.example/api/attachments/widget.bin": {
+      "kind": "widget",
+      "name": "widget.bin"
+    },
+    "javascript:alert(1)": {
+      "kind": "file",
+      "name": "evil"
+    }
+  },
+  "cases": [
+    {
+      "name": "an issue chip in prose",
+      "text": "see #ABC-1 now",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "see "
+            },
+            {
+              "text": "#ABC-1",
+              "link": "https://app.example/i/ABC-1",
+              "chip": {
+                "kind": "issue",
+                "label": "ABC-1 Fix login",
+                "icon": "ui-issue"
+              }
+            },
+            {
+              "text": " now"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a mention chip, its href through linkBase",
+      "text": "ping @ann@example.com please",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "ping "
+            },
+            {
+              "text": "@ann@example.com",
+              "link": "https://app.example/t/acme/people/ann",
+              "chip": {
+                "kind": "mention",
+                "label": "Ann Lee"
+              }
+            },
+            {
+              "text": " please"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an entity chip",
+      "text": "on ~/boards/web today",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "on "
+            },
+            {
+              "text": "~/boards/web",
+              "link": "https://app.example/t/acme/boards/web",
+              "chip": {
+                "kind": "entity",
+                "label": "Web",
+                "icon": "nav-boards"
+              }
+            },
+            {
+              "text": " today"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a segment without a chip stays a plain link",
+      "text": "#DEF-2 done",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "#DEF-2",
+              "link": "https://app.example/i/DEF-2"
+            },
+            {
+              "text": " done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a denied href is text, chip or not",
+      "text": "see #BAD-9 now",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "see #BAD-9 now"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an unknown chip kind drops the chip, the link stays",
+      "text": "see #ODD-3",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "see "
+            },
+            {
+              "text": "#ODD-3",
+              "link": "https://app.example/i/ODD-3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an empty chip label drops the chip",
+      "text": "see #NIL-4",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "see "
+            },
+            {
+              "text": "#NIL-4",
+              "link": "https://app.example/i/NIL-4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two chips side by side stay two",
+      "text": "#ABC-1#ABC-1",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "#ABC-1",
+              "link": "https://app.example/i/ABC-1",
+              "chip": {
+                "kind": "issue",
+                "label": "ABC-1 Fix login",
+                "icon": "ui-issue"
+              }
+            },
+            {
+              "text": "#ABC-1",
+              "link": "https://app.example/i/ABC-1",
+              "chip": {
+                "kind": "issue",
+                "label": "ABC-1 Fix login",
+                "icon": "ui-issue"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a chip in bold keeps the flag",
+      "text": "**#ABC-1** first",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "#ABC-1",
+              "bold": true,
+              "link": "https://app.example/i/ABC-1",
+              "chip": {
+                "kind": "issue",
+                "label": "ABC-1 Fix login",
+                "icon": "ui-issue"
+              }
+            },
+            {
+              "text": " first"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a chip in a heading",
+      "text": "## Fixes #ABC-1",
+      "blocks": [
+        {
+          "kind": "heading",
+          "level": 2,
+          "runs": [
+            {
+              "text": "Fixes "
+            },
+            {
+              "text": "#ABC-1",
+              "link": "https://app.example/i/ABC-1",
+              "chip": {
+                "kind": "issue",
+                "label": "ABC-1 Fix login",
+                "icon": "ui-issue"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a chip in a list item",
+      "text": "- ask @ann@example.com",
+      "blocks": [
+        {
+          "kind": "listItem",
+          "marker": "•",
+          "depth": 0,
+          "runs": [
+            {
+              "text": "ask "
+            },
+            {
+              "text": "@ann@example.com",
+              "link": "https://app.example/t/acme/people/ann",
+              "chip": {
+                "kind": "mention",
+                "label": "Ann Lee"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a chip in a table cell",
+      "text": "| Issue |\n| --- |\n| #ABC-1 |",
+      "blocks": [
+        {
+          "kind": "table",
+          "header": [
+            [
+              {
+                "text": "Issue"
+              }
+            ]
+          ],
+          "rows": [
+            [
+              [
+                {
+                  "text": "#ABC-1",
+                  "link": "https://app.example/i/ABC-1",
+                  "chip": {
+                    "kind": "issue",
+                    "label": "ABC-1 Fix login",
+                    "icon": "ui-issue"
+                  }
+                }
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a chip in a quote",
+      "text": "> as #ABC-1 said",
+      "blocks": [
+        {
+          "kind": "quote",
+          "runs": [
+            {
+              "text": "as "
+            },
+            {
+              "text": "#ABC-1",
+              "link": "https://app.example/i/ABC-1",
+              "chip": {
+                "kind": "issue",
+                "label": "ABC-1 Fix login",
+                "icon": "ui-issue"
+              }
+            },
+            {
+              "text": " said"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "inline code never chips",
+      "text": "run `#ABC-1` now",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "run "
+            },
+            {
+              "text": "#ABC-1",
+              "code": true
+            },
+            {
+              "text": " now"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a markdown link's label never chips",
+      "text": "[#ABC-1](https://x.example/a)",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "#ABC-1",
+              "link": "https://x.example/a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a sized image keeps its size",
+      "text": "![wide](https://app.example/api/attachments/wide.png)",
+      "blocks": [
+        {
+          "kind": "image",
+          "src": "https://app.example/api/attachments/wide.png",
+          "alt": "wide",
+          "width": 1600,
+          "height": 800
+        }
+      ]
+    },
+    {
+      "name": "an image the host does not know has no size",
+      "text": "![x](https://app.example/api/attachments/unknown.png)",
+      "blocks": [
+        {
+          "kind": "image",
+          "src": "https://app.example/api/attachments/unknown.png",
+          "alt": "x"
+        }
+      ]
+    },
+    {
+      "name": "a non-positive size is no size",
+      "text": "![x](https://app.example/api/attachments/zero.png)",
+      "blocks": [
+        {
+          "kind": "image",
+          "src": "https://app.example/api/attachments/zero.png",
+          "alt": "x"
+        }
+      ]
+    },
+    {
+      "name": "a video attachment",
+      "text": "[clip](https://app.example/api/attachments/clip.mp4)",
+      "blocks": [
+        {
+          "kind": "attachment",
+          "type": "video",
+          "name": "clip.mp4",
+          "href": "https://app.example/api/attachments/clip.mp4"
+        }
+      ]
+    },
+    {
+      "name": "an audio attachment",
+      "text": "[voice note](https://app.example/api/attachments/voice.m4a)",
+      "blocks": [
+        {
+          "kind": "attachment",
+          "type": "audio",
+          "name": "voice.m4a",
+          "href": "https://app.example/api/attachments/voice.m4a"
+        }
+      ]
+    },
+    {
+      "name": "a file attachment",
+      "text": "[the report](https://app.example/api/attachments/report.pdf)",
+      "blocks": [
+        {
+          "kind": "attachment",
+          "type": "file",
+          "name": "report.pdf",
+          "href": "https://app.example/api/attachments/report.pdf"
+        }
+      ]
+    },
+    {
+      "name": "a formatted label is still one link",
+      "text": "[**clip**](https://app.example/api/attachments/clip.mp4)",
+      "blocks": [
+        {
+          "kind": "attachment",
+          "type": "video",
+          "name": "clip.mp4",
+          "href": "https://app.example/api/attachments/clip.mp4"
+        }
+      ]
+    },
+    {
+      "name": "an attachment between paragraphs",
+      "text": "before\n\n[the report](https://app.example/api/attachments/report.pdf)\n\nafter",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "before"
+            }
+          ]
+        },
+        {
+          "kind": "attachment",
+          "type": "file",
+          "name": "report.pdf",
+          "href": "https://app.example/api/attachments/report.pdf"
+        },
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "after"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a link the host does not classify stays a paragraph",
+      "text": "[docs](https://app.example/api/attachments/docs.html)",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "docs",
+              "link": "https://app.example/api/attachments/docs.html"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "text around the link is no attachment",
+      "text": "see [the report](https://app.example/api/attachments/report.pdf)",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "see "
+            },
+            {
+              "text": "the report",
+              "link": "https://app.example/api/attachments/report.pdf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a list item is never an attachment",
+      "text": "- [the report](https://app.example/api/attachments/report.pdf)",
+      "blocks": [
+        {
+          "kind": "listItem",
+          "marker": "•",
+          "depth": 0,
+          "runs": [
+            {
+              "text": "the report",
+              "link": "https://app.example/api/attachments/report.pdf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a denied href is never an attachment",
+      "text": "[x](javascript:alert(1))",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "x"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an unknown attachment kind stays a paragraph",
+      "text": "[w](https://app.example/api/attachments/widget.bin)",
+      "blocks": [
+        {
+          "kind": "paragraph",
+          "runs": [
+            {
+              "text": "w",
+              "link": "https://app.example/api/attachments/widget.bin"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "imageBoxes": [
+    {
+      "name": "no size: the fixed box",
+      "size": null,
+      "available": 320,
+      "box": {
+        "width": 320,
+        "height": 160
+      }
+    },
+    {
+      "name": "wide: capped by width and height at once",
+      "size": {
+        "width": 1600,
+        "height": 800
+      },
+      "available": 320,
+      "box": {
+        "width": 320,
+        "height": 160
+      }
+    },
+    {
+      "name": "a banner: capped by the width",
+      "size": {
+        "width": 800,
+        "height": 200
+      },
+      "available": 320,
+      "box": {
+        "width": 320,
+        "height": 80
+      }
+    },
+    {
+      "name": "tall: capped by the max height",
+      "size": {
+        "width": 300,
+        "height": 1200
+      },
+      "available": 320,
+      "box": {
+        "width": 40,
+        "height": 160
+      }
+    },
+    {
+      "name": "small: its natural size, never scaled up",
+      "size": {
+        "width": 120,
+        "height": 60
+      },
+      "available": 320,
+      "box": {
+        "width": 120,
+        "height": 60
+      }
+    },
+    {
+      "name": "a narrow column",
+      "size": {
+        "width": 400,
+        "height": 100
+      },
+      "available": 200,
+      "box": {
+        "width": 200,
+        "height": 50
+      }
+    },
+    {
+      "name": "a non-positive size is the fixed box",
+      "size": {
+        "width": 0,
+        "height": 40
+      },
+      "available": 320,
+      "box": {
+        "width": 320,
+        "height": 160
+      }
+    }
+  ]
+}

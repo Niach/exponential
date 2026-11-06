@@ -70,7 +70,7 @@ export function MarkdownNative(props: NativeProps): JSX.Element {
   const lines = () => num(props.props.lines, 0)
   return (
     <div {...props.rootProps} data-lines={lines() > 0 ? lines() : undefined} style={mergeStyle(props.rootProps, lines() > 0 ? { WebkitLineClamp: lines() } : undefined)}>
-      {ctx.host.Markdown ? <Dynamic component={ctx.host.Markdown} text={text()} class="xui-md" /> : <BuiltinMarkdown text={text()} host={ctx.host} />}
+      {ctx.host.Markdown ? <Dynamic component={ctx.host.Markdown} text={text()} class="xui-md" /> : <BuiltinMarkdown text={text()} host={ctx.host} id={props.domId} />}
     </div>
   )
 }

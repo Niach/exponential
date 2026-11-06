@@ -174,29 +174,41 @@ func formatDuration(_ ms: Double) -> String {
 /// `<video>`).
 struct VideoLeaf: View {
     let cx: LeafContext
+
+    var body: some View {
+        VideoFace(model: cx.model, src: cx.props.str("src"), poster: cx.props.str("poster"), autoplay: cx.props.flag("autoplay"), durationMs: cx.props.num("durationMs"), size: cx.size)
+    }
+}
+
+/// The Video native's look and playback (VideoLeaf; #VAPP-258 a Markdown
+/// video attachment: no poster, the play button).
+struct VideoFace: View {
+    let model: SurfaceModel
+    let src: String
+    var poster: String = ""
+    var autoplay: Bool = false
+    var durationMs: Double? = nil
+    let size: CGSize
     @State private var playback = MediaPlayback(kind: .video)
 
     var body: some View {
-        let src = cx.props.str("src")
-        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
+        let request = src.isEmpty ? nil : model.mediaRequest(src)
         let key = request.map(MediaLoader.key)
-        let autoplay = cx.props.flag("autoplay")
-        let poster = cx.props.str("poster")
-        let posterRequest = poster.isEmpty ? nil : cx.model.mediaRequest(poster)
+        let posterRequest = poster.isEmpty ? nil : model.mediaRequest(poster)
         ZStack {
             Color.black.opacity(0.85)
             if let player = playback.player {
                 VideoPlayer(player: player)
             } else {
                 if let posterRequest {
-                    MediaImage(request: posterRequest, options: cx.model.mediaPolicy) { image in
+                    MediaImage(request: posterRequest, options: model.mediaPolicy) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         Color.clear
                     }
                 }
                 Button {
-                    Task { await playback.play(request, options: cx.model.mediaPolicy) }
+                    Task { await playback.play(request, options: model.mediaPolicy) }
                 } label: {
                     Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay {
                         if playback.loading {
@@ -208,7 +220,7 @@ struct VideoLeaf: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(request == nil || playback.loading)
-                if let ms = cx.props.num("durationMs") {
+                if let ms = durationMs {
                     Text(formatDuration(ms))
                         .font(.system(size: 12)).foregroundStyle(.white)
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -218,11 +230,11 @@ struct VideoLeaf: View {
                 }
             }
         }
-        .frame(width: cx.size.width, height: cx.size.height)
+        .frame(width: size.width, height: size.height)
         .clipped()
         .task(id: key) {
             if autoplay, let request {
-                await playback.play(request, muted: true, options: cx.model.mediaPolicy)
+                await playback.play(request, muted: true, options: model.mediaPolicy)
             } else if playback.openedKey != key {
                 playback.stop()
             }
@@ -237,35 +249,50 @@ struct VideoLeaf: View {
 /// `durationMs`). A denied src keeps the controls inert.
 struct AudioLeaf: View {
     let cx: LeafContext
+
+    var body: some View {
+        AudioFace(model: cx.model, title: cx.props.str("title"), src: cx.props.str("src"), durationMs: cx.props.num("durationMs"), ink: cx.ink, font: cx.font, titleColor: cx.part("AudioPlayer", "track").color, size: cx.inner.size)
+            .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+}
+
+/// The AudioPlayer native's look and playback (AudioLeaf; #VAPP-258 a
+/// Markdown audio attachment, its name the title).
+struct AudioFace: View {
+    let model: SurfaceModel
+    let title: String
+    let src: String
+    var durationMs: Double? = nil
+    let ink: Color
+    let font: Font
+    var titleColor: Color? = nil
+    let size: CGSize
     @State private var playback = MediaPlayback(kind: .audio)
 
     var body: some View {
-        let title = cx.props.str("title")
-        let src = cx.props.str("src")
-        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
+        let request = src.isEmpty ? nil : model.mediaRequest(src)
         let key = request.map(MediaLoader.key)
-        let muted = cx.themeColor("muted") ?? cx.ink.opacity(0.1)
-        let mutedFg = cx.themeColor("mutedForeground") ?? cx.ink.opacity(0.6)
-        let track = cx.part("AudioPlayer", "track")
-        let known = cx.props.num("durationMs").map { $0 / 1000 }
+        let muted = model.color("muted") ?? ink.opacity(0.1)
+        let mutedFg = model.color("mutedForeground") ?? ink.opacity(0.6)
+        let known = durationMs.map { $0 / 1000 }
         let length = playback.duration ?? known
         let progress = length.map { $0 > 0 ? min(1, playback.time / $0) : 0 } ?? 0
-        VStack(alignment: .leading, spacing: cx.spacing("xs")) {
+        VStack(alignment: .leading, spacing: model.spacing("xs")) {
             if !title.isEmpty {
-                Text(title).font(cx.font).foregroundStyle(track.color ?? cx.ink).lineLimit(1)
+                Text(title).font(font).foregroundStyle(titleColor ?? ink).lineLimit(1)
             }
             HStack(spacing: 8) {
                 Button {
-                    if playback.playing { playback.pause() } else { Task { await playback.play(request, options: cx.model.mediaPolicy) } }
+                    if playback.playing { playback.pause() } else { Task { await playback.play(request, options: model.mediaPolicy) } }
                 } label: {
-                    Circle().fill(cx.ink).frame(width: 28, height: 28).overlay {
+                    Circle().fill(ink).frame(width: 28, height: 28).overlay {
                         if playback.loading {
-                            ProgressView().controlSize(.mini).tint(cx.themeColor("background") ?? .white)
+                            ProgressView().controlSize(.mini).tint(model.color("background") ?? .white)
                         } else {
                             if playback.playing {
-                                ConceptIcon(name: "pause", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model)
+                                ConceptIcon(name: "pause", size: 14, color: model.color("background") ?? .white, model: model)
                             } else {
-                                FilledPlayGlyph(size: 14, color: cx.themeColor("background") ?? .white)
+                                FilledPlayGlyph(size: 14, color: model.color("background") ?? .white)
                             }
                         }
                     }
@@ -287,11 +314,10 @@ struct AudioLeaf: View {
                 Text("\(formatDuration(playback.time * 1000)) / \(length.map { formatDuration($0 * 1000) } ?? "0:00")").font(.system(size: 12)).foregroundStyle(mutedFg)
             }
             .padding(.horizontal, 8)
-            .frame(height: cx.control("row", SurfaceMeasurer.audioControlsHeight))
+            .frame(height: model.control("row", SurfaceMeasurer.audioControlsHeight))
             .background(muted, in: Capsule())
         }
-        .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
-        .offset(x: cx.inner.minX, y: cx.inner.minY)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
         .task(id: key) {
             if playback.openedKey != key { playback.stop() }
         }

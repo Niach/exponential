@@ -128,6 +128,10 @@ interface HostPlugin {
   onAction?(e: SurfaceActionEvent): void | Promise<void>   // on.<event> = {event: {name, context}}; a promise keeps the Button pending
   onInput?(e: SurfaceInputEvent): void | Promise<void>     // host-owned edits: {name, path?, value, revision, kind: change|commit}
   openUrl?(url: string): void                       // opens an href the URL policy allowed
+  textLinks?(text: string): TextLinkSegment[] | null  // Row subtitle + Markdown text → [{text, href?, chip?}]; chip = an inline Chip in Markdown
+  imageSize?(src: string): { width, height } | null // a Markdown block image keeps this aspect before it loads
+  onImagePress?(src: string): void                  // a press on a Markdown block image (a lightbox)
+  attachment?(href: string): { kind: "video" | "audio" | "file", name } | null  // a one-link Markdown paragraph as a media / file block
   urls?: UrlPolicy                                  // EVERY href (Link, markdown, FileUpload, openUrl); denied = text
   media?: MediaOptions                              // EVERY src without a mediaRequest (schemes, hosts, rules)
   mediaRequest?(src: string): MediaRequest | null   // null = denied; re-checked against media's schemes/hosts

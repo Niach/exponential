@@ -527,11 +527,29 @@ fn a_row_or_button_href_opens_on_press() {
 #[test]
 fn text_links_are_policed() {
     use eui_core::host::{police_text_links, TextLink};
-    let segment = |text: &str, href: Option<&str>| TextLink { text: text.into(), href: href.map(str::to_string) };
+    let segment = |text: &str, href: Option<&str>| TextLink { text: text.into(), href: href.map(str::to_string), chip: None };
     let text = "#A-1 merged";
     let linked = police_text_links(None, text, vec![segment("#A-1", Some("https://exponential.at/i")), segment(" merged", None)]).unwrap();
     assert_eq!(linked[0].href.as_deref(), Some("https://exponential.at/i"));
     // Not the text back, or nothing allowed: the plain text.
     assert!(police_text_links(None, text, vec![segment("other", Some("https://exponential.at/i"))]).is_none());
     assert!(police_text_links(None, text, vec![segment(text, Some("javascript:alert(1)"))]).is_none());
+}
+
+/// #VAPP-258: a text link's chip survives only on an allowed href with a
+/// known kind and a label; it round-trips as `{text, href?, chip?}`.
+#[test]
+fn text_link_chips_are_policed() {
+    use eui_core::host::policy::TextLinkChip;
+    use eui_core::host::{police_text_links, TextLink};
+    let chip = |kind: &str, label: &str| Some(TextLinkChip { kind: kind.into(), label: label.into(), icon: Some("ui-issue".into()) });
+    let link = |href: &str, chip| TextLink { text: "#A-1".into(), href: Some(href.into()), chip };
+    let policed = |seg| police_text_links(None, "#A-1", vec![seg]).map(|mut out| out.remove(0));
+    assert_eq!(policed(link("https://exponential.at/i", chip("issue", "A-1 Fix"))).unwrap().chip, chip("issue", "A-1 Fix"));
+    assert_eq!(policed(link("https://exponential.at/i", chip("widget", "A-1"))).unwrap().chip, None, "an unknown kind drops the chip");
+    assert_eq!(policed(link("https://exponential.at/i", chip("mention", ""))).unwrap().chip, None, "an empty label drops the chip");
+    assert!(policed(link("javascript:alert(1)", chip("issue", "A-1"))).is_none(), "a denied href is text, chip or not");
+    let wire: TextLink = serde_json::from_value(serde_json::json!({"text": "#A-1", "href": "https://exponential.at/i", "chip": {"kind": "entity", "label": "Web"}})).unwrap();
+    assert_eq!(wire.chip, Some(TextLinkChip { kind: "entity".into(), label: "Web".into(), icon: None }));
+    assert_eq!(serde_json::to_value(TextLink { text: "x".into(), ..Default::default() }).unwrap(), serde_json::json!({"text": "x"}));
 }

@@ -194,8 +194,17 @@ public struct HostPolicy {
     /// #EXP-1674: a `hostLinks` Text's segments (default: none).
     public var textLinks: (@MainActor (String) -> [TextLinkSegment]?)?
     public var media: MediaOptions?
+    /// #VAPP-258: a Markdown block image's natural size (raw src).
+    public var imageSize: (@MainActor (String) -> CGSize?)?
+    /// #VAPP-258: a press on a Markdown block image (raw src); nil = not pressable.
+    public var onImagePress: (@MainActor (String) -> Void)?
+    /// #VAPP-258: a one-link Markdown paragraph as a media / file attachment.
+    public var attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)?
 
-    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil, textLinks: (@MainActor (String) -> [TextLinkSegment]?)? = nil) {
+    public init(functions: FunctionPolicy? = nil, onFunctionCall: (@MainActor (FunctionCallInfo) async -> Bool)? = nil, urls: UrlPolicy? = nil, openUrl: (@MainActor (URL) -> Void)? = nil, media: MediaOptions? = nil, textLinks: (@MainActor (String) -> [TextLinkSegment]?)? = nil, imageSize: (@MainActor (String) -> CGSize?)? = nil, onImagePress: (@MainActor (String) -> Void)? = nil, attachment: (@MainActor (String) -> MarkdownAttachmentInfo?)? = nil) {
+        self.imageSize = imageSize
+        self.onImagePress = onImagePress
+        self.attachment = attachment
         self.functions = functions
         self.onFunctionCall = onFunctionCall
         self.urls = urls

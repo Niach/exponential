@@ -39,7 +39,7 @@ The host is a gpui entity. `host.surface(id)` returns the surface's view once th
 
 ## Host plugin
 
-Underneath, a `SurfaceView` takes a `HostPlugin` implementation: catalog icon names to SVG asset paths, font families, actions and input. Register the theme's fonts with the text system before the first frame, and extension natives with `register_painter`. Details in the [gpui painter's README](https://github.com/Niach/exponential/blob/master/apps/desktop/crates/eui-gpui/README.md).
+Underneath, a `SurfaceView` takes a `HostPlugin` implementation: catalog icon names to SVG asset paths, font families, actions and input. Register the theme's fonts with the text system before the first frame, and extension natives with `register_painter`. Markdown asks four optional hooks: `text_links` segments may carry a `chip` (painted inline as a Chip), `image_size` reserves a block image's box, `on_image_press` makes it pressable (with `image_pressable`), and `attachment` turns a one-link paragraph into a video, audio or file block; with no answer a Markdown paints as before. Details in the [gpui painter's README](https://github.com/Niach/exponential/blob/master/apps/desktop/crates/eui-gpui/README.md).
 
 ## Compiled in CI
 

@@ -219,6 +219,15 @@ view.update(cx, |v, cx| {
   - `open_media_file` opens a fetched (or host-allowed `file:`) Video /
     AudioPlayer source in the system player (default
     `cx.open_with_system`); see Playback.
+  - #VAPP-258, the Markdown hooks (`catalog/host.json` markdown, locked by
+    `fixtures/markdown-host.json`; all optional, no answer = as before):
+    a `text_links` segment's `chip` paints as the Chip look inline (a
+    non-breaking placeholder reserves its width, so the measurer and the
+    painter wrap it alike; a press opens the policed href);
+    `image_size(src)` sizes a block image's box; `image_pressable` +
+    `on_image_press(src)` make it pressable; `attachment(href)` turns a
+    one-link paragraph into the Video / AudioPlayer natives or the
+    FileUpload `file` row. `HostPolicy` carries the same as closures.
   - `on_paint_error` hears a painter that panicked (it paints an empty
     box); the host runtime forwards it as an A2UI `RENDER_FAILED` error.
   - `announce(text, live)` speaks live regions, Form errors, `copied`. The

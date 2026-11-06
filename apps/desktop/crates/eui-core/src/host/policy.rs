@@ -395,24 +395,49 @@ pub fn media_request(url: &str, options: &MediaOptions) -> Option<MediaRequest> 
 
 /// #EXP-1674 (`catalog/host.json` urls): one piece of a host's `text_links`
 /// answer for a `hostLinks` Text.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TextLink {
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
+    /// #VAPP-258 (`catalog/host.json` markdown): a Markdown paints the
+    /// segment as an inline Chip (a `hostLinks` Text as its plain link).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chip: Option<TextLinkChip>,
+}
+
+/// #VAPP-258: a text link's inline chip: `kind` in
+/// [`super::contract::MARKDOWN_CHIP_KINDS`] (the host's meaning, one look),
+/// a non-empty `label`, an optional icon registry name.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct TextLinkChip {
+    pub kind: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+}
+
+impl TextLinkChip {
+    /// A known kind and a non-empty label (else the chip is dropped).
+    pub fn is_valid(&self) -> bool {
+        super::contract::MARKDOWN_CHIP_KINDS.contains(&self.kind.as_str()) && !self.label.is_empty()
+    }
 }
 
 /// A host's `text_links` answer ready to paint, or `None` for the plain text:
 /// the segments must concatenate back to `text`; an href the policy denies
-/// stays text; no allowed link = plain.
+/// stays text (chip or not); no allowed link = plain. #VAPP-258: a chip
+/// survives only on an allowed href and when [`TextLinkChip::is_valid`].
 pub fn police_text_links(policy: Option<&UrlPolicy>, text: &str, segments: Vec<TextLink>) -> Option<Vec<TextLink>> {
     if segments.iter().map(|segment| segment.text.as_str()).collect::<String>() != text {
         return None;
     }
     let policed: Vec<TextLink> = segments
         .into_iter()
-        .map(|segment| TextLink {
-            href: segment.href.and_then(|href| safe_href(policy, &href)),
-            text: segment.text,
+        .map(|segment| {
+            let href = segment.href.and_then(|href| safe_href(policy, &href));
+            let chip = segment.chip.filter(|chip| href.is_some() && chip.is_valid());
+            TextLink { text: segment.text, href, chip }
         })
         .collect();
     policed.iter().any(|segment| segment.href.is_some()).then_some(policed)

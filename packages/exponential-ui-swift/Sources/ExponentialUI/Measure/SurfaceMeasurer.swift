@@ -162,8 +162,13 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// The model's answers from earlier passes (nil: measure everything).
     let memo: MeasureMemo?
 
-    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }) {
+    /// #VAPP-258: a Markdown's blocks as the painter paints them (the host's
+    /// hooks: chips, image sizes, attachments); nil = parsed + `mediaAllowed`.
+    let markdownBlocks: ((String) -> [MarkdownBlock])?
+
+    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, memo: MeasureMemo? = nil, mediaAllowed: @escaping (String) -> Bool = { _ in true }, markdownBlocks: ((String) -> [MarkdownBlock])? = nil) {
         self.mediaAllowed = mediaAllowed
+        self.markdownBlocks = markdownBlocks
         self.memo = memo
         memo?.stamp(theme: theme, mode: mode, generation: generation)
         self.theme = theme
@@ -491,10 +496,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     }
 
     private func markdown(_ leaf: LeafRequest, wrap: CGFloat?) -> MeasuredContent {
-        let blocks = Markdown.resolveImages(Markdown.parse(leaf.props.str("text")), allowed: mediaAllowed)
+        let text = leaf.props.str("text")
+        let blocks = markdownBlocks?(text) ?? Markdown.resolveImages(Markdown.parse(text), allowed: mediaAllowed)
         let ts = leaf.textStyle
         let styles = MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: leaf.props)
-        let shaper = MarkdownShaper(mono: theme?.monoFamily)
+        let shaper = MarkdownShaper(mono: theme?.monoFamily, chip: styles.chip)
         let width: CGFloat
         switch wrap {
         case .none: width = Markdown.maxContentWidth(blocks, styles, text: shaper)
