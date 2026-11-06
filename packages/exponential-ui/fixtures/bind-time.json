@@ -85523,7 +85523,14 @@
                     }
                   },
                   "expanded": {
-                    "path": "/open"
+                    "call": "cond",
+                    "args": {
+                      "if": {
+                        "path": "/open"
+                      },
+                      "then": true,
+                      "else": false
+                    }
                   }
                 }
               }
@@ -86826,7 +86833,8 @@
                     },
                     "accessibility": {
                       "role": "button",
-                      "label": "Expand"
+                      "label": "Expand",
+                      "expanded": false
                     },
                     "recipe": {
                       "macro": "Row",

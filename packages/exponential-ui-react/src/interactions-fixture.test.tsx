@@ -288,3 +288,34 @@ describe(`fixtures/interactions-round1.json tabsReorder`, () => {
     })
   }
 })
+
+interface FoldCase {
+  name: string
+  open: boolean | null
+  pressable: boolean
+  rtl: boolean
+  step: { press: `head` | `fold` } | { key: string; on: `head` | `fold` }
+  events: string[]
+  after: boolean
+}
+
+// #VAPP-284: a foldable Row (children): the head presses or folds, the fold
+// button folds, ArrowRight / ArrowLeft open / close (swapped in rtl).
+describe(`fixtures/interactions-round1.json foldRow`, () => {
+  const fold = (fixture as unknown as { foldRow: { surface: NestedNode; cases: FoldCase[] } }).foldRow
+  for (const c of fold.cases) {
+    it(`foldRow: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const row: NestedNode = c.pressable ? fold.surface : { ...fold.surface, on: { change: fold.surface.on!.change! } }
+      const root = tree(c.rtl ? { id: `rtl`, component: `Box`, style: { direction: `rtl` }, children: [row] } : row)
+      const data = c.open === null ? {} : { open: c.open }
+      const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id={`fold`} host={{ onAction: (e) => void actions.push(e) }} />)
+      const part = (name: `head` | `fold`) => container.querySelector(`[data-xui-id="issues.${name === `head` ? `head` : `head.fold`}"]`) as HTMLElement
+      if (`press` in c.step) fireEvent.click(part(c.step.press))
+      else fireEvent.keyDown(part(c.step.on), { key: c.step.key })
+      expect(actions.map((a) => a.name)).toEqual(c.events)
+      for (const a of actions.filter((x) => x.name === `fold`)) expect(a.context.open).toBe(c.after)
+      expect(part(`head`).getAttribute(`aria-expanded`)).toBe(String(c.after))
+    })
+  }
+})

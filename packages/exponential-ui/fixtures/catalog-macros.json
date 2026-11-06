@@ -77481,7 +77481,14 @@
                     }
                   },
                   "expanded": {
-                    "path": "/open"
+                    "call": "cond",
+                    "args": {
+                      "if": {
+                        "path": "/open"
+                      },
+                      "then": true,
+                      "else": false
+                    }
                   }
                 }
               }

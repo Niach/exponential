@@ -2223,7 +2223,13 @@
                           "$string.expand"
                         ]
                       },
-                      "expanded": "{props.open|false}"
+                      "expanded": {
+                        "$cond": [
+                          "props.open",
+                          true,
+                          false
+                        ]
+                      }
                     },
                     "style": {
                       "display": "flex",

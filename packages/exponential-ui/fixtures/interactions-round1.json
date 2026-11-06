@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1 review (renderer hardening): interaction semantics every renderer must share, HAND-AUTHORED and replayed by packages/exponential-ui-react/src/interactions-fixture.test.tsx (the reference, jsdom) and apps/desktop/crates/eui-core/tests/interactions_fixture.rs (the core, so gpui and the natives through the FFI). numberField: a NumberField bound to /v (value null = /v unseeded), one op (increment / decrement press, commit = type `input` then leave the field, none), then the value at /v and the text the field shows (en-US; `precision` absent = the step's decimals; values round like toFixed, the text like Intl.NumberFormat with that many fraction digits; a stepper on an unset value starts from min when min > 0, else 0; a stepper at its limit is disabled). checks: a Form `f` holding Checkbox `agree` (checked bound to /agreed) with `checks` and a submit Button; submitting gives the failing messages in order (a check WITH a condition fails when it resolves to nothing, null, false or an empty string; 0 passes; a non-string message reads `Invalid value`) and whether `submit` fired. tableSort: an UNBOUND sort of literal rows by one column (`sortRows`: missing values last both ways, two numbers numerically, a number column coerces, a date column by time, booleans as 0/1, the rest by Intl.Collator(locale, {numeric: true, sensitivity: base}); ties keep row order) → the row indexes in display order. choiceTiles (EXP-1280): a ChoiceTiles `c` over options a, b, c (`disabled` = the index of a disabled option) with `value` bound to /v (null = unseeded), the tiles pressed in order (a press on any part of tile i), then /v and every `change` value fired: single picks the pressed value; multiple toggles it in the comma-joined list kept in OPTION order (nothing picked = an empty string); a disabled option does nothing. select (VAPP-146): a plain single Select `s` over the options Any (value \"\"), Open (open) and Done (done) with `value` bound to /v (null = unseeded), the options picked in order (open the trigger, press option i), then /v, the text the trigger shows and every `change` value fired: an empty string is an ordinary option value (never refused, never the error placeholder); an unseeded value reads as \"\", so the trigger shows the option holding \"\"; picking an option writes its value; picking the option that holds the current value fires nothing (the empty one included, an unseeded /v stays unseeded). buttonHold (VAPP-162, docs/round-5-contract.md §9): a Button `b` (label `Hold to talk`, `holdingLabel` `Holding…` unless the case says otherwise) laid out at 120 × 40 px, coordinates relative to its top-left; `props` override the button's (null = unset; the base props are `hold: true`); `steps` = pointerdown/pointermove/pointerup at {x, y}, pointercancel, keydown/keyup {key}, blur; after each step `events` = the events that step fired (in order) and `pressed` / `label` = what the button paints. THE RULE: with `hold: true` a press never fires `press`; pointer down (or Space/Enter key down; key repeat ignored) fires `holdStart` and paints the pressed state + `holdingLabel`; while the hold is active the pointer may wander up to 24 px (the slop) outside the box; release (pointer up anywhere within the slop, or key up of the key that started it) fires `holdEnd`; the pointer leaving the box by more than the slop (the slide away), pointercancel, Escape or losing focus fire `holdCancel`; after a cancel nothing fires until the next down. `disabled` fires nothing; `hold: false` keeps the plain `press` on release over the box. VAPP-206 rowPress: a Table bound to /rows whose on.rowPress action reads {path: <value>} (a set's value, an event's context); pressing row `press` reads `expect`: the action's relative paths read the pressed row, absolute ones the data model. VAPP-279 tabsReorder: the six-tab strip of fixtures/tabs-strip.json `layout` (fifth active, closable on hover, addable, theme default, fixed measure) at 900 px in `direction`; `tab` = the tab index the steps act on. `drag {phase, delta}` = what a painter sends for a pointer (or touch long-press) drag, delta = px since the start in screen direction; `order` = the tab values in strip order after the step (the live preview); the end drops the preview and fires `reorder {from, to, value}` when the tab changed place (array indexes; the host owns `tabs`). `key` = what a painter sends for Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on the tab. `expect` = every `reorder` fired, in order.",
+  "$comment": "Round 1 review (renderer hardening): interaction semantics every renderer must share, HAND-AUTHORED and replayed by packages/exponential-ui-react/src/interactions-fixture.test.tsx (the reference, jsdom) and apps/desktop/crates/eui-core/tests/interactions_fixture.rs (the core, so gpui and the natives through the FFI). numberField: a NumberField bound to /v (value null = /v unseeded), one op (increment / decrement press, commit = type `input` then leave the field, none), then the value at /v and the text the field shows (en-US; `precision` absent = the step's decimals; values round like toFixed, the text like Intl.NumberFormat with that many fraction digits; a stepper on an unset value starts from min when min > 0, else 0; a stepper at its limit is disabled). checks: a Form `f` holding Checkbox `agree` (checked bound to /agreed) with `checks` and a submit Button; submitting gives the failing messages in order (a check WITH a condition fails when it resolves to nothing, null, false or an empty string; 0 passes; a non-string message reads `Invalid value`) and whether `submit` fired. tableSort: an UNBOUND sort of literal rows by one column (`sortRows`: missing values last both ways, two numbers numerically, a number column coerces, a date column by time, booleans as 0/1, the rest by Intl.Collator(locale, {numeric: true, sensitivity: base}); ties keep row order) → the row indexes in display order. choiceTiles (EXP-1280): a ChoiceTiles `c` over options a, b, c (`disabled` = the index of a disabled option) with `value` bound to /v (null = unseeded), the tiles pressed in order (a press on any part of tile i), then /v and every `change` value fired: single picks the pressed value; multiple toggles it in the comma-joined list kept in OPTION order (nothing picked = an empty string); a disabled option does nothing. select (VAPP-146): a plain single Select `s` over the options Any (value \"\"), Open (open) and Done (done) with `value` bound to /v (null = unseeded), the options picked in order (open the trigger, press option i), then /v, the text the trigger shows and every `change` value fired: an empty string is an ordinary option value (never refused, never the error placeholder); an unseeded value reads as \"\", so the trigger shows the option holding \"\"; picking an option writes its value; picking the option that holds the current value fires nothing (the empty one included, an unseeded /v stays unseeded). buttonHold (VAPP-162, docs/round-5-contract.md §9): a Button `b` (label `Hold to talk`, `holdingLabel` `Holding…` unless the case says otherwise) laid out at 120 × 40 px, coordinates relative to its top-left; `props` override the button's (null = unset; the base props are `hold: true`); `steps` = pointerdown/pointermove/pointerup at {x, y}, pointercancel, keydown/keyup {key}, blur; after each step `events` = the events that step fired (in order) and `pressed` / `label` = what the button paints. THE RULE: with `hold: true` a press never fires `press`; pointer down (or Space/Enter key down; key repeat ignored) fires `holdStart` and paints the pressed state + `holdingLabel`; while the hold is active the pointer may wander up to 24 px (the slop) outside the box; release (pointer up anywhere within the slop, or key up of the key that started it) fires `holdEnd`; the pointer leaving the box by more than the slop (the slide away), pointercancel, Escape or losing focus fire `holdCancel`; after a cancel nothing fires until the next down. `disabled` fires nothing; `hold: false` keeps the plain `press` on release over the box. VAPP-206 rowPress: a Table bound to /rows whose on.rowPress action reads {path: <value>} (a set's value, an event's context); pressing row `press` reads `expect`: the action's relative paths read the pressed row, absolute ones the data model. VAPP-279 tabsReorder: the six-tab strip of fixtures/tabs-strip.json `layout` (fifth active, closable on hover, addable, theme default, fixed measure) at 900 px in `direction`; `tab` = the tab index the steps act on. `drag {phase, delta}` = what a painter sends for a pointer (or touch long-press) drag, delta = px since the start in screen direction; `order` = the tab values in strip order after the step (the live preview); the end drops the preview and fires `reorder {from, to, value}` when the tab changed place (array indexes; the host owns `tabs`). `key` = what a painter sends for Ctrl/Cmd+Shift+ArrowLeft/ArrowRight on the tab. `expect` = every `reorder` fired, in order. #VAPP-284 foldRow (docs/round-7-contract.md): the tree = `surface` (a Row `issues` with two child Rows, `open` bound to /open, on.press = event `select`, on.change = event `fold`; `pressable: false` drops on.press, so the head itself folds); /open starts at `open`; `rtl` puts the Row in a `direction: rtl` box; ONE step: `press` the part (`head` = `issues.head`, `fold` = `issues.head.fold`) or `key` (a DOM key name) on it while focused; then `events` = the event names fired in order and `after` = /open. THE RULE: a pressable head presses as `select` and its fold button folds; a plain head folds; ArrowRight opens and ArrowLeft closes (swapped in rtl) the focused head or fold button, firing `fold` (context {open}) and writing /open; a key that would not change the state does nothing.",
   "numberField": [
     {
       "name": "step 0.1 increments without float noise",
@@ -1385,5 +1385,214 @@
         }
       ]
     }
-  ]
+  ],
+  "foldRow": {
+    "surface": {
+      "id": "issues",
+      "component": "Row",
+      "props": {
+        "title": "Issues",
+        "icon": "settings-issues",
+        "density": "compact",
+        "open": {
+          "path": "/open"
+        }
+      },
+      "on": {
+        "press": {
+          "event": {
+            "name": "select"
+          }
+        },
+        "change": {
+          "event": {
+            "name": "fold"
+          }
+        }
+      },
+      "children": [
+        {
+          "id": "labels",
+          "component": "Row",
+          "props": {
+            "title": "Labels",
+            "density": "compact",
+            "pressable": true
+          }
+        },
+        {
+          "id": "statuses",
+          "component": "Row",
+          "props": {
+            "title": "Statuses",
+            "density": "compact",
+            "pressable": true,
+            "selected": true
+          }
+        }
+      ]
+    },
+    "cases": [
+      {
+        "name": "a pressable head presses as select, the fold stays",
+        "open": false,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "press": "head"
+        },
+        "events": [
+          "select"
+        ],
+        "after": false
+      },
+      {
+        "name": "the fold button opens",
+        "open": false,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "press": "fold"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": true
+      },
+      {
+        "name": "the fold button closes",
+        "open": true,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "press": "fold"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": false
+      },
+      {
+        "name": "a plain head folds on its press",
+        "open": false,
+        "pressable": false,
+        "rtl": false,
+        "step": {
+          "press": "head"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": true
+      },
+      {
+        "name": "ArrowRight opens a closed head",
+        "open": false,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "key": "ArrowRight",
+          "on": "head"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": true
+      },
+      {
+        "name": "ArrowRight on an open head does nothing",
+        "open": true,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "key": "ArrowRight",
+          "on": "head"
+        },
+        "events": [],
+        "after": true
+      },
+      {
+        "name": "ArrowLeft closes an open head",
+        "open": true,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "key": "ArrowLeft",
+          "on": "head"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": false
+      },
+      {
+        "name": "ArrowLeft on a closed head does nothing",
+        "open": false,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "key": "ArrowLeft",
+          "on": "head"
+        },
+        "events": [],
+        "after": false
+      },
+      {
+        "name": "ArrowLeft closes from the fold button",
+        "open": true,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "key": "ArrowLeft",
+          "on": "fold"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": false
+      },
+      {
+        "name": "rtl: ArrowLeft opens",
+        "open": false,
+        "pressable": true,
+        "rtl": true,
+        "step": {
+          "key": "ArrowLeft",
+          "on": "head"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": true
+      },
+      {
+        "name": "rtl: ArrowRight closes",
+        "open": true,
+        "pressable": true,
+        "rtl": true,
+        "step": {
+          "key": "ArrowRight",
+          "on": "head"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": false
+      },
+      {
+        "name": "an unseeded /open reads closed: ArrowRight opens",
+        "open": null,
+        "pressable": true,
+        "rtl": false,
+        "step": {
+          "key": "ArrowRight",
+          "on": "head"
+        },
+        "events": [
+          "fold"
+        ],
+        "after": true
+      }
+    ]
+  }
 }

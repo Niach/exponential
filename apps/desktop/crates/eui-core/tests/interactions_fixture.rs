@@ -296,3 +296,46 @@ fn button_hold_cases_fire_start_end_and_cancel_like_the_reference() {
         }
     }
 }
+
+/// #VAPP-284: a foldable Row: the head presses or folds, the fold button
+/// folds, ArrowRight / ArrowLeft open / close (swapped in rtl) through
+/// `event(index, "key", {key})`, the one call every painter forwards.
+#[test]
+fn fold_row_cases_press_fold_and_take_the_arrows_like_the_reference() {
+    let f = fixture();
+    let fold = &f["foldRow"];
+    for c in fold["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut row = fold["surface"].clone();
+        if c["pressable"] == json!(false) {
+            row["on"].as_object_mut().unwrap().remove("press");
+        }
+        let tree = if c["rtl"] == json!(true) { json!({"id": "rtl", "component": "Box", "style": {"direction": "rtl"}, "children": [row]}) } else { row };
+        let mut s = surface(tree);
+        if !c["open"].is_null() {
+            s.set_data("/open", Some(c["open"].clone())).unwrap();
+        }
+        let mut m = fixed();
+        s.layout(&mut m);
+        let id = |part: &str| if part == "head" { "issues.head".to_string() } else { "issues.head.fold".to_string() };
+        let step = &c["step"];
+        let (target, event, payload) = match step.get("press") {
+            Some(p) => (id(p.as_str().unwrap()), "press", None),
+            None => (id(step["on"].as_str().unwrap()), "key", Some(json!({"key": step["key"]}))),
+        };
+        let index = s.nodes().iter().position(|n| n.id == target).unwrap_or_else(|| panic!("{name}: no {target}"));
+        let out = s.event(index as _, event, payload);
+        let names: Vec<String> = out
+            .iter()
+            .filter_map(|e| match e {
+                OutEvent::Action { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(json!(names), c["events"], "{name}: events");
+        s.layout(&mut m);
+        let head = s.nodes().into_iter().find(|n| n.id == "issues.head").unwrap();
+        let expanded = head.accessibility.as_ref().and_then(|a| a.get("expanded")).cloned();
+        assert_eq!(expanded, Some(c["after"].clone()), "{name}: expanded after");
+    }
+}

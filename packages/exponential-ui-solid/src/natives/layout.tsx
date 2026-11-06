@@ -4,7 +4,7 @@
 // `WINDOW_THRESHOLD` (50, the catalog's) items it windows on its axis.
 
 import { For, Show, createEffect, createMemo, onCleanup, untrack, type Accessor, type JSX } from "solid-js"
-import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
+import { foldKey, listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection, type UiNode } from "@exponential_app/eui"
 import { getPointer, LITERAL_ROWS_ROOT, setPointer } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { WindowedList, type WindowedListHandle } from "../list"
@@ -17,7 +17,10 @@ export function BoxNative(props: NativeProps): JSX.Element {
   // #EXP-1674: `Row.href` lands here and opens like a Link's (the policy decides).
   const href = () => str(props.props.href)
   const pressable = () => bool(props.props.pressable) || Boolean(props.node.on?.press) || Boolean(href())
-  const press = () => {
+  const press = (e?: MouseEvent) => {
+    // #VAPP-284: a press target inside another (a foldable Row's fold
+    // button in its head) fires only its own press.
+    e?.stopPropagation()
     if (href()) ctx.openUrl(href())
     void props.emit(`press`)
   }
@@ -26,6 +29,16 @@ export function BoxNative(props: NativeProps): JSX.Element {
     if (e.key === `Enter` || e.key === ` `) {
       e.preventDefault()
       press()
+      return
+    }
+    // #VAPP-284: ArrowRight / ArrowLeft open / close a node that folds.
+    const expanded = String((props.rootProps as Record<string, unknown>)[`aria-expanded`])
+    if (props.node.on?.toggle && (expanded === `true` || expanded === `false`)) {
+      const rtl = ctx.direction === `rtl`
+      if (foldKey(e.key, expanded === `true`, rtl)) {
+        e.preventDefault()
+        void props.emit(`toggle`)
+      }
     }
   }
   return (
