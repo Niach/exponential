@@ -1,7 +1,7 @@
 {
   "name": "@exp/web",
   "private": true,
-  "version": "0.20.47",
+  "version": "0.20.48",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
