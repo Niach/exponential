@@ -149,7 +149,7 @@ export function evalExpr(expr: string, ctx: ExprContext): unknown {
     // #VAPP-285: `treeRows(props)` = a Tree's flat rows (src/tree.ts).
     if (fn[1] === `treeRows`) {
       const props = (typeof inner === `object` && inner !== null ? inner : {}) as Record<string, unknown>
-      return treeRows(props.items, props.expanded)
+      return treeRows(props.items, props.expanded, props.rail)
     }
     if (fn[1] === `len`) {
       if (isDynamic(inner)) return call(`len`, { value: inner })

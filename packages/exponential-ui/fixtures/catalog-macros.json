@@ -88161,6 +88161,1370 @@
           "label": "Files"
         }
       }
+    },
+    {
+      "name": "Sidebar/rail:tree",
+      "input": {
+        "id": "shell",
+        "component": "Sidebar",
+        "props": {
+          "rail": true,
+          "collapsed": true,
+          "collapseBelow": "never"
+        },
+        "slots": {
+          "sidebar": {
+            "id": "files",
+            "component": "Tree",
+            "props": {
+              "label": "Files",
+              "items": [
+                {
+                  "id": "apps",
+                  "title": "apps",
+                  "children": [
+                    {
+                      "id": "apps/web",
+                      "title": "web",
+                      "children": [
+                        {
+                          "id": "apps/web/main.ts",
+                          "title": "main.ts",
+                          "meta": "M"
+                        },
+                        {
+                          "id": "apps/web/router.ts",
+                          "title": "router.ts"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "apps/desktop",
+                      "title": "desktop",
+                      "hasChildren": true
+                    }
+                  ]
+                },
+                {
+                  "id": "packages",
+                  "title": "packages",
+                  "children": [
+                    {
+                      "id": "packages/ui",
+                      "title": "ui",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "id": "README.md",
+                  "title": "README.md"
+                },
+                {
+                  "id": "package.json",
+                  "title": "package.json",
+                  "meta": "A"
+                }
+              ],
+              "expanded": [
+                "apps",
+                "apps/desktop"
+              ],
+              "value": "apps/web/main.ts"
+            },
+            "on": {
+              "select": {
+                "event": {
+                  "name": "open"
+                }
+              },
+              "toggle": {
+                "event": {
+                  "name": "fold"
+                }
+              },
+              "load": {
+                "event": {
+                  "name": "fetch"
+                }
+              }
+            }
+          }
+        },
+        "children": [
+          {
+            "id": "main",
+            "component": "Text",
+            "props": {
+              "text": "Pick a file."
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "shell",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "shell.sidebar",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "files",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "files.row.0",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.0.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "apps",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.0.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.0.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-folder-open",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "apps"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "apps",
+                            "open": false
+                          }
+                        }
+                      },
+                      "toggle": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "apps",
+                            "open": false
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.1",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.1.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "web",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.1.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.1.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-folder",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "web"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "apps/web",
+                            "open": true
+                          }
+                        }
+                      },
+                      "toggle": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "apps/web",
+                            "open": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.2",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.2.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "main.ts",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.2.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.2.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-file",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": true,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              },
+                              {
+                                "id": "files.row.2.tip.tile.badge",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "files.row.2.tip.tile.badge.count",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "M",
+                                      "variant": "caption",
+                                      "lines": 1
+                                    },
+                                    "children": [],
+                                    "recipe": {
+                                      "macro": "Row",
+                                      "part": "count",
+                                      "props": {
+                                        "selected": true,
+                                        "density": "compact",
+                                        "surface": "flat",
+                                        "depth": 0
+                                      }
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "position": "absolute",
+                                  "insetBlockStart": "$spacing.none",
+                                  "insetInlineEnd": "$spacing.none",
+                                  "display": "flex",
+                                  "alignItems": "center",
+                                  "justifyContent": "center",
+                                  "minWidth": "$control.iconSm",
+                                  "height": "$control.iconSm",
+                                  "paddingHorizontal": "$spacing.xxs",
+                                  "borderRadius": "$radius.full"
+                                },
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "badge",
+                                  "props": {
+                                    "selected": true,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": true,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": true,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": true,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": true,
+                      "label": "main.ts, M"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "open",
+                          "context": {
+                            "id": "apps/web/main.ts"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.3",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.3.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "router.ts",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.3.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.3.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-file",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "router.ts"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "open",
+                          "context": {
+                            "id": "apps/web/router.ts"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.4",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.4.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "desktop",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.4.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.4.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-folder-open",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "desktop"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "fetch",
+                          "context": {
+                            "id": "apps/desktop",
+                            "open": false
+                          }
+                        }
+                      },
+                      "toggle": {
+                        "event": {
+                          "name": "fetch",
+                          "context": {
+                            "id": "apps/desktop",
+                            "open": false
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.5",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.5.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "packages",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.5.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.5.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-folder",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "packages"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "packages",
+                            "open": true
+                          }
+                        }
+                      },
+                      "toggle": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "packages",
+                            "open": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.6",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.6.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "ui",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.6.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.6.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-folder",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "ui"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "packages/ui",
+                            "open": true
+                          }
+                        }
+                      },
+                      "toggle": {
+                        "event": {
+                          "name": "fold",
+                          "context": {
+                            "id": "packages/ui",
+                            "open": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.7",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.7.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "README.md",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.7.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.7.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-file",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "README.md"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "open",
+                          "context": {
+                            "id": "README.md"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "files.row.8",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "children": [
+                      {
+                        "id": "files.row.8.tip",
+                        "component": "Tooltip",
+                        "props": {
+                          "content": "package.json",
+                          "side": "end"
+                        },
+                        "children": [
+                          {
+                            "id": "files.row.8.tip.tile",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "files.row.8.tip.tile.tileIcon",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-file",
+                                  "size": "sm"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "tileIcon",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              },
+                              {
+                                "id": "files.row.8.tip.tile.badge",
+                                "component": "Box",
+                                "props": {},
+                                "children": [
+                                  {
+                                    "id": "files.row.8.tip.tile.badge.count",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": "A",
+                                      "variant": "caption",
+                                      "lines": 1
+                                    },
+                                    "children": [],
+                                    "recipe": {
+                                      "macro": "Row",
+                                      "part": "count",
+                                      "props": {
+                                        "selected": false,
+                                        "density": "compact",
+                                        "surface": "flat",
+                                        "depth": 0
+                                      }
+                                    }
+                                  }
+                                ],
+                                "style": {
+                                  "position": "absolute",
+                                  "insetBlockStart": "$spacing.none",
+                                  "insetInlineEnd": "$spacing.none",
+                                  "display": "flex",
+                                  "alignItems": "center",
+                                  "justifyContent": "center",
+                                  "minWidth": "$control.iconSm",
+                                  "height": "$control.iconSm",
+                                  "paddingHorizontal": "$spacing.xxs",
+                                  "borderRadius": "$radius.full"
+                                },
+                                "recipe": {
+                                  "macro": "Row",
+                                  "part": "badge",
+                                  "props": {
+                                    "selected": false,
+                                    "density": "compact",
+                                    "surface": "flat",
+                                    "depth": 0
+                                  }
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "position": "relative",
+                              "width": "$control.buttonIcon",
+                              "height": "$control.buttonIcon"
+                            },
+                            "recipe": {
+                              "macro": "Row",
+                              "part": "tile",
+                              "props": {
+                                "selected": false,
+                                "density": "compact",
+                                "surface": "flat",
+                                "depth": 0
+                              }
+                            },
+                            "accessibility": {
+                              "hidden": true
+                            }
+                          }
+                        ],
+                        "recipe": {
+                          "macro": "Row",
+                          "part": "tip",
+                          "props": {
+                            "selected": false,
+                            "density": "compact",
+                            "surface": "flat",
+                            "depth": 0
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.none",
+                      "minHeight": "$control.buttonIcon",
+                      "paddingHorizontal": "$spacing.none",
+                      "borderRadius": "$radius.md",
+                      "width": "$control.buttonIcon",
+                      "justifyContent": "center",
+                      "alignSelf": "center"
+                    },
+                    "recipe": {
+                      "macro": "Row",
+                      "part": "root",
+                      "props": {
+                        "selected": false,
+                        "density": "compact",
+                        "surface": "flat",
+                        "depth": 0
+                      }
+                    },
+                    "accessibility": {
+                      "role": "button",
+                      "selected": false,
+                      "label": "package.json, A"
+                    },
+                    "on": {
+                      "press": {
+                        "event": {
+                          "name": "open",
+                          "context": {
+                            "id": "package.json"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "Tree",
+                  "part": "root",
+                  "props": {}
+                },
+                "accessibility": {
+                  "role": "group",
+                  "label": "Files"
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "$spacing.xl3",
+              "flexShrink": 0,
+              "minHeight": 0
+            },
+            "recipe": {
+              "macro": "Sidebar",
+              "part": "sidebar",
+              "props": {
+                "side": "left"
+              }
+            },
+            "accessibility": {
+              "role": "navigation"
+            }
+          },
+          {
+            "id": "shell.main",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "main",
+                "component": "Text",
+                "props": {
+                  "text": "Pick a file."
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "minWidth": 0,
+              "minHeight": 0
+            },
+            "recipe": {
+              "macro": "Sidebar",
+              "part": "main",
+              "props": {
+                "side": "left"
+              }
+            },
+            "accessibility": {
+              "role": "main"
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "stretch",
+          "gap": "$spacing.lg",
+          "width": "100%",
+          "minHeight": 0
+        },
+        "recipe": {
+          "macro": "Sidebar",
+          "part": "root",
+          "props": {
+            "side": "left"
+          }
+        }
+      }
     }
   ]
 }

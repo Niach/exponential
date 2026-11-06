@@ -1154,13 +1154,18 @@ function treeGuidesFixture() {
 /** #VAPP-285: fixtures/tree.json: treeRows over the file tree (literal
  *  `expanded` sets, a bound one, the lazy folder) and treeKey over visible
  *  rows (every key on every row, ltr and rtl). */
-const TREE_ROW_CASES: { name: string; expanded: unknown }[] = [
+const TREE_ROW_CASES: { name: string; expanded: unknown; rail?: unknown }[] = [
   { name: `nothing open`, expanded: [] },
   { name: `apps and web open`, expanded: [`apps`, `apps/web`] },
   { name: `a closed parent hides an open child`, expanded: [`apps/web`] },
   { name: `the lazy folder open: a loading row`, expanded: [`apps`, `apps/desktop`] },
   { name: `an empty folder open shows nothing under it`, expanded: [`packages`, `packages/ui`] },
   { name: `bound: every row, shown and open as calls`, expanded: { path: `/open` } },
+  // #VAPP-277 × #VAPP-285: a rail Sidebar hands the Tree `rail`.
+  { name: `rail: every row shows whatever expanded, no loading row`, expanded: [`apps/desktop`], rail: true },
+  { name: `rail false: as without it`, expanded: [`apps`, `apps/desktop`], rail: false },
+  { name: `bound rail: every row, shown = cond(rail, …)`, expanded: [`apps`, `apps/desktop`], rail: { path: `/collapsed` } },
+  { name: `bound rail and bound expanded`, expanded: { path: `/open` }, rail: { path: `/collapsed` } },
 ]
 const TREE_KEY_ROWS: TreeKeyRow[] = [
   { level: 1, expanded: true },
@@ -1175,9 +1180,9 @@ const TREE_KEYS = [`ArrowDown`, `ArrowUp`, `Home`, `End`, `ArrowRight`, `ArrowLe
 
 function treeFixture() {
   return {
-    $comment: `${HEADER} #VAPP-285 (docs/round-7-contract.md): the Tree's rules (src/tree.ts; the Rust core's tree.rs replays them). \`rows\`: treeRows(items, expanded) over \`items\` (a repository: two open-able folders, a lazy one, an empty one) for each \`expanded\`: the flat rows the macro draws, depth-first (a literal \`expanded\` keeps only the shown rows; a bound one keeps every row with \`shown\`/\`open\`/\`next\`/\`toggled\` as \`expr\` calls; an open lazy folder gets a \`loading\` row). \`keys\`: treeKey(rows, index, key, rtl) over \`keyRows\` (the visible rows: level, expanded on a branch) for every row × key, ltr and rtl: {focus: index} | {toggle: true} | null.`,
+    $comment: `${HEADER} #VAPP-285 (docs/round-7-contract.md): the Tree's rules (src/tree.ts; the Rust core's tree.rs replays them). \`rows\`: treeRows(items, expanded) over \`items\` (a repository: two open-able folders, a lazy one, an empty one) for each \`expanded\`: the flat rows the macro draws, depth-first (a literal \`expanded\` keeps only the shown rows; a bound one keeps every row with \`shown\`/\`open\`/\`next\`/\`toggled\` as \`expr\` calls; an open lazy folder gets a \`loading\` row; #VAPP-277 \`rail\` (a rail Sidebar's Tree): true = every row whatever \`expanded\`, no loading row; bound = every row, \`shown\` = cond(rail, true, the shown without it), a loading row's then false). \`keys\`: treeKey(rows, index, key, rtl) over \`keyRows\` (the visible rows: level, expanded on a branch) for every row × key, ltr and rtl: {focus: index} | {toggle: true} | null.`,
     items: FILE_TREE,
-    rows: TREE_ROW_CASES.map((c) => ({ name: c.name, expanded: c.expanded, rows: treeRows(FILE_TREE, c.expanded) })),
+    rows: TREE_ROW_CASES.map((c) => ({ name: c.name, expanded: c.expanded, ...(c.rail !== undefined ? { rail: c.rail } : {}), rows: treeRows(FILE_TREE, c.expanded, c.rail) })),
     keyRows: TREE_KEY_ROWS,
     keys: [false, true].flatMap((rtl) => TREE_KEY_ROWS.flatMap((_, index) => TREE_KEYS.map((key) => ({ index, key, rtl, result: treeKey(TREE_KEY_ROWS, index, key, rtl) })))),
   }
@@ -1249,8 +1254,18 @@ function railFoldCases(): ComponentCase[] {
   return [sidebar(`fold-collapsed`, true), sidebar(`fold-expanded`, false)]
 }
 
+/** #VAPP-277 × #VAPP-285: a Tree in a collapsed rail Sidebar: every row a
+ *  tile (the closed `packages` folder's children too, the lazy folder
+ *  without its loading row), no tree roles, levels or fold glyphs. */
+function railTreeCases(): ComponentCase[] {
+  return [{
+    name: `Sidebar/rail:tree`,
+    node: { id: `shell`, component: `Sidebar`, props: { rail: true, collapsed: true, collapseBelow: `never` }, slots: { sidebar: fileTree({ expanded: [`apps`, `apps/desktop`] }, { on: TREE_ON }) }, children: [{ id: `main`, component: `Text`, props: { text: `Pick a file.` } }] },
+  }]
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases(), ...railTreeCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })

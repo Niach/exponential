@@ -237,7 +237,7 @@ pub fn eval_expr(expr: &str, ctx: &ExprContext) -> Option<Value> {
         // #VAPP-285: `treeRows(props)` = a Tree's flat rows (`crate::tree`).
         if name == "treeRows" {
             let props = inner.as_ref().and_then(Value::as_object);
-            return Some(Value::Array(crate::tree::tree_rows(props.and_then(|p| p.get("items")), props.and_then(|p| p.get("expanded")))));
+            return Some(Value::Array(crate::tree::tree_rows(props.and_then(|p| p.get("items")), props.and_then(|p| p.get("expanded")), props.and_then(|p| p.get("rail")))));
         }
         if name == "len" {
             if is_dynamic_opt(&inner) {

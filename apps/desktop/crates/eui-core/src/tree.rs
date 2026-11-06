@@ -8,7 +8,10 @@
 //! `hasChildren` and no `children` array is LAZY (it folds through `load`,
 //! and while open a LOADING row sits under it). A literal `expanded` decides
 //! now (only the shown rows); a bound one emits every row with `shown` /
-//! `open` / `next` / `toggled` as `expr` calls over it.
+//! `open` / `next` / `toggled` as `expr` calls over it. `rail` (#VAPP-277:
+//! a rail Sidebar hands it to the Tree): true = every row shows whatever
+//! `expanded` (no loading row); bound = every row, `shown` = `cond(rail,
+//! true, <shown without rail>)` (the loading row: `false` on the rail).
 //!
 //! [`tree_key`]: the WAI-ARIA tree keys over the VISIBLE rows (level, and
 //! `expanded` on a branch): Up/Down, Home/End, the open key (ArrowRight,
@@ -60,9 +63,27 @@ struct Walk<'a> {
     bound: bool,
     open: Vec<String>,
     rows: Vec<Value>,
+    rail: &'a Value,
+    rail_bound: bool,
+    all: bool,
 }
 
 impl Walk<'_> {
+    /// Shown without the rail, then the rail's say (module docs).
+    fn shown(&self, ancestors: &[String], loading: bool) -> Value {
+        if self.all {
+            return Value::Bool(true);
+        }
+        if !self.rail_bound {
+            return if self.bound { all_open(self.expanded, ancestors) } else { Value::Bool(true) };
+        }
+        let off = if self.bound { all_open(self.expanded, ancestors) } else { Value::Bool(ancestors.iter().all(|a| self.open.contains(a))) };
+        if !loading && off == Value::Bool(true) {
+            return Value::Bool(true);
+        }
+        json!({"call": "cond", "args": {"if": self.rail.clone(), "then": !loading, "else": off}})
+    }
+
     fn walk(&mut self, list: Option<&Value>, depth: usize, ancestors: &[String]) {
         let Some(Value::Array(list)) = list else { return };
         for raw in list {
@@ -81,7 +102,7 @@ impl Walk<'_> {
             row.insert("depth".into(), json!(depth));
             row.insert("level".into(), json!(depth + 1));
             row.insert("kind".into(), Value::String(if branch { "branch" } else { "leaf" }.into()));
-            row.insert("shown".into(), if self.bound { all_open(self.expanded, ancestors) } else { Value::Bool(true) });
+            row.insert("shown".into(), self.shown(ancestors, false));
             routing(&mut row, branch, lazy);
             if let Some(icon) = item.get("icon") {
                 row.insert("icon".into(), icon.clone());
@@ -120,16 +141,20 @@ impl Walk<'_> {
                 row.insert("icon".into(), icon);
             }
             self.rows.push(Value::Object(row));
-            if !branch || (!self.bound && is_open != Value::Bool(true)) {
+            if !branch || (!self.bound && !self.all && !self.rail_bound && is_open != Value::Bool(true)) {
                 continue;
             }
             let mut inner = ancestors.to_vec();
             inner.push(id.clone());
             if lazy {
+                // A rail never shows the loading row; a bound rail only off the rail.
+                if self.all || (self.rail_bound && !self.bound && is_open != Value::Bool(true)) {
+                    continue;
+                }
                 if self.rows.len() >= MAX_RANGE_ITEMS {
                     return;
                 }
-                let shown = if self.bound { all_open(self.expanded, &inner) } else { Value::Bool(true) };
+                let shown = self.shown(&inner, true);
                 self.rows.push(json!({
                     "id": format!("{id}/loading"), "title": "$string.loading", "depth": depth + 1, "level": depth + 2, "kind": "loading", "shown": shown,
                     "pressEvent": "", "fold": "", "selectOn": "", "foldOn": "", "toggleOn": "", "pressable": false
@@ -142,14 +167,15 @@ impl Walk<'_> {
 }
 
 /// The flat rows of nested `items` under `expanded` (module docs).
-pub fn tree_rows(items: Option<&Value>, expanded: Option<&Value>) -> Vec<Value> {
+pub fn tree_rows(items: Option<&Value>, expanded: Option<&Value>, rail: Option<&Value>) -> Vec<Value> {
     let null = Value::Null;
     let expanded = expanded.unwrap_or(&null);
+    let rail = rail.unwrap_or(&null);
     let open = match expanded {
         Value::Array(list) => list.iter().filter_map(Value::as_str).map(str::to_string).collect(),
         _ => Vec::new(),
     };
-    let mut walk = Walk { expanded, bound: is_dynamic(expanded), open, rows: Vec::new() };
+    let mut walk = Walk { expanded, bound: is_dynamic(expanded), open, rows: Vec::new(), rail, rail_bound: is_dynamic(rail), all: rail == &Value::Bool(true) };
     walk.walk(items, 0, &[]);
     walk.rows
 }

@@ -352,6 +352,17 @@ and answers `load` by filling `children`. `expanded` and `value` bind.
 
 Prompt budget 9,235 → 9,326 tokens (a named exception: the Tree).
 
+On a rail (#VAPP-277: a collapsed rail Sidebar's `$pass` also hands a
+Tree `rail` + `railSide`) every row is a rail tile, like an authored Row
+and the foldable parent: `treeRows(props)` reads `rail` (true = every row
+whatever `expanded`, no loading row; bound = every row, `shown` =
+`cond(rail, true, <shown without it>)`), the rows take `rail`/`railSide`,
+depth 0, role `button` and no `level`/`expanded` (so no tree keys: one tab
+stop per tile, its keyboard focus opening the title's tooltip), the fold
+glyph (the leading slot) drops, the root is a `group`. Locked by
+`catalog-macros.json` `Sidebar/rail:tree`, `tree.json` `rail*` cases, the
+React + Solid `sidebar-rail.test.tsx` Tree case.
+
 Renderers:
 
 - [x] TS + Rust core: `treeRows` / `tree_rows`, `treeKey` / `tree_key`,

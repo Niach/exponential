@@ -54,4 +54,13 @@ describe(`Sidebar rail (#VAPP-277)`, () => {
     }
     expect(sides).toEqual([`right`, `left`, `left`, `right`])
   })
+
+  it(`a Tree on the rail (#VAPP-285): every row a button tile, one tab stop each, no tree roles`, () => {
+    const files = { id: `files`, component: `Tree`, props: { label: `Files`, expanded: [], items: [{ id: `src`, title: `src`, children: [{ id: `src/a.ts`, title: `a.ts` }] }, { id: `README.md`, title: `README.md` }] } }
+    const node: NestedNode = { ...shell(`left`), slots: { sidebar: files as NestedNode } }
+    const { container } = render(<ExponentialSurface root={tree(node)} theme="neutral" id="rail-tree" />)
+    const stops = [...container.querySelectorAll<HTMLElement>(`[tabindex]`)].filter((el) => el.tabIndex >= 0)
+    expect(stops.map((el) => [el.getAttribute(`role`), el.getAttribute(`aria-label`), el.hasAttribute(`aria-expanded`)])).toEqual([[`button`, `src`, false], [`button`, `a.ts`, false], [`button`, `README.md`, false]])
+    expect(container.querySelector(`[role="tree"], [role="treeitem"]`)).toBeNull()
+  })
 })

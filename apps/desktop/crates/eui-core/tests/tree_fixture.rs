@@ -16,7 +16,7 @@ fn tree_rows_flatten_like_the_reference() {
     let cases = f["rows"].as_array().unwrap();
     assert!(cases.len() > 5);
     for c in cases {
-        let rows = tree_rows(Some(&f["items"]), Some(&c["expanded"]));
+        let rows = tree_rows(Some(&f["items"]), Some(&c["expanded"]), c.get("rail"));
         assert_eq!(Value::Array(rows), c["rows"], "{}", c["name"]);
     }
 }

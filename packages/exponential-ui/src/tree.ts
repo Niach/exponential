@@ -10,6 +10,10 @@
 // `open` a boolean. A bound `expanded` (a binding or a call) cannot: EVERY
 // row comes out, `shown`/`open`/`next` become `expr` calls over it (CEL
 // `exists`) and `toggled` the list a fold writes back (the two-way `$set`).
+// `rail` (a rail Sidebar hands it to the Tree, #VAPP-277): true = every row
+// shows, whatever `expanded` (the children follow their parent as tiles; a
+// lazy branch's loading row never shows); a bound `rail` emits every row,
+// `shown` = `cond(rail, true, <shown without rail>)` (the loading row: false).
 //
 // treeKey: the WAI-ARIA tree keys over the VISIBLE rows (level 1 = a root,
 // `expanded` true/false on a branch, absent on a leaf): Up/Down move, Home/End
@@ -76,10 +80,21 @@ function allOpen(expanded: unknown, ids: string[]): unknown {
 }
 
 /** The flat rows of nested `items` under `expanded` (module comment). */
-export function treeRows(items: unknown, expanded: unknown): TreeRow[] {
+export function treeRows(items: unknown, expanded: unknown, rail?: unknown): TreeRow[] {
   const bound = isDynamic(expanded)
+  const railBound = isDynamic(rail)
+  const all = rail === true
   const open = new Set(Array.isArray(expanded) ? expanded.filter((v) => typeof v === `string`) : [])
   const rows: TreeRow[] = []
+  // Shown without the rail; then the rail's say (module comment).
+  const offShown = (ancestors: string[]): unknown => (bound ? allOpen(expanded, ancestors) : ancestors.every((a) => open.has(a)))
+  const shownOf = (ancestors: string[], loading: boolean): unknown => {
+    if (all) return true
+    if (!railBound) return bound ? allOpen(expanded, ancestors) : true
+    const off = offShown(ancestors)
+    if (!loading && off === true) return true
+    return { call: `cond`, args: { if: rail, then: !loading, else: off } }
+  }
   const walk = (list: unknown, depth: number, ancestors: string[]) => {
     if (!Array.isArray(list)) return
     for (const raw of list) {
@@ -91,7 +106,7 @@ export function treeRows(items: unknown, expanded: unknown): TreeRow[] {
       const hasArray = Array.isArray(item.children)
       const branch = hasArray || item.hasChildren === true
       const lazy = item.hasChildren === true && !hasArray
-      const shown = bound ? allOpen(expanded, ancestors) : true
+      const shown = shownOf(ancestors, false)
       const row: TreeRow = {
         id,
         title: typeof item.title === `string` ? item.title : id,
@@ -124,11 +139,13 @@ export function treeRows(items: unknown, expanded: unknown): TreeRow[] {
       // The default glyphs: a folder (open while open), a file.
       if (row.icon === undefined) row.icon = !branch ? `ui-file` : bound ? { call: `cond`, args: { if: isOpen, then: `ui-folder-open`, else: `ui-folder` } } : isOpen === true ? `ui-folder-open` : `ui-folder`
       rows.push(row)
-      if (!branch || (!bound && isOpen !== true)) continue
+      if (!branch || (!bound && !all && !railBound && isOpen !== true)) continue
       const inner = [...ancestors, id]
       if (lazy) {
+        // A rail never shows the loading row; a bound rail only off the rail.
+        if (all || (railBound && !bound && isOpen !== true)) continue
         if (rows.length >= MAX_RANGE_ITEMS) return
-        rows.push({ id: `${id}/loading`, title: `$string.loading`, depth: depth + 1, level: depth + 2, kind: `loading`, shown: bound ? allOpen(expanded, inner) : true, pressEvent: ``, fold: ``, selectOn: ``, foldOn: ``, toggleOn: ``, pressable: false })
+        rows.push({ id: `${id}/loading`, title: `$string.loading`, depth: depth + 1, level: depth + 2, kind: `loading`, shown: shownOf(inner, true), pressEvent: ``, fold: ``, selectOn: ``, foldOn: ``, toggleOn: ``, pressable: false })
         continue
       }
       walk(item.children, depth + 1, inner)

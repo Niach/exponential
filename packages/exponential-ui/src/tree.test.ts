@@ -8,7 +8,7 @@ import { treeKey, treeRows, type TreeKeyRow } from "./tree"
 describe(`fixtures/tree.json`, () => {
   test(`treeRows: the flat rows for every expanded set`, () => {
     expect(fixture.rows.length).toBeGreaterThan(5)
-    for (const c of fixture.rows) expect(JSON.parse(JSON.stringify(treeRows(fixture.items, c.expanded))), c.name).toEqual(c.rows)
+    for (const c of fixture.rows) expect(JSON.parse(JSON.stringify(treeRows(fixture.items, c.expanded, (c as { rail?: unknown }).rail))), c.name).toEqual(c.rows)
   })
 
   test(`treeKey: every key on every row, ltr and rtl`, () => {
