@@ -142,37 +142,21 @@ private fun SessionXrefSpecimens() {
     }
 }
 
-/** #EXP-1611 (styleguide entry `pr-checks`): THE header Merge pill in its
- *  four check states (none, pending = the spinner, success, failure = the
- *  plain pill with the red ci-failed glyph), then THE header `…`'s Checks
- *  submenu pushed open as a static menu panel over pr-checks.json `specimen`. */
+/** #EXP-1611 (styleguide entry `pr-checks`), #EXP-1710: THE header merge
+ *  STATUS pill for EVERY merge-train.json `statusPill` case, case for case in
+ *  fixture order on one wrapping row (web's specimen) — then THE header `…`'s Checks submenu pushed open as
+ *  a static menu panel over pr-checks.json `specimen`. */
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun PrChecksSpecimens() {
-    val states = listOf(
-        DomainContract.prChecksStateNone,
-        DomainContract.prChecksStatePending,
-        DomainContract.prChecksStateSuccess,
-        DomainContract.prChecksStateFailure,
-    )
-    // Web's specimen: the four pills on ONE wrapping row.
+    // Every merge-train.json `statusPill` case, in fixture order (web's specimen).
+    val pills = com.exponential.app.domain.MergeTrain.SPECIMEN.map(com.exponential.app.domain.MergeTrain::statusPill)
+    // Web's specimen: the pills on ONE wrapping row.
     androidx.compose.foundation.layout.FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        states.forEach { state ->
-            com.exponential.app.ui.work.MergePill(
-                merge = com.exponential.app.ui.work.ChangesMergeControl(
-                    label = DomainContract.diffUiMergePr,
-                    loading = false,
-                    error = null,
-                    confirmPrompt = com.exponential.app.domain.Prompts.MergeRunPr.prompt(12),
-                    onConfirm = {},
-                    checksState = state,
-                ),
-                header = true,
-            )
-        }
+        pills.forEach { view -> com.exponential.app.ui.work.MergeStatusPill(view = view, onClick = if (view.tap != null) ({}) else null) }
     }
     val now = com.exponential.app.domain.WireTimestamps.parseEpochMs(com.exponential.app.domain.PrChecks.SPECIMEN_NOW) ?: 0L
     val entry = com.exponential.app.ui.thread.prChecksMenuItem(com.exponential.app.domain.PrChecks.SPECIMEN, now) {} ?: return

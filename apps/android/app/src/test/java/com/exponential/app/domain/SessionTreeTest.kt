@@ -918,4 +918,38 @@ class SessionTreeTest {
 
     @Test
     fun blockedKindUnknownReadsNeedsYou() = assertEquals("Needs you", blockedWord("quota"))
+
+    // #EXP-1710 (merge-train.json `copy.events`): the train's `pr_merge` line
+    // reads by its card's `mergeOutcome`; none (or an unknown one) keeps
+    // `Auto-merge of PR {pr}`.
+    @Test
+    fun `the pr_merge line reads by mergeOutcome`() {
+        val root = SessionTree.Session(
+            id = "r1", teamId = "t1", parentId = null, rootId = "r1", userId = "me", status = "running", busy = false,
+            needsInput = false, blocked = null, shared = true, title = "Root", guide = null, startedAt = null, endedAt = null,
+            createdAt = "2027-01-15T07:00:00.000Z", updatedAt = "2027-01-15T07:00:00.000Z",
+        )
+        fun line(outcome: String?): String? {
+            val card = Json.parseToJsonElement(
+                if (outcome == null) """{"kind":"event","event":"pr_merge","pullRequestId":"pr1"}"""
+                else """{"kind":"event","event":"pr_merge","pullRequestId":"pr1","mergeOutcome":"$outcome"}""",
+            ).jsonObject
+            val message = SessionTree.Message(
+                id = "m1", sessionId = "r1", authorKind = "user", authorId = "me", body = "", card = card,
+                answeredAt = null, consumedAt = null, createdAt = "2027-01-15T08:00:00.000Z", authorSessionId = null,
+            )
+            val view = SessionTree.buildSessionThread(
+                root = root, sessions = listOf(root), sessionIssues = emptyList(), issues = emptyList(),
+                messages = listOf(message), pullRequests = listOf(SessionTree.PullRequest("pr1", 12, "open")),
+                now = "2027-01-15T09:00:00.000Z",
+            )
+            return view.rows.filterIsInstance<SessionTree.ThreadRow.Event>().singleOrNull()?.text
+        }
+        assertEquals("Merged PR #12", line("merged"))
+        assertEquals("Conflict on PR #12", line("conflict"))
+        assertEquals("Checks failing on PR #12", line("failing"))
+        assertEquals("Auto-merge stopped on PR #12", line("held"))
+        assertEquals("Auto-merge of PR #12", line(null))
+        assertEquals("Auto-merge of PR #12", line("later"))
+    }
 }

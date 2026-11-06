@@ -515,6 +515,10 @@ class SessionsApi @Inject constructor(
 @Serializable
 private data class PullRequestIdInput(val pullRequestId: String)
 
+/** #EXP-1710: `pullRequests.hold` (hold = false = Resume auto-merge / Retry). */
+@Serializable
+private data class HoldPullRequestInput(val pullRequestId: String, val hold: Boolean)
+
 @Serializable
 private data class MergePullRequestInput(val pullRequestId: String, val stack: Boolean? = null)
 
@@ -551,6 +555,28 @@ class PullRequestsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = MergePullRequestInput.serializer(),
             outputSerializer = PullRequestMergeResult.serializer(),
         )
+
+    /** #EXP-1710 (merge-train.json MENU): an owner's Merge now — next,
+     *  alone, untested (a stack member lands its whole stack). */
+    suspend fun mergeNow(accountId: String, pullRequestId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "pullRequests.mergeNow",
+            input = PullRequestIdInput(pullRequestId),
+            inputSerializer = PullRequestIdInput.serializer(),
+        )
+    }
+
+    /** #EXP-1710: a member's Hold auto-merge ([hold] true) or Resume
+     *  auto-merge / Needs you Retry ([hold] false). */
+    suspend fun hold(accountId: String, pullRequestId: String, hold: Boolean) {
+        trpc.mutationUnit(
+            accountId,
+            path = "pullRequests.hold",
+            input = HoldPullRequestInput(pullRequestId, hold),
+            inputSerializer = HoldPullRequestInput.serializer(),
+        )
+    }
 
     /** Close without merging. */
     suspend fun close(accountId: String, pullRequestId: String) {

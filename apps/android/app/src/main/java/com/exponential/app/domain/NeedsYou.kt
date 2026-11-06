@@ -70,6 +70,13 @@ object NeedsYou {
         val checksState: String?,
         val basePullRequestId: String?,
         val createdAt: String,
+        /** #EXP-1710: contract prMergeState (null = a row from before the train). */
+        val mergeState: String? = null,
+        /** #EXP-1710: `person` | `bounces` | `timeout`. */
+        val holdReason: String? = null,
+        /** #EXP-1710: when the opener session's device went offline (wire
+         *  timestamp), null while online or unknown. */
+        val deviceOfflineSince: String? = null,
     )
 
     // ── output ─────────────────────────────────────────────────────────────
@@ -92,6 +99,10 @@ object NeedsYou {
         val meta: String,
         val age: String,
         val createdAt: String,
+        /** #EXP-1710: a stuck PR's actions (THE Button sm row); empty otherwise. */
+        val actions: List<MergeTrain.StuckAction> = emptyList(),
+        /** #EXP-1710: the PR a [Kind.Pr] row is about (its actions' target). */
+        val pullRequestNumber: Long? = null,
     )
 
     // ── the fold ───────────────────────────────────────────────────────────
@@ -165,7 +176,49 @@ object NeedsYou {
         )
     }
 
-    /** #EXP-1699: the PRs ready to merge (`prCases`). */
+    /** #EXP-1710 (merge-train.json NEEDS YOU, `stuckRow`): a live PR the
+     *  train gave up on, one row titled `Auto-merge stuck on #N` with its
+     *  actions (Retry, Merge now for owners, Close PR); opens Results. */
+    private fun stuckRows(
+        now: Long,
+        me: String?,
+        owner: Boolean,
+        sessions: List<SessionInput>,
+        pullRequests: List<PullRequestInput>,
+    ): List<Row> {
+        val byId = sessions.associateBy { it.id }
+        return pullRequests.mapNotNull { pr ->
+            val root = pr.rootSessionId?.let { byId[it] } ?: return@mapNotNull null
+            if (pr.state != "open" && pr.state != "draft") return@mapNotNull null
+            if (root.agentId != null && root.userId != me) return@mapNotNull null
+            val stuck = MergeTrain.stuckRow(
+                number = pr.number,
+                state = pr.mergeState ?: return@mapNotNull null,
+                holdReason = pr.holdReason,
+                deviceOfflineSince = pr.deviceOfflineSince,
+                nowMs = now,
+                owner = owner,
+            ) ?: return@mapNotNull null
+            Row(
+                messageId = pr.id,
+                sessionId = root.id,
+                rootId = root.id,
+                kind = Kind.Pr,
+                opens = if (root.agentId == null) Opens.Results else Opens.Chat,
+                title = stuck.title,
+                chat = root.name,
+                meta = stuck.meta,
+                age = ResultsTab.age(ms(pr.createdAt), now),
+                createdAt = pr.createdAt,
+                actions = stuck.actions,
+                pullRequestNumber = pr.number,
+            )
+        }
+    }
+
+    /** #EXP-1699: the PRs ready to merge (`prCases`). #EXP-1710: with the
+     *  merge train they hold only in `approval` mode, never for a PR the
+     *  train already took (queued, testing, merged). */
     private fun pullRequestRows(
         now: Long,
         me: String?,
@@ -178,6 +231,7 @@ object NeedsYou {
         return pullRequests.mapNotNull { pr ->
             val root = pr.rootSessionId?.let { byId[it] } ?: return@mapNotNull null
             if (pr.state != "open" || pr.checksState != "success") return@mapNotNull null
+            if (pr.mergeState in TRAIN_TOOK) return@mapNotNull null
             if (root.agentId != null && root.userId != me) return@mapNotNull null
             if (root.id in working || (pr.basePullRequestId != null && pr.basePullRequestId in live)) return@mapNotNull null
             Row(
@@ -191,9 +245,12 @@ object NeedsYou {
                 meta = "#${pr.number}",
                 age = ResultsTab.age(ms(pr.createdAt), now),
                 createdAt = pr.createdAt,
+                pullRequestNumber = pr.number,
             )
         }
     }
+
+    private val TRAIN_TOOK = setOf("queued", "testing", "merged")
 
     /** THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready
      *  to merge, newest first. */
@@ -203,6 +260,15 @@ object NeedsYou {
         sessions: List<SessionInput>,
         messages: List<MessageInput>,
         pullRequests: List<PullRequestInput> = emptyList(),
+        /**
+         * #EXP-1710: the team's contract teamMergeMode. `auto` = no PR waits
+         * for a person (the EXP-1699 ready rows go), `approval` = they stay.
+         * The default `approval` keeps the pre-train fixture cases (needs-you.json
+         * `prCases` carry no `mergeMode` yet).
+         */
+        mergeMode: String = MergeTrain.MODE_APPROVAL,
+        /** #EXP-1710: the viewer owns the team (a stuck row's Merge now). */
+        owner: Boolean = false,
     ): List<Row> {
         // Another member's agent conversation is theirs (chats.json `listAgents`).
         val readable = sessions.filter { it.agentId == null || it.userId == me }.associateBy { it.id }
@@ -225,7 +291,14 @@ object NeedsYou {
         for (row in unnamed) {
             if (waitingIn.add(row.sessionId)) rows[row.messageId] = row
         }
-        return (rows.values + pullRequestRows(now, me, sessions, pullRequests))
+        val stuck = stuckRows(now, me, owner, sessions, pullRequests)
+        val stuckIds = stuck.mapTo(HashSet()) { it.messageId }
+        val ready = if (mergeMode == MergeTrain.MODE_AUTO) {
+            emptyList()
+        } else {
+            pullRequestRows(now, me, sessions, pullRequests).filter { it.messageId !in stuckIds }
+        }
+        return (rows.values + stuck + ready)
             .sortedWith(compareBy<Row> { it.kind == Kind.Pr }.thenByDescending { ms(it.createdAt) }.thenByDescending { it.messageId })
     }
 }

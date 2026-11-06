@@ -57,4 +57,13 @@ class TeamEntityDecodeTest {
         assertTrue(json.decodeFromString(TeamEntity.serializer(), row(",\n  \"yoloMode\": true")).yoloMode)
         assertFalse(json.decodeFromString(TeamEntity.serializer(), row("")).yoloMode)
     }
+
+    // #EXP-1710: merge_mode (contract teamMergeMode) arrives as text or
+    // camelCase; an absent column = `auto`, the server's default.
+    @Test
+    fun `merge_mode decodes from Electric, tRPC camelCase, and absence`() {
+        assertEquals("approval", json.decodeFromString(TeamEntity.serializer(), row(",\n  \"merge_mode\": \"approval\"")).mergeMode)
+        assertEquals("approval", json.decodeFromString(TeamEntity.serializer(), row(",\n  \"mergeMode\": \"approval\"")).mergeMode)
+        assertEquals("auto", json.decodeFromString(TeamEntity.serializer(), row("")).mergeMode)
+    }
 }

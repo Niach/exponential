@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +28,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,7 +41,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.ClosePr
+import com.exponential.app.domain.MergeTrain
 import com.exponential.app.domain.NeedsYou
+import com.exponential.app.domain.Prompts
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
+import com.exponential.app.ui.components.GlassSubmitButton
+import com.exponential.app.ui.components.SubmitSize
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.components.ChatEntryRow
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.LocalPageHeaderActions
@@ -105,8 +119,15 @@ private val NeedsYou.Row.glyph: ImageVector
 /** One row (THE inbox page's flat row): the leading glyph in the needs-you tone,
  *  line 1 the title then the age muted trailing, line 2 the chat then ` · meta`,
  *  muted. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NeedsYouRowItem(row: NeedsYou.Row, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun NeedsYouRowItem(
+    row: NeedsYou.Row,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** #EXP-1710: a stuck PR row's action (Retry, Merge now, Close PR). */
+    onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
+) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     Row(
         modifier
@@ -114,6 +135,7 @@ fun NeedsYouRowItem(row: NeedsYou.Row, onClick: () -> Unit, modifier: Modifier =
             .flatRow()
             .clickable(onClick = onClick)
             .testTag(NeedsYou.TestIds.ROW)
+            .then(if (row.actions.isNotEmpty()) Modifier.testTag(MergeTrain.TestIds.STUCK_ROW) else Modifier)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -144,12 +166,42 @@ fun NeedsYouRowItem(row: NeedsYou.Row, onClick: () -> Unit, modifier: Modifier =
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // #EXP-1710 (merge-train.json NEEDS YOU, web
+            // `needs-you-stuck-actions.tsx`): a stuck PR's actions, THE
+            // Button sm outline, one wrapping row under the meta line.
+            if (row.actions.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    row.actions.forEach { action ->
+                        GlassSubmitButton(
+                            label = stuckActionLabel(action),
+                            onClick = { onAction(row, action) },
+                            size = SubmitSize.Small,
+                            outline = true,
+                            modifier = Modifier.testTag("${MergeTrain.TestIds.STUCK_ROW}-${action.wire}"),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
+private fun stuckActionLabel(action: MergeTrain.StuckAction): String = when (action) {
+    MergeTrain.StuckAction.Retry -> MergeTrain.Copy.NeedsYou.RETRY
+    MergeTrain.StuckAction.MergeNow -> MergeTrain.Copy.NeedsYou.MERGE_NOW
+    MergeTrain.StuckAction.ClosePr -> MergeTrain.Copy.NeedsYou.CLOSE
+}
+
 /** THE list's items: one reading column; no row = THE EmptyState. */
-fun LazyListScope.needsYouList(rows: List<NeedsYou.Row>, onOpen: (NeedsYou.Row) -> Unit) {
+fun LazyListScope.needsYouList(
+    rows: List<NeedsYou.Row>,
+    onOpen: (NeedsYou.Row) -> Unit,
+    onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
+) {
     if (rows.isEmpty()) {
         item(key = "__empty__") {
             Box(Modifier.fillMaxWidth().height(320.dp)) {
@@ -158,7 +210,7 @@ fun LazyListScope.needsYouList(rows: List<NeedsYou.Row>, onOpen: (NeedsYou.Row) 
         }
     } else {
         items(rows, key = { "needs_you_${it.messageId}" }) { row ->
-            NeedsYouRowItem(row, onClick = { onOpen(row) }, modifier = Modifier.padding(horizontal = 8.dp))
+            NeedsYouRowItem(row, onClick = { onOpen(row) }, modifier = Modifier.padding(horizontal = 8.dp), onAction = onAction)
         }
     }
 }
@@ -172,6 +224,7 @@ fun NeedsYouPageContent(
     onOpenInbox: () -> Unit,
     inboxUnread: Boolean,
     modifier: Modifier = Modifier,
+    onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
 ) {
     val shell = LocalPageHeaderActions.current
     LazyColumn(
@@ -189,7 +242,7 @@ fun NeedsYouPageContent(
                 ),
             )
         }
-        needsYouList(rows, onOpen)
+        needsYouList(rows, onOpen, onAction)
     }
 }
 
@@ -203,6 +256,10 @@ fun NeedsYouPage(
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
     val rows by viewModel.needsYouRows.collectAsStateWithLifecycle()
+    // #EXP-1710: a stuck row's Merge now asks `merge-now-pr`, Close PR asks
+    // close-pr.json's confirm (the thread's); Retry resumes at once.
+    var mergeNowFor by remember { mutableStateOf<NeedsYou.Row?>(null) }
+    var closeFor by remember { mutableStateOf<NeedsYou.Row?>(null) }
     Scaffold(containerColor = Color.Transparent) { padding ->
         NeedsYouPageContent(
             rows = rows,
@@ -211,6 +268,46 @@ fun NeedsYouPage(
             onOpenInbox = onOpenInbox,
             inboxUnread = inboxUnread,
             modifier = Modifier.padding(top = padding.calculateTopPadding()),
+            onAction = { row, action ->
+                when (action) {
+                    MergeTrain.StuckAction.Retry -> viewModel.retryPullRequest(row.messageId)
+                    MergeTrain.StuckAction.MergeNow -> mergeNowFor = row
+                    MergeTrain.StuckAction.ClosePr -> closeFor = row
+                }
+            },
+        )
+    }
+    mergeNowFor?.let { row ->
+        PromptAlert(
+            prompt = Prompts.MergeNowPr.prompt(row.pullRequestNumber?.toInt()),
+            onDismiss = { mergeNowFor = null },
+            handlers = mapOf(
+                "merge" to {
+                    mergeNowFor = null
+                    viewModel.mergePullRequestNow(row.messageId)
+                },
+            ),
+        )
+    }
+    closeFor?.let { row ->
+        val linked by remember(row.messageId) { viewModel.linkedIssueCount(row.messageId) }.collectAsStateWithLifecycle(0)
+        GlassAlert(
+            title = ClosePr.TITLE,
+            body = ClosePr.body((linked - 1).coerceAtLeast(0)),
+            onDismiss = { closeFor = null },
+            trailing = listOf(
+                GlassAlertAction(STACK_CONFIRM_CANCEL_LABEL, onClick = { closeFor = null }),
+                GlassAlertAction(
+                    ClosePr.CONFIRM,
+                    destructive = true,
+                    testTag = "close-pr-confirm",
+                    onClick = {
+                        closeFor = null
+                        viewModel.closePullRequest(row.messageId)
+                    },
+                ),
+            ),
+            defaultAction = 0,
         )
     }
 }

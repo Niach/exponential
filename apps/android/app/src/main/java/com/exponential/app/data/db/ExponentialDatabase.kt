@@ -77,7 +77,9 @@ import androidx.room.TypeConverters
     //      explicit [MIGRATION_116_117]; only the messages shape refetches.
     // v118 (#VAPP-241): app_records.share_name (public links), explicit
     //      [MIGRATION_117_118]; only the app_records shape refetches.
-    version = 118,
+    // v119 (#EXP-1710): pull_requests.merge_* + teams.merge_mode (the merge
+    //      train), explicit [MIGRATION_118_119]; only those two shapes refetch.
+    version = 119,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

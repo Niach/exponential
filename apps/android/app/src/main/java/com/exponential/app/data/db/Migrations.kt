@@ -240,3 +240,29 @@ val MIGRATION_117_118: Migration = object : Migration(117, 118) {
         )
     }
 }
+
+/**
+ * v119 (#EXP-1710, merge-train.json): the merge train's synced state —
+ * `pull_requests.merge_state / merge_wait / merge_attempts / merge_hold /
+ * merge_queued_since / merge_now / merge_position / merge_train_id` and
+ * `teams.merge_mode`. Self-contained (renumbering = this object's two
+ * versions + the database version): only the pull_requests and teams shapes
+ * refetch, so synced rows re-arrive carrying the columns.
+ */
+val MIGRATION_118_119: Migration = object : Migration(118, 119) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_state` TEXT NOT NULL DEFAULT 'checks'")
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_wait` TEXT")
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_attempts` INTEGER")
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_hold` TEXT")
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_queued_since` TEXT")
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_now` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_position` INTEGER")
+        db.execSQL("ALTER TABLE `pull_requests` ADD COLUMN `merge_train_id` TEXT")
+        db.execSQL("ALTER TABLE `teams` ADD COLUMN `merge_mode` TEXT NOT NULL DEFAULT 'auto'")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` IN ('pull_requests', 'teams')",
+        )
+    }
+}

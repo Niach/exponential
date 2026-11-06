@@ -1893,9 +1893,10 @@ class StyleguideScreenshotsTest {
         showThreadCards(ThreadCardsKind.SessionRow)
         flow.screenshot("sg_session-row")
 
-        // --- sg_pr-checks (#EXP-1611): THE header Merge pill in its four
-        // check states + the `…`'s Checks submenu pushed open over
-        // pr-checks.json `specimen`, by the real MergePill / ChatMenuPanel.
+        // --- sg_pr-checks (#EXP-1611, #EXP-1710): THE header merge STATUS
+        // pill in its states (merge-train.json `statusPill`) + the `…`'s
+        // Checks submenu pushed open over pr-checks.json `specimen`, by the
+        // real MergeStatusPill / ChatMenuPanel.
         showThreadCards(ThreadCardsKind.PrChecks)
         flow.screenshot("sg_pr-checks")
 

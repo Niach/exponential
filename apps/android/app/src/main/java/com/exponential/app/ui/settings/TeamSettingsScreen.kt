@@ -4,6 +4,11 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.TeamImage
 import com.exponential.app.domain.TeamZone
+import com.exponential.app.domain.MergeTrain
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerMode
+import com.exponential.app.ui.components.PickerValueRow
 import com.exponential.app.ui.components.SectionBand
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
@@ -276,15 +281,15 @@ fun TeamSettingsScreen(
 
 /**
  * General (web `TeamGeneralSection`): the General band over the Name row
- * (saves itself on blur and Done, EXP-818), the Yolo mode switch
- * (EXP-1105), then the Team prompt band (its autosave caption) over the raw
+ * (saves itself on blur and Done, EXP-818), the Merge select (#EXP-1710,
+ * merge-train.json MODE), then the Team prompt band (its autosave caption) over the raw
  * monospace field and its byte / token counter (EXP-1025).
  */
 @Composable
 private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewModel) {
     val team = state.team ?: return
     val nameSaving by viewModel.teamNameSaving.collectAsStateWithLifecycle()
-    val yoloBusy by viewModel.yoloBusy.collectAsStateWithLifecycle()
+    val mergeModeBusy by viewModel.mergeModeBusy.collectAsStateWithLifecycle()
     val zoneBusy by viewModel.zoneBusy.collectAsStateWithLifecycle()
     val imageBusy by viewModel.imageBusy.collectAsStateWithLifecycle()
     // #EXP-1645: the composer's two system pickers (the files one is the way
@@ -339,14 +344,32 @@ private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewMod
                 )
             }
         }
+        // #EXP-1710 (merge-train.json MODE): the merge train's ONE select
+        // row (replaces Yolo mode), owners only: Automatic | After approval.
         Column(Modifier.fillMaxWidth().glassGroup()) {
-            SwitchRow(
-                title = "Yolo mode",
-                checked = team.yoloMode,
-                onCheckedChange = viewModel::setYoloMode,
-                enabled = !yoloBusy,
-                modifier = Modifier.testTag("team-yolo-mode"),
-            )
+            val modes = remember {
+                listOf(
+                    PickerItem(MergeTrain.MODE_AUTO, MergeTrain.Copy.Settings.AUTO),
+                    PickerItem(MergeTrain.MODE_APPROVAL, MergeTrain.Copy.Settings.APPROVAL),
+                )
+            }
+            val enabled = state.isOwner && !mergeModeBusy
+            Picker(
+                items = modes,
+                mode = PickerMode.Single,
+                value = setOf(team.mergeMode),
+                onChange = { picked -> picked.firstOrNull()?.takeIf { it != team.mergeMode }?.let(viewModel::setMergeMode) },
+                title = MergeTrain.Copy.Settings.LABEL,
+                enabled = enabled,
+            ) { open ->
+                PickerValueRow(
+                    label = MergeTrain.Copy.Settings.LABEL,
+                    value = modes.firstOrNull { it.value == team.mergeMode }?.label ?: MergeTrain.Copy.Settings.AUTO,
+                    onClick = open,
+                    enabled = enabled,
+                    modifier = Modifier.testTag(MergeTrain.TestIds.SETTINGS_ROW),
+                )
+            }
         }
         Column {
             val status = when {

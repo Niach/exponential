@@ -5696,8 +5696,8 @@
         "file": "shots/pr-checks/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 17148,
-        "sha256": "b549d9416a0437ac577f3548f1b2bdff5e11c9a5a28995ec2e3909041fb5723e"
+        "bytes": 35440,
+        "sha256": "2e6f3c9ad94efc53892ccc563b00340a516016328d29bcc24047910bace80624"
       },
       "desktop": {
         "file": "shots/pr-checks/desktop.webp",
@@ -6345,8 +6345,8 @@
         "file": "shots/settings-general/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 25172,
-        "sha256": "3876385dcaf0affbe72e3668e3fe565f056c10ddc43421e8dfab8bd520453603"
+        "bytes": 24764,
+        "sha256": "f036c1c8b14f62855f34dd00c96e9ca1c7d6e056dfb88a2014846760dc698131"
       },
       "desktop": {
         "file": "shots/settings-general/desktop.webp",

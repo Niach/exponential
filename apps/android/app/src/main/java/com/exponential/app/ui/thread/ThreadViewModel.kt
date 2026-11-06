@@ -853,6 +853,15 @@ class ThreadViewModel @Inject constructor(
     fun closePullRequest(pullRequestId: String) =
         run("close", "the PR") { pullRequestsApi.close(it, pullRequestId) }
 
+    /** #EXP-1710 (merge-train.json MENU): an owner's Merge now (after the
+     *  `merge-now-pr` alert); a failure toasts `Couldn't merge the PR`. */
+    fun mergePullRequestNow(pullRequestId: String) =
+        run("merge", "the PR") { pullRequestsApi.mergeNow(it, pullRequestId) }
+
+    /** #EXP-1710: Hold auto-merge ([hold] true) / Resume auto-merge. */
+    fun holdPullRequest(pullRequestId: String, hold: Boolean) =
+        run(if (hold) "hold" else "resume", "auto-merge") { pullRequestsApi.hold(it, pullRequestId, hold) }
+
     private val teamBoards: Flow<List<BoardEntity>> = teamId.flatMapLatest { team ->
         if (team == null) flowOf(emptyList())
         else dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeByTeam(team) }
