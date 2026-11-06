@@ -7,10 +7,13 @@ import UserNotifications
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, MessagingDelegate, Sendable {
     private let pushTokenManager: PushTokenManager
     private let deepLinkBus: DeepLinkBus
+    /// #EXP-1641: the push's own actions (approve, answer, reply…).
+    private let actions: NotificationActionRunner
 
-    init(pushTokenManager: PushTokenManager, deepLinkBus: DeepLinkBus) {
+    init(pushTokenManager: PushTokenManager, deepLinkBus: DeepLinkBus, actions: NotificationActionRunner) {
         self.pushTokenManager = pushTokenManager
         self.deepLinkBus = deepLinkBus
+        self.actions = actions
         super.init()
     }
 
@@ -44,6 +47,18 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        // #EXP-1641: an action button / reply runs in place, the app not
+        // opened; `open` (foreground) and a tap route below.
+        if NotificationActionRunner.handles(response.actionIdentifier) {
+            let tap = NotificationActionRunner.tap(response)
+            let actions = actions
+            nonisolated(unsafe) let done = completionHandler
+            Task {
+                await actions.run(tap)
+                done()
+            }
+            return
+        }
         let userInfo = response.notification.request.content.userInfo
         // The payload's userId identifies which signed-in account the push
         // was for; the navigator opens it under that account instead of

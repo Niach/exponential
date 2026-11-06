@@ -30,6 +30,12 @@ public struct SessionsStopResult: Decodable, Sendable, Equatable {
 
 // MARK: - Other inputs
 
+/// #EXP-1641: a write into sealed content this install could not seal (no
+/// key, no crypto, the card not here): nothing was sent.
+public struct SealedOnlyError: Error, Equatable, Sendable {
+    public init() {}
+}
+
 /// A plan card's decision (`sessions.answer({decision})`).
 public enum PlanDecision: String, Encodable, Sendable {
     case approved, rejected
@@ -207,6 +213,19 @@ public final class SessionsApi: Sendable {
         return result
     }
 
+    /// #EXP-1641: a message into an ENCRYPTED tree (`rootId`) that never
+    /// leaves in clear: throws `SealedOnlyError` when it cannot be sealed
+    /// here, nothing sent.
+    @discardableResult
+    public func sendSealed(accountId: String, _ input: SessionsSendInput, rootId: String) async throws -> SessionsSendResult {
+        guard let prepared = await sealer?.prepareSealed(accountId: accountId, input, rootId: rootId) else {
+            throw SealedOnlyError()
+        }
+        let result: SessionsSendResult = try await trpc.mutation(accountId: accountId, path: "sessions.send", input: prepared.input)
+        await sealer?.completed(prepared, result: result)
+        return result
+    }
+
     /// Interrupt the session's current turn (it stays live, goes idle): the
     /// TURN interrupt (composer stop, agent menu Stop). `delivered == false`
     /// → toast `Chats.Copy.Toasts.stopNotDelivered`.
@@ -277,7 +296,8 @@ public final class SessionsApi: Sendable {
         fresh: Bool = false,
         feedback: String? = nil,
         answers: CardAnswers? = nil,
-        surfaceData: CardJSON? = nil
+        surfaceData: CardJSON? = nil,
+        sealedOnly: Bool = false
     ) async throws {
         let input = AnswerMessageInput(
             messageId: messageId, answer: answer, decision: decision,
@@ -289,6 +309,8 @@ public final class SessionsApi: Sendable {
             try await trpc.mutationVoid(accountId: accountId, path: "sessions.answer", input: sealed)
             return
         }
+        // #EXP-1641: a sealed card's answer never leaves in clear.
+        if sealedOnly { throw SealedOnlyError() }
         try await trpc.mutationVoid(accountId: accountId, path: "sessions.answer", input: input)
     }
 

@@ -60,6 +60,15 @@ public enum QuestionPush {
         return shown.trimmingCharacters(in: .whitespaces).isEmpty ? fallback : shown
     }
 
+    /// #EXP-1641: the opened ask text of a delivered push (nil = not a
+    /// sealed card, or no key held / it does not open here).
+    public static func openedAskText(data: [AnyHashable: Any], keysFor: (String) -> [UInt32: Data]?) -> String? {
+        guard let sealed = data[sealedTextKey] as? String, !sealed.isEmpty,
+              let rootId = data[rootIdKey] as? String, !rootId.isEmpty,
+              let keys = keysFor(rootId), !keys.isEmpty else { return nil }
+        return open(sealed, keys: keys)
+    }
+
     /// The opened text of a body envelope, nil on any status but `opened`.
     static func open(_ envelope: String, keys: [UInt32: Data]) -> String? {
         #if ENET_PUSH
