@@ -323,3 +323,48 @@ describe(`fixtures/interactions-round1.json foldRow`, () => {
     })
   }
 })
+
+interface TreeCase {
+  name: string
+  open: string[]
+  rtl: boolean
+  step: { press: string } | { key: string; on: string }
+  events: string[]
+  after: { open: string[]; picked: string | null; focus: string | null; visible?: string[] }
+}
+
+// #VAPP-285: the Tree: a leaf press selects, a branch press folds, a lazy
+// branch fetches, the arrows follow treeKey over the visible rows.
+describe(`fixtures/interactions-round1.json tree`, () => {
+  const t = (fixture as unknown as { tree: { surface: NestedNode; rowIds: Record<string, string>; cases: TreeCase[] } }).tree
+  const itemOf = (nodeId: string | null | undefined) => Object.entries(t.rowIds).find(([, id]) => id === nodeId)?.[0] ?? null
+  for (const c of t.cases) {
+    it(`tree: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const data: Record<string, unknown> = { open: c.open }
+      const root = tree(c.rtl ? { id: `rtl`, component: `Box`, style: { direction: `rtl` }, children: [t.surface] } : t.surface)
+      const { container } = render(
+        <ExponentialSurface root={root} data={data} theme="neutral" id={`tree`} host={{ onAction: (e) => void actions.push(e) }} />
+      )
+      const row = (item: string) => container.querySelector(`[data-xui-id="${t.rowIds[item]}"]`) as HTMLElement
+      if (`press` in c.step) fireEvent.click(row(c.step.press))
+      else {
+        row(c.step.on).focus()
+        fireEvent.keyDown(row(c.step.on), { key: c.step.key })
+      }
+      expect(actions.map((a) => a.name)).toEqual(c.events)
+      const focused = (document.activeElement as HTMLElement | null)?.getAttribute(`data-xui-id`)
+      const start = `press` in c.step ? null : t.rowIds[c.step.on]
+      expect(focused === start ? null : itemOf(focused)).toBe(c.after.focus)
+      const open = [...container.querySelectorAll(`[role="treeitem"][aria-expanded="true"]`)].map((el) => itemOf(el.getAttribute(`data-xui-id`)))
+      // /open as the DOM shows it: the open rows that are visible (a hidden row paints nothing).
+      expect(open.sort()).toEqual(c.after.open.filter((item) => row(item)).sort())
+      const selected = container.querySelector(`[role="treeitem"][aria-selected="true"]`)
+      expect(itemOf(selected?.getAttribute(`data-xui-id`))).toBe(c.after.picked)
+      if (c.after.visible) {
+        const visible = [...container.querySelectorAll(`[data-xui-id^="files.row."]`)].filter((el) => /^files\.row\.\d+$/.test(el.getAttribute(`data-xui-id`) ?? ``)).map((el) => itemOf(el.getAttribute(`data-xui-id`)))
+        expect(visible).toEqual(c.after.visible)
+      }
+    })
+  }
+})

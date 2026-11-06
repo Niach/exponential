@@ -697,6 +697,34 @@
           "enum": "tone"
         }
       }
+    },
+    "treeItem": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "icon": {
+          "type": "icon"
+        },
+        "meta": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "treeItem"
+          }
+        },
+        "hasChildren": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "functions": {
@@ -4296,6 +4324,41 @@
       "events": [
         "press",
         "change"
+      ]
+    },
+    "Tree": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "treeItem"
+          },
+          "required": true
+        },
+        "expanded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true
+        },
+        "value": {
+          "type": "string",
+          "bindable": true
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "events": [
+        "select",
+        "toggle",
+        "load"
       ]
     },
     "MessageBubble": {

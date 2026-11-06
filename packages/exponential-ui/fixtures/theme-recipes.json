@@ -67792,6 +67792,288 @@
       }
     },
     {
+      "component": "Tree",
+      "part": "foldIcon",
+      "props": {
+        "open": true
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a",
+              "transition": 240,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd",
+              "transition": 240,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
+              "transform": "rotate(90deg)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "Row",
+      "part": "icon",
+      "props": {
+        "selected": true,
+        "density": "compact",
+        "surface": "flat",
+        "depth": 1
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#134e4a"
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#ccfbf1"
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {}
+          },
+          "dark": {
+            "default": {}
+          }
+        }
+      }
+    },
+    {
+      "component": "Tree",
+      "part": "foldIcon",
+      "props": {
+        "open": false
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "color": "#6b5b8a",
+              "transition": 240,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#c4b5fd",
+              "transition": 240,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ]
+            }
+          }
+        },
+        "orange": {
+          "light": {
+            "default": {
+              "color": "#737373",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          },
+          "dark": {
+            "default": {
+              "color": "#a1a1a1",
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
       "component": "MessageBubble",
       "part": "bubble",
       "props": {
@@ -68814,54 +69096,6 @@
             "default": {
               "color": "#fafafa"
             }
-          }
-        }
-      }
-    },
-    {
-      "component": "Row",
-      "part": "icon",
-      "props": {
-        "selected": true,
-        "density": "default",
-        "surface": "flat",
-        "depth": 0
-      },
-      "visuals": {
-        "neutral": {
-          "light": {
-            "default": {}
-          },
-          "dark": {
-            "default": {}
-          }
-        },
-        "exponential": {
-          "light": {
-            "default": {}
-          },
-          "dark": {
-            "default": {}
-          }
-        },
-        "playful": {
-          "light": {
-            "default": {
-              "color": "#134e4a"
-            }
-          },
-          "dark": {
-            "default": {
-              "color": "#ccfbf1"
-            }
-          }
-        },
-        "orange": {
-          "light": {
-            "default": {}
-          },
-          "dark": {
-            "default": {}
           }
         }
       }

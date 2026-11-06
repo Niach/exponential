@@ -37707,6 +37707,276 @@
       }
     ]
   },
+  "Tree\/example" : {
+    "height" : 112,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          112
+        ],
+        "id" : "tree"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "tree.row.0",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          6,
+          16,
+          16
+        ],
+        "id" : "tree.row.0.lead"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          12,
+          6,
+          16,
+          16
+        ],
+        "id" : "tree.row.0.lead.foldIcon"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          36,
+          6,
+          16,
+          16
+        ],
+        "id" : "tree.row.0.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          60,
+          0,
+          318,
+          28
+        ],
+        "id" : "tree.row.0.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          60,
+          4,
+          318,
+          20
+        ],
+        "id" : "tree.row.0.body.title"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          28
+        ],
+        "id" : "tree.row.1",
+        "radius" : 10
+      },
+      {
+        "component" : "TreeGuides",
+        "frame" : [
+          12,
+          28,
+          14,
+          28
+        ],
+        "id" : "tree.row.1.guides"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          34,
+          34,
+          16,
+          16
+        ],
+        "id" : "tree.row.1.lead"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          58,
+          34,
+          16,
+          16
+        ],
+        "id" : "tree.row.1.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          82,
+          28,
+          296,
+          28
+        ],
+        "id" : "tree.row.1.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          82,
+          32,
+          296,
+          20
+        ],
+        "id" : "tree.row.1.body.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          56,
+          390,
+          28
+        ],
+        "id" : "tree.row.2",
+        "radius" : 10
+      },
+      {
+        "component" : "TreeGuides",
+        "frame" : [
+          12,
+          56,
+          14,
+          28
+        ],
+        "id" : "tree.row.2.guides"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          34,
+          62,
+          16,
+          16
+        ],
+        "id" : "tree.row.2.lead"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          34,
+          62,
+          16,
+          16
+        ],
+        "id" : "tree.row.2.lead.foldIcon"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          58,
+          62,
+          16,
+          16
+        ],
+        "id" : "tree.row.2.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          82,
+          56,
+          296,
+          28
+        ],
+        "id" : "tree.row.2.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          82,
+          60,
+          296,
+          20
+        ],
+        "id" : "tree.row.2.body.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          84,
+          390,
+          28
+        ],
+        "id" : "tree.row.3",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          90,
+          16,
+          16
+        ],
+        "id" : "tree.row.3.lead"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          36,
+          90,
+          16,
+          16
+        ],
+        "id" : "tree.row.3.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          60,
+          84,
+          302,
+          28
+        ],
+        "id" : "tree.row.3.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          60,
+          88,
+          302,
+          20
+        ],
+        "id" : "tree.row.3.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          370,
+          88,
+          8,
+          20
+        ],
+        "id" : "tree.row.3.meta"
+      }
+    ]
+  },
   "Video\/autoplay=false" : {
     "height" : 219.375,
     "nodes" : [

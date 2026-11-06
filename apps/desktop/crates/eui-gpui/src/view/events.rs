@@ -935,6 +935,20 @@ impl SurfaceView {
                 self.fire(n.index, "key", Some(json!({"key": dom})), cx);
                 return true;
             }
+            // #VAPP-285: a Tree row (`treeitem`): the core's tree keys move
+            // the focus (a `Focus` event) or fold it.
+            _ if matches!(key, "up" | "down" | "home" | "end" | "left" | "right") && n.accessibility.as_ref().and_then(|a| a.get("role")).and_then(Value::as_str) == Some("treeitem") => {
+                let dom = match key {
+                    "up" => "ArrowUp",
+                    "down" => "ArrowDown",
+                    "home" => "Home",
+                    "end" => "End",
+                    "left" => "ArrowLeft",
+                    _ => "ArrowRight",
+                };
+                self.fire(n.index, "key", Some(json!({"key": dom})), cx);
+                return true;
+            }
             // #VAPP-284: a node that folds (a foldable Row's head or fold
             // button: `expanded` set): the core's fold keys decide.
             _ if matches!(key, "left" | "right") && n.accessibility.as_ref().and_then(|a| a.get("expanded")).is_some_and(Value::is_boolean) => {

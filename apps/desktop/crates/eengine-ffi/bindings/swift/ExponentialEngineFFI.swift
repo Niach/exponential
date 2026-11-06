@@ -4738,7 +4738,7 @@ public func runnerConfig(configJson: String)throws  -> String  {
 }
 /**
  * The components painted in place of the app when the bundle cannot load:
- * `kind` = `missing`, `config`, `signature` or `invalid`.
+ * `kind` = `missing`, `config`, `signature`, `invalid` or `busy`.
  */
 public func runnerFailure(kind: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
@@ -4805,7 +4805,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_eengine_ffi_checksum_func_runner_config() != 31026) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_eengine_ffi_checksum_func_runner_failure() != 39083) {
+    if (uniffi_eengine_ffi_checksum_func_runner_failure() != 54687) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_func_runner_package() != 35183) {

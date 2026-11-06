@@ -2531,6 +2531,52 @@
         "pressable": true
       }
     },
+    "Tree": {
+      "props": {
+        "items": {
+          "description": "The root nodes."
+        },
+        "expanded": {
+          "description": "The open branch ids; bind it."
+        },
+        "value": {
+          "description": "The selected leaf id."
+        },
+        "label": {
+          "description": "The accessible name."
+        }
+      },
+      "description": "A file-style tree: branches fold, leaves select, lazy branches load; keyboard per WAI-ARIA.",
+      "example": {
+        "label": "Files",
+        "expanded": [
+          "src"
+        ],
+        "value": "src/main.ts",
+        "items": [
+          {
+            "id": "src",
+            "title": "src",
+            "children": [
+              {
+                "id": "src/main.ts",
+                "title": "main.ts"
+              },
+              {
+                "id": "src/lib",
+                "title": "lib",
+                "hasChildren": true
+              }
+            ]
+          },
+          {
+            "id": "README.md",
+            "title": "README.md",
+            "meta": "M"
+          }
+        ]
+      }
+    },
     "MessageBubble": {
       "props": {
         "text": {
@@ -3353,6 +3399,29 @@
         }
       },
       "description": "An event dot on a day."
+    },
+    "treeItem": {
+      "properties": {
+        "id": {
+          "description": "Reported by the events."
+        },
+        "title": {
+          "description": "The row text."
+        },
+        "icon": {
+          "description": "The glyph (default: a folder or a file)."
+        },
+        "meta": {
+          "description": "Trailing muted text."
+        },
+        "children": {
+          "description": "Child nodes; makes it a branch."
+        },
+        "hasChildren": {
+          "description": "A branch whose children load on open (`load`)."
+        }
+      },
+      "description": "One Tree node."
     }
   },
   "functions": {

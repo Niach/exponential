@@ -76,6 +76,7 @@ pub(crate) mod qr_code;
 pub(crate) mod qr_scanner;
 // EXP-1495: the round-6 Exponential UI macros, painted from the specimens.
 pub(crate) mod outline;
+pub(crate) mod tree;
 pub(crate) mod record_form;
 pub(crate) mod settings_row;
 pub(crate) mod record_table;
@@ -177,6 +178,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: voice_level::ID, owner: voice_level::OWNER, render: voice_level::render },
     Entry { id: sidebar_rows::ID, owner: sidebar_rows::OWNER, render: sidebar_rows::render },
     Entry { id: outline::ID, owner: outline::OWNER, render: outline::render },
+    Entry { id: tree::ID, owner: tree::OWNER, render: tree::render },
     Entry { id: mosaic::ID, owner: mosaic::OWNER, render: mosaic::render },
     Entry { id: zoomable_image::ID, owner: zoomable_image::OWNER, render: zoomable_image::render },
     Entry { id: motion::ID, owner: motion::OWNER, render: motion::render },

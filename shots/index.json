@@ -4785,6 +4785,36 @@
         "sha256": "630c597e4368f50de2546c0638a8edff7f4fc00e5edfda38d03dcacfdd072b69"
       }
     },
+    "exponential-ui-tree": {
+      "android": {
+        "file": "shots/exponential-ui-tree/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 22316,
+        "sha256": "6c6c4ff3c03e0d06eb0ce4047d04ade170eeaa5b1db166dc7a21ca894d59ad15"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-tree/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 37386,
+        "sha256": "daa984aa0325c6507c499d66be8be639821e38515b017401da7e79f55aa4cd3e"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-tree/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 22388,
+        "sha256": "17642fb5b299f3f56fe72998e4c053eafcb65cd2fc462861ee1528398df051f4"
+      },
+      "web": {
+        "file": "shots/exponential-ui-tree/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 15620,
+        "sha256": "fb91bf3f9ed61d8995a8dcac42143f1b588b1d2d223851170b4809381c95cc84"
+      }
+    },
     "exponential-ui-video": {
       "android": {
         "file": "shots/exponential-ui-video/android.webp",

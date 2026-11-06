@@ -177,6 +177,18 @@ fn recipe_props(exp: &Expansion, ctx: &ExprContext, extra: Option<&Props>) -> Pr
 }
 
 /// `and{values}` / `or{values}` over several conditions; one alone is itself.
+/// #VAPP-285: an event name of `$on` / `$set` (a key or a routed name):
+/// literal, or interpolated (`{node.toggleOn}`); not a string = none.
+fn event_name(name: &str, ctx: &ExprContext) -> String {
+    if !name.contains('{') {
+        return name.to_string();
+    }
+    match eval_value(&Value::String(name.to_string()), ctx) {
+        Some(Value::String(s)) => s,
+        _ => String::new(),
+    }
+}
+
 fn combine(mut conditions: Vec<Value>, op: &str) -> Value {
     if conditions.len() == 1 {
         return conditions.pop().expect("one");
@@ -234,28 +246,35 @@ fn decide(if_: Option<&Value>, any: Option<&[Value]>, ctx: &ExprContext) -> Deci
 }
 
 fn expand_template(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, parent_id: &str) -> Vec<UiNode> {
-    let visible = match decide_conditions(tpl, ctx) {
-        Decided::Bool(false) => return Vec::new(),
-        Decided::Bool(true) => None,
-        Decided::Dynamic(v) => Some(v),
-    };
     if let Some(each) = &tpl.each {
         let Some(Value::Array(items)) = eval_value(&Value::String(format!("{{{each}}}")), ctx) else {
             return Vec::new();
         };
         let as_ = tpl.as_.as_deref().unwrap_or("item");
+        // #VAPP-285: under `$each` the part's `$if`/`$any` are decided PER
+        // ITEM (they see the item; a Tree row's `{node.shown}`); ids keep the index.
         return items
             .into_iter()
             .enumerate()
-            .map(|(index, item)| {
+            .filter_map(|(index, item)| {
                 let mut vars = ctx.vars.clone();
                 vars.insert(as_.to_string(), item);
                 vars.insert("index".to_string(), json::number(index as f64));
                 let item_ctx = ExprContext { id: ctx.id, props: ctx.props, vars };
-                build_node(tpl, exp, &item_ctx, format!("{parent_id}.{}.{index}", tpl.part), visible.clone())
+                let visible = match decide_conditions(tpl, &item_ctx) {
+                    Decided::Bool(false) => return None,
+                    Decided::Bool(true) => None,
+                    Decided::Dynamic(v) => Some(v),
+                };
+                Some(build_node(tpl, exp, &item_ctx, format!("{parent_id}.{}.{index}", tpl.part), visible))
             })
             .collect();
     }
+    let visible = match decide_conditions(tpl, ctx) {
+        Decided::Bool(false) => return Vec::new(),
+        Decided::Bool(true) => None,
+        Decided::Dynamic(v) => Some(v),
+    };
     let id = if tpl.part == "root" { exp.source.id.clone() } else { format!("{parent_id}.{}", tpl.part) };
     vec![build_node(tpl, exp, ctx, id, visible)]
 }
@@ -306,8 +325,15 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
     });
     if let Some(routes) = &tpl.on {
         let mut on = IndexMap::new();
-        for (part_event, route) in routes {
-            let macro_event = route.event();
+        for (key, route) in routes {
+            // #VAPP-285: a part event (key) or a routed event name may
+            // interpolate (a Tree row's `{node.toggleOn}`); empty = none.
+            let part_event = event_name(key, ctx);
+            let macro_event = event_name(route.event(), ctx);
+            if part_event.is_empty() || macro_event.is_empty() {
+                continue;
+            }
+            let macro_event = macro_event.as_str();
             let Some(action) = exp.source.on.as_ref().and_then(|o| o.get(macro_event)).filter(|a| js_truthy(a)) else {
                 continue;
             };
@@ -318,21 +344,26 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                 MacroRoute::Routed { context, .. } => context.as_ref(),
             };
             let context = raw.and_then(|c| eval_value(&Value::Object(c.clone()), ctx));
-            on.insert(part_event.clone(), routed_action(action, context.as_ref()));
+            on.insert(part_event, routed_action(action, context.as_ref()));
         }
         if !on.is_empty() {
             node.on = Some(on);
         }
     }
     if let Some(sets) = &tpl.set {
-        for (part_event, spec) in sets {
+        for (key, spec) in sets {
+            let part_event = event_name(key, ctx);
+            if part_event.is_empty() {
+                continue;
+            }
+            let part_event = &part_event;
             let Some(bound) = exp.base_props.get(&spec.prop).filter(|b| is_binding(b)) else { continue };
             let has_function = node.on.as_ref().and_then(|on| on.get(part_event)).and_then(|a| a.get("functionCall")).is_some_and(js_truthy);
             if has_function {
                 // An Action carries ONE `functionCall`: the author's routed
                 // function call wins and the bound prop is not written back (reported,
                 // never lost silently). Route an `event` to keep the write.
-                let macro_event = tpl.on.as_ref().and_then(|o| o.get(part_event)).map(MacroRoute::event).unwrap_or(part_event);
+                let macro_event = tpl.on.as_ref().and_then(|o| o.get(key)).map(|r| event_name(r.event(), ctx)).unwrap_or_else(|| part_event.clone());
                 let message = format!(
                     "on.{macro_event}: a function action replaces the two-way set of props.{}; write it in that function's handler or use an event",
                     spec.prop

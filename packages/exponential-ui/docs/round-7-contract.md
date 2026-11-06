@@ -326,3 +326,55 @@ Renderers:
   `expanded` to `nodeKey` (the core decides); the macro paints with no other
   change. `Round1ModelTests` / `InteractionTest` replay `foldRow` through
   the model (`press`, `handleKey`); `Row/open=*` snapshots recorded.
+
+## Tree (#VAPP-285)
+
+A first-class tree for Files and Version history: expand/collapse, lazy
+children, selection, the WAI-ARIA tree keyboard. It replaces hand-built
+`Row.depth` runs + TreeGuides: the Tree is a MACRO over Rows, so the rows
+are today's Rows (depth → the tree guides pass) and every renderer gets it
+from the core.
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| catalog | `Tree` (macro, list, lite): `items` ([`treeItem`] = {id, title, icon?, meta?, children?, hasChildren?}, literal), `expanded` (string ids, bindable, two-way), `value` (selected leaf id, bindable, two-way), `label`; events `select {id}`, `toggle {id, open}`, `load {id, open}`; string `tree` | `core.catalog.json`, `strings.json` | `catalog-components.json`, generated drift |
+| rows | `treeRows(items, expanded)` (src/tree.ts, Rust `tree::tree_rows`): depth-first; a node with `children` (an array, even empty) or `hasChildren: true` = a branch; `hasChildren` and no `children` = LAZY (folds through `load`; while open a `loading` row with a Spinner and `$string.loading` sits under it); default glyphs `ui-folder` / `ui-folder-open` / `ui-file`. A LITERAL `expanded` keeps only the shown rows; a BOUND one keeps every row, `shown` / `open` / `next` = `expr` calls over it (CEL `e.exists(x, x == id)`), `toggled` = the list a fold writes back (`e.filter(…)` or `e + [id]`) | `src/tree.ts` | `fixtures/tree.json` `rows` |
+| macro | root Box (role tree, `label` else `$string.tree`) → `row` = a Row per `{treeRows(props)}` (`$each`, `$as: node`; compact, `depth`, `selected` = `id == value`, a11y treeitem + aria-level + aria-expanded on a branch + aria-selected; the loading row is role none and not pressable) whose `leading` slot `lead` (16 × 16, decorative) holds `foldIcon` (`ui-chevron-right`, the `open` recipe turns it 90°) on a branch or `spinner` on the loading row. A leaf press = `select {id}` + `value` written back; a branch press and its `toggle` = `toggle {id, open}` (`load` on a lazy branch) + `expanded` written back | `macros.json` | `catalog-macros.json` `Tree/*`, `bind-time.json` `Tree/bound` |
+| macro table | `{treeRows(props)}` joins `len`/`range`; under `$each` a part's `$if`/`$any` are decided PER ITEM (they see the item; ids keep the item index); `$on`/`$set` keys and a routed `event` may interpolate (empty = route/write nothing) | `macros.json` `$comment`, `src/macros.ts`, `src/expr.ts`, Rust `macros.rs`/`expr.rs` | `catalog-macros.json` |
+| keys | `treeKey(rows, index, key, rtl)` over the VISIBLE treeitems: Down/Up, Home/End move the focus; the open key (ArrowRight, ArrowLeft in rtl) opens a closed branch (the fold keys' `toggle`) or enters an open one; the close key closes an open branch or goes to the parent; Enter/Space = the row's press | `src/tree.ts`, Rust `tree::tree_key`, `Surface::event(i, "key")` (→ a `Focus` event), `a11y.json` Tree | `fixtures/tree.json` `keys`, `interactions-round1.json` `tree` |
+| look | the neutral theme: `Tree/foldIcon` muted, rotate(90deg) when `open`; `Tree/spinner` muted. Rows look like Rows (the Files tree's compact rows + the guides) | `themes/neutral.theme.json` | `theme-recipes.json` |
+| kitchen sink | + a Tree (src open with main.ts selected, a lazy `lib`, README.md) after the Outline | `kitchen-sink.json` | `kitchen-sink.expanded.json`, the renderers' kitchen-sink snapshots |
+| styleguide | entry `tree` on all five sites (sections.json General, entries/index.ts, entries/tree.tsx, page.ts `Lists & rows`, desktop `styleguide/entries/tree.rs`) painting specimen `exponential-ui-tree`; view `exponential-ui-tree` | `apps/styleguide`, `packages/view-catalog/views.json` | `shots/exponential-ui-tree` |
+
+`items` is literal: a bound tree of unknown depth cannot expand into rows
+(`$each` over a bound array emits nothing); the host passes the items it has
+and answers `load` by filling `children`. `expanded` and `value` bind.
+
+Prompt budget 9,235 → 9,326 tokens (a named exception: the Tree).
+
+On a rail (#VAPP-277: a collapsed rail Sidebar's `$pass` also hands a
+Tree `rail` + `railSide`) every row is a rail tile, like an authored Row
+and the foldable parent: `treeRows(props)` reads `rail` (true = every row
+whatever `expanded`, no loading row; bound = every row, `shown` =
+`cond(rail, true, <shown without it>)`), the rows take `rail`/`railSide`,
+depth 0, role `button` and no `level`/`expanded` (so no tree keys: one tab
+stop per tile, its keyboard focus opening the title's tooltip), the fold
+glyph (the leading slot) drops, the root is a `group`. Locked by
+`catalog-macros.json` `Sidebar/rail:tree`, `tree.json` `rail*` cases, the
+React + Solid `sidebar-rail.test.tsx` Tree case.
+
+Renderers:
+
+- [x] TS + Rust core: `treeRows` / `tree_rows`, `treeKey` / `tree_key`,
+  the expander changes; `Surface::event(index, "key", {key})` on a
+  treeitem moves the focus (`OutEvent::Focus`) or falls through to the fold
+  keys. `catalog_fixtures.rs` 637 → 638 cases; `tests/tree_fixture.rs`,
+  `interactions_fixture.rs` `tree`.
+- [x] React / Solid / element: a pressable Box keeps `role=treeitem`;
+  `treeKeyTarget` (`@exponential_app/eui/web`) moves the DOM focus; the fold
+  keys fold. `interactions-fixture.test.tsx` replays `tree`.
+- [x] gpui: ↑ ↓ Home End ← → on a treeitem go to the core (`event(i,
+  "key")`), the `Focus` it answers moves the focus; `tests/interaction.rs`
+  replays `tree`.
+- [x] SwiftUI / Compose: the same keys on a treeitem go to `nodeKey`; the
+  macro paints with no other change.

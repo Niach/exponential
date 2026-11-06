@@ -172,6 +172,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`sidebar-rows`]: `Lists & rows`,
   [`voice-level`]: `Feedback`,
   outline: `Lists & rows`,
+  tree: `Lists & rows`,
   mosaic: `Surfaces`,
   [`zoomable-image`]: `Surfaces`,
   motion: `Feedback`,

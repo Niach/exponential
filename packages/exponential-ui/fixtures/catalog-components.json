@@ -10850,6 +10850,42 @@
       }
     },
     {
+      "name": "Tree/example",
+      "node": {
+        "id": "tree",
+        "component": "Tree",
+        "props": {
+          "label": "Files",
+          "expanded": [
+            "src"
+          ],
+          "value": "src/main.ts",
+          "items": [
+            {
+              "id": "src",
+              "title": "src",
+              "children": [
+                {
+                  "id": "src/main.ts",
+                  "title": "main.ts"
+                },
+                {
+                  "id": "src/lib",
+                  "title": "lib",
+                  "hasChildren": true
+                }
+              ]
+            },
+            {
+              "id": "README.md",
+              "title": "README.md",
+              "meta": "M"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "MessageBubble/example",
       "node": {
         "id": "message-bubble",
