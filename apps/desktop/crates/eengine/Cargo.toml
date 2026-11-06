@@ -20,7 +20,7 @@ publish = false
 [dependencies]
 # genUI's host: the Apps format and its pure logic (validation, screens,
 # the records query, policy). Themes are the painter's choice.
-eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.16.2", default-features = false }
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.18.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
