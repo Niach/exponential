@@ -4,7 +4,8 @@
 // fails. A metric BETTER than its budget asks to lower it: a timing (`ms`)
 // below `floor` × budget prints a warning (CI runners are noisy, so a better
 // timing alone never fails), a deterministic count (`count`, `bytes`) below
-// its budget FAILS, as it must land with its new budget in the same change.
+// its budget FAILS, as it must land with its new budget in the same change
+// (a count named in `countTolerance` gates only outside ±that fraction).
 // A metric with no budget (a new scenario, a new machine) is reported, never
 // gated, so a first run on a new machine passes and writes the numbers.
 // `machineTimings` (per machine) and `rendererTimings` (per renderer, on
@@ -16,6 +17,8 @@ import type { Fragment } from "./results"
 
 export type Budgets = {
   $comment?: string
+  /** Why `countTolerance` exists (a note, never read). */
+  $countTolerance?: string
   /** A timing this far below its budget asks to lower it (0.5 = half). */
   floor: number
   /** How far over a measured timing `--write` puts the new budget (1.5 = 50 % headroom). */
@@ -26,6 +29,8 @@ export type Budgets = {
   machineTimings?: Record<string, `gate` | `warn`>
   /** A renderer's timings on EVERY machine (`compose-android`): `gate` (default) or only `warn`. */
   rendererTimings?: Record<string, `gate` | `warn`>
+  /** A count metric's tolerance by metric id (`allocations`: 0.01 = ±1 %): within it, neither worse nor better. */
+  countTolerance?: Record<string, number>
   machines: Record<string, Record<string, Record<string, Record<string, number>>>>
 }
 
@@ -57,9 +62,10 @@ export function check(fragment: Fragment, budgets: Budgets, machine = fragment.m
       const kind = KINDS[scenario]?.[metric] ?? `ms`
       const budget = mine[scenario]?.[metric]
       let status: Verdict[`status`] = `ok`
+      const tolerance = kind === `ms` || kind === `mb` ? 0 : (budgets.countTolerance?.[metric] ?? 0)
       if (budget === undefined) status = `unbudgeted`
-      else if (value > budget) status = `worse`
-      else if (kind === `ms` || kind === `mb` ? value < budget * budgets.floor : value < budget) status = `better`
+      else if (value > budget * (1 + tolerance)) status = `worse`
+      else if (kind === `ms` || kind === `mb` ? value < budget * budgets.floor : value < budget * (1 - tolerance)) status = `better`
       out.push({ machine, renderer: fragment.renderer, scenario, metric, value, budget, kind, status, ...(warnTimings && (kind === `ms` || kind === `mb`) ? { warnOnly: true } : {}) })
     }
   }
