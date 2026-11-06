@@ -213,6 +213,8 @@ export interface EdeCapture {
   open?: string[]
   size?: `${number}x${number}`
   settleMs?: number
+  /** Environment for the shell (`EDE_SHELL_RAIL=1`: the sidebar as the icon rail). */
+  env?: Record<string, string>
 }
 
 export interface View {

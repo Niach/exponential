@@ -11,6 +11,11 @@ publish = false
 eui-core = { path = "../eui-core" }
 eui-gpui = { path = "../eui-gpui", default-features = false }
 ede-protocol = { path = "../ede-protocol" }
+# The shell core both hosts share (#EDE-50): the reducer, what the documents
+# bind, the gpui host (layer-shell surfaces, popups) and the factory documents.
+uicore-model = { path = "../uicore-model" }
+uicore-data = { path = "../uicore-data" }
+uicore-gpui = { path = "../uicore-gpui" }
 ede-ui = { path = "../../../ede/crates/ede-ui" }
 # The services data source (#EDE-13): /services/<domain> in every document.
 ede-services = { path = "../../../ede/crates/ede-services" }

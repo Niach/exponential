@@ -1,6 +1,6 @@
 {
-  "$comment": "Exponential Desktop's factory notification centre (#EDE-12): the panel's bell opens it as a popup surface with every notification the shell has heard this session, newest first (/notifications/list), each closable, all clearable (ede.notify_clear).",
-  "surface": {"popup": {"parent": "panel", "anchor": "bell", "placement": "bottom-end", "size": {"width": 380, "height": 480}}, "functions": ["ede.notify_close", "ede.notify_action", "ede.notify_clear"]},
+  "$comment": "Exponential Desktop's factory notification centre (#EDE-12): the taskbar's bell opens it as a popup surface with every notification the shell has heard this session, newest first (/notifications/list), each closable, all clearable (ede.notify_clear).",
+  "surface": {"popup": {"parent": "taskbar", "anchor": "bell", "placement": "top-end", "size": {"width": 380, "height": 480}}, "functions": ["ede.notify_close", "ede.notify_action", "ede.notify_clear"]},
   "root": {
     "id": "center",
     "component": "Box",

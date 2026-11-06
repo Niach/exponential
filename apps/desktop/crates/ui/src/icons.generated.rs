@@ -168,8 +168,11 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "audio-lines" => ExpIcon::AudioLines,
         "award" => ExpIcon::Award,
         "ban" => ExpIcon::Ban,
+        "battery-charging" => ExpIcon::BatteryCharging,
+        "battery-medium" => ExpIcon::BatteryMedium,
         "bell" => ExpIcon::Bell,
         "bell-off" => ExpIcon::BellOff,
+        "bluetooth" => ExpIcon::Bluetooth,
         "bold" => ExpIcon::Bold,
         "book-open" => ExpIcon::BookOpen,
         "bookmark" => ExpIcon::Bookmark,
@@ -227,6 +230,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "ear" => ExpIcon::Ear,
         "ellipsis" => ExpIcon::Ellipsis,
         "ellipsis-vertical" => ExpIcon::EllipsisVertical,
+        "ethernet-port" => ExpIcon::EthernetPort,
         "external-link" => ExpIcon::ExternalLink,
         "eye" => ExpIcon::Eye,
         "eye-off" => ExpIcon::EyeOff,
@@ -414,6 +418,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "volume-off" => ExpIcon::VolumeOff,
         "volume-x" => ExpIcon::VolumeX,
         "wallet" => ExpIcon::Wallet,
+        "wifi" => ExpIcon::Wifi,
         "wifi-off" => ExpIcon::WifiOff,
         "workflow" => ExpIcon::Workflow,
         "wrench" => ExpIcon::Wrench,
@@ -485,6 +490,12 @@ pub const CODING_STOP: ExpIcon = ExpIcon::CircleX;
 pub const CODING_SUBAGENT: ExpIcon = ExpIcon::Bot;
 /// Registry concept `coding-tool` -> Lucide `wrench`.
 pub const CODING_TOOL: ExpIcon = ExpIcon::Wrench;
+/// Registry concept `ede-battery` -> Lucide `battery-medium`.
+pub const EDE_BATTERY: ExpIcon = ExpIcon::BatteryMedium;
+/// Registry concept `ede-battery-charging` -> Lucide `battery-charging`.
+pub const EDE_BATTERY_CHARGING: ExpIcon = ExpIcon::BatteryCharging;
+/// Registry concept `ede-bluetooth` -> Lucide `bluetooth`.
+pub const EDE_BLUETOOTH: ExpIcon = ExpIcon::Bluetooth;
 /// Registry concept `ede-brightness` -> Lucide `sun`.
 pub const EDE_BRIGHTNESS: ExpIcon = ExpIcon::Sun;
 /// Registry concept `ede-lock` -> Lucide `lock`.
@@ -493,8 +504,14 @@ pub const EDE_LOCK: ExpIcon = ExpIcon::Lock;
 pub const EDE_POWER: ExpIcon = ExpIcon::Power;
 /// Registry concept `ede-suspend` -> Lucide `moon`.
 pub const EDE_SUSPEND: ExpIcon = ExpIcon::Moon;
+/// Registry concept `ede-wifi` -> Lucide `wifi`.
+pub const EDE_WIFI: ExpIcon = ExpIcon::Wifi;
 /// Registry concept `ede-window` -> Lucide `monitor`.
 pub const EDE_WINDOW: ExpIcon = ExpIcon::Monitor;
+/// Registry concept `ede-wired` -> Lucide `ethernet-port`.
+pub const EDE_WIRED: ExpIcon = ExpIcon::EthernetPort;
+/// Registry concept `ede-workspaces` -> Lucide `layout-grid`.
+pub const EDE_WORKSPACES: ExpIcon = ExpIcon::LayoutGrid;
 /// Registry concept `editor-bold` -> Lucide `bold`.
 pub const EDITOR_BOLD: ExpIcon = ExpIcon::Bold;
 /// Registry concept `editor-clear-formatting` -> Lucide `remove-formatting`.
@@ -1084,11 +1101,17 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "coding-stop" => CODING_STOP,
         "coding-subagent" => CODING_SUBAGENT,
         "coding-tool" => CODING_TOOL,
+        "ede-battery" => EDE_BATTERY,
+        "ede-battery-charging" => EDE_BATTERY_CHARGING,
+        "ede-bluetooth" => EDE_BLUETOOTH,
         "ede-brightness" => EDE_BRIGHTNESS,
         "ede-lock" => EDE_LOCK,
         "ede-power" => EDE_POWER,
         "ede-suspend" => EDE_SUSPEND,
+        "ede-wifi" => EDE_WIFI,
         "ede-window" => EDE_WINDOW,
+        "ede-wired" => EDE_WIRED,
+        "ede-workspaces" => EDE_WORKSPACES,
         "editor-bold" => EDITOR_BOLD,
         "editor-clear-formatting" => EDITOR_CLEAR_FORMATTING,
         "editor-code" => EDITOR_CODE,

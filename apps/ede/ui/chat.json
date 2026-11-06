@@ -1,0 +1,18 @@
+{
+  "$comment": "Exponential Desktop's factory chat (#EDE-52): the Assistant's composer, opened by the chat button next to the start button (or Super+Space) as an on-demand top layer surface in the middle of the screen. The one global Assistant lives in the Exponential app and needs an account (#EDE-54, #EXP-1565): until the desktop is connected the composer hands the text to the Exponential app (ede.launch with the app and the text), and the empty state says so.",
+  "surface": {"layer": "top", "size": {"width": 720, "height": 420}, "keyboard": "on-demand", "onDemand": true, "functions": ["ede.launch", "ede.chat", "ede.switcher"]},
+  "root": {
+    "id": "chat",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "width": 720, "height": 420, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "children": [
+      {"id": "chat-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
+        {"id": "chat-title", "component": "Heading", "props": {"text": "Assistant", "level": "h3"}},
+        {"id": "chat-close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.chat"}}}}
+      ]},
+      {"id": "chat-empty", "component": "EmptyState", "props": {"icon": "action-chat", "title": "Your Assistant lives in the Exponential app", "actionLabel": "Connect Exponential", "size": "page"}, "style": {"flexGrow": 1}, "on": {"press": {"functionCall": {"call": "ede.switcher", "args": {"action": "connect"}}}}},
+      {"id": "composer", "component": "Composer", "props": {"placeholder": "What do you want to build?", "value": {"path": "/chat/draft"}}, "on": {"submit": {"functionCall": {"call": "ede.launch", "args": {"app": "at.exponential", "text": {"path": "/chat/draft"}}}}}}
+    ]
+  },
+  "data": {"chat": {"draft": ""}}
+}

@@ -60,9 +60,14 @@ consumes them as dependencies.
 
 **Exponential Desktop** (#NEW-10, `apps/ede`, internally eDE) is not an SDK module: its own Cargo
 workspace in `apps/ede` (`exponential-compositor`, `exponential-session`, `exponential-ui` = the
-genUI-on-disk runtime and its supervisor, `exponential-ctl`), two crates of the desktop
+genUI-on-disk runtime and its supervisor, `exponential-ctl`), crates of the desktop
 workspace (`apps/desktop/crates/ede-protocol` = the control plane every client links,
-`apps/desktop/crates/ede-shell` = `exponential-shell`, the gpui shell; #EDE-51) and the
+`apps/desktop/crates/ede-shell` = `exponential-shell`, the gpui shell, #EDE-51; the
+`uicore-*` crates it is built on, #EDE-50: `uicore-model` = the pure shell reducer
+replaying `packages/uicore`'s fixtures, `uicore-data` = what the documents bind,
+`uicore-gpui` = the ShellHost (layer-shell surfaces and popups, or windows),
+`uicore-docs` = the factory documents compiled in; `ide = shell + uicore`,
+`ede = compositor + uicore`) and the
 contract `@exp/ede` (`packages/ede`: the surface header, the Tier C rules and
 the apply machine as fixtures + a TS reference, replayed by `exponential-ui`) and
 `@exp/uicore` (`packages/uicore`, #EDE-46: the shell reducer the IDE and eDE both

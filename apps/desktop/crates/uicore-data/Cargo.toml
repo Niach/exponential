@@ -1,0 +1,17 @@
+[package]
+name = "uicore-data"
+description = "What the shell documents bind (#EDE-50): one Feed of paths to JSON, the host sources both hosts share (the clock, the installed applications, the windows over ede-protocol, the shell model as /shell) and the shaping from the compositor's and the reducer's types; no renderer, no gpui"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ede-protocol = { path = "../ede-protocol" }
+uicore-model = { path = "../uicore-model" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

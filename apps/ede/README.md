@@ -21,32 +21,83 @@ links): `exponential-shell` draws the shell from the genUI documents
 painter README's "gpui revisions", gated by `check-gpui-revs.ts`), Wayland
 backend only (`cargo build -p ede-shell` in `apps/desktop`). The compositor
 workspace never links gpui, and the shell is a separate process under the
-supervisor, so a shell crash never takes the session down. Every document with a layer
-`surface` header is a layer-shell surface (`WindowKind::LayerShell`); a
-popup document opens from its anchor component in its parent as an
-`xdg_popup` of that surface (so a menu can leave the panel; eui-gpui paints
-its own overlays inside their window). A change on disk redraws the surface
-and the shell prints the document's frame line, which the supervisor reads.
-Data every document may bind: `/time` (local), `/windows` (the open
-windows over ede-protocol), `/apps` + `/query` (the launcher: the desktop
+supervisor, so a shell crash never takes the session down.
+
+Since #EDE-50 the shell is `compositor + uicore`, four crates next to it
+that the IDE will host too (`ide = shell + uicore`): `uicore-model`, the
+pure shell reducer (`reduce(state, event)` + selectors: the rail, the
+sidebar's sections, the desktop/team switcher, the windows and their MRU,
+Mint's grouped taskbar with pins, the start menu's categories and search,
+the chat toggle, Alt-Tab), byte-locked by `packages/uicore/fixtures/shell.json`
+and its TypeScript reference; `uicore-data`, what the documents bind (the
+`Feed` of paths, the desktop entries, the clock, the compositor's window
+list as reducer events, `/shell` from the model); `uicore-gpui`, the
+`ShellHost` (`LayerShellHost`: one wlr-layer-shell surface per document,
+popup documents and hosted Popover / Menu layers (VAPP-281) as
+`xdg_popup`s of their parent; `WindowedHost`: normal windows for
+`--windowed`) and the `Surfaces` that own the open windows; `uicore-docs`,
+the factory documents compiled in. `exponential-shell` itself keeps what is
+eDE's: ede-protocol, the notification server and tray host, the services
+socket, the hotkeys, the `ede.*` host functions.
+
+Every document with a layer
+`surface` header is a layer-shell surface (`WindowKind::LayerShell`), opened
+in the order the ground, the sidebar, the taskbar, then the rest (smithay
+arranges layer surfaces in mapping order, so the sidebar takes the left edge
+and the taskbar the rest of the bottom); a popup document opens from its
+anchor component in its parent as an `xdg_popup` of that surface, and so
+does a Popover or Menu inside a document (hosted popups: the surface paints
+none of it, the shell opens a popup window with the layer at (0, 0)). A
+change on disk redraws the surface and the shell prints the document's
+frame line, which the supervisor reads.
+Data every document may bind: `/time` + `/date` (local), `/windows` (the
+active workspace's windows over ede-protocol: id, title, app, focused,
+minimized), `/shell` (the model: `rail`, `taskbar.buttons` (Mint's groups:
+app, pinned, windows, focused, minimized, running), `taskbar.previews`,
+`workspaces.badges`, `startMenu` (open, query, category, categories, apps),
+`chat.open`, `altTab`), `/apps` + `/query` (the launcher: the desktop
 entries of the XDG data directories, filtered as the person types),
-`/switcher` (the open windows most recent first with live thumbnails),
+`/switcher` (Alt-Tab's order with the selection and live thumbnails),
+`/previews` (a taskbar group's windows with thumbnails while they show),
 `/osd` (a level). Host functions, each only from a document whose
 `surface.functions` lists it (#EDE-8's Tier C rule, checked by `exponential-ui` and
 again by the shell): `ede.launch {command}`, `ede.focus {window}`,
-`ede.close {window}`, `ede.lock`, `ede.logout`, `ede.power {action:
-suspend|reboot|poweroff}`, `ede.select {window}` (the switcher).
+`ede.close {window}`, `ede.minimize {window}`, `ede.lock`, `ede.logout`,
+`ede.power {action: suspend|reboot|poweroff}`, `ede.select {window}` (the
+switcher), and the model's: `ede.rail` (toggle: the sidebar re-opens at the
+rail's width), `ede.pin {app}` / `ede.unpin {app}` (kept in
+`~/.config/exponential-desktop/shell.json`), `ede.taskbar {app}` (Mint's
+click: launch, focus, minimize, or the previews of a group),
+`ede.taskbar_scroll {app, direction}`, `ede.previews {app|null}`,
+`ede.start_menu {open?, query?, category?}`, `ede.chat` (toggle),
+`ede.workspace {index}`, `ede.sidebar {section}` (fold a section),
+`ede.history {action: undo|reset}` (the shell documents' history);
+`/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
-`file:` pictures. Factory documents live in `apps/ede/ui/*.json`:
-`panel.json` (top, 40 px exclusive zone, the launcher button, the taskbar,
-the clock), `menu.json` (the panel's popup: search, apps, the power row),
-`switcher.json` and `osd.json` (`onDemand` overlays the shell opens on a
-hotkey and closes again), `notifications.json` (the toasts, top-right, on
+`file:` pictures. Factory documents live in `apps/ede/ui/*.json` (the IDE
+look, #EDE-42): `ground.json` (the background layer: the rounded panel the
+focused window sits on, inset by the sidebar, the taskbar and the panel
+margin), `sidebar.json` (left, 272 px exclusive zone, or the 56 px icon rail:
+the desktop/team switcher, inbox, search and new, Needs you + Chats, the
+Pinned / Workspaces / Active sections, the Exponential start button and the
+chat button bottom-left), `taskbar.json` (bottom, 48 px exclusive zone to the
+right of the sidebar: Mint's grouped window list with pins, hover previews
+and a context menu, the applets, the tray, the bell and the clock),
+`start-menu.json` (the start button's popup: Mint's three columns and the
+search box; its own entries are Files (Nemo, else the default file manager),
+Version history and the Exponential app when installed, #EDE-53), `chat.json`
+(the Assistant's composer, on demand), `history.json` (Version history: the
+shell documents' commits with Undo and Reset to factory, on demand),
+`switcher.json`, `expo.json` and `scale.json` (`onDemand` overlays the shell
+opens on a hotkey and closes again: Alt+Tab, Ctrl+Alt+Up with one tile per
+workspace, Ctrl+Alt+Down with the active workspace's windows, each with live
+thumbnails, #EDE-49), `osd.json`, `notifications.json` (the toasts, top-right, on
 demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
 (a tray item's menu as the tray's popup). A click outside an open popup, or
-Escape in it, closes it. A layer document's root is opaque (`$color.popover`
-for the panel, Settings, the OSD and the switcher): `$color.card` is a white
+Escape in it, closes it. A layer document's root is opaque (`$color.background`
+for the ground, the sidebar and the taskbar, `$color.popover` for Settings,
+the OSD and the switcher): `$color.card` is a white
 glaze at 6% in the dark theme, right inside a window, see-through for a
 surface floating over other windows (#EDE-60; `crates/ede-ui/tests/factory.rs`
 checks every layer document).
@@ -93,9 +144,9 @@ WAYLAND_DISPLAY=wayland-1 target/debug/exponential-ctl pointer 40 20 --click   #
 ```
 
 The M0 demo (#EDE-1), in the `ubuntu-wayland` VM: edit the scratch
-directory's `panel.json` and the panel redraws within the watcher's
+directory's `taskbar.json` and the taskbar redraws within the watcher's
 debounce; break it and `exponential-ui check` says why while the last good version
-stays on screen; `git -C <dir> log` shows `Edit panel.json` commits after
+stays on screen; `git -C <dir> log` shows `Edit taskbar.json` commits after
 the factory ones. `exponential-shell --windowed` opens normal windows instead
 (macOS, any desktop); `--popup` opens every popup document right away and
 `--exit-after <ms>` quits, for the headless check.
@@ -286,6 +337,15 @@ feedback with a scanout tranche of the plane's formats so games and video
 allocate scanout-able buffers. Hybrid GPUs: one render GPU (the primary),
 outputs on the other card render through it (smithay's multi-GPU
 renderer); a per-output render device is not done.
+
+## The parity gate (#EDE-45)
+
+`bun apps/ede/scripts/parity.ts --out /tmp/ede-parity.png` draws the contact
+sheet: every region of the IDE's shell (its committed desktop shots) next to
+Exponential Desktop's (the `ede-*` goldens), one row per region with the
+status `packages/uicore/parity.md` gives it, and prints the inventory's
+share of `same` or `close` rows (the gate wants ≥ 90 %). Danny signs the
+sheet off by eye; nothing in the IDE is replaced before that.
 
 ## Doctor
 

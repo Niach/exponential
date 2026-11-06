@@ -95,7 +95,7 @@ jobs:
           ede='^(apps/ede/|packages/ede/|apps/desktop/crates/(ecore|eui-core|ede-protocol)/|\.github/workflows/test\.yml$)'
           echo "ede=$(grep -qE "$ede" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #EDE-10 / #EDE-51: the shell (a desktop-workspace member), the crates it takes by path and the factory documents it embeds.
-          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol)/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore|ztracing|ztracing_macro)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
+          ede_shell='^(apps/desktop/crates/(ede-shell|ede-protocol|uicore-[a-z]+)/|packages/uicore/|apps/ede/ui/|apps/ede/crates/(ede-ui|ede-services|ede-theme)/|apps/desktop/crates/(eui-core|eui-gpui|eui-motion|ecore|ztracing|ztracing_macro)/|apps/desktop/vendor/gpui-component/|\.github/workflows/test\.yml$)'
           echo "ede_shell=$(grep -qE "$ede_shell" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # ExpCore + every file its tests read through `#filePath`.
           ios='^(apps/ios/(ExpCore|Tuist)/|packages/(domain-contract|ecore|etalk)/|packages/exponential-ui/fixtures/|packages/icons/icons\.json$|\.github/workflows/(test|ios-core)\.yml$)'
@@ -442,11 +442,13 @@ jobs:
         working-directory: apps/ede
         run: cargo check --workspace --all-targets --locked --features ede-compositor/udev
 
-  # #EDE-10 / #EDE-51: eDE's shell (apps/desktop/crates/ede-shell, a member of
-  # the IDE's workspace since #EDE-51; the compositor workspace never links
-  # gpui). A `cargo check` of the shell's own graph (Wayland only) with its
-  # tests, only when the shell or what it links changes; the desktop job
-  # already builds gpui on this runner, so the cache is warm.
+  # #EDE-10 / #EDE-51 / #EDE-50: eDE's shell (apps/desktop/crates/ede-shell, a
+  # member of the IDE's workspace since #EDE-51) and the uicore crates it is
+  # built on (uicore-model replays packages/uicore's fixtures, uicore-data,
+  # uicore-gpui, uicore-docs); the compositor workspace never links gpui. A
+  # `cargo check` of their graph (Wayland only) with their tests, only when
+  # they or what they link change; the desktop job already builds gpui on
+  # this runner, so the cache is warm.
   ede-shell:
     needs: [pick, changes]
     if: needs.changes.outputs.ede_shell == 'true'
@@ -465,10 +467,10 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo check
         working-directory: apps/desktop
-        run: cargo check -p ede-shell -p ede-protocol --all-targets --locked
-      - name: Cargo test
+        run: cargo check -p ede-shell -p ede-protocol -p uicore-model -p uicore-data -p uicore-docs -p uicore-gpui --all-targets --locked
+      - name: Cargo test (the shell, the protocol, the uicore crates replaying packages/uicore)
         working-directory: apps/desktop
-        run: cargo test -p ede-shell -p ede-protocol --locked
+        run: cargo test -p ede-shell -p ede-protocol -p uicore-model -p uicore-data -p uicore-docs -p uicore-gpui --locked
 
   # T1 eUI parity (2026-10-30): every renderer's conformance runner + the
   # `conformant` check on every PR that touches eUI (exponential-ui.yml with

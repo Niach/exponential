@@ -8,6 +8,34 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
+/// `$XDG_CONFIG_HOME/exponential-desktop/shell.json`: what the shell keeps
+/// for itself (#EDE-50): the taskbar's pins, the rail.
+pub fn shell_path() -> PathBuf {
+    config_path().with_file_name("shell.json")
+}
+
+/// The shell's own file as JSON (an object; `{}` when there is none).
+pub fn shell_json() -> Value {
+    std::fs::read_to_string(shell_path()).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}))
+}
+
+/// Merges `changes` (an object) into the shell's own file.
+pub fn persist_shell(changes: Value) {
+    let mut current = shell_json();
+    if let (Some(cur), Some(ch)) = (current.as_object_mut(), changes.as_object()) {
+        for (k, v) in ch {
+            cur.insert(k.clone(), v.clone());
+        }
+    }
+    let path = shell_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&current).unwrap_or_default()) {
+        tracing::warn!(path = %path.display(), "shell.json: {e}");
+    }
+}
+
 /// `$XDG_CONFIG_HOME/exponential-desktop/compositor.toml`.
 pub fn config_path() -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"));
@@ -115,6 +143,8 @@ pub fn output_json(o: &ede_protocol::OutputInfo) -> Value {
         "modeOptions": options,
         "scale": o.scale,
         "scaleText": scale_text,
+        "width": o.width,
+        "height": o.height,
     })
 }
 
@@ -126,17 +156,14 @@ pub fn user_json() -> Value {
         let pw = libc::getpwuid(libc::getuid());
         if pw.is_null() { String::new() } else { std::ffi::CStr::from_ptr((*pw).pw_gecos).to_string_lossy().split(',').next().unwrap_or("").to_string() }
     };
-    json!({"login": login, "name": if name.is_empty() { login.clone() } else { name }})
+    let host = std::fs::read_to_string("/etc/hostname").map(|h| h.trim().to_string()).unwrap_or_default();
+    json!({"login": login, "name": if name.is_empty() { login.clone() } else { name }, "host": host})
 }
 
 /// Texts the pages show, derived from a snapshot.
 pub fn decorate(domain: &str, mut snapshot: Value) -> Value {
     match domain {
-        "power" => {
-            let b = &snapshot["battery"];
-            let text = if b["present"].as_bool() == Some(true) { format!("{}% · {}", b["percent"].as_u64().unwrap_or(0), b["state"].as_str().unwrap_or("")) } else { "No battery".to_string() };
-            snapshot["batteryText"] = json!(text);
-        }
+        // `power` carries its own `batteryText` since #EDE-43.
         "updates" => {
             let n = snapshot["count"].as_u64().unwrap_or(0);
             snapshot["countText"] = json!(if n == 0 { "Up to date".to_string() } else { n.to_string() });
@@ -171,7 +198,7 @@ pub fn demo_services() -> Value {
 }
 
 pub fn demo_outputs() -> Vec<Value> {
-    vec![json!({"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1"})]
+    vec![json!({"name": "HEADLESS-1", "summary": "Exponential Desktop (headless) · 1280×720 at 1× (0, 0)", "current": "1280x720@60", "modeOptions": [{"label": "1280x720@60 (preferred)", "value": "1280x720@60"}], "scale": 1.0, "scaleText": "1", "width": 1280, "height": 720})]
 }
 
 #[cfg(test)]
@@ -199,7 +226,8 @@ mod tests {
 
     #[test]
     fn pages_get_their_texts() {
-        assert_eq!(decorate("power", json!({"battery": {"present": false}}))["batteryText"], "No battery");
+        // `power` carries its own `batteryText` since #EDE-43: passed through.
+        assert_eq!(decorate("power", json!({"batteryText": "No battery"}))["batteryText"], "No battery");
         assert_eq!(decorate("updates", json!({"count": 0}))["countText"], "Up to date");
         assert_eq!(decorate("about", json!({"memoryMb": 7423}))["memoryText"], "7.2 GB");
     }

@@ -1,0 +1,25 @@
+{
+  "$comment": "Exponential Desktop's factory version history (#EDE-53): the start menu's Version history entry opens it as an on-demand top layer surface in the middle of the screen: every edit of the shell's documents is a commit in ~/.config/exponential-desktop/ui (exponential-ui, #EDE-9), listed newest first (/history), with Undo (the newest edit reverted, ede.history undo) and Reset to factory (every document back as it ships, the edits stay in the history).",
+  "surface": {"layer": "top", "size": {"width": 720, "height": 480}, "keyboard": "on-demand", "onDemand": true, "functions": ["ede.history", "ede.close_document"]},
+  "root": {
+    "id": "history",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.sm", "padding": "$spacing.md", "width": 720, "height": 480, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "children": [
+      {"id": "history-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
+        {"id": "history-title", "component": "Heading", "props": {"text": "Version history", "level": "h3"}},
+        {"id": "history-actions", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center"}, "children": [
+          {"id": "history-undo", "component": "Button", "props": {"label": "Undo", "icon": "ui-undo", "variant": "outline", "size": "sm"}, "on": {"press": {"functionCall": {"call": "ede.history", "args": {"action": "undo"}}}}},
+          {"id": "history-reset", "component": "Button", "props": {"label": "Reset to factory", "icon": "ui-refresh", "variant": "outline", "size": "sm"}, "on": {"press": {"functionCall": {"call": "ede.history", "args": {"action": "reset"}}}}},
+          {"id": "history-close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.close_document", "args": {"name": "history"}}}}}
+        ]}
+      ]},
+      {"id": "history-scroll", "component": "ScrollArea", "style": {"flexGrow": 1, "minHeight": 0}, "children": [
+        {"id": "history-list", "component": "List", "props": {"gap": "none", "divided": true}, "template": {"component": "history-row", "path": "/history/entries", "key": "id"}, "children": []},
+        {"id": "history-row", "component": "Row", "props": {"title": {"path": "summary"}, "identifier": {"path": "short"}, "meta": {"path": "at"}, "icon": "ui-history", "density": "compact"}},
+        {"id": "history-empty", "component": "EmptyState", "props": {"icon": "ui-history", "title": "No edits yet", "size": "list"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/history/entries"}}}, "b": 0}}}
+      ]}
+    ]
+  },
+  "data": {"history": {"entries": []}}
+}

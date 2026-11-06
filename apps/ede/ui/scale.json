@@ -1,0 +1,25 @@
+{
+  "$comment": "Exponential Desktop's factory Scale (#EDE-49): Ctrl+Alt+Down opens it as an overlay in the middle of the screen (onDemand, on the compositor's scale.toggle hotkey): the active workspace's windows tiled as live thumbnails (/scale: captured over ede-protocol while it is open) with a title chip under each and a close badge; a press focuses the window and closes the overlay.",
+  "surface": {"layer": "overlay", "size": {"width": 960, "height": 520}, "onDemand": true, "functions": ["ede.focus", "ede.close"]},
+  "root": {
+    "id": "scale",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "width": 960, "height": 520, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "children": [
+      {"id": "scale-title", "component": "Heading", "props": {"text": {"path": "/scale/label"}, "level": "h4"}},
+      {"id": "scale-windows", "component": "Stack", "props": {"direction": "horizontal", "gap": "md", "align": "start", "wrap": true}, "template": {"component": "scale-window", "path": "/scale/windows", "key": "id"}, "children": [
+        {"id": "scale-window", "component": "Box", "props": {"pressable": true}, "style": {"position": "relative", "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.xs", "width": 296, "borderRadius": "$radius.md"}, "on": {"press": {"functionCall": {"call": "ede.focus", "args": {"window": {"path": "id"}}}}}, "children": [
+          {"id": "scale-focused", "component": "Box", "style": {"position": "absolute", "inset": 0, "borderRadius": "$radius.md", "backgroundColor": "$color.accent"}, "visible": {"path": "focused"}},
+          {"id": "scale-thumb", "component": "Image", "props": {"src": {"path": "thumbnail"}, "alt": {"path": "title"}, "width": 280, "height": 158, "fit": "contain", "fallback": "ede-window"}},
+          {"id": "scale-foot", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "center"}, "children": [
+            {"id": "scale-chip", "component": "Chip", "props": {"label": {"path": "title"}}},
+            {"id": "scale-spacer", "component": "Box", "style": {"flexGrow": 1}},
+            {"id": "scale-close", "component": "Button", "props": {"icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Close"}, "on": {"press": {"functionCall": {"call": "ede.close", "args": {"window": {"path": "id"}}}}}}
+          ]}
+        ]}
+      ]},
+      {"id": "scale-empty", "component": "EmptyState", "props": {"icon": "ede-window", "title": "No open windows", "size": "list"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "/scale/windows"}}}, "b": 0}}}
+    ]
+  },
+  "data": {"scale": {"label": "Workspace 1", "windows": []}}
+}

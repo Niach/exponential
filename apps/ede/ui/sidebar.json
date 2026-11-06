@@ -1,0 +1,1248 @@
+{
+  "$comment": "Exponential Desktop's factory sidebar (#EDE-44): the IDE's left column as a top layer surface on the left edge, 272 px (the shell re-opens it at 56 px as the icon rail when /shell/rail is set: Sidebar's rail mode draws every Row as a tile with a tooltip). Top: the desktop/team switcher (Local desktops, Exponential teams, New local desktop, Share as a team, Connect Exponential), the inbox, search and new buttons, the rail toggle. Nav: Needs you, Chats (they open the Exponential app). Sections: Pinned (the taskbar's pins), Workspaces (badges with the window counts), Active (sessions, when there are any). Bottom-left: the Exponential start button (the start menu, start-menu.json anchored here) and the chat button (chat.json). The host functions: ede.rail, ede.sidebar, ede.pin/unpin, ede.taskbar, ede.workspace, ede.start_menu, ede.chat, ede.launch, ede.switcher.",
+  "surface": {
+    "layer": "top",
+    "anchor": [
+      "top",
+      "left",
+      "bottom"
+    ],
+    "size": {
+      "width": 272
+    },
+    "exclusiveZone": 272,
+    "keyboard": "on-demand",
+    "functions": [
+      "ede.rail",
+      "ede.sidebar",
+      "ede.taskbar",
+      "ede.workspace",
+      "ede.start_menu",
+      "ede.chat",
+      "ede.launch",
+      "ede.switcher",
+      "ede.open_document"
+    ]
+  },
+  "root": {
+    "id": "sidebar-root",
+    "component": "Box",
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "height": "100%",
+      "paddingTop": "$spacing.sm",
+      "paddingBottom": "$spacing.sm",
+      "paddingLeft": "$spacing.xs",
+      "paddingRight": "$spacing.xs",
+      "backgroundColor": "$color.background"
+    },
+    "children": [
+      {
+        "id": "sidebar",
+        "component": "Sidebar",
+        "props": {
+          "width": 264,
+          "rail": true,
+          "collapsed": {
+            "path": "/shell/rail"
+          },
+          "collapseBelow": "never"
+        },
+        "slots": {
+          "sidebar": {
+            "id": "column",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": "$spacing.xs",
+              "flexGrow": 1,
+              "minHeight": 0
+            },
+            "children": [
+              {
+                "id": "header",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "xs",
+                  "align": "center"
+                },
+                "visible": {
+                  "call": "not",
+                  "args": {
+                    "value": {
+                      "path": "/shell/rail"
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "id": "switcher",
+                    "component": "Box",
+                    "props": {
+                      "pressable": true
+                    },
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm",
+                      "height": 40,
+                      "paddingLeft": "$spacing.xs",
+                      "paddingRight": "$spacing.xs",
+                      "borderRadius": "$radius.md",
+                      "flexGrow": 1,
+                      "minWidth": 0
+                    },
+                    "children": [
+                      {
+                        "id": "switcher-avatar",
+                        "component": "Avatar",
+                        "props": {
+                          "name": {
+                            "path": "/shell/switcher/current/name"
+                          },
+                          "size": "default"
+                        }
+                      },
+                      {
+                        "id": "switcher-name",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "/shell/switcher/current/name"
+                          },
+                          "variant": "label",
+                          "lines": 1
+                        }
+                      },
+                      {
+                        "id": "switcher-chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "nav-team-switcher",
+                          "size": "sm",
+                          "tone": "neutral"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "inbox",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-inbox",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Inbox"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.launch",
+                          "args": {
+                            "app": "at.exponential"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "search",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-search",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Search"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.start_menu",
+                          "args": {
+                            "toggle": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "new",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-create-issue",
+                      "variant": "default",
+                      "size": "icon",
+                      "label": "New issue"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.launch",
+                          "args": {
+                            "app": "at.exponential"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "rail-collapse",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-rail-collapse",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Collapse the sidebar"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.rail"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "switcher-menu",
+                "component": "Popover",
+                "props": {
+                  "anchor": "switcher",
+                  "side": "bottom",
+                  "align": "start"
+                },
+                "children": [
+                  {
+                    "id": "switcher-list",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.xxs",
+                      "width": 240,
+                      "padding": "$spacing.xs"
+                    },
+                    "children": [
+                      {
+                        "id": "switcher-local-label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Local desktops",
+                          "variant": "caption"
+                        }
+                      },
+                      {
+                        "id": "switcher-entries",
+                        "component": "List",
+                        "props": {
+                          "gap": "none"
+                        },
+                        "template": {
+                          "component": "switcher-entry",
+                          "path": "/shell/switcher/entries",
+                          "key": "id"
+                        },
+                        "children": []
+                      },
+                      {
+                        "id": "switcher-entry",
+                        "component": "Row",
+                        "props": {
+                          "title": {
+                            "path": "name"
+                          },
+                          "density": "compact",
+                          "pressable": true,
+                          "selected": {
+                            "path": "current"
+                          }
+                        },
+                        "slots": {
+                          "leading": {
+                            "id": "switcher-entry-avatar",
+                            "component": "Avatar",
+                            "props": {
+                              "name": {
+                                "path": "name"
+                              },
+                              "size": "sm"
+                            }
+                          }
+                        },
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "call": "ede.switcher",
+                              "args": {
+                                "action": "pick",
+                                "kind": {
+                                  "path": "kind"
+                                },
+                                "id": {
+                                  "path": "id"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "switcher-sep",
+                        "component": "Separator"
+                      },
+                      {
+                        "id": "switcher-new",
+                        "component": "Row",
+                        "props": {
+                          "title": "New local desktop",
+                          "icon": "ui-add",
+                          "density": "compact",
+                          "pressable": true
+                        },
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "call": "ede.switcher",
+                              "args": {
+                                "action": "new"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "switcher-share",
+                        "component": "Row",
+                        "props": {
+                          "title": "Share as a team…",
+                          "icon": "ui-share",
+                          "density": "compact",
+                          "pressable": true
+                        },
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "call": "ede.switcher",
+                              "args": {
+                                "action": "share"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "switcher-connect",
+                        "component": "Row",
+                        "props": {
+                          "title": "Connect Exponential",
+                          "icon": "brand-exponential",
+                          "density": "compact",
+                          "pressable": true
+                        },
+                        "on": {
+                          "press": {
+                            "functionCall": {
+                              "call": "ede.switcher",
+                              "args": {
+                                "action": "connect"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "header-rail",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs",
+                  "align": "center"
+                },
+                "visible": {
+                  "path": "/shell/rail"
+                },
+                "children": [
+                  {
+                    "id": "rail-expand",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-rail-expand",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Expand the sidebar"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.rail"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "rail-inbox",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-inbox",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Inbox"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.launch",
+                          "args": {
+                            "app": "at.exponential"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "rail-search",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-search",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Search"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.start_menu",
+                          "args": {
+                            "toggle": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "rail-new",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-create-issue",
+                      "variant": "default",
+                      "size": "icon",
+                      "label": "New issue"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.launch",
+                          "args": {
+                            "app": "at.exponential"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "nav",
+                "component": "List",
+                "props": {
+                  "gap": "none"
+                },
+                "children": [
+                  {
+                    "id": "nav-needs-you",
+                    "component": "Row",
+                    "props": {
+                      "title": "Needs you",
+                      "icon": "nav-needs-you",
+                      "density": "compact",
+                      "pressable": true
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.launch",
+                          "args": {
+                            "app": "at.exponential"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "nav-chats",
+                    "component": "Row",
+                    "props": {
+                      "title": "Chats",
+                      "icon": "nav-threads",
+                      "density": "compact",
+                      "pressable": true
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.launch",
+                          "args": {
+                            "app": "at.exponential"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "scroll",
+                "component": "ScrollArea",
+                "style": {
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  {
+                    "id": "sections",
+                    "component": "Box",
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "gap": "$spacing.sm"
+                    },
+                    "children": [
+                      {
+                        "id": "pinned",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "pinned-head",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "gap": "$spacing.xs",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs",
+                              "paddingRight": "$spacing.xs",
+                              "borderRadius": "$radius.md"
+                            },
+                            "on": {
+                              "press": {
+                                "event": {
+                                  "name": "sidebar"
+                                }
+                              }
+                            },
+                            "children": [
+                              {
+                                "id": "pinned-open",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-chevron-down",
+                                  "size": "sm",
+                                  "tone": "neutral"
+                                },
+                                "visible": {
+                                  "path": "/shell/sidebar/pinnedOpen"
+                                }
+                              },
+                              {
+                                "id": "pinned-closed",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-chevron-right",
+                                  "size": "sm",
+                                  "tone": "neutral"
+                                },
+                                "visible": {
+                                  "call": "not",
+                                  "args": {
+                                    "value": {
+                                      "path": "/shell/sidebar/pinnedOpen"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "id": "pinned-title",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Pinned",
+                                  "variant": "caption"
+                                }
+                              }
+                            ],
+                            "visible": {
+                              "call": "not",
+                              "args": {
+                                "value": {
+                                  "path": "/shell/rail"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "pinned-list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "pinned-row",
+                              "path": "/shell/sidebar/pinned",
+                              "key": "app"
+                            },
+                            "children": [
+                              {
+                                "id": "pinned-row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "path": "name"
+                                  },
+                                  "density": "compact",
+                                  "pressable": true,
+                                  "selected": {
+                                    "path": "focused"
+                                  }
+                                },
+                                "slots": {
+                                  "leading": {
+                                    "id": "pinned-icon",
+                                    "component": "Image",
+                                    "props": {
+                                      "src": {
+                                        "path": "icon"
+                                      },
+                                      "alt": {
+                                        "path": "name"
+                                      },
+                                      "width": 16,
+                                      "height": 16,
+                                      "fit": "contain",
+                                      "fallback": "nav-apps"
+                                    }
+                                  }
+                                },
+                                "on": {
+                                  "press": {
+                                    "functionCall": {
+                                      "call": "ede.taskbar",
+                                      "args": {
+                                        "app": {
+                                          "path": "app"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ],
+                            "visible": {
+                              "call": "or",
+                              "args": {
+                                "values": [
+                                  {
+                                    "path": "/shell/rail"
+                                  },
+                                  {
+                                    "call": "and",
+                                    "args": {
+                                      "values": [
+                                        {
+                                          "path": "/shell/sidebar/pinnedOpen"
+                                        },
+                                        {
+                                          "call": "not",
+                                          "args": {
+                                            "value": {
+                                              "call": "eq",
+                                              "args": {
+                                                "a": {
+                                                  "call": "len",
+                                                  "args": {
+                                                    "value": {
+                                                      "path": "/shell/sidebar/pinned"
+                                                    }
+                                                  }
+                                                },
+                                                "b": 0
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        ],
+                        "visible": {
+                          "call": "not",
+                          "args": {
+                            "value": {
+                              "call": "eq",
+                              "args": {
+                                "a": {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "path": "/shell/sidebar/pinned"
+                                    }
+                                  }
+                                },
+                                "b": 0
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "workspaces",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "workspaces-head",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "gap": "$spacing.xs",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs",
+                              "paddingRight": "$spacing.xs",
+                              "borderRadius": "$radius.md"
+                            },
+                            "on": {
+                              "press": {
+                                "event": {
+                                  "name": "sidebar"
+                                }
+                              }
+                            },
+                            "children": [
+                              {
+                                "id": "workspaces-open",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-chevron-down",
+                                  "size": "sm",
+                                  "tone": "neutral"
+                                },
+                                "visible": {
+                                  "path": "/shell/sidebar/workspacesOpen"
+                                }
+                              },
+                              {
+                                "id": "workspaces-closed",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-chevron-right",
+                                  "size": "sm",
+                                  "tone": "neutral"
+                                },
+                                "visible": {
+                                  "call": "not",
+                                  "args": {
+                                    "value": {
+                                      "path": "/shell/sidebar/workspacesOpen"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "id": "workspaces-title",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Workspaces",
+                                  "variant": "caption"
+                                }
+                              }
+                            ],
+                            "visible": {
+                              "call": "not",
+                              "args": {
+                                "value": {
+                                  "path": "/shell/rail"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "workspaces-list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "workspace-row",
+                              "path": "/shell/sidebar/workspaces",
+                              "key": "index"
+                            },
+                            "children": [
+                              {
+                                "id": "workspace-row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "path": "label"
+                                  },
+                                  "icon": "ede-workspaces",
+                                  "meta": {
+                                    "path": "countText"
+                                  },
+                                  "density": "compact",
+                                  "pressable": true,
+                                  "selected": {
+                                    "path": "active"
+                                  }
+                                },
+                                "on": {
+                                  "press": {
+                                    "functionCall": {
+                                      "call": "ede.workspace",
+                                      "args": {
+                                        "index": {
+                                          "path": "index"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ],
+                            "visible": {
+                              "call": "or",
+                              "args": {
+                                "values": [
+                                  {
+                                    "path": "/shell/rail"
+                                  },
+                                  {
+                                    "path": "/shell/sidebar/workspacesOpen"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "sessions",
+                        "component": "Box",
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "gap": "$spacing.xxs"
+                        },
+                        "children": [
+                          {
+                            "id": "sessions-head",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "row",
+                              "alignItems": "center",
+                              "gap": "$spacing.xs",
+                              "height": 24,
+                              "paddingLeft": "$spacing.xs",
+                              "paddingRight": "$spacing.xs",
+                              "borderRadius": "$radius.md"
+                            },
+                            "on": {
+                              "press": {
+                                "event": {
+                                  "name": "sidebar"
+                                }
+                              }
+                            },
+                            "children": [
+                              {
+                                "id": "sessions-open",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-chevron-down",
+                                  "size": "sm",
+                                  "tone": "neutral"
+                                },
+                                "visible": {
+                                  "path": "/shell/sidebar/sessionsOpen"
+                                }
+                              },
+                              {
+                                "id": "sessions-closed",
+                                "component": "Icon",
+                                "props": {
+                                  "name": "ui-chevron-right",
+                                  "size": "sm",
+                                  "tone": "neutral"
+                                },
+                                "visible": {
+                                  "call": "not",
+                                  "args": {
+                                    "value": {
+                                      "path": "/shell/sidebar/sessionsOpen"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "id": "sessions-title",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Active",
+                                  "variant": "caption"
+                                }
+                              }
+                            ],
+                            "visible": {
+                              "call": "not",
+                              "args": {
+                                "value": {
+                                  "path": "/shell/rail"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "id": "sessions-list",
+                            "component": "List",
+                            "props": {
+                              "gap": "none"
+                            },
+                            "template": {
+                              "component": "session-row",
+                              "path": "/shell/sessions",
+                              "key": "id"
+                            },
+                            "children": [
+                              {
+                                "id": "session-row",
+                                "component": "Row",
+                                "props": {
+                                  "title": {
+                                    "path": "title"
+                                  },
+                                  "subtitle": {
+                                    "path": "where"
+                                  },
+                                  "icon": "nav-threads",
+                                  "density": "compact",
+                                  "pressable": true
+                                },
+                                "on": {
+                                  "press": {
+                                    "functionCall": {
+                                      "call": "ede.launch",
+                                      "args": {
+                                        "app": "at.exponential"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ],
+                            "visible": {
+                              "call": "or",
+                              "args": {
+                                "values": [
+                                  {
+                                    "path": "/shell/rail"
+                                  },
+                                  {
+                                    "call": "and",
+                                    "args": {
+                                      "values": [
+                                        {
+                                          "path": "/shell/sidebar/sessionsOpen"
+                                        },
+                                        {
+                                          "call": "not",
+                                          "args": {
+                                            "value": {
+                                              "call": "eq",
+                                              "args": {
+                                                "a": {
+                                                  "call": "len",
+                                                  "args": {
+                                                    "value": {
+                                                      "path": "/shell/sessions"
+                                                    }
+                                                  }
+                                                },
+                                                "b": 0
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        ],
+                        "visible": {
+                          "call": "not",
+                          "args": {
+                            "value": {
+                              "call": "eq",
+                              "args": {
+                                "a": {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "path": "/shell/sessions"
+                                    }
+                                  }
+                                },
+                                "b": 0
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "corner",
+                "component": "Stack",
+                "props": {
+                  "direction": "horizontal",
+                  "gap": "xs",
+                  "align": "center"
+                },
+                "visible": {
+                  "call": "not",
+                  "args": {
+                    "value": {
+                      "path": "/shell/rail"
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "id": "start",
+                    "component": "Button",
+                    "props": {
+                      "icon": "brand-exponential",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Start"
+                    },
+                    "style": {
+                      "width": 40,
+                      "height": 40
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.start_menu",
+                          "args": {
+                            "toggle": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "chat",
+                    "component": "Button",
+                    "props": {
+                      "icon": "action-chat",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Chat"
+                    },
+                    "style": {
+                      "width": 40,
+                      "height": 40
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.chat"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "corner-spacer",
+                    "component": "Box",
+                    "style": {
+                      "flexGrow": 1
+                    }
+                  },
+                  {
+                    "id": "settings",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-settings",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Settings"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.open_document",
+                          "args": {
+                            "name": "settings"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "corner-rail",
+                "component": "Stack",
+                "props": {
+                  "direction": "vertical",
+                  "gap": "xs",
+                  "align": "center"
+                },
+                "visible": {
+                  "path": "/shell/rail"
+                },
+                "children": [
+                  {
+                    "id": "rail-settings",
+                    "component": "Button",
+                    "props": {
+                      "icon": "nav-settings",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Settings"
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.open_document",
+                          "args": {
+                            "name": "settings"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "rail-chat",
+                    "component": "Button",
+                    "props": {
+                      "icon": "action-chat",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Chat"
+                    },
+                    "style": {
+                      "width": 40,
+                      "height": 40
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.chat"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "rail-start",
+                    "component": "Button",
+                    "props": {
+                      "icon": "brand-exponential",
+                      "variant": "ghost",
+                      "size": "icon",
+                      "label": "Start"
+                    },
+                    "style": {
+                      "width": 40,
+                      "height": 40
+                    },
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "call": "ede.start_menu",
+                          "args": {
+                            "toggle": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "children": [],
+        "style": {
+          "flexGrow": 1,
+          "minHeight": 0
+        }
+      }
+    ]
+  },
+  "data": {
+    "shell": {
+      "rail": false,
+      "switcher": {
+        "current": {
+          "kind": "local",
+          "id": "local",
+          "name": "Local"
+        },
+        "entries": [
+          {
+            "kind": "local",
+            "id": "local",
+            "name": "Local",
+            "current": true
+          }
+        ]
+      },
+      "sidebar": {
+        "pinnedOpen": true,
+        "workspacesOpen": true,
+        "sessionsOpen": true,
+        "pinned": [],
+        "workspaces": []
+      },
+      "sessions": []
+    }
+  }
+}
