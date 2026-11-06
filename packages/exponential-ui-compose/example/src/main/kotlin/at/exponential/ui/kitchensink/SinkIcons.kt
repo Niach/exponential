@@ -105,6 +105,7 @@ private val lListMusic = outline("list-music", "M16 5H3", "M11 12H3", "M11 19H3"
 private val lLoader = outline("loader", "M12 2v4", "m16.2 7.8 2.9-2.9", "M18 12h4", "m16.2 16.2 2.9 2.9", "M12 18v4", "m4.9 19.1 2.9-2.9", "M2 12h4", "m4.9 4.9 2.9 2.9")
 private val lLogOut = outline("log-out", "m16 17 5-5-5-5", "M21 12H9", "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4")
 private val lMail = outline("mail", "m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7", "M4 4H20A2 2 0 0 1 22 6V18A2 2 0 0 1 20 20H4A2 2 0 0 1 2 18V6A2 2 0 0 1 4 4Z")
+private val lMegaphone = outline("megaphone", "M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z", "M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14", "M8 6v8")
 private val lMenu = outline("menu", "M4 5h16", "M4 12h16", "M4 19h16")
 private val lMessageCircle = outline("message-circle", "M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719")
 private val lMessageSquare = outline("message-square", "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z")
@@ -194,6 +195,7 @@ private val progress24: ImageVector =
  * set); the SDK ships none.
  */
 val sinkIcons: Map<String, ImageVector> = mapOf(
+    "action-chat" to lMessageCircle,
     "archive" to lArchive,
     "arrow-left" to lArrowLeft,
     "arrow-right" to lArrowRight,
@@ -265,6 +267,7 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "monitor" to lMonitor,
     "music" to lMusic,
     "nav-boards" to lFolderKanban,
+    "nav-changelog" to lMegaphone,
     "nav-inbox" to lInbox,
     "nav-issues" to lList,
     "nav-search" to lSearch,
