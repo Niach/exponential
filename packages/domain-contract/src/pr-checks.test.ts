@@ -9,6 +9,7 @@ import {
   formatCheckDuration,
   checksQueuedText,
   checksWakeState,
+  gatedChecksState,
   checksWakeText,
   mergeGate,
   mergeGateText,
@@ -19,6 +20,14 @@ import {
 describe(`pr-checks fixture`, () => {
   it.each(fixture.aggregate)(`aggregate: $name`, ({ checks, expected }) => {
     expect(aggregateChecksState(checks)).toBe(expected as PrChecksState)
+  })
+  it(`gated state: an informational leg never holds a PR (#EXP-1711)`, () => {
+    const c = (name: string, status: string, conclusion: string | null, required: boolean) => ({ name, status, conclusion, required })
+    expect(gatedChecksState([c(`gate`, `completed`, `success`, true), c(`ios-core`, `queued`, null, false)])).toBe(`success`)
+    expect(gatedChecksState([c(`gate`, `in_progress`, null, true), c(`lint`, `completed`, `success`, false)])).toBe(`pending`)
+    expect(gatedChecksState([c(`gate`, `completed`, `success`, true), c(`ios-core`, `completed`, `failure`, false)])).toBe(`success`)
+    expect(gatedChecksState([c(`lint`, `queued`, null, false)])).toBe(`pending`)
+    expect(gatedChecksState([])).toBe(`none`)
   })
   it.each(fixture.wake)(`wake: $name`, ({ checks, required, expected }) => {
     expect(checksWakeState(checks, required)?.state ?? null).toBe(expected as never)
