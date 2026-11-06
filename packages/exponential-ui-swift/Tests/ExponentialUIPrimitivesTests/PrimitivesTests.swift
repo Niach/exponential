@@ -47,10 +47,10 @@ final class MarkdownParseTests: XCTestCase {
         let spans = Markdown.parseInline(nested)
         XCTAssertTrue(spans.allSatisfy { $0.link == "u" })
         XCTAssertEqual(Markdown.plain(spans), String(repeating: "[", count: 8) + "x" + String(repeating: "](u)", count: 8))
-        // Ordinary links are unchanged.
+        // Ordinary links are unchanged; an escaped `[` is literal (#VAPP-258).
         let ok = Markdown.parseInline("a [b [c]](https://x/A_(b)) \\[d](e) [f](g h) [i](\\(j)")
-        XCTAssertEqual(ok.compactMap(\.link), ["https://x/A_(b)", "e", "(j"])
-        XCTAssertEqual(Markdown.plain(ok), "a b [c] \\d [f](g h) i")
+        XCTAssertEqual(ok.compactMap(\.link), ["https://x/A_(b)", "(j"])
+        XCTAssertEqual(Markdown.plain(ok), "a b [c] [d](e) [f](g h) i")
     }
 
     func testInlineRules() {

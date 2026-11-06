@@ -43,7 +43,8 @@ function MarkdownLink({ host, href, children }: { host: HostPlugin; href: string
 
 function inline(nodes: readonly MarkdownInline[], host: HostPlugin): ReactNode[] {
   return nodes.map((n, k) => {
-    if (typeof n === `string`) return n
+    // #VAPP-258: a hard line break is a newline in the run.
+    if (typeof n === `string`) return n.includes(`\n`) ? <Fragment key={k}>{n.split(`\n`).flatMap((line, i) => (i ? [<br key={i} />, line] : [line]))}</Fragment> : n
     switch (n.type) {
       case `code`:
         return <code key={k} className="xui-Markdown-code">{n.text}</code>
@@ -71,7 +72,7 @@ function renderList(list: MarkdownList, host: HostPlugin, key: number): ReactNod
       {item.children.map((c, ci) => <Fragment key={`c${ci}`}>{renderList(c, host, ci)}</Fragment>)}
     </li>
   ))
-  return list.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>
+  return list.ordered ? <ol key={key} start={list.start === 1 ? undefined : list.start}>{items}</ol> : <ul key={key}>{items}</ul>
 }
 
 function block(b: MarkdownBlock, host: HostPlugin, key: number): ReactNode {

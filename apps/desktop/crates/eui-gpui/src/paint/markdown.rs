@@ -71,10 +71,59 @@ struct Flags {
     strike: bool,
 }
 
-fn push_text(out: &mut Vec<Inline>, text: &str, f: Flags, link: Option<&str>) {
-    if text.is_empty() {
+/// #VAPP-258 (markdown-render.json): the common named entities and numeric
+/// references decoded (text, never code).
+pub fn decode_entities(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains('&') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at..];
+        let decoded = tail[1..].find(';').filter(|&n| n > 0 && n <= 9).and_then(|n| {
+            let body = &tail[1..1 + n];
+            let ch = if let Some(num) = body.strip_prefix('#') {
+                let code = match num.strip_prefix(['x', 'X']) {
+                    Some(hex) => u32::from_str_radix(hex, 16).ok(),
+                    None => num.parse::<u32>().ok(),
+                };
+                code.filter(|c| *c > 0).and_then(char::from_u32).map(String::from)
+            } else {
+                match body {
+                    "amp" => Some("&".to_string()),
+                    "lt" => Some("<".to_string()),
+                    "gt" => Some(">".to_string()),
+                    "quot" => Some("\"".to_string()),
+                    "apos" => Some("'".to_string()),
+                    "nbsp" => Some("\u{a0}".to_string()),
+                    _ => None,
+                }
+            };
+            ch.map(|c| (c, n + 2))
+        });
+        match decoded {
+            Some((c, n)) => {
+                out.push_str(&c);
+                rest = &tail[n..];
+            }
+            None => {
+                out.push('&');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    std::borrow::Cow::Owned(out)
+}
+
+fn push_text(out: &mut Vec<Inline>, raw: &str, f: Flags, link: Option<&str>) {
+    if raw.is_empty() {
         return;
     }
+    let decoded = decode_entities(raw);
+    let text: &str = &decoded;
     if let Some(last) = out.last_mut() {
         if !last.code && last.bold == f.bold && last.italic == f.italic && last.strike == f.strike && last.link.as_deref() == link {
             last.text.push_str(text);
@@ -376,7 +425,12 @@ fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: 
         let rest = &s[i..];
         let c = bytes[i];
         let mut handled: Option<usize> = None;
-        if c == b'`' {
+        if c == b'\\' && bytes.get(i + 1).is_some_and(u8::is_ascii_punctuation) && i + 1 < s.len() {
+            // #VAPP-258: a backslash-escaped punctuation character is literal.
+            push_text(out, &s[plain_start..i], f, link);
+            push_text(out, &s[i + 1..i + 2], f, link);
+            handled = Some(2);
+        } else if c == b'`' {
             if let Some(close) = rest[1..].find('`') {
                 push_text(out, &s[plain_start..i], f, link);
                 out.push(Inline { text: rest[1..1 + close].to_string(), code: true, link: link.map(str::to_string), ..Inline::default() });
@@ -401,7 +455,13 @@ fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: 
                 b'_' => "__",
                 _ => "~~",
             };
-            if let Some((inner, n)) = delimited(rest, double) {
+            let triple = if c == b'~' { None } else { delimited(rest, if c == b'*' { "***" } else { "___" }) };
+            if let Some((inner, n)) = triple {
+                // `***x***` is both.
+                push_text(out, &s[plain_start..i], f, link);
+                parse_inline_into(src, i + 3, i + 3 + inner.len(), Flags { bold: true, italic: true, ..f }, link, depth, out);
+                handled = Some(n);
+            } else if let Some((inner, n)) = delimited(rest, double) {
                 push_text(out, &s[plain_start..i], f, link);
                 let nf = if c == b'~' { Flags { strike: true, ..f } } else { Flags { bold: true, ..f } };
                 let at = i + double.len();
@@ -491,6 +551,37 @@ fn list_marker_of(t: &str) -> Option<(String, &str)> {
     None
 }
 
+/// A line that opens a block of its own (never a continuation).
+fn starts_block(line: &str) -> bool {
+    let t = line.trim();
+    let hashes = t.bytes().take_while(|b| *b == b'#').count();
+    t.starts_with("```") || t.starts_with("~~~") || t.starts_with('>') || is_table_row(line) || is_rule(t) || ((1..=6).contains(&hashes) && t[hashes..].starts_with(' '))
+}
+
+/// Paragraph lines joined: a line ending in a backslash or two spaces breaks
+/// hard (a newline in the run), any other line break is a space.
+fn join_paragraph(para: &[&str]) -> String {
+    let mut text = String::new();
+    for (k, line) in para.iter().enumerate() {
+        if k > 0 {
+            if text.ends_with('\\') {
+                text.pop();
+                text.push('\n');
+            } else if text.ends_with("  ") {
+                let kept = text.trim_end_matches(' ').len();
+                text.truncate(kept);
+                text.push('\n');
+            } else {
+                text.push(' ');
+            }
+        }
+        text.push_str(line);
+    }
+    let kept = text.trim_end_matches(' ').len();
+    text.truncate(kept);
+    text
+}
+
 fn is_rule(line: &str) -> bool {
     let t: String = line.chars().filter(|c| !c.is_whitespace()).collect();
     t.len() >= 3 && (t.chars().all(|c| c == '-') || t.chars().all(|c| c == '*') || t.chars().all(|c| c == '_'))
@@ -505,7 +596,7 @@ pub fn parse(text: &str) -> Vec<Block> {
     let mut group = 0usize;
     let flush = |para: &mut Vec<&str>, blocks: &mut Vec<Block>| {
         if !para.is_empty() {
-            let joined = para.join(" ");
+            let joined = join_paragraph(para);
             match whole_image(joined.trim()) {
                 Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone() }, inlines: parse_inline(&alt), list_group: None }),
                 None => blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&joined), list_group: None }),
@@ -517,11 +608,12 @@ pub fn parse(text: &str) -> Vec<Block> {
     while i < lines.len() {
         let line = lines[i];
         let trimmed = line.trim();
-        if trimmed.starts_with("```") {
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
             flush(&mut para, &mut blocks);
+            let fence = &trimmed[..3];
             let mut body = Vec::new();
             i += 1;
-            while i < lines.len() && !lines[i].trim().starts_with("```") {
+            while i < lines.len() && !lines[i].trim().starts_with(fence) {
                 body.push(lines[i]);
                 i += 1;
             }
@@ -559,8 +651,22 @@ pub fn parse(text: &str) -> Vec<Block> {
             // The indents of the open lists, outermost first: an item 2+
             // columns past its list's nests under the previous item.
             let mut lists: Vec<usize> = Vec::new();
+            let mut last_body = String::new();
             while i < lines.len() {
-                let Some((indent, marker, rest)) = list_marker(lines[i]) else { break };
+                let Some((indent, marker, rest)) = list_marker(lines[i]) else {
+                    // A non-blank line under an item that starts no block continues it.
+                    let next = lines[i].trim();
+                    if next.is_empty() || starts_block(lines[i]) {
+                        break;
+                    }
+                    last_body.push(' ');
+                    last_body.push_str(next);
+                    if let Some(last) = blocks.last_mut() {
+                        last.inlines = parse_inline(&last_body);
+                    }
+                    i += 1;
+                    continue;
+                };
                 while lists.len() > 1 && indent < *lists.last().unwrap() {
                     lists.pop();
                 }
@@ -577,7 +683,8 @@ pub fn parse(text: &str) -> Vec<Block> {
                         None => (None, rest),
                     },
                 };
-                blocks.push(Block { kind: BlockKind::ListItem { marker, task, depth }, inlines: parse_inline(body.trim()), list_group: Some(group) });
+                last_body = body.trim().to_string();
+                blocks.push(Block { kind: BlockKind::ListItem { marker, task, depth }, inlines: parse_inline(&last_body), list_group: Some(group) });
                 i += 1;
             }
             continue;
@@ -597,7 +704,7 @@ pub fn parse(text: &str) -> Vec<Block> {
         if trimmed.is_empty() {
             flush(&mut para, &mut blocks);
         } else {
-            para.push(trimmed);
+            para.push(line.trim_start());
         }
         i += 1;
     }

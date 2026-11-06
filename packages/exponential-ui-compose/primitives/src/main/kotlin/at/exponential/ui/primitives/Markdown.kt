@@ -146,8 +146,24 @@ data class MarkdownLayout(val blocks: List<MarkdownBlockBox>, val height: Float)
 object Markdown {
     private data class Flags(val bold: Boolean = false, val italic: Boolean = false, val strike: Boolean = false)
 
-    private fun push(out: MutableList<MarkdownInline>, text: String, f: Flags, link: String?) {
-        if (text.isEmpty()) return
+    private val ENTITIES = mapOf("amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'", "nbsp" to "\u00A0")
+    private val ENTITY = Regex("&(?:#([0-9]{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z]+));")
+
+    /** #VAPP-258 (markdown-render.json): the common named entities and numeric references decoded (text, never code). */
+    fun decodeEntities(s: String): String = if ('&' !in s) s else ENTITY.replace(s) { m ->
+        val (dec, hex, name) = m.destructured
+        when {
+            name.isNotEmpty() -> ENTITIES[name] ?: m.value
+            else -> {
+                val code = if (dec.isNotEmpty()) dec.toIntOrNull() else hex.toIntOrNull(16)
+                if (code != null && code in 1..0x10FFFF) String(Character.toChars(code)) else m.value
+            }
+        }
+    }
+
+    private fun push(out: MutableList<MarkdownInline>, raw: String, f: Flags, link: String?) {
+        if (raw.isEmpty()) return
+        val text = decodeEntities(raw)
         val last = out.lastOrNull()
         if (last != null && !last.code && last.bold == f.bold && last.italic == f.italic && last.strike == f.strike && last.link == link) {
             out[out.size - 1] = last.copy(text = last.text + text)
@@ -298,7 +314,12 @@ object Markdown {
         while (i < s.length) {
             val c = s[i]
             var handled: Int? = null
-            if (c == '`') {
+            if (c == '\\' && i + 1 < s.length && s[i + 1].code < 128 && isAsciiPunct(s[i + 1])) {
+                // #VAPP-258: a backslash-escaped punctuation character is literal.
+                push(out, s.substring(plainStart, i), f, link)
+                push(out, s[i + 1].toString(), f, link)
+                handled = 2
+            } else if (c == '`') {
                 val end = scan.indexOf("`", i + 1)
                 if (end >= 0) {
                     push(out, s.substring(plainStart, i), f, link)
@@ -323,8 +344,14 @@ object Markdown {
                 val prevAlnum = i > 0 && isAlnum(s[i - 1])
                 if (!(c == '_' && prevAlnum)) {
                     val double = if (c == '*') "**" else if (c == '_') "__" else "~~"
-                    val d = delimited(scan, i, double)
-                    if (d != null) {
+                    val triple = if (c != '~') delimited(scan, i, c.toString().repeat(3)) else null
+                    val d = if (triple == null) delimited(scan, i, double) else null
+                    if (triple != null) {
+                        // `***x***` is both.
+                        push(out, s.substring(plainStart, i), f, link)
+                        parseInline(triple.first, f.copy(bold = true, italic = true), link, out, linkDepth)
+                        handled = triple.second
+                    } else if (d != null) {
                         push(out, s.substring(plainStart, i), f, link)
                         val nf = if (c == '~') f.copy(strike = true) else f.copy(bold = true)
                         parseInline(d.first, nf, link, out, linkDepth)
@@ -354,6 +381,32 @@ object Markdown {
         val out = ArrayList<MarkdownInline>()
         parseInline(s, Flags(), null, out, 0)
         return out
+    }
+
+    private fun isAsciiPunct(c: Char): Boolean = c in '!'..'/' || c in ':'..'@' || c in '['..'`' || c in '{'..'~'
+
+    /** A line that opens a block of its own (never a continuation). */
+    private fun startsBlock(line: String): Boolean {
+        val t = line.trim()
+        val hashes = t.takeWhile { it == '#' }.length
+        return t.startsWith("```") || t.startsWith("~~~") || t.startsWith(">") || isTableRow(line) || isRule(t) ||
+            (hashes in 1..6 && t.substring(hashes).startsWith(" "))
+    }
+
+    /** Paragraph lines joined: a line ending in a backslash or two spaces breaks hard (a newline), any other is a space. */
+    private fun joinParagraph(para: List<String>): String {
+        val sb = StringBuilder()
+        para.forEachIndexed { k, line ->
+            if (k > 0) {
+                when {
+                    sb.endsWith("\\") -> { sb.setLength(sb.length - 1); sb.append('\n') }
+                    sb.endsWith("  ") -> { while (sb.endsWith(" ")) sb.setLength(sb.length - 1); sb.append('\n') }
+                    else -> sb.append(' ')
+                }
+            }
+            sb.append(line)
+        }
+        return sb.toString().trimEnd(' ')
     }
 
     private fun isTableRow(line: String): Boolean {
@@ -401,7 +454,7 @@ object Markdown {
         var group = 0
         fun flush() {
             if (para.isNotEmpty()) {
-                val joined = para.joinToString(" ")
+                val joined = joinParagraph(para)
                 val image = imageOnly(joined)
                 if (image != null) {
                     blocks.add(MarkdownBlock(MarkdownBlockKind.Image(image.second, image.first), listOf(MarkdownInline(text = image.first))))
@@ -415,11 +468,12 @@ object Markdown {
         while (i < lines.size) {
             val line = lines[i]
             val trimmed = line.trim()
-            if (trimmed.startsWith("```")) {
+            if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
                 flush()
+                val fence = trimmed.substring(0, 3)
                 val body = ArrayList<String>()
                 i += 1
-                while (i < lines.size && !lines[i].trim().startsWith("```")) {
+                while (i < lines.size && !lines[i].trim().startsWith(fence)) {
                     body.add(lines[i])
                     i += 1
                 }
@@ -458,8 +512,19 @@ object Markdown {
                 // The marker columns of the open lists, outermost first: a
                 // marker ≥ 2 columns right of the previous level's nests.
                 val columns = ArrayList<Int>()
+                var lastBody = ""
                 while (i < lines.size) {
-                    val (marker, rest, column) = listMarker(lines[i]) ?: break
+                    val item = listMarker(lines[i])
+                    if (item == null) {
+                        // A non-blank line under an item that starts no block continues it.
+                        val next = lines[i].trim()
+                        if (next.isEmpty() || startsBlock(lines[i]) || blocks.isEmpty()) break
+                        lastBody += " $next"
+                        blocks[blocks.size - 1] = blocks.last().copy(inlines = parseInline(lastBody))
+                        i += 1
+                        continue
+                    }
+                    val (marker, rest, column) = item
                     while (columns.size > 1 && column < columns.last()) columns.removeAt(columns.size - 1)
                     if (columns.isEmpty() || column >= columns.last() + 2) columns.add(column)
                     val depth = columns.size - 1
@@ -472,7 +537,8 @@ object Markdown {
                         task = true
                         body = rest.substring(4)
                     }
-                    blocks.add(MarkdownBlock(MarkdownBlockKind.ListItem(marker, task, depth), parseInline(body.trim()), group))
+                    lastBody = body.trim()
+                    blocks.add(MarkdownBlock(MarkdownBlockKind.ListItem(marker, task, depth), parseInline(lastBody), group))
                     i += 1
                 }
                 continue
@@ -489,7 +555,7 @@ object Markdown {
                 blocks.add(MarkdownBlock(MarkdownBlockKind.Table(header, rows), emptyList()))
                 continue
             }
-            if (trimmed.isEmpty()) flush() else para.add(trimmed)
+            if (trimmed.isEmpty()) flush() else para.add(line.trimStart(' ', '\t'))
             i += 1
         }
         flush()

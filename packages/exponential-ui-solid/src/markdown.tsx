@@ -46,7 +46,8 @@ function MarkdownLink(props: { host: HostPlugin; href: string; children: JSX.Ele
 
 function inline(nodes: readonly MarkdownInline[], host: HostPlugin): JSX.Element[] {
   return nodes.map((n): JSX.Element => {
-    if (typeof n === `string`) return n
+    // #VAPP-258: a hard line break is a newline in the run.
+    if (typeof n === `string`) return n.includes(`\n`) ? n.split(`\n`).flatMap((line, i) => (i ? [<br />, line] : [line])) : n
     switch (n.type) {
       case `code`:
         return <code class="xui-Markdown-code">{n.text}</code>
@@ -83,7 +84,7 @@ function renderList(list: MarkdownList, host: HostPlugin): JSX.Element {
       {item.children.map((c) => renderList(c, host))}
     </li>
   ))
-  return list.ordered ? <ol>{items}</ol> : <ul>{items}</ul>
+  return list.ordered ? <ol start={list.start === 1 ? undefined : list.start}>{items}</ol> : <ul>{items}</ul>
 }
 
 function block(b: MarkdownBlock, host: HostPlugin): JSX.Element {
