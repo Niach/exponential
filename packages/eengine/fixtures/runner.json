@@ -1,5 +1,5 @@
 {
-  "$comment": "E6 (epic VAPP-259; #VAPP-266 desktop, #VAPP-267 Android, #VAPP-268 iOS, #VAPP-269 web; docs/spec/apps.md §13.3): THE RUNNER, the prebuilt shell an exported app runs in, one per platform (macOS, Windows, Linux: gpui + eui-gpui + eengine; Android: Compose + eui-compose + eengine-ffi; iOS: SwiftUI + ExponentialUI + eengine-ffi; web: a static PWA on the TS twin + the React renderer). No app code is compiled per app (iOS links only the declared capability modules). A runner has NO CHROME OF ITS OWN: everything it paints is a genUI surface made of existing components, built here once (TS reference `runner.ts`, Rust `eengine::runner`, Swift/Kotlin over `eengine-ffi`), so the look is the same on every platform. NO OTA, NO UPDATE CHANNEL, NO TELEMETRY, NO ACCOUNT: a new package version is a rebundle; diagnostics are compiled out; the identity is `local` (providers.json). THE BUNDLE (`bundle`, the prebuilt-shell contract E7's `exponential bundle` fills): one directory `bundle.dir` holding `bundle.files.package` (the package FILE, signed: `{package, author, signature}`; a bare package runs unsigned) and `bundle.files.config` (`runner.json`), at `bundle.locations[<platform>]`; E7 copies the prebuilt runner, writes that directory, the icons and the platform manifest (Info.plist purpose strings, AndroidManifest permissions, macOS entitlements, the web manifest) from the package's capability manifest, then signs. The runner never reads the network for its package. CONFIG (`configCases`, `runnerConfig(json)` -> `{config, issues}`): `config.keys` in order, each a string; `required` ones missing = `missing`; a value failing its `pattern`, `values` or `maxLength` (non-blank) = `invalid`; an absent optional key = its `default` (`network` defaults to `off`: nothing leaves the device unless the bundle says so); extra keys sorted: one of `config.forbidden` = `forbidden` (no update feed, telemetry, crash reports or account can be configured into a runner), else `unknown`; a non-object = `[{key: \"\", code: notAnObject}]`; `config` is null whenever there is an issue. The runner refuses to start on any issue (the `config` failure). STORAGE (`storage`): per app id under the platform's app-data directory: the records in `SqliteRecordStore` (`storage.records`), files in `FsBlobStore` (`storage.files`), the Vault in the platform keystore (Keychain, Android Keystore-sealed preferences, libsecret / Credential Manager, the web: an IndexedDB store), the device uuid of the `local` identity under the Vault key `storage.deviceKey` (created once). The web keeps records in SQLite-WASM on OPFS and falls back to IndexedDB, files in OPFS. THE SHELL (`shellCases`, `runnerPackage(pkg, formFactor)` -> the package the runner's PAINTER installs; the Engine keeps the original package, its signature and grants): a package without `screens` gets one: its first template, titled with the package name. Every screen's template is wrapped in the shell when the package has two or more NAVIGATION screens (no `nav: false`) or declares an `ask` capability scope (`permissions`); otherwise it stays as it is. The template's `root` becomes `runner-page`; the shell owns every component id starting `runner-` and the data key `runner`. `wide` (desktop, the web at `md` and up, tablets) = a `Sidebar` (`shell.sidebarWidth`, `collapseBelow: never`) whose `sidebar` slot is a Stack of the package name as a `Heading` (`shell.titleLevel`), the navigation as a List of compact Rows (title, icon, `selected` on the open screen, a press = the event `runner.navigate {screen}`) and, when `permissions`, a Row `copy.permissions` with `shell.permissionsIcon` (event `runner.permissions`). `compact` (phones, the web below `md`) = a full-height Stack: the page in a growing Box, a Separator, then a horizontal bar (padded `$spacing.sm`, end-justified) of `Tabs` in a growing column Box (`fill`, value bound to `/runner/screen`, change = `runner.navigate` with the bound value; the template's data gains `runner: {screen}`) and, when `permissions`, an icon-only ghost Button (event `runner.permissions`). The form factor follows the window: a host re-installs and re-applies when it crosses `md`. SURFACES: `app` (the open screen: genUI's `templateMessages` of the wrapped template with `{params}`), `consent` (consent.json's ask sheet), `permissions` (consent.json's manage sheet), `toast` (`runnerToast(message)` = one `Toast` of type error: the refused call's reason, lifecycle.json's `copy.refused` for a refused link; it dismisses itself), and in place of `app` when the bundle cannot load `runnerFailure(kind)` (`failureCases`) = one `EmptyState` (`shell.failureIcon`, `copy.failed.title`, `copy.failed[kind]`; no action): `missing` (no package file), `config` (runner.json has issues), `signature` (the signature does not verify), `invalid` (genUI refuses the package). EVENTS the runner handles itself: `runner.navigate {screen}` = the Engine's `app.navigate`; `runner.permissions` = paint `permissions`; `consent.toggle {scope}` = the grant write through the ConsentUi with the gesture (granted -> revoke, else granted), then repaint `permissions`; `consent.answer {answer}` = the pending call's `answer_consent`, then close `consent`. Every other function call of the app goes to the Engine instance (`records.*`, `app.navigate`, capabilities through the broker); a refused one paints `toast`. LIFECYCLE: the platform's window or activity events drive lifecycle.json (launch, foreground, background, terminate, deep links `<config id>://<screen>?<params>`, notification taps); the WindowHost `open` applies the screen to `app`; when a plain launch opens nothing (a package without screens) the runner opens the derived package's first screen.",
+  "$comment": "E6 (epic VAPP-259; #VAPP-266 desktop, #VAPP-267 Android, #VAPP-268 iOS, #VAPP-269 web; docs/spec/apps.md §13.3): THE RUNNER, the prebuilt shell an exported app runs in, one per platform (macOS, Windows, Linux: gpui + eui-gpui + eengine; Android: Compose + eui-compose + eengine-ffi; iOS: SwiftUI + ExponentialUI + eengine-ffi; web: a static PWA on the TS twin + the React renderer). No app code is compiled per app (iOS links only the declared capability modules). A runner has NO CHROME OF ITS OWN: everything it paints is a genUI surface made of existing components, built here once (TS reference `runner.ts`, Rust `eengine::runner`, Swift/Kotlin over `eengine-ffi`), so the look is the same on every platform. NO OTA, NO UPDATE CHANNEL, NO TELEMETRY, NO ACCOUNT: a new package version is a rebundle; diagnostics are compiled out; the identity is `local` (providers.json). THE BUNDLE (`bundle`, the prebuilt-shell contract E7's `exponential bundle` fills): one directory `bundle.dir` holding `bundle.files.package` (the package FILE, signed: `{package, author, signature}`; a bare package runs unsigned) and `bundle.files.config` (`runner.json`), at `bundle.locations[<platform>]`; E7 copies the prebuilt runner, writes that directory, the icons and the platform manifest (Info.plist purpose strings, AndroidManifest permissions, macOS entitlements, the web manifest) from the package's capability manifest, then signs. The runner never reads the network for its package. CONFIG (`configCases`, `runnerConfig(json)` -> `{config, issues}`): `config.keys` in order, each a string; `required` ones missing = `missing`; a value failing its `pattern`, `values` or `maxLength` (non-blank) = `invalid`; an absent optional key = its `default` (`network` defaults to `off`: nothing leaves the device unless the bundle says so); extra keys sorted: one of `config.forbidden` = `forbidden` (no update feed, telemetry, crash reports or account can be configured into a runner), else `unknown`; a non-object = `[{key: \"\", code: notAnObject}]`; `config` is null whenever there is an issue. The runner refuses to start on any issue (the `config` failure). STORAGE (`storage`): per app id under the platform's app-data directory: the records in `SqliteRecordStore` (`storage.records`), files in `FsBlobStore` (`storage.files`), the Vault in the platform keystore (Keychain, Android Keystore-sealed preferences, libsecret / Credential Manager, the web: an IndexedDB store), the device uuid of the `local` identity under the Vault key `storage.deviceKey` (created once). The web keeps records in SQLite-WASM on OPFS and falls back to IndexedDB, files in OPFS. THE SHELL (`shellCases`, `runnerPackage(pkg, formFactor)` -> the package the runner's PAINTER installs; the Engine keeps the original package, its signature and grants): a package without `screens` gets one: its first template, titled with the package name. Every screen's template is wrapped in the shell when the package has two or more NAVIGATION screens (no `nav: false`) or declares an `ask` capability scope (`permissions`); otherwise it stays as it is. The template's `root` becomes `runner-page`; the shell owns every component id starting `runner-` and the data key `runner`. `wide` (desktop, the web at `md` and up, tablets) = a full-height horizontal Stack (align `stretch`) holding a `Sidebar` (`shell.sidebarWidth`, `collapseBelow: never`) whose `sidebar` slot is a Stack of the package name as a `Heading` (`shell.titleLevel`), the navigation as a List of compact Rows (title, icon, `selected` on the open screen, a press = the event `runner.navigate {screen}`) and, when `permissions`, a Row `copy.permissions` with `shell.permissionsIcon` (event `runner.permissions`); the page sits in a growing Box that scrolls (`overflowY: auto`). `compact` (phones, the web below `md`) = a full-height Stack: the page in a growing Box that scrolls (`overflowY: auto`), a Separator, then a horizontal bar (padded `$spacing.sm`, end-justified) of `Tabs` in a growing column Box (`fill`, value bound to `/runner/screen`, change = `runner.navigate` with the bound value; the template's data gains `runner: {screen}`) and, when `permissions`, an icon-only ghost Button (event `runner.permissions`). The form factor follows the window: a host re-installs and re-applies when it crosses `md`. SURFACES: `app` (the open screen: genUI's `templateMessages` of the wrapped template with `{params}`; the host lays it out at the window's height, so the shell fills the window and the page scrolls inside it, never the window), `consent` (consent.json's ask sheet), `permissions` (consent.json's manage sheet), `toast` (`runnerToast(message)` = one `Toast` of type error: the refused call's reason, lifecycle.json's `copy.refused` for a refused link; it dismisses itself), and in place of `app` when the bundle cannot load `runnerFailure(kind)` (`failureCases`) = one `EmptyState` (`shell.failureIcon`, `copy.failed.title`, `copy.failed[kind]`; no action): `missing` (no package file), `config` (runner.json has issues), `signature` (the signature does not verify), `invalid` (genUI refuses the package). EVENTS the runner handles itself: `runner.navigate {screen}` = the Engine's `app.navigate`; `runner.permissions` = paint `permissions`; `consent.toggle {scope}` = the grant write through the ConsentUi with the gesture (granted -> revoke, else granted), then repaint `permissions`; `consent.answer {answer}` = the pending call's `answer_consent`, then close `consent`. Every other function call of the app goes to the Engine instance (`records.*`, `app.navigate`, capabilities through the broker); a refused one paints `toast`. LIFECYCLE: the platform's window or activity events drive lifecycle.json (launch, foreground, background, terminate, deep links `<config id>://<screen>?<params>`, notification taps); the WindowHost `open` applies the screen to `app`; when a plain launch opens nothing (a package without screens) the runner opens the derived package's first screen.",
   "bundle": {
     "dir": "app",
     "files": {
@@ -418,15 +418,42 @@
             "components": [
               {
                 "id": "root",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "none",
+                "align": "stretch",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-sidebar"
+                ]
+              },
+              {
+                "id": "runner-sidebar",
                 "component": "Sidebar",
                 "width": 240,
                 "collapseBelow": "never",
                 "children": [
-                  "runner-page"
+                  "runner-scroll"
                 ],
                 "slots": {
                   "sidebar": "runner-nav"
                 }
+              },
+              {
+                "id": "runner-scroll",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto"
+                },
+                "children": [
+                  "runner-page"
+                ]
               },
               {
                 "id": "runner-nav",
@@ -516,15 +543,42 @@
             "components": [
               {
                 "id": "root",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "none",
+                "align": "stretch",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-sidebar"
+                ]
+              },
+              {
+                "id": "runner-sidebar",
                 "component": "Sidebar",
                 "width": 240,
                 "collapseBelow": "never",
                 "children": [
-                  "runner-page"
+                  "runner-scroll"
                 ],
                 "slots": {
                   "sidebar": "runner-nav"
                 }
+              },
+              {
+                "id": "runner-scroll",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto"
+                },
+                "children": [
+                  "runner-page"
+                ]
               },
               {
                 "id": "runner-nav",
@@ -614,15 +668,42 @@
             "components": [
               {
                 "id": "root",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "none",
+                "align": "stretch",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-sidebar"
+                ]
+              },
+              {
+                "id": "runner-sidebar",
                 "component": "Sidebar",
                 "width": 240,
                 "collapseBelow": "never",
                 "children": [
-                  "runner-page"
+                  "runner-scroll"
                 ],
                 "slots": {
                   "sidebar": "runner-nav"
                 }
+              },
+              {
+                "id": "runner-scroll",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto"
+                },
+                "children": [
+                  "runner-page"
+                ]
               },
               {
                 "id": "runner-nav",
@@ -895,7 +976,8 @@
                   "display": "flex",
                   "flexDirection": "column",
                   "flexGrow": 1,
-                  "minHeight": 0
+                  "minHeight": 0,
+                  "overflowY": "auto"
                 },
                 "children": [
                   "runner-page"
@@ -1012,7 +1094,8 @@
                   "display": "flex",
                   "flexDirection": "column",
                   "flexGrow": 1,
-                  "minHeight": 0
+                  "minHeight": 0,
+                  "overflowY": "auto"
                 },
                 "children": [
                   "runner-page"
@@ -1129,7 +1212,8 @@
                   "display": "flex",
                   "flexDirection": "column",
                   "flexGrow": 1,
-                  "minHeight": 0
+                  "minHeight": 0,
+                  "overflowY": "auto"
                 },
                 "children": [
                   "runner-page"
@@ -1335,15 +1419,42 @@
             "components": [
               {
                 "id": "root",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "none",
+                "align": "stretch",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-sidebar"
+                ]
+              },
+              {
+                "id": "runner-sidebar",
                 "component": "Sidebar",
                 "width": 240,
                 "collapseBelow": "never",
                 "children": [
-                  "runner-page"
+                  "runner-scroll"
                 ],
                 "slots": {
                   "sidebar": "runner-nav"
                 }
+              },
+              {
+                "id": "runner-scroll",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0,
+                  "overflowY": "auto"
+                },
+                "children": [
+                  "runner-page"
+                ]
               },
               {
                 "id": "runner-nav",
@@ -1531,7 +1642,8 @@
                   "display": "flex",
                   "flexDirection": "column",
                   "flexGrow": 1,
-                  "minHeight": 0
+                  "minHeight": 0,
+                  "overflowY": "auto"
                 },
                 "children": [
                   "runner-page"

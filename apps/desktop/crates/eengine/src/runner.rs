@@ -187,7 +187,9 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
             if permissions {
                 nav_children.push(json!("runner-permissions"));
             }
-            out.push(json!({"id": "root", "component": "Sidebar", "width": shell("sidebarWidth"), "collapseBelow": "never", "children": ["runner-page"], "slots": {"sidebar": "runner-nav"}}));
+            out.push(json!({"id": "root", "component": "Stack", "direction": "horizontal", "gap": "none", "align": "stretch", "style": {"height": "100%"}, "children": ["runner-sidebar"]}));
+            out.push(json!({"id": "runner-sidebar", "component": "Sidebar", "width": shell("sidebarWidth"), "collapseBelow": "never", "children": ["runner-scroll"], "slots": {"sidebar": "runner-nav"}}));
+            out.push(json!({"id": "runner-scroll", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0, "overflowY": "auto"}, "children": ["runner-page"]}));
             out.push(json!({"id": "runner-nav", "component": "Stack", "gap": "sm", "children": nav_children}));
             out.push(json!({"id": "runner-title", "component": "Heading", "text": pkg.get("name").and_then(Value::as_str).unwrap_or(""), "level": shell("titleLevel")}));
             if tabs {
@@ -222,7 +224,7 @@ fn shell_components(pkg: &Value, screen: &str, components: &[Value], form: FormF
                 bar.push(json!("runner-permissions"));
             }
             out.push(json!({"id": "root", "component": "Stack", "gap": "none", "style": {"height": "100%"}, "children": ["runner-main", "runner-separator", "runner-bar"]}));
-            out.push(json!({"id": "runner-main", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0}, "children": ["runner-page"]}));
+            out.push(json!({"id": "runner-main", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexGrow": 1, "minHeight": 0, "overflowY": "auto"}, "children": ["runner-page"]}));
             out.push(json!({"id": "runner-separator", "component": "Separator"}));
             out.push(json!({"id": "runner-bar", "component": "Stack", "direction": "horizontal", "gap": "sm", "align": "center", "justify": "end", "style": {"padding": "$spacing.sm"}, "children": bar}));
             if tabs {
