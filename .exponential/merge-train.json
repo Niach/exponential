@@ -1,0 +1,86 @@
+{
+  "setup": "bun install --ignore-scripts",
+  "ci": {
+    "workflows": [
+      "test.yml"
+    ]
+  },
+  "generated": [
+    {
+      "name": "changelog",
+      "paths": [
+        "apps/web/src/lib/changelog.ts",
+        "apps/desktop/crates/ui/src/changelog.rs"
+      ],
+      "strategy": "prepend-union"
+    },
+    {
+      "name": "migrations",
+      "paths": [
+        "apps/web/src/db/out/*.sql",
+        "apps/web/src/db/out/meta/**"
+      ],
+      "strategy": "renumber",
+      "command": "bun run migrate:generate",
+      "verify": [
+        "apps/web/src/db/out/*.sql"
+      ]
+    },
+    {
+      "name": "contract bindings",
+      "paths": [
+        "**/DomainContract.generated.*",
+        "**/contract.generated.rs",
+        "**/SettingsNav.generated.*"
+      ],
+      "strategy": "regenerate",
+      "command": "bun run --filter @exp/domain-contract generate"
+    },
+    {
+      "name": "icon bindings",
+      "paths": [
+        "packages/icons/src/generated.ts",
+        "**/icons.generated.*",
+        "**/AppIcons.generated.swift",
+        "**/ExpIcons.generated.kt",
+        "apps/desktop/assets/icons/**",
+        "apps/ios/Exponential/Assets.xcassets/lucide-*/**"
+      ],
+      "strategy": "regenerate",
+      "command": "bun run --filter @exp/icons generate"
+    },
+    {
+      "name": "lockfiles",
+      "paths": [
+        "bun.lock",
+        "**/Cargo.lock"
+      ],
+      "strategy": "regenerate",
+      "command": "bun install --lockfile-only --ignore-scripts && cargo update --workspace --manifest-path apps/desktop/Cargo.toml"
+    },
+    {
+      "name": "shots index",
+      "paths": [
+        "shots/index.json"
+      ],
+      "strategy": "json-union"
+    },
+    {
+      "name": "shots",
+      "paths": [
+        "shots/**/*.webp"
+      ],
+      "strategy": "take-later"
+    },
+    {
+      "name": "licence inventory",
+      "paths": [
+        "packages/licenses/inventory/**",
+        "**/NOTICES.txt",
+        "**/ThirdPartyNotices.*"
+      ],
+      "strategy": "regenerate",
+      "command": "bun run notices"
+    }
+  ]
+}

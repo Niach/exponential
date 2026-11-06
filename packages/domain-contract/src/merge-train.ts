@@ -321,6 +321,108 @@ export function resolveConflicts(paths: readonly string[], policy: readonly Reso
   }
 }
 
+// ── THE TRAIN PIPELINE (#EXP-1708, `pipeline`) ─────────────────────────────
+
+/** The repo's `.exponential/merge-train.json`. */
+export interface TrainRepoConfig {
+  /** Runs once before the first resolver command (installs the tools). */
+  setup?: string
+  /** What the pipeline starts on the composed ref with input `base_sha`
+   *  (GitHub: workflow file names). Empty = no CI. */
+  ci?: { workflows: string[] }
+  generated: Array<ResolveRule & { verify?: string[] }>
+}
+
+export const TRAIN_PIPELINE_CHECK = fixture.pipeline.check
+export const trainRef = (trainId: string): string => fixture.pipeline.ref.replace(`<train_id>`, trainId)
+
+export interface TrainPipelinePr {
+  number: number
+  head_sha: string
+  /** The final squash title; committed once as `{title} (#{number})`. */
+  title: string
+  /** `Name <email>`. */
+  author?: string
+}
+
+export interface TrainPipelineUnit {
+  prs: TrainPipelinePr[]
+  /** A commit whose REQUIRED checks were seen green (a lone unit only). */
+  tested_sha?: string
+}
+
+/** The dispatch inputs; `units` travels JSON-encoded (`JSON.stringify`). */
+export interface TrainPipelineInputs {
+  train_id: string
+  base: string
+  base_sha: string
+  mode: `test` | `untested`
+  units: string
+}
+
+export type TrainChecksMode = `dispatched` | `proven` | `skipped` | `none`
+
+export interface TrainUnitOutcome {
+  prs: number[]
+  outcome: `composed` | `conflict`
+  files: string[]
+  /** The resolver rule names applied to this unit. */
+  resolved: string[]
+}
+
+/** The `exp-train` result's JSON. */
+export interface TrainPipelineOutcome {
+  train: string
+  base_sha: string
+  head: string | null
+  checks: TrainChecksMode
+  units: TrainUnitOutcome[]
+  error: string | null
+}
+
+export interface TrainCheck {
+  name: string
+  status: `queued` | `in_progress` | `completed`
+  conclusion: string | null
+}
+
+export interface TrainVerdict {
+  state: `pending` | `green` | `red` | `conflict` | `error`
+  head: string | null
+  /** The units that ride (green: land; red: re-run, then bisect). */
+  composed: number[][]
+  /** The units that bounce, whatever the state. */
+  conflicts: Array<{ prs: number[]; files: string[] }>
+}
+
+const PASSING = new Set([`success`, `neutral`, `skipped`])
+
+/** The pipeline's result + the forge's checks at its head (oldest first:
+ *  the newest per name wins) + the base branch's required check names. */
+export function trainVerdict(input: {
+  outcome: TrainPipelineOutcome | null
+  checks: readonly TrainCheck[]
+  required: readonly string[]
+}): TrainVerdict {
+  const o = input.outcome
+  if (!o) return { state: `pending`, head: null, composed: [], conflicts: [] }
+  const composed = o.units.filter((u) => u.outcome === `composed`).map((u) => u.prs)
+  const conflicts = o.units.filter((u) => u.outcome === `conflict`).map((u) => ({ prs: u.prs, files: u.files }))
+  const base = { head: o.head, composed, conflicts }
+  if (o.error) return { state: `error`, head: o.head, composed: [], conflicts: [] }
+  if (composed.length === 0) return { state: `conflict`, ...base }
+  if (o.checks !== `dispatched` || input.required.length === 0) return { state: `green`, ...base }
+  const latest = new Map<string, TrainCheck>()
+  for (const c of input.checks) latest.set(c.name, c)
+  let pending = false
+  for (const name of input.required) {
+    const c = latest.get(name)
+    if (!c || c.status !== `completed`) pending = true
+    else if (!PASSING.has(c.conclusion ?? ``)) return { state: `red`, ...base }
+  }
+  return { state: pending ? `pending` : `green`, ...base }
+}
+
 // ── pr_merge TEXTS ─────────────────────────────────────────────────────────
 
 function list(items: readonly string[]): string {

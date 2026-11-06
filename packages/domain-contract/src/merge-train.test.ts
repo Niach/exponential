@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import contract from "../contract.json" with { type: "json" }
 import fixture from "../fixtures/merge-train.json" with { type: "json" }
 import icons from "../../icons/icons.json" with { type: "json" }
+import repoConfig from "../../../.exponential/merge-train.json" with { type: "json" }
 import {
   assistantBatchLines,
   composeBatch,
@@ -18,6 +19,8 @@ import {
   stuckRow,
   stuckText,
   trainRun,
+  trainRef,
+  trainVerdict,
   type PrMergeState,
   type TeamMergeMode,
 } from "./merge-train"
@@ -38,6 +41,16 @@ describe(`merge-train fixture`, () => {
   })
   it.each(fixture.resolver)(`resolver: $name`, ({ paths, expected }) => {
     expect(resolveConflicts(paths, fixture.repoPolicy.generated as never)).toEqual(expected as never)
+  })
+  it.each(fixture.pipeline.verdicts)(`pipeline verdict: $name`, ({ outcome, checks, required, expected }) => {
+    expect(trainVerdict({ outcome: outcome as never, checks: checks as never, required })).toEqual(expected as never)
+  })
+  it(`pipeline: the ref and the example outcome replay`, () => {
+    expect(trainRef(`t42`)).toBe(`exp-train/t42`)
+    expect(fixture.pipeline.inputs).toEqual(Object.keys(fixture.pipeline.example.inputs))
+  })
+  it(`repoPolicy is this repo's .exponential/merge-train.json`, () => {
+    expect(repoConfig).toEqual(fixture.repoPolicy as never)
   })
   it.each(fixture.texts)(`text: $kind`, ({ kind, input, expected }) => {
     const i = input as Record<string, never>
