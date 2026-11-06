@@ -13,7 +13,8 @@
 //!   call in `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl` (audit.json's columns).
 //!
 //! Behaviour follows what Cinnamon's applets and settings do with the same
-//! daemons; no code is shared with them.
+//! daemons; no code is shared with them. `tests/tools.rs` pins the tool list
+//! (`exponential-services tools`): a new field or action lands there too.
 
 pub mod domains;
 pub mod mcp;

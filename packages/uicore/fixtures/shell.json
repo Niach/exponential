@@ -1,0 +1,4151 @@
+{
+  "$comment": "EDE-46 (eDE IDE-look shell, 2026-11-06): THE SHELL REDUCER the IDE and eDE both host (ide = shell + uicore, ede = compositor + uicore): reduce(state, event) -> state, pure, no clock, no I/O, plus the selectors the documents read; the uicore-model crate replays every case in Rust. STATE (every key always present): rail (the 272 px sidebar collapsed to the 56 px icon rail); sidebar {pinnedOpen, workspacesOpen, sessionsOpen} (folded sections); switcher {current {kind local|team, id, name}, entries [...]} (the desktop/team switcher top-left; `initial` has one local desktop `Local`); windows [{id, app, title, focused, workspace, minimized}] in the order the reducer learned them (window.opened appends, no event restacks, so the taskbar never jumps); mru [id] most recent first; workspaces {active (0-based, as ede-protocol), count}; taskbar {pinned [app], hover app|null, previews app|null, menu app|null}; startMenu {open, query, category (`all` by default)}; chat {open}; altTab {open, selected: an index into altTabOrder(state), which is the mru on one workspace}. CASES: `reduce` = {name, state, event, expected}: `state` lists complete top-level keys over `initial` (a key left out = initial's), `expected` lists the top-level keys that changed, complete; every key left out must be unchanged. Each selector = {name, state, args?, expected} with the full return value; startMenuApps/startMenuCategories take `apps` and `favourites` from the fixture's top level unless `args` gives them. EVENTS: rail.toggle flips rail. sidebar.toggle {section pinned|workspaces|sessions} flips that section (unknown: nothing). switcher.pick {entryKind, id} makes a listed entry current (unlisted: nothing; kind and id both match). switcher.set {entries} replaces the list, keeps current when its kind+id is still listed (taking the listed name), else the first entry; an empty list changes nothing (there is always a local desktop). window.opened {id, app, title, workspace} appends {focused false, minimized false} and puts the id at the END of the mru (a known id: nothing); the compositor's window.focused follows. window.closed {id} removes it from windows and mru, closes taskbar.previews when its app has no window left, and keeps altTab.selected in range (no window left: Alt-Tab closes). window.focused {id} focuses it, blurs every other, restores it when minimized, moves it to the front of the mru (unknown: nothing). window.titled {id, title}. window.minimized {id}: minimized true, focused false, mru unchanged. window.restored {id}: minimized false, focus unchanged. window.moved {id, workspace}: changes its workspace when 0 <= workspace < count, then keeps altTab.selected in range. workspace.switched {active}: 0 <= active < count, else nothing; keeps altTab.selected in range. workspace.count {count}: max(1, count); an active index or a window beyond it moves to the last workspace (Mint's rule). taskbar.pin {app} appends once; taskbar.unpin removes; taskbar.hover {app} / taskbar.unhover set hover. taskbar.previews {app|null} and taskbar.menu {app|null}: ONE POPUP AT A TIME: a non-null app closes the other taskbar popup and the start menu (open false, query and category cleared); null closes just that popup. startMenu.open sets open and closes the taskbar previews and menu, keeping an existing query and category; startMenu.close sets open false, query ``, category `all`; startMenu.toggle is one or the other; startMenu.query {query} stores the text as typed (the selector lowercases and trims); startMenu.category {category}. chat.toggle flips chat.open; the chat is independent of every popup. altTab.next / altTab.prev: order = altTabOrder(state); no window: nothing; closed: open with selected = 1 for next and n-1 for prev when n >= 2, else 0; open: step by one, wrapping. altTab.commit: the window at order[selected] gets the window.focused treatment, then altTab = {open false, selected 0}; closed: nothing. altTab.cancel: {open false, selected 0}, focus unchanged. SELECTORS: taskbarButtons(state) -> [{app, pinned, windows [id], focused, minimized, running}]: Mint's grouped window list, pinned apps first in pin order (a pinned app without a window on the active workspace is still a button, running false, windows []), then the running unpinned apps in the order of their first window in `windows`; only the ACTIVE workspace's windows count, a group's `windows` keep the compositor order, focused = any window focused, minimized = every window minimized (and at least one), running = at least one window. taskbarPress(state, app) -> {action}: Mint's click: no window on the active workspace -> {action launch}; one: focused and not minimized -> {action minimize, id}, else {action focus, id}; several -> {action previews}. taskbarScroll(state, app, direction up|down) -> {action focus, id} | null: cycles the group's windows (active workspace, compositor order) from the focused one, down = next, up = previous, wrapping; none focused: down = the first, up = the last; a single window = itself; no window = null. workspaceBadges(state) -> [{index, active, count}] for every workspace, count = its windows, minimized included. altTabOrder(state) -> [id]: the mru filtered to windows that exist, the active workspace's first, then the others, each part in mru order, minimized included. startMenuApps(state, apps, favourites) -> [{id, name, comment, category}]: apps = [{id, name, comment, categories [freedesktop], keywords}]. Groups (Mint's main groups, ids in this order): all, favourites, exponential (ids starting `at.exponential.`), accessories (Utility), administration (System, Settings), education (Education), games (Game), graphics (Graphics), internet (Network), office (Office), programming (Development), science (Science), sound-video (AudioVideo, Audio, Video), other (none of the above); an app belongs to every group its categories name and `category` in the output is its first group in that order. query = state.startMenu.query trimmed and lowercased; with >= 1 char the category is ignored and the result is ranked: 0 = the name (lowercased) starts with the query, 1 = every query word starts a word of the name, 2 = every word is found in the name, comment or keywords (lowercased), no match = out; ties by lowercase name then id. Without a query: `all` = every app by name, `favourites` = the favourite ids in their order (missing ones skipped), a group = its members by name, anything else = []. startMenuCategories(apps, favourites) -> [{id, label, count}] in Mint's order (All applications, Favourites, Exponential, Accessories, Administration, Education, Games, Graphics, Internet, Office, Programming, Science, Sound & Video, Other), only the non-empty groups plus All and Favourites always; favourites counts the installed ones.",
+  "version": 1,
+  "initial": {
+    "rail": false,
+    "sidebar": {
+      "pinnedOpen": true,
+      "workspacesOpen": true,
+      "sessionsOpen": true
+    },
+    "switcher": {
+      "current": {
+        "kind": "local",
+        "id": "local",
+        "name": "Local"
+      },
+      "entries": [
+        {
+          "kind": "local",
+          "id": "local",
+          "name": "Local"
+        }
+      ]
+    },
+    "windows": [],
+    "mru": [],
+    "workspaces": {
+      "active": 0,
+      "count": 1
+    },
+    "taskbar": {
+      "pinned": [],
+      "hover": null,
+      "previews": null,
+      "menu": null
+    },
+    "startMenu": {
+      "open": false,
+      "query": "",
+      "category": "all"
+    },
+    "chat": {
+      "open": false
+    },
+    "altTab": {
+      "open": false,
+      "selected": 0
+    }
+  },
+  "apps": [
+    {
+      "id": "at.exponential.app",
+      "name": "Exponential",
+      "comment": "Your team, agents and boards",
+      "categories": [
+        "Network"
+      ],
+      "keywords": "exponential issues agents"
+    },
+    {
+      "id": "at.exponential.history",
+      "name": "Version history",
+      "comment": "Every edit of the shell, undo any",
+      "categories": [
+        "Utility"
+      ],
+      "keywords": "git undo"
+    },
+    {
+      "id": "org.gnome.Calculator",
+      "name": "Calculator",
+      "comment": "Perform arithmetic, scientific or financial calculations",
+      "categories": [
+        "Utility"
+      ],
+      "keywords": "math arithmetic"
+    },
+    {
+      "id": "nemo",
+      "name": "Files",
+      "comment": "Access and organize files",
+      "categories": [
+        "System",
+        "Utility"
+      ],
+      "keywords": "file manager browse"
+    },
+    {
+      "id": "firefox",
+      "name": "Firefox",
+      "comment": "Browse the web",
+      "categories": [
+        "Network",
+        "WebBrowser"
+      ],
+      "keywords": "web internet browser"
+    },
+    {
+      "id": "org.gnome.TextEditor",
+      "name": "Text Editor",
+      "comment": "View and edit text files",
+      "categories": [
+        "Utility",
+        "TextEditor"
+      ],
+      "keywords": "editor plain text"
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal",
+      "comment": "Use the command line",
+      "categories": [
+        "System",
+        "TerminalEmulator"
+      ],
+      "keywords": "shell console"
+    },
+    {
+      "id": "code",
+      "name": "Visual Studio Code",
+      "comment": "Code editing. Redefined.",
+      "categories": [
+        "Development"
+      ],
+      "keywords": "vscode editor"
+    },
+    {
+      "id": "vlc",
+      "name": "VLC media player",
+      "comment": "Read, capture, broadcast your multimedia streams",
+      "categories": [
+        "AudioVideo",
+        "Player"
+      ],
+      "keywords": "media video"
+    },
+    {
+      "id": "cinnamon-settings",
+      "name": "System Settings",
+      "comment": "Control Center",
+      "categories": [
+        "Settings"
+      ],
+      "keywords": "preferences"
+    },
+    {
+      "id": "supertux",
+      "name": "SuperTux",
+      "comment": "A jump-and-run game",
+      "categories": [
+        "Game"
+      ],
+      "keywords": "platformer"
+    },
+    {
+      "id": "mystery",
+      "name": "Mystery",
+      "comment": "",
+      "categories": [],
+      "keywords": ""
+    }
+  ],
+  "favourites": [
+    "firefox",
+    "terminal",
+    "nemo"
+  ],
+  "reduce": [
+    {
+      "name": "rail.toggle collapses the sidebar to the icon rail",
+      "state": {},
+      "event": {
+        "kind": "rail.toggle"
+      },
+      "expected": {
+        "rail": true
+      }
+    },
+    {
+      "name": "rail.toggle again brings the full sidebar back",
+      "state": {
+        "rail": true
+      },
+      "event": {
+        "kind": "rail.toggle"
+      },
+      "expected": {
+        "rail": false
+      }
+    },
+    {
+      "name": "sidebar.toggle folds the pinned section",
+      "state": {},
+      "event": {
+        "kind": "sidebar.toggle",
+        "section": "pinned"
+      },
+      "expected": {
+        "sidebar": {
+          "pinnedOpen": false,
+          "workspacesOpen": true,
+          "sessionsOpen": true
+        }
+      }
+    },
+    {
+      "name": "sidebar.toggle on a folded section opens it again",
+      "state": {
+        "sidebar": {
+          "pinnedOpen": true,
+          "workspacesOpen": true,
+          "sessionsOpen": false
+        }
+      },
+      "event": {
+        "kind": "sidebar.toggle",
+        "section": "sessions"
+      },
+      "expected": {
+        "sidebar": {
+          "pinnedOpen": true,
+          "workspacesOpen": true,
+          "sessionsOpen": true
+        }
+      }
+    },
+    {
+      "name": "sidebar.toggle with an unknown section changes nothing",
+      "state": {},
+      "event": {
+        "kind": "sidebar.toggle",
+        "section": "boards"
+      },
+      "expected": {}
+    },
+    {
+      "name": "switcher.pick moves to a listed team",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        }
+      },
+      "event": {
+        "kind": "switcher.pick",
+        "entryKind": "team",
+        "id": "t1"
+      },
+      "expected": {
+        "switcher": {
+          "current": {
+            "kind": "team",
+            "id": "t1",
+            "name": "Acme"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "switcher.pick of an unlisted entry changes nothing",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        }
+      },
+      "event": {
+        "kind": "switcher.pick",
+        "entryKind": "team",
+        "id": "t9"
+      },
+      "expected": {}
+    },
+    {
+      "name": "switcher.pick matches the kind as well as the id",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "local",
+              "name": "Local team"
+            }
+          ]
+        }
+      },
+      "event": {
+        "kind": "switcher.pick",
+        "entryKind": "team",
+        "id": "local"
+      },
+      "expected": {
+        "switcher": {
+          "current": {
+            "kind": "team",
+            "id": "local",
+            "name": "Local team"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "local",
+              "name": "Local team"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "switcher.set keeps the current entry when it is still listed and takes its new name",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "team",
+            "id": "t1",
+            "name": "Acme"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        }
+      },
+      "event": {
+        "kind": "switcher.set",
+        "entries": [
+          {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          {
+            "kind": "team",
+            "id": "t1",
+            "name": "Acme Inc"
+          },
+          {
+            "kind": "team",
+            "id": "t2",
+            "name": "Beta"
+          }
+        ]
+      },
+      "expected": {
+        "switcher": {
+          "current": {
+            "kind": "team",
+            "id": "t1",
+            "name": "Acme Inc"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme Inc"
+            },
+            {
+              "kind": "team",
+              "id": "t2",
+              "name": "Beta"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "switcher.set falls back to the first entry when the current one is gone",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "team",
+            "id": "t1",
+            "name": "Acme"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        }
+      },
+      "event": {
+        "kind": "switcher.set",
+        "entries": [
+          {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          {
+            "kind": "team",
+            "id": "t2",
+            "name": "Beta"
+          }
+        ]
+      },
+      "expected": {
+        "switcher": {
+          "current": {
+            "kind": "local",
+            "id": "local",
+            "name": "Local"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t2",
+              "name": "Beta"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "switcher.set with an empty list changes nothing (there is always a local desktop)",
+      "state": {
+        "switcher": {
+          "current": {
+            "kind": "team",
+            "id": "t1",
+            "name": "Acme"
+          },
+          "entries": [
+            {
+              "kind": "local",
+              "id": "local",
+              "name": "Local"
+            },
+            {
+              "kind": "team",
+              "id": "t1",
+              "name": "Acme"
+            }
+          ]
+        }
+      },
+      "event": {
+        "kind": "switcher.set",
+        "entries": []
+      },
+      "expected": {}
+    },
+    {
+      "name": "window.opened appends the window unfocused on its workspace and at the end of the mru",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1"
+        ]
+      },
+      "event": {
+        "kind": "window.opened",
+        "id": "w2",
+        "app": "terminal",
+        "title": "Terminal",
+        "workspace": 0
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2"
+        ]
+      }
+    },
+    {
+      "name": "window.opened on another workspace keeps that workspace",
+      "state": {
+        "workspaces": {
+          "active": 0,
+          "count": 2
+        }
+      },
+      "event": {
+        "kind": "window.opened",
+        "id": "w1",
+        "app": "firefox",
+        "title": "Firefox",
+        "workspace": 1
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 1,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "name": "window.opened with a known id changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.opened",
+        "id": "w1",
+        "app": "firefox",
+        "title": "Again",
+        "workspace": 0
+      },
+      "expected": {}
+    },
+    {
+      "name": "window.focused focuses one window, blurs the others and moves it to the front of the mru",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.focused",
+        "id": "w3"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w3",
+          "w2",
+          "w1"
+        ]
+      }
+    },
+    {
+      "name": "window.focused restores a minimized window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": true
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1"
+        ]
+      },
+      "event": {
+        "kind": "window.focused",
+        "id": "w1"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2"
+        ]
+      }
+    },
+    {
+      "name": "window.focused with an unknown id changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.focused",
+        "id": "w9"
+      },
+      "expected": {}
+    },
+    {
+      "name": "window.closed removes the window from the list and the mru",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.closed",
+        "id": "w1"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w3"
+        ]
+      }
+    },
+    {
+      "name": "window.closed with an unknown id changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.closed",
+        "id": "w9"
+      },
+      "expected": {}
+    },
+    {
+      "name": "window.closed of the last window of an app closes its previews",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1"
+        ],
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": "firefox",
+          "menu": null
+        }
+      },
+      "event": {
+        "kind": "window.closed",
+        "id": "w1"
+      },
+      "expected": {
+        "windows": [],
+        "mru": [],
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": null,
+          "menu": null
+        }
+      }
+    },
+    {
+      "name": "window.closed keeps the previews open while the app still has a window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w4",
+            "app": "firefox",
+            "title": "Firefox 2",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w4"
+        ],
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": "firefox",
+          "menu": null
+        }
+      },
+      "event": {
+        "kind": "window.closed",
+        "id": "w4"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "name": "window.closed while Alt-Tab is open keeps the selection in range",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 2
+        }
+      },
+      "event": {
+        "kind": "window.closed",
+        "id": "w3"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1
+        }
+      }
+    },
+    {
+      "name": "window.closed of the only window while Alt-Tab is open closes Alt-Tab",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 0
+        }
+      },
+      "event": {
+        "kind": "window.closed",
+        "id": "w1"
+      },
+      "expected": {
+        "windows": [],
+        "mru": [],
+        "altTab": {
+          "open": false,
+          "selected": 0
+        }
+      }
+    },
+    {
+      "name": "window.titled renames a window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.titled",
+        "id": "w1",
+        "title": "Firefox - Exponential"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox - Exponential",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "window.minimized minimizes and blurs the window and keeps it in the mru",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.minimized",
+        "id": "w2"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": true
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "window.restored brings a minimized window back without focusing it",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": true
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1"
+        ]
+      },
+      "event": {
+        "kind": "window.restored",
+        "id": "w1"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "window.moved puts a window on another workspace",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ],
+        "workspaces": {
+          "active": 0,
+          "count": 2
+        }
+      },
+      "event": {
+        "kind": "window.moved",
+        "id": "w1",
+        "workspace": 1
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 1,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "window.moved to a workspace that does not exist changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "window.moved",
+        "id": "w1",
+        "workspace": 3
+      },
+      "expected": {}
+    },
+    {
+      "name": "workspace.switched changes the active workspace",
+      "state": {
+        "workspaces": {
+          "active": 0,
+          "count": 3
+        }
+      },
+      "event": {
+        "kind": "workspace.switched",
+        "active": 2
+      },
+      "expected": {
+        "workspaces": {
+          "active": 2,
+          "count": 3
+        }
+      }
+    },
+    {
+      "name": "workspace.switched out of range changes nothing",
+      "state": {
+        "workspaces": {
+          "active": 0,
+          "count": 2
+        }
+      },
+      "event": {
+        "kind": "workspace.switched",
+        "active": 2
+      },
+      "expected": {}
+    },
+    {
+      "name": "workspace.count grows the workspaces",
+      "state": {},
+      "event": {
+        "kind": "workspace.count",
+        "count": 4
+      },
+      "expected": {
+        "workspaces": {
+          "active": 0,
+          "count": 4
+        }
+      }
+    },
+    {
+      "name": "workspace.count shrinking below the active one moves the active workspace and its windows to the last one",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 2,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2"
+        ],
+        "workspaces": {
+          "active": 2,
+          "count": 3
+        }
+      },
+      "event": {
+        "kind": "workspace.count",
+        "count": 2
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 1,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "workspaces": {
+          "active": 1,
+          "count": 2
+        }
+      }
+    },
+    {
+      "name": "workspace.count below one is one",
+      "state": {
+        "workspaces": {
+          "active": 1,
+          "count": 2
+        }
+      },
+      "event": {
+        "kind": "workspace.count",
+        "count": 0
+      },
+      "expected": {
+        "workspaces": {
+          "active": 0,
+          "count": 1
+        }
+      }
+    },
+    {
+      "name": "taskbar.pin appends an app to the pinned list",
+      "state": {
+        "taskbar": {
+          "pinned": [
+            "firefox"
+          ],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      },
+      "event": {
+        "kind": "taskbar.pin",
+        "app": "terminal"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [
+            "firefox",
+            "terminal"
+          ],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      }
+    },
+    {
+      "name": "taskbar.pin of a pinned app changes nothing",
+      "state": {
+        "taskbar": {
+          "pinned": [
+            "firefox"
+          ],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      },
+      "event": {
+        "kind": "taskbar.pin",
+        "app": "firefox"
+      },
+      "expected": {}
+    },
+    {
+      "name": "taskbar.unpin removes an app from the pinned list",
+      "state": {
+        "taskbar": {
+          "pinned": [
+            "firefox",
+            "terminal"
+          ],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      },
+      "event": {
+        "kind": "taskbar.unpin",
+        "app": "firefox"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [
+            "terminal"
+          ],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      }
+    },
+    {
+      "name": "taskbar.hover marks the hovered button",
+      "state": {},
+      "event": {
+        "kind": "taskbar.hover",
+        "app": "firefox"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": null,
+          "menu": null
+        }
+      }
+    },
+    {
+      "name": "taskbar.unhover clears the hovered button",
+      "state": {
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": null,
+          "menu": null
+        }
+      },
+      "event": {
+        "kind": "taskbar.unhover"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      }
+    },
+    {
+      "name": "taskbar.previews opens the hover previews of a group and closes the button menu and the start menu",
+      "state": {
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": null,
+          "menu": "terminal"
+        },
+        "startMenu": {
+          "open": true,
+          "query": "fi",
+          "category": "games"
+        }
+      },
+      "event": {
+        "kind": "taskbar.previews",
+        "app": "firefox"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": "firefox",
+          "menu": null
+        },
+        "startMenu": {
+          "open": false,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "taskbar.previews null closes the previews and nothing else",
+      "state": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": "firefox",
+          "menu": null
+        },
+        "chat": {
+          "open": true
+        }
+      },
+      "event": {
+        "kind": "taskbar.previews",
+        "app": null
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      }
+    },
+    {
+      "name": "taskbar.menu opens the button menu and closes the previews and the start menu",
+      "state": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": "firefox",
+          "menu": null
+        },
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      },
+      "event": {
+        "kind": "taskbar.menu",
+        "app": "firefox"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": null,
+          "menu": "firefox"
+        },
+        "startMenu": {
+          "open": false,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "taskbar.menu null closes the button menu",
+      "state": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": null,
+          "menu": "firefox"
+        }
+      },
+      "event": {
+        "kind": "taskbar.menu",
+        "app": null
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        }
+      }
+    },
+    {
+      "name": "startMenu.toggle opens the start menu",
+      "state": {},
+      "event": {
+        "kind": "startMenu.toggle"
+      },
+      "expected": {
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "startMenu.toggle closes it and clears the query and the category",
+      "state": {
+        "startMenu": {
+          "open": true,
+          "query": "fi",
+          "category": "internet"
+        }
+      },
+      "event": {
+        "kind": "startMenu.toggle"
+      },
+      "expected": {
+        "startMenu": {
+          "open": false,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "startMenu.open closes the taskbar previews (one popup at a time)",
+      "state": {
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": "firefox",
+          "menu": null
+        }
+      },
+      "event": {
+        "kind": "startMenu.open"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": "firefox",
+          "previews": null,
+          "menu": null
+        },
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "startMenu.open closes the taskbar button menu (one popup at a time)",
+      "state": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": null,
+          "menu": "terminal"
+        }
+      },
+      "event": {
+        "kind": "startMenu.open"
+      },
+      "expected": {
+        "taskbar": {
+          "pinned": [],
+          "hover": null,
+          "previews": null,
+          "menu": null
+        },
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "startMenu.open leaves an open chat alone (they are independent)",
+      "state": {
+        "chat": {
+          "open": true
+        }
+      },
+      "event": {
+        "kind": "startMenu.open"
+      },
+      "expected": {
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "startMenu.open while open keeps the query and the category",
+      "state": {
+        "startMenu": {
+          "open": true,
+          "query": "fi",
+          "category": "internet"
+        }
+      },
+      "event": {
+        "kind": "startMenu.open"
+      },
+      "expected": {}
+    },
+    {
+      "name": "startMenu.close clears the query and the category",
+      "state": {
+        "startMenu": {
+          "open": true,
+          "query": "fi",
+          "category": "internet"
+        }
+      },
+      "event": {
+        "kind": "startMenu.close"
+      },
+      "expected": {
+        "startMenu": {
+          "open": false,
+          "query": "",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "startMenu.query sets the query as typed",
+      "state": {
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      },
+      "event": {
+        "kind": "startMenu.query",
+        "query": "Fire "
+      },
+      "expected": {
+        "startMenu": {
+          "open": true,
+          "query": "Fire ",
+          "category": "all"
+        }
+      }
+    },
+    {
+      "name": "startMenu.category picks a category",
+      "state": {
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      },
+      "event": {
+        "kind": "startMenu.category",
+        "category": "internet"
+      },
+      "expected": {
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "internet"
+        }
+      }
+    },
+    {
+      "name": "chat.toggle opens the chat",
+      "state": {},
+      "event": {
+        "kind": "chat.toggle"
+      },
+      "expected": {
+        "chat": {
+          "open": true
+        }
+      }
+    },
+    {
+      "name": "chat.toggle closes the chat",
+      "state": {
+        "chat": {
+          "open": true
+        }
+      },
+      "event": {
+        "kind": "chat.toggle"
+      },
+      "expected": {
+        "chat": {
+          "open": false
+        }
+      }
+    },
+    {
+      "name": "chat.toggle leaves an open start menu open",
+      "state": {
+        "startMenu": {
+          "open": true,
+          "query": "",
+          "category": "all"
+        }
+      },
+      "event": {
+        "kind": "chat.toggle"
+      },
+      "expected": {
+        "chat": {
+          "open": true
+        }
+      }
+    },
+    {
+      "name": "altTab.next opens the switcher on the second most recent window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "altTab.next"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 1
+        }
+      }
+    },
+    {
+      "name": "altTab.next with one window opens the switcher on it",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1"
+        ]
+      },
+      "event": {
+        "kind": "altTab.next"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 0
+        }
+      }
+    },
+    {
+      "name": "altTab.next with no window changes nothing",
+      "state": {},
+      "event": {
+        "kind": "altTab.next"
+      },
+      "expected": {}
+    },
+    {
+      "name": "altTab.next steps forward and wraps to the first",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 2
+        }
+      },
+      "event": {
+        "kind": "altTab.next"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 0
+        }
+      }
+    },
+    {
+      "name": "altTab.prev opens the switcher on the least recent window",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "altTab.prev"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 2
+        }
+      }
+    },
+    {
+      "name": "altTab.prev steps back and wraps to the last",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 0
+        }
+      },
+      "event": {
+        "kind": "altTab.prev"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 2
+        }
+      }
+    },
+    {
+      "name": "altTab.commit focuses the selected window, restores it and closes the switcher",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": true
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 1
+        }
+      },
+      "event": {
+        "kind": "altTab.commit"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "altTab": {
+          "open": false,
+          "selected": 0
+        }
+      }
+    },
+    {
+      "name": "altTab.commit while the switcher is closed changes nothing",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      "event": {
+        "kind": "altTab.commit"
+      },
+      "expected": {}
+    },
+    {
+      "name": "altTab.cancel closes the switcher without changing focus",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w2",
+          "w1",
+          "w3"
+        ],
+        "altTab": {
+          "open": true,
+          "selected": 2
+        }
+      },
+      "event": {
+        "kind": "altTab.cancel"
+      },
+      "expected": {
+        "altTab": {
+          "open": false,
+          "selected": 0
+        }
+      }
+    },
+    {
+      "name": "altTab.next counts the active workspace's windows before the other workspaces' ones",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 1,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "workspaces": {
+          "active": 0,
+          "count": 2
+        }
+      },
+      "event": {
+        "kind": "altTab.next"
+      },
+      "expected": {
+        "altTab": {
+          "open": true,
+          "selected": 1
+        }
+      }
+    },
+    {
+      "name": "altTab.commit on the second entry focuses the active workspace's next window, not the mru's",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 1,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "workspaces": {
+          "active": 0,
+          "count": 2
+        },
+        "altTab": {
+          "open": true,
+          "selected": 1
+        }
+      },
+      "event": {
+        "kind": "altTab.commit"
+      },
+      "expected": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 1,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w3",
+          "w1",
+          "w2"
+        ],
+        "altTab": {
+          "open": false,
+          "selected": 0
+        }
+      }
+    },
+    {
+      "name": "workspace.switched while Alt-Tab is open keeps the selection in range of the new order",
+      "state": {
+        "windows": [
+          {
+            "id": "w1",
+            "app": "firefox",
+            "title": "Firefox",
+            "focused": true,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w2",
+            "app": "terminal",
+            "title": "Terminal",
+            "focused": false,
+            "workspace": 0,
+            "minimized": false
+          },
+          {
+            "id": "w3",
+            "app": "nemo",
+            "title": "Files",
+            "focused": false,
+            "workspace": 1,
+            "minimized": false
+          }
+        ],
+        "mru": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "workspaces": {
+          "active": 0,
+          "count": 2
+        },
+        "altTab": {
+          "open": true,
+          "selected": 2
+        }
+      },
+      "event": {
+        "kind": "workspace.switched",
+        "active": 1
+      },
+      "expected": {
+        "workspaces": {
+          "active": 1,
+          "count": 2
+        }
+      }
+    }
+  ],
+  "selectors": {
+    "taskbarButtons": [
+      {
+        "name": "taskbarButtons lists the pinned apps first in pin order, then the running ones in the order their first window appeared",
+        "state": {
+          "taskbar": {
+            "pinned": [
+              "nemo",
+              "firefox"
+            ],
+            "hover": null,
+            "previews": null,
+            "menu": null
+          },
+          "windows": [
+            {
+              "id": "w1",
+              "app": "terminal",
+              "title": "Terminal",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "terminal",
+              "title": "Terminal 2",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w2",
+            "w1",
+            "w3"
+          ]
+        },
+        "expected": [
+          {
+            "app": "nemo",
+            "pinned": true,
+            "windows": [],
+            "focused": false,
+            "minimized": false,
+            "running": false
+          },
+          {
+            "app": "firefox",
+            "pinned": true,
+            "windows": [
+              "w2"
+            ],
+            "focused": true,
+            "minimized": false,
+            "running": true
+          },
+          {
+            "app": "terminal",
+            "pinned": false,
+            "windows": [
+              "w1",
+              "w3"
+            ],
+            "focused": false,
+            "minimized": false,
+            "running": true
+          }
+        ]
+      },
+      {
+        "name": "taskbarButtons keeps a pinned app with no window as a button that is not running",
+        "state": {
+          "taskbar": {
+            "pinned": [
+              "nemo"
+            ],
+            "hover": null,
+            "previews": null,
+            "menu": null
+          }
+        },
+        "expected": [
+          {
+            "app": "nemo",
+            "pinned": true,
+            "windows": [],
+            "focused": false,
+            "minimized": false,
+            "running": false
+          }
+        ]
+      },
+      {
+        "name": "taskbarButtons shows the active workspace's windows only",
+        "state": {
+          "taskbar": {
+            "pinned": [
+              "terminal"
+            ],
+            "hover": null,
+            "previews": null,
+            "menu": null
+          },
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "firefox",
+              "title": "Firefox 2",
+              "focused": false,
+              "workspace": 1,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "terminal",
+              "title": "Terminal",
+              "focused": false,
+              "workspace": 1,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1",
+            "w2",
+            "w3"
+          ],
+          "workspaces": {
+            "active": 0,
+            "count": 2
+          }
+        },
+        "expected": [
+          {
+            "app": "terminal",
+            "pinned": true,
+            "windows": [],
+            "focused": false,
+            "minimized": false,
+            "running": false
+          },
+          {
+            "app": "firefox",
+            "pinned": false,
+            "windows": [
+              "w1"
+            ],
+            "focused": true,
+            "minimized": false,
+            "running": true
+          }
+        ]
+      },
+      {
+        "name": "taskbarButtons marks a group minimized only when every window of it is",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": false,
+              "workspace": 0,
+              "minimized": true
+            },
+            {
+              "id": "w2",
+              "app": "firefox",
+              "title": "Firefox 2",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "terminal",
+              "title": "Terminal",
+              "focused": false,
+              "workspace": 0,
+              "minimized": true
+            }
+          ],
+          "mru": [
+            "w2",
+            "w1",
+            "w3"
+          ]
+        },
+        "expected": [
+          {
+            "app": "firefox",
+            "pinned": false,
+            "windows": [
+              "w1",
+              "w2"
+            ],
+            "focused": false,
+            "minimized": false,
+            "running": true
+          },
+          {
+            "app": "terminal",
+            "pinned": false,
+            "windows": [
+              "w3"
+            ],
+            "focused": false,
+            "minimized": true,
+            "running": true
+          }
+        ]
+      },
+      {
+        "name": "taskbarButtons keeps a group's windows in the compositor's order",
+        "state": {
+          "windows": [
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "C",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "firefox",
+              "title": "B",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1",
+            "w2",
+            "w3"
+          ]
+        },
+        "expected": [
+          {
+            "app": "firefox",
+            "pinned": false,
+            "windows": [
+              "w3",
+              "w1",
+              "w2"
+            ],
+            "focused": true,
+            "minimized": false,
+            "running": true
+          }
+        ]
+      },
+      {
+        "name": "taskbarButtons on an empty desktop is empty",
+        "state": {},
+        "expected": []
+      }
+    ],
+    "taskbarPress": [
+      {
+        "name": "taskbarPress on a button without a window launches the app",
+        "state": {
+          "taskbar": {
+            "pinned": [
+              "firefox"
+            ],
+            "hover": null,
+            "previews": null,
+            "menu": null
+          }
+        },
+        "args": {
+          "app": "firefox"
+        },
+        "expected": {
+          "action": "launch"
+        }
+      },
+      {
+        "name": "taskbarPress on the focused single window minimizes it",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1"
+          ]
+        },
+        "args": {
+          "app": "firefox"
+        },
+        "expected": {
+          "action": "minimize",
+          "id": "w1"
+        }
+      },
+      {
+        "name": "taskbarPress on an unfocused single window focuses it",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "Terminal",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w2",
+            "w1"
+          ]
+        },
+        "args": {
+          "app": "firefox"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w1"
+        }
+      },
+      {
+        "name": "taskbarPress on a minimized single window focuses it",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": false,
+              "workspace": 0,
+              "minimized": true
+            }
+          ],
+          "mru": [
+            "w1"
+          ]
+        },
+        "args": {
+          "app": "firefox"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w1"
+        }
+      },
+      {
+        "name": "taskbarPress on a group of several windows opens the previews",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "firefox",
+              "title": "Firefox 2",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1",
+            "w2"
+          ]
+        },
+        "args": {
+          "app": "firefox"
+        },
+        "expected": {
+          "action": "previews"
+        }
+      },
+      {
+        "name": "taskbarPress ignores windows on other workspaces",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": false,
+              "workspace": 1,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1"
+          ],
+          "workspaces": {
+            "active": 0,
+            "count": 2
+          }
+        },
+        "args": {
+          "app": "firefox"
+        },
+        "expected": {
+          "action": "launch"
+        }
+      }
+    ],
+    "taskbarScroll": [
+      {
+        "name": "taskbarScroll down focuses the group's next window after the focused one",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "B",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w4",
+              "app": "firefox",
+              "title": "C",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1",
+            "w2",
+            "w3",
+            "w4"
+          ]
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "down"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w3"
+        }
+      },
+      {
+        "name": "taskbarScroll down wraps from the group's last window to its first",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "B",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w4",
+              "app": "firefox",
+              "title": "C",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w4",
+            "w1",
+            "w2",
+            "w3"
+          ]
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "down"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w1"
+        }
+      },
+      {
+        "name": "taskbarScroll up wraps from the group's first window to its last",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "B",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w4",
+              "app": "firefox",
+              "title": "C",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1",
+            "w2",
+            "w3",
+            "w4"
+          ]
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "up"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w4"
+        }
+      },
+      {
+        "name": "taskbarScroll up focuses the previous window",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "B",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w4",
+              "app": "firefox",
+              "title": "C",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w4",
+            "w1",
+            "w2",
+            "w3"
+          ]
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "up"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w3"
+        }
+      },
+      {
+        "name": "taskbarScroll with no focused window in the group goes down to its first",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "B",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w2",
+            "w1",
+            "w3"
+          ]
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "down"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w1"
+        }
+      },
+      {
+        "name": "taskbarScroll with no focused window in the group goes up to its last",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "firefox",
+              "title": "B",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w2",
+            "w1",
+            "w3"
+          ]
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "up"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w3"
+        }
+      },
+      {
+        "name": "taskbarScroll on a single window focuses it",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w2",
+            "w1"
+          ]
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "down"
+        },
+        "expected": {
+          "action": "focus",
+          "id": "w1"
+        }
+      },
+      {
+        "name": "taskbarScroll on a button without a window does nothing",
+        "state": {
+          "taskbar": {
+            "pinned": [
+              "firefox"
+            ],
+            "hover": null,
+            "previews": null,
+            "menu": null
+          }
+        },
+        "args": {
+          "app": "firefox",
+          "direction": "down"
+        },
+        "expected": null
+      }
+    ],
+    "workspaceBadges": [
+      {
+        "name": "workspaceBadges counts every workspace's windows, minimized included, and marks the active one",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": false,
+              "workspace": 0,
+              "minimized": true
+            },
+            {
+              "id": "w3",
+              "app": "nemo",
+              "title": "F",
+              "focused": false,
+              "workspace": 2,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w1",
+            "w2",
+            "w3"
+          ],
+          "workspaces": {
+            "active": 2,
+            "count": 3
+          }
+        },
+        "expected": [
+          {
+            "index": 0,
+            "active": false,
+            "count": 2
+          },
+          {
+            "index": 1,
+            "active": false,
+            "count": 0
+          },
+          {
+            "index": 2,
+            "active": true,
+            "count": 1
+          }
+        ]
+      },
+      {
+        "name": "workspaceBadges on an empty desktop is one active empty workspace",
+        "state": {},
+        "expected": [
+          {
+            "index": 0,
+            "active": true,
+            "count": 0
+          }
+        ]
+      }
+    ],
+    "altTabOrder": [
+      {
+        "name": "altTabOrder is the mru with the active workspace's windows first, minimized included",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "A",
+              "focused": false,
+              "workspace": 1,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "T",
+              "focused": false,
+              "workspace": 0,
+              "minimized": true
+            },
+            {
+              "id": "w3",
+              "app": "nemo",
+              "title": "F",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w4",
+              "app": "code",
+              "title": "C",
+              "focused": false,
+              "workspace": 1,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w3",
+            "w1",
+            "w2",
+            "w4"
+          ],
+          "workspaces": {
+            "active": 0,
+            "count": 2
+          }
+        },
+        "expected": [
+          "w3",
+          "w2",
+          "w1",
+          "w4"
+        ]
+      },
+      {
+        "name": "altTabOrder on one workspace is the mru",
+        "state": {
+          "windows": [
+            {
+              "id": "w1",
+              "app": "firefox",
+              "title": "Firefox",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w2",
+              "app": "terminal",
+              "title": "Terminal",
+              "focused": true,
+              "workspace": 0,
+              "minimized": false
+            },
+            {
+              "id": "w3",
+              "app": "nemo",
+              "title": "Files",
+              "focused": false,
+              "workspace": 0,
+              "minimized": false
+            }
+          ],
+          "mru": [
+            "w2",
+            "w1",
+            "w3"
+          ]
+        },
+        "expected": [
+          "w2",
+          "w1",
+          "w3"
+        ]
+      },
+      {
+        "name": "altTabOrder on an empty desktop is empty",
+        "state": {},
+        "expected": []
+      }
+    ],
+    "startMenuApps": [
+      {
+        "name": "startMenuApps with the All category lists every app by name",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "all"
+          }
+        },
+        "expected": [
+          {
+            "id": "org.gnome.Calculator",
+            "name": "Calculator",
+            "comment": "Perform arithmetic, scientific or financial calculations",
+            "category": "accessories"
+          },
+          {
+            "id": "at.exponential.app",
+            "name": "Exponential",
+            "comment": "Your team, agents and boards",
+            "category": "exponential"
+          },
+          {
+            "id": "nemo",
+            "name": "Files",
+            "comment": "Access and organize files",
+            "category": "accessories"
+          },
+          {
+            "id": "firefox",
+            "name": "Firefox",
+            "comment": "Browse the web",
+            "category": "internet"
+          },
+          {
+            "id": "mystery",
+            "name": "Mystery",
+            "comment": "",
+            "category": "other"
+          },
+          {
+            "id": "supertux",
+            "name": "SuperTux",
+            "comment": "A jump-and-run game",
+            "category": "games"
+          },
+          {
+            "id": "cinnamon-settings",
+            "name": "System Settings",
+            "comment": "Control Center",
+            "category": "administration"
+          },
+          {
+            "id": "terminal",
+            "name": "Terminal",
+            "comment": "Use the command line",
+            "category": "administration"
+          },
+          {
+            "id": "org.gnome.TextEditor",
+            "name": "Text Editor",
+            "comment": "View and edit text files",
+            "category": "accessories"
+          },
+          {
+            "id": "at.exponential.history",
+            "name": "Version history",
+            "comment": "Every edit of the shell, undo any",
+            "category": "exponential"
+          },
+          {
+            "id": "code",
+            "name": "Visual Studio Code",
+            "comment": "Code editing. Redefined.",
+            "category": "programming"
+          },
+          {
+            "id": "vlc",
+            "name": "VLC media player",
+            "comment": "Read, capture, broadcast your multimedia streams",
+            "category": "sound-video"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with the Favourites category keeps the favourites' order",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "favourites"
+          }
+        },
+        "expected": [
+          {
+            "id": "firefox",
+            "name": "Firefox",
+            "comment": "Browse the web",
+            "category": "internet"
+          },
+          {
+            "id": "terminal",
+            "name": "Terminal",
+            "comment": "Use the command line",
+            "category": "administration"
+          },
+          {
+            "id": "nemo",
+            "name": "Files",
+            "comment": "Access and organize files",
+            "category": "accessories"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with the Favourites category skips a favourite that is not installed",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "favourites"
+          }
+        },
+        "args": {
+          "favourites": [
+            "ghost",
+            "firefox"
+          ]
+        },
+        "expected": [
+          {
+            "id": "firefox",
+            "name": "Firefox",
+            "comment": "Browse the web",
+            "category": "internet"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with a group lists its members by name",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "administration"
+          }
+        },
+        "expected": [
+          {
+            "id": "nemo",
+            "name": "Files",
+            "comment": "Access and organize files",
+            "category": "accessories"
+          },
+          {
+            "id": "cinnamon-settings",
+            "name": "System Settings",
+            "comment": "Control Center",
+            "category": "administration"
+          },
+          {
+            "id": "terminal",
+            "name": "Terminal",
+            "comment": "Use the command line",
+            "category": "administration"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps puts an app in every group its categories name",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "accessories"
+          }
+        },
+        "expected": [
+          {
+            "id": "org.gnome.Calculator",
+            "name": "Calculator",
+            "comment": "Perform arithmetic, scientific or financial calculations",
+            "category": "accessories"
+          },
+          {
+            "id": "nemo",
+            "name": "Files",
+            "comment": "Access and organize files",
+            "category": "accessories"
+          },
+          {
+            "id": "org.gnome.TextEditor",
+            "name": "Text Editor",
+            "comment": "View and edit text files",
+            "category": "accessories"
+          },
+          {
+            "id": "at.exponential.history",
+            "name": "Version history",
+            "comment": "Every edit of the shell, undo any",
+            "category": "exponential"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with the Exponential group lists the at.exponential ids",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "exponential"
+          }
+        },
+        "expected": [
+          {
+            "id": "at.exponential.app",
+            "name": "Exponential",
+            "comment": "Your team, agents and boards",
+            "category": "exponential"
+          },
+          {
+            "id": "at.exponential.history",
+            "name": "Version history",
+            "comment": "Every edit of the shell, undo any",
+            "category": "exponential"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with the Sound & Video group takes AudioVideo, Audio and Video",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "sound-video"
+          }
+        },
+        "expected": [
+          {
+            "id": "vlc",
+            "name": "VLC media player",
+            "comment": "Read, capture, broadcast your multimedia streams",
+            "category": "sound-video"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with the Other group lists the apps no group claims",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "other"
+          }
+        },
+        "expected": [
+          {
+            "id": "mystery",
+            "name": "Mystery",
+            "comment": "",
+            "category": "other"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with an unknown category is empty",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "",
+            "category": "nope"
+          }
+        },
+        "expected": []
+      },
+      {
+        "name": "startMenuApps ranks a name prefix match first, then the comment and keyword matches, ties by name",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "fi",
+            "category": "all"
+          }
+        },
+        "expected": [
+          {
+            "id": "nemo",
+            "name": "Files",
+            "comment": "Access and organize files",
+            "category": "accessories"
+          },
+          {
+            "id": "firefox",
+            "name": "Firefox",
+            "comment": "Browse the web",
+            "category": "internet"
+          },
+          {
+            "id": "org.gnome.Calculator",
+            "name": "Calculator",
+            "comment": "Perform arithmetic, scientific or financial calculations",
+            "category": "accessories"
+          },
+          {
+            "id": "org.gnome.TextEditor",
+            "name": "Text Editor",
+            "comment": "View and edit text files",
+            "category": "accessories"
+          },
+          {
+            "id": "code",
+            "name": "Visual Studio Code",
+            "comment": "Code editing. Redefined.",
+            "category": "programming"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with a query ignores the category",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "fi",
+            "category": "games"
+          }
+        },
+        "expected": [
+          {
+            "id": "nemo",
+            "name": "Files",
+            "comment": "Access and organize files",
+            "category": "accessories"
+          },
+          {
+            "id": "firefox",
+            "name": "Firefox",
+            "comment": "Browse the web",
+            "category": "internet"
+          },
+          {
+            "id": "org.gnome.Calculator",
+            "name": "Calculator",
+            "comment": "Perform arithmetic, scientific or financial calculations",
+            "category": "accessories"
+          },
+          {
+            "id": "org.gnome.TextEditor",
+            "name": "Text Editor",
+            "comment": "View and edit text files",
+            "category": "accessories"
+          },
+          {
+            "id": "code",
+            "name": "Visual Studio Code",
+            "comment": "Code editing. Redefined.",
+            "category": "programming"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps ranks a word of the name after a prefix and before the comment and keywords",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "editor",
+            "category": "all"
+          }
+        },
+        "expected": [
+          {
+            "id": "org.gnome.TextEditor",
+            "name": "Text Editor",
+            "comment": "View and edit text files",
+            "category": "accessories"
+          },
+          {
+            "id": "code",
+            "name": "Visual Studio Code",
+            "comment": "Code editing. Redefined.",
+            "category": "programming"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps wants every word of the query somewhere",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "text files",
+            "category": "all"
+          }
+        },
+        "expected": [
+          {
+            "id": "org.gnome.TextEditor",
+            "name": "Text Editor",
+            "comment": "View and edit text files",
+            "category": "accessories"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps lowercases and trims the query",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "  FIRE ",
+            "category": "all"
+          }
+        },
+        "expected": [
+          {
+            "id": "firefox",
+            "name": "Firefox",
+            "comment": "Browse the web",
+            "category": "internet"
+          }
+        ]
+      },
+      {
+        "name": "startMenuApps with a query no app matches is empty",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "zzz",
+            "category": "all"
+          }
+        },
+        "expected": []
+      },
+      {
+        "name": "startMenuApps treats a blank query as none",
+        "state": {
+          "startMenu": {
+            "open": true,
+            "query": "   ",
+            "category": "games"
+          }
+        },
+        "expected": [
+          {
+            "id": "supertux",
+            "name": "SuperTux",
+            "comment": "A jump-and-run game",
+            "category": "games"
+          }
+        ]
+      }
+    ],
+    "startMenuCategories": [
+      {
+        "name": "startMenuCategories lists the non-empty groups in Mint's order, All and Favourites always",
+        "state": {},
+        "expected": [
+          {
+            "id": "all",
+            "label": "All applications",
+            "count": 12
+          },
+          {
+            "id": "favourites",
+            "label": "Favourites",
+            "count": 3
+          },
+          {
+            "id": "exponential",
+            "label": "Exponential",
+            "count": 2
+          },
+          {
+            "id": "accessories",
+            "label": "Accessories",
+            "count": 4
+          },
+          {
+            "id": "administration",
+            "label": "Administration",
+            "count": 3
+          },
+          {
+            "id": "games",
+            "label": "Games",
+            "count": 1
+          },
+          {
+            "id": "internet",
+            "label": "Internet",
+            "count": 2
+          },
+          {
+            "id": "programming",
+            "label": "Programming",
+            "count": 1
+          },
+          {
+            "id": "sound-video",
+            "label": "Sound & Video",
+            "count": 1
+          },
+          {
+            "id": "other",
+            "label": "Other",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "name": "startMenuCategories with no apps keeps All and Favourites",
+        "state": {},
+        "args": {
+          "apps": [],
+          "favourites": []
+        },
+        "expected": [
+          {
+            "id": "all",
+            "label": "All applications",
+            "count": 0
+          },
+          {
+            "id": "favourites",
+            "label": "Favourites",
+            "count": 0
+          }
+        ]
+      },
+      {
+        "name": "startMenuCategories counts only the favourites that are installed",
+        "state": {},
+        "args": {
+          "favourites": [
+            "firefox",
+            "ghost"
+          ]
+        },
+        "expected": [
+          {
+            "id": "all",
+            "label": "All applications",
+            "count": 12
+          },
+          {
+            "id": "favourites",
+            "label": "Favourites",
+            "count": 1
+          },
+          {
+            "id": "exponential",
+            "label": "Exponential",
+            "count": 2
+          },
+          {
+            "id": "accessories",
+            "label": "Accessories",
+            "count": 4
+          },
+          {
+            "id": "administration",
+            "label": "Administration",
+            "count": 3
+          },
+          {
+            "id": "games",
+            "label": "Games",
+            "count": 1
+          },
+          {
+            "id": "internet",
+            "label": "Internet",
+            "count": 2
+          },
+          {
+            "id": "programming",
+            "label": "Programming",
+            "count": 1
+          },
+          {
+            "id": "sound-video",
+            "label": "Sound & Video",
+            "count": 1
+          },
+          {
+            "id": "other",
+            "label": "Other",
+            "count": 1
+          }
+        ]
+      }
+    ]
+  }
+}

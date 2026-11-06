@@ -14,7 +14,7 @@ path = "src/main.rs"
 # portal's first consumer) already pins. pipewire links libpipewire-0.3
 # (libpipewire-0.3-dev + libclang to build).
 [dependencies]
-ede-protocol = { path = "../ede-protocol" }
+ede-protocol = { path = "../../../desktop/crates/ede-protocol" }
 pipewire = { version = "0.9", features = ["v0_3_34"] }
 blocking = "1"
 png = "0.18"
