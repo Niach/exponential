@@ -258,7 +258,7 @@ jobs:
       # #VAPP-266: the desktop runner's glue (headless) and its dependency gate.
       - name: eCore and Engine gates
         working-directory: apps/desktop
-        run: cargo test --locked -p ecore && cargo test --locked -p eengine --features sqlite,hub && cargo test --locked -p eengine-ffi --features hub && cargo test --locked -p eengine-desktop && cargo test --locked -p eengine-runner
+        run: cargo test --locked -p ecore && cargo test --locked -p eengine --features sqlite,hub && cargo test --locked -p eengine-ffi --features hub && cargo test --locked -p eengine-desktop && cargo test --locked -p eengine-runner && cargo test --locked -p eengine-bundle
       # The suites that hold launch behaviour and the shared fixtures: the
       # full `cargo test` stays in release-suite.yml, and until this step a
       # red test here surfaced only when a release was tagged.

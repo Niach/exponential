@@ -15,8 +15,15 @@ bun run test       # the controller with fakes
 bun run capture -- --package samples/album.app.json --name album --permissions --out /tmp/shots
 ```
 
+Icons: the JS bundles no icon set. `vite build` writes `glyphs.json` (every
+Lucide glyph by name + Lucide's aliases + icons.json `semantic`,
+`scripts/glyphs.ts`); the page loads it before the first paint (`src/glyphs.ts`)
+and `exponential bundle` prunes it to the names the package and the shell use.
+The build also drops sqlite-wasm's Worker1 script (the records open in
+`src/sqlite-worker.ts`).
+
 `dist/app/` holds `runner.json` and `package.app.json` (here: `samples/album.app.json`);
-E7's `exponential bundle` replaces them, the web manifest and the icons. The
+E7's `exponential bundle --target web` replaces them, the web manifest, the icons and the favicon, prunes `glyphs.json` and rewrites `sw.js`. The
 service worker precaches every file of the export, so the app works offline;
 its cache name hashes them all, so a new export replaces the old cache.
 `src/page.ts` drives lifecycle.json from the page (launch, `visibilitychange`,

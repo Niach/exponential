@@ -1,0 +1,27 @@
+[package]
+name = "eengine-bundle"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "E7 (#VAPP-270): `exponential bundle`, a signed package + an icon + bundle.toml to native binaries on the prebuilt runners (macOS, Windows, Linux, Android, iOS, web). Nothing is compiled per app except iOS. Locked by packages/eengine/fixtures/bundle.json."
+repository = "https://github.com/Niach/exponential"
+readme = "README.md"
+
+[lib]
+name = "eengine_bundle"
+
+[dependencies]
+eengine = { path = "../eengine" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.8"
+sha2 = { workspace = true }
+# The icon set: the one SVG rendered at every size a target asks for
+# (resvg is gpui's SVG renderer, already in the tree), PNG-encoded.
+resvg = { version = "0.45", default-features = false }
+image = { workspace = true, features = ["png"] }
+
+[dev-dependencies]
+tempfile = "3"

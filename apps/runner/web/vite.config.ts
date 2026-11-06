@@ -8,9 +8,35 @@ import { join, relative } from "node:path"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
+import { lucideGlyphs } from "./scripts/glyphs"
+import { GLYPHS_FILE } from "./src/glyphs"
 import { serviceWorkerSource } from "./src/sw"
 
 const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => (statSync(join(dir, n)).isDirectory() ? walk(join(dir, n)) : [join(dir, n)]))
+
+/** Writes `glyphs.json` (src/glyphs.ts): every Lucide glyph, which `exponential bundle` prunes per app. */
+const glyphs = (): Plugin => {
+  const source = async () => JSON.stringify(await lucideGlyphs())
+  return {
+    name: `exp-runner-glyphs`,
+    configureServer(server) {
+      server.middlewares.use(`/${GLYPHS_FILE}`, (_, res) => void source().then((json) => res.setHeader(`content-type`, `application/json`).end(json)))
+    },
+    async generateBundle() {
+      this.emitFile({ type: `asset`, fileName: GLYPHS_FILE, source: await source() })
+    },
+  }
+}
+
+/** sqlite-wasm's Worker1 promiser worker: the runner opens the database in its
+ *  own worker (src/sqlite-worker.ts), so the export never loads it. */
+const dropUnused = (): Plugin => ({
+  name: `exp-runner-drop-unused`,
+  apply: `build`,
+  generateBundle(_, bundle) {
+    for (const file of Object.keys(bundle)) if (/^assets\/sqlite3-worker1-[\w-]+\.js$/.test(file)) delete bundle[file]
+  },
+})
 
 /** Writes `sw.js` precaching every emitted file and every public file. */
 const serviceWorker = (): Plugin => ({
@@ -35,7 +61,7 @@ const serviceWorker = (): Plugin => ({
 
 export default defineConfig({
   base: `./`,
-  plugins: [react(), serviceWorker()],
+  plugins: [react(), glyphs(), dropUnused(), serviceWorker()],
   // The contract packages hash with Node's sync createHash (src/node-crypto.ts).
   resolve: { alias: { "node:crypto": join(import.meta.dirname, `src/node-crypto.ts`) } },
   worker: { format: `es` },

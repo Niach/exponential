@@ -195,6 +195,39 @@ writeFileSync(
     `Do not hand-edit these files.\n`
 )
 
+// #VAPP-270: the web runner kit bundles @sqlite.org/sqlite-wasm, whose glue
+// is an amalgamation that includes Emscripten's runtime (the bundle's own
+// header: "Emscripten SDK: 5.0.5", MIT and University of Illinois/NCSA).
+// The package itself is Apache-2.0 and ships no licence file at its tag
+// (3.54.1-build1 has none in the repository either), so the collector
+// reproduces the SPDX template for it; SQLite is in the public domain.
+const EMSCRIPTEN = { file: `LICENSE.txt`, repo: `emscripten-core/emscripten`, rev: `5.0.5`, path: `LICENSE` }
+const emscriptenDir = join(pkgRoot, `texts/emscripten`)
+mkdirSync(emscriptenDir, { recursive: true })
+{
+  const url = `https://raw.githubusercontent.com/${EMSCRIPTEN.repo}/${EMSCRIPTEN.rev}/${EMSCRIPTEN.path}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    console.error(`FAILED emscripten/${EMSCRIPTEN.file}: ${res.status} ${url}`)
+    failed++
+  } else {
+    writeFileSync(join(emscriptenDir, EMSCRIPTEN.file), normalise(await res.text()))
+    console.log(`wrote emscripten/${EMSCRIPTEN.file}`)
+  }
+}
+
+writeFileSync(
+  join(emscriptenDir, `SOURCE.txt`),
+  `The licence of the Emscripten runtime inside @sqlite.org/sqlite-wasm's\n` +
+    `glue (the web runner kit), vendored verbatim, pinned to the SDK release\n` +
+    `the bundle names:\n` +
+    `\n` +
+    `  ${EMSCRIPTEN.file}\n    https://github.com/${EMSCRIPTEN.repo}/blob/${EMSCRIPTEN.rev}/${EMSCRIPTEN.path}\n` +
+    `\n` +
+    `Regenerate with: bun run --filter @exp/licenses fetch:texts\n` +
+    `Do not hand-edit these files.\n`
+)
+
 if (failed > 0) {
   console.error(`\n${failed} text(s) failed to fetch`)
   process.exit(1)

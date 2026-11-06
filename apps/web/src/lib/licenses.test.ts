@@ -44,6 +44,8 @@ interface Inventory {
   ecosystem: string
   scope: string
   components: Component[]
+  roots?: string[]
+  triples?: string[]
 }
 
 const inventory = (file: string): Inventory =>
@@ -54,6 +56,15 @@ const npmWeb = inventory(`npm-web.json`)
 const npmSite = inventory(`npm-site.json`)
 const ios = inventory(`ios.json`)
 const android = inventory(`android.json`)
+// #VAPP-270: the runner kits.
+const rustRunner = {
+  desktop: inventory(`rust-runner-desktop.json`),
+  android: inventory(`rust-runner-android.json`),
+  ios: inventory(`rust-runner-ios.json`),
+  web: inventory(`rust-runner-web.json`),
+}
+const npmRunnerWeb = inventory(`npm-runner-web.json`)
+const gradleRunnerAndroid = inventory(`gradle-runner-android.json`)
 
 /** Where each client's notice is committed. Mirrors OUTPUTS in generate.ts. */
 const OUTPUTS = {
@@ -62,7 +73,14 @@ const OUTPUTS = {
   site: `apps/site/public/NOTICES.txt`,
   ios: `apps/ios/Exponential/Resources/NOTICES.txt`,
   android: `apps/android/app/src/main/assets/NOTICES.txt`,
+  // #VAPP-270: one per runner kit; scripts/runner-kits/<target>.sh copies it
+  // into the kit and `exponential bundle` ships it in every export.
+  [`runner-desktop`]: `apps/desktop/crates/eengine-runner/NOTICES.txt`,
+  [`runner-android`]: `apps/runner/android/NOTICES.txt`,
+  [`runner-ios`]: `apps/runner/ios/NOTICES.txt`,
+  [`runner-web`]: `apps/runner/web/public/NOTICES.txt`,
 } as const
+const RUNNER_CLIENTS = [`runner-desktop`, `runner-android`, `runner-ios`, `runner-web`] as const
 
 const notices = Object.fromEntries(
   Object.entries(OUTPUTS).map(([client, path]) => [client, read(path)])
@@ -241,6 +259,7 @@ describe(`coverage — npm`, () => {
   const cases = [
     { scope: `apps/web`, inv: npmWeb },
     { scope: `apps/site`, inv: npmSite },
+    { scope: `apps/runner/web`, inv: npmRunnerWeb },
   ]
 
   it.each(cases)(`$scope: the inventory IS bun.lock's production closure`, ({ scope, inv }) => {
@@ -272,7 +291,7 @@ describe(`coverage — npm`, () => {
     // EXP-1205: `shadcn` is the generator behind `bunx shadcn add`; nothing
     // imports it. Declared under `dependencies` of `@exp/ui` it dragged ~200
     // packages (msw, ts-morph, inquirer, ora, …) into both closures.
-    for (const inv of [npmWeb, npmSite]) {
+    for (const inv of [npmWeb, npmSite, npmRunnerWeb]) {
       expect(inv.components.map((c) => c.name)).not.toContain(`shadcn`)
     }
     const ui = lock.workspaces.get(`packages/ui`)!
@@ -387,6 +406,202 @@ describe(`coverage — Android`, () => {
 })
 
 // ---------------------------------------------------------------------------
+// The runner kits (#VAPP-270)
+// ---------------------------------------------------------------------------
+//
+// Each kit's notice is the closure of what THAT runner ships, not of the app
+// it shares a workspace with: `cargo tree -p <root> --target <triple>` per
+// runner (collect-rust.ts), the web runner's bun.lock production closure
+// (collect-npm.ts, gated above), and the Android runner's resolved `release`
+// runtime graph (collect-android.ts --runner, through
+// packages/licenses/gradle/runner-license.init.gradle.kts).
+
+describe(`coverage — the runner kits`, () => {
+  const lock = new Set<string>()
+  for (const block of read(`apps/desktop/Cargo.lock`)
+    .split(/\n\[\[package\]\]\n/)
+    .slice(1)) {
+    const name = block.match(/^name = "([^"]+)"/m)?.[1]
+    const version = block.match(/^version = "([^"]+)"/m)?.[1]
+    if (name && version) lock.add(`${name}@${version}`)
+  }
+  const workspace = new Set(
+    (
+      JSON.parse(readPkg(`inventory/rust-excluded.json`)) as {
+        excluded: { package: string; reason: string }[]
+      }
+    ).excluded
+      .filter((e) => e.reason.startsWith(`workspace member`))
+      .map((e) => e.package.replace(/@.*$/, ``))
+  )
+  const keys = (inv: Inventory) => inv.components.map((c) => `${c.name}@${c.version}`)
+
+  it.each(Object.entries(rustRunner))(`%s: the Rust closure is rooted at workspace crates, over its triples`, (_, inv) => {
+    expect(inv.roots?.length, `${inv.scope} has no roots`).toBeGreaterThan(0)
+    for (const root of inv.roots!) expect(workspace, `${root} is not a workspace crate`).toContain(root)
+    expect(inv.triples?.length, `${inv.scope} has no triples`).toBeGreaterThan(0)
+    expect(inv.components.length, `${inv.scope} resolves no crates?`).toBeGreaterThan(10)
+    for (const c of inv.components) {
+      for (const p of c.platforms ?? []) expect(inv.triples, `${c.name}: ${p}`).toContain(p)
+    }
+  })
+
+  it.each(Object.entries(rustRunner))(`%s: every crate is in Cargo.lock, none is ours`, (_, inv) => {
+    const stale = keys(inv).filter((k) => !lock.has(k))
+    expect(stale, `stale crates in inventory/rust-${inv.scope}.json — run collect:rust`).toEqual([])
+    expect(inv.components.filter((c) => workspace.has(c.name)).map((c) => c.name)).toEqual([])
+  })
+
+  it(`the desktop runner is a subset of the desktop graph`, () => {
+    // Same triples, so what exponential-runner links must be in the
+    // all-features workspace graph cargo-deny audits.
+    const all = new Set(keys(rust))
+    expect(rustRunner.desktop.triples).toEqual(
+      [...new Set(rust.components.flatMap((c) => c.platforms ?? []))].sort()
+    )
+    expect(keys(rustRunner.desktop).filter((k) => !all.has(k))).toEqual([])
+    // …and far less than it: the runner is not the IDE.
+    expect(rustRunner.desktop.components.length).toBeLessThan(rust.components.length)
+  })
+
+  it(`the mobile runners link the Engine and genUI facades only`, () => {
+    for (const inv of [rustRunner.android, rustRunner.ios]) {
+      expect(inv.roots).toEqual([`eengine-ffi`, `exponential-ui-ffi`])
+      // No hub (tokio/hyper/rmcp): the Engine's default features leave it out.
+      for (const crate of [`tokio`, `hyper`, `rmcp`, `gpui`]) {
+        expect(inv.components.map((c) => c.name), `${inv.scope} ships ${crate}`).not.toContain(crate)
+      }
+      expect(inv.components.map((c) => c.name)).toContain(`uniffi_core`)
+    }
+    expect(rustRunner.android.triples).toEqual([`aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android`])
+    expect(rustRunner.ios.triples).toEqual([`aarch64-apple-ios`])
+  })
+
+  it(`the web runner's one Rust artifact is genUI Motion's wasm`, () => {
+    expect(rustRunner.web.roots).toEqual([`eui-motion-wasm`])
+    expect(rustRunner.web.triples).toEqual([`wasm32-unknown-unknown`])
+    expect(rustRunner.web.components.map((c) => c.name)).toContain(`wasm-bindgen`)
+  })
+
+  it(`the iOS runner has no Swift package dependency of its own`, () => {
+    // Its notice is the two Rust closures: RunnerKit, the Engine's and
+    // genUI's Swift packages resolve nothing remote. A `.package(url:` here
+    // needs an inventory.
+    for (const path of [
+      `apps/runner/ios/Package.swift`,
+      `apps/desktop/crates/eengine-ffi/Package.swift`,
+      `packages/exponential-ui-swift/Package.swift`,
+    ]) {
+      expect(read(path), path).not.toMatch(/\.package\(\s*url:/)
+    }
+  })
+
+  describe(`the Android runner's Gradle closure`, () => {
+    const catalog = read(`packages/exponential-ui-compose/gradle/libs.versions.toml`)
+    const libraries = catalog.slice(catalog.indexOf(`[libraries]`), catalog.indexOf(`[plugins]`))
+    const alias = new Map(
+      [...libraries.matchAll(/^([\w-]+)\s*=\s*\{\s*group\s*=\s*"([^"]+)",\s*name\s*=\s*"([^"]+)"/gm)].map(
+        (m) => [m[1], `${m[2]}:${m[3]}`] as const
+      )
+    )
+    /** `group:name` of every catalogue alias a build file names under the given configurations. */
+    const named = (configurations: string[]): string[] => {
+      const out = new Set<string>()
+      for (const path of [
+        `apps/runner/android/app/build.gradle.kts`,
+        `apps/desktop/crates/eengine-ffi/android/build.gradle.kts`,
+        `packages/exponential-ui-compose/ui-compose/build.gradle.kts`,
+      ]) {
+        for (const m of read(path).matchAll(/^\s*(\w+)\((.*)\)\s*$/gm)) {
+          if (!configurations.includes(m[1]) || m[2].includes(`platform(`)) continue
+          const ref = m[2].match(/libs\.([\w.]+?)(?:\.get\(\))?(?:\}|\)|$)/)?.[1]
+          if (!ref || ref.startsWith(`versions.`)) continue
+          const coordinate = alias.get(ref.replace(/\./g, `-`))
+          expect(coordinate, `${path}: libs.${ref} is not in the catalogue`).toBeDefined()
+          out.add(coordinate!)
+        }
+      }
+      return [...out].sort()
+    }
+    const attributed = new Set(gradleRunnerAndroid.components.map((c) => c.name))
+
+    it(`every runtime library the runner, the Engine AAR and eui-compose declare is attributed`, () => {
+      const runtime = named([`implementation`, `api`])
+      expect(runtime.length).toBeGreaterThan(5)
+      expect(runtime.filter((a) => !attributed.has(a)), `run collect:android -- --runner`).toEqual([])
+      // The BOM's expansion, not just the catalogue.
+      expect(attributed).toContain(`androidx.compose.runtime:runtime`)
+    })
+
+    it(`test and debug artifacts never reach the runner's inventory`, () => {
+      const notShipped = named([`testImplementation`, `androidTestImplementation`, `debugImplementation`]).filter(
+        (a) => !named([`implementation`, `api`]).includes(a)
+      )
+      expect(notShipped.length).toBeGreaterThan(0)
+      expect(notShipped.filter((a) => attributed.has(a))).toEqual([])
+    })
+
+    it(`JNA is attributed under Apache-2.0 alone`, () => {
+      const notice = notices[`runner-android`]
+      expect(notice).toContain(`net.java.dev.jna:jna`)
+      expect(notice).not.toMatch(/^LGPL/m)
+    })
+  })
+})
+
+describe(`runner notices`, () => {
+  it(`every export says whose app it is and reproduces Apache-2.0`, () => {
+    for (const client of RUNNER_CLIENTS) {
+      const contents = notices[client]
+      expect(flat(contents), client).toContain(`This app was exported with Exponential`)
+      expect(flat(contents), client).toContain(`is its author's and is not covered by this file`)
+      expect(contents, `${client} reproduces no Apache-2.0 body`).toMatch(/^\s*Apache License\s*$/m)
+    }
+  })
+
+  it(`every runner ships genUI's vendored and ported sources`, () => {
+    for (const client of RUNNER_CLIENTS) {
+      const vendored = section(notices[client], `Vendored source`)
+      expect(vendored, `${client} has no vendored-source section`).toBeDefined()
+      for (const title of [`A2UI specification schemas`, `json-render`, `QR Code generator`, `lottie-web`]) {
+        expect(vendored, `${client}: ${title}`).toContain(title)
+      }
+    }
+  })
+
+  it(`the desktop runner embeds Inter and records gpui's patched-out GPL crates`, () => {
+    const fonts = section(notices[`runner-desktop`], `Bundled fonts`)
+    expect(fonts).toContain(`SIL OPEN FONT LICENSE Version 1.1`)
+    expect(fonts).toContain(`Inter`)
+    // assets.rs embeds `fonts/Inter-*.ttf` only.
+    expect(fonts).not.toContain(`JetBrains Mono`)
+    expect(read(`apps/desktop/crates/eengine-runner/src/assets.rs`)).toContain(`#[include = "fonts/Inter-*.ttf"]`)
+    expect(section(notices[`runner-desktop`], `Components deliberately not included`)).toContain(`zlog`)
+  })
+
+  it(`the web runner carries SQLite's public-domain note, the Apache-2.0 glue and Emscripten`, () => {
+    const web = notices[`runner-web`]
+    const oss = section(web, `Open-source components`)!
+    for (const pkg of [`@sqlite.org/sqlite-wasm`, `@noble/hashes`, `lucide-react`, `react`, `react-dom`]) {
+      expect(oss, pkg).toContain(`  ${pkg} `)
+    }
+    const vendored = flat(section(web, `Vendored source`)!)
+    expect(vendored).toContain(`dedicated to the public domain`)
+    expect(vendored).toContain(`Emscripten SDK 5.0.5`)
+    expect(vendored).toContain(`University of Illinois/NCSA Open Source License`)
+    // The test-only IndexedDB shim never ships.
+    expect(oss).not.toContain(`fake-indexeddb`)
+    // The bundled sqlite-wasm is the version the notice names.
+    expect(npmRunnerWeb.components.find((c) => c.name === `@sqlite.org/sqlite-wasm`)?.version).toBe(`3.54.1-build1`)
+  })
+
+  it(`the web runner's notice ships beside index.html`, () => {
+    // vite copies public/ to the export's root.
+    expect(OUTPUTS[`runner-web`].startsWith(`apps/runner/web/public/`)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Licence election policy
 // ---------------------------------------------------------------------------
 
@@ -415,7 +630,13 @@ describe(`licence election`, () => {
   })
 
   it(`no copyleft licence is ever elected`, () => {
-    const elected = new Set(rust.components.flatMap((c) => c.licenses))
+    const elected = new Set(
+      // (The Gradle inventories record JNA's raw `LGPL OR Apache` POM pair;
+      // curated/overrides.ts elects Apache-2.0 at merge time, gated below.)
+      [rust, ...Object.values(rustRunner), npmRunnerWeb].flatMap((inv) =>
+        inv.components.flatMap((c) => c.licenses)
+      )
+    )
     for (const id of elected) {
       expect(id, `copyleft licence elected`).not.toMatch(/GPL|AGPL|LGPL|SSPL/)
     }
@@ -432,7 +653,11 @@ describe(`licence election`, () => {
       )
     )
     expect(allowed.size).toBeGreaterThan(10)
-    const elected = new Set(rust.components.flatMap((c) => c.licenses))
+    const elected = new Set(
+      [rust, ...Object.values(rustRunner)].flatMap((inv) =>
+        inv.components.flatMap((c) => c.licenses)
+      )
+    )
     const notAllowed = [...elected].filter((id) => !allowed.has(id))
     expect(
       notAllowed,
@@ -540,7 +765,7 @@ describe(`notice sections`, () => {
       expect(commercial, `${client} should have a commercial section`).toBeDefined()
       expect(flat(commercial!)).toContain(`NOT open source`)
     }
-    for (const client of [`desktop`, `web`, `site`] as const) {
+    for (const client of [`desktop`, `web`, `site`, ...RUNNER_CLIENTS] as const) {
       // docs/third-party-licences.md: "the section should be absent rather
       // than empty". The two web packages that declare no licence at all
       // (@better-fetch/fetch, creem) are both MIT — see curated/overrides.ts.

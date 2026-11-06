@@ -15,7 +15,22 @@
 // `docs/third-party-licences.md`; this file is the machine-readable projection
 // of them.
 
-export type Client = `desktop` | `web` | `site` | `ios` | `android`
+export type Client =
+  | `desktop`
+  | `web`
+  | `site`
+  | `ios`
+  | `android`
+  // #VAPP-270: the runner kits `exponential bundle` wraps an app in. Each
+  // export ships its kit's notice (inside the app bundle or package, or
+  // beside index.html on the web).
+  | `runner-desktop`
+  | `runner-android`
+  | `runner-ios`
+  | `runner-web`
+
+/** Every client that ships genUI (eui-core or @exponential_app/eui). */
+export const RUNNERS: Client[] = [`runner-android`, `runner-desktop`, `runner-ios`, `runner-web`]
 
 export const CLIENTS: Client[] = [
   `android`,
@@ -23,6 +38,7 @@ export const CLIENTS: Client[] = [
   `ios`,
   `site`,
   `web`,
+  ...RUNNERS,
 ]
 
 /** A repo-relative licence file to inline verbatim under a heading. */
@@ -56,9 +72,9 @@ export interface CuratedEntry {
 export const FONTS: CuratedEntry[] = [
   {
     title: `Inter`,
-    clients: [`desktop`, `site`],
+    clients: [`desktop`, `site`, `runner-desktop`],
     body: [
-      `Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter), licensed under the SIL Open Font License 1.1. The desktop application embeds the TTFs in its binary; the website self-hosts woff2 subsets.`,
+      `Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter), licensed under the SIL Open Font License 1.1. The desktop application and the desktop runner embed the TTFs in their binaries; the website self-hosts woff2 subsets.`,
     ],
     reproduce: [
       { label: `SIL Open Font License 1.1 — Inter`, path: `apps/desktop/assets/fonts/LICENSE.txt` },
@@ -110,7 +126,9 @@ export const ICONS: CuratedEntry[] = [
   },
   {
     title: `selfh.st/icons`,
-    clients: [`android`, `desktop`, `ios`, `web`],
+    // The runners: the three OS marks are in genUI's icon catalog (eui-core,
+    // @exponential_app/eui); the desktop runner also embeds apps/desktop/assets/icons/.
+    clients: [`android`, `desktop`, `ios`, `web`, ...RUNNERS],
     body: [
       `EXP-924: the device icon picker offers three operating-system marks Lucide does not ship (os-apple, os-windows, os-linux). Their outlines come from selfh.st/icons (https://github.com/selfhst/icons, the apple-light, microsoft-windows-light and linux-light SVGs, kept unmodified under packages/icons/svg/). packages/icons scales each single path from its 512-unit viewBox into an 18-unit live area centred in Lucide's 24-unit grid and emits it into all four clients; that scaling is the only change made.`,
       `The collection is licensed CC-BY-4.0. The Apple logo, the Windows logo and Tux are trademarks of their respective owners, used nominatively to let a user label a machine by the operating system it runs; the licence below covers the icon files, not the marks.`,
@@ -202,7 +220,7 @@ export const VENDORED: CuratedEntry[] = [
   // `exponential-ui-ffi` `.so` inside its AAR, so `android` joins.
   {
     title: `A2UI specification schemas (vendored, Exponential UI)`,
-    clients: [`web`, `desktop`, `ios`, `android`],
+    clients: [`web`, `desktop`, `ios`, `android`, ...RUNNERS],
     body: [
       `The Exponential UI catalog package (packages/exponential-ui, bundled by the web app through the React renderer) carries the A2UI v0.9 specification's JSON schemas, copied byte for byte from https://github.com/google/A2UI (tag v0.9, commit 19919ef4c8ad3185867f70386fa4669284d7714c) into packages/exponential-ui/vendor/a2ui/v0_9/. They are not modified: the basic catalog is mapped onto Exponential UI's core catalog, so Apache-2.0 section 4(b) does not apply. The repository's LICENSE is reproduced below.`,
     ],
@@ -215,7 +233,7 @@ export const VENDORED: CuratedEntry[] = [
   },
   {
     title: `json-render component descriptions (derived wording, Exponential UI)`,
-    clients: [`web`, `desktop`, `ios`, `android`],
+    clients: [`web`, `desktop`, `ios`, `android`, ...RUNNERS],
     body: [
       `The model-facing descriptions and the prop vocabulary of the 36 shadcn-named components in packages/exponential-ui/catalog/core.catalog.json were derived from the @json-render/shadcn catalog of https://github.com/vercel-labs/json-render (0.21.0, commit fc2a696a50a30cb30c878ab1eb65e102487eea0f, Apache-2.0, Vercel, Inc.): rewritten into Exponential UI's schema format and re-edited sentence by sentence, no code copied. The attribution is kept because the wording is a derivative; the licence is reproduced below.`,
     ],
@@ -231,7 +249,7 @@ export const VENDORED: CuratedEntry[] = [
   // reaches every client the two rows above reach.
   {
     title: `QR Code generator library (ported, Exponential UI)`,
-    clients: [`web`, `desktop`, `ios`, `android`],
+    clients: [`web`, `desktop`, `ios`, `android`, ...RUNNERS],
     body: [
       `The QrCode native's matrix (packages/exponential-ui/src/qr-code.ts and the Rust core's port) is a port of Project Nayuki's QR Code generator library (https://www.nayuki.io/page/qr-code-generator-library, MIT), narrowed to byte mode at an exact error-correction level. The MIT notice is reproduced below.`,
     ],
@@ -248,7 +266,9 @@ export const VENDORED: CuratedEntry[] = [
   // painters reach.
   {
     title: `lottie-web (ported, eUI Motion)`,
-    clients: [`desktop`],
+    // #VAPP-270: every runner links eui-motion (eui-gpui, exponential-ui-ffi,
+    // and the web runner's Motion wasm).
+    clients: [`desktop`, ...RUNNERS],
     body: [
       `eUI Motion's engine (apps/desktop/crates/eui-motion) contains Rust ports of parts of lottie-web (https://github.com/airbnb/lottie-web, commit bede03d25d232826e0c9dca1733d542d8a7754fb, MIT, Copyright (c) 2015 Bodymovin): the shape primitive builders, the trim, round-corners, pucker/bloat, zig-zag and offset-path modifiers, the repeater steps, text layout with animators and range selectors, and effect parameter semantics. The crate's NOTICE lists the files and the changes; the MIT notice is reproduced below.`,
     ],
@@ -257,6 +277,20 @@ export const VENDORED: CuratedEntry[] = [
         label: `MIT License — lottie-web (Bodymovin)`,
         path: `apps/desktop/crates/eui-motion/LICENSE-lottie-web.txt`,
       },
+    ],
+  },
+  // #VAPP-270 (VAPP-269): the web runner keeps an app's records in the
+  // official SQLite WebAssembly build. Its npm package (Apache-2.0, listed
+  // with the other npm components) is an amalgamation no collector can see
+  // into: SQLite itself and the Emscripten runtime its glue was built with.
+  {
+    title: `SQLite and the Emscripten runtime (inside @sqlite.org/sqlite-wasm, web runner)`,
+    clients: [`runner-web`],
+    body: [
+      `Every web export carries @sqlite.org/sqlite-wasm 3.54.1-build1 (assets/sqlite3-*.wasm and assets/sqlite3-*.js). SQLite 3.54.1 (https://sqlite.org) is dedicated to the public domain by its authors, who ask for no notice (https://www.sqlite.org/copyright.html). The package's JavaScript wrapper is Apache-2.0 (reproduced above with the npm components; the package ships no NOTICE file). Its glue includes the runtime of the Emscripten SDK 5.0.5 it was built with (https://emscripten.org), offered under the MIT license and the University of Illinois/NCSA Open Source License; that licence file is reproduced below.`,
+    ],
+    reproduce: [
+      { label: `Emscripten — MIT and University of Illinois/NCSA`, path: `packages/licenses/texts/emscripten/LICENSE.txt` },
     ],
   },
 ]
@@ -504,7 +538,8 @@ export const COMMERCIAL: CuratedEntry[] = []
 export const NOT_INCLUDED: CuratedEntry[] = [
   {
     title: `GPL-licensed components patched out of this build`,
-    clients: [`desktop`],
+    // The desktop runner paints with the same patched gpui.
+    clients: [`desktop`, `runner-desktop`],
     body: [
       `The desktop application builds on gpui, which upstream Zed uses alongside two GPL-licensed crates: ztracing and zlog. Neither is part of this build. They are patched out and replaced by clean-room shims that reproduce only the API names the call sites need, and zlog does not appear in apps/desktop/Cargo.lock at all.`,
       `No GPL-licensed code is linked into any Exponential artifact. Where an upstream offered a choice that included a copyleft licence — self_cell offers "Apache-2.0 OR GPL-2.0-only" — the permissive branch was elected and is recorded in the licence election section above.`,

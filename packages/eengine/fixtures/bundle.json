@@ -1,0 +1,1165 @@
+{
+  "$comment": "E7 (#VAPP-270, epic #VAPP-259; docs/spec/apps.md §13.3, runner.json `bundle`): `exponential bundle`, the CLI that exports a signed package to native binaries on the prebuilt runners. Rust only (`apps/desktop/crates/eengine-bundle`, `tests/fixture.rs` replays every case; the CLI subcommand is `crates/cli` `bundle`). NOTHING IS COMPILED PER APP except iOS (the Mac lane links only the declared capability modules, ITMS-90683). THE STEPS, in order: (1) PREPARE (`prepareCases`, `prepare(file, bundleToml, options)` -> `{ok: {package, config, scopes}} | {refused: {code, detail}}`, the first refusal wins in this order): the file is not JSON = `notJson`; its signature does not verify = `signature`; unsigned (no `signature`) = `unsigned` unless `--allow-unsigned`; the package's `catalogId` is one of `refuse.catalogs` (the Exponential-app catalog: `exponential.*` actions and the in-app shapes exist only inside Exponential) = `catalog`; a declared capability scope that is `hostOnly` in capabilities.json (`shell.edit`) or unknown = `capability` (detail = the scope); genUI refuses the package (eengine `package::validate`) = `invalid`; bundle.toml's `config.keys` read through runner.json's `runnerConfig` (its issues = `config`, detail `<key>:<code>` joined by `,`; any key outside `config.keys` + `config.sections` is an issue too, so no update feed, telemetry or account can be configured). `scopes` = the package's `capabilities[].id` sorted, de-duplicated. (2) RUNNER: the prebuilt runner kit per target (`kits`): `--runners <dir>` (a workspace build, `scripts/runner-kits.sh`) or the release assets of the pinned `eengine-v<eengine version>` (`kits.release`; each asset's sha256 is checked against its `.sha256` asset). A kit missing its `NOTICES.txt` is refused (`notices`): every export ships the third-party notices of what it runs. (3) INJECT: `app/` = runner.json `bundle` (`package.app.json` byte for byte as given, `runner.json` = the prepared config as `{id, name, version, network}`), at the target's runner.json `bundle.locations`; the icons (`icons`, rendered from the one SVG at every size the target asks for); the platform manifest. (4) PERMISSIONS (`permissions`, `permissionCases`, `platformManifest(target, scopes, config, purposes)`): ONLY what the declared scopes ask for, never more: Android `<uses-permission>` lines between the template's `E7:PERMISSIONS` markers (+ INTERNET when `network` is not `off`); iOS the capability MODULES to link and the Info.plist purpose strings, each = the scope's `why` from the package (else `purposeFallback` with the app name); macOS the sandbox entitlements (`base` always + per scope + `network.client` when `network` is not `off`) and the URL scheme; Linux the `.desktop` entry (`Exec=<bin> %u`, `MimeType=x-scheme-handler/<scheme>;`); Windows the URL protocol under `HKCU\\\\Software\\\\Classes\\\\<scheme>` written by the installer; the web manifest fields (no permissions: every web capability is a picker or asks in the page). The URL scheme is the config id (runner.json: deep links are `<config id>://<screen>?<params>`). (5) SIGN (`signing`): with the AUTHOR's own keys from bundle.toml `[signing.<target>]` or the environment; we never hold them. Without them the output is ad-hoc (macOS `codesign -s -`, iOS unsigned .ipa for re-signing) or unsigned (Windows, Linux) and the CLI says so; Android without a keystore signs with a throwaway debug key and says the .apk is for testing only. (6) OUT (`outputs`): the files per target under `--out` (default `dist/`). NO updater, NO update feed, NO telemetry, NO account: a new package version is a rebundle.",
+  "command": "exponential bundle <package.app.json> --icon <icon.svg> --config <bundle.toml> --target <targets,comma separated> [--runners <dir>] [--out <dir>] [--allow-unsigned]",
+  "targets": [
+    "macos",
+    "windows",
+    "linux",
+    "android",
+    "ios",
+    "web"
+  ],
+  "refuse": {
+    "catalogs": [
+      "https://ui.exponential.at/catalogs/exponential-app/v1"
+    ]
+  },
+  "config": {
+    "file": "bundle.toml",
+    "keys": [
+      "id",
+      "name",
+      "version",
+      "network"
+    ],
+    "sections": [
+      "signing"
+    ]
+  },
+  "kits": {
+    "dir": "<runners>/<target>",
+    "release": "https://github.com/Niach/exponential/releases/download/eengine-v{version}/eengine-runner-kit-{target}.tar.gz",
+    "notices": "NOTICES.txt"
+  },
+  "icons": {
+    "macos": [
+      16,
+      32,
+      64,
+      128,
+      256,
+      512,
+      1024
+    ],
+    "windows": [
+      16,
+      24,
+      32,
+      48,
+      64,
+      256
+    ],
+    "linux": [
+      32,
+      48,
+      64,
+      128,
+      256,
+      512
+    ],
+    "android": {
+      "mdpi": 48,
+      "hdpi": 72,
+      "xhdpi": 96,
+      "xxhdpi": 144,
+      "xxxhdpi": 192
+    },
+    "ios": [
+      1024
+    ],
+    "web": [
+      192,
+      512
+    ]
+  },
+  "outputs": {
+    "macos": [
+      "{name}.app",
+      "{name}-{version}.dmg"
+    ],
+    "windows": [
+      "{name}-{version}-setup.exe"
+    ],
+    "linux": [
+      "{id}_{version}_{arch}.deb",
+      "{name}-{version}-{arch}.AppImage"
+    ],
+    "android": [
+      "{name}-{version}.apk",
+      "{name}-{version}.aab"
+    ],
+    "ios": [
+      "{name}-{version}.ipa"
+    ],
+    "web": [
+      "{name}-{version}-web/"
+    ]
+  },
+  "permissions": {
+    "android": {
+      "scopes": {
+        "photos.read": [
+          "<uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\" />",
+          "<uses-permission android:name=\"android.permission.READ_MEDIA_VISUAL_USER_SELECTED\" />",
+          "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />"
+        ],
+        "notifications.post": [
+          "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />",
+          "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" />"
+        ]
+      },
+      "network": [
+        "<uses-permission android:name=\"android.permission.INTERNET\" />"
+      ],
+      "markers": [
+        "<!-- E7:PERMISSIONS -->",
+        "<!-- /E7:PERMISSIONS -->"
+      ]
+    },
+    "ios": {
+      "modules": {
+        "photos.read": "ExponentialEnginePhotos",
+        "files.read": "ExponentialEngineFiles",
+        "files.write": "ExponentialEngineFiles",
+        "share.send": "ExponentialEngineShare",
+        "print.pdf": "ExponentialEnginePrint",
+        "notifications.post": "ExponentialEngineNotifications"
+      },
+      "purposes": {
+        "photos.read": "NSPhotoLibraryUsageDescription",
+        "share.send": "NSPhotoLibraryAddUsageDescription"
+      },
+      "purposeFallback": {
+        "NSPhotoLibraryUsageDescription": "{name} opens the photos you pick.",
+        "NSPhotoLibraryAddUsageDescription": "{name} saves images you share."
+      }
+    },
+    "macos": {
+      "base": [
+        "com.apple.security.app-sandbox"
+      ],
+      "scopes": {
+        "photos.read": [
+          "com.apple.security.assets.pictures.read-only",
+          "com.apple.security.files.user-selected.read-only"
+        ],
+        "files.read": [
+          "com.apple.security.files.user-selected.read-only"
+        ],
+        "files.write": [
+          "com.apple.security.files.user-selected.read-write"
+        ],
+        "print.pdf": [
+          "com.apple.security.print"
+        ]
+      },
+      "network": [
+        "com.apple.security.network.client"
+      ]
+    },
+    "linux": {
+      "exec": "{bin} %u",
+      "mimeType": "x-scheme-handler/{scheme};",
+      "categories": "Utility;"
+    },
+    "windows": {
+      "protocolKey": "HKCU\\Software\\Classes\\{scheme}"
+    },
+    "web": {
+      "display": "standalone",
+      "startUrl": "./",
+      "scope": "./",
+      "color": "#09090b"
+    }
+  },
+  "signing": {
+    "macos": {
+      "inputs": [
+        "identity (Developer ID Application)",
+        "notary: rcodesign API key JSON (issuer id, key id, .p8)"
+      ],
+      "fallback": "adhoc"
+    },
+    "windows": {
+      "inputs": [
+        "osslsigncode: certificate (.pfx) + password",
+        "or Azure Trusted Signing: endpoint, account, profile"
+      ],
+      "fallback": "unsigned"
+    },
+    "linux": {
+      "inputs": [],
+      "fallback": "unsigned"
+    },
+    "android": {
+      "inputs": [
+        "keystore (.jks/.p12), alias, store + key passwords"
+      ],
+      "fallback": "debugKey"
+    },
+    "ios": {
+      "inputs": [
+        "DEVELOPMENT_TEAM",
+        "distribution certificate + provisioning profile (TestFlight)"
+      ],
+      "fallback": "unsigned"
+    },
+    "web": {
+      "inputs": [],
+      "fallback": "none"
+    }
+  },
+  "prepareCases": [
+    {
+      "name": "a signed core package: prepared",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "ok": {
+          "config": {
+            "id": "at.acme.photobook",
+            "name": "Photobook",
+            "version": "1.0.0",
+            "network": "off"
+          },
+          "scopes": [
+            "files.write",
+            "photos.read",
+            "print.pdf",
+            "share.send"
+          ]
+        }
+      }
+    },
+    {
+      "name": "not JSON",
+      "fileText": "{\"package\": ",
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "refused": {
+          "code": "notJson"
+        }
+      }
+    },
+    {
+      "name": "a tampered file: signature",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook 2",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "refused": {
+          "code": "signature"
+        }
+      }
+    },
+    {
+      "name": "unsigned: refused by default",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "refused": {
+          "code": "unsigned"
+        }
+      }
+    },
+    {
+      "name": "unsigned with --allow-unsigned: prepared",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "allowUnsigned": true,
+      "expected": {
+        "ok": {
+          "config": {
+            "id": "at.acme.photobook",
+            "name": "Photobook",
+            "version": "1.0.0",
+            "network": "off"
+          },
+          "scopes": [
+            "files.write",
+            "photos.read",
+            "print.pdf",
+            "share.send"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the Exponential-app catalog (the samples/apps gallery): catalog",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "uvb-Wm3GGN-8WrRYifXbUjSQTsPT03njvRQl7y79zsOIijotb-HERdAlEf0VrRHLpG2Bk33ROqRsMu3GrglIBw"
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "refused": {
+          "code": "catalog"
+        }
+      }
+    },
+    {
+      "name": "a package genUI refuses: invalid",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {},
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "Cp2nYHZWQDWMgUnxt2ZjHSAeZlkxpkTw5k55b77TZ-y6TyeHG4dzHL_Nhc5KtpMDGVKYwdGeO7y9NmYYULBBDg"
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "refused": {
+          "code": "invalid"
+        }
+      }
+    },
+    {
+      "name": "a host-only scope: capability",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "shell.edit"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "shell.edit",
+              "why": "Change the desktop."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "dF-vrFWFT9DB7JmSZaG15Q2hXe5N-7NtKx7yN8Xzr_mMtMBU_ystznyAPfdpiHSKY3oe14sXOfFk6kTA0u7cCQ"
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "refused": {
+          "code": "capability",
+          "detail": "shell.edit"
+        }
+      }
+    },
+    {
+      "name": "bundle.toml without an id and with an update feed: config",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+        }
+      },
+      "bundleToml": {
+        "name": "Photobook",
+        "version": "1.0.0",
+        "feed": "https://x"
+      },
+      "expected": {
+        "refused": {
+          "code": "config",
+          "detail": "id:missing,feed:forbidden"
+        }
+      }
+    },
+    {
+      "name": "bundle.toml with a bad version: config",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0"
+      },
+      "expected": {
+        "refused": {
+          "code": "config",
+          "detail": "version:invalid"
+        }
+      }
+    },
+    {
+      "name": "bundle.toml network any",
+      "file": {
+        "package": {
+          "formatVersion": 5,
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "id": "acme.photobook",
+          "name": "Photobook",
+          "version": "1.0.0",
+          "functions": [
+            "records.*",
+            "photos.pick",
+            "print.pdf",
+            "share.send",
+            "files.save"
+          ],
+          "templates": {
+            "albums": {
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Page",
+                  "title": "Albums",
+                  "children": [
+                    "body"
+                  ]
+                },
+                {
+                  "id": "body",
+                  "component": "Text",
+                  "text": "Albums"
+                }
+              ]
+            }
+          },
+          "capabilities": [
+            {
+              "id": "photos.read",
+              "why": "Pick the photos for an album."
+            },
+            {
+              "id": "files.write",
+              "why": "Save the album's PDF where you pick."
+            },
+            {
+              "id": "print.pdf",
+              "why": "Lay out the album as a PDF."
+            },
+            {
+              "id": "share.send",
+              "why": "Share the album's PDF."
+            }
+          ]
+        },
+        "author": {
+          "name": "Acme",
+          "key": "ed25519:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"
+        },
+        "signature": {
+          "alg": "ed25519",
+          "value": "D8HNq-kcqgs4lp-vpN7JFwYQUz83_t-eSImCIOUzY2jxF5g_zAk_gnfQsdMX4cOTangMqPtnH-dH7pasodcvDA"
+        }
+      },
+      "bundleToml": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0",
+        "network": "any"
+      },
+      "expected": {
+        "ok": {
+          "config": {
+            "id": "at.acme.photobook",
+            "name": "Photobook",
+            "version": "1.0.0",
+            "network": "any"
+          },
+          "scopes": [
+            "files.write",
+            "photos.read",
+            "print.pdf",
+            "share.send"
+          ]
+        }
+      }
+    }
+  ],
+  "permissionCases": [
+    {
+      "name": "the Photobook: photos, files.write, print, share; offline",
+      "scopes": [
+        "files.write",
+        "photos.read",
+        "print.pdf",
+        "share.send"
+      ],
+      "config": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0",
+        "network": "off"
+      },
+      "whys": {
+        "photos.read": "Pick the photos for an album."
+      },
+      "expected": {
+        "android": {
+          "permissions": [
+            "<uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\" />",
+            "<uses-permission android:name=\"android.permission.READ_MEDIA_VISUAL_USER_SELECTED\" />",
+            "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />"
+          ]
+        },
+        "ios": {
+          "modules": [
+            "ExponentialEngineFiles",
+            "ExponentialEnginePhotos",
+            "ExponentialEnginePrint",
+            "ExponentialEngineShare"
+          ],
+          "purposes": {
+            "NSPhotoLibraryUsageDescription": "Pick the photos for an album.",
+            "NSPhotoLibraryAddUsageDescription": "Photobook saves images you share."
+          }
+        },
+        "macos": {
+          "entitlements": [
+            "com.apple.security.app-sandbox",
+            "com.apple.security.assets.pictures.read-only",
+            "com.apple.security.files.user-selected.read-only",
+            "com.apple.security.files.user-selected.read-write",
+            "com.apple.security.print"
+          ],
+          "scheme": "at.acme.photobook"
+        },
+        "linux": {
+          "desktopEntry": "[Desktop Entry]\nType=Application\nName=Photobook\nExec=at.acme.photobook %u\nIcon=at.acme.photobook\nTerminal=false\nCategories=Utility;\nMimeType=x-scheme-handler/at.acme.photobook;\n"
+        },
+        "windows": {
+          "protocolKey": "HKCU\\Software\\Classes\\at.acme.photobook"
+        },
+        "web": {
+          "manifest": {
+            "id": "./",
+            "name": "Photobook",
+            "short_name": "Photobook",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "background_color": "#09090b",
+            "theme_color": "#09090b",
+            "icons": [
+              {
+                "src": "icons/icon-192.png",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any"
+              },
+              {
+                "src": "icons/icon-512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "notifications with the network on",
+      "scopes": [
+        "notifications.post"
+      ],
+      "config": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0",
+        "network": "any"
+      },
+      "whys": {},
+      "expected": {
+        "android": {
+          "permissions": [
+            "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />",
+            "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" />",
+            "<uses-permission android:name=\"android.permission.INTERNET\" />"
+          ]
+        },
+        "ios": {
+          "modules": [
+            "ExponentialEngineNotifications"
+          ],
+          "purposes": {}
+        },
+        "macos": {
+          "entitlements": [
+            "com.apple.security.app-sandbox",
+            "com.apple.security.network.client"
+          ],
+          "scheme": "at.acme.photobook"
+        },
+        "linux": {
+          "desktopEntry": "[Desktop Entry]\nType=Application\nName=Photobook\nExec=at.acme.photobook %u\nIcon=at.acme.photobook\nTerminal=false\nCategories=Utility;\nMimeType=x-scheme-handler/at.acme.photobook;\n"
+        },
+        "windows": {
+          "protocolKey": "HKCU\\Software\\Classes\\at.acme.photobook"
+        },
+        "web": {
+          "manifest": {
+            "id": "./",
+            "name": "Photobook",
+            "short_name": "Photobook",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "background_color": "#09090b",
+            "theme_color": "#09090b",
+            "icons": [
+              {
+                "src": "icons/icon-192.png",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any"
+              },
+              {
+                "src": "icons/icon-512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "no capabilities: nothing but the sandbox",
+      "scopes": [],
+      "config": {
+        "id": "at.acme.photobook",
+        "name": "Photobook",
+        "version": "1.0.0",
+        "network": "off"
+      },
+      "whys": {},
+      "expected": {
+        "android": {
+          "permissions": []
+        },
+        "ios": {
+          "modules": [],
+          "purposes": {}
+        },
+        "macos": {
+          "entitlements": [
+            "com.apple.security.app-sandbox"
+          ],
+          "scheme": "at.acme.photobook"
+        },
+        "linux": {
+          "desktopEntry": "[Desktop Entry]\nType=Application\nName=Photobook\nExec=at.acme.photobook %u\nIcon=at.acme.photobook\nTerminal=false\nCategories=Utility;\nMimeType=x-scheme-handler/at.acme.photobook;\n"
+        },
+        "windows": {
+          "protocolKey": "HKCU\\Software\\Classes\\at.acme.photobook"
+        },
+        "web": {
+          "manifest": {
+            "id": "./",
+            "name": "Photobook",
+            "short_name": "Photobook",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "background_color": "#09090b",
+            "theme_color": "#09090b",
+            "icons": [
+              {
+                "src": "icons/icon-192.png",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any"
+              },
+              {
+                "src": "icons/icon-512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// EXP-375 — the MERGE step: five committed inventories + the curated supplement
+// EXP-375 — the MERGE step: the committed inventories + the curated supplement
 // -> one committed NOTICES.txt per distributed client.
 //
 // Run: `bun run --filter @exp/licenses generate`.
@@ -32,7 +32,7 @@ import {
   type Client,
   type CuratedEntry,
 } from "../curated/supplement"
-import { LICENCE_OVERRIDES, findOverride } from "../curated/overrides"
+import { LICENCE_OVERRIDES, findOverride, type LicenceOverride } from "../curated/overrides"
 import { byCodepoint, type Component, type Inventory } from "../src/schema"
 import { ELECTION_ORDER } from "../src/spdx"
 import { normaliseBody, spdxTemplate } from "../src/text"
@@ -41,10 +41,25 @@ import { renderComponents, renderFile, rule, wrap, type Section } from "../src/r
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
 const repoRoot = join(pkgRoot, "..", "..")
 
-/** Where each client's notice ships, and how. */
+/** The runner kits' opening paragraph: the export is the author's app on Exponential's runner. */
+const RUNNER_PREAMBLE =
+  `This app was exported with Exponential (https://exponential.at). It runs on Exponential's runner, free software licensed under the Apache License, Version 2.0, whose text is reproduced below. The app's own package (its screens, logic and content) is its author's and is not covered by this file.`
+
+/**
+ * Where each client's notice ships, and how. `overrides` = which
+ * curated/overrides.ts scopes apply (a runner reuses the determinations of the
+ * client whose ecosystem it shares; default: its own name).
+ */
 export const OUTPUTS: Record<
   Client,
-  { title: string; path: string; inventories: string[]; ships: string }
+  {
+    title: string
+    path: string
+    inventories: string[]
+    ships: string
+    overrides?: LicenceOverride[`scope`][]
+    preamble?: string
+  }
 > = {
   desktop: {
     title: `Desktop application`,
@@ -75,6 +90,40 @@ export const OUTPUTS: Record<
     path: `apps/android/app/src/main/assets/NOTICES.txt`,
     inventories: [`android.json`],
     ships: `packaged in the APK assets`,
+  },
+  // #VAPP-270: the runner kits. scripts/runner-kits/<target>.sh copies each
+  // into its kit; `exponential bundle` ships it in every export.
+  [`runner-desktop`]: {
+    preamble: RUNNER_PREAMBLE,
+    title: `Exported app (desktop runner)`,
+    path: `apps/desktop/crates/eengine-runner/NOTICES.txt`,
+    inventories: [`rust-runner-desktop.json`],
+    ships: `inside every macOS, Windows and Linux export`,
+    overrides: [`desktop`],
+  },
+  [`runner-android`]: {
+    preamble: RUNNER_PREAMBLE,
+    title: `Exported app (Android runner)`,
+    path: `apps/runner/android/NOTICES.txt`,
+    inventories: [`rust-runner-android.json`, `gradle-runner-android.json`],
+    ships: `inside every APK and AAB export`,
+    overrides: [`android`, `desktop`],
+  },
+  [`runner-ios`]: {
+    preamble: RUNNER_PREAMBLE,
+    title: `Exported app (iOS runner)`,
+    path: `apps/runner/ios/NOTICES.txt`,
+    inventories: [`rust-runner-ios.json`],
+    ships: `inside every iOS export`,
+    overrides: [`desktop`],
+  },
+  [`runner-web`]: {
+    preamble: RUNNER_PREAMBLE,
+    title: `Exported app (web runner)`,
+    path: `apps/runner/web/public/NOTICES.txt`,
+    inventories: [`npm-runner-web.json`, `rust-runner-web.json`],
+    ships: `beside index.html in every web export`,
+    overrides: [`web`, `desktop`],
   },
 }
 
@@ -259,7 +308,8 @@ function loadInventories(client: Client, files: string[]): Component[] {
 const overridesUsed = new Set<string>()
 
 function applyOverride(client: Client, component: Component): Component {
-  const override = findOverride(client, component.name)
+  const scopes = OUTPUTS[client].overrides ?? [client as LicenceOverride[`scope`]]
+  const override = scopes.map((scope) => findOverride(scope, component.name)).find(Boolean)
   if (!override) return component
   overridesUsed.add(`${override.scope}:${override.name}`)
 
@@ -335,7 +385,7 @@ export function buildNotice(client: Client): string {
     })
   }
 
-  return renderFile({ clientTitle: config.title, sections })
+  return renderFile({ clientTitle: config.title, sections, preamble: config.preamble })
 }
 
 if (import.meta.main) {
