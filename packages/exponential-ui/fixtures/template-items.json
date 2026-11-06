@@ -3901,6 +3901,142 @@
       }
     },
     {
+      "name": "macro-template-meter-bound",
+      "nested": {
+        "id": "disk",
+        "component": "Meter",
+        "props": {
+          "segments": {
+            "path": "/disk"
+          },
+          "max": 100,
+          "label": "Disk"
+        }
+      },
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "expected": {
+        "root": {
+          "id": "disk",
+          "component": "Box",
+          "props": {},
+          "children": [
+            {
+              "id": "disk.header",
+              "component": "Box",
+              "props": {},
+              "children": [
+                {
+                  "id": "disk.header.label",
+                  "component": "Text",
+                  "props": {
+                    "text": "Disk",
+                    "variant": "caption"
+                  },
+                  "children": [],
+                  "style": {
+                    "flexGrow": 1,
+                    "minWidth": 0
+                  },
+                  "recipe": {
+                    "macro": "Meter",
+                    "part": "label",
+                    "props": {}
+                  }
+                }
+              ],
+              "style": {
+                "display": "flex",
+                "flexDirection": "row",
+                "alignItems": "center",
+                "gap": "$spacing.sm"
+              },
+              "recipe": {
+                "macro": "Meter",
+                "part": "header",
+                "props": {}
+              }
+            },
+            {
+              "id": "disk.track",
+              "component": "Box",
+              "props": {},
+              "children": [],
+              "style": {
+                "display": "flex",
+                "flexDirection": "row",
+                "height": "$control.meter",
+                "borderRadius": "$radius.full",
+                "overflow": "hidden",
+                "width": "100%"
+              },
+              "recipe": {
+                "macro": "Meter",
+                "part": "track",
+                "props": {}
+              },
+              "template": {
+                "component": "disk.track.segment",
+                "path": "/disk"
+              }
+            }
+          ],
+          "style": {
+            "display": "flex",
+            "flexDirection": "column",
+            "gap": "$spacing.xs",
+            "width": "100%"
+          },
+          "recipe": {
+            "macro": "Meter",
+            "part": "root",
+            "props": {}
+          },
+          "accessibility": {
+            "role": "meter",
+            "label": "Disk"
+          }
+        },
+        "issues": [],
+        "templates": {
+          "disk.track.segment": {
+            "id": "disk.track.segment",
+            "component": "Box",
+            "props": {},
+            "children": [],
+            "style": {
+              "height": "100%",
+              "width": {
+                "call": "percent",
+                "args": {
+                  "value": {
+                    "path": "value"
+                  },
+                  "max": 100
+                }
+              }
+            },
+            "recipe": {
+              "macro": "Meter",
+              "part": "segment",
+              "props": {
+                "tone": {
+                  "call": "coalesce",
+                  "args": {
+                    "values": [
+                      {
+                        "path": "tone"
+                      },
+                      "neutral"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "macro-template-timeline",
       "nested": {
         "id": "tl",

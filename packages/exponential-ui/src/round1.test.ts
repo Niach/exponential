@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test"
 import macrosFixture from "../fixtures/catalog-macros.json" with { type: "json" }
 import bindFixture from "../fixtures/bind-time.json" with { type: "json" }
 import codeFixture from "../fixtures/code-tokens.json" with { type: "json" }
+import templateFixture from "../fixtures/template-items.json" with { type: "json" }
 import macrosJson from "../catalog/macros.json" with { type: "json" }
 import { CORE_CATALOG_ID, coreCatalog } from "./catalog"
 import { COMPONENT_A11Y, A11Y_COMMANDS } from "./a11y"
@@ -45,7 +46,10 @@ describe(`bound macro inputs (§1)`, () => {
     for (const [name, def] of Object.entries(coreCatalog.components)) {
       if (def.kind !== `macro`) continue
       for (const [prop, schema] of Object.entries(def.props)) {
-        if (schema.bindable) expect(cases.some((c) => c.name === `${name}/bound:${prop}`), `${name}/bound:${prop}`).toBe(true)
+        // A bound array a macro repeats through a data template is locked in
+        // template-items.json instead (VAPP-278: Meter segments).
+        const templated = templateFixture.reduce.some((c: { name: string }) => c.name === `macro-template-${name.toLowerCase()}-bound`)
+        if (schema.bindable && !templated) expect(cases.some((c) => c.name === `${name}/bound:${prop}`), `${name}/bound:${prop}`).toBe(true)
         if (schema.responsive) expect(cases.some((c) => c.name === `${name}/responsive:${prop}`), `${name}/responsive:${prop}`).toBe(true)
       }
     }

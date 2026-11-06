@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- A Meter with bound `segments` lays out each slice (the macro's track template), not an empty track (VAPP-278).
 ## 0.16.3 (2026-11-06)
 
 - Markdown parses the same on all five renderers (`markdown-render.json`, every golden case passes; VAPP-258), and a number field seeded with a value selects it on focus so Save runs once (VAPP-208).
