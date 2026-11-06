@@ -105,7 +105,7 @@ class VoiceWaveGeometryTest {
 }
 
 /** A minimal JSON reader for the tests (objects, arrays, strings, numbers, booleans, null): the module has no JSON library and android.jar's org.json is stubbed. */
-private class MiniJson(private val s: String) {
+internal class MiniJson(private val s: String) {
     private var i = 0
 
     fun parse(): Any? = value().also { ws(); check(i == s.length) { "trailing input at $i" } }
