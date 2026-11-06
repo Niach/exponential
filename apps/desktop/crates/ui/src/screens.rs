@@ -693,8 +693,8 @@ fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
 }
 
 /// EXP-1294 — a session chip (the tab of its thread, showing the session):
-/// the root's state mark and EXP-1341: the session's own title
-/// (`domain::session_title`; it names the session's issues already).
+/// the root's state mark and the tab's title ([`screen_title`]: the
+/// thread's, EXP-1676, like web's thread tab).
 fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     let Some(root) = crate::session_data::root_of(session_id, cx) else {
         return loading_chip(cx);

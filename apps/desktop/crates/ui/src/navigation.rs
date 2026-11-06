@@ -410,11 +410,14 @@ fn thread_tab_title(root_id: &str, cx: &App) -> gpui::SharedString {
         .into()
 }
 
-/// EXP-1294: a session's label — EXP-1341: THAT session's own title
-/// (`domain::session_title`: its name, its issues, its action, its first
-/// prompt), the fixture's `untitled` while the row syncs.
+/// EXP-1294: a session's label. A session of a thread shares its ROOT's tab
+/// (the work tab is a thread row, threads-list.json), so it reads the
+/// THREAD's title like web's thread tab (EXP-1676: never the child's own);
+/// any other session (no thread root) its own title (EXP-1341,
+/// `domain::session_title`), the fixture's `untitled` while the row syncs.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
-    thread_tab_title(session_id, cx)
+    let titled = crate::screens::in_place_root(session_id, cx).unwrap_or_else(|| session_id.to_string());
+    thread_tab_title(&titled, cx)
 }
 
 /// EXP-1294: an agent page's label — the `agents` row's name, `Agent` while
