@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tree (#VAPP-285): `event(index, "key", {key})` on a treeitem moves the focus (no new API).
 - A foldable Row (#VAPP-284): `event(index, "key", {key})` takes the fold keys on a node with `expanded` (no new API).
 
 ## 0.17.0 (2026-11-06)

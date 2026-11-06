@@ -4579,6 +4579,39 @@
       }
     },
     {
+      "id": "exponential-ui-tree",
+      "group": "exponential-ui-catalog",
+      "title": "genUI · Tree",
+      "blurb": "A file-style tree: one Row per visible node with the tree guides, branches fold, leaves select, a lazy branch shows its loading row. The core catalog specimen of ui.exponential.at/components/tree/.",
+      "order": 110,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-tree",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-tree"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-tree",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-tree",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-mosaic",
       "group": "exponential-ui-catalog",
       "title": "genUI · Mosaic",

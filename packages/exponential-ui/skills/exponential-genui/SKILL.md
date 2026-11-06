@@ -25,7 +25,7 @@ genUI paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `e
 Their props are in exponential_apps {op: "catalog"} (only: [names] = just these). By group:
 
 - layout: Box, Stack, Grid, Card, Separator, List, Resizable, ScrollArea, Sidebar, SplitView, AppBar, Page, Toolbar
-- list: Section, Group, Trace, TraceItem, Plan, Row, MessageBubble
+- list: Section, Group, Trace, TraceItem, Plan, Row, Tree, MessageBubble
 - text: Text, Heading, Markdown, CodeBlock, Kbd, Label
 - media: Image, ZoomableImage, Icon, Video, AudioPlayer, Avatar, QrCode, Carousel, Mosaic, CallSurface, Motion
 - navigation: Tabs, Segmented, Accordion, Collapsible, Pagination, Breadcrumb, Outline, Stepper

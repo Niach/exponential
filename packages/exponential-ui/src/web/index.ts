@@ -56,3 +56,5 @@ export type { MotionEnv, MotionEmit, MotionEvent, MotionMachinePlayer, MotionFit
 // VAPP-162: the round-5 natives' shared halves (QrCode paint, the QrScanner host hook, the count badge, the Button hold machine).
 export { qrPaint, qrScanReporter, qrScanFormats, qrCornerPath, qrFeedColour, QR_CORNERS, QR_SCANNER, segmentedBadge, ButtonHold, HOLD_SLOP, withinSlop } from "./round5"
 export type { QrPaint, QrScannerHost, QrCorner, HoldEvent, HoldRect } from "./round5"
+// #VAPP-285: the Tree keys in the DOM (React + Solid Box).
+export { treeKeyTarget } from "./tree-keys"

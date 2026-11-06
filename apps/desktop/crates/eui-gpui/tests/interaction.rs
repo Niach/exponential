@@ -1250,3 +1250,64 @@ fn a_foldable_row_presses_folds_and_takes_the_arrows(cx: &mut TestAppContext) {
         assert_eq!(expanded, Some(c["after"].clone()), "{name}: expanded after");
     }
 }
+
+/// #VAPP-285: the Tree through the painter: interactions-round1.json `tree`
+/// (a press, or an arrow / Home / End on the focused row), the events the
+/// host sees, where the focus lands and /open after.
+#[gpui::test]
+fn a_tree_selects_folds_fetches_and_moves_the_focus(cx: &mut TestAppContext) {
+    let f: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/interactions-round1.json")).unwrap()).unwrap();
+    let t = &f["tree"];
+    let row_ids = t["rowIds"].as_object().unwrap().clone();
+    let item_of = |node: Option<String>| node.and_then(|node| row_ids.iter().find(|(_, id)| id.as_str() == Some(node.as_str())).map(|(item, _)| item.clone()));
+    init(cx);
+    for c in t["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let mut tree = json!({"id": "root", "component": "Box", "children": [t["surface"].clone()]});
+        if c["rtl"] == json!(true) {
+            tree["style"]["direction"] = json!("rtl");
+        }
+        let log = Recorder::default();
+        let host = Rc::new(log.clone());
+        let options = SurfaceViewOptions { theme: eui_core::themes::builtin_theme("neutral"), mode: eui_core::theme::Mode::Light, host, ..Default::default() };
+        let (view, vcx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
+        let open = c["open"].clone();
+        view.update(vcx, |v, cx| {
+            v.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap(), cx);
+            v.set_data("/open", Some(open), cx).unwrap();
+        });
+        draw(vcx);
+        draw(vcx);
+        let step = &c["step"];
+        let item = step.get("press").or_else(|| step.get("on")).and_then(Value::as_str).unwrap();
+        let target = row_ids[item].as_str().unwrap().to_string();
+        let index = view.read_with(vcx, |v, _| v.index_of(&target)).unwrap_or_else(|| panic!("{name}: no {target}"));
+        let mut moved = None;
+        if step.get("press").is_some() {
+            vcx.update(|window, cx| view.update(cx, |v, cx| v.press(index, window, cx)));
+            draw(vcx);
+        } else {
+            while focused(&view, vcx).as_deref() != Some(target.as_str()) {
+                assert!(tab(&view, vcx).is_some(), "{name}: {target} is not focusable");
+            }
+            let k = match step["key"].as_str().unwrap() {
+                "ArrowUp" => "up",
+                "ArrowDown" => "down",
+                "ArrowLeft" => "left",
+                "ArrowRight" => "right",
+                "Home" => "home",
+                _=> "end",
+            };
+            key(&view, vcx, k);
+            let now = focused(&view, vcx);
+            if now.as_deref() != Some(target.as_str()) {
+                moved = item_of(now);
+            }
+        }
+        let names: Vec<String> = log.0.borrow().actions.iter().map(|a| a.name.clone()).collect();
+        assert_eq!(json!(names), c["events"], "{name}: events");
+        assert_eq!(json!(moved), c["after"]["focus"], "{name}: focus");
+        let data = view.read_with(vcx, |v, _| v.surface().get_data("/open").cloned());
+        assert_eq!(data, Some(c["after"]["open"].clone()), "{name}: /open");
+    }
+}

@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tree (#VAPP-285): a Tree row keeps `role=treeitem` and takes the WAI-ARIA tree keys (`treeKeyTarget`).
 - A foldable Row (#VAPP-284): a pressable Box with `on.toggle` and `aria-expanded` takes ArrowRight / ArrowLeft (`foldKey`, rtl-aware); a press target inside another fires only its own press.
 
 ## 0.17.0 (2026-11-06)

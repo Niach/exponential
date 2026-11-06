@@ -6448,6 +6448,32 @@
             }
           ]
         },
+        "Tree": {
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "spinner": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
         "Collapsible": {
           "trigger": [
             {
@@ -14536,6 +14562,32 @@
             }
           ]
         },
+        "Tree": {
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "spinner": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
         "Collapsible": {
           "trigger": [
             {
@@ -22598,6 +22650,32 @@
               },
               "style": {
                 "borderLeftWidth": "$border.hairline"
+              }
+            }
+          ]
+        },
+        "Tree": {
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "spinner": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]
@@ -30716,6 +30794,32 @@
             {
               "style": {
                 "backgroundColor": "$color.card"
+              }
+            }
+          ]
+        },
+        "Tree": {
+          "foldIcon": [
+            {
+              "style": {
+                "color": "$color.mutedForeground",
+                "transition": "$motion.standard",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "open": true
+              },
+              "style": {
+                "transform": "rotate(90deg)"
+              }
+            }
+          ],
+          "spinner": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
               }
             }
           ]

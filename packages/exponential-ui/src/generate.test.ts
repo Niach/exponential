@@ -55,6 +55,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/theme-recipes.json`,
       `fixtures/theme-resolved.json`,
       `fixtures/tree-guides.json`,
+      `fixtures/tree.json`,
       `fixtures/virtual-list.json`,
       `fixtures/voice-wave.json`,
       `fixtures/zoom.json`,

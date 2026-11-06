@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Tree (#VAPP-285) through the Solid painter.
 - A foldable Row (#VAPP-284) through the Solid painter: the fold keys and the nested fold button.
 
 ## 0.17.0 (2026-11-06)

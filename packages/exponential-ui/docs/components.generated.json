@@ -7130,6 +7130,99 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Row/<part>."
     },
     {
+      "name": "Tree",
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "specimenId": "exponential-ui-tree",
+      "description": "A file-style tree: branches fold, leaves select, lazy branches load; keyboard per WAI-ARIA.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "select",
+        "toggle",
+        "load"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "items",
+          "type": "[treeItem]",
+          "required": true,
+          "bindable": false,
+          "responsive": false,
+          "description": "The root nodes."
+        },
+        {
+          "name": "expanded",
+          "type": "[string]",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The open branch ids; bind it."
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The selected leaf id."
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The accessible name."
+        }
+      ],
+      "accessibility": {
+        "role": "tree",
+        "notes": "tree labelled `label` (else $string.tree); every node a treeitem with aria-level, aria-expanded on a branch, aria-selected; the loading row and the chevron are decorative",
+        "keys": [
+          "ArrowDown, ArrowUp: the next, previous visible node",
+          "Home, End: the first, last node",
+          "ArrowRight: open a closed branch, else its first child",
+          "ArrowLeft: close an open branch, else its parent",
+          "Enter, Space: select a leaf, fold a branch"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "Tree",
+        "label": "Files",
+        "expanded": [
+          "src"
+        ],
+        "value": "src/main.ts",
+        "items": [
+          {
+            "id": "src",
+            "title": "src",
+            "children": [
+              {
+                "id": "src/main.ts",
+                "title": "main.ts"
+              },
+              {
+                "id": "src/lib",
+                "title": "lib",
+                "hasChildren": true
+              }
+            ]
+          },
+          {
+            "id": "README.md",
+            "title": "README.md",
+            "meta": "M"
+          }
+        ]
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Tree/<part>."
+    },
+    {
       "name": "MessageBubble",
       "kind": "macro",
       "group": "list",

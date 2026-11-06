@@ -3733,6 +3733,20 @@
       ]
     },
     {
+      "name": "Tree",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "row",
+        "lead",
+        "foldIcon",
+        "spinner"
+      ],
+      "props": [
+        "open"
+      ]
+    },
+    {
       "name": "MessageBubble",
       "kind": "macro",
       "parts": [
