@@ -897,6 +897,14 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_eengine_ffi_checksum_func_engine_version(
     ): Short
+    external fun uniffi_eengine_ffi_checksum_func_runner_config(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_func_runner_failure(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_func_runner_package(
+    ): Short
+    external fun uniffi_eengine_ffi_checksum_func_runner_toast(
+    ): Short
     external fun uniffi_eengine_ffi_checksum_func_validate_host_config(
     ): Short
     external fun uniffi_eengine_ffi_checksum_method_appinstance_answer_consent(
@@ -1147,6 +1155,14 @@ external fun uniffi_eengine_ffi_fn_method_windowhost_present(`ptr`: Long,`app`: 
 external fun uniffi_eengine_ffi_fn_func_engine_features(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_eengine_ffi_fn_func_engine_version(uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_func_runner_config(`configJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_func_runner_failure(`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_func_runner_package(`packageJson`: RustBuffer.ByValue,`formFactor`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_eengine_ffi_fn_func_runner_toast(`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_eengine_ffi_fn_func_validate_host_config(`configJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -6779,6 +6795,43 @@ public object FfiConverterTypePresentation: FfiConverterRustBuffer<Presentation>
 
 
 
+/**
+ * The runner's form factor: `wide` from genUI's `md` breakpoint up.
+ */
+
+enum class RunnerFormFactor {
+    
+    WIDE,
+    COMPACT;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRunnerFormFactor: FfiConverterRustBuffer<RunnerFormFactor> {
+    override fun read(buf: ByteBuffer) = try {
+        RunnerFormFactor.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: RunnerFormFactor) = 4UL
+
+    override fun write(value: RunnerFormFactor, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -7141,6 +7194,63 @@ public object FfiConverterSequenceTypeCapability: FfiConverterRustBuffer<List<Ca
     UniffiLib.uniffi_eengine_ffi_fn_func_engine_version(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * `runner.json` validated: `{config, issues}` (config null on any issue).
+         */
+    @Throws(EngineException::class) fun `runnerConfig`(`configJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_func_runner_config(
+    
+        FfiConverterString.lower(`configJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The components painted in place of the app when the bundle cannot load:
+         * `kind` = `missing`, `config`, `signature` or `invalid`.
+         */
+    @Throws(EngineException::class) fun `runnerFailure`(`kind`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_func_runner_failure(
+    
+        FfiConverterString.lower(`kind`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The package the runner's painter installs: every screen wrapped in the
+         * runner's genUI shell (the instance keeps the original package).
+         */
+    @Throws(EngineException::class) fun `runnerPackage`(`packageJson`: kotlin.String, `formFactor`: RunnerFormFactor): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(EngineException) { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_func_runner_package(
+    
+        FfiConverterString.lower(`packageJson`),FfiConverterTypeRunnerFormFactor.lower(`formFactor`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The failed-action toast's components (surface `toast`).
+         */ fun `runnerToast`(`message`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_eengine_ffi_fn_func_runner_toast(
+    
+        FfiConverterString.lower(`message`),_status)
 }
     )
     }

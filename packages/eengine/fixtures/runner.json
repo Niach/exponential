@@ -1,0 +1,1954 @@
+{
+  "$comment": "E6 (epic VAPP-259; #VAPP-266 desktop, #VAPP-267 Android, #VAPP-268 iOS, #VAPP-269 web; docs/spec/apps.md §13.3): THE RUNNER, the prebuilt shell an exported app runs in, one per platform (macOS, Windows, Linux: gpui + eui-gpui + eengine; Android: Compose + eui-compose + eengine-ffi; iOS: SwiftUI + ExponentialUI + eengine-ffi; web: a static PWA on the TS twin + the React renderer). No app code is compiled per app (iOS links only the declared capability modules). A runner has NO CHROME OF ITS OWN: everything it paints is a genUI surface made of existing components, built here once (TS reference `runner.ts`, Rust `eengine::runner`, Swift/Kotlin over `eengine-ffi`), so the look is the same on every platform. NO OTA, NO UPDATE CHANNEL, NO TELEMETRY, NO ACCOUNT: a new package version is a rebundle; diagnostics are compiled out; the identity is `local` (providers.json). THE BUNDLE (`bundle`, the prebuilt-shell contract E7's `exponential bundle` fills): one directory `bundle.dir` holding `bundle.files.package` (the package FILE, signed: `{package, author, signature}`; a bare package runs unsigned) and `bundle.files.config` (`runner.json`), at `bundle.locations[<platform>]`; E7 copies the prebuilt runner, writes that directory, the icons and the platform manifest (Info.plist purpose strings, AndroidManifest permissions, macOS entitlements, the web manifest) from the package's capability manifest, then signs. The runner never reads the network for its package. CONFIG (`configCases`, `runnerConfig(json)` -> `{config, issues}`): `config.keys` in order, each a string; `required` ones missing = `missing`; a value failing its `pattern`, `values` or `maxLength` (non-blank) = `invalid`; an absent optional key = its `default` (`network` defaults to `off`: nothing leaves the device unless the bundle says so); extra keys sorted: one of `config.forbidden` = `forbidden` (no update feed, telemetry, crash reports or account can be configured into a runner), else `unknown`; a non-object = `[{key: \"\", code: notAnObject}]`; `config` is null whenever there is an issue. The runner refuses to start on any issue (the `config` failure). STORAGE (`storage`): per app id under the platform's app-data directory: the records in `SqliteRecordStore` (`storage.records`), files in `FsBlobStore` (`storage.files`), the Vault in the platform keystore (Keychain, Android Keystore-sealed preferences, libsecret / Credential Manager, the web: an IndexedDB store), the device uuid of the `local` identity under the Vault key `storage.deviceKey` (created once). The web keeps records in SQLite-WASM on OPFS and falls back to IndexedDB, files in OPFS. THE SHELL (`shellCases`, `runnerPackage(pkg, formFactor)` -> the package the runner's PAINTER installs; the Engine keeps the original package, its signature and grants): a package without `screens` gets one: its first template, titled with the package name. Every screen's template is wrapped in the shell when the package has two or more NAVIGATION screens (no `nav: false`) or declares an `ask` capability scope (`permissions`); otherwise it stays as it is. The template's `root` becomes `runner-page`; the shell owns every component id starting `runner-` and the data key `runner`. `wide` (desktop, the web at `md` and up, tablets) = a `Sidebar` (`shell.sidebarWidth`, `collapseBelow: never`) whose `sidebar` slot is a Stack of the package name as a `Heading` (`shell.titleLevel`), the navigation as a List of compact Rows (title, icon, `selected` on the open screen, a press = the event `runner.navigate {screen}`) and, when `permissions`, a Row `copy.permissions` with `shell.permissionsIcon` (event `runner.permissions`). `compact` (phones, the web below `md`) = a full-height Stack: the page in a growing Box, a Separator, then a horizontal bar (padded `$spacing.sm`, end-justified) of `Tabs` in a growing Box (`fill`, value bound to `/runner/screen`, change = `runner.navigate` with the bound value; the template's data gains `runner: {screen}`) and, when `permissions`, an icon-only ghost Button (event `runner.permissions`). The form factor follows the window: a host re-installs and re-applies when it crosses `md`. SURFACES: `app` (the open screen: genUI's `templateMessages` of the wrapped template with `{params}`), `consent` (consent.json's ask sheet), `permissions` (consent.json's manage sheet), `toast` (`runnerToast(message)` = one `Toast` of type error: the refused call's reason, lifecycle.json's `copy.refused` for a refused link; it dismisses itself), and in place of `app` when the bundle cannot load `runnerFailure(kind)` (`failureCases`) = one `EmptyState` (`shell.failureIcon`, `copy.failed.title`, `copy.failed[kind]`; no action): `missing` (no package file), `config` (runner.json has issues), `signature` (the signature does not verify), `invalid` (genUI refuses the package). EVENTS the runner handles itself: `runner.navigate {screen}` = the Engine's `app.navigate`; `runner.permissions` = paint `permissions`; `consent.toggle {scope}` = the grant write through the ConsentUi with the gesture (granted -> revoke, else granted), then repaint `permissions`; `consent.answer {answer}` = the pending call's `answer_consent`, then close `consent`. Every other function call of the app goes to the Engine instance (`records.*`, `app.navigate`, capabilities through the broker); a refused one paints `toast`. LIFECYCLE: the platform's window or activity events drive lifecycle.json (launch, foreground, background, terminate, deep links `<config id>://<screen>?<params>`, notification taps); the WindowHost `open` applies the screen to `app`; when a plain launch opens nothing (a package without screens) the runner opens the derived package's first screen.",
+  "bundle": {
+    "dir": "app",
+    "files": {
+      "package": "package.app.json",
+      "config": "runner.json"
+    },
+    "locations": {
+      "macos": "<name>.app/Contents/Resources/app",
+      "windows": "<install dir>/app (beside the .exe)",
+      "linux": "<exe dir>/app, else <exe dir>/../share/<config id>/app (AppImage, .deb)",
+      "android": "assets/app (the APK's assets)",
+      "ios": "<name>.app/app (the bundle's resources)",
+      "web": "<origin>/app/ (precached by the service worker)"
+    }
+  },
+  "config": {
+    "keys": {
+      "id": {
+        "required": true,
+        "pattern": "^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$"
+      },
+      "name": {
+        "required": true,
+        "maxLength": 64
+      },
+      "version": {
+        "required": true,
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+      },
+      "network": {
+        "values": [
+          "off",
+          "upstreamsOnly",
+          "any"
+        ],
+        "default": "off"
+      }
+    },
+    "forbidden": [
+      "account",
+      "analytics",
+      "crashReports",
+      "diagnostics",
+      "feed",
+      "server",
+      "telemetry",
+      "update",
+      "updateUrl",
+      "updates"
+    ]
+  },
+  "storage": {
+    "records": "records.sqlite",
+    "files": "files",
+    "deviceKey": "eengine/runner/device"
+  },
+  "shell": {
+    "sidebarWidth": 240,
+    "titleLevel": "h3",
+    "permissionsIcon": "ui-permission",
+    "failureIcon": "ui-error"
+  },
+  "copy": {
+    "permissions": "Permissions",
+    "failed": {
+      "title": "This app can't open",
+      "missing": "Its package is missing from the bundle.",
+      "config": "Its runner.json has a problem.",
+      "signature": "Its signature doesn't match its author.",
+      "invalid": "Its package isn't a valid app."
+    }
+  },
+  "configCases": [
+    {
+      "name": "the minimal config: network defaults to off",
+      "input": {
+        "id": "at.acme.album",
+        "name": "Album",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "config": {
+          "id": "at.acme.album",
+          "name": "Album",
+          "version": "1.0.0",
+          "network": "off"
+        },
+        "issues": []
+      }
+    },
+    {
+      "name": "every key",
+      "input": {
+        "id": "at.acme.album",
+        "name": "Album",
+        "version": "2.10.3",
+        "network": "upstreamsOnly"
+      },
+      "expected": {
+        "config": {
+          "id": "at.acme.album",
+          "name": "Album",
+          "version": "2.10.3",
+          "network": "upstreamsOnly"
+        },
+        "issues": []
+      }
+    },
+    {
+      "name": "missing keys in key order",
+      "input": {
+        "network": "any"
+      },
+      "expected": {
+        "config": null,
+        "issues": [
+          {
+            "key": "id",
+            "code": "missing"
+          },
+          {
+            "key": "name",
+            "code": "missing"
+          },
+          {
+            "key": "version",
+            "code": "missing"
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid values",
+      "input": {
+        "id": "album",
+        "name": "  ",
+        "version": "1.0",
+        "network": "everything"
+      },
+      "expected": {
+        "config": null,
+        "issues": [
+          {
+            "key": "id",
+            "code": "invalid"
+          },
+          {
+            "key": "name",
+            "code": "invalid"
+          },
+          {
+            "key": "version",
+            "code": "invalid"
+          },
+          {
+            "key": "network",
+            "code": "invalid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an id segment starting with a digit",
+      "input": {
+        "id": "at.1acme",
+        "name": "Album",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "config": null,
+        "issues": [
+          {
+            "key": "id",
+            "code": "invalid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a name past 64 characters",
+      "input": {
+        "id": "at.acme.album",
+        "name": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "version": "1.0.0"
+      },
+      "expected": {
+        "config": null,
+        "issues": [
+          {
+            "key": "name",
+            "code": "invalid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no update feed, telemetry or account; other keys unknown (sorted)",
+      "input": {
+        "id": "at.acme.album",
+        "name": "Album",
+        "version": "1.0.0",
+        "updates": "https://x",
+        "telemetry": true,
+        "theme": "dark",
+        "account": "a@b"
+      },
+      "expected": {
+        "config": null,
+        "issues": [
+          {
+            "key": "account",
+            "code": "forbidden"
+          },
+          {
+            "key": "telemetry",
+            "code": "forbidden"
+          },
+          {
+            "key": "theme",
+            "code": "unknown"
+          },
+          {
+            "key": "updates",
+            "code": "forbidden"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a version with a leading zero",
+      "input": {
+        "id": "at.acme.album",
+        "name": "Album",
+        "version": "01.0.0"
+      },
+      "expected": {
+        "config": null,
+        "issues": [
+          {
+            "key": "version",
+            "code": "invalid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "not an object",
+      "input": [
+        "at.acme.album"
+      ],
+      "expected": {
+        "config": null,
+        "issues": [
+          {
+            "key": "",
+            "code": "notAnObject"
+          }
+        ]
+      }
+    }
+  ],
+  "shellCases": [
+    {
+      "name": "two navigation screens, wide: the Sidebar",
+      "package": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.album",
+        "name": "Album",
+        "version": "1.0.0",
+        "templates": {
+          "albums": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Albums",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Albums"
+              }
+            ]
+          },
+          "pages": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Pages",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Pages"
+              }
+            ]
+          },
+          "page": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Page",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Page"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "albums",
+            "title": "Albums",
+            "icon": "image"
+          },
+          {
+            "template": "pages",
+            "title": "Pages"
+          },
+          {
+            "template": "page",
+            "title": "Page",
+            "nav": false
+          }
+        ]
+      },
+      "formFactor": "wide",
+      "expected": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.album",
+        "name": "Album",
+        "version": "1.0.0",
+        "templates": {
+          "albums": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Sidebar",
+                "width": 240,
+                "collapseBelow": "never",
+                "children": [
+                  "runner-page"
+                ],
+                "slots": {
+                  "sidebar": "runner-nav"
+                }
+              },
+              {
+                "id": "runner-nav",
+                "component": "Stack",
+                "gap": "sm",
+                "children": [
+                  "runner-title",
+                  "runner-screens"
+                ]
+              },
+              {
+                "id": "runner-title",
+                "component": "Heading",
+                "text": "Album",
+                "level": "h3"
+              },
+              {
+                "id": "runner-screens",
+                "component": "List",
+                "children": [
+                  "runner-screen-0",
+                  "runner-screen-1"
+                ]
+              },
+              {
+                "id": "runner-screen-0",
+                "component": "Row",
+                "title": "Albums",
+                "icon": "image",
+                "selected": true,
+                "density": "compact",
+                "pressable": true,
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": "albums"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-screen-1",
+                "component": "Row",
+                "title": "Pages",
+                "selected": false,
+                "density": "compact",
+                "pressable": true,
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": "pages"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Albums",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Albums"
+              }
+            ]
+          },
+          "pages": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Sidebar",
+                "width": 240,
+                "collapseBelow": "never",
+                "children": [
+                  "runner-page"
+                ],
+                "slots": {
+                  "sidebar": "runner-nav"
+                }
+              },
+              {
+                "id": "runner-nav",
+                "component": "Stack",
+                "gap": "sm",
+                "children": [
+                  "runner-title",
+                  "runner-screens"
+                ]
+              },
+              {
+                "id": "runner-title",
+                "component": "Heading",
+                "text": "Album",
+                "level": "h3"
+              },
+              {
+                "id": "runner-screens",
+                "component": "List",
+                "children": [
+                  "runner-screen-0",
+                  "runner-screen-1"
+                ]
+              },
+              {
+                "id": "runner-screen-0",
+                "component": "Row",
+                "title": "Albums",
+                "icon": "image",
+                "selected": false,
+                "density": "compact",
+                "pressable": true,
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": "albums"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-screen-1",
+                "component": "Row",
+                "title": "Pages",
+                "selected": true,
+                "density": "compact",
+                "pressable": true,
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": "pages"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Pages",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Pages"
+              }
+            ]
+          },
+          "page": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Sidebar",
+                "width": 240,
+                "collapseBelow": "never",
+                "children": [
+                  "runner-page"
+                ],
+                "slots": {
+                  "sidebar": "runner-nav"
+                }
+              },
+              {
+                "id": "runner-nav",
+                "component": "Stack",
+                "gap": "sm",
+                "children": [
+                  "runner-title",
+                  "runner-screens"
+                ]
+              },
+              {
+                "id": "runner-title",
+                "component": "Heading",
+                "text": "Album",
+                "level": "h3"
+              },
+              {
+                "id": "runner-screens",
+                "component": "List",
+                "children": [
+                  "runner-screen-0",
+                  "runner-screen-1"
+                ]
+              },
+              {
+                "id": "runner-screen-0",
+                "component": "Row",
+                "title": "Albums",
+                "icon": "image",
+                "selected": false,
+                "density": "compact",
+                "pressable": true,
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": "albums"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-screen-1",
+                "component": "Row",
+                "title": "Pages",
+                "selected": false,
+                "density": "compact",
+                "pressable": true,
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": "pages"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Page",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Page"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "albums",
+            "title": "Albums",
+            "icon": "image"
+          },
+          {
+            "template": "pages",
+            "title": "Pages"
+          },
+          {
+            "template": "page",
+            "title": "Page",
+            "nav": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "two navigation screens, compact: the Tabs bar",
+      "package": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.album",
+        "name": "Album",
+        "version": "1.0.0",
+        "templates": {
+          "albums": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Albums",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Albums"
+              }
+            ]
+          },
+          "pages": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Pages",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Pages"
+              }
+            ]
+          },
+          "page": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Page",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Page"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "albums",
+            "title": "Albums",
+            "icon": "image"
+          },
+          {
+            "template": "pages",
+            "title": "Pages"
+          },
+          {
+            "template": "page",
+            "title": "Page",
+            "nav": false
+          }
+        ]
+      },
+      "formFactor": "compact",
+      "expected": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.album",
+        "name": "Album",
+        "version": "1.0.0",
+        "templates": {
+          "albums": {
+            "data": {
+              "note": "",
+              "runner": {
+                "screen": "albums"
+              }
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "gap": "none",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-main",
+                  "runner-separator",
+                  "runner-bar"
+                ]
+              },
+              {
+                "id": "runner-main",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  "runner-page"
+                ]
+              },
+              {
+                "id": "runner-separator",
+                "component": "Separator"
+              },
+              {
+                "id": "runner-bar",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "sm",
+                "align": "center",
+                "justify": "end",
+                "style": {
+                  "padding": "$spacing.sm"
+                },
+                "children": [
+                  "runner-tabs-box"
+                ]
+              },
+              {
+                "id": "runner-tabs-box",
+                "component": "Box",
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "children": [
+                  "runner-tabs"
+                ]
+              },
+              {
+                "id": "runner-tabs",
+                "component": "Tabs",
+                "tabs": [
+                  {
+                    "label": "Albums",
+                    "value": "albums",
+                    "icon": "image"
+                  },
+                  {
+                    "label": "Pages",
+                    "value": "pages"
+                  }
+                ],
+                "value": {
+                  "path": "/runner/screen"
+                },
+                "fill": true,
+                "on": {
+                  "change": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": {
+                          "path": "/runner/screen"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Albums",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Albums"
+              }
+            ]
+          },
+          "pages": {
+            "data": {
+              "note": "",
+              "runner": {
+                "screen": "pages"
+              }
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "gap": "none",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-main",
+                  "runner-separator",
+                  "runner-bar"
+                ]
+              },
+              {
+                "id": "runner-main",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  "runner-page"
+                ]
+              },
+              {
+                "id": "runner-separator",
+                "component": "Separator"
+              },
+              {
+                "id": "runner-bar",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "sm",
+                "align": "center",
+                "justify": "end",
+                "style": {
+                  "padding": "$spacing.sm"
+                },
+                "children": [
+                  "runner-tabs-box"
+                ]
+              },
+              {
+                "id": "runner-tabs-box",
+                "component": "Box",
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "children": [
+                  "runner-tabs"
+                ]
+              },
+              {
+                "id": "runner-tabs",
+                "component": "Tabs",
+                "tabs": [
+                  {
+                    "label": "Albums",
+                    "value": "albums",
+                    "icon": "image"
+                  },
+                  {
+                    "label": "Pages",
+                    "value": "pages"
+                  }
+                ],
+                "value": {
+                  "path": "/runner/screen"
+                },
+                "fill": true,
+                "on": {
+                  "change": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": {
+                          "path": "/runner/screen"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Pages",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Pages"
+              }
+            ]
+          },
+          "page": {
+            "data": {
+              "note": "",
+              "runner": {
+                "screen": "page"
+              }
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "gap": "none",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-main",
+                  "runner-separator",
+                  "runner-bar"
+                ]
+              },
+              {
+                "id": "runner-main",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  "runner-page"
+                ]
+              },
+              {
+                "id": "runner-separator",
+                "component": "Separator"
+              },
+              {
+                "id": "runner-bar",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "sm",
+                "align": "center",
+                "justify": "end",
+                "style": {
+                  "padding": "$spacing.sm"
+                },
+                "children": [
+                  "runner-tabs-box"
+                ]
+              },
+              {
+                "id": "runner-tabs-box",
+                "component": "Box",
+                "style": {
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "children": [
+                  "runner-tabs"
+                ]
+              },
+              {
+                "id": "runner-tabs",
+                "component": "Tabs",
+                "tabs": [
+                  {
+                    "label": "Albums",
+                    "value": "albums",
+                    "icon": "image"
+                  },
+                  {
+                    "label": "Pages",
+                    "value": "pages"
+                  }
+                ],
+                "value": {
+                  "path": "/runner/screen"
+                },
+                "fill": true,
+                "on": {
+                  "change": {
+                    "event": {
+                      "name": "runner.navigate",
+                      "context": {
+                        "screen": {
+                          "path": "/runner/screen"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Page",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Page"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "albums",
+            "title": "Albums",
+            "icon": "image"
+          },
+          {
+            "template": "pages",
+            "title": "Pages"
+          },
+          {
+            "template": "page",
+            "title": "Page",
+            "nav": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "one screen with an ask scope, wide: the title and Permissions",
+      "package": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.notes",
+        "name": "Notes",
+        "version": "1.0.0",
+        "templates": {
+          "main": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Notes",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Notes"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "main",
+            "title": "Notes"
+          }
+        ],
+        "capabilities": [
+          {
+            "id": "photos.read",
+            "why": "To put photos on a page."
+          },
+          {
+            "id": "share.send",
+            "why": "To share a page."
+          }
+        ]
+      },
+      "formFactor": "wide",
+      "expected": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.notes",
+        "name": "Notes",
+        "version": "1.0.0",
+        "templates": {
+          "main": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Sidebar",
+                "width": 240,
+                "collapseBelow": "never",
+                "children": [
+                  "runner-page"
+                ],
+                "slots": {
+                  "sidebar": "runner-nav"
+                }
+              },
+              {
+                "id": "runner-nav",
+                "component": "Stack",
+                "gap": "sm",
+                "children": [
+                  "runner-title",
+                  "runner-permissions"
+                ]
+              },
+              {
+                "id": "runner-title",
+                "component": "Heading",
+                "text": "Notes",
+                "level": "h3"
+              },
+              {
+                "id": "runner-permissions",
+                "component": "Row",
+                "title": "Permissions",
+                "icon": "ui-permission",
+                "density": "compact",
+                "pressable": true,
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.permissions"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Notes",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Notes"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "main",
+            "title": "Notes"
+          }
+        ],
+        "capabilities": [
+          {
+            "id": "photos.read",
+            "why": "To put photos on a page."
+          },
+          {
+            "id": "share.send",
+            "why": "To share a page."
+          }
+        ]
+      }
+    },
+    {
+      "name": "one screen with an ask scope, compact: the Permissions button only",
+      "package": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.notes",
+        "name": "Notes",
+        "version": "1.0.0",
+        "templates": {
+          "main": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Notes",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Notes"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "main",
+            "title": "Notes"
+          }
+        ],
+        "capabilities": [
+          {
+            "id": "photos.read",
+            "why": "To put photos on a page."
+          },
+          {
+            "id": "share.send",
+            "why": "To share a page."
+          }
+        ]
+      },
+      "formFactor": "compact",
+      "expected": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.notes",
+        "name": "Notes",
+        "version": "1.0.0",
+        "templates": {
+          "main": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Stack",
+                "gap": "none",
+                "style": {
+                  "height": "100%"
+                },
+                "children": [
+                  "runner-main",
+                  "runner-separator",
+                  "runner-bar"
+                ]
+              },
+              {
+                "id": "runner-main",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "flexGrow": 1,
+                  "minHeight": 0
+                },
+                "children": [
+                  "runner-page"
+                ]
+              },
+              {
+                "id": "runner-separator",
+                "component": "Separator"
+              },
+              {
+                "id": "runner-bar",
+                "component": "Stack",
+                "direction": "horizontal",
+                "gap": "sm",
+                "align": "center",
+                "justify": "end",
+                "style": {
+                  "padding": "$spacing.sm"
+                },
+                "children": [
+                  "runner-permissions"
+                ]
+              },
+              {
+                "id": "runner-permissions",
+                "component": "Button",
+                "icon": "ui-permission",
+                "size": "icon",
+                "variant": "ghost",
+                "on": {
+                  "press": {
+                    "event": {
+                      "name": "runner.permissions"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "runner-page",
+                "component": "Page",
+                "title": "Notes",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Notes"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "main",
+            "title": "Notes"
+          }
+        ],
+        "capabilities": [
+          {
+            "id": "photos.read",
+            "why": "To put photos on a page."
+          },
+          {
+            "id": "share.send",
+            "why": "To share a page."
+          }
+        ]
+      }
+    },
+    {
+      "name": "one screen, picker scopes only: no shell",
+      "package": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.pickers",
+        "name": "Pickers",
+        "version": "1.0.0",
+        "templates": {
+          "main": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Main",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Main"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "main",
+            "title": "Main"
+          }
+        ],
+        "capabilities": [
+          {
+            "id": "files.read",
+            "why": "To open a file."
+          }
+        ]
+      },
+      "formFactor": "wide",
+      "expected": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.pickers",
+        "name": "Pickers",
+        "version": "1.0.0",
+        "templates": {
+          "main": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Main",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Main"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "main",
+            "title": "Main"
+          }
+        ],
+        "capabilities": [
+          {
+            "id": "files.read",
+            "why": "To open a file."
+          }
+        ]
+      }
+    },
+    {
+      "name": "no screens: the first template becomes the one screen, no shell",
+      "package": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.bare",
+        "name": "Bare",
+        "version": "1.0.0",
+        "templates": {
+          "start": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Start",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Start"
+              }
+            ]
+          },
+          "other": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Other",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Other"
+              }
+            ]
+          }
+        }
+      },
+      "formFactor": "compact",
+      "expected": {
+        "formatVersion": 5,
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "functions": [
+          "records.*"
+        ],
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "id": "acme.bare",
+        "name": "Bare",
+        "version": "1.0.0",
+        "templates": {
+          "start": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Start",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Start"
+              }
+            ]
+          },
+          "other": {
+            "data": {
+              "note": ""
+            },
+            "bindings": [
+              {
+                "path": "/rows",
+                "source": "records:entry?limit=50"
+              }
+            ],
+            "components": [
+              {
+                "id": "root",
+                "component": "Page",
+                "title": "Other",
+                "children": [
+                  "body"
+                ]
+              },
+              {
+                "id": "body",
+                "component": "Text",
+                "text": "Other"
+              }
+            ]
+          }
+        },
+        "screens": [
+          {
+            "template": "start",
+            "title": "Bare"
+          }
+        ]
+      }
+    }
+  ],
+  "failureCases": [
+    {
+      "kind": "missing",
+      "expected": [
+        {
+          "id": "root",
+          "component": "EmptyState",
+          "icon": "ui-error",
+          "title": "This app can't open",
+          "description": "Its package is missing from the bundle."
+        }
+      ]
+    },
+    {
+      "kind": "config",
+      "expected": [
+        {
+          "id": "root",
+          "component": "EmptyState",
+          "icon": "ui-error",
+          "title": "This app can't open",
+          "description": "Its runner.json has a problem."
+        }
+      ]
+    },
+    {
+      "kind": "signature",
+      "expected": [
+        {
+          "id": "root",
+          "component": "EmptyState",
+          "icon": "ui-error",
+          "title": "This app can't open",
+          "description": "Its signature doesn't match its author."
+        }
+      ]
+    },
+    {
+      "kind": "invalid",
+      "expected": [
+        {
+          "id": "root",
+          "component": "EmptyState",
+          "icon": "ui-error",
+          "title": "This app can't open",
+          "description": "Its package isn't a valid app."
+        }
+      ]
+    }
+  ],
+  "toastCases": [
+    {
+      "message": "Couldn't open the link",
+      "expected": [
+        {
+          "id": "root",
+          "component": "Toast",
+          "title": "Couldn't open the link",
+          "type": "error"
+        }
+      ]
+    }
+  ]
+}

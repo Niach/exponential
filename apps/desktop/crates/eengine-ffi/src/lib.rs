@@ -592,6 +592,46 @@ pub fn validate_host_config(config_json: String) -> Result<String, EngineError> 
     Ok(text(&core::validate_host_config(&config)))
 }
 
+// --- The runner (runner.json, E6) --------------------------------------
+
+/// The runner's form factor: `wide` from genUI's `md` breakpoint up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum RunnerFormFactor {
+    Wide,
+    Compact,
+}
+
+/// `runner.json` validated: `{config, issues}` (config null on any issue).
+#[uniffi::export]
+pub fn runner_config(config_json: String) -> Result<String, EngineError> {
+    Ok(text(&eengine::runner::runner_config_value(&parse("config", &config_json)?)))
+}
+
+/// The package the runner's painter installs: every screen wrapped in the
+/// runner's genUI shell (the instance keeps the original package).
+#[uniffi::export]
+pub fn runner_package(package_json: String, form_factor: RunnerFormFactor) -> Result<String, EngineError> {
+    let form = match form_factor {
+        RunnerFormFactor::Wide => eengine::FormFactor::Wide,
+        RunnerFormFactor::Compact => eengine::FormFactor::Compact,
+    };
+    Ok(text(&eengine::runner_package(&parse("package", &package_json)?, form)))
+}
+
+/// The components painted in place of the app when the bundle cannot load:
+/// `kind` = `missing`, `config`, `signature` or `invalid`.
+#[uniffi::export]
+pub fn runner_failure(kind: String) -> Result<String, EngineError> {
+    let kind: eengine::RunnerFailure = serde_json::from_value(Value::String(kind.clone())).map_err(|_| invalid(format!("runner failure `{kind}`")))?;
+    Ok(text(&eengine::runner_failure(kind)))
+}
+
+/// The failed-action toast's components (surface `toast`).
+#[uniffi::export]
+pub fn runner_toast(message: String) -> String {
+    text(&eengine::runner_toast(&message))
+}
+
 /// The facade's version (= the `eengine-v*` tag it ships under).
 #[uniffi::export]
 pub fn engine_version() -> String {

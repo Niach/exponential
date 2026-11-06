@@ -834,6 +834,26 @@ RustBuffer uniffi_eengine_ffi_fn_func_engine_version(RustCallStatus *_Nonnull ou
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_CONFIG
+RustBuffer uniffi_eengine_ffi_fn_func_runner_config(RustBuffer config_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_FAILURE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_FAILURE
+RustBuffer uniffi_eengine_ffi_fn_func_runner_failure(RustBuffer kind, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_PACKAGE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_PACKAGE
+RustBuffer uniffi_eengine_ffi_fn_func_runner_package(RustBuffer package_json, RustBuffer form_factor, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_TOAST
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_RUNNER_TOAST
+RustBuffer uniffi_eengine_ffi_fn_func_runner_toast(RustBuffer message, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_VALIDATE_HOST_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_FN_FUNC_VALIDATE_HOST_CONFIG
 RustBuffer uniffi_eengine_ffi_fn_func_validate_host_config(RustBuffer config_json, RustCallStatus *_Nonnull out_status
@@ -1108,6 +1128,30 @@ uint16_t uniffi_eengine_ffi_checksum_func_engine_features(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_ENGINE_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_ENGINE_VERSION
 uint16_t uniffi_eengine_ffi_checksum_func_engine_version(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_CONFIG
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_CONFIG
+uint16_t uniffi_eengine_ffi_checksum_func_runner_config(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_FAILURE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_FAILURE
+uint16_t uniffi_eengine_ffi_checksum_func_runner_failure(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_PACKAGE
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_PACKAGE
+uint16_t uniffi_eengine_ffi_checksum_func_runner_package(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_TOAST
+#define UNIFFI_FFIDEF_UNIFFI_EENGINE_FFI_CHECKSUM_FUNC_RUNNER_TOAST
+uint16_t uniffi_eengine_ffi_checksum_func_runner_toast(void
     
 );
 #endif

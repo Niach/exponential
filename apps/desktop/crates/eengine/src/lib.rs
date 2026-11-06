@@ -22,6 +22,7 @@ pub mod outbox;
 pub mod package;
 pub mod pdf;
 pub mod providers;
+pub mod runner;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod stores;
@@ -33,6 +34,7 @@ pub use providers::{
     BlobStore, Clock, EngineIdentity, Failure, HostConfig, HostInfo, HostZone, Identity, NetworkPolicy, Presentation, RecordStore, RecordWrite, Subscription, SyncTransport, Vault, WindowHost, WriteAck, WriteBatch,
 };
 pub use capability::{Broker, BrokerAnswer, CallAudit, Capability, ConsentSheet, ConsentUi};
+pub use runner::{runner_config, runner_failure, runner_package, runner_toast, FormFactor, RunnerConfig, RunnerFailure};
 pub use instance::{AppInstance, CallResult, LoadError};
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteRecordStore;
