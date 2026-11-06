@@ -68,21 +68,21 @@ type HostedContainer = HTMLElement | null | `pending`
 /** VAPP-281: with `host.popupHost`, ask it for a container when the popup
  *  opens (its anchor's box in surface coordinates, side, align); tell it
  *  when it closes. */
-function useHostedPopup(owner: string, kind: HostedPopup[`kind`], open: boolean, anchorOf: () => Element | null | undefined, side: HostedPopup[`side`], align: HostedPopup[`align`]): HostedContainer {
+function useHostedPopup(owner: string, kind: HostedPopup[`kind`], open: boolean, anchorEl: Element | null | undefined, side: HostedPopup[`side`], align: HostedPopup[`align`]): HostedContainer {
   const ctx = useSurfaceContext()
   const host = ctx.host.popupHost
   const [asked, setAsked] = useState<{ el: HTMLElement | null } | null>(null)
-  const anchorRef = useRef(anchorOf)
-  anchorRef.current = anchorOf
+  // Asked again when the anchor's element changes (an `anchor` node is found
+  // after the first commit).
   useLayoutEffect(() => {
     if (!host || !open) return
-    const popup = hostedPopupOf(owner, kind, anchorRef.current(), side, align, ctx.direction)
-    setAsked({ el: mountHostedPopup(host, popup) })
+    const popup = hostedPopupOf(owner, kind, anchorEl, side, align, ctx.direction)
+    setAsked({ el: mountHostedPopup(host, popup, anchorEl) })
     return () => {
       host.unmount?.(popup)
       setAsked(null)
     }
-  }, [host, open, owner, kind, side, align, ctx.direction])
+  }, [host, open, owner, kind, anchorEl, side, align, ctx.direction])
   if (!host || !open) return null
   return asked ? asked.el : `pending`
 }
@@ -309,7 +309,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const outside = useRef(false)
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `dialog`, toggle: () => setOpen(!openRef.current), hover: { active: () => hoverModeRef.current, enter: () => schedule(true), leave: () => schedule(false) } }, open, contentId)
   const anchored = !!anchorId
-  const hosted = useHostedPopup(node.id, `Popover`, open, () => anchor.el ?? wrapperRef.current?.querySelector(`.xui-trigger`) ?? wrapperRef.current?.firstElementChild, side, align)
+  const [triggerEl, setTriggerEl] = useState<Element | null>(null)
+  useLayoutEffect(() => setTriggerEl(wrapperRef.current?.querySelector(`.xui-trigger`) ?? wrapperRef.current?.firstElementChild ?? null), [])
+  const hosted = useHostedPopup(node.id, `Popover`, open, anchored ? anchor.el : triggerEl, side, align)
   const hoverModeRef = useRef(hoverMode)
   hoverModeRef.current = hoverMode
   return (
@@ -611,7 +613,9 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const openRef = useRef(open)
   openRef.current = open
   const anchor = useAnchor(anchorId, wrapperRef, { haspopup: `menu`, toggle: () => setOpen(!openRef.current), open: () => setOpen(true) }, open, contentId)
-  const hosted = useHostedPopup(node.id, `Menu`, open, () => anchor.el ?? wrapperRef.current?.firstElementChild, side, align)
+  const [triggerEl, setTriggerEl] = useState<Element | null>(null)
+  useLayoutEffect(() => setTriggerEl(wrapperRef.current?.firstElementChild ?? null), [])
+  const hosted = useHostedPopup(node.id, `Menu`, open, anchored ? anchor.el : triggerEl, side, align)
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
       <div ref={wrapperRef} {...overlayRootProps(rootProps, anchored && !child ? null : true, child)}>

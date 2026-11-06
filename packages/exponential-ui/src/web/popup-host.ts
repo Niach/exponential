@@ -51,9 +51,20 @@ export function hostedPopupOf(owner: string, kind: HostedPopup[`kind`], anchorEl
   }
 }
 
-/** Ask the host for a container; marks it `data-xui-hosted`. */
-export function mountHostedPopup(host: PopupHost | undefined, popup: HostedPopup): HTMLElement | null {
+/** Ask the host for a container. It takes the surface's theme scope (its
+ *  `xui-surface` classes, mode, theme, direction, motion: the content's
+ *  tokens and recipes resolve there) and `data-xui-hosted`. */
+export function mountHostedPopup(host: PopupHost | undefined, popup: HostedPopup, from?: Element | null): HTMLElement | null {
   const el = host?.mount(popup) ?? null
-  el?.setAttribute(HOSTED_POPUP_ATTR, popup.owner)
+  if (!el) return null
+  const surface = from?.closest(`[data-xui-surface]`)
+  if (surface) {
+    for (const c of surface.classList) el.classList.add(c)
+    for (const a of [`data-xui-mode`, `data-xui-theme`, `data-xui-motion`, `dir`]) {
+      const v = surface.getAttribute(a)
+      if (v !== null) el.setAttribute(a, v)
+    }
+  }
+  el.setAttribute(HOSTED_POPUP_ATTR, popup.owner)
   return el
 }

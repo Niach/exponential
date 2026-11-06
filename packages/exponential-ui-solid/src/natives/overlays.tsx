@@ -286,8 +286,11 @@ function createHostedPopup(owner: Accessor<string>, kind: HostedPopup[`kind`], o
   createEffect(() => {
     const host = ctx.host.popupHost
     if (!host || !open()) return
-    const popup = untrack(() => hostedPopupOf(owner(), kind, anchorOf(), side(), align(), ctx.direction))
-    setAsked({ el: mountHostedPopup(host, popup) })
+    // Asked again when the anchor's element changes (an `anchor` node is
+    // found after the first pass).
+    const el = anchorOf()
+    const popup = untrack(() => hostedPopupOf(owner(), kind, el, side(), align(), ctx.direction))
+    setAsked({ el: mountHostedPopup(host, popup, el) })
     onCleanup(() => {
       host.unmount?.(popup)
       setAsked(null)
