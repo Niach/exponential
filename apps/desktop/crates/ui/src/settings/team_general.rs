@@ -20,7 +20,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _,
 };
 use sync::Store;
 
@@ -72,8 +72,6 @@ struct Snapshot {
 const TEAM_PROMPT_TITLE: &str = "Team prompt";
 const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding session of this team follows, as markdown.";
 
-// EXP-1105: the yolo-mode toggle — label only, no description (web parity).
-const YOLO_MODE_TITLE: &str = "Yolo mode";
 
 /// `12.3k` / `840` — the counter's short form (web `formatByteCount`).
 fn format_byte_count(bytes: usize) -> String {
@@ -448,8 +446,8 @@ pub struct GeneralPane {
     prompt: PromptState,
     snapshot: Option<Snapshot>,
     saving: bool,
-    /// EXP-1105: a yolo-mode `teams.update` is in flight (switch disabled).
-    yolo_busy: bool,
+    /// #EXP-1710: a merge-mode `teams.update` is in flight (row disabled).
+    merge_busy: bool,
     /// VAPP-201: a time-zone `teams.update` is in flight (picker disabled).
     zone_busy: bool,
     /// #EXP-1645: a team image upload or remove is out (row disabled).
@@ -525,7 +523,7 @@ impl GeneralPane {
             prompt: PromptState::default(),
             snapshot: None,
             saving: false,
-            yolo_busy: false,
+            merge_busy: false,
             zone_busy: false,
             image_busy: false,
             billing: BillingLoad::Idle,
@@ -1147,32 +1145,85 @@ impl GeneralPane {
         .detach();
     }
 
-    /// EXP-1105: flip the team's synced `yolo_mode` through `teams.update`
-    /// (owner-only server-side). No optimistic flip — the Electric echo moves
-    /// the switch.
-    fn set_yolo_mode(&mut self, team_id: String, enabled: bool, cx: &mut gpui::Context<Self>) {
-        if self.yolo_busy {
+    /// #EXP-1710 (merge-train.json `copy.settings`): the yolo switch is ONE
+    /// `Merge` select row over the synced `teams.merge_mode` (Automatic |
+    /// After approval), THE select row the Time zone row wears; owners pick,
+    /// saved at once.
+    fn merge_mode_row(&self, team: &domain::rows::Team, owner: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        use domain::merge_train::{merge_mode_label, MERGE_TRAIN};
+        let current = team.merge_mode().to_string();
+        let trigger = Button::new(SharedString::from(MERGE_TRAIN.test_ids.settings_row.clone()))
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(cx.theme().foreground.opacity(0.7))
+            .child(crate::surface::picker_value_label(merge_mode_label(&current).to_string()))
+            .child(crate::surface::picker_row_chevron(cx));
+        let items = domain::contract::TEAM_MERGE_MODE_VALUES
+            .iter()
+            .map(|mode| crate::picker::PickerItem::new(mode.to_string(), merge_mode_label(mode).to_string()))
+            .collect();
+        let team_id = team.id.clone();
+        let view = cx.entity().downgrade();
+        let control = crate::picker::Picker::single(
+            items,
+            Some(current.clone()),
+            trigger.into_any_element(),
+            std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                let Some(mode) = next.into_iter().next() else { return };
+                if mode == current {
+                    return;
+                }
+                let team_id = team_id.clone();
+                let _ = view.update(cx, |this, cx| this.set_merge_mode(team_id, mode, cx));
+            }),
+        )
+        .disabled(!owner || self.merge_busy)
+        .id(SharedString::from(format!("{}-picker", MERGE_TRAIN.test_ids.settings_row)))
+        .render(window, cx);
+        crate::surface::glass_picker_row(MERGE_TRAIN.copy.settings.label.clone(), None, control, cx)
+    }
+
+    /// #EXP-1710: write the team's `merge_mode` through `teams.update`
+    /// (owner-only server-side). No optimistic flip: the Electric echo moves
+    /// the row; a failure toasts with Retry.
+    fn set_merge_mode(&mut self, team_id: String, mode: String, cx: &mut gpui::Context<Self>) {
+        if self.merge_busy {
             return;
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the merge mode", None, cx);
             return;
         };
-        self.yolo_busy = true;
+        self.merge_busy = true;
         cx.notify();
+        let view = cx.entity().downgrade();
         cx.spawn(async move |this, cx| {
+            let (id, value) = (team_id.clone(), mode.clone());
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let mut input = api::teams::TeamsUpdateInput::new(team_id);
-                    input.yolo_mode = Some(enabled);
+                    let mut input = api::teams::TeamsUpdateInput::new(id);
+                    input.merge_mode = Some(value);
                     api::teams::teams_update(&trpc, &input)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.yolo_busy = false;
+                this.merge_busy = false;
                 if let Err(err) = result {
-                    log::warn!("[ui] teams.update(yoloMode) failed: {err}");
-                    crate::action_error::failed_action_err("update", "yolo mode", &err, cx);
+                    log::warn!("[ui] teams.update(mergeMode) failed: {err}");
+                    crate::action_error::failed_action_with_retry(
+                        "save",
+                        "the merge mode",
+                        crate::action_error::action_error_description(&err),
+                        move |_, cx| {
+                            let (team_id, mode) = (team_id.clone(), mode.clone());
+                            let _ = view.update(cx, |this, cx| this.set_merge_mode(team_id, mode, cx));
+                        },
+                        cx,
+                    );
                 }
                 cx.notify();
             });
@@ -1406,25 +1457,13 @@ impl Render for GeneralPane {
         let mut general = section(cx)
             .child(crate::surface::glass_section_header("General", None, cx))
             .child(crate::surface::glass_group_rows(vec![name_row, image_row, zone_row]));
-        // EXP-1105: yolo mode — owner-only and HIDDEN from everyone else,
-        // like every owner control in this pane. Its OWN group under Name,
-        // label only (web general-section's second GlassGroup).
+        // #EXP-1710: the Merge row (the yolo switch's place) — owner-only
+        // and HIDDEN from everyone else, like every owner control in this
+        // pane. Its OWN group under Name (web general-section's second
+        // GlassGroup).
         if owner {
-            let team_id = team.id.clone();
-            general = general.child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_toggle_row(
-                    YOLO_MODE_TITLE,
-                    None,
-                    crate::controls::web_switch("team-yolo-mode")
-                        .checked(team.yolo_mode())
-                        .disabled(self.yolo_busy)
-                        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                            this.set_yolo_mode(team_id.clone(), *checked, cx);
-                        }))
-                        .into_any_element(),
-                    cx,
-                ),
-            ]));
+            let merge_row = self.merge_mode_row(&team, owner, window, cx);
+            general = general.child(crate::surface::glass_group_rows(vec![merge_row]));
         }
 
 

@@ -33,7 +33,7 @@ pub(crate) mod issue_context_menu;
 pub(crate) mod session_row;
 pub(crate) mod pr_row;
 pub(crate) mod pr_graph_badge;
-// #EXP-1611: CI on the thread's PR (the Merge pill, the Checks submenu).
+// #EXP-1611 / #EXP-1710: CI and the merge train on the thread's PR (the status pill, the Checks submenu).
 pub(crate) mod pr_checks;
 pub(crate) mod device_settings;
 // NEW-59: the Work screen picker.

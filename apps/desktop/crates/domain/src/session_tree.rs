@@ -1380,7 +1380,14 @@ fn event_text(
     session_name: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
     let event = js_string(card.get("event"));
-    let mut text = THREAD.copy.events.get(&event)?.clone();
+    // #EXP-1710: a `pr_merge` line reads by its `mergeOutcome`
+    // (merge-train.json copy.events); an unknown or missing outcome keeps
+    // session-thread's fallback.
+    let outcome = (event == "pr_merge").then(|| card_str(card, "mergeOutcome")).flatten();
+    let mut text = match crate::merge_train::event_line(outcome) {
+        Some(line) => line.to_string(),
+        None => THREAD.copy.events.get(&event)?.clone(),
+    };
     if text.contains("{issue}") {
         let issue = card_str(card, "issueId").and_then(|id| issues.get(id))?;
         text = text.replacen("{issue}", &issue.identifier, 1);
@@ -2675,6 +2682,39 @@ mod tests {
             );
         }
         assert_eq!(line(serde_json::json!({"kind": "event", "event": "trigger_fired"})), None);
+    }
+
+    /// #EXP-1710: a `pr_merge` line reads by its `mergeOutcome`
+    /// (merge-train.json copy.events); none or an unknown one keeps
+    /// session-thread's `Auto-merge of PR {pr}`.
+    #[test]
+    fn a_pr_merge_line_reads_by_its_outcome() {
+        let issues = HashMap::new();
+        let pull: PullRequestRow = serde_json::from_value(json!({"id": "p1", "number": 12, "state": "open"})).unwrap();
+        let mut prs = HashMap::new();
+        prs.insert("p1", &pull);
+        let line = |card: Value| event_text(&card, &issues, &prs, |_| None);
+        let train: Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/merge-train.json")).unwrap();
+        for (outcome, text) in train["copy"]["events"].as_object().unwrap() {
+            assert_eq!(
+                line(json!({"kind": "event", "event": "pr_merge", "pullRequestId": "p1", "mergeOutcome": outcome})),
+                Some(text.as_str().unwrap().replace("{pr}", "#12")),
+                "{outcome}"
+            );
+        }
+        let fallback = THREAD.copy.events.get("pr_merge").unwrap().replace("{pr}", "#12");
+        assert_eq!(fallback, "Auto-merge of PR #12");
+        assert_eq!(
+            line(json!({"kind": "event", "event": "pr_merge", "pullRequestId": "p1", "mergeOutcome": "future"})),
+            Some(fallback.clone())
+        );
+        assert_eq!(line(json!({"kind": "event", "event": "pr_merge", "pullRequestId": "p1"})), Some(fallback));
+        // Another event never reads an outcome.
+        assert_ne!(
+            line(json!({"kind": "event", "event": "pr_opened", "pullRequestId": "p1", "mergeOutcome": "merged"})),
+            Some("Merged PR #12".to_string())
+        );
     }
 
     /// NEW-1 (TS `sessionKindWord` / web `blockedBadgeLabel`): a blocked

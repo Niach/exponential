@@ -68,6 +68,10 @@ pub struct Team {
     /// server DEFAULT false.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub yolo_mode: Option<bool>,
+    /// #EXP-1709 (merge-train.json MODE, contract `teamMergeMode`): `auto`
+    /// (the default, also for a pre-column `None`) | `approval`.
+    #[serde(default)]
+    pub merge_mode: Option<String>,
     /// EXP-630: the estimate scale (contract `issueEstimation`): `none` (or
     /// a pre-column `None`) = estimates off; the others pick the ladder and
     /// how a value reads (t-shirt = XS…XL over the fibonacci points).
@@ -108,6 +112,7 @@ impl Team {
             pr_merged_automation: None,
             end_sessions_on_merge: None,
             yolo_mode: None,
+            merge_mode: None,
             estimation_type: None,
             time_zone: None,
             created_at: None,
@@ -128,6 +133,15 @@ impl Team {
     /// turns it on; pre-column rows read as off (the server default).
     pub fn yolo_mode(&self) -> bool {
         self.yolo_mode == Some(true)
+    }
+
+    /// #EXP-1710: the team's merge mode (contract `teamMergeMode`); a
+    /// pre-column row or an unknown value reads `auto` (the server default).
+    pub fn merge_mode(&self) -> &str {
+        match self.merge_mode.as_deref() {
+            Some(crate::contract::TEAM_MERGE_MODE_APPROVAL) => crate::contract::TEAM_MERGE_MODE_APPROVAL,
+            _ => crate::contract::TEAM_MERGE_MODE_AUTO,
+        }
     }
 }
 
@@ -1101,9 +1115,31 @@ pub struct PullRequestRow {
     #[serde(default)]
     pub merged_at: Option<String>,
     /// #EXP-1610: the aggregate CI state (contract `prChecksState`; absent
-    /// = `none`), the Merge pill's input ([`crate::pr_checks::merge_pill`]).
+    /// = `none`).
     #[serde(default)]
     pub checks_state: Option<String>,
+    /// #EXP-1709 (merge-train.json STATE): the train's state of the PR
+    /// (contract `prMergeState`; read through
+    /// [`crate::merge_train::pr_merge_state`]), what it still waits for
+    /// (`merge_wait`), the bounces, the hold reason (person | bounces |
+    /// timeout), the 24 h clock, Merge now, the queue place and the testing
+    /// run (`Testing with N`).
+    #[serde(default)]
+    pub merge_state: Option<String>,
+    #[serde(default)]
+    pub merge_wait: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub merge_attempts: Option<i64>,
+    #[serde(default)]
+    pub merge_hold: Option<String>,
+    #[serde(default)]
+    pub merge_queued_since: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub merge_now: Option<bool>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub merge_position: Option<i64>,
+    #[serde(default)]
+    pub merge_train_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

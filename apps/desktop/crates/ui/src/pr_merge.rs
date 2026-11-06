@@ -147,7 +147,7 @@ impl MergeOp {
     }
 }
 
-/// The app-global two-click merge state. Surfaces read [`Self::armed`] /
+/// The app-global two-click merge state. Surfaces read
 /// [`Self::merging`] and observe the entity for repaints;
 /// all writes go through [`two_click`] / [`disarm`].
 pub struct MergeState {
@@ -202,10 +202,6 @@ impl MergeState {
         });
         cx.set_global(MergeStateGlobal(state.clone()));
         state
-    }
-
-    pub fn armed(&self, key: &str) -> bool {
-        self.arm.as_deref() == Some(key)
     }
 
     pub fn merging(&self, key: &str) -> bool {
@@ -320,8 +316,7 @@ fn team_snapshot_of(pull_request_id: &str, cx: &App) -> Option<crate::session_da
 }
 
 /// EXP-1248: whether `pull_request_id` is a member of a linear open stack
-/// (the merge control reads `Merge stack`, `domain::pr_checks::merge_pill`,
-/// and asks the stack confirm).
+/// (`Needs approval` asks the stack confirm, Merge now names the stack).
 pub(crate) fn is_stacked(pull_request_id: &str, cx: &App) -> bool {
     team_snapshot_of(pull_request_id, cx).is_some_and(|snapshot| {
         snapshot.pull(pull_request_id).is_some_and(|pull| {
@@ -503,6 +498,144 @@ pub fn two_click(op: MergeOp, cx: &mut App) -> TwoClick {
     TwoClick::Fired
 }
 
+// ---------------------------------------------------------------------------
+// #EXP-1710 — the merge train (merge-train.json)
+// ---------------------------------------------------------------------------
+
+/// The number and the linked issue count of `pull_request_id` (the plain
+/// confirm's words).
+fn pull_number_and_links(pull_request_id: &str, cx: &App) -> (Option<u64>, usize) {
+    let Some(store) = Store::try_global(cx) else {
+        return (None, 0);
+    };
+    let collections = store.collections();
+    let number = collections
+        .pull_requests
+        .read(cx)
+        .get(pull_request_id)
+        .and_then(|pull| pull.number)
+        .and_then(|n| u64::try_from(n).ok());
+    let links = collections
+        .pull_request_issues
+        .read(cx)
+        .iter()
+        .filter(|link| link.pull_request_id == pull_request_id)
+        .count();
+    (number, links)
+}
+
+/// `statusPill`'s ONLY action: `approval` mode, a ready PR nobody approved =
+/// `Needs approval`, whose tap asks the plain confirm (prompts.json
+/// `merge-issue-pr` | `merge-run-pr`) or, on a stack member, THE stack
+/// confirm; its Merge calls `pullRequests.merge`, which QUEUES it (the train
+/// never merges directly). A refusal = the error toast with Retry.
+pub(crate) fn ask_approve(pull_request_id: &str, window: &mut gpui::Window, cx: &mut App) {
+    if ask_stack_merge(pull_request_id, window, cx) {
+        return;
+    }
+    let state = MergeState::global(cx);
+    if MergeOp::merge(pull_request_id)
+        .guard_keys()
+        .iter()
+        .any(|key| state.read(cx).merging.contains(key))
+    {
+        return;
+    }
+    let (number, links) = pull_number_and_links(pull_request_id, cx);
+    let prompt = if links > 0 {
+        domain::prompts::merge_issue_pr(number, links)
+    } else {
+        domain::prompts::merge_run_pr(number)
+    };
+    MergeState::disarm(cx);
+    let op = MergeOp::merge(pull_request_id);
+    let spec = crate::native_dialog::AlertSpec::from_prompt(domain::contract::DIFF_UI_MERGE_PR, &prompt)
+        .ok_icon(crate::icons::registry::PR_MERGED)
+        .on_ok(move |_, cx| {
+            fire_confirmed(op.clone(), cx);
+            true
+        });
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
+/// The train's own calls on one PR (merge-train.json `menu`, `stuckRow`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrainOp {
+    /// `pullRequests.mergeNow` (owners): next, alone, untested.
+    MergeNow,
+    /// `pullRequests.hold({hold})`: Hold auto-merge (`true`), Resume
+    /// auto-merge / Needs you Retry (`false`).
+    Hold(bool),
+}
+
+impl TrainOp {
+    /// The failed toast's verb and thing (web `failedAction`).
+    fn failure_words(self) -> (&'static str, &'static str) {
+        match self {
+            TrainOp::MergeNow => ("merge", "the PR"),
+            TrainOp::Hold(_) => ("update", "auto-merge"),
+        }
+    }
+}
+
+/// Fire a [`TrainOp`]; the Electric echo moves the pill, a failure is the
+/// error toast with Retry (both calls re-run safely).
+pub(crate) fn run_train_op(pull_request_id: String, op: TrainOp, cx: &mut App) {
+    let (verb, thing) = op.failure_words();
+    let Some(trpc) = queries::trpc_client(cx) else {
+        crate::action_error::failed_action(verb, thing, None, cx);
+        return;
+    };
+    let id = pull_request_id.clone();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                match op {
+                    TrainOp::MergeNow => api::sessions::pr_merge_now(&trpc, &id).map(|_| ()),
+                    TrainOp::Hold(hold) => api::sessions::pr_hold(&trpc, &id, hold).map(|_| ()),
+                }
+            })
+            .await;
+        if let Err(err) = result {
+            log::warn!("[ui] merge train {op:?} on {pull_request_id} failed: {err}");
+            let _ = cx.update(|cx| {
+                crate::action_error::failed_action_with_retry(
+                    verb,
+                    thing,
+                    Some(user_message(err)),
+                    move |_, cx| run_train_op(pull_request_id.clone(), op, cx),
+                    cx,
+                );
+            });
+        }
+    })
+    .detach();
+}
+
+/// Merge now (owners): THE shared alert card `merge-now-pr` (Merge
+/// destructive, Cancel focused; the stack title when the PR sits in an open
+/// stack, which it lands whole), then `pullRequests.mergeNow`.
+pub(crate) fn ask_merge_now(pull_request_id: &str, window: &mut gpui::Window, cx: &mut App) {
+    let spec = merge_now_alert(pull_request_id, is_stacked(pull_request_id, cx), cx);
+    MergeState::disarm(cx);
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
+fn merge_now_alert(pull_request_id: &str, stack: bool, cx: &App) -> crate::native_dialog::AlertSpec {
+    let (number, _) = pull_number_and_links(pull_request_id, cx);
+    let prompt = domain::prompts::merge_now_pr(number, stack);
+    let id = pull_request_id.to_string();
+    crate::native_dialog::AlertSpec::from_prompt(
+        domain::merge_train::MERGE_TRAIN.copy.menu.merge_now.clone(),
+        &prompt,
+    )
+    .on_ok(move |_, cx| {
+        run_train_op(id.clone(), TrainOp::MergeNow, cx);
+        true
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,6 +677,27 @@ mod tests {
         assert!(!spec.is_ok_disabled());
         assert_eq!(merge_failure_thing(&op), "the stack");
         assert_eq!(merge_failure_thing(&MergeOp::merge("m")), "the PR");
+    }
+
+    /// #EXP-1710: the train calls' failed toasts (web `failedAction`).
+    #[test]
+    fn train_ops_name_their_failure() {
+        assert_eq!(TrainOp::MergeNow.failure_words(), ("merge", "the PR"));
+        assert_eq!(TrainOp::Hold(true).failure_words(), ("update", "auto-merge"));
+        assert_eq!(TrainOp::Hold(false).failure_words(), ("update", "auto-merge"));
+    }
+
+    /// #EXP-1710: Merge now is THE shared card: Merge destructive, Cancel
+    /// focused, the stack title on a stack member.
+    #[gpui::test]
+    fn merge_now_is_the_shared_alert_card(cx: &mut gpui::TestAppContext) {
+        assert_eq!(domain::prompts::merge_now_pr(Some(12), false).title, "Merge PR #12 now?");
+        assert_eq!(domain::prompts::merge_now_pr(Some(12), true).title, "Merge the stack now?");
+        cx.update(|cx| {
+            let spec = merge_now_alert("pr-1", false, cx);
+            assert_eq!(spec.enter_answer(), crate::native_dialog::AlertEnter::Cancel);
+            assert_eq!(spec.ok_variant_of(), gpui_component::button::ButtonVariant::Danger);
+        });
     }
 
     #[test]

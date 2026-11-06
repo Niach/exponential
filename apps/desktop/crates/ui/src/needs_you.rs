@@ -6,22 +6,32 @@
 //! transcript: EXP-1380), sessions and pull requests; the rail shows the entry
 //! while a row exists, [`NeedsYouView`] the one reading column in the content
 //! card. A press opens the chat by the row's `opens`.
+//!
+//! #EXP-1710 (merge-train.json `stuckRow`, web `withStuckRows`): a PR whose
+//! auto-merge is stuck (held by the limits, or a fix waiting 2 h+ on the
+//! opener's offline device) is ONE `pr` row `Auto-merge stuck on #N`, meta =
+//! the reason, with THE Button sm row (Retry, Merge now for owners, Close PR)
+//! under it; it replaces that PR's ready row and sorts with the PR rows,
+//! newest first, under the decisions.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
     Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use domain::needs_you::{
     needs_you, NeedsYouInput, NeedsYouKind, NeedsYouMessageInput, NeedsYouOpens, NeedsYouPullRequestInput, NeedsYouRow,
     NeedsYouSessionInput, NEEDS_YOU,
 };
+use domain::merge_train::{StuckAction, MERGE_TRAIN};
 use domain::waiting_cards::WAITING_CARDS;
 
+use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 
@@ -92,25 +102,118 @@ fn input(team_id: &str, now: i64, cx: &App) -> NeedsYouInput {
     NeedsYouInput { now, me, sessions: team, messages, pull_requests }
 }
 
+/// A stuck PR's row: its PR and its actions (merge-train.json `stuckRow`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StuckPr {
+    pub pull_request_id: String,
+    pub actions: Vec<StuckAction>,
+}
+
+/// THE team's Needs you rows; `stuck` = the stuck PRs' actions by row id
+/// (the PR's id).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct NeedsYouRows {
+    pub rows: Vec<NeedsYouRow>,
+    pub stuck: HashMap<String, StuckPr>,
+}
+
+/// The team's stuck PRs (merge-train `stuckRow`): a live PR of a thread
+/// whose opener (`pull_requests.session_id`, else the root) is held by the
+/// limits, or waits on a fix while its device is offline (that devices row's
+/// `last_seen_at`).
+fn stuck_rows(team_id: &str, input: &NeedsYouInput, owner: bool, cx: &App) -> Vec<(NeedsYouRow, StuckPr)> {
+    let store = Store::global(cx);
+    let collections = store.collections();
+    let sessions = collections.sessions.read(cx);
+    let devices = collections.devices.read(cx);
+    let names: HashMap<&str, &str> = input.sessions.iter().map(|session| (session.id.as_str(), session.name.as_str())).collect();
+    let mut rows = Vec::new();
+    for pull in collections.pull_requests.read(cx).iter() {
+        if pull.team_id.as_deref() != Some(team_id) || !(pull.is_open() || pull.state.as_deref() == Some(domain::contract::PR_STATE_DRAFT)) {
+            continue;
+        }
+        let Some(root_id) = pull.root_session_id.as_deref() else { continue };
+        let opener = sessions.get(pull.session_id.as_deref().unwrap_or(root_id));
+        let offline_since = opener
+            .and_then(|opener| crate::queries::session_device_row(opener, devices.iter()))
+            .filter(|row| !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), input.now))
+            .and_then(|row| row.last_seen_at.as_deref().and_then(crate::comments::parse_epoch))
+            .map(|seconds| seconds * 1_000);
+        let Some(view) = domain::merge_train::stuck_row(
+            pull.number.unwrap_or_default(),
+            domain::merge_train::pr_merge_state(pull),
+            pull.merge_hold.as_deref(),
+            offline_since,
+            input.now,
+            owner,
+        ) else {
+            continue;
+        };
+        let created_at = pull.created_at.clone().unwrap_or_default();
+        let created_ms = domain::session_tree::iso_ms(&created_at).unwrap_or(0);
+        rows.push((
+            NeedsYouRow {
+                message_id: pull.id.clone(),
+                session_id: root_id.to_string(),
+                root_id: root_id.to_string(),
+                kind: NeedsYouKind::Pr,
+                opens: NeedsYouOpens::Results,
+                title: view.title,
+                chat: names.get(root_id).map(|name| name.to_string()).unwrap_or_default(),
+                meta: view.meta,
+                age: domain::results_tab::result_age(created_ms, input.now),
+                created_at,
+            },
+            StuckPr { pull_request_id: pull.id.clone(), actions: view.actions },
+        ));
+    }
+    rows
+}
+
+/// Fold the stuck PRs into `needs_you()`'s rows (web `withStuckRows`): a
+/// stuck PR replaces its ready-to-merge row and sorts with the PR rows
+/// (newest first) under every decision.
+pub(crate) fn with_stuck_rows(base: Vec<NeedsYouRow>, stuck: Vec<(NeedsYouRow, StuckPr)>) -> NeedsYouRows {
+    if stuck.is_empty() {
+        return NeedsYouRows { rows: base, stuck: HashMap::new() };
+    }
+    let ids: std::collections::HashSet<String> = stuck.iter().map(|(row, _)| row.message_id.clone()).collect();
+    let (decisions, ready): (Vec<NeedsYouRow>, Vec<NeedsYouRow>) =
+        base.into_iter().partition(|row| row.kind != NeedsYouKind::Pr);
+    let mut actions = HashMap::new();
+    let mut prs: Vec<NeedsYouRow> = ready.into_iter().filter(|row| !ids.contains(&row.message_id)).collect();
+    for (row, pr) in stuck {
+        actions.insert(row.message_id.clone(), pr);
+        prs.push(row);
+    }
+    let ms = |row: &NeedsYouRow| domain::session_tree::iso_ms(&row.created_at).unwrap_or(0);
+    prs.sort_by(|a, b| ms(b).cmp(&ms(a)));
+    let mut rows = decisions;
+    rows.extend(prs);
+    NeedsYouRows { rows, stuck: actions }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 struct RowsKey {
     team_id: String,
-    revisions: [u64; 4],
+    revisions: [u64; 5],
+    owner: bool,
     /// The ages move with the minute.
     minute: i64,
 }
 
 #[derive(Default)]
-struct RowsMemo(Option<(RowsKey, Rc<Vec<NeedsYouRow>>)>);
+struct RowsMemo(Option<(RowsKey, Rc<NeedsYouRows>)>);
 
 impl gpui::Global for RowsMemo {}
 
 /// THE team's rows, memoised per store change and minute: the rail asks every
 /// frame.
-pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<Vec<NeedsYouRow>> {
+pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
     let Some(store) = Store::try_global(cx) else {
-        return Rc::new(Vec::new());
+        return Rc::new(NeedsYouRows::default());
     };
+    let owner = crate::settings::is_owner(cx, team_id);
     let collections = store.collections();
     let now = crate::session_data::now_ms();
     let key = RowsKey {
@@ -120,7 +223,9 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<Vec<NeedsYouRow>> 
             collections.conversations.read(cx).revision(),
             collections.pull_requests.read(cx).revision(),
             collections.agents.read(cx).revision(),
+            collections.devices.read(cx).revision(),
         ],
+        owner,
         minute: now / 60_000,
     };
     if let Some((cached, rows)) = &cx.default_global::<RowsMemo>().0 {
@@ -128,7 +233,9 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<Vec<NeedsYouRow>> 
             return rows.clone();
         }
     }
-    let rows = Rc::new(needs_you(&input(team_id, now, cx)));
+    let input = input(team_id, now, cx);
+    let stuck = stuck_rows(team_id, &input, owner, cx);
+    let rows = Rc::new(with_stuck_rows(needs_you(&input), stuck));
     cx.global_mut::<RowsMemo>().0 = Some((key, rows.clone()));
     rows
 }
@@ -172,8 +279,8 @@ pub(crate) fn second_line(row: &NeedsYouRow) -> String {
 /// THE row: THE inbox page's reading row (`list` density): the glyph in the
 /// needs-you tone hanging from the top, line 1 the title (medium, truncated) +
 /// the age muted trailing, line 2 the chat, muted, truncated. The caller hangs
-/// the press.
-pub(crate) fn needs_you_row(row: &NeedsYouRow, cx: &App) -> gpui::Stateful<gpui::Div> {
+/// the press. `actions` = a stuck PR's Button sm row, under line 2.
+pub(crate) fn needs_you_row(row: &NeedsYouRow, actions: Option<AnyElement>, cx: &App) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
     crate::surface::flat_row()
         .id(SharedString::from(format!("{}-{}", NEEDS_YOU.test_ids.row, row.message_id)))
@@ -207,12 +314,68 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, cx: &App) -> gpui::Stateful<gpui:
                         )
                         .child(div().flex_shrink_0().pl_2().text_xs().text_color(theme.muted_foreground).child(SharedString::from(row.age.clone()))),
                 )
-                .child(div().mt(px(2.)).truncate().text_xs().text_color(theme.muted_foreground).child(SharedString::from(second_line(row)))),
+                .child(div().mt(px(2.)).truncate().text_xs().text_color(theme.muted_foreground).child(SharedString::from(second_line(row))))
+                .children(actions),
         )
 }
 
-/// THE list: one reading column of rows, else THE EmptyState.
-pub(crate) fn needs_you_list(rows: &[NeedsYouRow], cx: &App) -> AnyElement {
+/// A stuck PR's actions as THE Button sm row (outline, wrapping; web
+/// `mt-2 flex-wrap gap-2`): Retry (= Resume auto-merge), Merge now (owners:
+/// THE shared alert card `merge-now-pr`), Close PR (the close confirm). A
+/// press never opens the row.
+pub(crate) fn stuck_actions(stuck: &StuckPr) -> AnyElement {
+    let id = stuck.pull_request_id.clone();
+    h_flex()
+        .id(SharedString::from(format!("{}-{id}", MERGE_TRAIN.test_ids.stuck_row)))
+        .mt_2()
+        .flex_wrap()
+        .gap_2()
+        .children(stuck.actions.iter().map(|action| {
+            let action = *action;
+            let id = id.clone();
+            Button::new(SharedString::from(format!("{}-{}-{id}", MERGE_TRAIN.test_ids.stuck_row, action.id())))
+                .outline()
+                .web_sm()
+                .label(action.label())
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    match action {
+                        StuckAction::Retry => {
+                            crate::pr_merge::run_train_op(id.clone(), crate::pr_merge::TrainOp::Hold(false), cx)
+                        }
+                        StuckAction::MergeNow => crate::pr_merge::ask_merge_now(&id, window, cx),
+                        StuckAction::ClosePr => crate::issue_header::prompt_close_pr(
+                            id.clone(),
+                            crate::issue_header::close_pr_description(linked_others(&id, cx)),
+                            window,
+                            cx,
+                        ),
+                    }
+                })
+        }))
+        .into_any_element()
+}
+
+/// The issues `pull_request_id` closes beyond one (the close confirm's batch
+/// line).
+fn linked_others(pull_request_id: &str, cx: &App) -> usize {
+    Store::try_global(cx)
+        .map(|store| {
+            store
+                .collections()
+                .pull_request_issues
+                .read(cx)
+                .iter()
+                .filter(|link| link.pull_request_id == pull_request_id)
+                .count()
+                .saturating_sub(1)
+        })
+        .unwrap_or(0)
+}
+
+/// THE list: one reading column of rows, else THE EmptyState. `stuck` = the
+/// stuck PRs' actions by row id.
+pub(crate) fn needs_you_list(rows: &[NeedsYouRow], stuck: &HashMap<String, StuckPr>, cx: &App) -> AnyElement {
     if rows.is_empty() {
         return crate::controls::empty_state(Icon::new(registry::NAV_NEEDS_YOU), NEEDS_YOU.copy.empty.clone(), None, cx).into_any_element();
     }
@@ -223,7 +386,7 @@ pub(crate) fn needs_you_list(rows: &[NeedsYouRow], cx: &App) -> AnyElement {
         .min_w_0()
         .children(rows.iter().map(|row| {
             let open = row.clone();
-            needs_you_row(row, cx)
+            needs_you_row(row, stuck.get(&row.message_id).map(stuck_actions), cx)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
                 .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| open_row(&open, window, cx))
@@ -253,7 +416,7 @@ impl Render for NeedsYouView {
         let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
         let column: AnyElement = if ready {
             let rows = active_team_id(&self.nav, cx).map(|team_id| rows_in_team(&team_id, cx)).unwrap_or_default();
-            needs_you_list(&rows, cx)
+            needs_you_list(&rows.rows, &rows.stuck, cx)
         } else {
             // Skeletons, never "Loading…" (feedback-states.json).
             crate::feedback::skeleton_rows("needs-you-skeleton", crate::feedback::SKELETON_ROWS, crate::settings::SETTINGS_ROW_H, cx).into_any_element()
@@ -296,6 +459,37 @@ mod tests {
         assert!(matches!(row_glyph(NeedsYouKind::Plan), ExpIcon::ClipboardList));
         assert!(matches!(row_glyph(NeedsYouKind::Question), ExpIcon::CircleQuestionMark));
         assert!(matches!(row_glyph(NeedsYouKind::Pr), ExpIcon::GitPullRequest));
+    }
+
+    fn dated(id: &str, kind: NeedsYouKind, created_at: &str) -> NeedsYouRow {
+        NeedsYouRow { message_id: id.into(), created_at: created_at.into(), ..row(kind, "") }
+    }
+
+    /// #EXP-1710 (web `withStuckRows`): a stuck PR replaces its ready row
+    /// and sorts with the PR rows, newest first, under the decisions.
+    #[test]
+    fn stuck_rows_fold_under_the_decisions() {
+        let base = vec![
+            dated("plan", NeedsYouKind::Plan, "2026-11-01T00:00:00.000Z"),
+            dated("pr-a", NeedsYouKind::Pr, "2026-11-03T00:00:00.000Z"),
+            dated("pr-b", NeedsYouKind::Pr, "2026-11-01T00:00:00.000Z"),
+        ];
+        let stuck = |id: &str, at: &str| {
+            let mut row = dated(id, NeedsYouKind::Pr, at);
+            row.title = format!("Auto-merge stuck on {id}");
+            (row, StuckPr { pull_request_id: id.into(), actions: vec![StuckAction::Retry, StuckAction::ClosePr] })
+        };
+        let folded = with_stuck_rows(
+            base.clone(),
+            vec![stuck("pr-b", "2026-11-01T00:00:00.000Z"), stuck("pr-c", "2026-11-04T00:00:00.000Z")],
+        );
+        let ids: Vec<&str> = folded.rows.iter().map(|row| row.message_id.as_str()).collect();
+        assert_eq!(ids, ["plan", "pr-c", "pr-a", "pr-b"]);
+        assert_eq!(folded.rows[3].title, "Auto-merge stuck on pr-b");
+        assert_eq!(folded.stuck.len(), 2);
+        assert!(!folded.stuck.contains_key("pr-a"));
+        // Nothing stuck = the fold's rows as they are.
+        assert_eq!(with_stuck_rows(base.clone(), Vec::new()).rows, base);
     }
 
     #[test]
