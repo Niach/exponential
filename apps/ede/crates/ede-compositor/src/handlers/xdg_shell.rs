@@ -46,6 +46,10 @@ impl XdgShellHandler for Ede {
             self.window_event(ede_protocol::events::WINDOW_CLOSED, &parked);
             self.forget_parked(&parked);
         }
+        if let Some(minimized) = self.minimized.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned() {
+            self.window_event(ede_protocol::events::WINDOW_CLOSED, &minimized);
+            self.forget_minimized(&minimized);
+        }
         let gone = self.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned();
         if let Some(window) = gone {
             let had_focus = self.focused_window().as_ref() == Some(&window);
@@ -122,6 +126,13 @@ impl XdgShellHandler for Ede {
     fn unmaximize_request(&mut self, surface: ToplevelSurface) {
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             self.untile(&window, None);
+        }
+    }
+
+    // The app's own minimize button (#EDE-48): into the taskbar.
+    fn minimize_request(&mut self, surface: ToplevelSurface) {
+        if let Some(window) = self.window_for_surface(surface.wl_surface()) {
+            self.minimize_window(&window);
         }
     }
 

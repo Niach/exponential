@@ -9,7 +9,7 @@ libraries, never the other way round.
 | `exponential-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=Exponential`, Wayland hints for Firefox/Qt/Electron), `exponential-compositor` on the seat, then `exponential-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring, `exponential-device.service` = `exponential-session --device`: the Exponential app from its launcher entry, restarted when it crashes, so the machine stays an online device; nothing when the CLI daemon's own unit runs). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on Core's `Capability`/`Grant`/`Failure`/`Envelope`. Computer Use, eos-agent and the shell link it; it lives in `apps/desktop/crates/ede-protocol` (#EDE-51) and this workspace takes it by path. |
 | `exponential-ui` | The shell's genUI on disk (#EDE-9): documents in `~/.config/exponential-desktop/ui` (factory copies in `/usr/share/exponential-desktop/ui`), validated before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `exponential-ui` is its CLI. |
-| `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`. |
+| `exponential-ctl` | The command line over `ede-protocol` (#EDE-7): `windows`, `outputs`, `capture --png` (the shots capture and the agent harness in the VM), `key`, `pointer`, `minimize`, `restore`. |
 | `exponential-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/exponential-desktop/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## The shell (`apps/desktop/crates/ede-shell`)
@@ -73,7 +73,9 @@ The compositor keeps these keys and tells the shell over ede-protocol
 an app has it): **Alt+Tab** opens the switcher and cycles it (Shift
 reverses), releasing Alt focuses the selected window, Escape cancels, a
 click on a tile picks it; **Super** alone toggles the menu (its search box
-takes the keyboard); **Print** saves `~/Pictures/Screenshots/Screenshot
+takes the keyboard); **Ctrl+Alt+Up** toggles Expo and **Ctrl+Alt+Down**
+Scale (`expo.toggle`, `scale.toggle`, #EDE-49: the shell's overlays, no
+fallback without one); **Print** saves `~/Pictures/Screenshots/Screenshot
 <date>.png`; **Ctrl+Alt+T** opens the terminal; the **volume, microphone
 and brightness keys** change the level (WirePlumber's `wpctl`, sysfs or
 `brightnessctl`) and show the OSD; play/next/previous go to `playerctl`.
@@ -174,10 +176,25 @@ run a private dbus-daemon, a private PipeWire and a headless compositor.
 
 One service per domain over the daemons the distribution runs, each with
 two faces on one registry (`crates/ede-services`): `network`
-(NetworkManager: state, devices, Wi-Fi access points; connect, disconnect,
-Wi-Fi on/off), `sound` (PipeWire through `wpctl`: default sink and source,
-volumes, mutes; set, mute, default), `bluetooth` (BlueZ: adapters,
-devices; power, connect, disconnect, discover), `power` (UPower battery,
+(NetworkManager: state, devices, Wi-Fi access points, `wired` = the
+ethernet devices `[{path, interface, state, connection}]`, `vpn` = the
+saved VPN and WireGuard connections `[{id, name, type, active}]`,
+`wifiEnabled`, `wiredConnected`; connect, disconnect, `wifi_enable {on}`,
+`wired_enable {on}`, `vpn_connect {id}`, `vpn_disconnect {id}`), `sound`
+(PipeWire through `wpctl`: default sink and source, volumes, mutes,
+`sinks` and `sources` `[{id, name, volume, muted, default}]`, `streams` =
+the playback streams of the mixer `[{id, app, name, volume, muted}]`
+(#EDE-43); set, mute, `set_default {id}`, `set_default_source {id}`,
+`set_stream_volume {id, percent}`, `mute_stream {id, on}`), `media`
+(MPRIS players on the session bus: `players: [{name, identity, status
+(playing|paused|stopped), title, artist, album, artUrl, position, length
+(seconds), canGoNext, canGoPrevious, canSeek}]`, `active` = the first
+playing one else the first, none = an empty list; `play_pause`, `next`,
+`previous`, `stop` and `seek {position}` take an optional `name`, unset =
+the active player), `bluetooth` (BlueZ: adapters, devices, `powered`,
+`discovering`; power, connect, disconnect, discover), `power` (UPower
+`battery: {present, percent, state (charging|discharging|full|empty|
+unknown), timeText}` and `batteryText` (`85% · 2:10 left`),
 power-profiles-daemon profile, logind: suspend, hibernate, reboot, power
 off), `disks` (udisks2: drives, filesystems; mount, unmount), `updates`
 (apt: upgradable packages; refresh, upgrade through `pkexec`), `firmware`
@@ -195,7 +212,8 @@ off), `disks` (udisks2: drives, filesystems; mount, unmount), `updates`
   `<domain>_get` and `<domain>_<action>`), a bearer per agent session from
   `exponential-services grant <session> [label] [system,ui]` (over the socket;
   ede-tools wires it in M2), each action gated by the eCore capability its
-  description names (`ui` for volume, `system` for the rest), a refusal
+  description names (`ui` for sound and media, `system` for the rest;
+  `crates/ede-services/tests/tools.rs` pins the list), a refusal
   answered as `isError` content, and an `mcp_calls`-shaped row per call in
   `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl` (audit.json's columns, the
   canonical `args_hash`).
@@ -415,8 +433,8 @@ first; each op needs the Core capability it names:
 
 | Op | Capability |
 |---|---|
-| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused`, `session.locked/unlocked`, `config.reloaded`) | any grant |
-| `focus_window`, `close_window`, `move_window` | `ui` |
+| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused/changed/minimized/restored`, `session.locked/unlocked`, `config.reloaded`) | any grant |
+| `focus_window` (a minimized window comes back first, a parked one brings its workspace along), `close_window`, `move_window`, `minimize_window`, `restore_window` (#EDE-48: into the taskbar and back; a minimized window keeps its geometry and workspace, `WindowInfo.minimized`; `exponential-ctl minimize <id>` / `restore <id>`) | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
 | `input` (key, pointer motion, button; refused on protected surfaces and the lock) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
@@ -488,6 +506,7 @@ repeat_rate = 30
 [windows]
 snap_threshold = 12   # px; 0 = off
 edge_tiling = true
+panel_margin = 10     # the IDE look (#EDE-48): the work area (maximize, tiling, Super+Up/Left/Right, new windows) is the output minus the panel's zone, inset by this many px on every side; 0 = flush
 
 [lock]
 command = ["swaylock", "-f", "-c", "000000"]   # any ext-session-lock client; empty = no locking
