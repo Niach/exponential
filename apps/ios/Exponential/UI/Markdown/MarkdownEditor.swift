@@ -42,6 +42,8 @@ struct MarkdownEditor: View {
     /// instead of filling it — a chat bubble must hug a one-line message
     /// rather than stretch across the feed (EXP-440).
     var hugsContentWidth: Bool = false
+    /// EXP-1676: web's `.tiptap-chat` table cells (the chat renders).
+    var chatTables: Bool = false
     /// EXP-655: issue detail passes 200 (Android's `minHeight = 200.dp`), and
     /// the empty band below the content focuses the end of the description.
     /// The New issue page passes the same 200 (EXP-1170: it IS the issue
@@ -211,6 +213,7 @@ struct MarkdownEditor: View {
                                 blockId: id,
                                 table: table,
                                 isReadOnly: isReadOnly,
+                                chat: chatTables,
                                 onIssueRefTap: onIssueRefTap
                             )
                             .id(id)
@@ -701,6 +704,9 @@ struct BlockTextEditor: UIViewRepresentable {
     var singleLine = false
     /// Column alignment from the table's delimiter row.
     var textAlignment: NSTextAlignment = .natural
+    /// `singleLine` only: the cell's padding (web `th, td`; the chat variant
+    /// is tighter, EXP-1676). UIKit's 5pt fragment padding is inside it.
+    var cellPadding = CGSize(width: MarkdownStyle.tableCellPadX, height: MarkdownStyle.tableCellPadY)
     /// `singleLine` only: what the return key says. A cell moves to the "next"
     /// one; EXP-802's composer field sends.
     var returnKeyType: UIReturnKeyType = .next
@@ -764,7 +770,10 @@ struct BlockTextEditor: UIViewRepresentable {
             // autocapitalisation stays sentence-shaped like every other block.
             tv.returnKeyType = returnKeyType
             // Web `th, td` 0.3rem 0.6rem (UIKit adds its 5pt fragment padding).
-            tv.textContainerInset = UIEdgeInsets(top: 4.8, left: 4.6, bottom: 4.8, right: 4.6)
+            let padX = cellPadding.width - tv.textContainer.lineFragmentPadding
+            tv.textContainerInset = UIEdgeInsets(
+                top: cellPadding.height, left: padX, bottom: cellPadding.height, right: padX
+            )
         } else {
             // Polish P50: a body starts flush with its header (author name,
             // issue title), so UIKit's 5pt line-fragment padding goes.

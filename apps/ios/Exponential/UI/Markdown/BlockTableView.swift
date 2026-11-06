@@ -19,6 +19,9 @@ struct BlockTableView: View {
     let blockId: UUID
     let table: TableBlock
     var isReadOnly = false
+    /// EXP-1676: web's `.tiptap-chat` table (13px cells, 0.2rem 0.45rem):
+    /// the chat renders; a document keeps 14px at 0.3rem 0.6rem.
+    var chat = false
     var onIssueRefTap: ((String) -> Void)?
     /// The scroller's own width: a table narrower than it fills it (web
     /// `table { width: 100% }`, EXP-1676), a wider one scrolls.
@@ -80,6 +83,7 @@ struct BlockTableView: View {
             isReadOnly: isReadOnly,
             singleLine: true,
             textAlignment: Self.alignment(table.alignment(column: col)),
+            cellPadding: padding,
             onReturn: { model.focusCell(after: cell.id) },
             onDeleteTable: isReadOnly ? nil : { model.deleteTableBlock(id: blockId) },
             onIssueRefTap: onIssueRefTap
@@ -88,7 +92,7 @@ struct BlockTableView: View {
             // A column never wraps below its content while the table fills
             // (CSS `table-layout: auto`); a long cell still wraps at the cap.
             minWidth: min(
-                max(MarkdownStyle.tableCellMinWidth, ceil(cell.content.size().width) + 20),
+                max(MarkdownStyle.tableCellMinWidth, ceil(cell.content.size().width) + padding.width * 2 + 0.8),
                 MarkdownStyle.tableCellMaxWidth
             ),
             maxWidth: MarkdownStyle.tableCellMaxWidth,
@@ -100,6 +104,18 @@ struct BlockTableView: View {
             Rectangle()
                 .strokeBorder(Color(MarkdownStyle.tableBorder), lineWidth: 0.5)
         }
+    }
+
+    private var padding: CGSize {
+        guard chat else {
+            return CGSize(width: MarkdownStyle.tableCellPadX, height: MarkdownStyle.tableCellPadY)
+        }
+        // A one-line cell has no leading to carry the transcript's 22pt line
+        // box (web's `td` inherits it), so half of it rides the padding.
+        let leading = MarkdownStyle.resolvedLineSpacing(
+            bodySize: MarkdownStyle.chatTableFontSize, lineHeight: DesignTokens.Transcript.bodyLineHeight
+        ) ?? 0
+        return CGSize(width: MarkdownStyle.chatTableCellPadX, height: MarkdownStyle.chatTableCellPadY + leading / 2)
     }
 
     /// Web's `th` weight, display only (`MarkdownStyle.tableHeaderStroke`).

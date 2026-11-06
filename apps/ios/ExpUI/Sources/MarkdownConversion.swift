@@ -900,6 +900,11 @@ private func renderTableCell(
     let cellCollector = BlockCollector(baseURL: context.baseURL)
     var cellContext = context
     cellContext.inTableCell = true
+    // EXP-1676: a chat render (a body-size override = the transcript's
+    // measure) draws web's `.tiptap-chat` table at 13px on the same line box.
+    if context.overrides.bodySize != nil {
+        cellContext.overrides.bodySize = MarkdownStyle.chatTableFontSize
+    }
     cellContext.needsBlockSeparator = false
     cellContext.headingLevel = 0
     cellContext.listStack = []
