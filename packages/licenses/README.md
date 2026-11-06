@@ -12,6 +12,21 @@ it cannot go stale.
 | iOS       | `apps/ios/Exponential/Resources/NOTICES.txt`  | the `Resources/**` Tuist glob     |
 | Android   | `apps/android/app/src/main/assets/NOTICES.txt`| AGP packages `src/main/assets/`   |
 
+#VAPP-270 adds one per **runner kit** (the prebuilt runners `exponential
+bundle` wraps an app in; `scripts/runner-kits/<target>.sh` copies the file into
+the kit and every export ships it). Each is the closure of what THAT runner
+ships, not of the app it shares a workspace with:
+
+| Runner kit | Output                                          | Inventories                                                       |
+| ---------- | ----------------------------------------------- | ----------------------------------------------------------------- |
+| Desktop    | `apps/desktop/crates/eengine-runner/NOTICES.txt`| `rust-runner-desktop.json` (`exponential-runner`, deny.toml's 3 triples) |
+| Android    | `apps/runner/android/NOTICES.txt`               | `rust-runner-android.json` (eengine-ffi + exponential-ui-ffi, the 3 ABIs) + `gradle-runner-android.json` (the `release` runtime graph) |
+| iOS        | `apps/runner/ios/NOTICES.txt`                   | `rust-runner-ios.json` (eengine-ffi + exponential-ui-ffi, `aarch64-apple-ios`); no Swift package resolves anything remote |
+| Web        | `apps/runner/web/public/NOTICES.txt`            | `npm-runner-web.json` (bun.lock's production closure) + `rust-runner-web.json` (genUI Motion's wasm) |
+
+The runner notices open with their own paragraph: an export is its author's
+app on Exponential's runner, and the file covers the runner only.
+
 Plain `.txt`, not markdown: licence bodies are full of `*`, `#`, `---` and
 indented blocks that a renderer mangles, and altering reproduced text is exactly
 what these licences forbid.
@@ -23,12 +38,15 @@ what these licences forbid.
 ```
 collect:rust     cargo metadata × 3 target triples   -> inventory/rust.json
                                                         inventory/rust-excluded.json
+                 cargo tree -p <root> per runner     -> inventory/rust-runner-{desktop,android,ios,web}.json
 collect:npm      node_modules production closure     -> inventory/npm-web.json
                                                         inventory/npm-site.json
+                                                        inventory/npm-runner-web.json
 collect:ios      GitHub raw @ the pinned revisions   -> inventory/ios.json
 collect:android  gradle licenseProductionReleaseReport -> inventory/android.json
+  -- --runner    gradle licenseReleaseReport (init script) -> inventory/gradle-runner-android.json
 
-generate         inventories + curated/  ->  the five NOTICES.txt
+generate         inventories + curated/  ->  the nine NOTICES.txt
 ```
 
 `scripts/generate.ts` is pure and offline: it reads only committed files. That
@@ -49,6 +67,10 @@ bun run --filter @exp/licenses collect:rust      # needs cargo
 bun run --filter @exp/licenses collect:npm       # needs node_modules
 bun run --filter @exp/licenses collect:ios       # needs network
 bun run --filter @exp/licenses collect:android   # needs a JDK + gradle
+# the Android runner kit (its build files untouched: an init script applies the plugin)
+packages/exponential-ui-compose/gradlew -p apps/runner/android \
+  --init-script "$PWD/packages/licenses/gradle/runner-license.init.gradle.kts" licenseReleaseReport
+bun run --filter @exp/licenses collect:android -- --runner
 bun run --filter @exp/licenses fetch:texts       # refresh texts/ (needs network)
 ```
 
@@ -73,6 +95,21 @@ After changing a dependency in any client, re-run that client's collector and
   policy, text normalisation, the renderer.
 
 ## Things that will bite you
+
+**A runner is not the workspace.** `rust.json` is every workspace crate with
+every feature on (what cargo-deny audits); `exponential-runner` links 689 of
+its 1126 crates, and the mobile FFI pair 119. `collect:rust` resolves each
+runner with `cargo tree -p <root> --target <triple> -e normal,build`, which
+selects features the way the kit recipe's `cargo build -p` does (resolver 2
+unifies them only across the selected packages): the Engine's `hub` (tokio,
+hyper, rmcp) stays out of the mobile notices because no mobile build turns it
+on. A runner root or triple changes in `RUNNER_SCOPES` (collect-rust.ts).
+
+**The Android runner's included builds.** The licence plugin resolves
+`releaseRuntimeClasspath` while its task is created (lazily), and the first
+resolve loads the included builds (eui-compose, the Engine AAR), which Gradle
+refuses in a lazy context. The init script resolves it once, eagerly, in
+`projectsEvaluated`.
 
 **A CLI under `dependencies` is attributed.** The npm closure follows
 `dependencies` edges through our own workspace packages, so what a workspace

@@ -102,6 +102,9 @@ const COLLECTOR = `packages/licenses/scripts/collect-npm.ts`
 const SCOPES = [
   { scope: `web` as const, dir: `apps/web` },
   { scope: `site` as const, dir: `apps/site` },
+  // #VAPP-270: the web runner kit (apps/runner/web, the static PWA every web
+  // export is): what its `vite build` bundles.
+  { scope: `runner-web` as const, dir: `apps/runner/web` },
 ]
 
 // ---------------------------------------------------------------------------

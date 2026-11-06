@@ -277,8 +277,13 @@ for (const triple of targets) {
   for (const key of workspace) workspaceCrates.add(key)
 }
 
-const components: Component[] = []
-for (const [key, pkg] of packages) {
+/** One inventory row from a crate's metadata. `platforms` is relative to `of`. */
+function toComponent(
+  pkg: CargoPkg,
+  platforms: string[],
+  of: string[],
+  linked: boolean
+): Component {
   const declared = pkg.license?.trim()
   let licenses: string[] = []
   let election: string | undefined
@@ -294,8 +299,8 @@ for (const [key, pkg] of packages) {
     ...new Set(texts.flatMap((t) => extractCopyright(t.body))),
   ].sort(byCodepoint)
 
-  const platforms = platformsOf.get(key)!.sort(byCodepoint)
-  components.push({
+  const sorted = [...platforms].sort(byCodepoint)
+  return {
     name: pkg.name,
     version: pkg.version,
     declared:
@@ -308,9 +313,16 @@ for (const [key, pkg] of packages) {
     texts,
     // Recorded so the notice can scope a crate to the targets that have it,
     // rather than implying every build links it.
-    ...(platforms.length < targets.length ? { platforms } : {}),
-    ...(linkedSomewhere.has(key) ? {} : { buildOnly: true as const }),
-  })
+    ...(sorted.length < of.length ? { platforms: sorted } : {}),
+    ...(linked ? {} : { buildOnly: true as const }),
+  }
+}
+
+const components: Component[] = []
+for (const [key, pkg] of packages) {
+  components.push(
+    toComponent(pkg, platformsOf.get(key)!, targets, linkedSomewhere.has(key))
+  )
 }
 
 components.sort(compareComponents)
@@ -374,6 +386,112 @@ writeFileSync(
     2
   )}\n`
 )
+
+// ---------------------------------------------------------------------------
+// The runner kits (#VAPP-270): one closure per runner, rooted at what it links
+// ---------------------------------------------------------------------------
+//
+// The desktop inventory above is the WHOLE workspace with every feature on
+// (what cargo-deny audits). A runner kit ships far less: one binary or one
+// pair of FFI libraries, built with their default features for their own
+// triples. `cargo tree -p <root> --target <triple>` resolves exactly that
+// build (resolver 2 unifies features only across the selected packages), so
+// each runner's notice is the closure of what it actually links, not of the
+// workspace. `-e normal,build` is what ships in any form; `-e normal` alone
+// is what is linked (a build script's own dependencies are build-only too).
+
+interface RunnerScope {
+  scope: `runner-desktop` | `runner-android` | `runner-ios` | `runner-web`
+  /** The crates the kit links (their default features, as the kit recipes build them). */
+  roots: string[]
+  /** The triples the kit ships: deny.toml's for the desktop runner, the ABIs of build-android.sh, the iOS device slice. */
+  triples: string[]
+}
+
+const RUNNER_SCOPES: RunnerScope[] = [
+  // apps/desktop/crates/eengine-runner: the `exponential-runner` binary.
+  { scope: `runner-desktop`, roots: [`eengine-runner`], triples: targets },
+  // The Engine's .so (eengine-ffi/build-android.sh) + genUI's (exponential-ui-ffi, in eui-compose's AAR).
+  {
+    scope: `runner-android`,
+    roots: [`eengine-ffi`, `exponential-ui-ffi`],
+    triples: [`aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android`],
+  },
+  // The two xcframeworks' device slice (the simulator slices never reach a store build).
+  { scope: `runner-ios`, roots: [`eengine-ffi`, `exponential-ui-ffi`], triples: [`aarch64-apple-ios`] },
+  // The web runner's one Rust artifact: genUI Motion's wasm (packages/exponential-ui/wasm/motion,
+  // emitted into every web export's assets/ by `vite build`). The rest of the kit is npm.
+  { scope: `runner-web`, roots: [`eui-motion-wasm`], triples: [`wasm32-unknown-unknown`] },
+]
+
+/** Every package cargo knows, by name@version (unfiltered: the mobile triples are not in deny.toml). */
+const allPackages = (() => {
+  const raw = execFileSync(
+    `cargo`,
+    [`metadata`, `--manifest-path`, join(desktopDir, `Cargo.toml`), `--all-features`, `--format-version`, `1`],
+    { encoding: `utf8`, maxBuffer: 256 * 1024 * 1024 }
+  )
+  const meta = JSON.parse(raw) as { packages: CargoPkg[] }
+  return new Map(meta.packages.map((p) => [`${p.name}@${p.version}`, p]))
+})()
+
+function cargoTree(root: string, triple: string, edges: string): Set<string> {
+  const out = execFileSync(
+    `cargo`,
+    [
+      `tree`, `-q`, `--manifest-path`, join(desktopDir, `Cargo.toml`), `--locked`,
+      `-p`, root, `--target`, triple, `-e`, edges, `--prefix`, `none`, `-f`, `{p}`,
+    ],
+    { encoding: `utf8`, maxBuffer: 64 * 1024 * 1024 }
+  )
+  const keys = new Set<string>()
+  for (const line of out.split(`\n`)) {
+    const m = line.match(/^(\S+) v(\S+)/)
+    if (m) keys.add(`${m[1]}@${m[2]}`)
+  }
+  return keys
+}
+
+for (const runner of RUNNER_SCOPES) {
+  const platforms = new Map<string, string[]>()
+  const linked = new Set<string>()
+  for (const triple of runner.triples) {
+    const shipped = new Set<string>()
+    for (const root of runner.roots) {
+      for (const key of cargoTree(root, triple, `normal,build`)) shipped.add(key)
+      for (const key of cargoTree(root, triple, `normal`)) linked.add(key)
+    }
+    for (const key of shipped) {
+      if (workspaceCrates.has(key)) continue // our own Apache-2.0 crates
+      platforms.set(key, [...(platforms.get(key) ?? []), triple])
+    }
+  }
+  const rows: Component[] = []
+  for (const [key, on] of platforms) {
+    const pkg = allPackages.get(key)
+    if (!pkg) throw new Error(`${runner.scope}: cargo tree names ${key}, cargo metadata does not`)
+    rows.push(toComponent(pkg, on, runner.triples, linked.has(key)))
+  }
+  rows.sort(compareComponents)
+  const file = `inventory/rust-${runner.scope}.json`
+  writeFileSync(
+    join(pkgRoot, file),
+    `${JSON.stringify(
+      {
+        $comment: INVENTORY_COMMENT,
+        ecosystem: `rust`,
+        scope: runner.scope,
+        collector: `packages/licenses/scripts/collect-rust.ts`,
+        roots: runner.roots,
+        triples: runner.triples,
+        components: rows,
+      },
+      null,
+      2
+    )}\n`
+  )
+  console.log(`${file}: ${rows.length} crates (${runner.roots.join(` + `)} over ${runner.triples.length} targets)`)
+}
 
 console.log(
   `\ninventory/rust.json: ${components.length} crates over ${targets.length} targets`

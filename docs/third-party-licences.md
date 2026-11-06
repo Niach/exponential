@@ -299,14 +299,50 @@ The web runner (`apps/runner/web`, the static PWA an exported app runs in)
 keeps an app's records in **SQLite compiled to WebAssembly**, the official
 `@sqlite.org/sqlite-wasm` (3.54.1-build1) on OPFS, in a worker. SQLite itself
 is dedicated to the **public domain** (no notice is required; the authors ask
-for none); the npm package's JavaScript glue is **Apache-2.0** (the SQLite
-project's), which asks for the License and its NOTICE in every copy. Both ship
-inside every web export (`assets/sqlite3-*.wasm`, `assets/sqlite3-*.js`), so the
-export must carry them: E7's `exponential bundle` writes the export's
-`NOTICES.txt` beside `index.html` from the runner's dependency graph (with
-`@noble/hashes`, MIT, the runner's synchronous SHA-256, and `lucide-react`'s
-ISC glyphs). The runner uses no other wasm but genUI's own Motion module.
-`fake-indexeddb` (Apache-2.0) is a test-only dependency and never ships.
+for none); the npm package's JavaScript wrapper is **Apache-2.0** (the SQLite
+project's). Checked 2026-11-06 (VAPP-270): neither the npm tarball nor the
+repository at tag `3.54.1-build1` ships a licence or NOTICE file, so the notice
+reproduces the canonical Apache-2.0 text; the glue's own header says it is an
+amalgamation that includes the **Emscripten** runtime (SDK 5.0.5, offered
+under MIT and the University of Illinois/NCSA licence), whose LICENSE is
+vendored verbatim at that tag (`packages/licenses/texts/emscripten/`) and
+reproduced. Both ship inside every web export (`assets/sqlite3-*.wasm`,
+`assets/sqlite3-*.js`), so the export carries them: the runner's
+`public/NOTICES.txt` lands beside `index.html` (with `@noble/hashes`, MIT,
+the runner's synchronous SHA-256, `lucide-react`'s ISC glyphs, React and
+genUI's npm closure). The runner uses no other wasm but genUI's own Motion
+module, whose Rust closure (`eui-motion-wasm` on `wasm32-unknown-unknown`) is
+in the same notice. `fake-indexeddb` (Apache-2.0) is a test-only dependency
+and never ships. No font binary ships (the system stack).
+
+### The runner kits' notices (VAPP-270, 2026-11-06)
+
+Every `exponential bundle` export ships its runner kit's `NOTICES.txt`
+(inside the `.app`, the APK/AAB assets, the iOS app bundle, or beside
+`index.html`). Each is generated like the clients' notices and gated by
+`apps/web/src/lib/licenses.test.ts`, but from the closure of what THAT runner
+ships (`packages/licenses/README.md`, "The runner kits"):
+
+- **Desktop** (`apps/desktop/crates/eengine-runner/NOTICES.txt`): the Rust
+  closure of `exponential-runner` on macOS, Linux and Windows (a subset of the
+  desktop app's graph, gated), plus the embedded Inter TTFs (OFL-1.1, the only
+  font `assets.rs` embeds), Lucide and selfh.st geometry, and the same record of
+  gpui's patched-out GPL crates.
+- **Android** (`apps/runner/android/NOTICES.txt`): the Rust closures of the two
+  `.so` files (eengine-ffi, exponential-ui-ffi; default features, so no
+  tokio/hyper/rmcp) on the three ABIs, plus the runner's resolved `release`
+  Gradle runtime graph (Compose BOM expansion, media3 through eui-compose, JNA
+  under the Apache-2.0 election above). No Google closed binary: the section
+  for them is absent.
+- **iOS** (`apps/runner/ios/NOTICES.txt`): the same two Rust closures on
+  `aarch64-apple-ios`. No Swift package resolves anything remote.
+- **Web** (`apps/runner/web/public/NOTICES.txt`): above.
+
+Each opens with its own paragraph: the export is its author's app on
+Exponential's runner (Apache-2.0, reproduced), and the file does not cover the
+app's package. genUI's vendored A2UI schemas, the json-render wording, the
+Nayuki QR port and the lottie-web port reach every runner and are reproduced
+in each.
 
 ### P2P push-only facade in the mobile apps (EXP-1435)
 

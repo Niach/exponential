@@ -80,12 +80,30 @@ const HERE = dirname(new URL(import.meta.url).pathname)
 const PKG = resolve(HERE, `..`)
 const REPO = resolve(PKG, `..`, `..`)
 
-const REPORT = join(
-  REPO,
-  `apps/android/app/build/reports/licenses/licenseProductionReleaseReport.json`
-)
+// #VAPP-270: `-- --runner` collects the Android RUNNER kit instead (the
+// template APK `exponential bundle` patches, apps/runner/android): its
+// `release` runtime graph, reported through
+// packages/licenses/gradle/runner-license.init.gradle.kts so the runner's own
+// build files stay untouched. Same artifacts, same rules, its own inventory.
+const RUNNER = process.argv.includes(`--runner`)
+const TARGET = RUNNER
+  ? {
+      report: `apps/runner/android/app/build/reports/licenses/licenseReleaseReport.json`,
+      generate:
+        `packages/exponential-ui-compose/gradlew -p apps/runner/android --init-script ` +
+        `"$PWD/packages/licenses/gradle/runner-license.init.gradle.kts" licenseReleaseReport`,
+      out: `inventory/gradle-runner-android.json`,
+      scope: `runner-android` as const,
+    }
+  : {
+      report: `apps/android/app/build/reports/licenses/licenseProductionReleaseReport.json`,
+      generate: `cd apps/android && ./gradlew licenseProductionReleaseReport`,
+      out: `inventory/android.json`,
+      scope: `android` as const,
+    }
+const REPORT = join(REPO, TARGET.report)
 const TEXTS = join(PKG, `texts/spdx`)
-const OUT = join(PKG, `inventory/android.json`)
+const OUT = join(PKG, TARGET.out)
 // EXP-1370: a self-hosted runner resolves most artifacts from a shared
 // read-only cache (GRADLE_RO_DEP_CACHE) and only what it lacks lands in its own
 // Gradle home, so both are read: the read-only cache first, the home on top.
@@ -321,8 +339,8 @@ const copyrightsFor = (archive: string): string[] => {
 const main = (): void => {
   if (!existsSync(REPORT)) {
     fail(
-      `no licence report at apps/android/app/build/reports/licenses/licenseProductionReleaseReport.json.\n` +
-        `  Generate it first:  cd apps/android && ./gradlew licenseProductionReleaseReport`
+      `no licence report at ${TARGET.report}.\n` +
+        `  Generate it first:  ${TARGET.generate}`
     )
   }
 
@@ -476,7 +494,7 @@ const main = (): void => {
   const inventory: Inventory = {
     $comment: INVENTORY_COMMENT,
     ecosystem: `android`,
-    scope: `android`,
+    scope: TARGET.scope,
     collector: COLLECTOR,
     components,
   }
