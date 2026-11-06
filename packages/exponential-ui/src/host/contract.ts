@@ -1,10 +1,11 @@
 // VAPP-91: the host API contract (`catalog/host.json`) as typed constants,
 // plus the message and op shapes every platform host speaks.
 
-import hostJson from "../../catalog/host.json" with { type: "json" }
+// The runtime slice (generated/host.runtime.json, `bun run generate`): a
+// renderer bundle never ships the package-format spec or the prose.
+import hostJson from "../../generated/host.runtime.json" with { type: "json" }
 import type { FlatComponent } from "../types"
 
-export const HOST_CONTRACT = hostJson
 export const HOST_CONTRACT_VERSION: number = hostJson.version
 export const A2UI_MESSAGE_KINDS: readonly string[] = hostJson.messages.a2ui
 export const EXTENSION_MESSAGE_KINDS: readonly string[] = hostJson.messages.extensions

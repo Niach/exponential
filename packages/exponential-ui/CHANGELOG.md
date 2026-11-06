@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Smaller bundles: the host contract reads `generated/host.runtime.json` (only the keys it uses) instead of all of `catalog/host.json`, so the package-format spec and the prose stay out of every entry that imports it (root, `./host`, `./conformance`: −14 KB gzip; the element standalone −7 KB). `HOST_CONTRACT` (the raw `catalog/host.json`, unused) is gone; import `@exponential_app/eui/catalog/host.json` for the full contract.
 ## 0.17.0 (2026-11-06)
 
 - **Package format 5** (#VAPP-260, breaking: a host reads exactly 5): `capabilities: [{id, why, origins?}]`, the capability manifest the Engine's broker and the bundler read (`catalog/host.json` `package.capabilities`, `validatePackageCapabilities` / Rust `host::capabilities`, `docs/package-format.md` "Capabilities"); `fixtures/host-router.json` gains `acme.capabilities` and four invalid packages.
