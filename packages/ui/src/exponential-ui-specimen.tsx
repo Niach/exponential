@@ -74,12 +74,19 @@ export function ExponentialUiTwin({
 /** EXP-1604: an inline Exponential UI tree (a styleguide entry's own
  *  specimens, e.g. apps/styleguide/src/entries/motion.specimens.json)
  *  through THE React renderer, with its data model; `inlineOverlays` paints
- *  an open Dialog / Drawer in place (EXP-1673). */
-export function ExponentialUiTree({ id, node, data, mode = `dark`, formFactor, inlineOverlays }: { id: string; node: NestedNode; data?: Record<string, unknown>; mode?: `light` | `dark`; formFactor?: `phone` | `wide`; inlineOverlays?: boolean }) {
+ *  an open Dialog / Drawer in place (EXP-1673). `frame` (px, with
+ *  `inlineOverlays`) gives the overlay a box of that height to hang in, its
+ *  backdrop over the box (VAPP-262: what the gpui painter shows for a
+ *  surface with a viewport of that height). */
+export function ExponentialUiTree({ id, node, data, mode = `dark`, formFactor, inlineOverlays, frame }: { id: string; node: NestedNode; data?: Record<string, unknown>; mode?: `light` | `dark`; formFactor?: `phone` | `wide`; inlineOverlays?: boolean; frame?: number }) {
   const surface = useSurface({ surfaceId: `sg-${id}`, catalogId: CORE_CATALOG_ID, initial: node, data })
   const host = useMemo(() => planCardHost(), [])
+  const scope = `[data-specimen="${id}"] [data-xui-overlays="inline"]`
   return (
-    <div data-slot="exponential-ui-tree" data-specimen={id}>
+    <div data-slot="exponential-ui-tree" data-specimen={id} style={frame ? { position: `relative`, height: frame, overflow: `hidden`, transform: `translateZ(0)` } : undefined}>
+      {frame ? (
+        <style>{`${scope} :is(.xui-Dialog-overlay,.xui-Drawer-overlay){display:block}${scope} .xui-Drawer-content{position:fixed;inset:auto 0 0 0;width:auto;max-height:85%}${scope} .xui-Dialog-content{position:fixed;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:calc(100% - 32px)}`}</style>
+      ) : null}
       <ExponentialSurface surface={surface} host={host} theme={DEFAULT_THEME_ID} mode={mode} formFactor={formFactor} inlineOverlays={inlineOverlays} />
     </div>
   )

@@ -15,6 +15,10 @@ import type { StyleguideEntry } from "./types.ts"
 const SHEET = fixture.sheetCases[0]!
 const MANAGE = fixture.manageCases[0]!
 
+/** The frames the sheets hang in (the desktop twin's viewports). */
+const ASK_HEIGHT = 440
+const MANAGE_HEIGHT = 300
+
 const NODE_KEYS = new Set([`id`, `component`, `children`, `slots`, `on`, `style`, `visible`, `accessibility`])
 
 /** A flat A2UI list (root = `root`) as the nested tree the renderer takes. */
@@ -49,12 +53,12 @@ export const entry: StyleguideEntry = {
   island: () => (
     <div className="flex flex-col gap-3">
       <span className="text-xs text-muted-foreground">{`${SHEET.app} · ${SHEET.entry.id}`}</span>
-      <div style={{ maxWidth: 480 }}>
-        <ExponentialUiTree id="consent-sheet-ask" node={ASK_NODE} data={ASK.data} inlineOverlays />
+      <div style={{ width: 480, maxWidth: `100%` }}>
+        <ExponentialUiTree id="consent-sheet-ask" node={ASK_NODE} data={ASK.data} inlineOverlays frame={ASK_HEIGHT} />
       </div>
       <span className="text-xs text-muted-foreground">{fixture.copy.manageTitle}</span>
-      <div style={{ maxWidth: 480 }}>
-        <ExponentialUiTree id="consent-sheet-manage" node={MANAGE_NODE} inlineOverlays />
+      <div style={{ width: 480, maxWidth: `100%` }}>
+        <ExponentialUiTree id="consent-sheet-manage" node={MANAGE_NODE} inlineOverlays frame={MANAGE_HEIGHT} />
       </div>
     </div>
   ),
