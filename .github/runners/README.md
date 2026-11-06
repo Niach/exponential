@@ -74,6 +74,28 @@ dirs, unavailable simulators, dangling docker images, then
 `~/Library/Caches/sccache-ci`); below 10 GB it fails the job. By hand:
 `--check` (exit 1 below 25 GB), `--dry-run` (lists, deletes nothing).
 
+Between jobs, a LaunchAgent keeps the whole Mac above 30 GB free across every
+thread (2026-11-06: 5 GB free stopped OrbStack and every stack):
+
+```bash
+bash .github/runners/mac/install-disk-keeper.sh               # rerun to upgrade; --uninstall
+bash .github/runners/mac/disk-keeper.sh --dry-run              # what it would delete now
+tail ~/Library/Logs/exponential/disk-keeper.log                # every removal + WARN lines
+```
+
+Every 15 minutes, below 40 GB free, it deletes only stale build output until
+40 GB is free: cargo `debug/deps` files and `incremental/` dirs older than a day
+(idle worktrees' `target*` dirs, then the shared `CARGO_TARGET_DIR`, a profile
+only while no build holds its `.cargo-lock`), DerivedData nothing wrote to for a
+day, idle worktrees' `apps/ios/build` and Android `build/` dirs, Gradle
+build-cache entries older than a day, unavailable simulators, and finished
+capture stacks (containers exited over a day ago, then unused volumes; never
+the `exponential` stack). A worktree is live, never touched, when it is locked,
+holds an `index.lock`, is a process's cwd, had a file or git write in the last
+day, or has anything uncommitted; in an idle one only git-ignored paths go.
+Still below 30 GB after cleaning = a `WARN` line in the log and one
+Notification Center banner an hour. The MacBook only, never the server.
+
 ## Off switch
 
 Delete the `RUNNER_STATUS_TOKEN` secret: everything runs GitHub-hosted again.
