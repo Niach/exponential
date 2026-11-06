@@ -1377,6 +1377,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_parse_source_json(RustBuffer uri, R
 RustBuffer uniffi_exponential_ui_ffi_fn_func_place_overlay(double anchor_x, double anchor_y, double anchor_w, double anchor_h, double size_w, double size_h, double viewport_w, double viewport_h, RustBuffer side, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PLACE_OVERLAY_ALIGNED
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PLACE_OVERLAY_ALIGNED
+RustBuffer uniffi_exponential_ui_ffi_fn_func_place_overlay_aligned(double anchor_x, double anchor_y, double anchor_w, double anchor_h, double size_w, double size_h, double viewport_w, double viewport_h, RustBuffer side, RustBuffer align, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_QR_MATRIX_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_QR_MATRIX_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(RustBuffer value, RustBuffer level, RustCallStatus *_Nonnull out_status
@@ -2116,6 +2121,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_parse_source_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PLACE_OVERLAY
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PLACE_OVERLAY
 uint16_t uniffi_exponential_ui_ffi_checksum_func_place_overlay(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PLACE_OVERLAY_ALIGNED
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PLACE_OVERLAY_ALIGNED
+uint16_t uniffi_exponential_ui_ffi_checksum_func_place_overlay_aligned(void
     
 );
 #endif

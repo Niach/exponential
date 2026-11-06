@@ -33,7 +33,7 @@ import at.exponential.ui.ffi.mcpActionCallJson
 import at.exponential.ui.ffi.mediaRequestJson
 import at.exponential.ui.ffi.messagesFromMcpResultJson
 import at.exponential.ui.ffi.parseSourceJson
-import at.exponential.ui.ffi.placeOverlay
+import at.exponential.ui.ffi.placeOverlayAligned
 import at.exponential.ui.ffi.reduceNestedJson
 import at.exponential.ui.ffi.reduceSurfaceJson
 import at.exponential.ui.ffi.resolveRecipeJson
@@ -450,9 +450,9 @@ class ConformanceTest {
                 val a = c["anchor"]!!
                 val z = c["size"]!!
                 val v = c["viewport"]!!
-                val p = placeOverlay(
+                val p = placeOverlayAligned(
                     a["x"]!!.number!!, a["y"]!!.number!!, a["width"]!!.number!!, a["height"]!!.number!!,
-                    z["width"]!!.number!!, z["height"]!!.number!!, v["width"]!!.number!!, v["height"]!!.number!!, s(c, "side"),
+                    z["width"]!!.number!!, z["height"]!!.number!!, v["width"]!!.number!!, v["height"]!!.number!!, s(c, "side"), c["align"]?.string ?: "center",
                 )
                 val e = c["expected"]!!
                 when {

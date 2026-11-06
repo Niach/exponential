@@ -2387,6 +2387,24 @@ pub fn place_overlay(anchor_x: f64, anchor_y: f64, anchor_w: f64, anchor_h: f64,
     })
 }
 
+/// VAPP-276: the overlay placement rule with an alignment along the side
+/// (`align` = `start|center|end`: top-start, top-end, bottom-start…).
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn place_overlay_aligned(anchor_x: f64, anchor_y: f64, anchor_w: f64, anchor_h: f64, size_w: f64, size_h: f64, viewport_w: f64, viewport_h: f64, side: String, align: String) -> Result<FfiPlacement, UiError> {
+    guarded("place_overlay_aligned", || {
+        let side = eui_core::overlay::OverlaySide::parse(&side).ok_or_else(|| invalid(format!("bad side {side:?}")))?;
+        let align = eui_core::overlay::OverlayAlign::parse(&align).ok_or_else(|| invalid(format!("bad align {align:?}")))?;
+        let p = eui_core::overlay::place_overlay(
+            &eui_core::overlay::Rect { x: anchor_x, y: anchor_y, width: anchor_w, height: anchor_h },
+            &eui_core::overlay::Size { width: size_w, height: size_h },
+            &eui_core::overlay::Size { width: viewport_w, height: viewport_h },
+            &eui_core::overlay::PlaceOptions::placement(side, align),
+        );
+        Ok(FfiPlacement { x: p.x, y: p.y, side: p.side.as_str().to_string(), flipped: p.flipped })
+    })
+}
+
 /// Canonical JSON equality (numbers by value): what the binding test suites
 /// compare fixtures with.
 #[uniffi::export]

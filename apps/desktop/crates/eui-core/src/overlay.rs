@@ -63,6 +63,26 @@ pub enum OverlayAlign {
     End,
 }
 
+impl OverlayAlign {
+    /// VAPP-276: the catalog's `overlayAlign` (`start|center|end`).
+    pub fn parse(s: &str) -> Option<OverlayAlign> {
+        Some(match s {
+            "start" => OverlayAlign::Start,
+            "center" => OverlayAlign::Center,
+            "end" => OverlayAlign::End,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OverlayAlign::Start => "start",
+            OverlayAlign::Center => "center",
+            OverlayAlign::End => "end",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Rect {
     pub x: f64,
@@ -103,6 +123,11 @@ impl Default for PlaceOptions {
 impl PlaceOptions {
     pub fn side(side: OverlaySide) -> Self {
         PlaceOptions { side, ..Default::default() }
+    }
+
+    /// VAPP-276: a side + an alignment along it (`top` + `start` = top-start).
+    pub fn placement(side: OverlaySide, align: OverlayAlign) -> Self {
+        PlaceOptions { side, align, ..Default::default() }
     }
 }
 

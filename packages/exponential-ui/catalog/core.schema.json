@@ -6819,6 +6819,19 @@
               "description": "Preferred side of the trigger.",
               "default": "bottom"
             },
+            "align": {
+              "enum": [
+                "start",
+                "center",
+                "end"
+              ],
+              "description": "Along the side.",
+              "default": "center"
+            },
+            "anchor": {
+              "type": "string",
+              "description": "A node id to open at; it toggles it."
+            },
             "openOn": {
               "enum": [
                 "press",
@@ -7520,6 +7533,29 @@
                 "$ref": "#/$defs/menuItem"
               },
               "description": "The entries in order."
+            },
+            "side": {
+              "enum": [
+                "top",
+                "right",
+                "bottom",
+                "left"
+              ],
+              "description": "Preferred side of the trigger.",
+              "default": "bottom"
+            },
+            "align": {
+              "enum": [
+                "start",
+                "center",
+                "end"
+              ],
+              "description": "Along the side.",
+              "default": "start"
+            },
+            "anchor": {
+              "type": "string",
+              "description": "A node id to open at; it toggles it."
             },
             "openOn": {
               "enum": [
