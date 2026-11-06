@@ -47,6 +47,8 @@ pub struct InlineChip {
     pub kind: String,
     pub label: String,
     pub icon: Option<String>,
+    /// #VAPP-258: the identifier painted mono before the label.
+    pub ident: Option<String>,
     /// The text the run stood for (`#ABC-1`).
     pub source: String,
     /// The chip box width ([`size_chips`]; 0 before).
@@ -352,7 +354,7 @@ pub fn link_text(blocks: &[Block], segments: impl Fn(&str) -> Option<Vec<eui_cor
                         linked = true;
                         out.extend(answer.into_iter().map(|segment| {
                             // #VAPP-258: a chip only on an allowed href, a known kind and a label.
-                            let chip = segment.chip.filter(|chip| segment.href.is_some() && chip.is_valid()).map(|chip| InlineChip { kind: chip.kind, label: chip.label, icon: chip.icon, source: segment.text.clone(), ..InlineChip::default() });
+                            let chip = segment.chip.filter(|chip| segment.href.is_some() && chip.is_valid()).map(|chip| InlineChip { kind: chip.kind, label: chip.label, icon: chip.icon, ident: chip.ident.filter(|i| !i.is_empty()), source: segment.text.clone(), ..InlineChip::default() });
                             Inline { text: segment.text, link: segment.href, chip, ..span.clone() }
                         }));
                     }
@@ -1190,6 +1192,18 @@ pub struct MdStyles {
     pub image_border_color: Option<gpui::Hsla>,
     pub cell_pad_h: f32,
     pub cell_pad_v: f32,
+    /// #VAPP-258: a heading's type and margins per `level` (index = level
+    /// - 1; `None` = `heading`, `heading_top`, `heading_bottom`).
+    pub heading_levels: Vec<Option<TextSpec>>,
+    pub heading_tops: Vec<Option<f32>>,
+    pub heading_bottoms: Vec<Option<f32>>,
+    /// #VAPP-258: a list item's `Markdown/listItem` margins (collapsing
+    /// with each other and, at a list's end, with the block gap).
+    pub item_top: f32,
+    pub item_bottom: f32,
+    /// #VAPP-258: a fenced block's border (`Markdown/codeBlock`
+    /// borderWidth), inside its box: the box grows by it on each side.
+    pub code_border: f32,
     /// #VAPP-258: the inline chip's metrics.
     pub chip: ChipMetrics,
     /// #VAPP-258: the attachment blocks' metrics.
@@ -1207,12 +1221,47 @@ pub struct ChipMetrics {
     pub gap: f32,
     pub icon: f32,
     pub caption: TextSpec,
+    /// #VAPP-258: the ident's type (`Markdown/chipIdent`; `None` = the mono
+    /// family at the label's size).
+    pub ident: Option<TextSpec>,
+    /// #VAPP-258: the box's corner radius (`None` = a capsule).
+    pub radius: Option<f32>,
+    /// #VAPP-258: a theme's `Markdown/chip*` metrics per chip kind.
+    pub kinds: HashMap<String, ChipKind>,
+}
+
+/// #VAPP-258: one chip kind's `Markdown/chip*` metrics (`None` = the base).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ChipKind {
+    pub caption: Option<TextSpec>,
+    pub ident: Option<TextSpec>,
+    pub pad: Option<f32>,
+    pub radius: Option<f32>,
 }
 
 impl ChipMetrics {
-    /// The chip box width for a label `label_w` wide.
-    pub fn width(&self, label_w: f32, icon: bool) -> f32 {
-        2.0 * self.pad + label_w + if icon { self.icon + self.gap } else { 0.0 }
+    /// The chip box width for a label `label_w` wide (and an ident
+    /// `ident_w` wide).
+    pub fn width(&self, label_w: f32, icon: bool, ident_w: Option<f32>) -> f32 {
+        2.0 * self.pad + label_w + if icon { self.icon + self.gap } else { 0.0 } + ident_w.map_or(0.0, |w| w + self.gap)
+    }
+
+    /// The metrics a chip of `kind` lays out with (its kind's overrides on top).
+    pub fn resolved(&self, kind: &str) -> ChipMetrics {
+        let Some(k) = self.kinds.get(kind) else { return self.clone() };
+        ChipMetrics {
+            caption: k.caption.clone().unwrap_or_else(|| self.caption.clone()),
+            ident: k.ident.clone().or_else(|| self.ident.clone()),
+            pad: k.pad.unwrap_or(self.pad),
+            radius: k.radius.or(self.radius),
+            kinds: HashMap::new(),
+            ..self.clone()
+        }
+    }
+
+    /// The ident's type: its own, else the mono family at the label's size.
+    pub fn ident_spec(&self, mono: Option<String>) -> TextSpec {
+        self.ident.clone().unwrap_or_else(|| TextSpec { family: mono, ..self.caption.clone() })
     }
 
     /// The chip box height in a line `line_height` tall.
@@ -1251,7 +1300,7 @@ impl MdStyles {
 
     /// Plain metrics for a body text style (geometry mode, tests).
     pub fn plain(body: TextSpec) -> MdStyles {
-        let chip = ChipMetrics { height: 20.0, pad: 8.0, gap: 4.0, icon: 16.0, caption: TextSpec { size: 12.0, line_height: 16.0, weight: 400, family: body.family.clone() } };
+        let chip = ChipMetrics { height: 20.0, pad: 8.0, gap: 4.0, icon: 16.0, caption: TextSpec { size: 12.0, line_height: 16.0, weight: 400, family: body.family.clone() }, ident: None, radius: None, kinds: HashMap::new() };
         let attach = AttachMetrics {
             media_width: eui_core::layout::MEDIA_INTRINSIC_WIDTH as f32,
             media_ratio: eui_core::layout::MEDIA_ASPECT_RATIO as f32,
@@ -1283,6 +1332,12 @@ impl MdStyles {
             heading_bottom: 4.0,
             cell_pad_h: 8.0,
             cell_pad_v: 4.0,
+            heading_levels: vec![None; 6],
+            heading_tops: vec![None; 6],
+            heading_bottoms: vec![None; 6],
+            item_top: 0.0,
+            item_bottom: 0.0,
+            code_border: 0.0,
         }
     }
 
@@ -1294,6 +1349,11 @@ impl MdStyles {
             return s;
         }
         let part = |name: &str| part_props(theme, mode, "Markdown", name, owner_props, &[]);
+        let part_with = |name: &str, key: &str, value: serde_json::Value| {
+            let mut props = owner_props.clone();
+            props.insert(key.to_string(), value);
+            part_props(theme, mode, "Markdown", name, &props, &[])
+        };
         let spec = |p: &Map<String, serde_json::Value>, base: &TextSpec| TextSpec {
             size: px_prop(p, "fontSize").unwrap_or(base.size),
             line_height: px_prop(p, "lineHeight").unwrap_or(base.line_height),
@@ -1309,10 +1369,25 @@ impl MdStyles {
             s.body = spec(root, &s.body);
         }
         let heading = part("heading");
-        s.heading = spec(&heading, &TextSpec { weight: 600, ..s.body.clone() });
+        let heading_base = TextSpec { weight: 600, ..s.body.clone() };
+        s.heading = spec(&heading, &heading_base);
+        // #VAPP-258: each heading level's type and margins (the `level` the
+        // painter supplies; margins collapse like CSS block margins).
+        s.heading_top = px_prop(&heading, "marginTop").unwrap_or_else(|| spacing(theme, "md"));
+        s.heading_bottom = px_prop(&heading, "marginBottom").unwrap_or_else(|| spacing(theme, "xs"));
+        for level in 1..=6u8 {
+            let p = part_with("heading", "level", serde_json::Value::from(level));
+            s.heading_levels[level as usize - 1] = Some(spec(&p, &heading_base));
+            s.heading_tops[level as usize - 1] = px_prop(&p, "marginTop");
+            s.heading_bottoms[level as usize - 1] = px_prop(&p, "marginBottom");
+        }
+        let item = part("listItem");
+        s.item_top = px_prop(&item, "marginTop").unwrap_or(0.0);
+        s.item_bottom = px_prop(&item, "marginBottom").unwrap_or(0.0);
         let code = part("codeBlock");
         s.code = spec(&code, &TextSpec { family: mono_family(theme), ..s.code.clone() });
         s.code_pad = px_prop(&code, "padding").or_else(|| px_prop(&code, "paddingHorizontal")).unwrap_or(s.code_pad);
+        s.code_border = px_prop(&code, "borderWidth").unwrap_or(0.0);
         let quote = part("quote");
         s.quote_border = px_prop(&quote, "borderWidth").unwrap_or(s.quote_border);
         s.quote_pad = px_prop(&quote, "paddingHorizontal").unwrap_or(s.quote_pad);
@@ -1320,10 +1395,10 @@ impl MdStyles {
         s.image_border_width = px_prop(&part("image"), "borderWidth").unwrap_or(0.0);
         s.image_border_color = color_of(part_visual(theme, mode, "Markdown", "image", owner_props, &[]).border_color.as_deref());
         s.block_gap = root.as_ref().and_then(|r| px_prop(r, "gap")).unwrap_or_else(|| spacing(theme, "sm"));
-        s.heading_top = spacing(theme, "md");
-        s.heading_bottom = spacing(theme, "xs");
-        s.cell_pad_h = spacing(theme, "sm");
-        s.cell_pad_v = spacing(theme, "xs");
+        // #VAPP-258: every cell's paddings (`Markdown/cell`).
+        let cell = part("cell");
+        s.cell_pad_h = px_prop(&cell, "paddingHorizontal").or_else(|| px_prop(&cell, "padding")).unwrap_or_else(|| spacing(theme, "sm"));
+        s.cell_pad_v = px_prop(&cell, "paddingVertical").or_else(|| px_prop(&cell, "padding")).unwrap_or_else(|| spacing(theme, "xs"));
         // #VAPP-258: the chip (the Chip macro's root + its caption label).
         let caption = part_props(theme, mode, "Text", "root", &Map::from_iter([("variant".to_string(), serde_json::Value::from("caption"))]), &[]);
         s.chip = ChipMetrics {
@@ -1332,7 +1407,25 @@ impl MdStyles {
             gap: spacing(theme, "xs"),
             icon: super::parts::control(theme, "iconSm", s.chip.icon),
             caption: TextSpec { weight: 400, ..spec(&caption, &s.chip.caption) },
+            ident: None,
+            radius: None,
+            kinds: HashMap::new(),
         };
+        // #VAPP-258: a theme's `Markdown/chip*` rules per chip kind (their
+        // metrics; the painter resolves the colours).
+        for kind in eui_core::host::contract::MARKDOWN_CHIP_KINDS {
+            let (bx, label, ident) = (part_with("chip", "chip", (*kind).into()), part_with("chipLabel", "chip", (*kind).into()), part_with("chipIdent", "chip", (*kind).into()));
+            let typed = |p: &Map<String, serde_json::Value>| ["fontSize", "lineHeight", "fontWeight", "fontFamily"].iter().any(|k| p.contains_key(*k));
+            let look = ChipKind {
+                caption: typed(&label).then(|| spec(&label, &s.chip.caption)),
+                ident: typed(&ident).then(|| spec(&ident, &TextSpec { family: mono_family(theme), ..s.chip.caption.clone() })),
+                pad: px_prop(&bx, "paddingHorizontal").or_else(|| px_prop(&bx, "padding")),
+                radius: px_prop(&bx, "borderRadius"),
+            };
+            if look != ChipKind::default() {
+                s.chip.kinds.insert((*kind).to_string(), look);
+            }
+        }
         let file = part_props(theme, mode, "FileUpload", "file", owner_props, &[]);
         let file_name = part_props(theme, mode, "FileUpload", "fileName", owner_props, &[]);
         s.attach.audio_gap = spacing(theme, "xs");
@@ -1347,7 +1440,7 @@ impl MdStyles {
 
     fn spec_of(&self, kind: &BlockKind) -> &TextSpec {
         match kind {
-            BlockKind::Heading(_) => &self.heading,
+            BlockKind::Heading(level) => self.heading_levels.get(level_slot(*level)).and_then(Option::as_ref).unwrap_or(&self.heading),
             BlockKind::CodeBlock => &self.code,
             _ => &self.body,
         }
@@ -1466,8 +1559,10 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
         for span in list.iter_mut() {
             let (bold, italic) = (span.bold, span.italic);
             let Some(chip) = span.chip.as_mut() else { continue };
-            let label = text.run_width(&chip.label, &s.chip.caption, false, false);
-            let want = s.chip.width(label, chip.icon.is_some());
+            let m = s.chip.resolved(&chip.kind);
+            let label = text.run_width(&chip.label, &m.caption, false, false);
+            let ident = chip.ident.as_ref().map(|i| text.run_width(i, &m.ident_spec(s.code.family.clone()), false, false));
+            let want = m.width(label, chip.icon.is_some(), ident);
             chip.capped = want > cap;
             chip.width = want.min(cap);
             let wide = text.run_width(&CHIP_FILL[0].to_string(), spec, bold, italic);
@@ -1502,21 +1597,31 @@ pub fn size_chips(blocks: &[Block], s: &MdStyles, width: Option<f32>, text: &mut
     )
 }
 
+/// A heading `level`'s slot in the per-level tables (levels clamp to 1...6).
+fn level_slot(level: u8) -> usize {
+    level.clamp(1, 6) as usize - 1
+}
+
 fn margins(kind: &BlockKind, s: &MdStyles) -> (f32, f32) {
     match kind {
-        BlockKind::Heading(_) => (s.heading_top, s.heading_bottom),
+        BlockKind::Heading(level) => {
+            let slot = level_slot(*level);
+            (s.heading_tops.get(slot).copied().flatten().unwrap_or(s.heading_top), s.heading_bottoms.get(slot).copied().flatten().unwrap_or(s.heading_bottom))
+        }
+        BlockKind::ListItem { .. } => (s.item_top, s.item_bottom.max(s.block_gap)),
         _ => (0.0, s.block_gap),
     }
 }
 
-/// The gap above block `i` (CSS margins collapse; first/last margins drop).
+/// The gap above block `i` (CSS margins collapse; first/last margins drop;
+/// inside a list, the items' own margins).
 fn gap_before(blocks: &[Block], i: usize, s: &MdStyles) -> f32 {
     if i == 0 {
         return 0.0;
     }
     let (prev, cur) = (&blocks[i - 1], &blocks[i]);
     if prev.list_group.is_some() && prev.list_group == cur.list_group {
-        return 0.0;
+        return s.item_bottom.max(s.item_top);
     }
     margins(&prev.kind, s).1.max(margins(&cur.kind, s).0)
 }
@@ -1534,7 +1639,7 @@ pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText)
             BlockKind::Image { size, .. } => (image_box(*size, width.max(1.0), s.image_height, s.viewport_height).1, Vec::new()),
             BlockKind::Attachment { kind, .. } => (attachment_height(*kind, s, width), Vec::new()),
             BlockKind::Quote => (text.height(&b.inlines, spec, Some((width - s.quote_border - s.quote_pad).max(1.0))), Vec::new()),
-            BlockKind::CodeBlock => (text.height(&b.inlines, spec, None) + 2.0 * s.code_pad, Vec::new()),
+            BlockKind::CodeBlock => (text.height(&b.inlines, spec, None) + 2.0 * (s.code_pad + s.code_border), Vec::new()),
             BlockKind::Rule => (1.0, Vec::new()),
             BlockKind::Table { header, rows } => {
                 let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
@@ -1582,7 +1687,7 @@ pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
                 }
                 BlockKind::Attachment { .. } => s.attach.media_width,
                 BlockKind::Quote => text.width(&b.inlines, spec) + s.quote_border + s.quote_pad,
-                BlockKind::CodeBlock => b.inlines[0].text.lines().map(|l| text.width(&[Inline { text: l.to_string(), ..b.inlines[0].clone() }], spec)).fold(0.0, f32::max) + 2.0 * s.code_pad,
+                BlockKind::CodeBlock => b.inlines[0].text.lines().map(|l| text.width(&[Inline { text: l.to_string(), ..b.inlines[0].clone() }], spec)).fold(0.0, f32::max) + 2.0 * (s.code_pad + s.code_border),
                 BlockKind::Rule => 0.0,
                 BlockKind::Table { header, rows } => {
                     let cols = header.len().max(1) as f32;
@@ -1844,6 +1949,13 @@ pub struct MdPaint {
     /// the run's ink).
     pub chip_box: super::PaintStyle,
     pub chip_label: Option<Hsla>,
+    /// #VAPP-258: each chip kind's `Markdown/chip*` look over the Chip's
+    /// (the box style, the label and ident colours).
+    pub chip_looks: HashMap<String, ChipLook>,
+    /// #VAPP-258: the fenced block's border colour (its width = the
+    /// styles' `code_border`) and the table header row's fill.
+    pub code_block_border: Option<Hsla>,
+    pub header_bg: Option<Hsla>,
     /// An icon registry name at a size in a colour (the host's icons).
     pub icon: IconPainter,
     /// #VAPP-258: `on_image_press` (`None` = a block image is not pressable).
@@ -1855,6 +1967,41 @@ pub struct MdPaint {
     /// #VAPP-258 step 5: the laid-out flag of the block being built (a
     /// lazy block's units are live only once it shows; `None` = live).
     pub live: RefCell<Option<Rc<std::cell::Cell<bool>>>>,
+}
+
+/// #VAPP-258: one chip kind's colours over the Chip look.
+#[derive(Clone, Default)]
+pub struct ChipLook {
+    pub background: Option<Hsla>,
+    pub border: Option<Hsla>,
+    pub border_width: Option<f32>,
+    pub label: Option<Hsla>,
+    pub ident: Option<Hsla>,
+}
+
+impl ChipLook {
+    /// Each chip kind's `Markdown/chip`, `chipLabel` and `chipIdent` colours
+    /// under `owner_props` (the density); a kind without a rule is absent.
+    pub fn of_kinds(theme: Option<&ResolvedTheme>, mode: Mode, owner_props: &Map<String, serde_json::Value>) -> HashMap<String, ChipLook> {
+        let mut out = HashMap::new();
+        for kind in eui_core::host::contract::MARKDOWN_CHIP_KINDS {
+            let mut props = owner_props.clone();
+            props.insert("chip".into(), (*kind).into());
+            props.entry("density").or_insert_with(|| "document".into());
+            let bx = part_visual(theme, mode, "Markdown", "chip", &props, &[]);
+            let look = ChipLook {
+                background: color_of(bx.background_color.as_deref()),
+                border: color_of(bx.border_color.as_deref()),
+                border_width: bx.border_width,
+                label: color_of(part_visual(theme, mode, "Markdown", "chipLabel", &props, &[]).color.as_deref()),
+                ident: color_of(part_visual(theme, mode, "Markdown", "chipIdent", &props, &[]).color.as_deref()),
+            };
+            if look.background.is_some() || look.border.is_some() || look.border_width.is_some() || look.label.is_some() || look.ident.is_some() {
+                out.insert((*kind).to_string(), look);
+            }
+        }
+        out
+    }
 }
 
 /// An icon name, size and colour → its element.
@@ -1958,10 +2105,20 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
 /// A press opens the policed href like a link and never reaches what is
 /// behind (a Row, the text selection).
 fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y, h): (f32, f32, f32), p: &MdPaint, ink: Hsla) -> AnyElement {
-    let m = &p.styles.chip;
+    let m = &p.styles.chip.resolved(&chip.kind);
+    let own = p.chip_looks.get(&chip.kind).cloned().unwrap_or_default();
     let mut look = p.chip_box.clone();
-    look.radii = [h / 2.0; 4];
-    let color = p.chip_label.unwrap_or(ink);
+    look.radii = [m.radius.unwrap_or(h / 2.0); 4];
+    if let Some(bg) = own.background {
+        look.bg = Some(bg);
+    }
+    if let Some(c) = own.border {
+        look.border_color = Some(c);
+    }
+    if let Some(w) = own.border_width {
+        look.border = [w; 4];
+    }
+    let color = own.label.or(p.chip_label).unwrap_or(ink);
     let font = Font { family: p.family.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(m.caption.weight as f32), style: FontStyle::Normal };
     let label: SharedString = chip.label.clone().into();
     let runs = p.fallback(&label, vec![TextRun { len: label.len(), font, color, background_color: None, underline: None, strikethrough: None }]);
@@ -1981,6 +2138,16 @@ fn inline_chip(id: SharedString, chip: &InlineChip, href: Option<String>, (x, y,
         .overflow_hidden();
     if let Some(icon) = &chip.icon {
         row = row.child(div().flex_none().child((p.icon)(icon, m.icon, color)));
+    }
+    if let Some(ident) = &chip.ident {
+        // #VAPP-258: the ident in its own (mono) type, before the label.
+        let spec = m.ident_spec(p.styles.code.family.clone());
+        let ident_color = own.ident.unwrap_or(color);
+        let family = spec.family.clone().map(SharedString::from).unwrap_or_else(|| p.mono.clone());
+        let ident_font = Font { family, features: Default::default(), fallbacks: None, weight: FontWeight(spec.weight as f32), style: FontStyle::Normal };
+        let text: SharedString = ident.clone().into();
+        let runs = p.fallback(&text, vec![TextRun { len: text.len(), font: ident_font, color: ident_color, background_color: None, underline: None, strikethrough: None }]);
+        row = row.child(div().flex_none().text_size(px(spec.size)).line_height(px(spec.line_height)).whitespace_nowrap().text_color(ident_color).child(StyledText::new(text).with_runs(runs)));
     }
     let row = row.child(label_el.child(StyledText::new(label).with_runs(runs))).id(id);
     match href {
@@ -2019,7 +2186,7 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
         let placed = if lazy { div().relative() } else { div().absolute().left_0().top(px(bx.y)) }.w(px(width)).h(px(bx.height));
         let el: AnyElement = match &b.kind {
             BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors, width.max(1.0), text)).into_any_element(),
-            BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors, width.max(1.0), text)).into_any_element(),
+            BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, s.spec_of(&b.kind), &p.heading_family, p, p.colors, width.max(1.0), text)).into_any_element(),
             BlockKind::ListItem { marker, task, depth } => {
                 let lead = s.list_indent * *depth as f32;
                 let body_w = (width - lead - s.list_indent).max(1.0);
@@ -2098,6 +2265,8 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                 placed
                     .rounded(px(6.0))
                     .when_some(p.code_block_bg, |d, bg| d.bg(bg))
+                    // #VAPP-258: the `Markdown/codeBlock` border, inside the box.
+                    .when(s.code_border > 0.0, |d| d.border(px(s.code_border)).border_color(p.code_block_border.unwrap_or(p.border)))
                     .overflow_hidden()
                     .child(
                         div()
@@ -2133,6 +2302,8 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                                 .w(px(col_w))
                                 .h(px(h))
                                 .when(r > 0, |d| d.border_t_1().border_color(p.border))
+                                // #VAPP-258: the header row's `Markdown/headerCell` fill.
+                                .when(r == 0, |d| d.when_some(p.header_bg, |d, bg| d.bg(bg)))
                                 .when(c > 0 && !p.rtl, |d| d.border_l_1().border_color(p.border))
                                 .when(c > 0 && p.rtl, |d| d.border_r_1().border_color(p.border))
                                 .child(
@@ -2377,6 +2548,7 @@ mod tests {
                 if let Some(chip) = &run.chip {
                     let mut c = json!({"kind": chip.kind, "label": chip.label});
                     if let Some(icon) = &chip.icon { c["icon"] = json!(icon); }
+                    if let Some(ident) = &chip.ident { c["ident"] = json!(ident); }
                     r.insert("chip".into(), c);
                 }
                 out.push(r);
@@ -2516,7 +2688,7 @@ mod tests {
                 let sized = size_chips(&chipped, &s, Some(400.0), &mut sh).expect("a chip");
                 let chip = sized[0].inlines.iter().find_map(|i| i.chip.clone()).expect("chip");
                 let label = MdText::run_width(&mut sh, "ABC-1 Fix login", &s.chip.caption, false, false);
-                let want = s.chip.width(label, true);
+                let want = s.chip.width(label, true, None);
                 let ph = sized[0].inlines.iter().find(|i| i.chip.is_some()).unwrap().text.clone();
                 assert!(ph.chars().all(|c| CHIP_FILL.contains(&c)));
                 let wide = MdText::run_width(&mut sh, &CHIP_FILL[0].to_string(), &s.body, false, false);

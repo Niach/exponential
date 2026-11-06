@@ -61,7 +61,7 @@ internal class FakeMarkdownHost(f: JsonValue) : HostPlugin {
                 continue
             }
             if (i > plain) out.add(TextLinkSegment(text.substring(plain, i)))
-            val chip = hit.second["chip"]?.let { TextLinkChip(it["kind"]!!.string!!, it["label"]!!.string!!, it["icon"]?.string) }
+            val chip = hit.second["chip"]?.let { TextLinkChip(it["kind"]!!.string!!, it["label"]!!.string!!, it["icon"]?.string, it["ident"]?.string) }
             out.add(TextLinkSegment(hit.first, hit.second["href"]?.string, chip))
             i += hit.first.length
             plain = i
@@ -99,7 +99,7 @@ internal object MarkdownNormalForm {
             if (run.code) r["code"] = true
             if (run.strike) r["strike"] = true
             run.link?.let { r["link"] = it }
-            run.chip?.let { c -> r["chip"] = buildMap { put("kind", c.kind); put("label", c.label); c.icon?.let { put("icon", it) } } }
+            run.chip?.let { c -> r["chip"] = buildMap { put("kind", c.kind); put("label", c.label); c.icon?.let { put("icon", it) }; c.shownIdent?.let { put("ident", it) } } }
             out += r
             lastKey = key
         }

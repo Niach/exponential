@@ -617,10 +617,18 @@ extension TextShaper {
         TextStyle(fontSize: style.label.size, fontWeight: style.label.weight, lineHeight: style.label.lineHeight, fontFamily: style.label.family)
     }
 
+    /// #VAPP-258: the chip ident's text style (`Markdown/chipIdent`, else mono).
+    static func chipIdentStyle(_ style: MarkdownChipStyle) -> TextStyle {
+        let s = style.identSpec
+        return TextStyle(fontSize: s.size, fontWeight: s.weight, lineHeight: s.lineHeight, fontFamily: s.family)
+    }
+
     /// The chip's width: 2 × padding + the label shaped in the caption
-    /// style (+ icon + gap), capped at `wrap`.
-    static func chipWidth(_ chip: MarkdownChip, style: MarkdownChipStyle, wrap: CGFloat?) -> CGFloat {
-        style.width(chip, labelWidth: width(chip.label, chipLabelStyle(style)), wrap: wrap)
+    /// style (+ icon + gap) (+ the ident + gap), capped at `wrap`; a theme's
+    /// rules for the chip's kind first.
+    static func chipWidth(_ chip: MarkdownChip, style base: MarkdownChipStyle, wrap: CGFloat?) -> CGFloat {
+        let style = base.resolved(chip.kind)
+        return style.width(chip, labelWidth: width(chip.label, chipLabelStyle(style)), identWidth: chip.ident.map { width($0, chipIdentStyle(style)) } ?? 0, wrap: wrap)
     }
 
     static func chipRun(_ chip: MarkdownChip, href: String, style: MarkdownChipStyle, lineHeight: CGFloat, wrap: CGFloat?, attrs base: [NSAttributedString.Key: Any]) -> NSAttributedString {

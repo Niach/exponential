@@ -408,13 +408,17 @@ pub struct TextLink {
 
 /// #VAPP-258: a text link's inline chip: `kind` in
 /// [`super::contract::MARKDOWN_CHIP_KINDS`] (the host's meaning, one look),
-/// a non-empty `label`, an optional icon registry name.
+/// a non-empty `label`, an optional icon registry name and `ident`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TextLinkChip {
     pub kind: String,
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// #VAPP-258: an identifier (`ABC-1`) painted mono before the label
+    /// (an empty one is none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ident: Option<String>,
 }
 
 impl TextLinkChip {

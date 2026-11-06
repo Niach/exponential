@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useAppLinkClick } from "@/hooks/use-app-link-click"
+import { ReadMarkdown } from "@/components/read-markdown"
 import type * as React from "react"
 import { Files } from "lucide-react"
 import {
@@ -163,7 +163,6 @@ export function IssueDetailView({
   const isMobile = useIsMobile()
 
   const editorRef = useRef<MarkdownEditorRef>(null)
-  const onLinkClick = useAppLinkClick()
   // EXP-894: the body comes back where it was left after a work-tab switch.
   const rememberedScrollRef = useRememberedScroll(
     issueMemoryOwner(issue.id),
@@ -593,7 +592,12 @@ export function IssueDetailView({
 
   const editor = (
     // #EXP-1674: a read-only body's link goes through THE opener (`~/x`, in-app routes).
-    <div className="max-md:px-1" onClickCapture={readOnly ? onLinkClick : undefined}>
+    <div className="max-md:px-1">
+      {readOnly ? (
+        // #VAPP-258: the read view is genUI's Markdown (document density,
+        // no picture cap), the editor's column inset.
+        <ReadMarkdown text={description} surface="document" ariaLabel="Description" className="px-5 py-1" />
+      ) : (
       <MarkdownEditor
         ref={editorRef}
         markdown={description}
@@ -615,6 +619,7 @@ export function IssueDetailView({
           onOtherFiles: handleOtherFiles,
         }}
       />
+      )}
     </div>
   )
 

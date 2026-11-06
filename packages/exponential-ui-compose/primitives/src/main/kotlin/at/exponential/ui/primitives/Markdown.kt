@@ -27,7 +27,10 @@ data class MarkdownInline(
 )
 
 /** #VAPP-258 (catalog/host.json `markdown`): a text link's chip: [kind] in [KINDS], a non-empty [label], an optional icon registry name. */
-data class MarkdownChip(val kind: String, val label: String, val icon: String? = null) {
+data class MarkdownChip(val kind: String, val label: String, val icon: String? = null, val ident: String? = null) {
+    /** #VAPP-258: the identifier painted mono before the label (an empty one = none). */
+    val shownIdent: String? get() = ident?.takeIf { it.isNotEmpty() }
+
     /** A known kind and a non-empty label (else the chip is dropped, the link stays). */
     val valid: Boolean get() = kind in KINDS && label.isNotEmpty()
 
@@ -173,17 +176,40 @@ data class MarkdownChipStyle(
     val gap: Float = 4f,
     val iconSize: Float = 16f,
     val height: Float = 20f,
+    /** #VAPP-258: the ident's type (`Markdown/chipIdent`; null = the mono family at the label's size). */
+    val ident: MarkdownTextSpec? = null,
+    /** #VAPP-258: the box's corner radius (null = a capsule). */
+    val radius: Float? = null,
+    /** #VAPP-258: a theme's `Markdown/chip*` metrics per chip kind. */
+    val kinds: Map<String, MarkdownChipKindStyle> = emptyMap(),
 ) {
     /** The chip box's height in a line [lineHeight] tall. */
     fun height(lineHeight: Float): Float = minOf(height, lineHeight)
 
-    /** The chip's width around a label [labelWidth] wide (uncapped). */
-    fun width(chip: MarkdownChip, labelWidth: Float): Float =
-        2 * padH + labelWidth + if (chip.icon.isNullOrEmpty()) 0f else iconSize + gap
+    /** The style a chip of [kind] lays out with (its kind's overrides on top). */
+    fun resolved(kind: String): MarkdownChipStyle {
+        val k = kinds[kind] ?: return this
+        return copy(label = k.label ?: label, ident = k.ident ?: ident, padH = k.padH ?: padH, radius = k.radius ?: radius, kinds = emptyMap())
+    }
+
+    /** The ident's type: its own, else the mono family at the label's size. */
+    val identSpec: MarkdownTextSpec get() = ident ?: MarkdownTextSpec(label.size, label.lineHeight, label.weight, "ui-monospace")
+
+    /** The chip's width around a label [labelWidth] wide and an ident [identWidth] wide (uncapped). */
+    fun width(chip: MarkdownChip, labelWidth: Float, identWidth: Float = 0f): Float =
+        2 * padH + labelWidth + (if (chip.icon.isNullOrEmpty()) 0f else iconSize + gap) + (if (chip.shownIdent == null) 0f else identWidth + gap)
 
     /** The label's width for a shaped [px] extent at [density] (whole px + 1 slack: what measure and paint both use). */
     fun labelWidth(px: Float, density: Float): Float = (ceil(px - 0.01f) + 1f) / density
 }
+
+/** #VAPP-258: one chip kind's `Markdown/chip*` metrics (null = the base). */
+data class MarkdownChipKindStyle(
+    val label: MarkdownTextSpec? = null,
+    val ident: MarkdownTextSpec? = null,
+    val padH: Float? = null,
+    val radius: Float? = null,
+)
 
 /** Typography of one block kind (dp sizes, CSS weight, family NAME). */
 data class MarkdownTextSpec(
@@ -221,6 +247,15 @@ data class MarkdownStyles(
     var imageRadius: Float = 0f,
     /** #VAPP-258: the inline chip. */
     var chip: MarkdownChipStyle = MarkdownChipStyle(),
+    /** #VAPP-258: a heading's type and margins per `level` (1..6; absent = [heading], [headingTop], [headingBottom]). */
+    var headingLevels: Map<Int, MarkdownTextSpec> = emptyMap(),
+    var headingTops: Map<Int, Float> = emptyMap(),
+    var headingBottoms: Map<Int, Float> = emptyMap(),
+    /** #VAPP-258: a list item's `Markdown/listItem` margins (collapsing with each other and, at a list's end, the block gap). */
+    var itemTop: Float = 0f,
+    var itemBottom: Float = 0f,
+    /** #VAPP-258: a fenced block's border (`Markdown/codeBlock` borderWidth), inside its box: the box grows by it on each side. */
+    var codeBorder: Float = 0f,
     /** #VAPP-258: a video attachment's max width (`mediaIntrinsicWidth`) and aspect (`mediaAspectRatio`). */
     var mediaMaxWidth: Float = 320f,
     var mediaAspect: Float = 16f / 9f,
@@ -247,20 +282,25 @@ data class MarkdownStyles(
 
     /** The typography of a block kind. */
     fun spec(kind: MarkdownBlockKind): MarkdownTextSpec = when (kind) {
-        is MarkdownBlockKind.Heading -> heading
+        is MarkdownBlockKind.Heading -> headingLevels[levelOf(kind)] ?: heading
         MarkdownBlockKind.CodeBlock -> code
         else -> body
     }
 
-    internal fun margins(kind: MarkdownBlockKind): Pair<Float, Float> =
-        if (kind is MarkdownBlockKind.Heading) headingTop to headingBottom else 0f to blockGap
+    private fun levelOf(kind: MarkdownBlockKind.Heading): Int = kind.level.coerceIn(1, 6)
 
-    /** The gap above block `i` (margins collapse; first/last margins drop). */
+    internal fun margins(kind: MarkdownBlockKind): Pair<Float, Float> = when (kind) {
+        is MarkdownBlockKind.Heading -> (headingTops[levelOf(kind)] ?: headingTop) to (headingBottoms[levelOf(kind)] ?: headingBottom)
+        is MarkdownBlockKind.ListItem -> itemTop to max(itemBottom, blockGap)
+        else -> 0f to blockGap
+    }
+
+    /** The gap above block `i` (margins collapse; first/last margins drop; inside a list, the items' own margins). */
     fun gapBefore(blocks: List<MarkdownBlock>, i: Int): Float {
         if (i == 0) return 0f
         val prev = blocks[i - 1]
         val cur = blocks[i]
-        if (prev.listGroup != null && prev.listGroup == cur.listGroup) return 0f
+        if (prev.listGroup != null && prev.listGroup == cur.listGroup) return max(itemBottom, itemTop)
         return max(margins(prev.kind).second, margins(cur.kind).first)
     }
 }
@@ -1112,7 +1152,7 @@ object Markdown {
                 is MarkdownBlockKind.Image -> imageBox(k.width, k.height, width, s.imageHeight, s.viewportHeight).height
                 is MarkdownBlockKind.Attachment -> s.attachmentHeight(k, width)
                 MarkdownBlockKind.Quote -> text.height(b.inlines, spec, max(width - s.quoteBorder - s.quotePad, 1f), s.chip)
-                MarkdownBlockKind.CodeBlock -> text.height(b.inlines, spec, null) + 2 * s.codePad
+                MarkdownBlockKind.CodeBlock -> text.height(b.inlines, spec, null) + 2 * (s.codePad + s.codeBorder)
                 MarkdownBlockKind.Rule -> 1f
                 is MarkdownBlockKind.Table -> {
                     val cols = maxOf(k.header.size, k.rows.maxOfOrNull { it.size } ?: 0, 1)
@@ -1156,8 +1196,8 @@ object Markdown {
                     if (n >= 1) best = box.y + n * lh else if (best == 0f) best = minOf(box.y + lh, limit)
                 }
                 MarkdownBlockKind.CodeBlock -> {
-                    val n = floor(((limit - box.y - s.codePad) / lh).toDouble()).toInt()
-                    if (n >= 1) best = box.y + s.codePad + n * lh
+                    val n = floor(((limit - box.y - s.codePad - s.codeBorder) / lh).toDouble()).toInt()
+                    if (n >= 1) best = box.y + s.codePad + s.codeBorder + n * lh
                 }
                 is MarkdownBlockKind.Table -> {
                     var y = box.y
@@ -1196,7 +1236,7 @@ object Markdown {
                 MarkdownBlockKind.Quote -> text.width(b.inlines, spec, s.chip) + s.quoteBorder + s.quotePad
                 MarkdownBlockKind.CodeBlock -> {
                     val first = b.inlines.firstOrNull() ?: MarkdownInline(text = "", code = true)
-                    (first.text.split("\n").maxOfOrNull { text.width(listOf(MarkdownInline(text = it, code = true)), spec) } ?: 0f) + 2 * s.codePad
+                    (first.text.split("\n").maxOfOrNull { text.width(listOf(MarkdownInline(text = it, code = true)), spec) } ?: 0f) + 2 * (s.codePad + s.codeBorder)
                 }
                 MarkdownBlockKind.Rule -> 0f
                 is MarkdownBlockKind.Table -> {

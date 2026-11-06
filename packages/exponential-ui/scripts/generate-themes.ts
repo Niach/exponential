@@ -85,6 +85,12 @@ export function composeExponential(): ThemeSource {
   dark.accent = hex(design.glass.fillActive)
   dark.border = hex(design.glass.strokeCard)
   dark.input = hex(design.palette.input)
+  // #VAPP-258: a link's ink is the app's `--link` (light palette first, then
+  // dark, as styles.css declares them).
+  const links = [...css.matchAll(/--link:\s*([^;]+);/g)].map((m) => hex(m[1]!.trim()))
+  if (links.length < 2) throw new Error(`styles.css lacks the light + dark --link`)
+  light.link = links[0]!
+  dark.link = links[1]!
   // Status semantics are fixed hues on every client (design-tokens `semantic`).
   for (const table of [light, dark]) {
     table.success = hex(design.semantic.green)
@@ -195,6 +201,8 @@ export function themeSchema(): Record<string, unknown> {
     paddingHorizontal: numOrToken([`spacing`]),
     paddingVertical: numOrToken([`spacing`]),
     gap: numOrToken([`spacing`]),
+    marginTop: numOrToken([`spacing`]),
+    marginBottom: numOrToken([`spacing`]),
     width: numOrToken([`control`, `spacing`, `border`]),
     height: numOrToken([`control`, `spacing`, `border`]),
     minWidth: numOrToken([`control`, `spacing`]),

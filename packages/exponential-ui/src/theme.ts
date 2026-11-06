@@ -90,6 +90,9 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   transform: [],
   backdropBlur: [`blur`],
   animation: [],
+  // #VAPP-258: Markdown heading / listItem margins.
+  marginTop: [`spacing`],
+  marginBottom: [`spacing`],
 }
 const COLOR_KEYS = new Set([`backgroundColor`, `color`, `borderColor`])
 /** The ONLY free text a theme contributes to a stylesheet verbatim: a family
@@ -482,9 +485,20 @@ export function tryLoadTheme(source: unknown, options: ThemeOptions = {}): { the
     overlay(theme, link)
     theme.chain.push(link.id)
   }
+  deriveColors(theme)
   const missing = completeness(theme)
   if (missing.length > 0) return { theme: null, issues: missing }
   return { theme, issues: [] }
+}
+
+/** #VAPP-258 (catalog/tokens.json `color.link`): a colour token appended
+ *  after themes shipped takes a sibling's value when the chain sets none, so
+ *  every older theme stays complete: `link` = `primary`. */
+function deriveColors(theme: ResolvedTheme): void {
+  for (const mode of MODES) {
+    const color = theme.modes[mode].color as Record<string, string>
+    if (color.link === undefined && color.primary !== undefined) color.link = color.primary
+  }
 }
 
 /** A theme file → the flat theme a painter uses. Throws `ThemeError` with

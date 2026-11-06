@@ -30,6 +30,7 @@
         "chart3": "#104e64",
         "chart4": "#ffb900",
         "chart5": "#fe9a00",
+        "link": "#2b59c8",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -103,6 +104,7 @@
         "chart3": "#fe9a00",
         "chart4": "#ad46ff",
         "chart5": "#ff2056",
+        "link": "#5f8bea",
         "success": "#22c55e",
         "warning": "#facc15",
         "info": "#3b82f6",
@@ -310,7 +312,338 @@
       "root": [
         {
           "style": {
-            "gap": "$spacing.sm"
+            "gap": "$spacing.sm",
+            "lineHeight": 22.75
+          }
+        },
+        {
+          "when": {
+            "density": "chat"
+          },
+          "style": {
+            "lineHeight": 22
+          }
+        }
+      ],
+      "heading": [
+        {
+          "style": {
+            "fontSize": 17.6,
+            "lineHeight": 28.6,
+            "marginTop": 8,
+            "marginBottom": 4
+          }
+        },
+        {
+          "when": {
+            "level": 1
+          },
+          "style": {
+            "fontSize": 20,
+            "lineHeight": 32.5,
+            "marginTop": 8,
+            "marginBottom": 4
+          }
+        },
+        {
+          "when": {
+            "level": 2
+          },
+          "style": {
+            "fontSize": 17.6,
+            "lineHeight": 28.6,
+            "marginTop": 8,
+            "marginBottom": 4
+          }
+        },
+        {
+          "when": {
+            "level": 3
+          },
+          "style": {
+            "fontSize": 16,
+            "lineHeight": 26,
+            "marginTop": 6,
+            "marginBottom": 4
+          }
+        },
+        {
+          "when": {
+            "level": 4
+          },
+          "style": {
+            "fontSize": 14,
+            "lineHeight": 22.75,
+            "marginTop": 0,
+            "marginBottom": 0
+          }
+        },
+        {
+          "when": {
+            "level": 5
+          },
+          "style": {
+            "fontSize": 14,
+            "lineHeight": 22.75,
+            "marginTop": 0,
+            "marginBottom": 0
+          }
+        },
+        {
+          "when": {
+            "level": 6
+          },
+          "style": {
+            "fontSize": 14,
+            "lineHeight": 22.75,
+            "marginTop": 0,
+            "marginBottom": 0
+          }
+        },
+        {
+          "when": {
+            "density": "chat"
+          },
+          "style": {
+            "fontSize": 16,
+            "lineHeight": 26
+          }
+        },
+        {
+          "when": {
+            "density": "chat",
+            "level": 1
+          },
+          "style": {
+            "fontSize": 16.8,
+            "lineHeight": 27.3
+          }
+        },
+        {
+          "when": {
+            "density": "chat",
+            "level": 2
+          },
+          "style": {
+            "fontSize": 16,
+            "lineHeight": 26
+          }
+        },
+        {
+          "when": {
+            "density": "chat",
+            "level": 3
+          },
+          "style": {
+            "fontSize": 15,
+            "lineHeight": 24.4
+          }
+        },
+        {
+          "when": {
+            "density": "chat",
+            "level": 4
+          },
+          "style": {
+            "fontSize": 14,
+            "lineHeight": 22
+          }
+        },
+        {
+          "when": {
+            "density": "chat",
+            "level": 5
+          },
+          "style": {
+            "fontSize": 14,
+            "lineHeight": 22
+          }
+        },
+        {
+          "when": {
+            "density": "chat",
+            "level": 6
+          },
+          "style": {
+            "fontSize": 14,
+            "lineHeight": 22
+          }
+        }
+      ],
+      "link": [
+        {
+          "style": {
+            "color": "$color.link"
+          }
+        }
+      ],
+      "code": [
+        {
+          "style": {
+            "fontSize": 12.8,
+            "paddingHorizontal": 5.6,
+            "paddingVertical": 1.6,
+            "borderRadius": 3,
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "codeBlock": [
+        {
+          "style": {
+            "fontSize": 12.8,
+            "lineHeight": 20.8,
+            "padding": 12,
+            "paddingHorizontal": 16,
+            "backgroundColor": "$color.accent",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": 6
+          }
+        }
+      ],
+      "listItem": [
+        {
+          "style": {
+            "marginTop": 8,
+            "marginBottom": 8
+          }
+        }
+      ],
+      "table": [
+        {
+          "style": {
+            "borderRadius": 0
+          }
+        }
+      ],
+      "headerCell": [
+        {
+          "style": {
+            "backgroundColor": "#fafafa0a",
+            "fontWeight": "$type.weight.semibold",
+            "paddingVertical": 4.8,
+            "paddingHorizontal": 9.6
+          }
+        },
+        {
+          "when": {
+            "density": "chat"
+          },
+          "style": {
+            "paddingVertical": 3.2,
+            "paddingHorizontal": 7.2
+          }
+        }
+      ],
+      "cell": [
+        {
+          "style": {
+            "paddingVertical": 4.8,
+            "paddingHorizontal": 9.6
+          }
+        },
+        {
+          "when": {
+            "density": "chat"
+          },
+          "style": {
+            "paddingVertical": 3.2,
+            "paddingHorizontal": 7.2
+          }
+        }
+      ],
+      "chip": [
+        {
+          "when": {
+            "chip": "issue"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "borderColor": "$color.border",
+            "borderWidth": "$border.hairline",
+            "borderRadius": 6,
+            "paddingHorizontal": 6
+          }
+        },
+        {
+          "when": {
+            "chip": "entity"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "borderColor": "$color.border",
+            "borderWidth": "$border.hairline",
+            "borderRadius": 6,
+            "paddingHorizontal": 6
+          }
+        },
+        {
+          "when": {
+            "chip": "mention"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "borderColor": "$color.border",
+            "borderWidth": "$border.hairline",
+            "borderRadius": "$radius.full",
+            "paddingHorizontal": 6.4
+          }
+        }
+      ],
+      "chipLabel": [
+        {
+          "when": {
+            "chip": "issue"
+          },
+          "style": {
+            "color": "$color.foreground",
+            "fontSize": 13,
+            "fontWeight": "$type.weight.medium"
+          }
+        },
+        {
+          "when": {
+            "chip": "entity"
+          },
+          "style": {
+            "color": "$color.foreground",
+            "fontSize": 13,
+            "fontWeight": "$type.weight.medium"
+          }
+        },
+        {
+          "when": {
+            "chip": "mention"
+          },
+          "style": {
+            "color": "$color.accentForeground",
+            "fontSize": 13,
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ],
+      "chipIdent": [
+        {
+          "when": {
+            "chip": "issue"
+          },
+          "style": {
+            "fontFamily": "$type.family.mono",
+            "fontSize": 12,
+            "lineHeight": 16,
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "chip": "entity"
+          },
+          "style": {
+            "fontFamily": "$type.family.mono",
+            "fontSize": 12,
+            "lineHeight": 16,
+            "color": "$color.mutedForeground"
           }
         }
       ]

@@ -54,7 +54,7 @@ enum MarkdownPainter {
         }
         return Markdown.linkText(Markdown.mapLinks(sized, model.linkHref), chips: { piece in
             model.textLinkSegments(piece)?.map { s in
-                (text: s.text, href: s.href, chip: s.chip.map { MarkdownChip(kind: $0.kind, label: $0.label, icon: $0.icon) })
+                (text: s.text, href: s.href, chip: s.chip.map { MarkdownChip(kind: $0.kind, label: $0.label, icon: $0.icon, ident: $0.ident) })
             }
         })
     }
@@ -70,7 +70,7 @@ enum MarkdownPainter {
         let bodySpec = MarkdownTextSpec(size: body.fontSize, lineHeight: body.lineHeight, weight: body.fontWeight, family: body.fontFamily)
         var s = MarkdownStyles(body: bodySpec)
         guard let theme else { return s }
-        func part(_ name: String) -> PartStyle { theme.part("Markdown", name, props: props, mode: mode) }
+        func part(_ name: String, _ extra: Props = [:]) -> PartStyle { theme.part("Markdown", name, props: props.merging(extra) { _, b in b }, mode: mode) }
         func spec(_ p: PartStyle, _ base: MarkdownTextSpec) -> MarkdownTextSpec {
             MarkdownTextSpec(size: p.px("fontSize").map { $0 * k } ?? base.size, lineHeight: p.px("lineHeight").map { $0 * k } ?? base.lineHeight, weight: Int(p.props.num("fontWeight") ?? Double(base.weight)), family: p.fontFamily ?? base.family)
         }
@@ -83,25 +83,56 @@ enum MarkdownPainter {
         var headingBase = s.body
         headingBase.weight = 600
         s.heading = spec(part("heading"), headingBase)
+        // #VAPP-258: each heading level's type and margins (the `level`
+        // the painter supplies; margins collapse like CSS block margins).
+        let headingPart = part("heading")
+        s.headingTop = headingPart.px("marginTop") ?? theme.spacing("md")
+        s.headingBottom = headingPart.px("marginBottom") ?? theme.spacing("xs")
+        for level in 1...6 {
+            let p = part("heading", ["level": .number(Double(level))])
+            s.headingLevels[level] = spec(p, headingBase)
+            s.headingTops[level] = p.px("marginTop") ?? s.headingTop
+            s.headingBottoms[level] = p.px("marginBottom") ?? s.headingBottom
+        }
+        let item = part("listItem")
+        s.itemTop = item.px("marginTop") ?? 0
+        s.itemBottom = item.px("marginBottom") ?? 0
         let code = part("codeBlock")
         var codeBase = s.code
         codeBase.family = theme.monoFamily
         s.code = spec(code, codeBase)
         s.codePad = code.px("padding") ?? code.px("paddingHorizontal") ?? s.codePad
+        s.codeBorder = code.style.borderWidth
         let quote = part("quote")
         s.quoteBorder = quote.px("borderWidth") ?? s.quoteBorder
         s.quotePad = quote.px("paddingHorizontal") ?? s.quotePad
         s.imageRadius = part("image").style.radius
         s.blockGap = root?.px("gap") ?? theme.spacing("sm")
-        s.headingTop = theme.spacing("md")
-        s.headingBottom = theme.spacing("xs")
-        s.cellPadH = theme.spacing("sm")
-        s.cellPadV = theme.spacing("xs")
+        // #VAPP-258: every cell's paddings (`Markdown/cell`).
+        let cell = part("cell")
+        s.cellPadH = cell.px("paddingHorizontal") ?? cell.px("padding") ?? theme.spacing("sm")
+        s.cellPadV = cell.px("paddingVertical") ?? cell.px("padding") ?? theme.spacing("xs")
         // #VAPP-258: the inline chip (Chip's geometry, the Text caption's
         // type) and the attachment blocks (the media natives' boxes).
         let caption = theme.part("Text", "root", props: ["variant": .string("caption")], mode: mode)
         let captionSpec = MarkdownTextSpec(size: (caption.px("fontSize") ?? 12) * k, lineHeight: (caption.px("lineHeight") ?? 16) * k, weight: Int(caption.props.num("fontWeight") ?? Double(body.fontWeight)), family: caption.fontFamily ?? body.fontFamily)
         s.chip = MarkdownChipStyle(label: captionSpec, paddingH: theme.spacing("sm"), gap: theme.spacing("xs"), icon: theme.control("iconSm", 16) * k, height: theme.control("badge", 20) * k)
+        // #VAPP-258: a theme's `Markdown/chip*` rules per chip kind (their
+        // metrics; MarkdownChipView resolves the colours).
+        for kind in MarkdownChip.kinds {
+            let kp: Props = ["chip": .string(kind)]
+            let box = part("chip", kp), label = part("chipLabel", kp), ident = part("chipIdent", kp)
+            func over(_ p: PartStyle, _ base: MarkdownTextSpec) -> MarkdownTextSpec? {
+                p.px("fontSize") == nil && p.px("lineHeight") == nil && p.props.num("fontWeight") == nil && p.fontFamily == nil ? nil : spec(p, base)
+            }
+            let look = MarkdownChipKindStyle(
+                label: over(label, captionSpec),
+                ident: over(ident, MarkdownTextSpec(size: captionSpec.size, lineHeight: captionSpec.lineHeight, weight: captionSpec.weight, family: theme.monoFamily)),
+                paddingH: box.px("paddingHorizontal") ?? box.px("padding"),
+                radius: box.px("borderRadius")
+            )
+            if look != MarkdownChipKindStyle() { s.chip.kinds[kind] = look }
+        }
         s.audioTitleGap = theme.spacing("xs")
         s.audioControls = theme.control("row", SurfaceMeasurer.audioControlsHeight)
         s.fileIcon = theme.control("iconSm", 16)
@@ -302,7 +333,7 @@ struct MarkdownView: View {
         if !placed.isEmpty {
             ZStack(alignment: .topLeading) {
                 ForEach(Array(placed.enumerated()), id: \.offset) { _, p in
-                    MarkdownChipView(run: p.run, style: styles.chip, model: model, ink: ink)
+                    MarkdownChipView(run: p.run, style: styles.chip, model: model, ink: ink, props: props)
                         .offset(x: p.rect.minX, y: p.rect.minY)
                 }
             }
@@ -351,6 +382,9 @@ struct MarkdownView: View {
     private func blockView(_ block: MarkdownBlock, box: MarkdownBlockBox, link: Color, codeBg: Color?, codeBlockBg: Color?, quoteBorder: Color, muted: Color, border: Color) -> some View {
         let spec = styles.spec(of: block.kind)
         let mono = model.theme?.monoFamily
+        let codeBlockPart = model.part("Markdown", "codeBlock", props: props).style
+        let codeRadius = codeBlockPart.radius > 0 ? codeBlockPart.radius : (model.theme?.radius("md") ?? 6)
+        let codeBlockBorder = codeBlockPart.borderColor
         switch block.kind {
         case .paragraph, .heading:
             linked(runs(block.inlines, spec, ink: ink, link: link, codeBackground: codeBg, width: width), spec: spec, width: width)
@@ -427,11 +461,17 @@ struct MarkdownView: View {
                 codeLines(code, spec: spec)
                 #endif
             }
-                .frame(width: max(width - 2 * styles.codePad, 1), alignment: .topLeading)
+                .frame(width: max(width - 2 * (styles.codePad + styles.codeBorder), 1), alignment: .topLeading)
                 .clipped()
-                .padding(styles.codePad)
+                .padding(styles.codePad + styles.codeBorder)
                 .frame(width: width, height: box.height, alignment: .topLeading)
-                .background(codeBlockBg ?? ink.opacity(0.06), in: RoundedRectangle(cornerRadius: model.theme?.radius("md") ?? 6))
+                .background(codeBlockBg ?? ink.opacity(0.06), in: RoundedRectangle(cornerRadius: codeRadius))
+                // #VAPP-258: the `Markdown/codeBlock` border, inside the box.
+                .overlay {
+                    if styles.codeBorder > 0 {
+                        RoundedRectangle(cornerRadius: codeRadius).strokeBorder(codeBlockBorder ?? border, lineWidth: styles.codeBorder)
+                    }
+                }
         case .rule:
             Rectangle().fill(border).frame(height: 1)
         case let .table(header, rows):
@@ -453,6 +493,8 @@ struct MarkdownView: View {
                                 .frame(width: cellW, height: box.rows[safe: r].map { $0 - 1 } ?? spec.lineHeight, alignment: .topLeading)
                         }
                     }
+                    // #VAPP-258: the header row's `Markdown/headerCell` fill.
+                    .background(r == 0 ? (model.part("Markdown", "headerCell", props: props).style.background ?? Color.clear) : Color.clear)
                     Rectangle().fill(border).frame(height: 1)
                 }
             }
@@ -499,24 +541,36 @@ struct MarkdownChipView: View {
     let style: MarkdownChipStyle
     let model: SurfaceModel
     let ink: Color
+    var props: Props = [:]
 
     var body: some View {
+        // #VAPP-258: the `Markdown/chip*` rules for this kind over Chip's.
+        let kind: Props = ["chip": .string(run.chip.kind), "density": .string(props["density"]?.string ?? "document")]
+        let own = model.part("Markdown", "chip", props: kind), ownLabel = model.part("Markdown", "chipLabel", props: kind), ownIdent = model.part("Markdown", "chipIdent", props: kind)
         let root = model.part("Chip", "root", props: [:])
         let labelPart = model.part("Chip", "label", props: [:])
-        let color = labelPart.color ?? ink
-        let border = root.style.borderWidth > 0 ? root.style.borderWidth : (root.style.borderColor == nil ? 0 : 1)
+        let style = self.style.resolved(run.chip.kind)
+        let color = ownLabel.color ?? labelPart.color ?? ink
+        let fill = own.style.background ?? root.style.background
+        let stroke = own.style.borderColor ?? root.style.borderColor
+        let strokeWidth = own.style.borderWidth > 0 ? own.style.borderWidth : root.style.borderWidth
+        let border = strokeWidth > 0 ? strokeWidth : (stroke == nil ? 0 : 1)
+        let shape = RoundedRectangle(cornerRadius: style.radius ?? run.height / 2)
         HStack(spacing: style.gap) {
             if let icon = run.chip.icon {
                 ConceptIcon(name: icon, size: style.icon, color: color, model: model)
+            }
+            if let ident = run.chip.ident {
+                MeasuredLabel(text: ident, ts: TextShaper.chipIdentStyle(style), color: ownIdent.color ?? color).fixedSize()
             }
             MeasuredLabel(text: run.chip.label, ts: TextShaper.chipLabelStyle(style), color: color)
         }
         .padding(.horizontal, style.paddingH)
         .frame(width: run.width, height: run.height, alignment: .leading)
-        .background(Capsule().fill(root.style.background ?? Color.clear))
-        .overlay(Capsule().strokeBorder(root.style.borderColor ?? Color.clear, lineWidth: border))
-        .clipShape(Capsule())
-        .contentShape(Capsule())
+        .background(shape.fill(fill ?? Color.clear))
+        .overlay(shape.strokeBorder(stroke ?? Color.clear, lineWidth: border))
+        .clipShape(shape)
+        .contentShape(shape)
         .onTapGesture { model.openLink(run.href) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(run.chip.label)

@@ -4,13 +4,12 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { AgentBrandMark, CommentCallCard } from "@exp/ui"
 import type { Comment, User } from "@/db/schema"
-import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { commentCollection } from "@/lib/collections"
 import { getCommentBodyText } from "@/lib/domain"
 import type { ToolItem } from "@/lib/steer-session-store"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { ReadMarkdown } from "@/components/read-markdown"
 import {
   authorLabel,
   commentCaption,
@@ -54,8 +53,6 @@ export function commentCallTarget(item: ToolItem): {
     issueKey: issue?.identifier ?? issue?.id ?? item.detail?.trim() ?? null,
   }
 }
-
-const noop = () => {}
 
 export function CommentCallRow({ item }: { item: ToolItem }) {
   const { agent, owner, users } = useContext(RunCardsContext)
@@ -106,7 +103,6 @@ export function CommentCallRow({ item }: { item: ToolItem }) {
   ]
     .filter((part): part is string => Boolean(part))
     .join(` · `)
-  const onLinkClick = useAppLinkClick()
   const open =
     issue && target.commentId && teamSlug
       ? () =>
@@ -143,14 +139,7 @@ export function CommentCallRow({ item }: { item: ToolItem }) {
         body={
           settled && text?.trim() ? (
             // #EXP-1674: a link goes through THE opener (`~/x`, in-app routes).
-            <div onClickCapture={onLinkClick}>
-              <MarkdownEditor
-                markdown={text}
-                editable={false}
-                onChange={noop}
-                appearance="chat"
-              />
-            </div>
+            <ReadMarkdown text={text} ariaLabel="Comment" />
           ) : null
         }
         onOpen={open}

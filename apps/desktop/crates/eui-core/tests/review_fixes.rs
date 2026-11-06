@@ -542,7 +542,7 @@ fn text_links_are_policed() {
 fn text_link_chips_are_policed() {
     use eui_core::host::policy::TextLinkChip;
     use eui_core::host::{police_text_links, TextLink};
-    let chip = |kind: &str, label: &str| Some(TextLinkChip { kind: kind.into(), label: label.into(), icon: Some("ui-issue".into()) });
+    let chip = |kind: &str, label: &str| Some(TextLinkChip { kind: kind.into(), label: label.into(), icon: Some("ui-issue".into()), ident: None });
     let link = |href: &str, chip| TextLink { text: "#A-1".into(), href: Some(href.into()), chip };
     let policed = |seg| police_text_links(None, "#A-1", vec![seg]).map(|mut out| out.remove(0));
     assert_eq!(policed(link("https://exponential.at/i", chip("issue", "A-1 Fix"))).unwrap().chip, chip("issue", "A-1 Fix"));
@@ -550,6 +550,6 @@ fn text_link_chips_are_policed() {
     assert_eq!(policed(link("https://exponential.at/i", chip("mention", ""))).unwrap().chip, None, "an empty label drops the chip");
     assert!(policed(link("javascript:alert(1)", chip("issue", "A-1"))).is_none(), "a denied href is text, chip or not");
     let wire: TextLink = serde_json::from_value(serde_json::json!({"text": "#A-1", "href": "https://exponential.at/i", "chip": {"kind": "entity", "label": "Web"}})).unwrap();
-    assert_eq!(wire.chip, Some(TextLinkChip { kind: "entity".into(), label: "Web".into(), icon: None }));
+    assert_eq!(wire.chip, Some(TextLinkChip { kind: "entity".into(), label: "Web".into(), icon: None, ident: None }));
     assert_eq!(serde_json::to_value(TextLink { text: "x".into(), ..Default::default() }).unwrap(), serde_json::json!({"text": "x"}));
 }

@@ -79,6 +79,15 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+/** #VAPP-258: one chip kind's colours (Unspecified / null = the base chip's). */
+data class MarkdownChipLook(
+    val background: Color? = null,
+    val border: Color = Color.Unspecified,
+    val borderWidth: Float? = null,
+    val ink: Color = Color.Unspecified,
+    val identInk: Color = Color.Unspecified,
+)
+
 /** The colours a [MarkdownView] paints with. */
 @Immutable
 data class MarkdownColors(
@@ -112,6 +121,12 @@ data class MarkdownColors(
     /** #VAPP-258: a block image's border = the `Markdown/image` recipe's (drawn inside its corners, the box unchanged; 0 = none). */
     val imageBorder: Color = Color.Unspecified,
     val imageBorderWidth: Float = 0f,
+    /** #VAPP-258: a fenced block's border colour (its width = [MarkdownStyles.codeBorder]; Unspecified = [border]). */
+    val codeBlockBorder: Color = Color.Unspecified,
+    /** #VAPP-258: a table header row's fill (`Markdown/headerCell`). */
+    val headerCellBackground: Color = Color.Transparent,
+    /** #VAPP-258: a theme's `Markdown/chip*` colours per chip kind (over the chip* fields above). */
+    val chipLooks: Map<String, MarkdownChipLook> = emptyMap(),
 ) {
     /** Factories over the tokens. */
     companion object {
@@ -269,16 +284,16 @@ class MarkdownComposeText(
         return words.maxOfOrNull { width(listOf(MarkdownInline(text = it)), spec) } ?: 0f
     }
 
-    /** #VAPP-258: a chip label's width (shaped in [MarkdownChipStyle.label], the painted font). */
-    fun labelWidth(label: String, chips: MarkdownChipStyle): Float {
+    /** #VAPP-258: a chip label's (or ident's) width shaped in [spec], the painted font. */
+    fun labelWidth(label: String, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
         if (label.isEmpty()) return chips.labelWidth(0f, density)
-        val r = layout(listOf(MarkdownInline(text = label)), chips.label, null)
+        val r = layout(listOf(MarkdownInline(text = label)), spec, null)
         return chips.labelWidth(r.getLineRight(0) - r.getLineLeft(0), density)
     }
 
     /** #VAPP-258: the chip placeholders of [inlines] (each capped at [cap]). */
     fun placeholders(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle, cap: Float?): List<AnnotatedString.Range<Placeholder>> =
-        markdownChipPlaceholders(inlines, spec, chips, cap) { labelWidth(it, chips) }
+        markdownChipPlaceholders(inlines, spec, chips, cap) { t, sp -> labelWidth(t, sp, chips) }
 
     override fun height(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, width: Float?, chips: MarkdownChipStyle): Float {
         if (inlines.none { it.chip != null }) return height(inlines, spec, width)
@@ -296,7 +311,7 @@ class MarkdownComposeText(
     override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec, chips: MarkdownChipStyle): Float {
         if (inlines.none { it.chip != null }) return widestWord(inlines, spec)
         val text = inlines.map { if (it.chip != null) it.copy(text = " ", chip = null) else it }
-        val widestChip = inlines.mapNotNull { it.chip }.maxOf { chips.width(it, labelWidth(it.label, chips)) }
+        val widestChip = inlines.mapNotNull { it.chip }.maxOf { markdownChipWidth(it, chips, null) { t, sp -> labelWidth(t, sp, chips) } }
         return maxOf(widestWord(text, spec), widestChip)
     }
 }
@@ -316,7 +331,7 @@ fun markdownChipPlaceholders(
     spec: MarkdownTextSpec,
     chips: MarkdownChipStyle,
     cap: Float?,
-    labelWidth: (String) -> Float,
+    labelWidth: (String, MarkdownTextSpec) -> Float,
 ): List<AnnotatedString.Range<Placeholder>> {
     val out = ArrayList<AnnotatedString.Range<Placeholder>>()
     var at = 0
@@ -334,9 +349,10 @@ fun markdownChipPlaceholders(
     return out
 }
 
-/** #VAPP-258: a chip's box width (capped at [cap]). */
-fun markdownChipWidth(chip: MarkdownChip, chips: MarkdownChipStyle, cap: Float?, labelWidth: (String) -> Float): Float {
-    val w = chips.width(chip, labelWidth(chip.label))
+/** #VAPP-258: a chip's box width (capped at [cap]): its kind's style, the label and the ident each shaped in its own type. */
+fun markdownChipWidth(chip: MarkdownChip, chips: MarkdownChipStyle, cap: Float?, labelWidth: (String, MarkdownTextSpec) -> Float): Float {
+    val k = chips.resolved(chip.kind)
+    val w = k.width(chip, labelWidth(chip.label, k.label), chip.shownIdent?.let { labelWidth(it, k.identSpec) } ?: 0f)
     return if (cap != null) minOf(w, maxOf(cap, 1f)) else w
 }
 
@@ -619,7 +635,9 @@ private fun MarkdownBlockView(
                 .width(width.dp)
                 .height(box.height.dp)
                 .background(colors.codeBlockBackground, RoundedCornerShape(codeBlockRadius))
-                .padding(styles.codePad.dp),
+                // #VAPP-258: the `Markdown/codeBlock` border, inside the box.
+                .then(if (styles.codeBorder > 0f) Modifier.border(styles.codeBorder.dp, colors.codeBlockBorder.takeOrElse { colors.border }, RoundedCornerShape(codeBlockRadius)) else Modifier)
+                .padding((styles.codePad + styles.codeBorder).dp),
         ) {
             BasicText(highlightedCode(runs(block.inlines, colors.ink, null), block.lang, hooks.codeHighlighter), style = shaper.style(spec, colors.ink), softWrap = false)
         }
@@ -632,7 +650,8 @@ private fun MarkdownBlockView(
                 Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
                 all.forEachIndexed { r, row ->
                     val rowH = box.rows.getOrNull(r)?.let { it - 1f } ?: spec.lineHeight
-                    Row(Modifier.height(rowH.dp)) {
+                    // #VAPP-258: the header row's `Markdown/headerCell` fill.
+                    Row(Modifier.height(rowH.dp).then(if (r == 0) Modifier.background(colors.headerCellBackground) else Modifier)) {
                         for (c in 0 until cols) {
                             val cell = row.getOrNull(c) ?: emptyList()
                             BasicText(
@@ -675,10 +694,13 @@ private fun markdownChipContent(
         if (span.text.isEmpty()) continue
         val chip = span.chip ?: continue
         val href = span.link
-        val w = markdownChipWidth(chip, chips, cap) { shaper.labelWidth(it, chips) }
+        val w = markdownChipWidth(chip, chips, cap) { t, sp -> shaper.labelWidth(t, sp, chips) }
         val h = chips.height(spec.lineHeight)
+        val k = chips.resolved(chip.kind)
+        val look = colors.chipLooks[chip.kind]
+        val ink = (look?.ink ?: Color.Unspecified).takeOrElse { colors.chipInk.takeOrElse { colors.ink } }
         out[markdownChipId(n++)] = InlineTextContent(Placeholder(w.sp, h.sp, PlaceholderVerticalAlign.Center)) {
-            MarkdownChipView(chip, chips, colors, shaper.style(chips.label, colors.chipInk.takeOrElse { colors.ink }), icon) { if (href != null) open(href) }
+            MarkdownChipView(chip, k, colors, look, shaper.style(k.label, ink), shaper.style(k.identSpec, (look?.identInk ?: Color.Unspecified).takeOrElse { ink }), icon) { if (href != null) open(href) }
         }
     }
     return out
@@ -689,16 +711,20 @@ private fun MarkdownChipView(
     chip: MarkdownChip,
     chips: MarkdownChipStyle,
     colors: MarkdownColors,
+    look: MarkdownChipLook?,
     label: TextStyle,
+    identStyle: TextStyle,
     icon: (@Composable (name: String, size: Float, color: Color) -> Unit)?,
     onPress: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(percent = 50)
+    val shape = chips.radius?.let { RoundedCornerShape(it.dp) } ?: RoundedCornerShape(percent = 50)
+    val borderWidth = look?.borderWidth ?: colors.chipBorderWidth
+    val borderColor = (look?.border ?: Color.Unspecified).takeOrElse { colors.chipBorder.takeOrElse { colors.border } }
     Row(
         Modifier
             .fillMaxSize()
-            .background(colors.chipBackground, shape)
-            .then(if (colors.chipBorderWidth > 0f) Modifier.border(colors.chipBorderWidth.dp, colors.chipBorder.takeOrElse { colors.border }, shape) else Modifier)
+            .background(look?.background ?: colors.chipBackground, shape)
+            .then(if (borderWidth > 0f) Modifier.border(borderWidth.dp, borderColor, shape) else Modifier)
             .clickable(role = Role.Button, onClick = onPress)
             .padding(horizontal = chips.padH.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -708,6 +734,11 @@ private fun MarkdownChipView(
             Box(Modifier.size(chips.iconSize.dp), contentAlignment = Alignment.Center) {
                 icon?.invoke(name, chips.iconSize, label.color)
             }
+            Box(Modifier.width(chips.gap.dp))
+        }
+        val ident = chip.shownIdent
+        if (ident != null) {
+            BasicText(ident, style = identStyle, maxLines = 1, softWrap = false)
             Box(Modifier.width(chips.gap.dp))
         }
         BasicText(chip.label, style = label, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)

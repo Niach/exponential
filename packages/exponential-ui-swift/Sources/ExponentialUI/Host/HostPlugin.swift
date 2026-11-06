@@ -121,11 +121,14 @@ public struct TextLinkChip: Equatable, Sendable {
     public var kind: String
     public var label: String
     public var icon: String?
+    /// #VAPP-258: an identifier (`ABC-1`) painted mono before the label.
+    public var ident: String?
 
-    public init(kind: String, label: String, icon: String? = nil) {
+    public init(kind: String, label: String, icon: String? = nil, ident: String? = nil) {
         self.kind = kind
         self.label = label
         self.icon = icon
+        self.ident = ident
     }
 }
 
