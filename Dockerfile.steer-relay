@@ -17,6 +17,7 @@ COPY packages/domain-contract/package.json packages/domain-contract/package.json
 COPY packages/eagent/package.json packages/eagent/package.json
 COPY packages/ecore/package.json packages/ecore/package.json
 COPY packages/emcp/package.json packages/emcp/package.json
+COPY packages/eengine/package.json packages/eengine/package.json
 COPY packages/ede/package.json packages/ede/package.json
 COPY packages/etalk/package.json packages/etalk/package.json
 COPY packages/electric-protocol/package.json packages/electric-protocol/package.json
