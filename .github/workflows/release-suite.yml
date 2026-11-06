@@ -1,10 +1,13 @@
 name: release-suite
+# A dispatch of one job says so in its title, so `dedupe` can tell it from a full suite.
+run-name: release-suite${{ inputs.only && format(' (only {0})', inputs.only) || '' }}
 
 # The HEAVY suite (2026-10-26): everything that used to run on every pull
 # request but the PR gate (test.yml). It runs on the release tags and on
 # workflow_dispatch, never on pull requests or master pushes. A release train
 # pushes several tags on one commit: `dedupe` runs the suite once per commit
-# (the first tag's run; a later tag's run of the same sha skips). Nothing
+# (the first tag's run, or an earlier full dispatch; a later tag's run of the
+# same sha skips). Nothing
 # requires it; a red run is a release blocker the release session reads.
 #
 # Contents: the web gate again (typecheck + unit) plus the small bun suites
@@ -53,8 +56,11 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           # Keyed on head_sha, so the release tags must be LIGHTWEIGHT: an annotated tag's push carries the tag object's sha and would run the suite once per tag.
-          earlier="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-suite.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" \
-            --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID and .conclusion != \"cancelled\")] | length")"
+          # Any earlier FULL suite on this sha counts: a tag push's, or a dispatched one
+          # (a release shepherd dispatches a suite on master, then tags that commit).
+          # A one-job dispatch (`only`, "(only <job>)" in its title) never counts.
+          earlier="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-suite.yml/runs?head_sha=$GITHUB_SHA&per_page=100" \
+            --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID and .conclusion != \"cancelled\" and (.event == \"push\" or (.event == \"workflow_dispatch\" and ((.display_title // \"\") | contains(\"(only \") | not))))] | length")"
           echo "earlier runs on $GITHUB_SHA: $earlier"
           echo "run=$([ "$earlier" = 0 ] && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
