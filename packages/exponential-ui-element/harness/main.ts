@@ -186,7 +186,11 @@ function Overlay(): Node {
 }
 
 function Catalog(): Node {
-  const cases = (components as { cases: { name: string; node: NestedNode }[] }).cases
+  // EXP-1702: `?shard=k/n` paints every n-th case from the k-th. Every surface
+  // carries its own <style>s, so one page of every case recalcs styles
+  // quadratically (~16 s on a dev box, past 30 s on a hosted runner).
+  const [k, n] = (params.get(`shard`) ?? `0/1`).split(`/`).map(Number)
+  const cases = (components as { cases: { name: string; node: NestedNode }[] }).cases.filter((_, i) => i % n === k)
   return div(
     `display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); padding: 16px`,
     ...cases.map((c) => {
