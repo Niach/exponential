@@ -220,6 +220,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-overlay-root].xui-el{flex-direction:row;align-self:auto;align-items:flex-start}
 [data-xui-overlay-root="stretch"].xui-el{align-items:stretch}
 [data-xui-overlay-root="none"].xui-el{display:contents}
+[data-xui-hosted]>[data-radix-popper-content-wrapper]{position:static!important;transform:none!important;min-width:0!important}
 .xui-trigger{display:flex;flex-direction:row;align-items:stretch;flex:1 1 auto;min-width:0}
 .xui-Tooltip-anchor{display:flex;flex-direction:row;flex:1 1 auto;min-width:0}
 .xui-field-column{display:flex;flex-direction:column;gap:var(--xui-spacing-xs);min-width:0}
