@@ -4067,8 +4067,12 @@ impl ThreadScreenView {
         )
         .pt_8()
         .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP));
-        let scroller = div()
+        // EXP-1228: the transcript's right-click menu (Copy) over a thread's
+        // transcript and an agent's chat bubbles alike, THE raw session
+        // view's host; an image or media tile's own menu claims the press.
+        let scroller = crate::steer_viewer::with_transcript_menu(div())
             .id(SharedString::from(THREAD.test_ids.conversation.clone()))
+            .debug_selector(|| THREAD.test_ids.conversation.clone())
             .relative()
             .flex_1()
             .min_h_0()
@@ -4634,6 +4638,75 @@ mod tests {
         cx.update(|window, cx| view.update(cx, |view, cx| view.select_child(ThreadChildSel::Results, window, cx)));
         draw(cx);
         view.read_with(cx, |view, _| assert_eq!(view.child, ThreadChildSel::Conversation));
+    }
+
+    /// EXP-1228: a right press on an agent chat's bubbles opens THE
+    /// transcript menu (Copy), the raw session view's host; it never did on
+    /// the thread screen.
+    #[gpui::test]
+    fn a_right_press_on_an_agent_chat_opens_the_transcript_menu(cx: &mut gpui::TestAppContext) {
+        use sync::ShapeRow as _;
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "r1",
+                "team_id": "t1",
+                "root_id": "r1",
+                "agent_id": "ag1",
+                "status": "idle",
+                "shared": true,
+                "created_at": "2026-11-04T09:00:00.000Z",
+                "updated_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.sessions.update(cx, |collection, cx| {
+                collection.seed(root.key(), root);
+                cx.notify();
+            });
+            let conversation: domain::rows::ConversationRow = serde_json::from_value(serde_json::json!({
+                "id": "c1",
+                "session_id": "r1",
+                "created_at": "2026-11-04T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.conversations.update(cx, |collection, cx| {
+                collection.seed(conversation.key(), conversation);
+                cx.notify();
+            });
+            let message: MessageRow = serde_json::from_value(serde_json::json!({
+                "id": "m1",
+                "conversation_id": "c1",
+                "author_kind": "agent",
+                "body": "Hey, what's up?",
+                "created_at": "2026-11-04T10:00:00.000Z",
+            }))
+            .unwrap();
+            collections.messages.update(cx, |collection, cx| {
+                collection.seed(message.key(), message);
+                cx.notify();
+            });
+        });
+        let (_view, cx) = cx.add_window_view(|window, cx| ThreadScreenView::new("r1".to_string(), window, cx));
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+        let bounds = cx
+            .debug_bounds(THREAD.test_ids.conversation.as_str())
+            .expect("the conversation paints");
+        let opens = || crate::steer_viewer::TRANSCRIPT_MENU_OPENS.with(|opens| opens.get());
+        let before = opens();
+        cx.simulate_mouse_down(
+            bounds.origin + gpui::point(px(40.), px(40.)),
+            gpui::MouseButton::Right,
+            gpui::Modifiers::default(),
+        );
+        assert_eq!(opens(), before + 1, "the right press opens the transcript menu");
     }
 
     /// chats.json THE WAY BACK, the desktop's whole path: an agent's chat (no

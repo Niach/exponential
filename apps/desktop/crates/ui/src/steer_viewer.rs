@@ -125,6 +125,44 @@ fn ensure_copy_action_registered(cx: &mut App) {
 /// EXP-1228: the transcript's right-click menu row.
 const FEED_MENU_COPY: &str = "Copy";
 
+/// EXP-1228 — the transcript's right-click menu at `position`: Copy (the
+/// window text selection, disabled without one). THE one host for every
+/// read-only message surface: the raw session view, the thread screen's
+/// conversation (a thread's transcript and an agent's chat bubbles) and an
+/// app editor's chat.
+pub(crate) fn open_transcript_menu(position: gpui::Point<Pixels>, window: &mut Window, cx: &mut App) {
+    ensure_copy_action_registered(cx);
+    let text = gpui_base::TextSelection::selected_text(window, cx)
+        .trim()
+        .to_string();
+    let menu = gpui_component::native_menu::NativeMenu::new().menu_with_disabled(
+        FEED_MENU_COPY,
+        text.is_empty(),
+        Box::new(CopyTranscriptSelection { text }),
+    );
+    #[cfg(test)]
+    {
+        let _ = (menu, position);
+        TRANSCRIPT_MENU_OPENS.with(|opens| opens.set(opens.get() + 1));
+    }
+    #[cfg(not(test))]
+    menu.show(position, window, cx);
+}
+
+/// How many times [`open_transcript_menu`] ran (tests never pop a native menu).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TRANSCRIPT_MENU_OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// EXP-1228: `element` opens [`open_transcript_menu`] on a right press its
+/// children did not claim (`controls::claim_right_click`).
+pub(crate) fn with_transcript_menu<E: gpui::InteractiveElement>(element: E) -> E {
+    element.on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
+        open_transcript_menu(event.position, window, cx)
+    })
+}
+
 /// How long a body may run before it folds behind "Show more" (web
 /// `clampable`: >600 chars or >6 lines).
 const CLAMP_CHARS: usize = 600;
@@ -4995,17 +5033,7 @@ impl SteerSessionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        ensure_copy_action_registered(cx);
-        let text = gpui_base::TextSelection::selected_text(window, cx)
-            .trim()
-            .to_string();
-        gpui_component::native_menu::NativeMenu::new()
-            .menu_with_disabled(
-                FEED_MENU_COPY,
-                text.is_empty(),
-                Box::new(CopyTranscriptSelection { text }),
-            )
-            .show(event.position, window, cx);
+        open_transcript_menu(event.position, window, cx);
     }
 
     /// EXP-787 — the rhythm class of list row `ix`: the feed row's own class,
