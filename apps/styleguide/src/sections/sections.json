@@ -51,7 +51,8 @@
         "calendar",
         "timeline",
         "record-form",
-        "record-table"
+        "record-table",
+        "settings-row"
       ]
     },
     {
@@ -149,6 +150,7 @@
     "outline": "EXP-1495",
     "record-form": "VAPP-217",
     "record-table": "VAPP-217",
+    "settings-row": "VAPP-280",
     "mosaic": "EXP-1495",
     "zoomable-image": "EXP-1586",
     "motion": "EXP-1604",

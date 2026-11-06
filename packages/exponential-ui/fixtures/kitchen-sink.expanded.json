@@ -11772,6 +11772,122 @@
                         }
                       },
                       {
+                        "id": "macros-setting",
+                        "component": "Box",
+                        "props": {},
+                        "children": [
+                          {
+                            "id": "macros-setting.text",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "macros-setting.text.label",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Notify watchers",
+                                  "variant": "body"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "SettingsRow",
+                                  "part": "label",
+                                  "props": {}
+                                }
+                              },
+                              {
+                                "id": "macros-setting.text.description",
+                                "component": "Text",
+                                "props": {
+                                  "text": "Email everyone who follows the issue.",
+                                  "variant": "caption",
+                                  "tone": "neutral"
+                                },
+                                "children": [],
+                                "recipe": {
+                                  "macro": "SettingsRow",
+                                  "part": "description",
+                                  "props": {}
+                                }
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "gap": "$spacing.xxs",
+                              "flexGrow": 1,
+                              "flexShrink": 1,
+                              "minWidth": 0
+                            },
+                            "recipe": {
+                              "macro": "SettingsRow",
+                              "part": "text",
+                              "props": {}
+                            }
+                          },
+                          {
+                            "id": "macros-setting.control",
+                            "component": "Box",
+                            "props": {},
+                            "children": [
+                              {
+                                "id": "macros-setting-switch",
+                                "component": "Switch",
+                                "props": {
+                                  "label": "",
+                                  "name": "notifyWatchers",
+                                  "checked": true
+                                },
+                                "children": []
+                              }
+                            ],
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "alignItems": "stretch",
+                              "justifyContent": "center",
+                              "flexShrink": 0,
+                              "width": "40%",
+                              "maxWidth": 320,
+                              "minWidth": 0,
+                              "@media (max-width: $breakpoint.sm)": {
+                                "width": "100%",
+                                "maxWidth": "100%"
+                              }
+                            },
+                            "recipe": {
+                              "macro": "SettingsRow",
+                              "part": "control",
+                              "props": {}
+                            }
+                          }
+                        ],
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "row",
+                          "alignItems": "center",
+                          "gap": "$spacing.md",
+                          "minHeight": 44,
+                          "paddingHorizontal": "$spacing.lg",
+                          "paddingVertical": "$spacing.md",
+                          "@media (max-width: $breakpoint.sm)": {
+                            "flexDirection": "column",
+                            "alignItems": "stretch",
+                            "gap": "$spacing.sm"
+                          }
+                        },
+                        "recipe": {
+                          "macro": "SettingsRow",
+                          "part": "root",
+                          "props": {}
+                        },
+                        "accessibility": {
+                          "role": "group",
+                          "label": "Notify watchers",
+                          "description": "Email everyone who follows the issue."
+                        }
+                      },
+                      {
                         "id": "macros-actions",
                         "component": "Box",
                         "props": {},

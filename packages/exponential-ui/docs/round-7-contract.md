@@ -194,3 +194,40 @@ one place in screen direction, nothing past an end.
 - **SwiftUI / Compose**: a long-press drag on a strip tab feeds `drag`
   (`TabStripDragModifier`, `tabStripDrag`); the rest is the core's frames.
   No hardware-keyboard chord on the phones yet.
+
+## Settings row (#VAPP-280)
+
+One line of a settings page, the app's settings row on every platform
+(web `GlassToggleRow` / picker rows: `px-4 py-3`, `gap-3`, a `text-sm` label
+over a `text-xs` muted description, the control trailing; the desktop's
+`glass_row_shell` rows; iOS/Android the same inset-grouped rows). A NEW
+macro, because nothing in the catalog had a label column beside a control
+column: `Row` is the list row (title, meta, chevron; off limits to the
+fold lane), `Label` captions one control, `FieldGroup` puts fields side by
+side, and the Switch's own label + description cover only switches.
+
+| area | change | source of truth | locked by |
+|---|---|---|---|
+| `SettingsRow` | NEW macro (input, lite, children = the control): `label` (required, bindable), `description` (bindable), `stackBelow` (enum `collapseBelow`, default `sm`) | `core.catalog.json`, `macros.json` | `catalog-macros.json` (example, every `stackBelow`, both bound props), `bind-time.json`, `catalog-components.json` |
+| layout | `root` row, centred, gap md, padding lg × md, `minHeight` 44 (12 + 20 + 12, the app's row); `text` column (gap xxs, grow 1, shrink 1, min 0) → `label` (Text body) + `description` (Text caption, tone neutral; only when given); `control` column (40 % of the row, at most 320, its control stretched to it, centred, no shrink: a Select or a Slider gets a usable width, a Switch keeps its own size at the trailing edge). Below `stackBelow` (`@media (max-width: $breakpoint.<bp>)`, nothing for `never`): the root becomes a column (stretch, gap sm) and the control column takes the row's inner width (`width`/`maxWidth` 100 %) | `macros.json` | `eui-core/tests/settings_row.rs` (frames at 390/700/800/900, LTR + RTL, `never`, min height), the conformance kitchen sink (real text ×5 renderers) |
+| a11y | the root is a `group` labelled `label`, described by `description`; the control inside needs no label of its own (a Switch takes `label: ""`); the core lays a `label: ""` Switch out as the web does (an empty growing `body`, no `label` part), so the ratchets place the same nodes | `macros.json`, `a11y.json` | `catalog-macros.json`, `settings_row.rs` |
+| a page | a settings group = `Group` (the card + title) over a title-less `Section` (the hairline-divided rows); no new container | specimen | `specimens.json` |
+| kitchen sink | + `macros-setting` (a Switch row with a description) in the Layout macros card, before FormActions | `kitchen-sink.json` | `kitchen-sink.expanded.json`, `conformance-baseline.json` (re-written: the 64 kitchen-sink cases move) |
+| specimen | `exponential-ui-settings-row`: a Notifications group (Switch row `stackBelow: never`, Select row with a description, Slider row as the volume row: icon, end label, `showValue: false`), then the Select row at `stackBelow: xl` (stacked at any width) | `scripts/generate.ts` SPECIMEN_OVERRIDES | `specimens.json`, views.json, the styleguide `settings-row` entry ×5 sites |
+| prompt | +66 tokens (descriptions trimmed): budget 9,292 → 9,359, a named exception, the measured total, no slack | `fixtures/prompt-budget.json` | `prompt.test.ts` |
+
+Counts: 96 offered components (51 natives, 45 macros; 67 lite), + the
+hidden TreeGuides and Unknown; recipe parts 98; catalog-components 645 cases.
+
+Renderers (a macro over Box/Text: no painter code anywhere):
+
+- [x] TS reference expander: the table (`src/macros.ts`), `catalog-macros.json`.
+- [x] React / Solid / element: paint the expansion; React fixture snapshots
+  recorded; the web conformance baseline re-written.
+- [x] Rust core: expands the same table; `tests/settings_row.rs` locks the
+  frames the natives paint.
+- [x] gpui: paints the core's frames; the styleguide twin
+  `apps/desktop/crates/ui/src/styleguide/entries/settings_row.rs`.
+- [x] SwiftUI / Compose: paint the core's frames; component snapshots
+  (`components.json`) re-recorded for the new catalog cases.
+- [x] FFI: no new API.

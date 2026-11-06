@@ -8,6 +8,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 - Slider `icon`, `endLabel`, `showValue` (#VAPP-286): a leading glyph, short muted text after the track (bindable) and `showValue: false` (no value above the track); the core lays the volume row out as a `row` part (gap sm: icon iconSm, the growing track, the end label at least buttonIcon wide). New parts `row`, `icon`, `end`; prompt budget 9,216 -> 9,237 (a named exception). Painted through Solid.
 - DatePicker `inline`, `marks`, `today` and the `month` event through the Solid renderer (VAPP-282).
 - Tabs `variant: strip` (#VAPP-279) through the Solid renderer.
+- `SettingsRow` (#VAPP-280, round 7): one line of a settings page as a catalog macro: the label (+ a muted description) on the start column, the control (its children) on the end column, 16 px in, 12 px top and bottom, at least 44 px tall; below `stackBelow` (default `sm`; `never` keeps it inline) the control goes under the label and stretches. A group named by the label. Every renderer paints it through the core's expansion; prompt budget 9,292 → 9,359 tokens (a named exception).
 
 ## 0.16.3 (2026-11-06)
 

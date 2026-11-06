@@ -9440,6 +9440,189 @@
       }
     },
     {
+      "id": "exponential-ui-settings-row",
+      "component": "SettingsRow",
+      "title": "SettingsRow",
+      "node": {
+        "id": "specimen-settings-row",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-settings-row-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-settings-row-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example · a settings group",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-group",
+                "component": "Group",
+                "props": {
+                  "title": "Notifications"
+                },
+                "children": [
+                  {
+                    "id": "c0-rows",
+                    "component": "Section",
+                    "children": [
+                      {
+                        "id": "c0-email",
+                        "component": "SettingsRow",
+                        "props": {
+                          "label": "Email notifications",
+                          "stackBelow": "never"
+                        },
+                        "children": [
+                          {
+                            "id": "c0-email-switch",
+                            "component": "Switch",
+                            "props": {
+                              "label": "",
+                              "name": "email",
+                              "checked": true
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "c0-digest",
+                        "component": "SettingsRow",
+                        "props": {
+                          "label": "Digest",
+                          "description": "How often the summary email goes out."
+                        },
+                        "children": [
+                          {
+                            "id": "c0-digest-select",
+                            "component": "Select",
+                            "props": {
+                              "name": "digest",
+                              "value": "daily",
+                              "options": [
+                                {
+                                  "label": "Hourly",
+                                  "value": "hourly"
+                                },
+                                {
+                                  "label": "Daily",
+                                  "value": "daily"
+                                },
+                                {
+                                  "label": "Off",
+                                  "value": "off"
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "id": "c0-volume",
+                        "component": "SettingsRow",
+                        "props": {
+                          "label": "Ring volume"
+                        },
+                        "children": [
+                          {
+                            "id": "c0-volume-slider",
+                            "component": "Slider",
+                            "props": {
+                              "min": 0,
+                              "max": 100,
+                              "step": 5,
+                              "value": 60,
+                              "icon": "media-volume-up",
+                              "endLabel": "60%",
+                              "showValue": false
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-settings-row-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-settings-row-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "stackBelow · xl (stacked)",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-group",
+                "component": "Group",
+                "children": [
+                  {
+                    "id": "c1-digest",
+                    "component": "SettingsRow",
+                    "props": {
+                      "label": "Digest",
+                      "description": "How often the summary email goes out.",
+                      "stackBelow": "xl"
+                    },
+                    "children": [
+                      {
+                        "id": "c1-digest-select",
+                        "component": "Select",
+                        "props": {
+                          "name": "digest",
+                          "value": "daily",
+                          "options": [
+                            {
+                              "label": "Hourly",
+                              "value": "hourly"
+                            },
+                            {
+                              "label": "Daily",
+                              "value": "daily"
+                            },
+                            {
+                              "label": "Off",
+                              "value": "off"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-input",
       "component": "Input",
       "title": "Input",

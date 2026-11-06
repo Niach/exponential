@@ -4403,6 +4403,36 @@
         "cancel": true
       }
     },
+    "SettingsRow": {
+      "kind": "macro",
+      "group": "input",
+      "lite": true,
+      "children": "many",
+      "description": "A settings line: label (+ description) at the start, the control (children) at the end; stacks on phones.",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "description": "The setting's name."
+        },
+        "description": {
+          "type": "string",
+          "bindable": true,
+          "description": "A muted line under the label."
+        },
+        "stackBelow": {
+          "type": "enum",
+          "enum": "collapseBelow",
+          "default": "sm",
+          "description": "Puts the control under the label below this breakpoint."
+        }
+      },
+      "example": {
+        "label": "Daily digest",
+        "description": "One email a day at 8:00."
+      }
+    },
     "Input": {
       "kind": "native",
       "group": "input",

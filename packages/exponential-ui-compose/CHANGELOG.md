@@ -17,6 +17,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 - Tabs `variant: strip` (#VAPP-279): the core lays the strip out and folds it; a long-press drag on a strip tab reorders (`SurfaceModel.tabDrag`, `isStripTab`).
 - `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` (`MarkdownOptions`): hard breaks, the chat rhythm, selection (`SelectionContainer` / `DisableSelection`) and streamed text, measured as painted; a document of 24+ blocks composes only the blocks in its visible window.
 - #VAPP-258: Markdown host hooks (`fixtures/markdown-host.json`): `TextLinkSegment.chip` paints an inline Chip, `HostPlugin.imageSize` sizes block images, `onImagePress` makes them pressable, `attachment` paints a one-link paragraph as a Video, AudioPlayer or file row. All optional; also on `HostPolicy`. `MarkdownView` takes them as parameters.
+- `SettingsRow` (#VAPP-280, round 7): one line of a settings page as a catalog macro: the label (+ a muted description) on the start column, the control (its children) on the end column, 16 px in, 12 px top and bottom, at least 44 px tall; below `stackBelow` (default `sm`; `never` keeps it inline) the control goes under the label and stretches. A group named by the label. Every renderer paints it through the core's expansion; prompt budget 9,292 → 9,359 tokens (a named exception).
 
 ## 0.16.3 (2026-11-06)
 

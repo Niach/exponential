@@ -9072,6 +9072,131 @@
       }
     },
     {
+      "name": "SettingsRow/example",
+      "node": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": "Daily digest",
+          "description": "One email a day at 8:00."
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettingsRow/stackBelow=never",
+      "node": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": "Daily digest",
+          "description": "One email a day at 8:00.",
+          "stackBelow": "never"
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettingsRow/stackBelow=sm",
+      "node": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": "Daily digest",
+          "description": "One email a day at 8:00.",
+          "stackBelow": "sm"
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettingsRow/stackBelow=md",
+      "node": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": "Daily digest",
+          "description": "One email a day at 8:00.",
+          "stackBelow": "md"
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettingsRow/stackBelow=lg",
+      "node": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": "Daily digest",
+          "description": "One email a day at 8:00.",
+          "stackBelow": "lg"
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettingsRow/stackBelow=xl",
+      "node": {
+        "id": "settings-row",
+        "component": "SettingsRow",
+        "props": {
+          "label": "Daily digest",
+          "description": "One email a day at 8:00.",
+          "stackBelow": "xl"
+        },
+        "children": [
+          {
+            "id": "settings-row-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Input/example",
       "node": {
         "id": "input",

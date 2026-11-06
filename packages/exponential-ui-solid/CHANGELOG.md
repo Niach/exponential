@@ -9,6 +9,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 - Tabs `variant: strip` (#VAPP-279), DOM parity with React; replays `tabsReorder`.
 - `host.markdownOptions` (`breaks`, `density`, `selectable`, `streaming`), as React: the blocks render keyed by object, so a streamed text keeps its finished blocks' DOM.
 - Markdown host hooks (`catalog/host.json` `markdown`): a `textLinks` chip paints the Chip look inline, `imageSize` / `onImagePress` size and press block images, `attachment` paints a one-link paragraph as the Video / AudioPlayer native or the FileUpload file row. `hostPlugin(host)` forwards the policy's hooks.
+- `SettingsRow` (#VAPP-280, round 7): one line of a settings page as a catalog macro: the label (+ a muted description) on the start column, the control (its children) on the end column, 16 px in, 12 px top and bottom, at least 44 px tall; below `stackBelow` (default `sm`; `never` keeps it inline) the control goes under the label and stretches. A group named by the label. Every renderer paints it through the core's expansion; prompt budget 9,292 → 9,359 tokens (a named exception).
 
 ## 0.16.3 (2026-11-06)
 

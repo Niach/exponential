@@ -18,6 +18,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 - `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` (`MarkdownOptions`): hard breaks, the chat rhythm, selection (macOS label selection, an iOS Copy menu) and streamed text, measured as painted; `Markdown.parse(_:hardBreaks:streaming:)`.
 - #VAPP-258: Markdown host hooks (`fixtures/markdown-host.json`): `TextLinkSegment.chip` paints an inline Chip (measured, tappable), `imageSize(src)` sizes block images, `onImagePress` presses them, `attachment(href)` turns a one-link paragraph into a Video / AudioPlayer / file block. All optional on `HostPlugin` and `HostPolicy`.
 - An inline DatePicker paints the core's in-flow month grid; a marked day draws its event dot (VAPP-282).
+- `SettingsRow` (#VAPP-280, round 7): one line of a settings page as a catalog macro: the label (+ a muted description) on the start column, the control (its children) on the end column, 16 px in, 12 px top and bottom, at least 44 px tall; below `stackBelow` (default `sm`; `never` keeps it inline) the control goes under the label and stretches. A group named by the label. Every renderer paints it through the core's expansion; prompt budget 9,292 → 9,359 tokens (a named exception).
+
+## 0.16.3 (2026-11-06)
+
 - Markdown `imageMaxHeight` is a host render option (`markdown.options`, a number or `null` = fit the width at the image's aspect, capped at the viewport; default 160), and Compose Markdown text follows the surface's font scale and folds at whole lines (`Markdown.foldHeight`).
 - `brand-exponential` (#VAPP-283): the Exponential logo as an icon concept (icons.json `custom`, a filled 24-unit glyph in currentColor), in the Icon vocabulary of every renderer; the Icon specimen's non-Lucide case shows it. The Example host draws it from the regenerated LucideIcons.swift.
 - `HostPlugin.markdownOptions` / `HostPolicy.markdownOptions` (`MarkdownOptions`): hard breaks, the chat rhythm, selection (macOS label selection, an iOS Copy menu) and streamed text, measured as painted; `Markdown.parse(_:hardBreaks:streaming:)`.
