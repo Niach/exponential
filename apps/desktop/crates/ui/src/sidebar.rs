@@ -395,9 +395,10 @@ pub(crate) fn apply_origin(window: &Window, cx: &mut App, origin: &crate::naviga
     }
 }
 
-/// EXP-1105: whether the ACTIVE team runs in yolo mode — Files and Source
-/// Control leave the rail for every member. `None` = no active team;
-/// pre-column rows hydrate `None` → off.
+/// EXP-1105 / #EXP-1704: whether the ACTIVE team auto-merges (merge mode
+/// Automatic, which replaced yolo mode) — Files and Source Control leave the
+/// rail for every member. `None` = no active team; only an explicit `auto`
+/// hides them, so a pre-column row keeps the rail.
 fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> Option<bool> {
     active_team_id(nav, cx).map(|id| {
         Store::global(cx)
@@ -405,7 +406,7 @@ fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> Option<bool> {
             .teams
             .read(cx)
             .get(&id)
-            .is_some_and(|team| team.yolo_mode())
+            .is_some_and(|team| team.merge_mode.as_deref() == Some(domain::contract::TEAM_MERGE_MODE_AUTO))
     })
 }
 
