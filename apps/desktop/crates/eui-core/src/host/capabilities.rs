@@ -4,7 +4,7 @@
 //! locks both. The catalog's tools and consent are the Engine's
 //! (`packages/eengine/fixtures/capabilities.json`).
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use super::package::PackageIssue;
 
@@ -65,7 +65,7 @@ fn show(v: Option<&Value>) -> String {
 }
 
 /// Every problem with a package's `capabilities` (unset = none).
-pub fn validate_package_capabilities(p: &Value) -> Vec<PackageIssue> {
+pub fn validate_package_capabilities(p: &Map<String, Value>) -> Vec<PackageIssue> {
     let Some(value) = p.get("capabilities") else { return Vec::new() };
     let Some(list) = value.as_array() else { return vec![issue("/capabilities", "capabilities is a list of {id, why, origins?}")] };
     let mut issues = Vec::new();
