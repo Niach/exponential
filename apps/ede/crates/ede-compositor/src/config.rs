@@ -88,7 +88,8 @@ pub struct Protected {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Keyboard {
-    /// xkb layout, e.g. `"de"` or `"us,de"`; empty = the system default.
+    /// xkb layout, e.g. `"de"` or `"us,de"`; empty = the system's
+    /// (`/etc/default/keyboard`, else xkb's own default, `us`).
     pub layout: String,
     pub variant: String,
     pub options: String,
@@ -158,7 +159,48 @@ impl Default for Windows {
     }
 }
 
+/// Debian's and Ubuntu's keyboard file (`keyboard(5)`): what the console
+/// and X11 use, so a German keyboard types German at the lock screen too.
+pub const SYSTEM_KEYBOARD: &str = "/etc/default/keyboard";
+
+/// `XKBLAYOUT="de"`, `XKBVARIANT=""`, `XKBOPTIONS="..."` lines (quotes
+/// optional, `#` comments) → a [`Keyboard`] with those three; `None` when
+/// the file names no layout.
+pub fn parse_system_keyboard(text: &str) -> Option<Keyboard> {
+    let value = |key: &str| {
+        text.lines().map(str::trim).filter(|l| !l.starts_with('#')).find_map(|l| l.strip_prefix(key)?.strip_prefix('=')).map(|v| v.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+    };
+    let layout = value("XKBLAYOUT").filter(|l| !l.is_empty())?;
+    Some(Keyboard { layout, variant: value("XKBVARIANT").unwrap_or_default(), options: value("XKBOPTIONS").unwrap_or_default(), ..Keyboard::default() })
+}
+
+impl Keyboard {
+    /// An empty layout takes `system`'s layout, variant and (when empty)
+    /// options; a set layout is left alone.
+    pub fn or_system(mut self, system: Option<&Keyboard>) -> Self {
+        if let (true, Some(system)) = (self.layout.is_empty(), system) {
+            self.layout = system.layout.clone();
+            self.variant = system.variant.clone();
+            if self.options.is_empty() {
+                self.options = system.options.clone();
+            }
+        }
+        self
+    }
+}
+
 impl Config {
+    /// The system's keyboard ([`SYSTEM_KEYBOARD`]) for an empty `[keyboard]
+    /// layout`: every path that loads a config goes through here (start,
+    /// safe mode, reload).
+    pub fn with_system_keyboard(mut self) -> Self {
+        if self.keyboard.layout.is_empty() {
+            let system = std::fs::read_to_string(SYSTEM_KEYBOARD).ok().and_then(|t| parse_system_keyboard(&t));
+            self.keyboard = std::mem::take(&mut self.keyboard).or_system(system.as_ref());
+        }
+        self
+    }
+
     /// `$XDG_CONFIG_HOME/ede/compositor.toml`, else `~/.config/ede/compositor.toml`.
     pub fn default_path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME")
@@ -271,5 +313,21 @@ mod tests {
         assert!(err.unwrap().contains("compositor.toml"));
         let (cfg, err) = Config::load(&dir.path().join("missing.toml"));
         assert_eq!((cfg, err), (Config::default(), None));
+    }
+
+    #[test]
+    fn the_system_keyboard_fills_an_empty_layout_only() {
+        let debian = "# KEYBOARD CONFIGURATION FILE\n\nXKBMODEL=\"pc105\"\nXKBLAYOUT=\"de\"\nXKBVARIANT=\"\"\nXKBOPTIONS=\"grp:alt_shift_toggle\"\n\nBACKSPACE=\"guess\"\n";
+        let system = parse_system_keyboard(debian).unwrap();
+        assert_eq!((system.layout.as_str(), system.variant.as_str(), system.options.as_str()), ("de", "", "grp:alt_shift_toggle"));
+        assert_eq!(parse_system_keyboard("XKBLAYOUT=us,de\nXKBVARIANT=,nodeadkeys\n").map(|k| (k.layout, k.variant)), Some(("us,de".into(), ",nodeadkeys".into())));
+        assert_eq!(parse_system_keyboard("XKBMODEL=\"pc105\"\nXKBLAYOUT=\"\"\n"), None);
+        assert_eq!(parse_system_keyboard(""), None);
+
+        let unset = Keyboard::default().or_system(Some(&system));
+        assert_eq!((unset.layout.as_str(), unset.options.as_str(), unset.repeat_delay), ("de", "grp:alt_shift_toggle", 400));
+        let set = Keyboard { layout: "us".into(), ..Keyboard::default() }.or_system(Some(&system));
+        assert_eq!((set.layout.as_str(), set.variant.as_str(), set.options.as_str()), ("us", "", ""), "a configured layout wins");
+        assert_eq!(Keyboard::default().or_system(None).layout, "", "no file: xkb's default");
     }
 }

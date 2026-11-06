@@ -261,11 +261,18 @@ renderer); a per-output render device is not done.
 cargo run -- doctor
 ```
 
-Checks the GPU render nodes, Xwayland (the binary the compositor will run
+Checks what the real session needs, from inside any desktop (no seat is
+taken): the GPU render nodes; the KMS driver of every `/dev/dri/card*` and
+its connected displays (the virtual ones say what to expect: `vmwgfx` is
+VMware's and VirtualBox's VMSVGA, software rendering unless the VM has 3D);
+the seat (logind's `seat0` with a graphical device, or seatd); what EGL and
+GLES render with on the render node, the way the udev backend opens it
+(`llvmpipe` = software rendering, fine in a VM; a udev build only, a
+winit-only build says so); the keyboard layout the session starts with
+(`/etc/default/keyboard`, else xkb's `us`); Xwayland (the binary the compositor will run
 and its version: 24.1+ has explicit sync; older versions flicker with X11
-games on NVIDIA), and on NVIDIA that
-`nvidia-drm.modeset` is on (the parameter, the kernel command line, or the
-driver default from 560).
+games on NVIDIA); and on NVIDIA that `nvidia-drm.modeset` is on (the
+parameter, the kernel command line, or the driver default from 560).
 
 The compositor opens one window on the running X11 (or Wayland) session and
 serves `$XDG_RUNTIME_DIR/wayland-N`. Close the window to quit.
@@ -330,14 +337,25 @@ edit rolls back; `systemctl --user status ede-shell` and `journalctl --user
 -u ede-shell` show it). `--dev` packages the dev profile's binaries for a
 quick check in a VM.
 
-Log out; LightDM's session menu now has **Exponential** and **Exponential
-(safe mode)** next to Cinnamon. Safe mode starts with the stock settings
-(`--safe-mode`: the config file is not read; `EDE_SAFE_MODE=1` reaches the
-shell's unit, and `ede-ui` then supervises a scratch copy of the factory
-documents, leaving `~/.config/ede/ui` untouched). Super+Shift+E logs out;
-Ctrl+Alt+F1…F12 switch VTs. Logs: `journalctl --user -b` and
-`~/.xsession-errors`. Remove with `sudo apt remove ede`; Cinnamon is
-untouched.
+Log out; the login screen's session menu (LightDM on Mint, GDM's gear icon
+on Ubuntu, both read `/usr/share/wayland-sessions`) now has **Exponential**
+and **Exponential (safe mode)** next to Cinnamon or Ubuntu. Safe mode
+starts with the stock settings (`--safe-mode`: the config file is not read;
+`EDE_SAFE_MODE=1` reaches the shell's unit, and `ede-ui` then supervises a
+scratch copy of the factory documents, leaving `~/.config/ede/ui`
+untouched). Super+Shift+E logs out; Ctrl+Alt+F1…F12 switch VTs. Logs:
+`journalctl --user -b` (the units) and `journalctl -b _COMM=ede-session
+_COMM=ede-compositor` (the session itself; LightDM also writes
+`~/.xsession-errors`). The lock screen authenticates through
+`/etc/pam.d/ede` (a conffile). Remove with `sudo apt remove ede`; Cinnamon
+and GNOME are untouched.
+
+If eDE does not come up: the previous session is still in the menu, pick it
+and log in again, or Ctrl+Alt+F3 for a text login and `journalctl -b
+_COMM=ede-compositor`. Three quick crashes in a row land in safe mode by
+themselves. In a VirtualBox VM keep the VMSVGA graphics controller (the
+`vmwgfx` driver, its "unsupported hypervisor" kernel line is normal); 3D
+acceleration is not needed, eDE renders in software there like GNOME does.
 
 ## ede-protocol
 
@@ -414,7 +432,7 @@ background = "#0a0a0a"
 xwayland = true       # or --no-xwayland
 
 [keyboard]
-layout = "de"
+layout = "de"         # unset = /etc/default/keyboard's XKBLAYOUT (and variant, options), else xkb's us
 repeat_delay = 400
 repeat_rate = 30
 
