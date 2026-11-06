@@ -85,6 +85,10 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   loadPullRequestByUrl: vi.fn(async (): Promise<{ id: string } | null> => null),
 }))
 vi.mock(`@/lib/yolo-edge`, () => ({ yoloEdge: vi.fn() }))
+vi.mock(`@/lib/merge-train/commit-checks`, async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/merge-train/commit-checks")>()
+  return { isTrainBranch: real.isTrainBranch, writeCommitCheck: vi.fn(async () => 1) }
+})
 // EXP-1610: the check writers own their tests (pr-checks.test.ts); here only
 // the routing of the CI events.
 vi.mock(`@/lib/integrations/pr-checks`, async (importOriginal) => {
@@ -657,6 +661,68 @@ describe(`github webhook — CI events (EXP-1610)`, () => {
       }),
     })
     expect(checks.repairPullRequestChecks).not.toHaveBeenCalled()
+  })
+})
+
+describe(`github webhook — merge train commit checks (EXP-1709)`, () => {
+  it(`a check_run on a train ref is kept per commit, never as a PR check`, async () => {
+    const checks = await import(`@/lib/integrations/pr-checks`)
+    const commit = await import(`@/lib/merge-train/commit-checks`)
+    vi.mocked(checks.writePullRequestChecks).mockClear()
+    vi.mocked(checks.pullRequestsForCheck).mockClear()
+    const res = await postHandler({
+      request: webhookRequest(`check_run`, {
+        action: `completed`,
+        check_run: {
+          name: `gate`,
+          status: `completed`,
+          conclusion: `success`,
+          head_sha: `train1`,
+          pull_requests: [],
+          check_suite: { head_branch: `exp-train/t-1` },
+        },
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(commit.writeCommitCheck).toHaveBeenCalledWith({
+      repoFullName: `org/repo`,
+      sha: `train1`,
+      check: expect.objectContaining({ name: `gate`, status: `completed`, conclusion: `success` }),
+    })
+    expect(checks.pullRequestsForCheck).not.toHaveBeenCalled()
+    expect(checks.writePullRequestChecks).not.toHaveBeenCalled()
+  })
+
+  it(`a commit status on a train ref is kept; on any other branch it is acked only`, async () => {
+    const commit = await import(`@/lib/merge-train/commit-checks`)
+    vi.mocked(commit.writeCommitCheck).mockClear()
+    await postHandler({
+      request: webhookRequest(`status`, {
+        sha: `train2`,
+        context: `ci/legacy`,
+        state: `failure`,
+        target_url: `https://ci.example/1`,
+        branches: [{ name: `exp-train/t-2` }],
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(commit.writeCommitCheck).toHaveBeenCalledWith({
+      repoFullName: `org/repo`,
+      sha: `train2`,
+      check: { name: `ci/legacy`, status: `completed`, conclusion: `failure`, detailsUrl: `https://ci.example/1` },
+    })
+    vi.mocked(commit.writeCommitCheck).mockClear()
+    await postHandler({
+      request: webhookRequest(`status`, {
+        sha: `x`,
+        context: `ci/legacy`,
+        state: `pending`,
+        branches: [{ name: `master` }],
+        repository: { full_name: `org/repo` },
+      }),
+    })
+    expect(commit.writeCommitCheck).not.toHaveBeenCalled()
   })
 })
 

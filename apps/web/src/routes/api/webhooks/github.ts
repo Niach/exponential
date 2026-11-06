@@ -6,6 +6,8 @@ import { repositories, sessions } from "@/db/schema"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { attributePush, pushedRepositoryIds, pushTime } from "@/lib/sessions/push-attribution"
 import { yoloEdge } from "@/lib/yolo-edge"
+import { checkFromGithubStatus } from "@/lib/ecode/github-status"
+import { isTrainBranch, writeCommitCheck } from "@/lib/merge-train/commit-checks"
 import {
   adoptOutOfBandPullRequest,
   applyPullRequestBase,
@@ -215,6 +217,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const run = payload.check_run
       const fullName = payload.repository?.full_name
       const check = run ? checkFromGithubRun(run) : null
+      // EXP-1709: a check on a merge train ref is kept per COMMIT.
+      if (run?.head_sha && fullName && check && isTrainBranch(run.check_suite?.head_branch)) {
+        await writeCommitCheck({ repoFullName: fullName, sha: run.head_sha, check })
+        return jsonResponse(200, { ok: true })
+      }
       if (run?.head_sha && fullName && check) {
         const prs = await pullRequestsForCheck({
           repoFullName: fullName,
@@ -231,6 +238,28 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
             ...(required ? { required } : {}),
           })
         }
+      }
+      return jsonResponse(200, { ok: true })
+    }
+
+    // EXP-1709: a commit STATUS (a required context may be one) on a merge
+    // train ref is kept per commit like a check run.
+    if (event === `status`) {
+      const payload = JSON.parse(rawBody) as {
+        sha?: string
+        context?: string
+        state?: string
+        target_url?: string | null
+        branches?: Array<{ name?: string }>
+        repository?: { full_name?: string }
+      }
+      const fullName = payload.repository?.full_name
+      if (payload.sha && payload.context && fullName && (payload.branches ?? []).some((b) => isTrainBranch(b.name))) {
+        await writeCommitCheck({
+          repoFullName: fullName,
+          sha: payload.sha,
+          check: { name: payload.context, ...checkFromGithubStatus(payload.state), detailsUrl: payload.target_url ?? null },
+        })
       }
       return jsonResponse(200, { ok: true })
     }
