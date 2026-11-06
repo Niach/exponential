@@ -776,7 +776,7 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   }],
   Icon: [{
     label: `name · non-Lucide`,
-    node: { id: `marks`, component: `Stack`, props: { direction: `horizontal`, gap: `md` }, children: [`os-apple`, `os-windows`, `os-linux`, `progress-2-4`].map((name) => ({ id: name, component: `Icon`, props: { name, size: `lg` } })) },
+    node: { id: `marks`, component: `Stack`, props: { direction: `horizontal`, gap: `md` }, children: [`os-apple`, `os-windows`, `os-linux`, `progress-2-4`, `brand-exponential`].map((name) => ({ id: name, component: `Icon`, props: { name, size: `lg` } })) },
   }],
   // VAPP-162: the navigation rail (a vertical bar) with counts.
   Segmented: [{

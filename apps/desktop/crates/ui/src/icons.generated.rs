@@ -177,6 +177,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "boxes" => ExpIcon::Boxes,
         "braces" => ExpIcon::Braces,
         "brain" => ExpIcon::Brain,
+        "brand-exponential" => ExpIcon::BrandExponential,
         "briefcase" => ExpIcon::Briefcase,
         "brush-cleaning" => ExpIcon::BrushCleaning,
         "bug" => ExpIcon::Bug,

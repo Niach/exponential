@@ -49,7 +49,7 @@
               "label": "Exponential",
               "variant": "ghost",
               "size": "sm",
-              "icon": "nav-apps"
+              "icon": "brand-exponential"
             },
             "on": {
               "press": {

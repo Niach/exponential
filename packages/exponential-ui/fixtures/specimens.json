@@ -2968,6 +2968,14 @@
                       "name": "progress-2-4",
                       "size": "lg"
                     }
+                  },
+                  {
+                    "id": "c8-brand-exponential",
+                    "component": "Icon",
+                    "props": {
+                      "name": "brand-exponential",
+                      "size": "lg"
+                    }
                   }
                 ]
               }
