@@ -30,7 +30,7 @@ import java.time.Instant
  * `batch`) through [Actions] (the core's one action runner over the FFI),
  * plus the host's all-or-nothing commit of `actions.<name>`. The TS
  * reference, the Rust core, the FFI facade and Swift's `ActionsTests`
- * replay the same cases.
+ * replay the same cases. VAPP-271: `results` (`validate`, `run`, `host`).
  */
 class ActionsTest {
     private class FixedZone(private val offset: Int) : HostZone {
@@ -82,11 +82,97 @@ class ActionsTest {
         assertTrue(cases.size > 10)
         for (c in cases) {
             val got = Actions.run(base, c["action"]!!.string!!, c["params"], c["data"], c["me"]?.string, now, zone, c["maxSteps"]?.number?.toUInt())
-            val json = when (got) {
-                is Actions.Outcome.Planned -> JsonValue.Obj(mapOf("plan" to got.plan.json))
-                is Actions.Outcome.Error -> JsonValue.Obj(mapOf("error" to JsonValue.Str(got.message)))
+            same(outcomeJson(got), want(c, "plan"), "run: ${c["name"]?.string}")
+        }
+    }
+
+    // VAPP-271: a call's answer (`results`).
+
+    @Test
+    fun resultsValidate() {
+        val r = fixture()["results"]!!
+        val base = r["package"]!!
+        val cases = r["validate"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val pkg = validateCasePackage(base, c["with"])
+            same(JsonValue.parse(validatePackageJson(pkg.json, null)), c["issues"] ?: JsonValue.Arr(emptyList()), "results validate: ${c["name"]?.string}")
+        }
+    }
+
+    @Test
+    fun resultsRun() {
+        val f = fixture()
+        val r = f["results"]!!
+        val base = r["package"]!!
+        val now = instant(f["env"]!!["now"]!!.string!!)
+        val zone = FixedZone(f["env"]!!["offset"]!!.number!!.toInt())
+        val cases = r["run"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val got = Actions.run(base, c["action"]!!.string!!, c["params"], c["data"], null, now, zone, results = c["results"]?.obj.orEmpty())
+            val expected = c["error"]?.let { JsonValue.Obj(mapOf("error" to it)) }
+                ?: c["pending"]?.let { JsonValue.Obj(mapOf("pending" to it)) }
+                ?: JsonValue.Obj(mapOf("plan" to (c["plan"] ?: JsonValue.Null)))
+            same(outcomeJson(got), expected, "results run: ${c["name"]?.string}")
+        }
+    }
+
+    /**
+     * `results.host`: the press of `actions.<action>` on the package's
+     * `main`, an empty store as u1, fake host functions answering
+     * `answers[name]` / throwing `throws[name]`, the policy denying `deny`.
+     */
+    @Test
+    fun resultsHost() = runBlocking {
+        val f = fixture()
+        val r = f["results"]!!
+        val pkg = r["package"]!!
+        val stamp = f["env"]!!["now"]!!.string!!
+        val cases = r["host"]?.array.orEmpty()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c["name"]?.string.orEmpty()
+            var rows: List<JsonValue> = emptyList()
+            var batches = 0
+            val called = ArrayList<JsonValue>()
+            fun fake(fn: String): suspend (Map<String, JsonValue>, FunctionCallInfo) -> Any? = { args, _ ->
+                called.add(JsonValue.Obj(mapOf("name" to JsonValue.Str(fn), "args" to JsonValue.Obj(args))))
+                c["throws"]?.get(fn)?.string?.let { error(it) }
+                c["answers"]?.get(fn) ?: JsonValue.Null
             }
-            same(json, want(c, "plan"), "run: ${c["name"]?.string}")
+            val host = ExponentialHost(
+                HostOptions(
+                    functions = mapOf(
+                        Actions.BATCH_FUNCTION to { args, _ ->
+                            val fresh = (0 until 10).map { "new$batches-$it" }
+                            when (val out = Actions.applyBatch(rows, args["writes"]?.array.orEmpty(), pkg["records"]!!, "u1", stamp, fresh)) {
+                                is Actions.BatchOutcome.Error -> error(out.message)
+                                is Actions.BatchOutcome.Applied -> {
+                                    rows = out.rows
+                                    batches++
+                                    mapOf("ids" to out.ids)
+                                }
+                            }
+                        },
+                        "photos.pick" to fake("photos.pick"),
+                        "print.pdf" to fake("print.pdf"),
+                        "harness.toast" to fake("harness.toast"),
+                    ),
+                    packages = listOf(pkg.json),
+                    policy = HostPolicy(functions = FunctionPolicy(deny = c["deny"]?.array.orEmpty().mapNotNull { it.string })),
+                    me = "u1",
+                    now = { instant(stamp) },
+                    zone = FixedZone(f["env"]!!["offset"]!!.number!!.toInt()),
+                ),
+                CoroutineScope(Dispatchers.Unconfined),
+            )
+            host.receive(JsonValue.parse("""{"version":"v0.9","applyTemplate":{"surfaceId":"s","packageId":"${pkg["id"]!!.string}","templateId":"main"}}"""))
+            val out = host.callFunction(FunctionCallInfo("s", "add", "actions.${c["action"]!!.string}", emptyMap()))
+            assertEquals(name, c["error"]?.string, out.error)
+            same(JsonValue.Arr(called), c["called"] ?: JsonValue.Arr(emptyList()), "results host called: $name")
+            same(JsonValue.Arr(rows.map { it["data"] ?: JsonValue.Null }), c["created"] ?: JsonValue.Arr(emptyList()), "results host created: $name")
+            same(host.surface("s")?.data ?: JsonValue.Null, c["data"] ?: JsonValue.Null, "results host data: $name")
         }
     }
 
@@ -241,6 +327,23 @@ class ActionsTest {
     }
 
     private companion object {
+        fun outcomeJson(got: Actions.Outcome): JsonValue = when (got) {
+            is Actions.Outcome.Planned -> JsonValue.Obj(mapOf("plan" to got.plan.json))
+            is Actions.Outcome.Error -> JsonValue.Obj(mapOf("error" to JsonValue.Str(got.message)))
+            is Actions.Outcome.Waiting -> JsonValue.Obj(
+                mapOf(
+                    "pending" to JsonValue.Obj(
+                        mapOf(
+                            "step" to JsonValue.Num(got.pending.step.toDouble()),
+                            "name" to JsonValue.Str(got.pending.name),
+                            "args" to JsonValue.Obj(got.pending.args),
+                            "result" to JsonValue.Str(got.pending.result),
+                        ),
+                    ),
+                ),
+            )
+        }
+
         fun instant(s: String): Double = Instant.parse(s).toEpochMilli().toDouble()
 
         /** A validate case's package: the base with its `with` keys replaced (`addActions` = actions added to the base's). */

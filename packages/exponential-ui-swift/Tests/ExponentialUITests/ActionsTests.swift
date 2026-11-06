@@ -6,7 +6,7 @@ import ExponentialUICore
 /// `batch`) through `Actions` (the core's one action runner over the FFI),
 /// plus the host's all-or-nothing commit of `actions.<name>`. The TS
 /// reference, the Rust core, the FFI facade and Compose's `ActionsTest`
-/// replay the same cases.
+/// replay the same cases. VAPP-271: `results` (`validate`, `run`, `host`).
 @MainActor
 final class ActionsTests: XCTestCase {
     final class FixedZone: HostZone, @unchecked Sendable {
@@ -82,12 +82,110 @@ final class ActionsTests: XCTestCase {
                 base, action: c["action"]?.string ?? "", params: c["params"], data: c["data"], me: c["me"]?.string,
                 nowMs: now, zone: zone, maxSteps: c["maxSteps"]?.number.map { UInt32($0) }
             )
-            let json: JSONValue
-            switch got {
-            case let .plan(plan): json = .object(["plan": plan.json])
-            case let .error(e): json = .object(["error": .string(e)])
+            same(Self.outcomeJSON(got), want(c, key: "plan"), "run: \(c["name"]?.string ?? "")")
+        }
+    }
+
+    static func outcomeJSON(_ got: Actions.Outcome) -> JSONValue {
+        switch got {
+        case let .plan(plan): return .object(["plan": plan.json])
+        case let .error(e): return .object(["error": .string(e)])
+        case let .pending(p):
+            return .object(["pending": .object([
+                "step": .number(Double(p.step)), "name": .string(p.name), "args": .object(p.args), "result": .string(p.result),
+            ])])
+        }
+    }
+
+    // MARK: - VAPP-271: a call's answer (`results`)
+
+    func testResultsValidate() throws {
+        let r = try XCTUnwrap(try Fixtures.json("actions.json")["results"])
+        let base = r["package"] ?? .null
+        let cases = r["validate"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let pkg = Self.validateCasePackage(base, c["with"])
+            let got = try validatePackageJson(packageJson: pkg.json, catalogIds: nil)
+            same(JSONValue.parse(got), c["issues"] ?? .array([]), "results validate: \(c["name"]?.string ?? "")")
+        }
+    }
+
+    func testResultsRun() throws {
+        let f = try Fixtures.json("actions.json")
+        let r = try XCTUnwrap(f["results"])
+        let base = r["package"] ?? .null
+        let now = ExpressionsTests.instant(f["env"]?["now"]?.string ?? "")
+        let zone = FixedZone(Int32(f["env"]?["offset"]?.number ?? 0))
+        let cases = r["run"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let got = Actions.run(
+                base, action: c["action"]?.string ?? "", params: c["params"], data: c["data"], me: nil,
+                nowMs: now, zone: zone, results: c["results"]?.object ?? [:]
+            )
+            let expected: JSONValue = c["error"].map { .object(["error": $0]) }
+                ?? c["pending"].map { .object(["pending": $0]) }
+                ?? .object(["plan": c["plan"] ?? .null])
+            same(Self.outcomeJSON(got), expected, "results run: \(c["name"]?.string ?? "")")
+        }
+    }
+
+    /// `results.host`: the press of `actions.<action>` on the package's
+    /// `main`, an empty store as u1, fake host functions answering
+    /// `answers[name]` / throwing `throws[name]`, the policy denying `deny`.
+    func testResultsHost() async throws {
+        let f = try Fixtures.json("actions.json")
+        let r = try XCTUnwrap(f["results"])
+        let pkg = r["package"] ?? .null
+        let records = pkg["records"] ?? .null
+        let stamp = f["env"]?["now"]?.string ?? ""
+        let nowMs = ExpressionsTests.instant(stamp)
+        let cases = r["host"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"]?.string ?? ""
+            var rows: [JSONValue] = []
+            var batches = 0
+            var called: [JSONValue] = []
+            func fake(_ fn: String) -> HostFunction {
+                { args, _ in
+                    called.append(.object(["name": .string(fn), "args": .object(args)]))
+                    if let message = c["throws"]?[fn]?.string { throw Refused(message: message) }
+                    return c["answers"]?[fn] ?? JSONValue.null
+                }
             }
-            same(json, want(c, key: "plan"), "run: \(c["name"]?.string ?? "")")
+            let host = ExponentialHost(HostOptions(
+                functions: [
+                    Actions.batchFunction: { args, _ in
+                        let fresh = (0..<10).map { "new\(batches)-\($0)" }
+                        switch Actions.applyBatch(rows: rows, writes: args["writes"]?.array ?? [], records: records, me: "u1", now: stamp, newIds: fresh) {
+                        case let .error(e): throw Refused(message: e)
+                        case let .applied(next, ids):
+                            rows = next
+                            batches += 1
+                            return ["ids": ids]
+                        }
+                    },
+                    "photos.pick": fake("photos.pick"),
+                    "print.pdf": fake("print.pdf"),
+                    "harness.toast": fake("harness.toast"),
+                ],
+                packages: [pkg.json],
+                policy: HostPolicy(functions: FunctionPolicy(deny: (c["deny"]?.array ?? []).compactMap(\.string))),
+                me: "u1",
+                now: { Date(timeIntervalSince1970: nowMs / 1000) },
+                zone: FixedZone(Int32(f["env"]?["offset"]?.number ?? 0))
+            ))
+            host.receive(JSONValue.object([
+                "version": .string("v0.9"),
+                "applyTemplate": .object(["surfaceId": .string("s"), "packageId": pkg["id"] ?? .null, "templateId": .string("main")]),
+            ]))
+            let out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s", componentId: "add", name: "actions.\(c["action"]?.string ?? "")", args: [:]))
+            XCTAssertEqual(out.error, c["error"]?.string, name)
+            same(.array(called), c["called"] ?? .array([]), "results host called: \(name)")
+            same(.array(rows.map { $0["data"] ?? .null }), c["created"] ?? .array([]), "results host created: \(name)")
+            same(host.surface("s")?.data ?? .null, c["data"] ?? .null, "results host data: \(name)")
         }
     }
 

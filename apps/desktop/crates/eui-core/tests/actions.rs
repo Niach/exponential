@@ -50,6 +50,7 @@ fn actions_fixture() {
     assert_eq!(actions["namePattern"], json!(host::ACTION_NAME_PATTERN));
     assert_eq!(actions["callPrefix"], json!(host::ACTION_CALL_PREFIX));
     assert_eq!(actions["batchFunction"], json!(host::RECORDS_BATCH_FUNCTION));
+    assert_eq!(actions["resultPattern"], json!(host::ACTION_RESULT_PATTERN));
 
     let mut failures = Vec::new();
     let mut n = 0;
@@ -80,9 +81,9 @@ fn actions_fixture() {
     let offset_minutes = f["env"]["offset"].as_i64().unwrap() as i32;
     let offset = move |_: f64| offset_minutes;
     for c in f["run"].as_array().unwrap() {
-        let ctx = ActionContext { data: c.get("data"), me: c.get("me").and_then(Value::as_str), now, offset: Some(&offset), max_steps: c.get("maxSteps").and_then(Value::as_u64).map(|s| s as usize) };
+        let ctx = ActionContext { data: c.get("data"), me: c.get("me").and_then(Value::as_str), now, offset: Some(&offset), max_steps: c.get("maxSteps").and_then(Value::as_u64).map(|s| s as usize), results: None };
         let got = match run_action(base, c["action"].as_str().unwrap(), c.get("params").unwrap_or(&Value::Null), &ctx) {
-            Ok(plan) => json!({ "plan": plan }),
+            Ok(run) => run.to_value(),
             Err(e) => json!({ "error": e }),
         };
         let want = match c.get("error") {
@@ -90,6 +91,30 @@ fn actions_fixture() {
             None => json!({ "plan": c["plan"] }),
         };
         check(&format!("run: {}", c["name"].as_str().unwrap()), &got, &want, &mut failures);
+        n += 1;
+    }
+    // VAPP-271: a call's answer (`result`) feeds the later steps.
+    let r = &f["results"];
+    let rpkg = &r["package"];
+    for c in r["validate"].as_array().unwrap() {
+        let issues = validate_package(&case_package(rpkg, &c["with"]), &host::supported_catalog_ids::<&str>(&[]));
+        check(&format!("results validate: {}", c["name"].as_str().unwrap()), &serde_json::to_value(&issues).unwrap(), &c["issues"], &mut failures);
+        n += 1;
+    }
+    for c in r["run"].as_array().unwrap() {
+        let ctx = ActionContext { data: c.get("data"), me: None, now, offset: Some(&offset), max_steps: None, results: c.get("results").and_then(Value::as_object) };
+        let got = match run_action(rpkg, c["action"].as_str().unwrap(), c.get("params").unwrap_or(&Value::Null), &ctx) {
+            Ok(run) => run.to_value(),
+            Err(e) => json!({ "error": e }),
+        };
+        let want = if let Some(e) = c.get("error") {
+            json!({ "error": e })
+        } else if let Some(p) = c.get("pending") {
+            json!({ "pending": p })
+        } else {
+            json!({ "plan": c["plan"] })
+        };
+        check(&format!("results run: {}", c["name"].as_str().unwrap()), &got, &want, &mut failures);
         n += 1;
     }
     let b = &f["batch"];

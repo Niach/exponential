@@ -14,6 +14,11 @@
 //   the one error that discards the whole action. The host then commits the
 //   writes as ONE unit (`RecordStore.batch`, one Postgres transaction on the
 //   Exponential server), applies the sets, and runs the calls.
+// - VAPP-271: a `call` step may name its answer (`result: <name>`). It runs
+//   when the plan reaches it, before the commit: `runAction` answers
+//   `{pending}` for the first one not in `ctx.results`, the host runs it and
+//   runs the action again over the same snapshot with the answer added, so
+//   later steps read it as `results.<name>`.
 //
 // The Rust core mirrors this file (`host::actions`); fixtures/actions.json
 // locks the checks, the runs and the batch (TS, Rust, Swift, Kotlin).
@@ -35,6 +40,8 @@ import { recordPolicy, recordRefusal, type AppAccessLevel } from "./record-polic
  *  ONE run may spend over all of its expressions (each expression keeps
  *  its own 10 000). */
 export const ACTION_LIMITS = { actions: 32, steps: 64, maxSteps: 100_000 } as const
+/** VAPP-271: a `call` step's `result` name (`results.<name>`). */
+export const ACTION_RESULT_PATTERN = /^[a-z][A-Za-z0-9_]{0,31}$/
 /** The step forms, by their one key. */
 export const ACTION_STEP_KINDS: readonly string[] = [`require`, `records.upsert`, `records.delete`, `set`, `call`]
 /** `^[a-z][A-Za-z0-9_]{0,31}$`: an action's name (`actions.<name>`). */
@@ -52,7 +59,15 @@ export interface ActionPlan {
   calls: { name: string; args: Record<string, unknown> }[]
 }
 
-export type ActionResult = { plan: ActionPlan } | { error: string }
+/** VAPP-271: the next `call` step with a `result` whose answer the host must get first. */
+export interface PendingCall {
+  step: number
+  name: string
+  args: Record<string, unknown>
+  result: string
+}
+
+export type ActionResult = { plan: ActionPlan } | { error: string } | { pending: PendingCall }
 
 /** The snapshot an action runs against. */
 export interface ActionContext {
@@ -65,6 +80,8 @@ export interface ActionContext {
   offset?: ExpressionEnv[`offset`]
   /** The run's evaluation budget (default `ACTION_LIMITS.maxSteps`). */
   maxSteps?: number
+  /** VAPP-271: the answers of the `call` steps with a `result` so far, by name. */
+  results?: Record<string, unknown>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
@@ -85,12 +102,13 @@ function stepKind(step: unknown): string | null {
 }
 
 /** The names a step expression reads, typed: `params` (the action's
- *  params schema), `data` (the surface data: open), `me` (a member id). */
-export function actionVarTypes(action: Record<string, unknown>): Record<string, ExprType> {
+ *  params schema), `data` (the surface data: open), `me` (a member id) and
+ *  `results` (VAPP-271: the answers EARLIER steps name, each `dyn`). */
+export function actionVarTypes(action: Record<string, unknown>, results: readonly string[] = []): Record<string, ExprType> {
   const schema = isObject(action.params) ? action.params : {}
   const params = rowOf(isObject(schema.properties) ? schema.properties : {}, schema.required)
   // VAPP-195: the surface data is untyped and the member may be unknown.
-  return { params, data: optionalType(`dyn`), me: optionalType(`string`) }
+  return { params, data: optionalType(`dyn`), me: optionalType(`string`), results: Object.fromEntries(results.map((r) => [r, `dyn`])) }
 }
 
 /** May a value of type `t` land in a field of type `field`? */
@@ -99,6 +117,8 @@ function fits(field: ExprType, t: ExprType): boolean {
   if (isOptional(t)) return isOptional(field) && fits(field[`?`], t[`?`])
   if (isOptional(field)) return fits(field[`?`], t)
   if (field === `dyn` || t === `dyn` || t === `null`) return true
+  // VAPP-271: a list of open items (an answer mapped) fits any list; the schema checks it when it runs.
+  if (Array.isArray(field) && Array.isArray(t)) return fits(field[0]!, t[0]!)
   const textual = (x: ExprType) => x === `string` || x === `date` || x === `timestamp`
   if (textual(field)) return textual(t)
   return typeDisplay(field) === typeDisplay(t)
@@ -131,10 +151,19 @@ function validateAction(pkg: Record<string, unknown>, name: string, action: unkn
   if (action.params !== undefined) issues.push(...validateRecordSchema(action.params, `${at}/params`, { params: true }))
   if (!Array.isArray(action.steps) || action.steps.length === 0) return [...issues, { path: `${at}/steps`, message: `steps is a non-empty array` }]
   if (action.steps.length > ACTION_LIMITS.steps) issues.push({ path: `${at}/steps`, message: `at most ${ACTION_LIMITS.steps} steps` })
-  const types = actionVarTypes(action)
   const records = isObject(pkg.records) ? pkg.records : {}
   const functions = Array.isArray(pkg.functions) ? (pkg.functions as unknown[]).filter((f): f is string => typeof f === `string`) : null
-  action.steps.forEach((step, i) => issues.push(...validateStep(step, `${at}/steps/${i}`, types, records, functions)))
+  // VAPP-271: a step reads the results of the steps before it.
+  const named = new Map<string, number>()
+  action.steps.forEach((step, i) => {
+    issues.push(...validateStep(step, `${at}/steps/${i}`, actionVarTypes(action, [...named.keys()]), records, functions))
+    if (!isObject(step) || step.result === undefined) return
+    const here = `${at}/steps/${i}/result`
+    if (stepKind(step) !== `call`) issues.push({ path: here, message: `result names a call's answer: only a call step has one` })
+    else if (typeof step.result !== `string` || !ACTION_RESULT_PATTERN.test(step.result)) issues.push({ path: here, message: `a result name is a letter, then letters, digits and underscores` })
+    else if (named.has(step.result)) issues.push({ path: here, message: `result ${step.result} is already named by step ${named.get(step.result)}` })
+    else named.set(step.result, i)
+  })
   return issues
 }
 
@@ -360,12 +389,14 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
     const issues = validateRecord(action.params as unknown as RecordSchema, given)
     if (issues.length) return { error: paramIssueText(issues) }
   }
-  const vars: Record<string, unknown> = { params: p, data: ctx.data ?? null, me: ctx.me ?? null }
+  const results = ctx.results ?? {}
+  const vars: Record<string, unknown> = { params: p, data: ctx.data ?? null, me: ctx.me ?? null, results }
+  let pending: PendingCall | null = null
   const records = isObject(pkg.records) ? pkg.records : {}
   let budget = ctx.maxSteps ?? ACTION_LIMITS.maxSteps
   const plan: ActionPlan = { writes: [], sets: [], calls: [] }
   try {
-    action.steps.forEach((step, i) => {
+    action.steps.every((step, i) => {
       const where = `step ${i}`
       const spend = (n: number) => {
         budget -= n
@@ -393,7 +424,7 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
           const ok = value(body)
           if (typeof ok !== `boolean`) failAction(`${where}: require needs a bool, got ${typeName(ok)}`)
           if (!ok) failAction(typeof step.message === `string` && step.message ? step.message : `${where}: requirement failed`)
-          return
+          return true
         }
         case `records.upsert`: {
           if (!isObject(body) || !isObject(body.data)) return failAction(`${where}: records.upsert is {kind, data, id?}`)
@@ -425,34 +456,41 @@ export function runAction(pkg: Record<string, unknown>, name: string, params: un
           const issues = validateRecord(id === undefined ? schema : { ...schema, required: [] }, data)
           if (issues.length) failAction(`${where}: records: ${issueText(issues)}`)
           plan.writes.push(id === undefined ? { op: `upsert`, kind: kindName, data } : { op: `upsert`, kind: kindName, data, id })
-          return
+          return true
         }
         case `records.delete`: {
           if (!isObject(body)) return failAction(`${where}: records.delete is {id}`)
           const v = value(body.id)
           if (typeof v !== `string` || !v) failAction(`${where}: id is a string, got ${typeName(v)}`)
           plan.writes.push({ op: `delete`, id: v as string })
-          return
+          return true
         }
         case `set`: {
           if (!isObject(body) || typeof body.path !== `string` || !POINTER.test(body.path)) return failAction(`${where}: path is a JSON pointer`)
           plan.sets.push({ path: body.path, value: value(body.value ?? null) })
-          return
+          return true
         }
         case `call`: {
           if (typeof body !== `string` || functionEffect(body) !== `host` || actionCallName(body) !== null) return failAction(`${where}: call names a host function`)
           const args: Record<string, unknown> = {}
           if (isObject(step.args)) for (const k of Object.keys(step.args).sort()) args[k] = value(step.args[k])
-          plan.calls.push({ name: body, args })
-          return
+          if (typeof step.result !== `string`) {
+            plan.calls.push({ name: body, args })
+            return true
+          }
+          // VAPP-271: an answered result is bound; the first unanswered one stops the run.
+          if (own(results, step.result)) return true
+          pending = { step: i, name: body, args, result: step.result }
+          return false
         }
       }
+      return true
     })
   } catch (e) {
     if (e instanceof ActionFailure) return { error: e.message }
     throw e
   }
-  return { plan }
+  return pending ? { pending } : { plan }
 }
 
 // ---------------------------------------------------------------------------

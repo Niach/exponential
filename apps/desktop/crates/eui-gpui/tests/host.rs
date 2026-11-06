@@ -564,6 +564,75 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     assert_eq!(codes.iter().filter(|c| *c == "ACTION_FAILED").count(), 3);
 }
 
+/// VAPP-271: `fixtures/actions.json` `results.host`: a call's answer
+/// (`result`) runs before the commit and feeds the later steps (the TS
+/// `actions.json results` host cases).
+#[gpui::test]
+fn a_result_call_runs_before_the_commit_and_feeds_the_later_steps(cx: &mut TestAppContext) {
+    use eui_core::host::apply_record_batch;
+    init(cx);
+    let f = fixture("actions.json");
+    let r = &f["results"];
+    let pkg = r["package"].clone();
+    let now = f["env"]["now"].as_str().unwrap().to_string();
+    let now_ms = eui_core::cel::parse_timestamp(&now).unwrap();
+    let offset = f["env"]["offset"].as_i64().unwrap() as i32;
+    for c in r["host"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let rows = Rc::new(RefCell::new(Vec::<Value>::new()));
+        let (rr, records, at) = (rows.clone(), pkg["records"].clone(), now.clone());
+        let batch = sync_function(move |args, _, _| {
+            let writes = args["writes"].as_array().cloned().unwrap_or_default();
+            let current = rr.borrow().clone();
+            let (next, ids) = apply_record_batch(&current, &writes, Some(&records), Some("u1"), &at, |i| format!("n{}", i + 1))?;
+            *rr.borrow_mut() = next;
+            Ok(json!({"ids": ids}))
+        });
+        let called = Rc::new(RefCell::new(Vec::<Value>::new()));
+        let fake = |fname: &'static str| {
+            let (called, answer, throws) = (called.clone(), c["answers"].get(fname).cloned(), c["throws"].get(fname).and_then(Value::as_str).map(str::to_string));
+            sync_function(move |args, _, _| {
+                called.borrow_mut().push(json!({"name": fname, "args": args}));
+                match &throws {
+                    Some(e) => Err(e.clone()),
+                    None => Ok(answer.clone().unwrap_or(Value::Null)),
+                }
+            })
+        };
+        let deny: Vec<String> = c.get("deny").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+        let t = MemoryTransport::new();
+        let host = host_with(
+            cx,
+            HostOptions {
+                transport: Some(Box::new(t.clone())),
+                packages: vec![pkg.clone()],
+                functions: HashMap::from([
+                    ("records.batch".to_string(), batch),
+                    ("photos.pick".to_string(), fake("photos.pick")),
+                    ("print.pdf".to_string(), fake("print.pdf")),
+                    ("harness.toast".to_string(), fake("harness.toast")),
+                ]),
+                policy: HostPolicy { functions: Some(FunctionPolicy { deny: Some(deny), ..Default::default() }), ..Default::default() },
+                me: Some("u1".into()),
+                now: Some(Rc::new(move || now_ms)),
+                zone: Some(Arc::new(move |_| offset)),
+                ..Default::default()
+            },
+        );
+        host.update(cx, |h, cx| h.connect(cx));
+        t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg["id"], "templateId": "main"}})]);
+        cx.run_until_parked();
+        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "add".into(), name: format!("actions.{}", c["action"].as_str().unwrap()), args: json!({}) };
+        let task = host.update(cx, |h, cx| h.call_function(call, cx));
+        let out = outcome(task, cx);
+        assert_eq!(out.error.as_deref(), c["error"].as_str(), "{name}: error");
+        assert_eq!(Value::Array(called.borrow().clone()), c["called"], "{name}: called");
+        let created: Vec<Value> = rows.borrow().iter().map(|r| r["data"].clone()).collect();
+        assert_eq!(Value::Array(created), c["created"], "{name}: created");
+        assert_eq!(data(&host, "s", cx), c["data"], "{name}: data");
+    }
+}
+
 /// VAPP-205: `fixtures/actions.json` `hostCalls`: a `call` step reaches the
 /// same built-ins a press does.
 #[gpui::test]

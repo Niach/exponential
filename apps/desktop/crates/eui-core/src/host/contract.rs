@@ -122,6 +122,7 @@ pub fn host_contract() -> Value {
                 "stepKinds": act::ACTION_STEP_KINDS,
                 "callPrefix": act::ACTION_CALL_PREFIX,
                 "batchFunction": act::RECORDS_BATCH_FUNCTION,
+                "resultPattern": act::ACTION_RESULT_PATTERN,
             },
             "screens": {
                 "max": super::screens::MAX_SCREENS,

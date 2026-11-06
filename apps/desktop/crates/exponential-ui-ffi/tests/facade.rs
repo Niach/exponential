@@ -1455,6 +1455,7 @@ fn the_actions_fixture_replays_through_the_facade() {
             now,
             Some(zone.clone()),
             c.get("maxSteps").and_then(Value::as_u64).map(|s| s as u32),
+            None,
         )
         .unwrap();
         let want = match c.get("error") {
@@ -1464,6 +1465,24 @@ fn the_actions_fixture_replays_through_the_facade() {
         eq(&got, &want, &format!("run: {}", c["name"]));
         n += 1;
     }
+    // VAPP-271: `results.run` (a pending result call, then the answered runs).
+    let r = &f["results"];
+    let rpkg = r["package"].to_string();
+    let mut pending = 0;
+    for c in r["run"].as_array().unwrap() {
+        let got = run_package_action_json(rpkg.clone(), c["action"].as_str().unwrap().into(), "null".into(), "null".into(), None, now, Some(zone.clone()), None, c.get("results").map(Value::to_string)).unwrap();
+        let want = if let Some(e) = c.get("error") {
+            json!({ "error": e })
+        } else if let Some(p) = c.get("pending") {
+            pending += 1;
+            json!({ "pending": p })
+        } else {
+            json!({ "plan": c["plan"] })
+        };
+        eq(&got, &want, &format!("results run: {}", c["name"]));
+        n += 1;
+    }
+    assert!(pending >= 2, "{pending}");
     let b = &f["batch"];
     for c in b["cases"].as_array().unwrap() {
         let got = apply_record_batch_json(b["rows"].to_string(), c["writes"].to_string(), b["records"].to_string(), b["me"].as_str().map(String::from), b["now"].as_str().unwrap().into(), b["newIds"].to_string()).unwrap();
@@ -1478,7 +1497,8 @@ fn the_actions_fixture_replays_through_the_facade() {
     // New ids past the list fall back to r<n>; a non-JSON package is a typed error.
     let out: Value = serde_json::from_str(&apply_record_batch_json("[]".into(), json!([{"op": "upsert", "kind": "other", "data": {"x": 1}}, {"op": "upsert", "kind": "other", "data": {}}]).to_string(), b["records"].to_string(), None, "t".into(), "[\"a\"]".into()).unwrap()).unwrap();
     assert_eq!(out["ids"], json!(["a", "r2"]));
-    assert!(run_package_action_json("{".into(), "log".into(), "null".into(), "null".into(), None, None, None, None).is_err());
+    assert!(run_package_action_json("{".into(), "log".into(), "null".into(), "null".into(), None, None, None, None, None).is_err());
+    assert!(run_package_action_json(rpkg, "addPhotos".into(), "null".into(), "null".into(), None, None, None, None, Some("[1]".into())).is_err(), "results is an object");
 }
 
 /// VAPP-196: fixtures/package-tests.json `runs` through run_package_tests_json

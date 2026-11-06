@@ -107,6 +107,7 @@ export function validatePackageTests(pkg: Record<string, unknown>): PackageIssue
     } else {
       const name = isObject(body) && typeof body.name === `string` ? body.name : ``
       if (!own(actions, name)) issues.push({ path: `${kat}/name`, message: `action ${name} names no package action` })
+      if (isObject(body) && body.results !== undefined && !isObject(body.results)) issues.push({ path: `${kat}/results`, message: `results is an object` })
     }
   })
   return issues
@@ -177,8 +178,10 @@ function runTest(pkg: Record<string, unknown>, t: Record<string, unknown>): unkn
     return recordsSourceValue(sourceWithParams(`${RECORDS_SCHEME}:${from}`, { query: name, ...params }), pkg, rows, me, now)
   }
   const a = t.action as Record<string, unknown>
-  const result = runAction(pkg, a.name as string, a.params, { data: a.data, me, now: nowMs })
+  const result = runAction(pkg, a.name as string, a.params, { data: a.data, me, now: nowMs, results: isObject(a.results) ? a.results : {} })
   if (`error` in result) return { error: result.error }
+  // VAPP-271: a test gives every call's answer; one it leaves out fails the test.
+  if (`pending` in result) return { error: `step ${result.pending.step}: ${result.pending.name} has no result in the test` }
   const batch = applyRecordBatch(stored, result.plan.writes, { records: kinds, me, role, now, newId: (i) => `new-${i + 1}` })
   if (`error` in batch) return { error: batch.error }
   const records: Record<string, unknown[]> = {}
