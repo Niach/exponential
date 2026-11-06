@@ -56,41 +56,11 @@ export function checkConclusionFromGithub(
   return CONCLUSIONS.has(conclusion) ? conclusion : `neutral`
 }
 
-/** The checks the merge gate looks at: the required ones when the base
- *  branch names any, else every check (a repo without branch protection
- *  still has CI worth waiting for). */
-export function gatedChecks<T extends PrCheckLike>(checks: readonly T[]): T[] {
-  const required = checks.filter((check) => check.required)
-  return required.length > 0 ? required : [...checks]
-}
-
-export type MergeGateVerdict =
-  | { ok: true }
-  | { ok: false; reason: `pending` | `failing`; names: string[] }
-
-/** MERGE_CHECK_GATE: refuse a merge while a gated check is red (first) or
- *  still running. No checks known = nothing to wait for. */
-export function mergeGate(checks: readonly PrCheckLike[]): MergeGateVerdict {
-  const gated = gatedChecks(checks)
-  const failing = gated.filter(isFailingCheck).map((check) => check.name)
-  if (failing.length > 0) return { ok: false, reason: `failing`, names: failing }
-  const pending = gated.filter((check) => check.status !== `completed`).map((check) => check.name)
-  if (pending.length > 0) return { ok: false, reason: `pending`, names: pending }
-  return { ok: true }
-}
-
 const COPY = contract.prChecks
 
 function list(names: readonly string[]): string {
   const shown = names.slice(0, 5).join(`, `)
   return names.length > 5 ? `${shown} +${names.length - 5}` : shown
-}
-
-/** The merge gate's refusal (an agent's `pr merge` result). */
-export function mergeGateText(prNumber: number, verdict: Exclude<MergeGateVerdict, { ok: true }>): string {
-  return verdict.reason === `failing`
-    ? `PR #${prNumber} has failing checks: ${list(verdict.names)}. Read them, fix and push; merge again when CI is green (force: true merges anyway, only when a person says so).`
-    : `PR #${prNumber} still has checks running: ${list(verdict.names)}. Do not poll: Exponential wakes this session when CI finishes. Merge then (force: true merges anyway, only when a person says so).`
 }
 
 /** The waking line when a PR's CI leaves pending ("CI on #N: …"). */

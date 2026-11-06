@@ -16,10 +16,8 @@ import {
   GitHubCompareError,
   listOpenPulls,
   listStacksForPull,
-  mergePullRequestSmart,
   type GitHubFetch,
   type GithubStack,
-  type SmartMergeResult,
 } from "@/lib/integrations/github-pr"
 
 /** Cycle-safe bound on the walk down an existing chain (= MAX_STACK_DEPTH). */
@@ -203,22 +201,4 @@ export async function inferBaseBranch(opts: {
   return best
     ? { base: best.branch, prNumber: best.number }
     : { base: opts.defaultBranch, prNumber: null }
-}
-
-/**
- * Merge through a stack member: ONE merge-async on it, which lands it and
- * every open member beneath it (GitHub retargets the ones above). The poll
- * waits the stack deadline.
- */
-export async function mergeThrough(opts: {
-  repo: string
-  token: string
-  prNumber: number
-  commitTitle?: string
-  fetchImpl?: GitHubFetch
-  sleepImpl?: (ms: number) => Promise<void>
-  timeoutMs?: number
-  stepMs?: number
-}): Promise<SmartMergeResult> {
-  return mergePullRequestSmart({ ...opts, stack: true })
 }

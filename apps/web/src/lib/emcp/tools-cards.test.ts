@@ -44,7 +44,6 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 vi.mock(`@/lib/pr-stacks`, () => ({
   inferBaseBranch: vi.fn(),
   ensureGithubStack: vi.fn(),
-  mergeThrough: vi.fn(),
 }))
 vi.mock(`@/lib/run-pr-body`, () => ({
   runPrBody: vi.fn(),

@@ -4,7 +4,6 @@ import {
   GitHubStackForkError,
   inferBaseBranch,
   MAX_BASE_CANDIDATES,
-  mergeThrough,
 } from "@/lib/pr-stacks"
 import { GitHubStackError } from "@/lib/integrations/github-pr"
 
@@ -309,26 +308,5 @@ describe(`inferBaseBranch`, () => {
     ])
     const result = await inferBaseBranch({ repo: `o/r`, token: `tok`, head: `exp/b`, defaultBranch: `master`, fetchImpl: impl })
     expect(result).toEqual({ base: `exp/a`, prNumber: 7 })
-  })
-})
-
-describe(`mergeThrough`, () => {
-  it(`is ONE merge-async on the member, polled to its landing`, async () => {
-    const { impl, calls } = github([
-      { method: `PUT`, path: `/pulls/1008/merge-async`, status: 202, body: { status: `pending`, details: { uuid: `u-1` } } },
-      { path: `/pulls/1008/merge-async/u-1`, status: 200, body: { status: `merged`, sha: `abc` } },
-    ])
-    const result = await mergeThrough({
-      repo: `o/r`,
-      token: `tok`,
-      prNumber: 1008,
-      fetchImpl: impl,
-      sleepImpl: async () => {},
-    })
-    expect(result).toMatchObject({ merged: true, queued: false, sha: `abc` })
-    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      `PUT /pulls/1008/merge-async`,
-      `GET /pulls/1008/merge-async/u-1`,
-    ])
   })
 })
