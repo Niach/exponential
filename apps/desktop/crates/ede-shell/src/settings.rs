@@ -163,11 +163,7 @@ pub fn user_json() -> Value {
 /// Texts the pages show, derived from a snapshot.
 pub fn decorate(domain: &str, mut snapshot: Value) -> Value {
     match domain {
-        "power" => {
-            let b = &snapshot["battery"];
-            let text = if b["present"].as_bool() == Some(true) { format!("{}% · {}", b["percent"].as_u64().unwrap_or(0), b["state"].as_str().unwrap_or("")) } else { "No battery".to_string() };
-            snapshot["batteryText"] = json!(text);
-        }
+        // `power` carries its own `batteryText` since #EDE-43.
         "updates" => {
             let n = snapshot["count"].as_u64().unwrap_or(0);
             snapshot["countText"] = json!(if n == 0 { "Up to date".to_string() } else { n.to_string() });

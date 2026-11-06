@@ -57,8 +57,7 @@ pub fn windows_feed(windows: &[ede_protocol::WindowInfo], active_workspace: usiz
         .map(|w| {
             let app = w.app_id.clone().unwrap_or_default();
             let title = w.title.clone().unwrap_or_else(|| if app.is_empty() { "Window".into() } else { app.clone() });
-            // `minimized` arrives with the compositor's minimize (#EDE-48); until then every listed window is shown.
-            json!({"id": w.id, "title": title, "app": app, "focused": w.focused, "workspace": w.workspace, "minimized": false})
+            json!({"id": w.id, "title": title, "app": app, "focused": w.focused, "workspace": w.workspace, "minimized": w.minimized})
         })
         .collect()
 }
@@ -105,7 +104,7 @@ mod tests {
     use ede_protocol::{WindowId, WindowInfo};
 
     fn window(id: &str, app: Option<&str>, workspace: usize, focused: bool) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(format!("{id} title")), app_id: app.map(String::from), x: 0, y: 0, width: 100, height: 100, focused, fullscreen: false, protected: false, x11: false, workspace }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(format!("{id} title")), app_id: app.map(String::from), x: 0, y: 0, width: 100, height: 100, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false }
     }
 
     #[test]

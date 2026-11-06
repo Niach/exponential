@@ -226,10 +226,9 @@ fn window_arg(args: &Value) -> Option<ede_protocol::WindowId> {
 }
 
 /// Mint's click on the focused window's button: the compositor's minimize
-/// (#EDE-48, `minimize_window` lands with the compositor's PR; until then
-/// the window keeps the focus).
+/// (#EDE-48); a `focus` restores it.
 fn minimize(ede: &mut ede_protocol::Client, id: ede_protocol::WindowId) -> Result<(), ede_protocol::Error> {
-    ede.focus(id)
+    ede.minimize(id)
 }
 
 fn document(shell: &Shell, name: &str) -> Option<Document> {
@@ -1304,7 +1303,7 @@ fn lists(calls: &mut ede_protocol::Client) -> Option<(Vec<ede_protocol::WindowIn
 
 /// The sample windows of the goldens (`EDE_SHELL_DEMO=1`): three apps, one grouped.
 fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
-    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0 };
+    let w = |id: &str, app: &str, title: &str, focused: bool| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 800, height: 600, focused, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false };
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 

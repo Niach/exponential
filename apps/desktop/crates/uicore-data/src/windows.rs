@@ -46,10 +46,8 @@ pub fn window_events(model: &ShellState, next: &[WindowInfo]) -> Vec<ShellEvent>
     out
 }
 
-/// `WindowInfo.minimized` arrives with the compositor's minimize (#EDE-48);
-/// until the protocol carries it, no listed window is minimized.
-fn minimized(_w: &WindowInfo) -> bool {
-    false
+fn minimized(w: &WindowInfo) -> bool {
+    w.minimized
 }
 
 /// The workspace events that take `model` to the compositor's list.
@@ -74,7 +72,7 @@ mod tests {
     use uicore_model::reduce;
 
     fn info(id: &str, app: &str, title: &str, focused: bool, workspace: usize) -> WindowInfo {
-        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace }
+        WindowInfo { id: WindowId::new(id).unwrap(), title: Some(title.into()), app_id: Some(app.into()), x: 0, y: 0, width: 10, height: 10, focused, fullscreen: false, protected: false, x11: false, workspace, minimized: false }
     }
 
     fn apply(model: &ShellState, events: &[ShellEvent]) -> ShellState {
