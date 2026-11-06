@@ -4583,7 +4583,7 @@
       "group": "exponential-ui-catalog",
       "title": "genUI · Tree",
       "blurb": "A file-style tree: one Row per visible node with the tree guides, branches fold, leaves select, a lazy branch shows its loading row. The core catalog specimen of ui.exponential.at/components/tree/.",
-      "order": 110,
+      "order": 111,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-tree",
         "anchor": {
