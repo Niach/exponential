@@ -8371,6 +8371,66 @@
         "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
         "ios": "Exponential Desktop only.",
         "android": "Exponential Desktop only."
+      }    },
+    {
+      "id": "ede-expo",
+      "group": "ede",
+      "title": "Exponential Desktop · Expo",
+      "blurb": "Ctrl+Alt+Up's overlay (apps/ede/ui/expo.json): one tile per workspace with its windows as live thumbnails (the sample windows in the golden), the active workspace outlined; a tile switches to it.",
+      "order": 16,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "expo"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }    },
+    {
+      "id": "ede-scale",
+      "group": "ede",
+      "title": "Exponential Desktop · Scale",
+      "blurb": "Ctrl+Alt+Down's overlay (apps/ede/ui/scale.json): the active workspace's windows tiled as live thumbnails with a title chip and a close badge; a tile focuses the window.",
+      "order": 17,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "scale"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
+      }    },
+    {
+      "id": "ede-history",
+      "group": "ede",
+      "title": "Exponential Desktop · version history",
+      "blurb": "The start menu's Version history entry (apps/ede/ui/history.json): every edit of the shell's documents as a commit, newest first, with Undo and Reset to factory.",
+      "order": 18,
+      "ede": {
+        "size": "1280x720",
+        "open": [
+          "history"
+        ],
+        "settleMs": 2500
+      },
+      "notes": {
+        "web": "Exponential Desktop only: the shell is a Wayland layer-shell client of exponential-compositor (apps/ede), there is no web route.",
+        "web-mobile": "Exponential Desktop only.",
+        "desktop": "Exponential Desktop only: exponential-shell is its own gpui process, not the IDE.",
+        "ios": "Exponential Desktop only.",
+        "android": "Exponential Desktop only."
       }
     }
   ]

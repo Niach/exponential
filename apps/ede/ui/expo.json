@@ -1,0 +1,29 @@
+{
+  "$comment": "Exponential Desktop's factory Expo (#EDE-49): Ctrl+Alt+Up opens it as an overlay in the middle of the screen (onDemand: the shell opens and closes it on the compositor's expo.toggle hotkey), one tile per workspace (/expo: the label, the window count, the active one outlined, each window as a live thumbnail captured over ede-protocol while it is open); a press on a tile switches to that workspace (ede.workspace) and closes the overlay, a press on a thumbnail focuses that window.",
+  "surface": {"layer": "overlay", "size": {"width": 960, "height": 520}, "onDemand": true, "functions": ["ede.workspace", "ede.focus"]},
+  "root": {
+    "id": "expo",
+    "component": "Box",
+    "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "width": 960, "height": 520, "backgroundColor": "$color.popover", "borderWidth": 1, "borderColor": "$color.border", "borderRadius": "$radius.lg"},
+    "children": [
+      {"id": "expo-title", "component": "Heading", "props": {"text": "Workspaces", "level": "h4"}},
+      {"id": "tiles", "component": "Grid", "props": {"columns": 2, "gap": "md"}, "template": {"component": "tile", "path": "/expo/workspaces", "key": "index"}, "children": [
+        {"id": "tile", "component": "Box", "props": {"pressable": true}, "style": {"position": "relative", "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "padding": "$spacing.sm", "minHeight": 200, "borderRadius": "$radius.md", "borderWidth": 1, "borderColor": "$color.border", "backgroundColor": "$color.muted"}, "on": {"press": {"functionCall": {"call": "ede.workspace", "args": {"index": {"path": "index"}}}}}, "children": [
+          {"id": "tile-active", "component": "Box", "style": {"position": "absolute", "inset": 0, "borderRadius": "$radius.md", "borderWidth": 2, "borderColor": "$color.primary"}, "visible": {"path": "active"}},
+          {"id": "tile-head", "component": "Stack", "props": {"direction": "horizontal", "gap": "sm", "align": "center", "justify": "between"}, "children": [
+            {"id": "tile-label", "component": "Text", "props": {"text": {"path": "label"}, "variant": "label"}},
+            {"id": "tile-count", "component": "Text", "props": {"text": {"path": "countText"}, "variant": "muted"}}
+          ]},
+          {"id": "tile-windows", "component": "Stack", "props": {"direction": "horizontal", "gap": "xs", "align": "start", "wrap": true}, "template": {"component": "tile-window", "path": "windows", "key": "id"}, "children": [
+            {"id": "tile-window", "component": "Box", "props": {"pressable": true}, "style": {"display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "width": 104}, "on": {"press": {"functionCall": {"call": "ede.focus", "args": {"window": {"path": "id"}}}}}, "children": [
+              {"id": "tile-thumb", "component": "Image", "props": {"src": {"path": "thumbnail"}, "alt": {"path": "title"}, "width": 104, "height": 58, "fit": "contain", "fallback": "ede-window"}},
+              {"id": "tile-window-title", "component": "Text", "props": {"text": {"path": "title"}, "variant": "caption", "lines": 1}}
+            ]}
+          ]},
+          {"id": "tile-empty", "component": "Text", "props": {"text": "No windows", "variant": "muted"}, "visible": {"call": "eq", "args": {"a": {"call": "len", "args": {"value": {"path": "windows"}}}, "b": 0}}}
+        ]}
+      ]}
+    ]
+  },
+  "data": {"expo": {"workspaces": []}}
+}

@@ -6,6 +6,9 @@ import sidebar from "../../../ede/ui/sidebar.json"
 import taskbar from "../../../ede/ui/taskbar.json"
 import startMenu from "../../../ede/ui/start-menu.json"
 import chat from "../../../ede/ui/chat.json"
+import expo from "../../../ede/ui/expo.json"
+import scale from "../../../ede/ui/scale.json"
+import history from "../../../ede/ui/history.json"
 import switcher from "../../../ede/ui/switcher.json"
 import osd from "../../../ede/ui/osd.json"
 import notifications from "../../../ede/ui/notifications.json"
@@ -27,6 +30,9 @@ const SIDEBAR = sidebar as unknown as { root: NestedNode }
 const TASKBAR = taskbar as unknown as { root: NestedNode; data: Record<string, unknown> }
 const START_MENU = startMenu as unknown as { root: NestedNode }
 const CHAT = chat as unknown as { root: NestedNode }
+const EXPO = expo as unknown as { root: NestedNode }
+const SCALE = scale as unknown as { root: NestedNode }
+const HISTORY = history as unknown as { root: NestedNode }
 const SWITCHER = switcher as unknown as { root: NestedNode }
 const OSD = osd as unknown as { root: NestedNode }
 const NOTIFICATIONS = notifications as unknown as { root: NestedNode }
@@ -84,6 +90,16 @@ const SAMPLE_SHELL = {
   chat: { open: false },
   altTab: { open: false, selected: 0, order: [] },
 }
+const SAMPLE_EXPO = { workspaces: [
+  { index: 0, label: `Workspace 1`, active: true, count: 3, countText: `3`, windows: [{ id: `w1`, title: `Firefox`, focused: false, thumbnail: `` }, { id: `w2`, title: `Terminal`, focused: true, thumbnail: `` }, { id: `w3`, title: `Files`, focused: false, thumbnail: `` }] },
+  { index: 1, label: `Workspace 2`, active: false, count: 1, countText: `1`, windows: [{ id: `w4`, title: `Exponential — Firefox`, focused: false, thumbnail: `` }] },
+] }
+const SAMPLE_SCALE = { label: `Workspace 1`, windows: SAMPLE_EXPO.workspaces[0].windows }
+const SAMPLE_HISTORY = { entries: [
+  { id: `a1b2c3d4e5`, short: `a1b2c3d`, summary: `Edit taskbar.json`, at: `2026-11-06 11:58` },
+  { id: `f6a7b8c9d0`, short: `f6a7b8c`, summary: `Edit sidebar.json`, at: `2026-11-06 11:40` },
+  { id: `0f1e2d3c4b`, short: `0f1e2d3`, summary: `Factory sidebar.json`, at: `2026-11-06 09:00` },
+] }
 const SAMPLE_SWITCHER = { windows: [
   { id: `w1`, title: `Firefox`, selected: false, thumbnail: `` },
   { id: `w2`, title: `Terminal`, selected: true, thumbnail: `` },
@@ -95,7 +111,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EDE-42`,
   title: `Exponential Desktop shell`,
-  blurb: `The desktop environment's factory shell documents, the IDE look (#EDE-42): the ground (apps/ede/ui/ground.json: the IDE's gradient and the rounded panel the focused window sits on), the sidebar (sidebar.json: the desktop/team switcher, inbox, search, new, the nav Needs you + Chats, the Pinned / Workspaces / Active sections, the Exponential start button and the chat button bottom-left; 272 px, or the 56 px icon rail), Mint's taskbar (taskbar.json: icon-only grouped buttons with pins, hover previews and a context menu, the applets, the bell and the clock at the right), the start menu (start-menu.json: the person and the favourites with lock / log out / power, the categories, the app rows, the search box), the chat (chat.json: the Assistant's composer), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json), a tray item's dbusmenu (tray-menu.json) and the settings surface (settings.json, a page per domain over exponential-services). Agents and people edit these files; exponential-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
+  blurb: `The desktop environment's factory shell documents, the IDE look (#EDE-42): the ground (apps/ede/ui/ground.json: the IDE's gradient and the rounded panel the focused window sits on), the sidebar (sidebar.json: the desktop/team switcher, inbox, search, new, the nav Needs you + Chats, the Pinned / Workspaces / Active sections, the Exponential start button and the chat button bottom-left; 272 px, or the 56 px icon rail), Mint's taskbar (taskbar.json: icon-only grouped buttons with pins, hover previews and a context menu, the applets, the bell and the clock at the right), the start menu (start-menu.json: the person and the favourites with lock / log out / power, the categories, the app rows, the search box), the chat (chat.json: the Assistant's composer), Expo and Scale (expo.json, scale.json: the workspaces and the active workspace's windows as live thumbnails), the version history (history.json: the shell documents' edits with Undo and Reset to factory), the Alt+Tab switcher (switcher.json, an on-demand overlay with live thumbnails), the OSD (osd.json, the media keys' level), the toasts of the shell's own notification server (notifications.json), the bell's notification centre (notification-center.json), a tray item's dbusmenu (tray-menu.json) and the settings surface (settings.json, a page per domain over exponential-services). Agents and people edit these files; exponential-ui validates, commits and rolls back (packages/ede). eDE-specific, not genUI: no new component, the core catalog only.`,
   status: {
     web: {
       state: `ok`,
@@ -133,6 +149,18 @@ export const entry: StyleguideEntry = {
       <span className="text-xs text-muted-foreground">chat.json · the chat button's surface</span>
       <div style={{ width: 720 }}>
         <ExponentialUiTree id="ede-chat" node={CHAT.root} data={{ chat: { draft: `` } }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">expo.json · Ctrl+Alt+Up, the workspaces with their windows</span>
+      <div style={{ width: 1040 }}>
+        <ExponentialUiTree id="ede-expo" node={EXPO.root} data={{ expo: SAMPLE_EXPO }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">scale.json · Ctrl+Alt+Down, the active workspace's windows</span>
+      <div style={{ width: 1040 }}>
+        <ExponentialUiTree id="ede-scale" node={SCALE.root} data={{ scale: SAMPLE_SCALE }} formFactor="wide" />
+      </div>
+      <span className="text-xs text-muted-foreground">history.json · the shell documents' edits, with Undo and Reset</span>
+      <div style={{ width: 720 }}>
+        <ExponentialUiTree id="ede-history" node={HISTORY.root} data={{ history: SAMPLE_HISTORY }} formFactor="wide" />
       </div>
       <span className="text-xs text-muted-foreground">switcher.json · Alt+Tab, an on-demand overlay</span>
       <div style={{ width: 760 }}>

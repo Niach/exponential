@@ -20,6 +20,17 @@ pub fn date() -> String {
     format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
 }
 
+/// `yyyy-mm-dd HH:MM` local for a unix time (a history entry).
+pub fn stamp(epoch: i64) -> String {
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let t: libc::time_t = epoch as libc::time_t;
+    // SAFETY: localtime_r writes into the tm we own.
+    unsafe {
+        libc::localtime_r(&t, &mut tm);
+    }
+    format!("{:04}-{:02}-{:02} {:02}:{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min)
+}
+
 fn local() -> libc::tm {
     // SAFETY: time() with a null pointer only returns; localtime_r writes
     // into the tm we own.

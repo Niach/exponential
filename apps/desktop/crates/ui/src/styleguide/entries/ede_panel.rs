@@ -20,6 +20,9 @@ const SIDEBAR: &str = include_str!("../../../../../../ede/ui/sidebar.json");
 const TASKBAR: &str = include_str!("../../../../../../ede/ui/taskbar.json");
 const START_MENU: &str = include_str!("../../../../../../ede/ui/start-menu.json");
 const CHAT: &str = include_str!("../../../../../../ede/ui/chat.json");
+const EXPO: &str = include_str!("../../../../../../ede/ui/expo.json");
+const SCALE: &str = include_str!("../../../../../../ede/ui/scale.json");
+const HISTORY: &str = include_str!("../../../../../../ede/ui/history.json");
 const SWITCHER: &str = include_str!("../../../../../../ede/ui/switcher.json");
 const OSD: &str = include_str!("../../../../../../ede/ui/osd.json");
 const NOTIFICATIONS: &str = include_str!("../../../../../../ede/ui/notifications.json");
@@ -73,6 +76,19 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     }
     let (start_menu, _) = document(START_MENU);
     let (chat, _) = document(CHAT);
+    let (expo, _) = document(EXPO);
+    let (scale, _) = document(SCALE);
+    let (history, _) = document(HISTORY);
+    let expo_data = json!({"expo": {"workspaces": [
+        {"index": 0, "label": "Workspace 1", "active": true, "count": 3, "countText": "3", "windows": [{"id": "w1", "title": "Firefox", "focused": false, "thumbnail": ""}, {"id": "w2", "title": "Terminal", "focused": true, "thumbnail": ""}, {"id": "w3", "title": "Files", "focused": false, "thumbnail": ""}]},
+        {"index": 1, "label": "Workspace 2", "active": false, "count": 1, "countText": "1", "windows": [{"id": "w4", "title": "Exponential — Firefox", "focused": false, "thumbnail": ""}]}
+    ]}});
+    let scale_data = json!({"scale": {"label": "Workspace 1", "windows": expo_data["expo"]["workspaces"][0]["windows"]}});
+    let history_data = json!({"history": {"entries": [
+        {"id": "a1b2c3d4e5", "short": "a1b2c3d", "summary": "Edit taskbar.json", "at": "2026-11-06 11:58"},
+        {"id": "f6a7b8c9d0", "short": "f6a7b8c", "summary": "Edit sidebar.json", "at": "2026-11-06 11:40"},
+        {"id": "0f1e2d3c4b", "short": "0f1e2d3", "summary": "Factory sidebar.json", "at": "2026-11-06 09:00"}
+    ]}});
     let (switcher, _) = document(SWITCHER);
     let windows = json!({"switcher": {"windows": [
         {"id": "w1", "title": "Firefox", "selected": false, "thumbnail": ""},
@@ -124,6 +140,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(div().w(px(1008.0)).child(styleguide_surface_in("sg-ede-taskbar", taskbar, None, Some(taskbar_data), window, cx)))
         .child(div().w(px(760.0)).child(styleguide_surface_in("sg-ede-start-menu", start_menu, None, Some(json!({"user": {"name": "Danny", "host": "ubuntu-wayland"}, "shell": sample_shell(false)})), window, cx)))
         .child(div().w(px(720.0)).child(styleguide_surface_in("sg-ede-chat", chat, None, Some(json!({"chat": {"draft": ""}})), window, cx)))
+        .child(div().w(px(1040.0)).child(styleguide_surface_in("sg-ede-expo", expo, None, Some(expo_data), window, cx)))
+        .child(div().w(px(1040.0)).child(styleguide_surface_in("sg-ede-scale", scale, None, Some(scale_data), window, cx)))
+        .child(div().w(px(720.0)).child(styleguide_surface_in("sg-ede-history", history, None, Some(history_data), window, cx)))
         .child(div().w(px(760.0)).child(styleguide_surface_in("sg-ede-switcher", switcher, None, Some(windows), window, cx)))
         .child(div().w(px(280.0)).child(styleguide_surface_in("sg-ede-osd", osd, None, Some(level), window, cx)))
         .child(div().w(px(380.0)).child(styleguide_surface_in("sg-ede-notifications", notifications, None, Some(sample_notifications.clone()), window, cx)))

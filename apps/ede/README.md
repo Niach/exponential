@@ -70,7 +70,9 @@ rail's width), `ede.pin {app}` / `ede.unpin {app}` (kept in
 click: launch, focus, minimize, or the previews of a group),
 `ede.taskbar_scroll {app, direction}`, `ede.previews {app|null}`,
 `ede.start_menu {open?, query?, category?}`, `ede.chat` (toggle),
-`ede.workspace {index}`, `ede.sidebar {section}` (fold a section).
+`ede.workspace {index}`, `ede.sidebar {section}` (fold a section),
+`ede.history {action: undo|reset}` (the shell documents' history);
+`/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
 `file:` pictures. Factory documents live in `apps/ede/ui/*.json` (the IDE
@@ -83,9 +85,14 @@ chat button bottom-left), `taskbar.json` (bottom, 48 px exclusive zone to the
 right of the sidebar: Mint's grouped window list with pins, hover previews
 and a context menu, the applets, the tray, the bell and the clock),
 `start-menu.json` (the start button's popup: Mint's three columns and the
-search box), `chat.json` (the Assistant's composer, on demand),
-`switcher.json` and `osd.json` (`onDemand` overlays the shell opens on a
-hotkey and closes again), `notifications.json` (the toasts, top-right, on
+search box; its own entries are Files (Nemo, else the default file manager),
+Version history and the Exponential app when installed, #EDE-53), `chat.json`
+(the Assistant's composer, on demand), `history.json` (Version history: the
+shell documents' commits with Undo and Reset to factory, on demand),
+`switcher.json`, `expo.json` and `scale.json` (`onDemand` overlays the shell
+opens on a hotkey and closes again: Alt+Tab, Ctrl+Alt+Up with one tile per
+workspace, Ctrl+Alt+Down with the active workspace's windows, each with live
+thumbnails, #EDE-49), `osd.json`, `notifications.json` (the toasts, top-right, on
 demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
 (a tray item's menu as the tray's popup). A click outside an open popup, or
 Escape in it, closes it. A layer document's root is opaque (`$color.background`

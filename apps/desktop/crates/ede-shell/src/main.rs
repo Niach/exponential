@@ -275,7 +275,17 @@ impl HostPlugin for Host {
                 if let Some(command) = args.get("command").and_then(Value::as_str) {
                     system::launch(command);
                 } else if let Some(app) = args.get("app").and_then(Value::as_str) {
-                    launch_app(&self.shell.borrow(), app);
+                    if app.trim_end_matches(".desktop") == HISTORY_APP {
+                        // The shell's own Version history (#EDE-53): a document, not a process.
+                        let s = self.shell.clone();
+                        cx.defer(move |cx| {
+                            history_refresh(&s);
+                            open_on_demand(&s, "history", cx);
+                            refresh(&s, cx);
+                        });
+                    } else {
+                        launch_app(&self.shell.borrow(), app);
+                    }
                 }
                 cx.defer(move |cx| {
                     close(&shell, "menu", cx);
@@ -286,6 +296,17 @@ impl HostPlugin for Host {
             "ede.focus" => {
                 if let Some(id) = window_arg(args) {
                     with_ede(&self.shell, |ede| ede.focus(id));
+                }
+                if event.surface_id == "expo" || event.surface_id == "scale" {
+                    let doc = event.surface_id.clone();
+                    cx.defer(move |cx| overlay_close(&shell, &doc, cx));
+                }
+            }
+            "ede.history" => {
+                match args.get("action").and_then(Value::as_str) {
+                    Some("undo") => system::launch("exponential-ui undo"),
+                    Some("reset") => system::launch("exponential-ui reset"),
+                    other => tracing::warn!(action = ?other, "unknown history action"),
                 }
             }
             "ede.close" => {
@@ -512,6 +533,9 @@ impl HostPlugin for Host {
                 if let Some(index) = args.get("index").and_then(Value::as_u64) {
                     with_ede(&self.shell, |ede| ede.switch_workspace(index as usize));
                 }
+                if event.surface_id == "expo" {
+                    cx.defer(move |cx| overlay_close(&shell, "expo", cx));
+                }
             }
             "ede.sidebar" => {
                 if let Some(section) = args.get("section").and_then(Value::as_str).map(String::from) {
@@ -552,6 +576,63 @@ impl HostPlugin for Host {
     fn media_options(&self) -> MediaOptions {
         MediaOptions { schemes: Some(vec!["https".into(), "http".into(), "data".into(), "file".into()]), ..Default::default() }
     }
+}
+
+/// The start menu's own entries (#EDE-53): Files (Nemo, else the default
+/// file manager), Version history (the shell's edit history), and the
+/// Exponential app when it is installed (it has its own desktop entry).
+const FILES_APP: &str = "at.exponential.files";
+const HISTORY_APP: &str = "at.exponential.history";
+
+fn builtin_apps(demo: bool) -> Vec<apps::App> {
+    let files_exec = if demo || which("nemo") { "nemo".to_string() } else { "xdg-open .".to_string() };
+    let files_icon = if demo { None } else { apps::icon_file("system-file-manager").or_else(|| apps::icon_file("folder")) };
+    vec![
+        apps::App { id: format!("{FILES_APP}.desktop"), name: "Files".into(), comment: "Browse and organize your files".into(), exec: files_exec, icon: files_icon, keywords: "files nemo file manager folders".into(), categories: vec!["Utility".into(), "System".into()] },
+        apps::App { id: format!("{HISTORY_APP}.desktop"), name: "Version history".into(), comment: "Every edit of the desktop's shell, undo any".into(), exec: String::new(), icon: None, keywords: "version history git undo shell edits".into(), categories: vec!["Utility".into()] },
+    ]
+}
+
+fn which(bin: &str) -> bool {
+    std::env::var_os("PATH").map(|p| std::env::split_paths(&p).any(|d| d.join(bin).is_file())).unwrap_or(false)
+}
+
+/// `/history`: the shell documents' commits, newest first (#EDE-53).
+fn history_refresh(shell: &SharedShell) {
+    if std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0") {
+        // The goldens: fixed sample edits instead of the scratch copy's commits.
+        let entries = json!([
+            {"id": "a1b2c3d4e5f6", "short": "a1b2c3d", "summary": "Edit taskbar.json", "at": "2026-11-06 11:58"},
+            {"id": "f6a7b8c9d0e1", "short": "f6a7b8c", "summary": "Edit sidebar.json", "at": "2026-11-06 11:40"},
+            {"id": "0f1e2d3c4b5a", "short": "0f1e2d3", "summary": "Factory sidebar.json", "at": "2026-11-06 09:00"}
+        ]);
+        shell.borrow_mut().feed.set("/history", json!({"entries": entries}));
+        return;
+    }
+    let entries: Vec<Value> = {
+        let s = shell.borrow();
+        let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
+        ui.log(60).unwrap_or_default().into_iter().map(|c| json!({"id": c.id, "short": c.id.chars().take(7).collect::<String>(), "summary": c.summary, "at": clock::stamp(c.time)})).collect()
+    };
+    shell.borrow_mut().feed.set("/history", json!({"entries": entries}));
+}
+
+/// `/expo` and `/scale`: the workspaces with their windows and the active
+/// workspace's windows, each with its thumbnail (#EDE-49).
+fn overlays_refresh(shell: &SharedShell) {
+    let mut s = shell.borrow_mut();
+    let thumb = |s: &Shell, id: &str| s.thumbnails.get(id).cloned().unwrap_or_default();
+    let workspaces: Vec<Value> = uicore_model::workspace_badges(&s.model)
+        .into_iter()
+        .map(|b| {
+            let windows: Vec<Value> = s.model.windows.iter().filter(|w| w.workspace == b.index).map(|w| json!({"id": w.id, "title": w.title, "focused": w.focused, "thumbnail": thumb(&s, &w.id)})).collect();
+            json!({"index": b.index, "label": format!("Workspace {}", b.index + 1), "active": b.active, "count": b.count, "countText": if b.count == 0 { String::new() } else { b.count.to_string() }, "windows": windows})
+        })
+        .collect();
+    let active = s.model.workspaces.active;
+    let scale_windows: Vec<Value> = s.model.windows.iter().filter(|w| w.workspace == active).map(|w| json!({"id": w.id, "title": w.title, "focused": w.focused, "thumbnail": thumb(&s, &w.id)})).collect();
+    s.feed.set("/expo", json!({"workspaces": workspaces}));
+    s.feed.set("/scale", json!({"label": format!("Workspace {}", active + 1), "windows": scale_windows}));
 }
 
 /// Launches the desktop entry `app` (its id, with or without `.desktop`).
@@ -801,6 +882,7 @@ fn toggle_popup(shell: &SharedShell, name: &str, cx: &mut App) {
 fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
     match change {
         Change::Applied { name, .. } => {
+            history_refresh(shell);
             let Some(doc) = document(&shell.borrow(), &name) else { return };
             let open = shell.borrow().surfaces.is_open(&name);
             match (open, &doc.surface) {
@@ -868,6 +950,7 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
         s.windows = list;
     }
     previews_refresh(shell);
+    overlays_refresh(shell);
     model_changed(shell, cx);
 }
 
@@ -1037,17 +1120,22 @@ fn hotkey(shell: &SharedShell, name: &str, cx: &mut App) {
 /// window's thumbnail, toggled by its hotkey.
 fn overlay_toggle(shell: &SharedShell, name: &str, cx: &mut App) {
     if shell.borrow().surfaces.is_open(name) {
-        close(shell, name, cx);
-        thumbnails_retarget(shell);
+        overlay_close(shell, name, cx);
         return;
     }
     if document(&shell.borrow(), name).is_none() {
         tracing::info!(document = name, "no overlay document");
         return;
     }
+    overlays_refresh(shell);
     open_on_demand(shell, name, cx);
     thumbnails_retarget(shell);
     refresh(shell, cx);
+}
+
+fn overlay_close(shell: &SharedShell, name: &str, cx: &mut App) {
+    close(shell, name, cx);
+    thumbnails_retarget(shell);
 }
 
 /// Alt+Tab: open the switcher on the first step, move the selection after.
@@ -1144,6 +1232,7 @@ fn thumbnail_arrived(shell: &SharedShell, id: String, url: String) {
     shell.borrow_mut().thumbnails.insert(id, url);
     switcher_refresh(shell);
     previews_refresh(shell);
+    overlays_refresh(shell);
     let thumbs: Value = {
         let s = shell.borrow();
         json!(s.thumbnails)
@@ -1372,7 +1461,9 @@ fn main() {
             }
         })
         .expect("the events thread");
-    let installed = if demo { apps::demo() } else { apps::scan() };
+    let mut installed = if demo { apps::demo() } else { apps::scan() };
+    installed.extend(builtin_apps(demo));
+    installed.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     tracing::info!(apps = installed.len(), demo, "desktop entries");
     // Thumbnails from the capture thread while the switcher or the previews are open.
     let (thumbs_tx, thumbs_rx) = mpsc::channel::<(String, String)>();
@@ -1509,6 +1600,8 @@ fn main() {
             _watcher: watcher,
         }));
         *shell_cell.borrow_mut() = Some(shell.clone());
+        history_refresh(&shell);
+        overlays_refresh(&shell);
         model_changed(&shell, cx);
         if !demo {
             // The outputs first: a stretched surface takes the output's size.
