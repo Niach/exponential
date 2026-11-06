@@ -24,6 +24,7 @@
 
 import { formatString } from "./strings"
 import { ENGLISH_FORMAT_FUNCTIONS } from "./format"
+import { treeRows } from "./tree"
 
 export interface ExprContext {
   id: string
@@ -45,7 +46,7 @@ export type Dynamic = DataBinding | FunctionCall
 
 const WHOLE = /^\{([^{}]+)\}$/
 const EMBEDDED = /\{([^{}]+)\}/g
-const FUNCTION = /^(len|range)\((.+)\)$/
+const FUNCTION = /^(len|range|treeRows)\((.+)\)$/
 
 export function isBinding(value: unknown): value is DataBinding {
   return typeof value === `object` && value !== null && !Array.isArray(value) && typeof (value as DataBinding).path === `string` && Object.keys(value as object).length === 1
@@ -137,7 +138,7 @@ export function fillTemplate(template: unknown, params: unknown): string {
  *  Mirrors `MAX_RANGE_ITEMS` in the Rust core's `expr.rs`. */
 export const MAX_RANGE_ITEMS = 10_000
 
-/** One expression: `len(path)`, `range(n)`, `path|fallback`, `!path`, `path`.
+/** One expression: `len(path)`, `range(n)`, `treeRows(props)`, `path|fallback`, `!path`, `path`.
  *  The function forms wrap the whole expression and are tried first, so a
  *  fallback inside their parentheses stays theirs. */
 export function evalExpr(expr: string, ctx: ExprContext): unknown {
@@ -145,6 +146,11 @@ export function evalExpr(expr: string, ctx: ExprContext): unknown {
   const fn = FUNCTION.exec(text)
   if (fn) {
     const inner = evalExpr(fn[2], ctx)
+    // #VAPP-285: `treeRows(props)` = a Tree's flat rows (src/tree.ts).
+    if (fn[1] === `treeRows`) {
+      const props = (typeof inner === `object` && inner !== null ? inner : {}) as Record<string, unknown>
+      return treeRows(props.items, props.expanded)
+    }
     if (fn[1] === `len`) {
       if (isDynamic(inner)) return call(`len`, { value: inner })
       return Array.isArray(inner) ? inner.length : typeof inner === `string` ? inner.length : 0

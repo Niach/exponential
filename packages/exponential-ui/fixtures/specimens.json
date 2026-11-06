@@ -12015,6 +12015,188 @@
       }
     },
     {
+      "id": "exponential-ui-tree",
+      "component": "Tree",
+      "title": "Tree",
+      "node": {
+        "id": "specimen-tree",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-tree-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tree-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "files",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-files",
+                "component": "Tree",
+                "props": {
+                  "label": "Files",
+                  "items": [
+                    {
+                      "id": "apps",
+                      "title": "apps",
+                      "children": [
+                        {
+                          "id": "apps/web",
+                          "title": "web",
+                          "children": [
+                            {
+                              "id": "apps/web/main.ts",
+                              "title": "main.ts",
+                              "meta": "M"
+                            },
+                            {
+                              "id": "apps/web/router.ts",
+                              "title": "router.ts"
+                            }
+                          ]
+                        },
+                        {
+                          "id": "apps/desktop",
+                          "title": "desktop",
+                          "hasChildren": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": "packages",
+                      "title": "packages",
+                      "children": [
+                        {
+                          "id": "packages/ui",
+                          "title": "ui",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "id": "README.md",
+                      "title": "README.md"
+                    },
+                    {
+                      "id": "package.json",
+                      "title": "package.json",
+                      "meta": "A"
+                    }
+                  ],
+                  "expanded": [
+                    "apps",
+                    "apps/web",
+                    "packages"
+                  ],
+                  "value": "apps/web/main.ts"
+                },
+                "style": {
+                  "maxWidth": 360
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-tree-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-tree-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "hasChildren · loading",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-files",
+                "component": "Tree",
+                "props": {
+                  "label": "Files",
+                  "items": [
+                    {
+                      "id": "apps",
+                      "title": "apps",
+                      "children": [
+                        {
+                          "id": "apps/web",
+                          "title": "web",
+                          "children": [
+                            {
+                              "id": "apps/web/main.ts",
+                              "title": "main.ts",
+                              "meta": "M"
+                            },
+                            {
+                              "id": "apps/web/router.ts",
+                              "title": "router.ts"
+                            }
+                          ]
+                        },
+                        {
+                          "id": "apps/desktop",
+                          "title": "desktop",
+                          "hasChildren": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": "packages",
+                      "title": "packages",
+                      "children": [
+                        {
+                          "id": "packages/ui",
+                          "title": "ui",
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "id": "README.md",
+                      "title": "README.md"
+                    },
+                    {
+                      "id": "package.json",
+                      "title": "package.json",
+                      "meta": "A"
+                    }
+                  ],
+                  "expanded": [
+                    "apps",
+                    "apps/desktop"
+                  ]
+                },
+                "style": {
+                  "maxWidth": 360
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-message-bubble",
       "component": "MessageBubble",
       "title": "MessageBubble",

@@ -179,3 +179,6 @@ export * from "./host"
 export * from "./connector"
 // #VAPP-284: the fold keys (a foldable Row's head and fold button).
 export { foldKey } from "./fold"
+// #VAPP-285: the Tree rules (flat rows, the WAI-ARIA tree keys).
+export { treeRows, treeKey } from "./tree"
+export type { TreeRow, TreeRowKind, TreeKeyRow, TreeKeyResult } from "./tree"

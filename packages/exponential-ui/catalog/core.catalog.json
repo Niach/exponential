@@ -787,6 +787,41 @@
           "description": "The dot's tone."
         }
       }
+    },
+    "treeItem": {
+      "description": "One Tree node.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true,
+          "description": "Reported by the events."
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "The row text."
+        },
+        "icon": {
+          "type": "icon",
+          "description": "The glyph (default: a folder or a file)."
+        },
+        "meta": {
+          "type": "string",
+          "description": "Trailing muted text."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "treeItem"
+          },
+          "description": "Child nodes; makes it a branch."
+        },
+        "hasChildren": {
+          "type": "boolean",
+          "description": "A branch whose children load on open (`load`)."
+        }
+      }
     }
   },
   "functions": {
@@ -5630,6 +5665,75 @@
         "title": "r/selfhosted",
         "meta": "312 posts",
         "pressable": true
+      }
+    },
+    "Tree": {
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "children": "none",
+      "description": "A file-style tree: branches fold, leaves select, lazy branches load; keyboard per WAI-ARIA.",
+      "props": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "shape": "treeItem"
+          },
+          "required": true,
+          "description": "The root nodes."
+        },
+        "expanded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "bindable": true,
+          "description": "The open branch ids; bind it."
+        },
+        "value": {
+          "type": "string",
+          "bindable": true,
+          "description": "The selected leaf id."
+        },
+        "label": {
+          "type": "string",
+          "description": "The accessible name."
+        }
+      },
+      "events": [
+        "select",
+        "toggle",
+        "load"
+      ],
+      "example": {
+        "label": "Files",
+        "expanded": [
+          "src"
+        ],
+        "value": "src/main.ts",
+        "items": [
+          {
+            "id": "src",
+            "title": "src",
+            "children": [
+              {
+                "id": "src/main.ts",
+                "title": "main.ts"
+              },
+              {
+                "id": "src/lib",
+                "title": "lib",
+                "hasChildren": true
+              }
+            ]
+          },
+          {
+            "id": "README.md",
+            "title": "README.md",
+            "meta": "M"
+          }
+        ]
       }
     },
     "MessageBubble": {

@@ -61,6 +61,7 @@ import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
 import { LIMITS } from "../src/limits"
 import { treeGuides } from "../src/tree-guides"
+import { treeKey, treeRows, type TreeKeyRow } from "../src/tree"
 import { conformanceManifest } from "../src/conformance"
 import styleJson from "../catalog/style.json" with { type: "json" }
 import localeJson from "../catalog/locale.json" with { type: "json" }
@@ -734,9 +735,40 @@ function settingsGroup(): NestedNode {
   }
 }
 
+/** #VAPP-285: a repository as a Tree (folders open and closed, a selected
+ *  file, a lazy folder): the specimen, the macro cases and fixtures/tree.json. */
+const FILE_TREE: Record<string, unknown>[] = [
+  { id: `apps`, title: `apps`, children: [
+    { id: `apps/web`, title: `web`, children: [
+      { id: `apps/web/main.ts`, title: `main.ts`, meta: `M` },
+      { id: `apps/web/router.ts`, title: `router.ts` },
+    ] },
+    { id: `apps/desktop`, title: `desktop`, hasChildren: true },
+  ] },
+  { id: `packages`, title: `packages`, children: [{ id: `packages/ui`, title: `ui`, children: [] }] },
+  { id: `README.md`, title: `README.md` },
+  { id: `package.json`, title: `package.json`, meta: `A` },
+]
+const TREE_ON = { select: { event: { name: `open` } }, toggle: { event: { name: `fold` } }, load: { event: { name: `fetch` } } }
+const fileTree = (props: Record<string, unknown> = {}, extra: Partial<NestedNode> = {}): NestedNode => ({ id: `files`, component: `Tree`, props: { label: `Files`, items: FILE_TREE, expanded: [`apps`, `apps/web`], value: `apps/web/main.ts`, ...props }, ...extra })
+function treeCases(): ComponentCase[] {
+  return [
+    { name: `Tree/files`, node: fileTree({}, { on: TREE_ON }) },
+    { name: `Tree/lazy-open`, node: fileTree({ expanded: [`apps`, `apps/desktop`] }, { on: TREE_ON }) },
+    { name: `Tree/nothing-open`, node: fileTree({ expanded: [] }) },
+    { name: `Tree/bound`, node: fileTree({ expanded: { path: `/open` }, value: { path: `/picked` } }, { on: TREE_ON }) },
+  ]
+}
+
 /** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
  *  would otherwise read as an overlay's). */
 const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
+  // #VAPP-285: a repository: folders open and closed, a selected file, an
+  // empty folder; then a lazy folder opened (its loading row).
+  Tree: [
+    { label: `files`, node: { ...fileTree({ expanded: [`apps`, `apps/web`, `packages`] }), style: { maxWidth: 360 } } },
+    { label: `hasChildren · loading`, node: { ...fileTree({ expanded: [`apps`, `apps/desktop`], value: undefined }), style: { maxWidth: 360 } } },
+  ],
   // VAPP-126: the layout macros show their example and the one variant that
   // changes the picture (SplitView's `open` is no overlay: on a wide surface
   // both panes show; StatTile's tones differ only in the change's colour).
@@ -1119,6 +1151,38 @@ function treeGuidesFixture() {
   }
 }
 
+/** #VAPP-285: fixtures/tree.json: treeRows over the file tree (literal
+ *  `expanded` sets, a bound one, the lazy folder) and treeKey over visible
+ *  rows (every key on every row, ltr and rtl). */
+const TREE_ROW_CASES: { name: string; expanded: unknown }[] = [
+  { name: `nothing open`, expanded: [] },
+  { name: `apps and web open`, expanded: [`apps`, `apps/web`] },
+  { name: `a closed parent hides an open child`, expanded: [`apps/web`] },
+  { name: `the lazy folder open: a loading row`, expanded: [`apps`, `apps/desktop`] },
+  { name: `an empty folder open shows nothing under it`, expanded: [`packages`, `packages/ui`] },
+  { name: `bound: every row, shown and open as calls`, expanded: { path: `/open` } },
+]
+const TREE_KEY_ROWS: TreeKeyRow[] = [
+  { level: 1, expanded: true },
+  { level: 2, expanded: true },
+  { level: 3 },
+  { level: 3 },
+  { level: 2, expanded: false },
+  { level: 1, expanded: false },
+  { level: 1 },
+]
+const TREE_KEYS = [`ArrowDown`, `ArrowUp`, `Home`, `End`, `ArrowRight`, `ArrowLeft`, `Enter`]
+
+function treeFixture() {
+  return {
+    $comment: `${HEADER} #VAPP-285 (docs/round-7-contract.md): the Tree's rules (src/tree.ts; the Rust core's tree.rs replays them). \`rows\`: treeRows(items, expanded) over \`items\` (a repository: two open-able folders, a lazy one, an empty one) for each \`expanded\`: the flat rows the macro draws, depth-first (a literal \`expanded\` keeps only the shown rows; a bound one keeps every row with \`shown\`/\`open\`/\`next\`/\`toggled\` as \`expr\` calls; an open lazy folder gets a \`loading\` row). \`keys\`: treeKey(rows, index, key, rtl) over \`keyRows\` (the visible rows: level, expanded on a branch) for every row × key, ltr and rtl: {focus: index} | {toggle: true} | null.`,
+    items: FILE_TREE,
+    rows: TREE_ROW_CASES.map((c) => ({ name: c.name, expanded: c.expanded, rows: treeRows(FILE_TREE, c.expanded) })),
+    keyRows: TREE_KEY_ROWS,
+    keys: [false, true].flatMap((rtl) => TREE_KEY_ROWS.flatMap((_, index) => TREE_KEYS.map((key) => ({ index, key, rtl, result: treeKey(TREE_KEY_ROWS, index, key, rtl) })))),
+  }
+}
+
 /** VAPP-163: a style written ON a macro node wins over the macro's part
  *  recipes; the expander lists its keys (sorted) in the root's
  *  `recipe.authored` (a condition block counts as one key). */
@@ -1186,7 +1250,7 @@ function railFoldCases(): ComponentCase[] {
 }
 
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases(), ...authoredStyleCases(), ...railCases(), ...foldCases(), ...railFoldCases(), ...treeCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -1359,6 +1423,13 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     name: `Row/fold:bound-plain`,
     input: { ...foldRow({ path: `/open` }), on: {} },
     datasets: [{ open: true }, {}],
+  },
+  {
+    // #VAPP-285: a Tree bound to /open and /picked: rows show while every
+    // ancestor is open; a branch press writes the toggled list, a leaf the id.
+    name: `Tree/bound`,
+    input: fileTree({ expanded: { path: `/open` }, value: { path: `/picked` } }, { on: TREE_ON }),
+    datasets: [{ open: [`apps`, `apps/web`], picked: `apps/web/router.ts` }, { open: [`apps`, `apps/desktop`] }, { open: [] }, {}],
   },
   {
     name: `Pagination/page:string-data`,
@@ -1567,7 +1638,8 @@ function promptBudget() {
     // VAPP-279 (a named budget exception, round 7 for the eDE shell): Tabs `variant: strip` + its `reorder`/`more` events, +22 tokens after trimming the new description; the measured total with VAPP-286 + VAPP-282 (9314), no slack.
     // VAPP-280 (a named budget exception, round 7 #VAPP-275): SettingsRow, +66 tokens after trimming its descriptions; the measured total with VAPP-279 (9381), no slack.
     // #VAPP-284 (a named budget exception, round 7): Row's foldable parent (`open`, children, `change`) + Box `toggle`: +19 tokens after trimming; the measured total with VAPP-280 (9400), no slack.
-    budgetTokens: 9400,
+    // #VAPP-285 (a named budget exception, round 7): Tree (items, expanded, value, label; select/toggle/load): +91 tokens after trimming; the measured total with VAPP-284 (9491), no slack.
+    budgetTokens: 9491,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
@@ -1644,6 +1716,7 @@ function renderFiles(): Record<string, string> {
     }),
     "fixtures/prompt-budget.json": json(promptBudget()),
     "fixtures/tree-guides.json": json(treeGuidesFixture()),
+    "fixtures/tree.json": json(treeFixture()),
     "fixtures/bind-time.json": json({
       $comment: `${HEADER} Round 1 (docs/round-1-contract.md §1): every macro prop that takes a binding, bound to /<prop> → the expansion (calls where the input was dynamic) → for three data models (a sample, its falsy twin, and the path MISSING) the tree after the BIND pass (src/dynamic.ts bindTree: props resolved along their schema with DATA props verbatim, styles, recipe props and \`accessibility\` resolved, falsy \`visible\` nodes dropped, \`$string.<id>\` copy resolved through the DEFAULT string table, row-scoped slots left unbound) and every \`set\` press (runAction: context first, then the write). \`extra\` = hand-written cases (Table slot cells bound PER ROW in \`rowSlots\`, literal data rows, a bound accessible name, an author function meeting \`$set\` with the reducer's \`issues\`, a numeric prop bound to string data). Every renderer's bind-time resolver replays both lists.`,
       catalogId: CORE_CATALOG_ID,

@@ -770,6 +770,17 @@
         "Tab moves through Add, the headers and each row's Edit and Delete",
         "Escape closes the confirm; Cancel closes the drawer (it holds a draft, and stays open on a refused save)"
       ]
+    },
+    "Tree": {
+      "role": "tree",
+      "notes": "tree labelled `label` (else $string.tree); every node a treeitem with aria-level, aria-expanded on a branch, aria-selected; the loading row and the chevron are decorative",
+      "keys": [
+        "ArrowDown, ArrowUp: the next, previous visible node",
+        "Home, End: the first, last node",
+        "ArrowRight: open a closed branch, else its first child",
+        "ArrowLeft: close an open branch, else its parent",
+        "Enter, Space: select a leaf, fold a branch"
+      ]
     }
   }
 }

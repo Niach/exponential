@@ -234,28 +234,35 @@ fn decide(if_: Option<&Value>, any: Option<&[Value]>, ctx: &ExprContext) -> Deci
 }
 
 fn expand_template(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, parent_id: &str) -> Vec<UiNode> {
-    let visible = match decide_conditions(tpl, ctx) {
-        Decided::Bool(false) => return Vec::new(),
-        Decided::Bool(true) => None,
-        Decided::Dynamic(v) => Some(v),
-    };
     if let Some(each) = &tpl.each {
         let Some(Value::Array(items)) = eval_value(&Value::String(format!("{{{each}}}")), ctx) else {
             return Vec::new();
         };
         let as_ = tpl.as_.as_deref().unwrap_or("item");
+        // #VAPP-285: under `$each` the part's `$if`/`$any` are decided PER
+        // ITEM (they see the item; a Tree row's `{node.shown}`); ids keep the index.
         return items
             .into_iter()
             .enumerate()
-            .map(|(index, item)| {
+            .filter_map(|(index, item)| {
                 let mut vars = ctx.vars.clone();
                 vars.insert(as_.to_string(), item);
                 vars.insert("index".to_string(), json::number(index as f64));
                 let item_ctx = ExprContext { id: ctx.id, props: ctx.props, vars };
-                build_node(tpl, exp, &item_ctx, format!("{parent_id}.{}.{index}", tpl.part), visible.clone())
+                let visible = match decide_conditions(tpl, &item_ctx) {
+                    Decided::Bool(false) => return None,
+                    Decided::Bool(true) => None,
+                    Decided::Dynamic(v) => Some(v),
+                };
+                Some(build_node(tpl, exp, &item_ctx, format!("{parent_id}.{}.{index}", tpl.part), visible))
             })
             .collect();
     }
+    let visible = match decide_conditions(tpl, ctx) {
+        Decided::Bool(false) => return Vec::new(),
+        Decided::Bool(true) => None,
+        Decided::Dynamic(v) => Some(v),
+    };
     let id = if tpl.part == "root" { exp.source.id.clone() } else { format!("{parent_id}.{}", tpl.part) };
     vec![build_node(tpl, exp, ctx, id, visible)]
 }
