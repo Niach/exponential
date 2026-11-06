@@ -1093,7 +1093,9 @@ impl Render for AgentScreenView {
                 )
                 .pt_8()
                 .pb(px(band_height.max(16.) + crate::dock::DOCK_GAP));
-                crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
+                // EXP-1228: the transcript's right-click menu (Copy).
+                crate::steer_viewer::with_transcript_menu(crate::scroll_pane::v_list_pane(list, &self.list))
+                    .into_any_element()
             }
         };
         v_flex()
