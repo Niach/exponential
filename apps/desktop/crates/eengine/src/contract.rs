@@ -1,7 +1,7 @@
 //! The Engine's contract (`packages/eengine/fixtures`), compiled in. Each
 //! fixture's `$comment` is the spec; [`crate::lifecycle`], [`crate::broker`],
 //! [`crate::consent`], [`crate::providers`], [`crate::outbox`], [`crate::tools`] and
-//! [`crate::pdf`] replay them
+//! [`crate::pdf`] and [`crate::runner`] replay them
 //! (`tests/fixtures.rs`), as the TS twin `@exp/eengine` does.
 
 use std::sync::LazyLock;
@@ -12,6 +12,7 @@ pub const LIFECYCLE_JSON: &str = include_str!("../../../../../packages/eengine/f
 pub const CONSENT_JSON: &str = include_str!("../../../../../packages/eengine/fixtures/consent.json");
 pub const CAPABILITIES_JSON: &str = include_str!("../../../../../packages/eengine/fixtures/capabilities.json");
 pub const PROVIDERS_JSON: &str = include_str!("../../../../../packages/eengine/fixtures/providers.json");
+pub const RUNNER_JSON: &str = include_str!("../../../../../packages/eengine/fixtures/runner.json");
 pub const OUTBOX_JSON: &str = include_str!("../../../../../packages/eengine/fixtures/outbox.json");
 /// O1's outbox lives in `app-records.json` `outbox`; `outbox.json` references it.
 pub const APP_RECORDS_JSON: &str = include_str!("../../../../../packages/domain-contract/fixtures/app-records.json");
@@ -24,6 +25,7 @@ pub static LIFECYCLE: LazyLock<Value> = LazyLock::new(|| parse(LIFECYCLE_JSON, "
 pub static CONSENT: LazyLock<Value> = LazyLock::new(|| parse(CONSENT_JSON, "consent.json"));
 pub static CAPABILITIES: LazyLock<Value> = LazyLock::new(|| parse(CAPABILITIES_JSON, "capabilities.json"));
 pub static PROVIDERS: LazyLock<Value> = LazyLock::new(|| parse(PROVIDERS_JSON, "providers.json"));
+pub static RUNNER: LazyLock<Value> = LazyLock::new(|| parse(RUNNER_JSON, "runner.json"));
 pub static OUTBOX: LazyLock<Value> = LazyLock::new(|| parse(OUTBOX_JSON, "outbox.json"));
 pub static APP_RECORDS: LazyLock<Value> = LazyLock::new(|| parse(APP_RECORDS_JSON, "app-records.json"));
 

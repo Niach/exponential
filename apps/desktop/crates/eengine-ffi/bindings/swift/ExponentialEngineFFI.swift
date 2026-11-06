@@ -4373,6 +4373,76 @@ public func FfiConverterTypePresentation_lower(_ value: Presentation) -> RustBuf
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The runner's form factor: `wide` from genUI's `md` breakpoint up.
+ */
+
+public enum RunnerFormFactor: Equatable, Hashable {
+    
+    case wide
+    case compact
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RunnerFormFactor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRunnerFormFactor: FfiConverterRustBuffer {
+    typealias SwiftType = RunnerFormFactor
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RunnerFormFactor {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .wide
+        
+        case 2: return .compact
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RunnerFormFactor, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .wide:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .compact:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRunnerFormFactor_lift(_ buf: RustBuffer) throws -> RunnerFormFactor {
+    return try FfiConverterTypeRunnerFormFactor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRunnerFormFactor_lower(_ value: RunnerFormFactor) -> RustBuffer {
+    return FfiConverterTypeRunnerFormFactor.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -4657,6 +4727,49 @@ public func engineVersion() -> String  {
 })
 }
 /**
+ * `runner.json` validated: `{config, issues}` (config null on any issue).
+ */
+public func runnerConfig(configJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_func_runner_config(
+        FfiConverterString.lower(configJson),$0
+    )
+})
+}
+/**
+ * The components painted in place of the app when the bundle cannot load:
+ * `kind` = `missing`, `config`, `signature` or `invalid`.
+ */
+public func runnerFailure(kind: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_func_runner_failure(
+        FfiConverterString.lower(kind),$0
+    )
+})
+}
+/**
+ * The package the runner's painter installs: every screen wrapped in the
+ * runner's genUI shell (the instance keeps the original package).
+ */
+public func runnerPackage(packageJson: String, formFactor: RunnerFormFactor)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEngineError_lift) {
+    uniffi_eengine_ffi_fn_func_runner_package(
+        FfiConverterString.lower(packageJson),
+        FfiConverterTypeRunnerFormFactor_lower(formFactor),$0
+    )
+})
+}
+/**
+ * The failed-action toast's components (surface `toast`).
+ */
+public func runnerToast(message: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_eengine_ffi_fn_func_runner_toast(
+        FfiConverterString.lower(message),$0
+    )
+})
+}
+/**
  * Every problem with a host config in its JSON spelling (providers.json
  * `validateCases`): `[{key, code}]`, empty = valid.
  */
@@ -4687,6 +4800,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_func_engine_version() != 5063) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_func_runner_config() != 31026) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_func_runner_failure() != 39083) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_func_runner_package() != 35183) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_eengine_ffi_checksum_func_runner_toast() != 28331) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_eengine_ffi_checksum_func_validate_host_config() != 33181) {

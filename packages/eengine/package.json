@@ -24,6 +24,7 @@
     "./outbox": "./src/outbox.ts",
     "./tools": "./src/tools.ts",
     "./pdf": "./src/pdf.ts",
+    "./runner": "./src/runner.ts",
     "./web": "./src/web/index.ts",
     "./fixtures/*": "./fixtures/*"
   },

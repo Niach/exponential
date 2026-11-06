@@ -9,6 +9,7 @@ use eengine_ffi::*;
 use serde_json::{json, Value};
 
 const PROVIDERS: &str = include_str!("../../../../../packages/eengine/fixtures/providers.json");
+const RUNNER: &str = include_str!("../../../../../packages/eengine/fixtures/runner.json");
 
 #[derive(Default)]
 struct Keychain(Mutex<std::collections::HashMap<String, String>>);
@@ -328,6 +329,27 @@ fn host_configs_validate_like_the_fixture() {
     assert!(validate_host_config("[]".into()).is_err());
     assert_eq!(engine_version(), env!("CARGO_PKG_VERSION"));
     assert_eq!(engine_features().contains(&"sqlite".to_string()), cfg!(feature = "sqlite"));
+}
+
+#[test]
+fn the_runner_contract_crosses_the_facade() {
+    let fixture: Value = serde_json::from_str(RUNNER).unwrap();
+    for case in fixture["configCases"].as_array().unwrap() {
+        let got: Value = serde_json::from_str(&runner_config(case["input"].to_string()).unwrap()).unwrap();
+        assert_eq!(got, case["expected"], "{}", case["name"]);
+    }
+    for case in fixture["shellCases"].as_array().unwrap() {
+        let form = if case["formFactor"] == "wide" { RunnerFormFactor::Wide } else { RunnerFormFactor::Compact };
+        let got: Value = serde_json::from_str(&runner_package(case["package"].to_string(), form).unwrap()).unwrap();
+        assert_eq!(got, case["expected"], "{}", case["name"]);
+    }
+    for case in fixture["failureCases"].as_array().unwrap() {
+        let got: Value = serde_json::from_str(&runner_failure(case["kind"].as_str().unwrap().into()).unwrap()).unwrap();
+        assert_eq!(got, case["expected"]);
+    }
+    assert!(runner_failure("nope".into()).is_err());
+    let toast = &fixture["toastCases"][0];
+    assert_eq!(serde_json::from_str::<Value>(&runner_toast(toast["message"].as_str().unwrap().into())).unwrap(), toast["expected"]);
 }
 
 #[cfg(feature = "hub")]
