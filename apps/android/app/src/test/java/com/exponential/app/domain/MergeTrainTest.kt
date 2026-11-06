@@ -149,6 +149,23 @@ class MergeTrainTest {
     }
 
     @Test
+    fun `the styleguide specimen is every statusPill input in fixture order`() {
+        val inputs = cases("statusPill").map { case ->
+            val input = case.getValue("input").jsonObject
+            MergeTrain.StatusPillInput(
+                state = input.str("state")!!,
+                wait = input.str("wait"),
+                position = input.intOrNull("position"),
+                batchSize = input.intOrNull("batchSize"),
+                holdReason = input.str("holdReason"),
+                stack = input.getValue("stack").jsonPrimitive.boolean,
+                checks = input.getValue("checks").jsonPrimitive.int,
+            )
+        }
+        assertEquals(inputs, MergeTrain.SPECIMEN)
+    }
+
+    @Test
     fun `every menu case matches the fixture`() {
         for (case in cases("menu")) {
             val input = case.getValue("input").jsonObject

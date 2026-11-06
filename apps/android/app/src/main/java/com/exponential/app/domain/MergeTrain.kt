@@ -157,6 +157,29 @@ object MergeTrain {
         val confirm: String? = null,
     )
 
+    /** merge-train.json `statusPill` inputs, case for case in fixture order
+     *  (the styleguide `pr-checks` specimen draws every one; MergeTrainTest
+     *  proves the list equal to the fixture's). */
+    val SPECIMEN: List<StatusPillInput> = listOf(
+        StatusPillInput(state = "draft", wait = "draft", position = null, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "checks", wait = "checks", position = null, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "checks", wait = "session", position = null, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "queued", wait = null, position = 2, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "queued", wait = null, position = 1, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "queued", wait = null, position = 11, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "queued", wait = null, position = 23, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "testing", wait = null, position = null, batchSize = 4, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "testing", wait = null, position = null, batchSize = 1, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "merged", wait = null, position = null, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "conflict", wait = null, position = null, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "failing", wait = "failing", position = null, batchSize = null, holdReason = null, stack = false, checks = 3),
+        StatusPillInput(state = "held", wait = null, position = null, batchSize = null, holdReason = "person", stack = false, checks = 3),
+        StatusPillInput(state = "held", wait = null, position = null, batchSize = null, holdReason = "bounces", stack = false, checks = 3),
+        StatusPillInput(state = "queued", wait = null, position = 3, batchSize = null, holdReason = null, stack = false, checks = 0),
+        StatusPillInput(state = "checks", wait = "approval", position = null, batchSize = null, holdReason = null, stack = false, checks = 0),
+        StatusPillInput(state = "checks", wait = "approval", position = null, batchSize = null, holdReason = null, stack = true, checks = 3),
+    )
+
     /** 1st 2nd 3rd 4th 11th 12th 13th 21st. */
     fun ordinal(n: Int): String {
         val rem100 = n % 100
